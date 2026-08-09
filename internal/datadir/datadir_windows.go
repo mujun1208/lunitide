@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -31,6 +32,7 @@ type secureRootState struct {
 	path   string
 	handle atomic.Uintptr
 	user   *windows.SID
+	mu     sync.RWMutex
 }
 
 func (r *SecureRoot) liveState() (*secureRootState, error) {
@@ -50,6 +52,8 @@ func (r *SecureRoot) Close() error {
 	if r == nil || r.state == nil {
 		return nil
 	}
+	r.state.mu.Lock()
+	defer r.state.mu.Unlock()
 	h := windows.Handle(r.state.handle.Swap(uintptr(windows.InvalidHandle)))
 	if h == windows.InvalidHandle {
 		return nil
@@ -69,9 +73,33 @@ func (r *SecureRoot) FilePath(name string) (string, error) {
 	return filepath.Join(s.path, name), nil
 }
 
+// PrepareSubdirectory creates, protects, verifies, and independently pins one
+// ordinary directory directly below this secure root. The caller must Close the
+// returned root after the consumer of the directory has stopped.
+func (r *SecureRoot) PrepareSubdirectory(name string) (*SecureRoot, error) {
+	if r == nil || r.state == nil {
+		return nil, fmt.Errorf("secure data root is closed")
+	}
+	r.state.mu.RLock()
+	defer r.state.mu.RUnlock()
+	s, err := r.liveState()
+	if err != nil {
+		return nil, err
+	}
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\:`) {
+		return nil, fmt.Errorf("unsafe data directory name %q", name)
+	}
+	return prepare(s.path, filepath.Join(s.path, name))
+}
+
 // ProtectRegularFile verifies a database or sidecar through a no-reparse handle,
 // then applies and verifies its owner and protected DACL. Missing files are OK.
 func (r *SecureRoot) ProtectRegularFile(name string) error {
+	if r == nil || r.state == nil {
+		return fmt.Errorf("secure data root is closed")
+	}
+	r.state.mu.RLock()
+	defer r.state.mu.RUnlock()
 	s, err := r.liveState()
 	if err != nil {
 		return err
@@ -105,8 +133,8 @@ func (r *SecureRoot) ProtectRegularFile(name string) error {
 	if err := windows.GetFileInformationByHandle(h, &after); err != nil {
 		return err
 	}
-	if after.VolumeSerialNumber != info.VolumeSerialNumber || after.FileIndexHigh != info.FileIndexHigh || after.FileIndexLow != info.FileIndexLow || after.NumberOfLinks != 1 {
-		return fmt.Errorf("%s identity or link count changed while securing", name)
+	if after.VolumeSerialNumber != info.VolumeSerialNumber || after.FileIndexHigh != info.FileIndexHigh || after.FileIndexLow != info.FileIndexLow || after.NumberOfLinks != 1 || after.FileAttributes&(windows.FILE_ATTRIBUTE_DIRECTORY|windows.FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+		return fmt.Errorf("%s identity, attributes, or link count changed while securing", name)
 	}
 	if _, err := r.liveState(); err != nil {
 		return err
@@ -144,9 +172,27 @@ func prepare(known, path string) (*SecureRoot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pin data root: %w", err)
 	}
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
+		windows.CloseHandle(h)
+		return nil, fmt.Errorf("inspect data root: %w", err)
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		windows.CloseHandle(h)
+		return nil, fmt.Errorf("data root is not an ordinary directory")
+	}
 	if err := setAndVerifySecurity(h, userToken.User.Sid, true); err != nil {
 		windows.CloseHandle(h)
 		return nil, err
+	}
+	var after windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &after); err != nil {
+		windows.CloseHandle(h)
+		return nil, fmt.Errorf("reinspect data root: %w", err)
+	}
+	if after.VolumeSerialNumber != info.VolumeSerialNumber || after.FileIndexHigh != info.FileIndexHigh || after.FileIndexLow != info.FileIndexLow || after.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 || after.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		windows.CloseHandle(h)
+		return nil, fmt.Errorf("data root identity or attributes changed while securing")
 	}
 	final, err := finalPath(h)
 	if err != nil {

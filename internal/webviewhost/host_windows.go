@@ -27,9 +27,10 @@ const (
 )
 
 type Host struct {
-	gateway *hostbridge.Gateway
-	folder  string
-	hwnd    win32.HWND
+	gateway        *hostbridge.Gateway
+	folder         string
+	userDataFolder string
+	hwnd           win32.HWND
 
 	environment *wv2.ICoreWebView2Environment
 	controller  *wv2.ICoreWebView2Controller
@@ -86,9 +87,12 @@ func DefaultRendererFolder() (string, error) {
 	return filepath.Join(filepath.Dir(exe), "web", "dist"), nil
 }
 
-func New(gateway *hostbridge.Gateway, rendererFolder string) (*Host, error) {
+func New(gateway *hostbridge.Gateway, rendererFolder, userDataFolder string) (*Host, error) {
 	if gateway == nil {
 		return nil, errors.New("WebView2 gateway is required")
+	}
+	if userDataFolder == "" || !filepath.IsAbs(userDataFolder) {
+		return nil, errors.New("an absolute secured WebView2 user-data folder is required")
 	}
 	abs, err := filepath.Abs(rendererFolder)
 	if err != nil {
@@ -98,7 +102,7 @@ func New(gateway *hostbridge.Gateway, rendererFolder string) (*Host, error) {
 	if err != nil || info.IsDir() {
 		return nil, fmt.Errorf("renderer index is unavailable at %s", abs)
 	}
-	return &Host{gateway: gateway, folder: abs, uiQueue: NewBoundedQueue[func()](MaxUIQueue), postMessage: win32.PostMessage}, nil
+	return &Host{gateway: gateway, folder: abs, userDataFolder: filepath.Clean(userDataFolder), uiQueue: NewBoundedQueue[func()](MaxUIQueue), postMessage: win32.PostMessage}, nil
 }
 
 // Run owns the locked OS thread, COM STA, window, and Win32 message pump.
@@ -216,7 +220,7 @@ func (h *Host) createWebView() error {
 		}
 		return com.Error(win32.S_OK)
 	}, false)
-	hr := wv2.CreateCoreWebView2EnvironmentWithOptions("", "", nil, h.environmentHandler)
+	hr := wv2.CreateCoreWebView2EnvironmentWithOptions("", h.userDataFolder, nil, h.environmentHandler)
 	if failed(hr) {
 		return fmt.Errorf("CreateCoreWebView2EnvironmentWithOptions failed: 0x%x", uint32(hr))
 	}

@@ -86,6 +86,11 @@ func run() error {
 		return err
 	}
 	defer dataRoot.Close()
+	webViewDataRoot, err := dataRoot.PrepareSubdirectory("WebView2")
+	if err != nil {
+		return err
+	}
+	defer webViewDataRoot.Close()
 	secretService, err := secret.NewDPAPIService(dataRoot)
 	if err != nil {
 		return err
@@ -155,7 +160,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	host, err := webviewhost.New(gateway, rendererDir)
+	host, err := webviewhost.New(gateway, rendererDir, webViewDataRoot.Path())
 	if err != nil {
 		return err
 	}

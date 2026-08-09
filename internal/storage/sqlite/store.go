@@ -124,13 +124,15 @@ func (s *Store) ResolveCredentialBinding(ctx context.Context, id string) (secret
 }
 
 var manifest = []struct{ name, checksum string }{
-	{"0001_provider.sql", "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"},
+	{"0001_provider.sql", "d66080078c26cb33fe9761d6abe0e04c32cfb5a2e18bd921801a3fb1380adc94"},
 	{"0002_provider_production.sql", "42934d53c6c27cdef40bf3a58fce16b1d2025d6a547e43d985457b702ea8f5cd"},
 	{"0003_provider_app.sql", "bf7ed1d958fcc04e180a9b888edb1b0f0e51cd0071227f80fa588d737d622835"},
 	{"0004_model_sync_claims.sql", "160970b0aac29327774957e19acebdbb1b2f463a3c742c772e4809c29096ffff"},
 	{"0005_electron_provider_metadata.sql", "8b9ab1a5b7600555a7674113fa2b1cee106e16274629b4957d4d92234439fb1f"},
 	{"0006_electron_credential_adoption.sql", "0417131a4abe5e9d2c5f70809c542a0bdde36385dc710ef031bf84c39ad0a936"},
 }
+
+const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
 
 type sqlRunner interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
@@ -184,6 +186,7 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 		return err
 	}
 	legacy := []int{}
+	corrections := []int{}
 	for i, m := range manifest {
 		var checksum sql.NullString
 		err := conn.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version=?`, m.name).Scan(&checksum)
@@ -217,6 +220,11 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 			return err
 		} else if !checksum.Valid {
 			legacy = append(legacy, i)
+		} else if i == 0 && checksum.String == releasedV1ManifestTypo {
+			// The first native release candidate applied the current embedded V1
+			// bytes but journaled a stale manifest hash. Defer correction until the
+			// complete schema fingerprint and data invariants pass below.
+			corrections = append(corrections, i)
 		} else if checksum.String != m.checksum {
 			return fmt.Errorf("migration %s checksum mismatch", m.name)
 		}
@@ -236,6 +244,16 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 		n, _ := r.RowsAffected()
 		if n != 1 {
 			return fmt.Errorf("legacy journal changed concurrently")
+		}
+	}
+	for _, i := range corrections {
+		r, err := conn.ExecContext(ctx, `UPDATE schema_migrations SET checksum=? WHERE version=? AND checksum=?`, manifest[i].checksum, manifest[i].name, releasedV1ManifestTypo)
+		if err != nil {
+			return err
+		}
+		n, _ := r.RowsAffected()
+		if n != 1 {
+			return fmt.Errorf("migration checksum correction changed concurrently")
 		}
 	}
 	versionAfter, fingerprintAfter, err := validateSchema(ctx, conn)

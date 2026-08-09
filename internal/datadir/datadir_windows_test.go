@@ -58,6 +58,37 @@ func TestPrepareForTestRejectsRelativePathAndReparsePoint(t *testing.T) {
 	}
 }
 
+func TestPrepareSubdirectoryCreatesPinnedProtectedChild(t *testing.T) {
+	root, err := PrepareForTest(filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	child, err := root.PrepareSubdirectory("WebView2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Close()
+	if child.Path() != filepath.Join(root.Path(), "WebView2") {
+		t.Fatalf("unexpected child path %q", child.Path())
+	}
+	if _, err := root.PrepareSubdirectory(`..\\escape`); err == nil {
+		t.Fatal("unsafe child name accepted")
+	}
+	sd, err := windows.GetNamedSecurityInfo(child.Path(), windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control, _, err := sd.Control()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 {
+		t.Fatal("child directory DACL inherits from its parent")
+	}
+}
+
 func TestSecureRootCloseIsSharedAndIdempotent(t *testing.T) {
 	root, err := PrepareForTest(filepath.Join(t.TempDir(), "data"))
 	if err != nil {

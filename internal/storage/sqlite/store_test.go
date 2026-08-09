@@ -82,6 +82,49 @@ func TestMigrationJournalRecordsAndEnforcesChecksum(t *testing.T) {
 	}
 }
 
+func TestMigrationManifestMatchesEmbeddedBytes(t *testing.T) {
+	for _, migration := range manifest {
+		body, err := migrations.Files.ReadFile(migration.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := sha256.Sum256(body)
+		if hex.EncodeToString(got[:]) != migration.checksum {
+			t.Fatalf("%s embedded checksum = %x, manifest = %s", migration.name, got, migration.checksum)
+		}
+	}
+}
+
+func TestReleasedV1ManifestTypoIsCorrectedOnlyAfterFullValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "released-candidate.db")
+	store, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db := openRaw(t, path)
+	if _, err := db.Exec(`UPDATE schema_migrations SET checksum=? WHERE version='0001_provider.sql'`, releasedV1ManifestTypo); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var got string
+	if err := store.db.QueryRow(`SELECT checksum FROM schema_migrations WHERE version='0001_provider.sql'`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != manifest[0].checksum {
+		t.Fatalf("corrected checksum = %q", got)
+	}
+}
+
 func TestUpgradeCanonicalV3DatabaseToModelSyncClaimsV4(t *testing.T) {
 	const (
 		v3Checksum = "bf7ed1d958fcc04e180a9b888edb1b0f0e51cd0071227f80fa588d737d622835"
