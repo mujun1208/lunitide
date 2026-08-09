@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/provider.test.schema.json",
+  "title": "provider.test payload",
+  "x-method": "provider.test",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "providerId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "modelId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[\\x21-\\x7E]+$"
+    }
+  },
+  "required": [
+    "providerId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "enum": ["passed", "failed"]
+      },
+      "stage": {
+        "enum": ["resolve", "connect", "authenticate", "request", "response"]
+      },
+      "httpStatus": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 599
+      },
+      "latencyMs": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "retryable": {
+        "type": "boolean"
+      },
+      "errorCode": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "sanitizedMessage": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "testedAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "status",
+      "stage",
+      "latencyMs",
+      "retryable",
+      "testedAt"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "model-1"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

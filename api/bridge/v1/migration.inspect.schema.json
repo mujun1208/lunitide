@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/migration.inspect.schema.json",
+  "title": "migration.inspect payload",
+  "x-method": "migration.inspect",
+  "x-owner": "engine",
+  "x-enabled": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "required": {
+        "type": "boolean"
+      },
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "sourceVersion": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "targetVersion": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": [
+      "required",
+      "items",
+      "sourceVersion",
+      "targetVersion"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

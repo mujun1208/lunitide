@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/provider.create.schema.json",
+  "title": "provider.create payload",
+  "x-method": "provider.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "protocol": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProviderProtocol"
+    },
+    "baseUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ModelDTO"
+      }
+    },
+    "credentialSubmissionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "status": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProviderStatus"
+    }
+  },
+  "required": [
+    "name",
+    "protocol",
+    "baseUrl",
+    "models"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProviderDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "name": "x",
+        "protocol": "openai_compatible",
+        "baseUrl": "https://example.com",
+        "models": [{"modelId":"model-1","displayName":"Model One","isDefault":true}]
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

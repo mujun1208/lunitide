@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/response.schema.json",
+  "title": "Lunitide Bridge v1 response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "kind",
+    "id",
+    "requestId",
+    "ok"
+  ],
+  "properties": {
+    "v": {
+      "const": "1.0"
+    },
+    "kind": {
+      "const": "response"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 26,
+      "maxLength": 26
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 26,
+      "maxLength": 26
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "payload": {},
+    "error": {
+      "$ref": "error.schema.json"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "ok",
+        "payload"
+      ],
+      "not": {
+        "properties": {
+          "error": {}
+        },
+        "required": [
+          "error"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "$ref": "error.schema.json"
+        }
+      },
+      "required": [
+        "ok",
+        "error"
+      ],
+      "not": {
+        "properties": {
+          "payload": {}
+        },
+        "required": [
+          "payload"
+        ]
+      }
+    }
+  ],
+  "x-examples": {
+    "positive": [
+      {
+        "v": "1.0",
+        "kind": "response",
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "requestId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "ok": true,
+        "payload": {}
+      }
+    ],
+    "negative": [
+      {
+        "v": "1.0",
+        "kind": "response",
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "requestId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "ok": true,
+        "error": {}
+      }
+    ]
+  }
+}

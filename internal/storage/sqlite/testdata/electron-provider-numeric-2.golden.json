@@ -1,0 +1,28 @@
+{
+  "version": "0.2",
+  "sourceFingerprint": "dcc1a3da4a260a11d10ba0d3d2f66e57f979ffc1e572fe62b4286cc4738ada3c",
+  "itemFingerprints": [
+    "dfbde9bb4c28ba06fe9848f9c554c4e4d2ebf7a9fa4e65a24c9f5cc79343100a"
+  ],
+  "providers": [
+    {
+      "id": "22EXMB64NFC6TC347D3VP4ZGAC",
+      "legacyId": "sanitized-n2",
+      "name": "Sanitized numeric 2",
+      "protocol": "anthropic",
+      "baseUrl": "https://fixture.invalid/v1",
+      "models": [
+        {
+          "modelId": "fixture-model",
+          "displayName": "fixture-model",
+          "isDefault": true
+        }
+      ],
+      "credentialState": "requires_reentry",
+      "status": "enabled",
+      "createdAt": "2025-01-01T00:00:00Z",
+      "updatedAt": "2025-01-01T00:00:00Z",
+      "version": 1
+    }
+  ]
+}

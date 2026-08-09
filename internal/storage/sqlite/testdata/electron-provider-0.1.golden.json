@@ -1,0 +1,28 @@
+{
+  "version": "0.1",
+  "sourceFingerprint": "2b2d2c2089026f1f945bc090cfdbcc3332a731185f2fcaeb6edda51366242984",
+  "itemFingerprints": [
+    "e2412cd7f57dc2727eb2c66d4b511a60152dde1008b8ae9689ae1d1f0847c2ec"
+  ],
+  "providers": [
+    {
+      "id": "60GF83H44ZW2WD5GR9AC1A5J04",
+      "legacyId": "sanitized-01",
+      "name": "Sanitized 0.1",
+      "protocol": "openai_compatible",
+      "baseUrl": "https://fixture.invalid/v1",
+      "models": [
+        {
+          "modelId": "fixture-model",
+          "displayName": "fixture-model",
+          "isDefault": true
+        }
+      ],
+      "credentialState": "requires_reentry",
+      "status": "enabled",
+      "createdAt": "2025-01-01T00:00:00Z",
+      "updatedAt": "2025-01-01T00:00:00Z",
+      "version": 1
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/provider.update.schema.json",
+  "title": "provider.update payload",
+  "x-method": "provider.update",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "protocol": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProviderProtocol"
+    },
+    "baseUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ModelDTO"
+      }
+    },
+    "credentialSubmissionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "status": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProviderStatus"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "id",
+    "expectedVersion"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProviderDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "name": "Updated",
+        "protocol": "anthropic",
+        "baseUrl": "https://example.com",
+        "models": [{"modelId":"model-1","displayName":"Model One","isDefault":true}],
+        "status": "enabled",
+        "expectedVersion": 1
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

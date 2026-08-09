@@ -1,0 +1,1 @@
+{"version":"0.1","providers":[{"id":"sanitized-01","name":"Sanitized 0.1","protocol":"openai","baseUrl":"https://fixture.invalid/v1","model":"fixture-model","createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-01T00:00:00Z","encryptedApiKey":"SANITIZED-NOT-CIPHERTEXT"}]}

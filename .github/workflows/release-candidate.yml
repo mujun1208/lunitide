@@ -1,0 +1,63 @@
+name: Release candidate
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  x64-release-candidate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - name: Verify tag matches VERSION
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          if($env:GITHUB_REF_NAME -cne "v$version"){throw "Tag $env:GITHUB_REF_NAME does not match VERSION $version"}
+      - name: Build unsigned candidate
+        if: github.ref_type != 'tag'
+        shell: pwsh
+        run: ./release/Build-Release.ps1 -AllowUnsignedDevelopment
+      - name: Build signed tagged candidate
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: ./release/Build-Release.ps1 -RequireSignature
+        env:
+          LUNITIDE_SIGN_COMMAND: ${{ secrets.LUNITIDE_SIGN_COMMAND }}
+          LUNITIDE_SIGNER_THUMBPRINT: ${{ secrets.LUNITIDE_SIGNER_THUMBPRINT }}
+      - name: Verify staged manifest and layout
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          ./release/Verify-Layout.ps1 -Stage "release/out/Lunitide-$version-x64" -Version $version -VerifyManifest
+      - name: Install, upgrade, retain and purge acceptance (disposable runner user)
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          ./release/Test-Install.ps1 -Installer "release/out/Lunitide-Setup-$version-x64.exe" -ExpectedVersion $version -TestRoot "$env:RUNNER_TEMP\lunitide-acceptance"
+      - name: Reverify staged artifact before upload
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          ./release/Verify-Layout.ps1 -Stage "release/out/Lunitide-$version-x64" -Version $version -VerifyManifest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lunitide-x64-${{ github.sha }}
+          path: |
+            release/out/Lunitide-*-x64/**
+            release/out/Lunitide-Setup-*-x64.exe
+            release/out/SHA256SUMS.txt
+          if-no-files-found: error

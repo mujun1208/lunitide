@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/migration.run.schema.json",
+  "title": "migration.run payload",
+  "x-method": "migration.run",
+  "x-owner": "engine",
+  "x-enabled": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "dryRun": {
+      "type": "boolean"
+    }
+  },
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MigrationStatusDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

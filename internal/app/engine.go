@@ -1,0 +1,283 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/secret"
+	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/oklog/ulid/v2"
+)
+
+type ProviderService interface {
+	Get(context.Context, string) (provider.Provider, error)
+	List(context.Context, provider.Filter) ([]provider.Provider, error)
+	CreateRequest(context.Context, string, string, any, provider.Provider) (provider.Provider, error)
+	UpdateRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
+	DeleteRequest(context.Context, string, string, any, string, int64) (provider.Provider, error)
+}
+type credentialLifecycleService interface {
+	UpdateCredentialRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
+	DeleteCoordinatedRequest(context.Context, string, string, any, string, int64, *secret.Ref) (provider.Provider, error)
+	ClaimCredentialCleanup(context.Context, string, time.Time, time.Duration, int) ([]providerapp.ClaimedEvent, error)
+	CompleteCredentialCleanup(context.Context, string, string, time.Time) error
+	RetryCredentialCleanup(context.Context, string, string, time.Time, string) error
+}
+type electronCredentialMigrationService interface {
+	PlanElectronCredentials(context.Context, []providerapp.ElectronCredentialTuple) ([]providerapp.ElectronCredentialPlan, error)
+	AdoptElectronCredential(context.Context, string, providerapp.ElectronCredentialAdoption) (string, error)
+	DispositionElectronCredential(context.Context, providerapp.ElectronCredentialTuple, string) error
+}
+
+type Engine struct {
+	providers      ProviderService
+	version        string
+	leases         LeaseClient
+	network        networkpolicy.Options
+	gateway        gateway.Options
+	adapterFactory func(context.Context, provider.Provider) (gateway.Adapter, error)
+	streamsMu      sync.Mutex
+	streams        map[string]*streamState
+	maxStreams     int
+}
+
+type streamState struct {
+	cancel context.CancelFunc
+	state  streamLifecycle
+}
+
+type streamLifecycle uint8
+
+const (
+	streamRunning streamLifecycle = iota
+	streamCancelling
+	streamTerminal
+)
+
+type LeaseClient interface {
+	WithLease(context.Context, secretlease.Request, func([]byte) error) error
+}
+
+type runtimeHandler func(*Engine, context.Context, bridge.Request) bridge.Response
+
+// RuntimeHandlers is both the runtime allow-list and the dispatch table.
+// Contract tests compare its non-nil handlers with the public schema.
+var RuntimeHandlers = map[bridge.Method]runtimeHandler{
+	bridge.MethodChatStart:         handleChatStart,
+	bridge.MethodStreamCancel:      handleStreamCancel,
+	bridge.MethodSystemHealth:      handleSystemHealth,
+	bridge.MethodProviderCreate:    handleProviderCreate,
+	bridge.MethodProviderDelete:    handleProviderDelete,
+	bridge.MethodProviderGet:       handleProviderGet,
+	bridge.MethodProviderList:      handleProviderList,
+	bridge.MethodProviderModelSync: handleProviderModelSync,
+	bridge.MethodProviderTest:      handleProviderTest,
+	bridge.MethodProviderUpdate:    handleProviderUpdate,
+}
+
+var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
+	bridge.Method("internal.provider.create.with-credential"):      handleProviderCreateWithCredential,
+	bridge.Method("internal.provider.update.with-credential"):      handleProviderUpdateWithCredential,
+	bridge.Method("internal.provider.resolve"):                     handleProviderResolve,
+	bridge.Method("internal.provider.credential-adoption.resolve"): handleCredentialAdoptionResolve,
+	bridge.Method("internal.provider.delete.coordinated"):          handleProviderDeleteCoordinated,
+	bridge.Method("internal.credential-cleanup.claim"):             handleCredentialCleanupClaim,
+	bridge.Method("internal.credential-cleanup.complete"):          handleCredentialCleanupComplete,
+	bridge.Method("internal.credential-cleanup.retry"):             handleCredentialCleanupRetry,
+	bridge.Method("internal.provider.credential-binding.resolve"):  handleCredentialBindingResolve,
+	bridge.Method("internal.electron-credential.plan"):             handleElectronCredentialPlan,
+	bridge.Method("internal.electron-credential.adopt"):            handleElectronCredentialAdopt,
+	bridge.Method("internal.electron-credential.disposition"):      handleElectronCredentialDisposition,
+}
+
+type providerDTO struct {
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	Protocol        provider.Protocol        `json:"protocol"`
+	BaseURL         string                   `json:"baseUrl"`
+	Models          []provider.Model         `json:"models"`
+	Status          provider.Status          `json:"status"`
+	CredentialState provider.CredentialState `json:"credentialState"`
+	CreatedAt       time.Time                `json:"createdAt"`
+	UpdatedAt       time.Time                `json:"updatedAt"`
+	Version         int64                    `json:"version"`
+}
+
+func NewEngine(providers ProviderService, version string) *Engine {
+	return &Engine{providers: providers, version: version, streams: make(map[string]*streamState), maxStreams: 32}
+}
+
+// NewEngineWithGateway wires the existing policy connector and one-shot secret
+// broker into provider diagnostics. Public requests never carry either.
+func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
+	return &Engine{providers: providers, version: version, leases: leases, streams: make(map[string]*streamState), maxStreams: 32,
+		network: networkpolicy.Options{ConnectTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, OverallTimeout: 15 * time.Second, MaxResponseBytes: 1 << 20},
+		gateway: gateway.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 64 << 10}}
+}
+
+// CancelAllStreams terminates every stream owned by this authenticated session.
+func (e *Engine) CancelAllStreams() {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	for _, stream := range e.streams {
+		if stream.state == streamRunning {
+			stream.state = streamCancelling
+			stream.cancel()
+		}
+	}
+}
+
+func (e *Engine) cancelStream(id string) bool {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	stream, ok := e.streams[id]
+	if !ok || stream.state != streamRunning {
+		return false
+	}
+	stream.state = streamCancelling
+	stream.cancel()
+	return true
+}
+
+func (e *Engine) selectTerminal(_ string, state *streamState, err error) bridge.EventType {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	t := bridge.EventCompleted
+	if state.state == streamCancelling {
+		t = bridge.EventCancelled
+	} else if err != nil {
+		t = bridge.EventFailed
+	}
+	state.state = streamTerminal
+	return t
+}
+
+func (e *Engine) finishTerminal(id string, state *streamState) {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	if current, ok := e.streams[id]; ok && current == state {
+		delete(e.streams, id)
+	}
+}
+
+// SetAdapterFactoryForTest injects an adapter at the production Engine.Handle boundary.
+func (e *Engine) SetAdapterFactoryForTest(factory func(context.Context, provider.Provider) (gateway.Adapter, error)) {
+	e.adapterFactory = factory
+}
+
+func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Response {
+	if _, err := ulid.ParseStrict(request.ID); err != nil {
+		return bridge.Failure(ulid.Make().String(), ulid.Make().String(), "BRIDGE_SCHEMA_INVALID", "请求标识无效", false)
+	}
+	if _, err := ulid.ParseStrict(request.TraceID); err != nil {
+		return bridge.Failure(request.ID, ulid.Make().String(), "BRIDGE_SCHEMA_INVALID", "追踪标识无效", false)
+	}
+	if request.Version != bridge.Version || request.Kind != "request" || len(request.IdempotencyKey) > 128 {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求协议无效", false)
+	}
+	if request.DeadlineMS < 1 || request.DeadlineMS > 30000 {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求超时参数无效", false)
+	}
+	now := time.Now().UTC()
+	if request.SentAt.Before(now.Add(-5*time.Minute)) || request.SentAt.After(now.Add(5*time.Minute)) {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求时间无效", false)
+	}
+	deadline := request.SentAt.Add(time.Duration(request.DeadlineMS) * time.Millisecond)
+	serverCap := now.Add(time.Duration(request.DeadlineMS) * time.Millisecond)
+	if deadline.After(serverCap) {
+		deadline = serverCap
+	}
+	if now.After(deadline) {
+		return bridge.Failure(request.ID, request.TraceID, "REQUEST_DEADLINE_EXCEEDED", "请求已过期", true)
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	handler, allowed := RuntimeHandlers[bridge.Method(request.Method)]
+	if !allowed {
+		handler, allowed = internalRuntimeHandlers[bridge.Method(request.Method)]
+	}
+	if !allowed || handler == nil {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false)
+	}
+	return handler(e, ctx, request)
+}
+
+func handleSystemHealth(e *Engine, _ context.Context, request bridge.Request) bridge.Response {
+	if !emptyObject(request.Payload) {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "system.health 参数无效", false)
+	}
+	return bridge.Success(request.ID, map[string]any{"engine": "ready", "version": e.version, "protocol": bridge.Version})
+}
+
+func handleProviderList(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
+	var payload struct {
+		Protocol provider.Protocol `json:"protocol"`
+	}
+	if err := decodePayload(request.Payload, &payload); err != nil {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.list 参数无效", false)
+	}
+	if payload.Protocol != "" && payload.Protocol != provider.ProtocolOpenAICompatible && payload.Protocol != provider.ProtocolAnthropic {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "供应商协议无效", false)
+	}
+	items, err := e.providers.List(ctx, provider.Filter{Protocol: payload.Protocol})
+	if err != nil {
+		return bridge.Failure(request.ID, request.TraceID, "STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
+	}
+	publicItems := make([]providerDTO, len(items))
+	for index, item := range items {
+		publicItems[index] = publicProvider(item)
+	}
+	return bridge.Success(request.ID, map[string]any{"items": publicItems})
+}
+
+func publicProvider(item provider.Provider) providerDTO {
+	return providerDTO{ID: item.ID, Name: item.Name, Protocol: item.Protocol, BaseURL: item.BaseURL, Models: item.Models, Status: item.Status, CredentialState: item.CredentialState, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, Version: item.Version}
+}
+
+func providerFailure(request bridge.Request, err error) bridge.Response {
+	switch {
+	case errors.Is(err, provider.ErrNotFound):
+		return bridge.Failure(request.ID, request.TraceID, "PROVIDER_NOT_FOUND", "供应商不存在", false)
+	case errors.Is(err, provider.ErrConflict):
+		return bridge.Failure(request.ID, request.TraceID, "PROVIDER_VERSION_CONFLICT", "供应商已被修改，请刷新后重试", false)
+	case errors.Is(err, provider.ErrCredentialReentryRequired):
+		return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_REENTRY_REQUIRED", "地址或协议变更需要重新提交凭据", false)
+	case errors.Is(err, providerapp.ErrIdempotencyKeyRequired):
+		return bridge.Failure(request.ID, request.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+	case errors.Is(err, providerapp.ErrIdempotencyConflict):
+		return bridge.Failure(request.ID, request.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+	case errors.Is(err, providerapp.ErrCredentialCleanupRequired):
+		return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_CLEANUP_REQUIRED", "请先移除供应商凭据再删除", false)
+	case errors.Is(err, providerapp.ErrStorageBusy):
+		return bridge.Failure(request.ID, request.TraceID, "STORAGE_BUSY", "供应商数据正忙，请稍后重试", true)
+	default:
+		return bridge.Failure(request.ID, request.TraceID, "STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
+	}
+}
+
+func emptyObject(raw json.RawMessage) bool {
+	var value map[string]json.RawMessage
+	return decodePayload(raw, &value) == nil && value != nil && len(value) == 0
+}
+
+func decodePayload(raw json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("multiple JSON values")
+	}
+	return nil
+}

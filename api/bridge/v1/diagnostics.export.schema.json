@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/diagnostics.export.schema.json",
+  "title": "diagnostics.export payload",
+  "x-method": "diagnostics.export",
+  "x-owner": "host",
+  "x-enabled": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "includeLogs": {
+      "type": "boolean"
+    },
+    "redactPaths": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "redacted": {
+        "const": true
+      }
+    },
+    "required": [
+      "path",
+      "createdAt",
+      "redacted"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

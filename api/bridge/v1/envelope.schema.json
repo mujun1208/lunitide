@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/envelope.schema.json",
+  "title": "Lunitide Bridge v1 request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "kind",
+    "id",
+    "traceId",
+    "method",
+    "sentAt",
+    "payload",
+    "deadlineMs"
+  ],
+  "properties": {
+    "v": {
+      "const": "1.0"
+    },
+    "kind": {
+      "const": "request"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 26,
+      "maxLength": 26
+    },
+    "traceId": {
+      "type": "string",
+      "minLength": 26,
+      "maxLength": 26
+    },
+    "method": {
+      "enum": [
+        "chat.start",
+        "diagnostics.export",
+        "migration.inspect",
+        "migration.run",
+        "migration.status",
+        "provider.create",
+        "provider.credential.submit",
+        "provider.delete",
+        "provider.get",
+        "provider.list",
+        "provider.model.sync",
+        "provider.test",
+        "provider.update",
+        "stream.cancel",
+        "system.health"
+      ]
+    },
+    "sentAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "deadlineMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30000
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "v": "1.0",
+        "kind": "request",
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "traceId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "method": "system.health",
+        "sentAt": "2025-01-01T00:00:00Z",
+        "payload": {},
+        "deadlineMs": 1
+      }
+    ],
+    "negative": [
+      {
+        "v": "1.0",
+        "kind": "request",
+        "id": "bad",
+        "traceId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "method": "unknown",
+        "sentAt": "bad",
+        "payload": {},
+        "deadlineMs": 0
+      }
+    ]
+  }
+}

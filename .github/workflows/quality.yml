@@ -1,0 +1,66 @@
+name: Quality
+on: [push, pull_request]
+permissions:
+  contents: read
+
+jobs:
+  windows-quality:
+    name: Windows quality and schema drift
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix web ci
+      - name: Verify generated Bridge and RPC contracts
+        run: npm run verify:bridge
+      - name: Test Go
+        run: go test ./...
+      - name: Test authentic Electron credential adoption
+        run: npm run test:electron-adoption:e2e
+      - name: Vet Go
+        run: go vet ./...
+      - name: Build Go without CGO
+        run: go build ./...
+      - name: Generate Renderer contracts
+        run: npm --prefix web run generate:bridge
+      - name: Typecheck Renderer
+        run: npm --prefix web run typecheck
+      - name: Test Renderer
+        run: npm --prefix web test
+      - name: Build Renderer
+        run: npm --prefix web run build
+      - name: Reject generated-file drift
+        run: git diff --exit-code -- web/src/generated/bridge.ts internal/bridge/schema_generated.go internal/contract/schema_generated_test.go
+
+  windows-cgo-race:
+    name: Windows CGO race detector
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install pinned MinGW toolchain
+        run: choco install mingw --version=13.2.0 --yes --no-progress
+      - name: Select MinGW compiler
+        shell: pwsh
+        run: |
+          $gcc = Get-ChildItem C:\ProgramData\chocolatey\lib\mingw\tools -Filter gcc.exe -Recurse | Select-Object -First 1
+          if (-not $gcc) { throw "Pinned MinGW gcc.exe was not installed" }
+          $gcc.Directory.FullName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run Go race tests
+        run: go test -race ./...

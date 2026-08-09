@@ -1,0 +1,1 @@
+{"version":"0.2","providers":[{"id":"sanitized-02","name":"Sanitized 0.2","protocol":"anthropic","baseUrl":"https://fixture.invalid/v1","models":["fixture-model"],"defaultModel":"fixture-model","createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-01T00:00:00Z","encryptedApiKey":"SANITIZED-NOT-CIPHERTEXT"}]}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/rpc/v1/handshake.schema.json",
+  "title": "Host to Engine handshake",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rpcMajor",
+    "rpcMinor",
+    "clientPid",
+    "sessionNonce"
+  ],
+  "properties": {
+    "rpcMajor": {
+      "const": 1
+    },
+    "rpcMinor": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 0
+    },
+    "clientPid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sessionNonce": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rpcMajor": 1,
+        "rpcMinor": 0,
+        "clientPid": 1,
+        "sessionNonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "negative": [
+      {
+        "rpcMajor": 1,
+        "rpcMinor": 0,
+        "clientPid": 1,
+        "sessionNonce": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+      }
+    ]
+  }
+}

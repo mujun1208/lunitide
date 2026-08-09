@@ -1,0 +1,31 @@
+{
+  "name": "@lunitide/renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:bridge": "node scripts/generate-bridge.mjs",
+    "verify:bridge": "node scripts/generate-bridge.mjs --check",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "npm run generate:bridge && npm run typecheck && vite build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
+  }
+}

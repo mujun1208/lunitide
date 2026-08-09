@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json",
+  "title": "Public bridge DTOs",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "ULID": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ProviderProtocol": {
+      "enum": [
+        "openai_compatible",
+        "anthropic"
+      ]
+    },
+    "ProviderStatus": {
+      "enum": [
+        "enabled",
+        "disabled"
+      ]
+    },
+    "CredentialState": {
+      "enum": [
+        "configured",
+        "missing",
+        "unavailable",
+        "requires_reentry"
+      ]
+    },
+    "ModelDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[\\x21-\\x7E]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "isDefault": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "modelId",
+        "displayName",
+        "isDefault"
+      ]
+    },
+    "ProviderDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "protocol": {
+          "$ref": "#/$defs/ProviderProtocol"
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "models": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/ModelDTO"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/ProviderStatus"
+        },
+        "credentialState": {
+          "$ref": "#/$defs/CredentialState"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "protocol",
+        "baseUrl",
+        "models",
+        "status",
+        "credentialState",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ]
+    },
+    "MigrationStatusDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "idle",
+            "running",
+            "completed",
+            "failed"
+          ]
+        },
+        "processed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "state",
+        "processed",
+        "total"
+      ]
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}
