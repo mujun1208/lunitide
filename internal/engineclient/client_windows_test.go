@@ -18,7 +18,7 @@ import (
 func newPipedClient(t *testing.T) (*Client, net.Conn) {
 	t.Helper()
 	clientConn, serverConn := net.Pipe()
-	client := &Client{conn: clientConn, pending: make(map[string]chan callResult), events: make(chan bridge.Event, 1024), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
+	client := &Client{conn: clientConn, pending: make(map[string]chan callResult), events: make(chan bridge.Event, 1024), done: make(chan struct{}), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
 	go client.readPump()
 	t.Cleanup(func() { _ = client.Close(); _ = serverConn.Close() })
 	return client, serverConn
@@ -123,6 +123,51 @@ func TestCloseInterruptsBlockedCallAndPreventsReuse(t *testing.T) {
 	}
 }
 
+func TestCancelledContextInterruptsBlockedCallWrite(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{conn: clientConn}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Call(ctx, bridge.Request{ID: ulid.Make().String(), Payload: json.RawMessage(`{}`)})
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("blocked Call write succeeded after cancellation")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("context cancellation did not interrupt blocked Call write")
+	}
+	if client.brokenError() == nil {
+		t.Fatal("partially written connection was not poisoned")
+	}
+}
+
+func TestCancelledContextInterruptsHandshake(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+	client := &Client{conn: clientConn}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- client.handshake(ctx, "nonce") }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("handshake cancellation error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("context cancellation did not interrupt handshake")
+	}
+}
+
 func TestDuplicatePendingRequestIDRejectedWithoutDisturbingOriginal(t *testing.T) {
 	client, server := newPipedClient(t)
 	id := ulid.Make().String()
@@ -187,7 +232,7 @@ func TestCancelledRequestIDCannotBeReusedWhileLateResponseIsPossible(t *testing.
 
 func TestMoreThan256CancelledRequestsRetainLateResponseProtection(t *testing.T) {
 	clientConn, server := net.Pipe()
-	client := &Client{conn: clientConn, pending: make(map[string]chan callResult), events: make(chan bridge.Event, 1024), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
+	client := &Client{conn: clientConn, pending: make(map[string]chan callResult), events: make(chan bridge.Event, 1024), done: make(chan struct{}), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
 	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
 	ids := make([]string, 257)
 	client.stateMu.Lock()
@@ -394,4 +439,43 @@ func TestReadPumpTerminationClosesEventsExactlyOnce(t *testing.T) {
 	}
 	client.poison(errors.New("second poison"))
 	_ = client.Close()
+}
+
+func TestCloseInterruptsBlockedEventDelivery(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := &Client{conn: clientConn, pending: make(map[string]chan callResult), events: make(chan bridge.Event), done: make(chan struct{}), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
+	go client.readPump()
+	event := bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: ulid.Make().String(), Sequence: 1, Type: bridge.EventCompleted}
+	writeDone := make(chan error, 1)
+	go func() {
+		raw, _ := json.Marshal(event)
+		writeDone <- ipc.WriteFrame(serverConn, raw)
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("event frame was not read")
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case _, ok := <-client.Events():
+		if ok {
+			select {
+			case _, stillOpen := <-client.Events():
+				if stillOpen {
+					t.Fatal("event channel remained open after close")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("Close did not finish event pump after in-flight event")
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not interrupt blocked event delivery")
+	}
+	_ = serverConn.Close()
 }

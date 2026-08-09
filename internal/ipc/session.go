@@ -23,6 +23,8 @@ const (
 )
 
 var handshakeTimeout = 5 * time.Second
+var sessionWriteTimeout = 35 * time.Second
+var sessionDrainTimeout = 5 * time.Second
 
 type Handshake struct {
 	RPCMajor     int    `json:"rpcMajor"`
@@ -159,6 +161,12 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 	if onAuthenticated != nil {
 		onAuthenticated()
 	}
+	// The deadline protects only the unauthenticated handshake. Keeping a
+	// connection-wide deadline here would tear down an otherwise healthy idle
+	// session and any long-running stream that has no new request frames.
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return err
+	}
 	var writeMu sync.Mutex
 	write := func(value any) error {
 		raw, err := json.Marshal(value)
@@ -167,18 +175,29 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		// Bound an individual write without imposing an idle/read deadline on
+		// the authenticated session. A peer that stops reading must not wedge
+		// every response writer or Engine shutdown indefinitely.
+		if err := conn.SetWriteDeadline(time.Now().Add(sessionWriteTimeout)); err != nil {
+			return err
+		}
 		return writeFrame(conn, raw)
 	}
 	var requests sync.WaitGroup
 	admission := make(chan struct{}, 32)
 	defer func() {
 		cancelSession()
-		requests.Wait()
+		drained := make(chan struct{})
+		go func() {
+			requests.Wait()
+			close(drained)
+		}()
+		select {
+		case <-drained:
+		case <-time.After(sessionDrainTimeout):
+		}
 	}()
 	for {
-		if err := conn.SetDeadline(time.Now().Add(35 * time.Second)); err != nil {
-			return err
-		}
 		frame, err := ReadFrame(conn)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -202,19 +221,54 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		go func(request bridge.Request) {
 			defer requests.Done()
 			defer func() { <-admission }()
-			gate := make(chan struct{})
-			var once sync.Once
-			emit := func(event bridge.Event) error { <-gate; return write(event) }
+			const preResponseEventLimit = 64
+			var eventMu sync.Mutex
+			responseWritten := false
+			preResponseEvents := make([]bridge.Event, 0, 4)
+			var preResponseError error
+			emit := func(event bridge.Event) error {
+				eventMu.Lock()
+				defer eventMu.Unlock()
+				if !responseWritten {
+					if preResponseError != nil {
+						return preResponseError
+					}
+					if len(preResponseEvents) == preResponseEventLimit {
+						preResponseError = errors.New("stream emitted too many events before its response")
+						return preResponseError
+					}
+					preResponseEvents = append(preResponseEvents, event)
+					return nil
+				}
+				return write(event)
+			}
 			var response bridge.Response
 			if streaming, ok := handler.(StreamingHandler); ok {
 				response = streaming.HandleStreaming(sessionCtx, request, emit)
 			} else {
 				response = handler.Handle(sessionCtx, request)
 			}
-			if err := write(response); err != nil {
+			eventMu.Lock()
+			if preResponseError != nil {
+				eventMu.Unlock()
 				_ = conn.Close()
+				return
 			}
-			once.Do(func() { close(gate) })
+			if err := write(response); err != nil {
+				eventMu.Unlock()
+				_ = conn.Close()
+				return
+			}
+			responseWritten = true
+			for _, event := range preResponseEvents {
+				if err := write(event); err != nil {
+					eventMu.Unlock()
+					_ = conn.Close()
+					return
+				}
+			}
+			preResponseEvents = nil
+			eventMu.Unlock()
 		}(request)
 	}
 }

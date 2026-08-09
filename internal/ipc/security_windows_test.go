@@ -78,6 +78,47 @@ func TestServeSessionRejectsSlowHandshake(t *testing.T) {
 	}
 }
 
+func TestServeSessionClearsDeadlineAfterHandshake(t *testing.T) {
+	previousTimeout := handshakeTimeout
+	handshakeTimeout = 50 * time.Millisecond
+	defer func() { handshakeTimeout = previousTimeout }()
+	server, client := net.Pipe()
+	defer client.Close()
+	if err := client.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	secret := make([]byte, sessionSecretSize)
+	nonce := hex.EncodeToString(secret)
+	authenticator := NewSessionAuthenticator(secret)
+	done := make(chan error, 1)
+	go func() {
+		done <- serveSession(context.Background(), server, os.Getpid(), authenticator, nil, nil,
+			func(net.Conn) (uint32, error) { return uint32(os.Getpid()), nil }, WriteFrame)
+	}()
+	hello := fmt.Sprintf(`{"rpcMajor":1,"rpcMinor":0,"clientPid":%d,"sessionNonce":%q}`, os.Getpid(), nonce)
+	if err := WriteFrame(client, []byte(hello)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFrameLimit(client, 4096); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetDeadline(time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * handshakeTimeout)
+	select {
+	case err := <-done:
+		t.Fatalf("authenticated idle session closed: %v", err)
+	default:
+	}
+	_ = client.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not close after peer disconnect")
+	}
+}
+
 func TestSessionAuthenticatorConcurrentReserveExactlyOnce(t *testing.T) {
 	secret := make([]byte, sessionSecretSize)
 	for i := range secret {

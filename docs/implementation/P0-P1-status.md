@@ -25,7 +25,7 @@ Electron/Python `0.2.1` is retained only as a regression baseline and a historic
 | Provider/model CRUD, model sync and diagnostics | Complete | Engine/SQLite/Renderer tests | Closed |
 | Host-only DPAPI secrets, lease broker and crash-safe credential submission/adoption/cleanup | Complete | recovery, replay, wrong-binding, concurrency and integration tests | Closed |
 | OpenAI-compatible and Anthropic gateway, pinned DNS/SSRF/TLS policy, streaming/cancel/terminal arbitration | Complete | gateway/network/stream tests, including exactly-once aggregate usage | Closed |
-| React Provider UI and generated Bridge contracts | Complete | schema drift gate, TypeScript check, 30 Renderer tests, production Vite build | Closed |
+| React Provider UI and generated Bridge contracts | Complete | schema drift gate, TypeScript check, 32 Renderer tests, production Vite build | Closed |
 | Electron metadata and authentic Chromium `safeStorage` migration | Complete | fail-fast `npm run test:electron-adoption:e2e` | Closed |
 | Native release layout, pinned WebView2Loader, PE/export/manifest checks, NSIS lifecycle scripts | Complete | local stage/installer verification and CI workflow | Closed internally |
 | WebView2 profile isolation and failure-safe installer replacement | Complete | secured `%LOCALAPPDATA%\\Lunitide\\WebView2` profile; sibling stage/backup/restore installer flow | Closed internally |
@@ -44,12 +44,16 @@ The latest local hardening closes additional release-safety gaps:
 - NSIS activation commits only after shortcut and uninstall registration writes succeed and the installed version is read back; failed upgrades restore the prior release and distinguish incomplete metadata restoration with a dedicated exit code;
 - disposable lifecycle acceptance rejects leftover `Lunitide.backup.*` and `Lunitide.installing.*` directories after upgrade;
 - two native stage builds produced identical payload manifests, and the final staged WebView2 runtime loaded the trusted document, closed through `WM_CLOSE`, exited with code 0, and left no tracked child process.
+- authenticated IPC now clears the handshake deadline without imposing an idle-session timeout, while bounding each response/event write and client request write independently;
+- Host-to-Engine writes and handshake I/O honor context cancellation, poison partially written connections, and reject failed post-handshake deadline resets;
+- synchronous stream events are bounded and buffered until the initial response is committed, preserving response-before-event ordering without deadlocking handlers;
+- client shutdown immediately interrupts stalled event delivery, and session shutdown bounds draining of non-cooperative request handlers.
 
 The complete local Go, legacy migration TypeScript, Bridge, Renderer (32 tests), authentic Electron safeStorage adoption, native layout, NSIS compilation, and real WebView2 runtime command set passes on this tree. The latest explicitly non-publishable unsigned development installer is:
 
 ```text
 release/out/Lunitide-Setup-0.3.0-x64.exe
-SHA-256 b620cf5976503beff2b34a73b3a37239d6d6dc15de4456f4c6cec7b3d637cdb3
+SHA-256 f72ca6fe134eb5e03c6d0fefb96fb2068c0971be1f6fea860aaea0571497f17e
 ```
 
 This evidence does not replace the external Win10/Win11 lifecycle, final-commit remote race, Authenticode/timestamp, or release-tag requirements below.

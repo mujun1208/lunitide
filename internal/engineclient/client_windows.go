@@ -29,6 +29,8 @@ type Client struct {
 	pending         map[string]chan callResult
 	events          chan bridge.Event
 	eventsOnce      sync.Once
+	done            chan struct{}
+	doneOnce        sync.Once
 	tombstones      map[string]time.Time
 	streams         map[string]streamProgress
 	streamTerminals map[string]time.Time
@@ -37,6 +39,7 @@ type Client struct {
 const (
 	requestTombstoneLifetime = time.Minute
 	streamTombstoneLifetime  = 11 * time.Minute
+	clientWriteTimeout       = 35 * time.Second
 )
 
 type streamProgress struct {
@@ -59,12 +62,15 @@ func Connect(ctx context.Context, pipe string, expectedEnginePID int, sessionNon
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{conn: conn, pending: make(map[string]chan callResult), events: make(chan bridge.Event, 1024), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
+	client := &Client{conn: conn, pending: make(map[string]chan callResult), events: make(chan bridge.Event, 1024), done: make(chan struct{}), tombstones: make(map[string]time.Time), streams: make(map[string]streamProgress), streamTerminals: make(map[string]time.Time)}
 	if err := client.handshake(ctx, sessionNonce); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
-	_ = conn.SetDeadline(time.Time{})
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("clear Engine RPC handshake deadline: %w", err)
+	}
 	go client.readPump()
 	return client, nil
 }
@@ -107,9 +113,29 @@ func (c *Client) Call(ctx context.Context, request bridge.Request) (bridge.Respo
 	c.pending[request.ID] = responseCh
 	c.stateMu.Unlock()
 	c.writeMu.Lock()
-	err = ipc.WriteFrame(c.conn, body)
+	if ctx.Err() != nil {
+		c.writeMu.Unlock()
+		c.cancelPending(request.ID, responseCh)
+		return bridge.Response{}, ctx.Err()
+	}
+	stopCancelWatch := interruptConnectionOnCancel(ctx, func() { _ = c.conn.SetWriteDeadline(time.Now()) })
+	deadline := time.Now().Add(clientWriteTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	err = c.conn.SetWriteDeadline(deadline)
+	if err == nil {
+		err = ipc.WriteFrame(c.conn, body)
+	}
+	stopCancelWatch()
+	if err == nil {
+		err = c.conn.SetWriteDeadline(time.Time{})
+	}
 	c.writeMu.Unlock()
 	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		c.poison(err)
 		result := <-responseCh
 		return result.response, result.err
@@ -131,6 +157,15 @@ func (c *Client) Call(ctx context.Context, request bridge.Request) (bridge.Respo
 		result := <-responseCh
 		return result.response, result.err
 	}
+}
+
+func (c *Client) cancelPending(id string, responseCh chan callResult) {
+	c.stateMu.Lock()
+	if pending, exists := c.pending[id]; exists && pending == responseCh {
+		delete(c.pending, id)
+		c.addTombstoneLocked(id)
+	}
+	c.stateMu.Unlock()
 }
 
 func (c *Client) Events() <-chan bridge.Event { return c.events }
@@ -211,6 +246,8 @@ func (c *Client) readPump() {
 			}
 			select {
 			case c.events <- event:
+			case <-c.done:
+				return
 			case <-time.After(30 * time.Second):
 				c.poison(errors.New("Engine event consumer stalled"))
 				return
@@ -298,6 +335,9 @@ func (c *Client) poison(err error) error {
 	clear(c.streams)
 	clear(c.streamTerminals)
 	c.stateMu.Unlock()
+	if c.done != nil {
+		c.doneOnce.Do(func() { close(c.done) })
+	}
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
 	return broken
 }
@@ -312,15 +352,23 @@ func (c *Client) handshake(ctx context.Context, sessionNonce string) error {
 	if err := setContextDeadline(c.conn, ctx, 5*time.Second); err != nil {
 		return err
 	}
+	stopCancelWatch := interruptConnectionOnCancel(ctx, func() { _ = c.conn.SetDeadline(time.Now()) })
+	defer stopCancelWatch()
 	hello, err := json.Marshal(ipc.Handshake{RPCMajor: ipc.RPCMajor, RPCMinor: ipc.RPCMinor, ClientPID: os.Getpid(), SessionNonce: sessionNonce})
 	if err != nil {
 		return err
 	}
 	if err := ipc.WriteFrame(c.conn, hello); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return err
 	}
 	raw, err := ipc.ReadFrameLimit(c.conn, 4096)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return err
 	}
 	var ack handshakeAck
@@ -328,6 +376,23 @@ func (c *Client) handshake(ctx context.Context, sessionNonce string) error {
 		return errors.New("Engine RPC handshake rejected")
 	}
 	return nil
+}
+
+func interruptConnectionOnCancel(ctx context.Context, interrupt func()) func() {
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		select {
+		case <-ctx.Done():
+			interrupt()
+		case <-done:
+		}
+	}()
+	return func() {
+		close(done)
+		<-stopped
+	}
 }
 
 func dialExpectedEngine(ctx context.Context, pipe string, expectedPID int) (net.Conn, error) {
