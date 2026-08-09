@@ -35,6 +35,25 @@ Electron/Python `0.2.1` is retained only as a regression baseline and a historic
 | Committed source baseline | Complete | P0/P1 `0.3.0` baseline changeset; release tag intentionally withheld | Closed |
 | Matching `v0.3.0` release tag | Not established | Must point at the accepted signed/clean-machine baseline | Required before release |
 
+## Final local hardening evidence (2026-08-10)
+
+The latest local hardening closes additional release-safety gaps:
+
+- tagged/manual release packaging now depends on the complete quality and Windows CGO race jobs in the same workflow; pull requests cannot package or upload unsigned release candidates;
+- legacy Electron ProviderStore initialization never rewrites, renames, or partially normalizes a migration source on load; unsupported versions, invalid entries, and duplicate provider IDs fail closed without changing source bytes;
+- NSIS activation commits only after shortcut and uninstall registration writes succeed and the installed version is read back; failed upgrades restore the prior release and distinguish incomplete metadata restoration with a dedicated exit code;
+- disposable lifecycle acceptance rejects leftover `Lunitide.backup.*` and `Lunitide.installing.*` directories after upgrade;
+- two native stage builds produced identical payload manifests, and the final staged WebView2 runtime loaded the trusted document, closed through `WM_CLOSE`, exited with code 0, and left no tracked child process.
+
+The complete local Go, legacy migration TypeScript, Bridge, Renderer (32 tests), authentic Electron safeStorage adoption, native layout, NSIS compilation, and real WebView2 runtime command set passes on this tree. The latest explicitly non-publishable unsigned development installer is:
+
+```text
+release/out/Lunitide-Setup-0.3.0-x64.exe
+SHA-256 b620cf5976503beff2b34a73b3a37239d6d6dc15de4456f4c6cec7b3d637cdb3
+```
+
+This evidence does not replace the external Win10/Win11 lifecycle, final-commit remote race, Authenticode/timestamp, or release-tag requirements below.
+
 ## Verification commands
 
 ```powershell

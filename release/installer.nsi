@@ -28,8 +28,14 @@ Var PurgeData
 Var AllowDowngrade
 Var InstallStage
 Var InstallBackup
+Var PreviousVersion
+Var PreviousRegistration
+Var PreviousInstall
 Function .onInit
   StrCpy $AllowDowngrade 0
+  StrCpy $PreviousRegistration 0
+  StrCpy $PreviousVersion ""
+  StrCpy $PreviousInstall 0
   ${GetParameters} $0
   ${GetOptions} $0 "/ALLOWDOWNGRADE" $1
   ${IfNot} ${Errors}
@@ -55,6 +61,8 @@ ownership_invalid:
 ownership_version:
   ReadRegStr $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion"
   StrCmp $1 "" ownership_ok
+  StrCpy $PreviousRegistration 1
+  StrCpy $PreviousVersion $1
   ${VersionCompare} $1 "${VERSION}" $2
   StrCmp $2 1 0 ownership_ok
   StrCmp $AllowDowngrade 1 ownership_ok
@@ -115,20 +123,39 @@ stop_ok:
 	ClearErrors
 	Rename "$INSTDIR" "$InstallBackup"
 	IfErrors swap_failed
+  StrCpy $PreviousInstall 1
 activate_stage:
 	ClearErrors
 	Rename "$InstallStage" "$INSTDIR"
 	IfErrors activate_failed
+  ClearErrors
   CreateDirectory "$SMPROGRAMS\Lunitide"
+  IfErrors commit_failed
+  ClearErrors
   CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+  IfErrors commit_failed
+  ClearErrors
   CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+  IfErrors commit_failed
+  ClearErrors
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
+  IfErrors commit_failed
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion" "${VERSION}"
+  IfErrors commit_failed
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "InstallLocation" "$INSTDIR"
+  IfErrors commit_failed
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  IfErrors commit_failed
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  IfErrors commit_failed
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoModify" 1
+  IfErrors commit_failed
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoRepair" 1
+  IfErrors commit_failed
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion"
+  IfErrors commit_failed
+  StrCmp $0 "${VERSION}" 0 commit_failed
 	RMDir /r /REBOOTOK "$InstallBackup"
 	Goto install_done
 stage_failed_open:
@@ -141,11 +168,54 @@ swap_failed:
 	Abort "Unable to preserve the existing Lunitide release; installation was not continued."
 activate_failed:
 	RMDir /r "$InstallStage"
+	Goto restore_previous
+commit_failed:
+  Delete "$DESKTOP\Lunitide.lnk"
+  RMDir /r "$SMPROGRAMS\Lunitide"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}"
+  RMDir /r "$INSTDIR"
+  StrCmp $PreviousInstall 1 restore_previous
+  Abort "Unable to commit the new installation; no previous installation was changed."
+restore_previous:
 	IfFileExists "$InstallBackup\*" 0 restore_failed
 	ClearErrors
 	Rename "$InstallBackup" "$INSTDIR"
 	IfErrors restore_failed
-	Abort "Unable to activate the new release; the previous release was restored."
+  StrCmp $PreviousRegistration 1 0 restored
+  ClearErrors
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
+  IfErrors restore_metadata_failed
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion" "$PreviousVersion"
+  IfErrors restore_metadata_failed
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "InstallLocation" "$INSTDIR"
+  IfErrors restore_metadata_failed
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  IfErrors restore_metadata_failed
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  IfErrors restore_metadata_failed
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoModify" 1
+  IfErrors restore_metadata_failed
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoRepair" 1
+  IfErrors restore_metadata_failed
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion"
+  IfErrors restore_metadata_failed
+  StrCmp $0 "$PreviousVersion" restored restore_metadata_failed
+restored:
+	ClearErrors
+	CreateDirectory "$SMPROGRAMS\Lunitide"
+	IfErrors restore_metadata_failed
+	CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+	IfErrors restore_metadata_failed
+	CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+	IfErrors restore_metadata_failed
+	IfFileExists "$SMPROGRAMS\Lunitide\Lunitide.lnk" restored_start_menu restore_metadata_failed
+restored_start_menu:
+	IfFileExists "$DESKTOP\Lunitide.lnk" restored_complete restore_metadata_failed
+restored_complete:
+	Abort "Unable to commit the new release; the previous release was restored."
+restore_metadata_failed:
+	SetErrorLevel 23
+	Abort "The previous release files were restored, but its registration or shortcuts could not be restored."
 restore_failed:
 	SetErrorLevel 22
 	Abort "Unable to activate the new release or restore the previous release. The backup was retained."

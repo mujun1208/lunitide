@@ -81,8 +81,8 @@ type Filter struct {
 type Repository interface {
 	// Get returns the complete Provider, including CredentialRef, so the owning
 	// application service can coordinate secret replacement/deletion. Repository
-	// mutations never delete secrets. TODO(service/outbox): durably coordinate
-	// credential cleanup after Provider commit before enabling that workflow.
+	// mutations never delete secrets. The application service durably records
+	// credential cleanup in its transactional outbox for the Host worker.
 	Create(context.Context, Provider) (Provider, error)
 	Get(context.Context, string) (Provider, error)
 	List(context.Context, Filter) ([]Provider, error)

@@ -20,19 +20,23 @@ export class ProviderStore {
     try {
       const parsed: unknown = JSON.parse(await fs.readFile(this.filePath, 'utf8'))
       if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { providers?: unknown }).providers)) throw new Error('invalid provider file')
-      let migrated = (parsed as { version?: unknown }).version !== 2
+      const version = (parsed as { version?: unknown }).version
+      if (![1, 2, '0.1', '0.2', '0.2.1'].includes(version as string | number)) throw new Error('unsupported provider file version')
+      const loaded = new Map<string, StoredProvider>()
       for (const candidate of (parsed as { providers: unknown[] }).providers) {
         const provider = this.validateStored(candidate)
-        if (provider) {
-          this.stored.set(provider.id, provider)
-          if (!Array.isArray((candidate as Record<string, unknown>).models)) migrated = true
-        }
+        if (!provider) throw new Error('invalid provider entry')
+        if (loaded.has(provider.id)) throw new Error('duplicate provider id')
+        loaded.set(provider.id, provider)
       }
-      if (migrated) await this.persist(this.stored).catch(() => undefined)
+      // Normalize legacy records in memory only. Automatically rewriting the
+      // migration source here could destroy an opaque safeStorage ciphertext
+      // before the native Go adoption path has consumed it.
+      this.stored = loaded
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-      await fs.rename(this.filePath, `${this.filePath}.corrupt-${Date.now()}`).catch(() => undefined)
       this.stored.clear()
+      throw new Error('供应商迁移源无效；为保护原始凭据，文件未被修改', { cause: error })
     }
   }
 

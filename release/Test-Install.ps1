@@ -23,6 +23,9 @@ try {
   Set-ItemProperty $uninstallKey DisplayVersion '0.0.1'
   $p=Start-Process $Installer -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "install failed: $($p.ExitCode)"}; $p.Dispose()
   if(Test-Path (Join-Path $install 'stale-electron-canary.dll')){throw 'upgrade retained a stale old-release file'}
+  $installParent=Split-Path $install -Parent
+  if(Get-ChildItem $installParent -Directory -Filter 'Lunitide.backup.*' -ErrorAction SilentlyContinue){throw 'upgrade retained a backup release directory'}
+  if(Get-ChildItem $installParent -Directory -Filter 'Lunitide.installing.*' -ErrorAction SilentlyContinue){throw 'upgrade retained a staging directory'}
   if(-not(Test-Path (Join-Path $install 'Lunitide.exe'))){throw 'installed desktop missing'}
   if(-not(Test-Path (Join-Path $install 'purge-user-data.exe'))){throw 'installed purge helper missing'}
   if((Get-Content $owner -Raw) -cne $appid){throw 'installation ownership marker is missing or invalid'}

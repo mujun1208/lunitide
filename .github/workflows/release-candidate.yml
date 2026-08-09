@@ -7,7 +7,59 @@ on:
 permissions:
   contents: read
 jobs:
+  quality:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci
+      - run: npm --prefix web ci
+      - run: npm run verify:bridge
+      - run: go test ./...
+      - run: npm run test:electron-adoption:e2e
+      - run: go vet ./...
+      - run: go build ./...
+      - run: npm --prefix web run typecheck
+      - run: npm --prefix web test -- --run
+      - run: npm --prefix web run build
+      - name: Reject generated-file drift
+        run: git diff --exit-code -- web/src/generated/bridge.ts internal/bridge/schema_generated.go internal/contract/schema_generated_test.go
+
+  windows-cgo-race:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: choco install mingw --version=13.2.0 --yes --no-progress
+      - name: Select MinGW compiler
+        shell: pwsh
+        run: |
+          $gcc = Get-ChildItem C:\ProgramData\chocolatey\lib\mingw\tools -Filter gcc.exe -Recurse | Select-Object -First 1
+          if (-not $gcc) { throw "Pinned MinGW gcc.exe was not installed" }
+          $gcc.Directory.FullName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: go test -race ./...
+
   x64-release-candidate:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')
+    needs: [quality, windows-cgo-race]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
