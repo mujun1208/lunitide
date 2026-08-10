@@ -4,11 +4,16 @@ import type{ProjectDTO,StageDTO}from'./generated/bridge'
 import{ProjectPage}from'./project/ProjectPage'
 import{ProviderApp}from'./provider/ProviderApp'
 import{SessionPage}from'./session/SessionPage'
+import{PlanPage}from'./plan/PlanPage'
+import{ReviewPage}from'./review/ReviewPage'
+import{MemoryPage}from'./memory/MemoryPage'
+import{OntologyPage}from'./ontology/OntologyPage'
+import{SkillPage}from'./skill/SkillPage'
 
 const STAGE_LABELS=['需求与调研','架构','方案','UI','数据库与接口','开发','系统测试','集成验收','CR发布部署']
 
 export function App({projects=projectBridge,providers=providerBridge,sessions=sessionBridge,messages=messageBridge,stages=stageBridge,chat}:{projects?:ProjectBridge;providers?:ProviderBridge;sessions?:SessionBridge;messages?:MessageBridge;stages?:StageBridge;chat?:ChatBridge}):React.JSX.Element{
-const[page,setPage]=useState<'projects'|'providers'>('projects'),[selected,setSelected]=useState<ProjectDTO>()
+const[page,setPage]=useState<'projects'|'providers'|'plans'|'reviews'|'memory'|'ontology'|'skills'>('projects'),[selected,setSelected]=useState<ProjectDTO>()
 const chatBridge=chat??createChatBridge(window.chrome?.webview??{postMessage:()=>{},addEventListener:()=>{},removeEventListener:()=>{}})
 
 const sidebar=<aside className="sidebar" aria-label="侧边导航">
@@ -16,13 +21,20 @@ const sidebar=<aside className="sidebar" aria-label="侧边导航">
 <div className="s-title">工作区</div>
 <button className={`s-item ${page==='projects'&&!selected?'on':''}`} onClick={()=>{setPage('projects');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>项目总览</button>
 <button className={`s-item ${page==='providers'&&!selected?'on':''}`} onClick={()=>{setPage('providers');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>供应商</button>
+<div className="s-title" style={{marginTop:'6px'}}>高级功能</div>
+<button className={`s-item ${page==='plans'&&!selected?'on':''}`} onClick={()=>{setPage('plans');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>计划管理</button>
+<button className={`s-item ${page==='reviews'&&!selected?'on':''}`} onClick={()=>{setPage('reviews');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>治理审批</button>
+<button className={`s-item ${page==='memory'&&!selected?'on':''}`} onClick={()=>{setPage('memory');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>记忆面板</button>
+<button className={`s-item ${page==='ontology'&&!selected?'on':''}`} onClick={()=>{setPage('ontology');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>本体浏览</button>
+<button className={`s-item ${page==='skills'&&!selected?'on':''}`} onClick={()=>{setPage('skills');setSelected(undefined)}}><span className="ic" aria-hidden="true">◈</span>技能市场</button>
 <div className="s-title" style={{marginTop:'6px'}}>智能体</div>
 {STAGE_LABELS.map((l,i)=><div key={i} className="s-item"><span className="ic" aria-hidden="true">✦</span>{l}</div>)}
 {selected&&<div className="s-proj"><b>当前项目</b>{selected.name}</div>}
 </aside>
 
+const activeProjectId=selected?.id??''
 if(selected)return<div className="app-shell">{sidebar}<SessionPage key={selected.id} project={selected} bridge={sessions} messages={messages} onBack={()=>setSelected(undefined)} stages={stages} chat={chatBridge} providers={providers}/><ActivityPanel project={selected}/></div>
-return<div className="app-shell no-activity">{sidebar}<main className="main">{page==='projects'?<ProjectPage bridge={projects} onSelect={setSelected}/>:<ProviderApp bridge={providers}/>}</main></div>
+return<div className="app-shell no-activity">{sidebar}<main className="main">{page==='plans'?<PlanPage projectId={activeProjectId}/>:page==='reviews'?<ReviewPage/>:page==='memory'?<MemoryPage projectId={activeProjectId}/>:page==='ontology'?<OntologyPage projectId={activeProjectId}/>:page==='skills'?<SkillPage/>:page==='projects'?<ProjectPage bridge={projects} onSelect={setSelected}/>:<ProviderApp bridge={providers}/>}</main></div>
 }
 
 function ActivityPanel({project}:{project:ProjectDTO}):React.JSX.Element{
