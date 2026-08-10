@@ -20,6 +20,7 @@ import (
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/sessionapp"
+	"github.com/lunitide/lunitide/internal/stageapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -88,7 +89,8 @@ func main() {
 	messageService, err := messageapp.New(store, store, cursorKey)
 	secret.Zero(cursorKey)
 	if err != nil { log.Fatal(err) }
-	engine := app.NewEngineWithContextReader(providerService, projectService, sessionService, messageService, store.ContextReader(), store, buildinfo.Version, leaseClient)
+	stageService := stageapp.New(store, store)
+	engine := app.NewEngineWithStages(providerService, projectService, sessionService, messageService, stageService, store.ContextReader(), store, buildinfo.Version, leaseClient)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

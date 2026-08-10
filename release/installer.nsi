@@ -15,6 +15,8 @@ OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\Lunitide"
 SetCompressor /SOLID lzma
 !define MUI_ABORTWARNING
+!define MUI_ICON "${STAGE}\lunitide-icon.ico"
+!define MUI_UNICON "${STAGE}\lunitide-icon.ico"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -131,10 +133,10 @@ activate_stage:
   CreateDirectory "$SMPROGRAMS\Lunitide"
   IfErrors commit_failed
   ClearErrors
-  CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+  CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
   IfErrors commit_failed
   ClearErrors
-  CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+  CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
   IfErrors commit_failed
   ClearErrors
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
@@ -203,9 +205,9 @@ restored:
 	ClearErrors
 	CreateDirectory "$SMPROGRAMS\Lunitide"
 	IfErrors restore_metadata_failed
-	CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+	CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
 	IfErrors restore_metadata_failed
-	CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe"
+	CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
 	IfErrors restore_metadata_failed
 	IfFileExists "$SMPROGRAMS\Lunitide\Lunitide.lnk" restored_start_menu restore_metadata_failed
 restored_start_menu:

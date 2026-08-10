@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <radialGradient id="moonFill" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(412 374) rotate(45) scale(500)">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.30" stop-color="#F2F7FF"/>
+      <stop offset="0.66" stop-color="#C8DAF5"/>
+      <stop offset="1" stop-color="#88A9D8"/>
+    </radialGradient>
+    <linearGradient id="outerRing" x1="278" y1="245" x2="773" y2="798" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EAF3FF"/>
+      <stop offset="0.42" stop-color="#A9C3E8"/>
+      <stop offset="1" stop-color="#587DB5"/>
+    </linearGradient>
+    <linearGradient id="innerRing" x1="357" y1="332" x2="676" y2="691" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF" stop-opacity="0.96"/>
+      <stop offset="0.48" stop-color="#B9D0F2" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#5078B2" stop-opacity="0.90"/>
+    </linearGradient>
+    <filter id="moonGlow" x="48" y="26" width="928" height="928" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="52" flood-color="#75A8ED" flood-opacity="0.78"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="22" flood-color="#3F75C1" flood-opacity="0.62"/>
+    </filter>
+    <filter id="softHighlight" x="260" y="252" width="504" height="504" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#moonGlow)">
+    <circle cx="512" cy="490" r="348" fill="url(#outerRing)"/>
+    <circle cx="512" cy="490" r="324" fill="url(#moonFill)"/>
+    <circle cx="512" cy="490" r="311" stroke="url(#innerRing)" stroke-width="6"/>
+    <ellipse cx="414" cy="375" rx="142" ry="112" fill="#FFFFFF" fill-opacity="0.58" filter="url(#softHighlight)"/>
+    <circle cx="512" cy="490" r="288" fill="#FFFFFF" fill-opacity="0.10"/>
+  </g>
+</svg>

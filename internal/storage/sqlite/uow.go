@@ -10,12 +10,14 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
+	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/sessionapp"
+	"github.com/lunitide/lunitide/internal/stageapp"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -31,6 +33,10 @@ func (s *Store) DoProject(ctx context.Context, fn func(projectapp.Tx) error) (re
 }
 
 func (s *Store) DoSession(ctx context.Context, fn func(sessionapp.Tx) error) error {
+	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
+}
+
+func (s *Store) DoStage(ctx context.Context, fn func(stageapp.Tx) error) error {
 	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
 }
 
@@ -138,6 +144,42 @@ func (t *txAdapter) CreateSession(ctx context.Context, v session.Session) (sessi
 	if err == nil {
 		_, err = t.q.ExecContext(ctx, `INSERT INTO message_session_state(session_id,last_sequence,message_count,text_bytes) VALUES(?,0,0,0)`, v.ID)
 	}
+	return v, mapWriteError(err)
+}
+
+func (t *txAdapter) CreateStage(ctx context.Context, v stage.Stage) (stage.Stage, error) {
+	var exists int
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id=?`, v.ProjectID).Scan(&exists); err != nil {
+		return v, err
+	}
+	if exists != 1 {
+		return v, stageapp.ErrProjectNotFound
+	}
+	var conflict int
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM stages WHERE project_id=? AND phase=?`, v.ProjectID, v.Phase).Scan(&conflict); err != nil {
+		return v, err
+	}
+	if conflict != 0 {
+		return v, stageapp.ErrStagePhaseConflict
+	}
+	var err error
+	v.Title, err = stage.NormalizeTitle(v.Title)
+	if err != nil {
+		return v, err
+	}
+	v.ID, err = t.s.newULID(time.Now())
+	if err != nil {
+		return v, err
+	}
+	now := time.Now().UTC()
+	v.Status = stage.StatusNotStarted
+	v.CreatedAt = now
+	v.UpdatedAt = now
+	v.Version = 1
+	if err = v.Validate(); err != nil {
+		return v, err
+	}
+	_, err = t.q.ExecContext(ctx, `INSERT INTO stages(id,project_id,phase,title,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?,?)`, v.ID, v.ProjectID, v.Phase, v.Title, v.Status, formatTime(now), formatTime(now), v.Version)
 	return v, mapWriteError(err)
 }
 
@@ -456,5 +498,7 @@ var _ projectapp.UnitOfWork = (*Store)(nil)
 var _ projectapp.Tx = (*txAdapter)(nil)
 var _ sessionapp.UnitOfWork = (*Store)(nil)
 var _ sessionapp.Tx = (*txAdapter)(nil)
+var _ stageapp.UnitOfWork = (*Store)(nil)
+var _ stageapp.Tx = (*txAdapter)(nil)
 var _ messageapp.UnitOfWork = (*Store)(nil)
 var _ messageapp.Tx = (*txAdapter)(nil)

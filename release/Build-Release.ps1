@@ -48,6 +48,7 @@ try {
 } finally { $env:CGO_ENABLED=$oldCgo; $env:GOOS=$oldOs; $env:GOARCH=$oldArch; Pop-Location }
 & npm --prefix web run build; if ($LASTEXITCODE) { throw 'renderer build failed' }
 Copy-Item (Join-Path $root 'web\dist\*') (Join-Path $stage 'web\dist') -Recurse -Force
+Copy-Item (Join-Path $root 'resources\lunitide-icon.ico') $stage -Force
 
 $wvVersion='1.0.3537.50'; $wvHash='5ea526bbd728adda0da4d31219267e96460494a427e4894c4e09d9f320f4b9aa'
 $wvLoaderX64Hash='2f965e10aed3b356a408978a0e6d74eb86e3e722dd008fa9ad39f68884479e85'

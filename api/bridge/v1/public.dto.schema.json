@@ -155,6 +155,35 @@
       },
       "required": ["id", "sessionId", "role", "status", "sequence", "text", "createdAt"]
     },
+    "StageStatus": {
+      "enum": [
+        "not_started",
+        "in_progress",
+        "waiting_review",
+        "approved",
+        "completed",
+        "rejected",
+        "stale",
+        "paused",
+        "blocked",
+        "cancelled"
+      ]
+    },
+    "StageDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/ULID" },
+        "projectId": { "$ref": "#/$defs/ULID" },
+        "phase": { "type": "integer", "minimum": 1, "maximum": 9 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "status": { "$ref": "#/$defs/StageStatus" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "version": { "type": "integer", "const": 1 }
+      },
+      "required": ["id", "projectId", "phase", "title", "status", "createdAt", "updatedAt", "version"]
+    },
     "MigrationStatusDTO": {
       "type": "object",
       "additionalProperties": false,

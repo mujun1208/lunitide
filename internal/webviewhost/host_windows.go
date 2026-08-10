@@ -87,6 +87,37 @@ func DefaultRendererFolder() (string, error) {
 	return filepath.Join(filepath.Dir(exe), "web", "dist"), nil
 }
 
+// loadAppIcon loads the Lunitide application icon from the executable directory
+// (production) or the project resources directory (development). Returns 0 if
+// the icon cannot be found, allowing the window to fall back to the system default.
+func loadAppIcon() win32.HICON {
+	candidates := make([]string, 0, 2)
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "lunitide-icon.ico"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(wd, "resources", "lunitide-icon.ico"))
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		cx, _ := win32.GetSystemMetrics(win32.SM_CXICON)
+		cy, _ := win32.GetSystemMetrics(win32.SM_CYICON)
+		if cx <= 0 {
+			cx = 32
+		}
+		if cy <= 0 {
+			cy = 32
+		}
+		handle, _ := win32.LoadImageW(0, win32.StrToPwstr(p), win32.IMAGE_ICON, cx, cy, win32.LR_LOADFROMFILE)
+		if handle != 0 {
+			return win32.HICON(handle)
+		}
+	}
+	return 0
+}
+
 func New(gateway *hostbridge.Gateway, rendererFolder, userDataFolder string) (*Host, error) {
 	if gateway == nil {
 		return nil, errors.New("WebView2 gateway is required")
@@ -127,12 +158,20 @@ func (h *Host) Run(ctx context.Context) error {
 	instance, _ := win32.GetModuleHandle(nil)
 	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), Style: win32.CS_HREDRAW | win32.CS_VREDRAW, LpfnWndProc: syscall.NewCallback(windowProc), HInstance: instance, HbrBackground: win32.HBRUSH(win32.COLOR_WINDOW + 1), LpszClassName: win32.StrToPwstr(windowClass)}
 	wc.HCursor, _ = win32.LoadCursor(0, win32.IDC_ARROW)
+	if hIcon := loadAppIcon(); hIcon != 0 {
+		wc.HIcon = hIcon
+		wc.HIconSm = hIcon
+	}
 	if atom, _ := win32.RegisterClassEx(&wc); atom == 0 {
 		return errors.New("RegisterClassEx failed")
 	}
 	h.hwnd, _ = win32.CreateWindowEx(0, wc.LpszClassName, win32.StrToPwstr("Lunitide 月汐"), win32.WS_OVERLAPPEDWINDOW, win32.CW_USEDEFAULT, win32.CW_USEDEFAULT, 1280, 800, 0, 0, instance, nil)
 	if h.hwnd == 0 {
 		return errors.New("CreateWindowEx failed")
+	}
+	if hIcon := wc.HIcon; hIcon != 0 {
+		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_BIG), win32.LPARAM(hIcon))
+		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_SMALL), win32.LPARAM(hIcon))
 	}
 	hosts.Store(h.hwnd, h)
 	win32.ShowWindow(h.hwnd, win32.SW_SHOW)

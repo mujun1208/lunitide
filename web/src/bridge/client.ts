@@ -9,6 +9,7 @@ import {
   type ProjectCreatePayload, type ProjectCreateResult, type ProjectListPayload, type ProjectListResult,
   type SessionCreatePayload, type SessionCreateResult, type SessionListPayload, type SessionListResult,
   type MessageAppendPayload, type MessageAppendResult, type MessageListPayload, type MessageListResult,
+  type StageCreatePayload, type StageCreateResult, type StageListPayload, type StageListResult,
 } from '../generated/bridge'
 
 export class BridgeClientError extends Error {
@@ -23,7 +24,7 @@ export interface WebViewTransport {
 }
 declare global { interface Window { chrome?: { webview?: WebViewTransport } } }
 
-export type MutationMethod = 'project.create'|'session.create'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'
+export type MutationMethod = 'project.create'|'session.create'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -53,7 +54,7 @@ export interface ProjectBridge {
 }
 export interface SessionBridge { list(payload:SessionListPayload):Promise<SessionListResult>; create(payload:SessionCreatePayload,options?:MutationOptions<SessionCreatePayload>):Promise<SessionCreateResult> }
 export interface MessageBridge { list(payload:MessageListPayload):Promise<MessageListResult>; append(payload:MessageAppendPayload,options?:MutationOptions<MessageAppendPayload>):Promise<MessageAppendResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','message.append','provider.create','provider.update','provider.delete','provider.model.sync'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','message.append','provider.create','provider.update','provider.delete','provider.model.sync','stage.create'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -120,6 +121,19 @@ export function createMessageBridge(transport:WebViewTransport,defaultDeadlineMs
 let messageSingleton:MessageBridge|undefined
 export function getMessageBridge():MessageBridge{return messageSingleton??=createMessageBridge(webview())}
 export const messageBridge:MessageBridge={list:p=>getMessageBridge().list(p),append:(p,o)=>getMessageBridge().append(p,o)}
+
+const stageStatuses=['not_started','in_progress','waiting_review','approved','completed','rejected','stale','paused','blocked','cancelled']
+const isStage=(v:unknown,projectId:string)=>isObj(v)&&exact(v,['id','projectId','phase','title','status','createdAt','updatedAt','version'])&&isULID(v.id)&&v.projectId===projectId&&Number.isInteger(v.phase)&&Number(v.phase)>=1&&Number(v.phase)<=9&&typeof v.title==='string'&&v.title===normalizedProjectName(v.title)&&Array.from(v.title).length>=1&&Array.from(v.title).length<=200&&stageStatuses.includes(String(v.status))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&v.version===1
+export interface StageBridge { list(payload:StageListPayload):Promise<StageListResult>; create(payload:StageCreatePayload,options?:MutationOptions<StageCreatePayload>):Promise<StageCreateResult> }
+export function createStageBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):StageBridge{
+ const pending=new Map<string,{method:'stage.create'|'stage.list';projectId:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
+ transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const waiting=pending.get(raw.requestId)!;clearTimeout(waiting.timer);pending.delete(raw.requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,raw.requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}const valid=waiting.method==='stage.create'?isStage(raw.payload,waiting.projectId):isObj(raw.payload)&&exact(raw.payload,['items'])&&Array.isArray(raw.payload.items)&&raw.payload.items.length<=9&&raw.payload.items.every(v=>isStage(v,waiting.projectId));if(!valid){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
+ const request=<T>(method:'stage.create'|'stage.list',payload:StageCreatePayload|StageListPayload,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method==='stage.create'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,projectId:payload.projectId,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:p=>request('stage.list',p),create:(p,o)=>request('stage.create',p,o?.attempt)}
+}
+let stageSingleton:StageBridge|undefined
+export function getStageBridge():StageBridge{return stageSingleton??=createStageBridge(webview())}
+export const stageBridge:StageBridge={list:p=>getStageBridge().list(p),create:(p,o)=>getStageBridge().create(p,o)}
 
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}

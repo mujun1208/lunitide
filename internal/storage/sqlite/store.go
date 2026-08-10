@@ -20,6 +20,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
+	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -152,6 +153,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0014_memory.sql", "9c568f2422970421a9a30b34a096510af622b74961c3cad583a4cee206f03796"},
 	{"0015_ontology.sql", "9bbd48db722e2e896367cb0c3e658c58d4564d213aadfa6955d7499dc0d7cdd9"},
 	{"0016_skill.sql", "3c1b38188bc150f201a94daa5993626738154af2e6811edd66ccd56121455e58"},
+	{"0017_stage.sql", "d2112f8276a176f84eab1c10bcb51cbbd3099fe1f5b4238873b1059b7af0d8ed"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -527,6 +529,39 @@ func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 	if err = rows.Close(); err != nil {
 		return err
 	}
+	rows, err = q.QueryContext(ctx, `SELECT id,project_id,phase,title,status,created_at,updated_at,version FROM stages`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var v stage.Stage
+		var created, updated string
+		if err = rows.Scan(&v.ID, &v.ProjectID, &v.Phase, &v.Title, &v.Status, &created, &updated, &v.Version); err != nil {
+			rows.Close()
+			return err
+		}
+		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("stage data invariant violation: %w", err)
+		}
+		v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("stage data invariant violation: %w", err)
+		}
+		if err = v.Validate(); err != nil {
+			rows.Close()
+			return fmt.Errorf("stage data invariant violation: %w", err)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("stage data invariant validation failed: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
 	rows, err = q.QueryContext(ctx, `SELECT m.id,m.session_id,m.role,m.status,m.sequence,MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END),m.created_at,count(p.message_id),count(CASE WHEN p.ordinal=1 AND p.type='text' THEN 1 END) FROM messages m LEFT JOIN message_parts p ON p.message_id=m.id GROUP BY m.id ORDER BY m.session_id,m.sequence`)
 	if err != nil {
 		return err
@@ -750,9 +785,9 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_token_ledger_message":                               "CREATE INDEX ix_token_ledger_message ON token_ledger(message_id)",
 	"index:ix_token_ledger_computed":                              "CREATE INDEX ix_token_ledger_computed ON token_ledger(computed_at)",
 	"table:token_ledger":                                          "CREATE TABLE token_ledger (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,\n    provider TEXT NOT NULL DEFAULT '' CHECK (length(provider) <= 128),\n    model TEXT NOT NULL DEFAULT '' CHECK (length(model) <= 128),\n    tokenizer_revision TEXT NOT NULL DEFAULT '' CHECK (length(tokenizer_revision) <= 64),\n    token_count INTEGER NOT NULL CHECK (token_count >= 0),\n    estimation_method TEXT NOT NULL CHECK (estimation_method IN ('char-ratio', 'tiktoken', 'provider-reported', 'manual')),\n    utf8_bytes INTEGER NOT NULL CHECK (utf8_bytes >= 0),\n    computed_at TEXT NOT NULL,\n    UNIQUE (message_id, provider, model, tokenizer_revision)\n)",
-	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created', 'message.appended')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
+	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created', 'message.appended', 'stage.created', 'stage.updated')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
 	"table:credential_adoptions":                                  "CREATE TABLE credential_adoptions (\n    credential_ref TEXT PRIMARY KEY CHECK (length(credential_ref) BETWEEN 1 AND 256),\n    provider_id TEXT NOT NULL REFERENCES providers(id),\n    origin TEXT NOT NULL CHECK (length(origin) BETWEEN 1 AND 2048),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    receipt_id TEXT NOT NULL UNIQUE CHECK (length(receipt_id) BETWEEN 1 AND 64),\n    adopted_at TEXT NOT NULL\n)",
-	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create', 'message.append')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
+	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create', 'message.append', 'stage.create')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:idempotency_claims":                                    "CREATE TABLE idempotency_claims (\n    operation TEXT NOT NULL CHECK (operation = 'provider.model.sync'),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    owner TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:outbox_events":                                         "CREATE TABLE outbox_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    topic TEXT NOT NULL CHECK (length(topic) BETWEEN 1 AND 128),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 2 AND 65536),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'dead_letter')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 1000),\n    available_at TEXT NOT NULL,\n    lease_owner TEXT CHECK (lease_owner IS NULL OR length(lease_owner) BETWEEN 1 AND 128),\n    lease_until TEXT,\n    last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 2000),\n    created_at TEXT NOT NULL,\n    completed_at TEXT,\n    CHECK ((status = 'claimed') = (lease_owner IS NOT NULL AND lease_until IS NOT NULL)),\n    CHECK ((status IN ('completed', 'failed', 'dead_letter')) = (completed_at IS NOT NULL))\n)",
 	"table:provider_tests":                                        "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
@@ -794,6 +829,8 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_ontology_edges_source":                              "CREATE INDEX ix_ontology_edges_source ON ontology_edges(source_node_id)",
 	"index:ix_ontology_edges_target":                              "CREATE INDEX ix_ontology_edges_target ON ontology_edges(target_node_id)",
 	"index:ux_skills_name_version":                                "CREATE UNIQUE INDEX ux_skills_name_version ON skills(name, version)",
+	"table:stages":                                                "CREATE TABLE stages (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    phase INTEGER NOT NULL CHECK (phase BETWEEN 1 AND 9),\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200 AND title = trim(title)),\n    status TEXT NOT NULL DEFAULT 'not_started' CHECK (status IN ('not_started', 'in_progress', 'waiting_review', 'approved', 'completed', 'rejected', 'stale', 'paused', 'blocked', 'cancelled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    UNIQUE (project_id, phase)\n)",
+	"index:ix_stages_project_phase":                               "CREATE INDEX ix_stages_project_phase ON stages(project_id, phase, id)",
 }
 
 type columnSpec struct {
@@ -831,6 +868,7 @@ var expectedColumns = map[string][]columnSpec{
 	"ontology_nodes":                    {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"full_path", "TEXT", "''", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"metadata_json", "TEXT", "'{}'", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"ontology_edges":                    {{"id", "TEXT", "", 0, 1, 0}, {"source_node_id", "TEXT", "", 1, 0, 0}, {"target_node_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"label", "TEXT", "''", 1, 0, 0}, {"properties_json", "TEXT", "'{}'", 1, 0, 0}, {"weight", "REAL", "1.0", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"skills":                            {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'draft'", 1, 0, 0}, {"permissions_json", "TEXT", "", 1, 0, 0}, {"entry_point", "TEXT", "", 1, 0, 0}, {"manifest_json", "TEXT", "", 1, 0, 0}, {"signature", "TEXT", "", 0, 0, 0}, {"publisher_id", "TEXT", "", 0, 0, 0}, {"min_engine_version", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"stages":                            {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"phase", "INTEGER", "", 1, 0, 0}, {"title", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'not_started'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
 }
 
 func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
@@ -890,7 +928,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills"} {
+	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "stages"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -936,6 +974,14 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 		return 0, "", fmt.Errorf("sessions foreign key set mismatch: %w", err)
 	}
 	canonical = append(canonical, fmt.Sprintf("fk:sessions:%d:%d:%s:%s:%s:%s:%s:%s", id, seq, table, from, to, update, del, match))
+	// stages FK: project_id → projects
+	if err := q.QueryRowContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('stages')`).Scan(&id, &seq, &table, &from, &to, &update, &del, &match); err != nil || id != 0 || seq != 0 || table != "projects" || from != "project_id" || to != "id" || update != "NO ACTION" || del != "RESTRICT" || match != "NONE" {
+		return 0, "", fmt.Errorf("stages foreign key mismatch: %w", err)
+	}
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('stages')`).Scan(&count); err != nil || count != 1 {
+		return 0, "", fmt.Errorf("stages foreign key set mismatch: %w", err)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:stages:%d:%d:%s:%s:%s:%s:%s:%s", id, seq, table, from, to, update, del, match))
 	// compaction_checkpoints FKs: session_id, source_start_id, source_end_id, prev_checkpoint_id
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('compaction_checkpoints')`).Scan(&count); err != nil || count != 4 {
 		return 0, "", fmt.Errorf("compaction_checkpoints FK set mismatch: count=%d err=%w", count, err)

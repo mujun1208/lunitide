@@ -1,8 +1,8 @@
 param([Parameter(Mandatory)][string]$Stage,[string]$Version,[switch]$VerifyManifest,[switch]$Installed,[string]$ExpectedSignerThumbprint)
 $ErrorActionPreference='Stop'; $Stage=(Resolve-Path $Stage).Path
-$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt')
+$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt')
 foreach($f in $required){if(-not(Test-Path (Join-Path $Stage $f)-PathType Leaf)){throw "Missing staged file: $f"}}
-$allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','SHA256SUMS.txt')
+$allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','SHA256SUMS.txt')
 if($Installed){$allowedRootFiles += @('Uninstall.exe','.lunitide-install-owner')}
 $files=Get-ChildItem $Stage -File -Recurse
 foreach($item in $files){

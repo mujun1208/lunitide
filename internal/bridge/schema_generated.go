@@ -25,6 +25,8 @@ const (
 	MethodProviderUpdate           Method = "provider.update"
 	MethodSessionCreate            Method = "session.create"
 	MethodSessionList              Method = "session.list"
+	MethodStageCreate              Method = "stage.create"
+	MethodStageList                Method = "stage.list"
 	MethodStreamCancel             Method = "stream.cancel"
 	MethodSystemHealth             Method = "system.health"
 )
@@ -54,9 +56,11 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodProviderUpdate:           {Owner: "engine", Enabled: true},
 	MethodSessionCreate:            {Owner: "engine", Enabled: true},
 	MethodSessionList:              {Owner: "engine", Enabled: true},
+	MethodStageCreate:              {Owner: "engine", Enabled: true},
+	MethodStageList:                {Owner: "engine", Enabled: true},
 	MethodStreamCancel:             {Owner: "engine", Enabled: true},
 	MethodSystemHealth:             {Owner: "engine", Enabled: true},
 }
-var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodSessionCreate, MethodSessionList, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodSessionCreate, MethodSessionList, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

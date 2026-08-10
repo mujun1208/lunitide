@@ -52,6 +52,8 @@
         "provider.update",
         "session.create",
         "session.list",
+        "stage.create",
+        "stage.list",
         "stream.cancel",
         "system.health"
       ]

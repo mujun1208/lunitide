@@ -16,6 +16,9 @@
       "minLength": 1,
       "maxLength": 128
     },
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
     "messages": {
       "type": "array",
       "minItems": 1,
@@ -46,9 +49,9 @@
   },
   "required": [
     "providerId",
-    "modelId",
-    "messages"
+    "modelId"
   ],
+  "minProperties": 3,
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -72,11 +75,20 @@
             "content": "x"
           }
         ]
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA"
       }
     ],
     "negative": [
       {
         "unexpected": true
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x"
       }
     ]
   }
