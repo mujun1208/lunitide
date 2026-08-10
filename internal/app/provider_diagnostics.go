@@ -271,6 +271,12 @@ func diagnosticResult(err error, latency time.Duration, testedAt time.Time) diag
 		d.Retryable = code == networkpolicy.CodeTimeout || code == networkpolicy.CodeConnectionRefused || code == networkpolicy.CodeDNSError
 	} else {
 		d.Stage = "resolve"
+		msg := err.Error()
+		// Truncate to avoid leaking stack traces or long messages.
+		if len(msg) > 200 {
+			msg = msg[:200]
+		}
+		d.SanitizedMessage = "内部错误: " + msg
 	}
 	return d
 }

@@ -88,7 +88,7 @@ func main() {
 	messageService, err := messageapp.New(store, store, cursorKey)
 	secret.Zero(cursorKey)
 	if err != nil { log.Fatal(err) }
-	engine := app.NewEngineWithMessages(providerService, projectService, sessionService, messageService, buildinfo.Version, leaseClient)
+	engine := app.NewEngineWithContextReader(providerService, projectService, sessionService, messageService, store.ContextReader(), store, buildinfo.Version, leaseClient)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

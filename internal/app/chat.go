@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -23,20 +24,14 @@ type streamParentKey struct{}
 
 func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var p struct {
-		ProviderID string            `json:"providerId"`
-		ModelID    string            `json:"modelId"`
-		Messages   []gateway.Message `json:"messages"`
+		ProviderID string `json:"providerId"`
+		ModelID    string `json:"modelId"`
+		SessionID  string `json:"sessionId"`
 	}
-	if decodePayload(request.Payload, &p) != nil || len(p.Messages) < 1 || len(p.Messages) > 32 || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
+	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 || !ulidValid(p.SessionID) {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
 	}
-	totalBytes := len(p.ModelID)
-	for _, m := range p.Messages {
-		totalBytes += len(m.Content)
-		if (m.Role != gateway.RoleSystem && m.Role != gateway.RoleUser && m.Role != gateway.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
-			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
-		}
-	}
+
 	item, err := e.providers.Get(ctx, p.ProviderID)
 	if err != nil {
 		return providerFailure(request, err)
@@ -47,10 +42,60 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !storedModel(item, p.ModelID) {
 		return bridge.Failure(request.ID, request.TraceID, "MODEL_NOT_FOUND", "模型不属于该供应商", false)
 	}
+
 	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 	if !ok {
 		return bridge.Failure(request.ID, request.TraceID, "STREAM_UNAVAILABLE", "流事件通道不可用", true)
 	}
+
+	// Assemble durable session context via the context assembler.
+	var messages []gateway.Message
+	if e.messageReader != nil {
+		providerInfo := contextapp.ProviderInfo{
+			Provider:          string(item.Protocol),
+			Model:             p.ModelID,
+			ContextWindow:     128000,
+			SafetyCeiling:     120000,
+			ReservedOutput:    4096,
+			SystemTokens:      0,
+			SafetyMargin:      1024,
+		}
+		assembled, assembleErr := contextapp.Assemble(ctx, e.messageReader, p.SessionID, providerInfo, contextapp.AssembleOptions{})
+		if assembleErr != nil {
+			return bridge.Failure(request.ID, request.TraceID, "CONTEXT_ASSEMBLY_FAILED", "上下文装配失败: "+assembleErr.Error(), true)
+		}
+		messages = make([]gateway.Message, len(assembled))
+		for i, m := range assembled {
+			messages[i] = gateway.Message{
+				Role:    gatewayRole(m.Role),
+				Content: m.Content,
+			}
+		}
+	} else {
+		// Fallback: accept direct messages when no context reader is wired.
+		// This path supports tests and incremental adoption.
+		var legacy struct {
+			ProviderID string            `json:"providerId"`
+			ModelID    string            `json:"modelId"`
+			Messages   []gateway.Message `json:"messages"`
+		}
+		if decodePayload(request.Payload, &legacy) != nil || len(legacy.Messages) < 1 || len(legacy.Messages) > 32 {
+			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
+		}
+		totalBytes := len(legacy.ModelID)
+		for _, m := range legacy.Messages {
+			totalBytes += len(m.Content)
+			if (m.Role != gateway.RoleSystem && m.Role != gateway.RoleUser && m.Role != gateway.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
+				return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
+			}
+		}
+		messages = legacy.Messages
+	}
+
+	if len(messages) == 0 {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息", false)
+	}
+
 	e.streamsMu.Lock()
 	if len(e.streams) >= e.maxStreams {
 		e.streamsMu.Unlock()
@@ -65,8 +110,20 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	state := &streamState{cancel: cancel}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
-	go e.runStream(streamCtx, streamID, state, item, gateway.Request{Model: p.ModelID, Messages: p.Messages, MaxAttempts: 1}, emit)
+	go e.runStream(streamCtx, streamID, state, item, gateway.Request{Model: p.ModelID, Messages: messages, MaxAttempts: 1}, emit)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
+}
+
+// gatewayRole converts a contextapp role string to a gateway.Role.
+func gatewayRole(role string) gateway.Role {
+	switch role {
+	case "system":
+		return gateway.RoleSystem
+	case "assistant":
+		return gateway.RoleAssistant
+	default:
+		return gateway.RoleUser
+	}
 }
 
 func handleStreamCancel(e *Engine, _ context.Context, request bridge.Request) bridge.Response {

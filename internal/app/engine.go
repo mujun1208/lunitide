@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
+	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -61,6 +63,8 @@ type Engine struct {
 	projects       ProjectService
 	sessions       SessionService
 	messages       MessageService
+	messageReader  contextapp.Reader
+	tokenRepo      token.Repository
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -158,6 +162,15 @@ func NewEngineWithSessions(providers ProviderService, projects ProjectService, s
 func NewEngineWithMessages(providers ProviderService, projects ProjectService, sessions SessionService, messages MessageService, version string, leases LeaseClient) *Engine {
 	e := NewEngineWithSessions(providers, projects, sessions, version, leases)
 	e.messages = messages
+	return e
+}
+
+// NewEngineWithContextReader builds an Engine that can assemble durable
+// session context for chat via the contextapp.Reader and token.Repository.
+func NewEngineWithContextReader(providers ProviderService, projects ProjectService, sessions SessionService, messages MessageService, messageReader contextapp.Reader, tokenRepo token.Repository, version string, leases LeaseClient) *Engine {
+	e := NewEngineWithMessages(providers, projects, sessions, messages, version, leases)
+	e.messageReader = messageReader
+	e.tokenRepo = tokenRepo
 	return e
 }
 
