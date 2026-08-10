@@ -274,18 +274,35 @@ func TestQueueSaturationStillDeliversExactlyOneTerminal(t *testing.T) {
 	caller := &streamingCaller{events: make(chan bridge.Event, eventQueueCapacity*2), release: make(chan struct{})}
 	g, _ := New("https://app.lunitide.local", caller)
 	streamID := ulid.Make().String()
+	owner := activeOwner(g.generation)
+	owner.admitted = true
 	g.streamsMu.Lock()
-	g.streams[streamID] = activeOwner(g.generation)
+	g.streams[streamID] = owner
+	g.outstanding = 1
+	g.reservations = 1
 	g.streamsMu.Unlock()
-	for i := 0; i < cap(g.events); i++ {
-		g.events <- RoutedEvent{}
-	}
 	for i := 1; i <= eventQueueCapacity+2; i++ {
 		caller.events <- bridge.Event{StreamID: streamID, Sequence: uint64(i), Type: bridge.EventDelta}
 	}
+
+	g.streamsMu.Lock()
+	for !owner.terminalQueued {
+		g.eventChanged.Wait()
+	}
+	queued := len(g.eventQueue)
+	queuedOverflowTerminals := 0
+	for _, routed := range g.eventQueue {
+		if routed.Event.StreamID == streamID && routed.Event.Type == bridge.EventFailed && routed.Event.Error != nil && routed.Event.Error.Code == "HOST_EVENT_OVERFLOW" {
+			queuedOverflowTerminals++
+		}
+	}
+	g.streamsMu.Unlock()
+	if queuedOverflowTerminals != 1 {
+		t.Fatalf("queued overflow terminals=%d want=1", queuedOverflowTerminals)
+	}
+
 	terminals := 0
-	deadline := time.Now().Add(2 * time.Second)
-	for terminals == 0 && time.Now().Before(deadline) {
+	for i := 0; i < queued; i++ {
 		select {
 		case routed := <-g.Events():
 			routed.Acknowledge(true)
@@ -295,11 +312,12 @@ func TestQueueSaturationStillDeliversExactlyOneTerminal(t *testing.T) {
 					t.Fatalf("unexpected overflow terminal: %#v", routed)
 				}
 			}
-		case <-time.After(10 * time.Millisecond):
+		case <-time.After(time.Second):
+			t.Fatalf("timed out draining queued event %d of %d", i+1, queued)
 		}
 	}
 	if terminals != 1 {
-		t.Fatalf("overflow terminals=%d want=1", terminals)
+		t.Fatalf("delivered overflow terminals=%d want=1", terminals)
 	}
 }
 

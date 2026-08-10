@@ -14,6 +14,7 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -79,7 +80,8 @@ func main() {
 	go func() { <-ctx.Done(); listener.Close() }()
 	fmt.Println("lunitide-engine ready")
 	providerService := providerapp.New(store, store)
-	engine := app.NewEngineWithGateway(providerService, buildinfo.Version, leaseClient)
+	projectService := projectapp.New(store, store)
+	engine := app.NewEngineWithProjects(providerService, projectService, buildinfo.Version, leaseClient)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

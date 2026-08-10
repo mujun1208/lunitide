@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -26,6 +27,11 @@ type ProviderService interface {
 	UpdateRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
 	DeleteRequest(context.Context, string, string, any, string, int64) (provider.Provider, error)
 }
+type ProjectService interface {
+	Create(context.Context, string, string, any, project.Project) (project.Project, error)
+	List(context.Context, project.Filter) ([]project.Project, error)
+}
+
 type credentialLifecycleService interface {
 	UpdateCredentialRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
 	DeleteCoordinatedRequest(context.Context, string, string, any, string, int64, *secret.Ref) (provider.Provider, error)
@@ -41,6 +47,7 @@ type electronCredentialMigrationService interface {
 
 type Engine struct {
 	providers      ProviderService
+	projects       ProjectService
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -83,6 +90,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProviderModelSync: handleProviderModelSync,
 	bridge.MethodProviderTest:      handleProviderTest,
 	bridge.MethodProviderUpdate:    handleProviderUpdate,
+	bridge.MethodProjectCreate:     handleProjectCreate,
+	bridge.MethodProjectList:       handleProjectList,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -115,6 +124,12 @@ type providerDTO struct {
 
 func NewEngine(providers ProviderService, version string) *Engine {
 	return &Engine{providers: providers, version: version, streams: make(map[string]*streamState), maxStreams: 32}
+}
+
+func NewEngineWithProjects(providers ProviderService, projects ProjectService, version string, leases LeaseClient) *Engine {
+	e := NewEngineWithGateway(providers, version, leases)
+	e.projects = projects
+	return e
 }
 
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
@@ -271,6 +286,9 @@ func emptyObject(raw json.RawMessage) bool {
 }
 
 func decodePayload(raw json.RawMessage, target any) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || len(bytes.TrimSpace(raw)) == 0 {
+		return errors.New("payload must be a non-null JSON value")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

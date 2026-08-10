@@ -7,7 +7,11 @@
   "$defs": {
     "ULID": {
       "type": "string",
-      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "x-examples": {
+        "positive": ["01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+        "negative": ["81ARZ3NDEKTSV4RRFFQ69G5FAV"]
+      }
     },
     "ProviderProtocol": {
       "enum": [
@@ -112,6 +116,22 @@
         "updatedAt",
         "version"
       ]
+    },
+    "ProjectStatus": {
+      "enum": ["active", "archived"]
+    },
+    "ProjectDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/ULID" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "status": { "$ref": "#/$defs/ProjectStatus" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "version": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["id", "name", "status", "createdAt", "updatedAt", "version"]
     },
     "MigrationStatusDTO": {
       "type": "object",

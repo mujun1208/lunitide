@@ -11,6 +11,8 @@ const (
 	MethodMigrationInspect         Method = "migration.inspect"
 	MethodMigrationRun             Method = "migration.run"
 	MethodMigrationStatus          Method = "migration.status"
+	MethodProjectCreate            Method = "project.create"
+	MethodProjectList              Method = "project.list"
 	MethodProviderCreate           Method = "provider.create"
 	MethodProviderCredentialSubmit Method = "provider.credential.submit"
 	MethodProviderDelete           Method = "provider.delete"
@@ -34,6 +36,8 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodMigrationInspect:         {Owner: "engine", Enabled: false},
 	MethodMigrationRun:             {Owner: "engine", Enabled: false},
 	MethodMigrationStatus:          {Owner: "engine", Enabled: false},
+	MethodProjectCreate:            {Owner: "engine", Enabled: true},
+	MethodProjectList:              {Owner: "engine", Enabled: true},
 	MethodProviderCreate:           {Owner: "engine", Enabled: true},
 	MethodProviderCredentialSubmit: {Owner: "host", Enabled: true},
 	MethodProviderDelete:           {Owner: "engine", Enabled: true},
@@ -45,6 +49,6 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodStreamCancel:             {Owner: "engine", Enabled: true},
 	MethodSystemHealth:             {Owner: "engine", Enabled: true},
 }
-var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodStreamCancel, MethodSystemHealth}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

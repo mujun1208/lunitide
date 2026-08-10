@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -130,6 +131,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0004_model_sync_claims.sql", "160970b0aac29327774957e19acebdbb1b2f463a3c742c772e4809c29096ffff"},
 	{"0005_electron_provider_metadata.sql", "8b9ab1a5b7600555a7674113fa2b1cee106e16274629b4957d4d92234439fb1f"},
 	{"0006_electron_credential_adoption.sql", "0417131a4abe5e9d2c5f70809c542a0bdde36385dc710ef031bf84c39ad0a936"},
+	{"0007_project.sql", "eb31143f8347a75a3abee8670fd8c9a047fe712db64c4e8378720d08698864a3"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -437,6 +439,35 @@ func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 	if bad != 0 {
 		return fmt.Errorf("provider data invariant violation: %d invalid provider graphs", bad)
 	}
+	rows, err := q.QueryContext(ctx, `SELECT id,name,status,created_at,updated_at,version FROM projects`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		count++
+		var p project.Project
+		var created, updated string
+		if err = rows.Scan(&p.ID, &p.Name, &p.Status, &created, &updated, &p.Version); err != nil {
+			return err
+		}
+		if p.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
+			return fmt.Errorf("project data invariant violation: invalid created_at: %w", err)
+		}
+		if p.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
+			return fmt.Errorf("project data invariant violation: invalid updated_at: %w", err)
+		}
+		if err = p.Validate(); err != nil {
+			return fmt.Errorf("project data invariant violation: %w", err)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if count > 100 {
+		return fmt.Errorf("project data invariant violation: capacity %d exceeds 100", count)
+	}
 	return nil
 }
 
@@ -562,9 +593,10 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_provider_metadata_migration_items_legacy":           "CREATE INDEX ix_provider_metadata_migration_items_legacy ON provider_metadata_migration_items(legacy_id)",
 	"index:ix_provider_metadata_migration_items_credential_state": "CREATE INDEX ix_provider_metadata_migration_items_credential_state\n    ON provider_metadata_migration_items(credential_migration_state, source_fingerprint)",
 	"index:ix_credential_adoptions_provider":                      "CREATE INDEX ix_credential_adoptions_provider ON credential_adoptions(provider_id)",
-	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_projects_status_created":                            "CREATE INDEX ix_projects_status_created ON projects(status, created_at, id)",
+	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
 	"table:credential_adoptions":                                  "CREATE TABLE credential_adoptions (\n    credential_ref TEXT PRIMARY KEY CHECK (length(credential_ref) BETWEEN 1 AND 256),\n    provider_id TEXT NOT NULL REFERENCES providers(id),\n    origin TEXT NOT NULL CHECK (length(origin) BETWEEN 1 AND 2048),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    receipt_id TEXT NOT NULL UNIQUE CHECK (length(receipt_id) BETWEEN 1 AND 64),\n    adopted_at TEXT NOT NULL\n)",
-	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
+	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:idempotency_claims":                                    "CREATE TABLE idempotency_claims (\n    operation TEXT NOT NULL CHECK (operation = 'provider.model.sync'),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    owner TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:outbox_events":                                         "CREATE TABLE outbox_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    topic TEXT NOT NULL CHECK (length(topic) BETWEEN 1 AND 128),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 2 AND 65536),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'dead_letter')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 1000),\n    available_at TEXT NOT NULL,\n    lease_owner TEXT CHECK (lease_owner IS NULL OR length(lease_owner) BETWEEN 1 AND 128),\n    lease_until TEXT,\n    last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 2000),\n    created_at TEXT NOT NULL,\n    completed_at TEXT,\n    CHECK ((status = 'claimed') = (lease_owner IS NOT NULL AND lease_until IS NOT NULL)),\n    CHECK ((status IN ('completed', 'failed', 'dead_letter')) = (completed_at IS NOT NULL))\n)",
 	"table:provider_tests":                                        "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
@@ -572,6 +604,7 @@ var expectedSchemaSQL = map[string]string{
 	"table:provider_metadata_migration_items":                     "CREATE TABLE provider_metadata_migration_items (\n    source_fingerprint TEXT NOT NULL REFERENCES provider_metadata_migrations(source_fingerprint) ON DELETE CASCADE,\n    item_fingerprint TEXT NOT NULL CHECK (length(item_fingerprint) = 64 AND item_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    legacy_id TEXT NOT NULL CHECK (length(legacy_id) BETWEEN 1 AND 128),\n    result TEXT NOT NULL CHECK (result IN ('imported', 'duplicate', 'conflict')),\n    provider_id TEXT,\n    detail_code TEXT NOT NULL CHECK (length(detail_code) BETWEEN 1 AND 64), credential_migration_state TEXT NOT NULL DEFAULT 'none'\n    CHECK (credential_migration_state IN ('pending', 'adopted', 'superseded', 'rejected', 'none')), credential_receipt_id TEXT\n    CHECK (credential_receipt_id IS NULL OR length(credential_receipt_id) BETWEEN 1 AND 64), credential_updated_at TEXT,\n    PRIMARY KEY (source_fingerprint, item_fingerprint)\n)",
 	"table:provider_models":                                       "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49),\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
 	"table:providers":                                             "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
+	"table:projects":                                              "CREATE TABLE projects (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200 AND name = trim(name)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
 	"table:schema_migrations":                                     "CREATE TABLE schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL, checksum TEXT)",
 }
 
@@ -592,6 +625,7 @@ var expectedColumns = map[string][]columnSpec{
 	"outbox_events":                     {{"id", "TEXT", "", 0, 1, 0}, {"topic", "TEXT", "", 1, 0, 0}, {"aggregate_id", "TEXT", "", 1, 0, 0}, {"payload_json", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"attempts", "INTEGER", "0", 1, 0, 0}, {"available_at", "TEXT", "", 1, 0, 0}, {"lease_owner", "TEXT", "", 0, 0, 0}, {"lease_until", "TEXT", "", 0, 0, 0}, {"last_error", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"completed_at", "TEXT", "", 0, 0, 0}},
 	"audit_events":                      {{"id", "TEXT", "", 0, 1, 0}, {"action", "TEXT", "", 1, 0, 0}, {"aggregate_id", "TEXT", "", 1, 0, 0}, {"actor", "TEXT", "", 1, 0, 0}, {"metadata_json", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
 	"credential_adoptions":              {{"credential_ref", "TEXT", "", 0, 1, 0}, {"provider_id", "TEXT", "", 1, 0, 0}, {"origin", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"receipt_id", "TEXT", "", 1, 0, 0}, {"adopted_at", "TEXT", "", 1, 0, 0}},
+	"projects":                          {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
 }
 
 func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
@@ -628,7 +662,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
+	for _, table := range []string{"providers", "provider_models", "projects", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -682,6 +716,48 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(canonical, "\n")))
 	return version, hex.EncodeToString(sum[:]), nil
+}
+
+func (s *Store) ListProjects(ctx context.Context, filter project.Filter) ([]project.Project, error) {
+	query := `SELECT id,name,status,created_at,updated_at,version FROM projects`
+	args := []any{}
+	if filter.Status != "" {
+		query += ` WHERE status=?`
+		args = append(args, filter.Status)
+	}
+	query += ` ORDER BY created_at,id LIMIT 101`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []project.Project{}
+	for rows.Next() {
+		var p project.Project
+		var created, updated string
+		if err = rows.Scan(&p.ID, &p.Name, &p.Status, &created, &updated, &p.Version); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, err
+		}
+		p.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		if err = p.Validate(); err != nil {
+			return nil, err
+		}
+		items = append(items, p)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) > 100 {
+		return nil, errors.New("project data invariant violation: list exceeds capacity")
+	}
+	return items, nil
 }
 
 func (s *Store) List(ctx context.Context, filter provider.Filter) ([]provider.Provider, error) {

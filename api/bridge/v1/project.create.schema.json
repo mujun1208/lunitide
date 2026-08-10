@@ -1,0 +1,10 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://lunitide.local/schema/bridge/v1/project.create.schema.json",
+  "title":"project.create payload","x-method":"project.create","x-owner":"engine","x-enabled":true,
+  "type":"object","additionalProperties":false,
+  "properties":{"name":{"type":"string","minLength":1,"maxLength":200}},
+  "required":["name"],
+  "x-result":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"},
+  "x-examples":{"positive":[{"name":"My Project"}],"negative":[{"name":""}]}
+}

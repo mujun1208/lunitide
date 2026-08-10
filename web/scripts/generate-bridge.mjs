@@ -50,7 +50,7 @@ const assert = (condition, message) => { if (!condition) throw new Error(`Bridge
 const ulidRef = schema => refEndsWith(schema, '#/$defs/ULID')
 const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 && schema.maxItems === 50 && refEndsWith(schema.items, '#/$defs/ModelDTO')
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
-assert(JSON.stringify(enabled) === JSON.stringify(['chat.start', 'provider.create', 'provider.credential.submit', 'provider.delete', 'provider.get', 'provider.list', 'provider.model.sync', 'provider.test', 'provider.update', 'stream.cancel', 'system.health']), 'enabled method set drift')
+assert(JSON.stringify(enabled) === JSON.stringify(['chat.start', 'project.create', 'project.list', 'provider.create', 'provider.credential.submit', 'provider.delete', 'provider.get', 'provider.list', 'provider.model.sync', 'provider.test', 'provider.update', 'stream.cancel', 'system.health']), 'enabled method set drift')
 assert(methodSchemas.every(schema => schema['x-owner'] === (['provider.credential.submit', 'diagnostics.export'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
 assert(refEndsWith(props(providerList).protocol, '#/$defs/ProviderProtocol'), 'provider.list protocol must explicitly reference ProviderProtocol')
 assert(props(methodSchema('system.health')['x-result']).protocol?.const === bridgeVersion, 'system.health result protocol must be the Bridge version')

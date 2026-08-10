@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -117,6 +116,21 @@ func putCleanup(ctx context.Context, tx Tx, ref secret.Ref, now time.Time, diges
 
 const MaxIdempotencyKeyBytes = 128
 
+// ValidIdempotencyKey accepts 1-128 bytes of printable ASCII (U+0021-U+007E).
+// Restricting keys to visible single-byte characters keeps Bridge, Go, and
+// SQLite length units identical and avoids whitespace/control-character keys.
+func ValidIdempotencyKey(k string) bool {
+	if len(k) < 1 || len(k) > MaxIdempotencyKeyBytes {
+		return false
+	}
+	for i := 0; i < len(k); i++ {
+		if k[i] < 0x21 || k[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 type Service struct {
 	read  Reader
 	uow   UnitOfWork
@@ -202,7 +216,7 @@ func digest(v any) (string, []byte, error) {
 	return hex.EncodeToString(h[:]), b, nil
 }
 func key(k string) error {
-	if strings.TrimSpace(k) == "" || len(k) > MaxIdempotencyKeyBytes {
+	if !ValidIdempotencyKey(k) {
 		return ErrIdempotencyKeyRequired
 	}
 	return nil

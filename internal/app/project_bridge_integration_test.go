@@ -1,0 +1,157 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/providerapp"
+	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+)
+
+func TestProjectBridgeCreateReplayConflictAndList(t *testing.T) {
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+	r := validRequest("project.create", `{"name":"  Alpha   Project  "}`)
+	r.IdempotencyKey = "project-key"
+	first := e.Handle(context.Background(), r)
+	if !first.OK {
+		t.Fatalf("create: %#v", first)
+	}
+	second := e.Handle(context.Background(), r)
+	if !second.OK {
+		t.Fatalf("replay: %#v", second)
+	}
+	a, _ := json.Marshal(first.Payload)
+	b, _ := json.Marshal(second.Payload)
+	if string(a) != string(b) {
+		t.Fatalf("replay differs: %s / %s", a, b)
+	}
+	r.Payload = json.RawMessage(`{"name":"Different"}`)
+	conflict := e.Handle(context.Background(), r)
+	if conflict.OK || conflict.Error.Code != "IDEMPOTENCY_CONFLICT" {
+		t.Fatalf("conflict: %#v", conflict)
+	}
+	listed := e.Handle(context.Background(), validRequest("project.list", `{}`))
+	if !listed.OK {
+		t.Fatalf("list: %#v", listed)
+	}
+}
+
+func TestProjectBridgeRejectsNullAndOversizedPayloads(t *testing.T) {
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-invalid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+	for _, tc := range []struct {
+		name, method, payload string
+	}{
+		{"create-null", "project.create", `null`},
+		{"list-null", "project.list", `null`},
+		{"raw-name-over-200", "project.create", `{"name":"` + strings.Repeat(" ", 200) + `A"}`},
+		{"normalized-name-over-200", "project.create", `{"name":"` + strings.Repeat("A", 201) + `"}`},
+		{"forged-create-status", "project.create", `{"name":"Alpha","status":"archived"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := validRequest(tc.method, tc.payload)
+			if tc.method == "project.create" {
+				r.IdempotencyKey = "valid-key"
+			}
+			response := e.Handle(context.Background(), r)
+			if response.OK || response.Error == nil || response.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+				t.Fatalf("invalid payload accepted: %#v", response)
+			}
+		})
+	}
+}
+
+func TestProjectHandlersFailSafelyWithoutService(t *testing.T) {
+	e := NewEngine(nil, "test")
+	create := validRequest("project.create", `{"name":"Alpha"}`)
+	create.IdempotencyKey = "safe-key"
+	for _, request := range []struct {
+		name string
+		r    bridge.Request
+	}{{"create", create}, {"list", validRequest("project.list", `{}`)}} {
+		t.Run(request.name, func(t *testing.T) {
+			response := e.Handle(context.Background(), request.r)
+			if response.OK || response.Error == nil || response.Error.Code != "STORAGE_UNAVAILABLE" {
+				t.Fatalf("unsafe missing wiring response: %#v", response)
+			}
+		})
+	}
+}
+
+func TestProjectBridgeConcurrentSameKeyReplay(t *testing.T) {
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-concurrent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+	r := validRequest("project.create", `{"name":"Concurrent"}`)
+	r.IdempotencyKey = "concurrent-key"
+	const workers = 12
+	responses := make(chan bridge.Response, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			responses <- e.Handle(context.Background(), r)
+		}()
+	}
+	wg.Wait()
+	close(responses)
+	var first string
+	for response := range responses {
+		if !response.OK {
+			t.Fatalf("concurrent replay failed: %#v", response)
+		}
+		encoded, _ := json.Marshal(response.Payload)
+		if first == "" {
+			first = string(encoded)
+		} else if string(encoded) != first {
+			t.Fatalf("concurrent responses differ: %s / %s", first, encoded)
+		}
+	}
+	listed := e.Handle(context.Background(), validRequest("project.list", `{}`))
+	encoded, _ := json.Marshal(listed.Payload)
+	var result struct {
+		Items []projectDTO `json:"items"`
+	}
+	if !listed.OK || json.Unmarshal(encoded, &result) != nil || len(result.Items) != 1 {
+		t.Fatalf("concurrent duplicate created more than one project: %#v (%s)", listed, encoded)
+	}
+}
+
+func TestProjectCapacityMapsToStableNonRetryableError(t *testing.T) {
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-capacity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+	for i := 0; i < 101; i++ {
+		r := validRequest("project.create", `{"name":"Capacity"}`)
+		r.IdempotencyKey = "capacity-" + strings.Repeat("x", i%20) + string(rune('A'+i/20))
+		response := e.Handle(context.Background(), r)
+		if i < 100 && !response.OK {
+			t.Fatalf("create %d: %#v", i, response)
+		}
+		if i == 100 && (response.OK || response.Error == nil || response.Error.Code != "PROJECT_CAPACITY_REACHED" || response.Error.Retryable) {
+			t.Fatalf("capacity response: %#v", response)
+		}
+	}
+}

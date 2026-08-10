@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/oklog/ulid/v2"
@@ -16,6 +18,14 @@ import (
 // lock. txAdapter methods only use this connection and never start nested
 // transactions.
 func (s *Store) Do(ctx context.Context, fn func(providerapp.Tx) error) (resultErr error) {
+	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
+}
+
+func (s *Store) DoProject(ctx context.Context, fn func(projectapp.Tx) error) (resultErr error) {
+	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
+}
+
+func (s *Store) do(ctx context.Context, fn func(*txAdapter) error) (resultErr error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
@@ -41,6 +51,39 @@ func (s *Store) Do(ctx context.Context, fn func(providerapp.Tx) error) (resultEr
 type txAdapter struct {
 	s *Store
 	q *sql.Conn
+}
+
+func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (project.Project, error) {
+	var count int
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects`).Scan(&count); err != nil {
+		return p, err
+	}
+	if count >= 100 {
+		return p, projectapp.ErrProjectCapacityReached
+	}
+	var err error
+	p.Name, err = project.NormalizeName(p.Name)
+	if err != nil {
+		return p, err
+	}
+	if p.ID == "" {
+		p.ID, err = t.s.newULID(time.Now())
+	} else if id, e := ulid.ParseStrict(p.ID); e != nil || id.String() != p.ID || p.ID[0] > '7' {
+		return p, fmt.Errorf("project ID must be an uppercase canonical ULID")
+	}
+	if err != nil {
+		return p, err
+	}
+	if p.Status == "" {
+		p.Status = project.StatusActive
+	}
+	now := time.Now().UTC()
+	p.CreatedAt, p.UpdatedAt, p.Version = now, now, 1
+	if err = p.Validate(); err != nil {
+		return p, err
+	}
+	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?)`, p.ID, p.Name, p.Status, formatTime(now), formatTime(now), p.Version)
+	return p, mapWriteError(err)
 }
 
 func (t *txAdapter) Get(ctx context.Context, id string) (provider.Provider, error) {
@@ -228,3 +271,5 @@ func (t *txAdapter) PutCredentialAdoption(ctx context.Context, ref secret.Ref, r
 
 var _ providerapp.UnitOfWork = (*Store)(nil)
 var _ providerapp.Tx = (*txAdapter)(nil)
+var _ projectapp.UnitOfWork = (*Store)(nil)
+var _ projectapp.Tx = (*txAdapter)(nil)

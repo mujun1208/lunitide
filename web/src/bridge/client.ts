@@ -6,6 +6,7 @@ import {
   type ProviderModelSyncPayload, type ProviderModelSyncResult, type ProviderTestPayload,
   type ProviderTestResult, type ProviderUpdatePayload, type ProviderUpdateResult,
   type ChatStartPayload, type ChatStartResult, type StreamCancelResult,
+  type ProjectCreatePayload, type ProjectCreateResult, type ProjectListPayload, type ProjectListResult,
 } from '../generated/bridge'
 
 export class BridgeClientError extends Error {
@@ -20,7 +21,7 @@ export interface WebViewTransport {
 }
 declare global { interface Window { chrome?: { webview?: WebViewTransport } } }
 
-export type MutationMethod = 'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'
+export type MutationMethod = 'project.create'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -44,16 +45,24 @@ export interface ProviderBridge {
   syncModels(payload: ProviderModelSyncPayload, options?:MutationOptions<ProviderModelSyncPayload>): Promise<ProviderModelSyncResult>
   test(payload: ProviderTestPayload): Promise<ProviderTestResult>
 }
-const mutationMethods = new Set<BridgeMethod>(['provider.create','provider.update','provider.delete','provider.model.sync'])
+export interface ProjectBridge {
+  list(payload?:ProjectListPayload):Promise<ProjectListResult>
+  create(payload:ProjectCreatePayload,options?:MutationOptions<ProjectCreatePayload>):Promise<ProjectCreateResult>
+}
+const mutationMethods = new Set<BridgeMethod>(['project.create','provider.create','provider.update','provider.delete','provider.model.sync'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
 const isULID=(v:unknown)=>typeof v==='string'&&/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(v)
 const isTime=(v:unknown)=>typeof v==='string'&&!Number.isNaN(Date.parse(v))
+const normalizedProjectName=(v:string)=>v.split(/\p{White_Space}+/u).filter(Boolean).join(' ')
+const isProject=(v:unknown)=>isObj(v)&&exact(v,['id','name','status','createdAt','updatedAt','version'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===normalizedProjectName(v.name)&&Array.from(v.name).length>=1&&Array.from(v.name).length<=200&&['active','archived'].includes(String(v.status))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Date.parse(String(v.updatedAt))>=Date.parse(String(v.createdAt))&&Number.isInteger(v.version)&&Number(v.version)>=1
 const isModel=(v:unknown)=>isObj(v)&&exact(v,['modelId','displayName','isDefault'])&&typeof v.modelId==='string'&&/^[\x21-\x7E]{1,200}$/.test(v.modelId)&&typeof v.displayName==='string'&&v.displayName===v.displayName.trim()&&v.displayName.length>0&&new TextEncoder().encode(v.displayName).length<=200&&typeof v.isDefault==='boolean'
 const isModels=(v:unknown)=>Array.isArray(v)&&v.length>=1&&v.length<=50&&v.every(isModel)&&new Set(v.map(x=>(x as {modelId:string}).modelId)).size===v.length&&v.filter(x=>(x as {isDefault:boolean}).isDefault).length===1
 const isProvider=(v:unknown)=>isObj(v)&&exact(v,['id','name','protocol','baseUrl','models','status','credentialState','createdAt','updatedAt','version'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===v.name.trim()&&v.name.length>0&&['openai_compatible','anthropic'].includes(String(v.protocol))&&typeof v.baseUrl==='string'&&isModels(v.models)&&['enabled','disabled'].includes(String(v.status))&&['configured','missing','unavailable','requires_reentry'].includes(String(v.credentialState))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Number.isInteger(v.version)&&Number(v.version)>=1
 const guards:Partial<Record<BridgeMethod,(v:unknown)=>boolean>>={
+ 'project.create':isProject,
+ 'project.list':v=>isObj(v)&&exact(v,['items'])&&Array.isArray(v.items)&&v.items.length<=100&&v.items.every(isProject),
  'provider.get':isProvider,'provider.create':isProvider,'provider.update':isProvider,
  'provider.list':v=>isObj(v)&&exact(v,['items'])&&Array.isArray(v.items)&&v.items.every(isProvider),
  'provider.delete':v=>isObj(v)&&exact(v,['deleted'])&&v.deleted===true,
@@ -72,6 +81,16 @@ function webview():WebViewTransport{const v=window.chrome?.webview;if(!v)throw n
 let singleton:ProviderBridge|undefined
 export function getProviderBridge():ProviderBridge{return singleton??=createProviderBridge(webview())}
 export const providerBridge:ProviderBridge={get:p=>getProviderBridge().get(p),list:p=>getProviderBridge().list(p),create:(p,o)=>getProviderBridge().create(p,o),update:(p,o)=>getProviderBridge().update(p,o),delete:(p,o)=>getProviderBridge().delete(p,o),submitCredential:p=>getProviderBridge().submitCredential(p),syncModels:(p,o)=>getProviderBridge().syncModels(p,o),test:p=>getProviderBridge().test(p)}
+
+export function createProjectBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):ProjectBridge{
+ const pending=new Map<string,{method:BridgeMethod;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
+ transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const requestId=raw.requestId,waiting=pending.get(requestId)!;clearTimeout(waiting.timer);pending.delete(requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}if(!guards[waiting.method]?.(raw.payload)){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
+ const request=<T>(method:'project.create'|'project.list',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method==='project.create'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30_000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:(p={})=>request('project.list',p),create:(p,o)=>request('project.create',p,o?.attempt)}
+}
+let projectSingleton:ProjectBridge|undefined
+export function getProjectBridge():ProjectBridge{return projectSingleton??=createProjectBridge(webview())}
+export const projectBridge:ProjectBridge={list:p=>getProjectBridge().list(p),create:(p,o)=>getProjectBridge().create(p,o)}
 
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}

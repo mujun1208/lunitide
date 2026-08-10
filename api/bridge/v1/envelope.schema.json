@@ -38,6 +38,8 @@
         "migration.inspect",
         "migration.run",
         "migration.status",
+        "project.create",
+        "project.list",
         "provider.create",
         "provider.credential.submit",
         "provider.delete",
@@ -60,7 +62,9 @@
     "idempotencyKey": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 128
+      "maxLength": 128,
+      "pattern": "^[!-~]+$",
+      "description": "1-128 printable ASCII bytes (U+0021 through U+007E); whitespace and control characters are forbidden."
     },
     "deadlineMs": {
       "type": "integer",
