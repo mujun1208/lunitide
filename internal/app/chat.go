@@ -24,12 +24,18 @@ type streamParentKey struct{}
 
 func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var p struct {
-		ProviderID string `json:"providerId"`
-		ModelID    string `json:"modelId"`
-		SessionID  string `json:"sessionId"`
+		ProviderID string            `json:"providerId"`
+		ModelID    string            `json:"modelId"`
+		SessionID  string            `json:"sessionId"`
+		Messages   []gateway.Message `json:"messages"`
 	}
-	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 || !ulidValid(p.SessionID) {
+	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
+	}
+	hasSession := ulidValid(p.SessionID)
+	hasMessages := len(p.Messages) > 0
+	if !hasSession && !hasMessages {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 需要提供 sessionId 或 messages", false)
 	}
 
 	item, err := e.providers.Get(ctx, p.ProviderID)
@@ -48,17 +54,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		return bridge.Failure(request.ID, request.TraceID, "STREAM_UNAVAILABLE", "流事件通道不可用", true)
 	}
 
-	// Assemble durable session context via the context assembler.
 	var messages []gateway.Message
-	if e.messageReader != nil {
+	if hasSession && e.messageReader != nil {
+		// Durable session path: assemble context from session history.
 		providerInfo := contextapp.ProviderInfo{
-			Provider:          string(item.Protocol),
-			Model:             p.ModelID,
-			ContextWindow:     128000,
-			SafetyCeiling:     120000,
-			ReservedOutput:    4096,
-			SystemTokens:      0,
-			SafetyMargin:      1024,
+			Provider:       string(item.Protocol),
+			Model:          p.ModelID,
+			ContextWindow:  128000,
+			SafetyCeiling:  120000,
+			ReservedOutput: 4096,
+			SystemTokens:   0,
+			SafetyMargin:   1024,
 		}
 		assembled, assembleErr := contextapp.Assemble(ctx, e.messageReader, p.SessionID, providerInfo, contextapp.AssembleOptions{})
 		if assembleErr != nil {
@@ -71,25 +77,23 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				Content: m.Content,
 			}
 		}
+		// Prepend any explicitly provided messages (e.g., system instructions).
+		if hasMessages {
+			messages = append(p.Messages, messages...)
+		}
 	} else {
-		// Fallback: accept direct messages when no context reader is wired.
-		// This path supports tests and incremental adoption.
-		var legacy struct {
-			ProviderID string            `json:"providerId"`
-			ModelID    string            `json:"modelId"`
-			Messages   []gateway.Message `json:"messages"`
+		// Legacy path: use directly provided messages.
+		if !hasMessages {
+			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息（Session 上下文装配器不可用，需提供 messages）", false)
 		}
-		if decodePayload(request.Payload, &legacy) != nil || len(legacy.Messages) < 1 || len(legacy.Messages) > 32 {
-			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
-		}
-		totalBytes := len(legacy.ModelID)
-		for _, m := range legacy.Messages {
+		totalBytes := len(p.ModelID)
+		for _, m := range p.Messages {
 			totalBytes += len(m.Content)
 			if (m.Role != gateway.RoleSystem && m.Role != gateway.RoleUser && m.Role != gateway.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
 				return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
 			}
 		}
-		messages = legacy.Messages
+		messages = p.Messages
 	}
 
 	if len(messages) == 0 {

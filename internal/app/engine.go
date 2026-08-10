@@ -15,6 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
+	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/messageapp"
@@ -44,6 +45,10 @@ type MessageService interface {
 	Append(context.Context, string, string, any, message.Message) (message.Message, error)
 	List(context.Context, messageapp.PageRequest) (messageapp.Page, error)
 }
+type StageService interface {
+	Create(context.Context, string, string, any, stage.Stage) (stage.Stage, error)
+	List(context.Context, stage.Filter) ([]stage.Stage, error)
+}
 
 type credentialLifecycleService interface {
 	UpdateCredentialRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
@@ -63,6 +68,7 @@ type Engine struct {
 	projects       ProjectService
 	sessions       SessionService
 	messages       MessageService
+	stages         StageService
 	messageReader  contextapp.Reader
 	tokenRepo      token.Repository
 	version        string
@@ -113,6 +119,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSessionList:       handleSessionList,
 	bridge.MethodMessageAppend:     handleMessageAppend,
 	bridge.MethodMessageList:       handleMessageList,
+	bridge.MethodStageCreate:       handleStageCreate,
+	bridge.MethodStageList:         handleStageList,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -171,6 +179,14 @@ func NewEngineWithContextReader(providers ProviderService, projects ProjectServi
 	e := NewEngineWithMessages(providers, projects, sessions, messages, version, leases)
 	e.messageReader = messageReader
 	e.tokenRepo = tokenRepo
+	return e
+}
+
+// NewEngineWithStages wires the stage service alongside the full context reader
+// stack used by production.
+func NewEngineWithStages(providers ProviderService, projects ProjectService, sessions SessionService, messages MessageService, stages StageService, messageReader contextapp.Reader, tokenRepo token.Repository, version string, leases LeaseClient) *Engine {
+	e := NewEngineWithContextReader(providers, projects, sessions, messages, messageReader, tokenRepo, version, leases)
+	e.stages = stages
 	return e
 }
 

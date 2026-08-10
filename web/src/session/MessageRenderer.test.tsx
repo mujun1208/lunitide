@@ -28,7 +28,7 @@ it('Message Renderer merges backward pages into ascending UI order without dupli
 
 it('Message Renderer refreshes the latest first page after append succeeds', async () => {
   const list = vi.fn().mockResolvedValueOnce(page([message(1)])).mockResolvedValueOnce(page([message(2), message(1)])), append = vi.fn().mockResolvedValue(message(2)), user = await open(messages({ list, append }))
-  await screen.findByText('message-1'); await user.type(screen.getByLabelText('用户消息'), 'new text'); await user.click(screen.getByRole('button', { name: '发送消息' }))
+  await screen.findByText('message-1'); await user.type(screen.getByLabelText('用户消息'), 'new text'); await user.click(screen.getByRole('button', { name: '仅保存消息' }))
   await screen.findByText('message-2')
   expect(append).toHaveBeenCalledWith({ sessionId: S1, text: 'new text' }, expect.objectContaining({ attempt: expect.any(Object) }))
   expect(list).toHaveBeenLastCalledWith({ sessionId: S1, direction: 'backward', limit: 64, byteBudget: 131072 })
@@ -45,7 +45,7 @@ it('Message Renderer ignores an old session list response after switching sessio
 it('Message Renderer ignores an old session append response and does not refresh or pollute the next session', async () => {
   let appendResolve!: (value: MessageDTO) => void
   const list = vi.fn().mockResolvedValueOnce(page()).mockResolvedValueOnce(page([message(1, { sessionId: S2, text: 'session-two' })])), append = vi.fn().mockReturnValue(new Promise(resolve => { appendResolve = resolve })), user = await open(messages({ list, append }))
-  await screen.findByText('还没有消息'); await user.type(screen.getByLabelText('用户消息'), 'old append'); await user.click(screen.getByRole('button', { name: '发送消息' })); await user.click(screen.getByRole('button', { name: '关闭' })); await user.click(screen.getByText('Session 2')); expect(await screen.findByText('session-two')).toBeInTheDocument()
+  await screen.findByText('还没有消息'); await user.type(screen.getByLabelText('用户消息'), 'old append'); await user.click(screen.getByRole('button', { name: '仅保存消息' })); await user.click(screen.getByRole('button', { name: '关闭' })); await user.click(screen.getByText('Session 2')); expect(await screen.findByText('session-two')).toBeInTheDocument()
   await act(async () => appendResolve(message(1, { text: 'late append' })))
   expect(screen.queryByText('late append')).toBeNull(); expect(list).toHaveBeenCalledTimes(2)
 })
@@ -73,13 +73,13 @@ it('Message Renderer accepts exact flat Unicode boundaries and rejects rune/byte
     await user.clear(input)
     await fireEvent.change(input, { target: { value: text } })
     expect(screen.getByText('2048/2048 字符 ·', { exact: false })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.click(screen.getByRole('button', { name: '仅保存消息' }))
     await waitFor(() => expect(append).toHaveBeenCalledWith({ sessionId: S1, text }, expect.anything()))
   }
   for (const text of ['a'.repeat(2049), '😀'.repeat(2048) + 'a', 'a\0b']) {
     await user.clear(input)
     await fireEvent.change(input, { target: { value: text } })
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.click(screen.getByRole('button', { name: '仅保存消息' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('消息需为')
   }
   expect(append).toHaveBeenCalledTimes(2)
