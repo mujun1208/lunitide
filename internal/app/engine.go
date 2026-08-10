@@ -69,6 +69,11 @@ type Engine struct {
 	sessions       SessionService
 	messages       MessageService
 	stages         StageService
+	planning       PlanningService
+	governance     GovernanceService
+	memories       MemoryService
+	ontology       OntologyService
+	skills         SkillService
 	messageReader  contextapp.Reader
 	tokenRepo      token.Repository
 	version        string
@@ -121,6 +126,34 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMessageList:       handleMessageList,
 	bridge.MethodStageCreate:       handleStageCreate,
 	bridge.MethodStageList:         handleStageList,
+	bridge.MethodPlanGet:           handlePlanGet,
+	bridge.MethodPlanList:          handlePlanList,
+	bridge.MethodPlanActivate:      handlePlanActivate,
+	bridge.MethodPlanComplete:      handlePlanComplete,
+	bridge.MethodPlanPause:         handlePlanPause,
+	bridge.MethodPlanResume:        handlePlanResume,
+	bridge.MethodNodeList:          handleNodeList,
+	bridge.MethodNodeStart:         handleNodeStart,
+	bridge.MethodNodeComplete:      handleNodeComplete,
+	bridge.MethodNodeFail:          handleNodeFail,
+	bridge.MethodReviewList:        handleReviewList,
+	bridge.MethodReviewApprove:     handleReviewApprove,
+	bridge.MethodReviewReject:      handleReviewReject,
+	bridge.MethodMemoryGet:         handleMemoryGet,
+	bridge.MethodMemoryList:        handleMemoryList,
+	bridge.MethodMemorySearch:      handleMemorySearch,
+	bridge.MethodMemoryUpdate:      handleMemoryUpdate,
+	bridge.MethodMemoryDelete:      handleMemoryDelete,
+	bridge.MethodOntologyNodeGet:    handleOntologyNodeGet,
+	bridge.MethodOntologyNodeList:   handleOntologyNodeList,
+	bridge.MethodOntologyNodeSearch: handleOntologyNodeSearch,
+	bridge.MethodOntologyEdgeList:   handleOntologyEdgeList,
+	bridge.MethodSkillGet:          handleSkillGet,
+	bridge.MethodSkillList:         handleSkillList,
+	bridge.MethodSkillMatch:        handleSkillMatch,
+	bridge.MethodSkillPublish:      handleSkillPublish,
+	bridge.MethodSkillDeprecate:    handleSkillDeprecate,
+	bridge.MethodSkillDisable:      handleSkillDisable,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -187,6 +220,18 @@ func NewEngineWithContextReader(providers ProviderService, projects ProjectServi
 func NewEngineWithStages(providers ProviderService, projects ProjectService, sessions SessionService, messages MessageService, stages StageService, messageReader contextapp.Reader, tokenRepo token.Repository, version string, leases LeaseClient) *Engine {
 	e := NewEngineWithContextReader(providers, projects, sessions, messages, messageReader, tokenRepo, version, leases)
 	e.stages = stages
+	return e
+}
+
+// NewEngineWithP3P4 wires the P3/P4 services (planning, governance, memory,
+// ontology, skills) on top of the full production stack.
+func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessions SessionService, messages MessageService, stages StageService, planning PlanningService, governance GovernanceService, memories MemoryService, ontology OntologyService, skills SkillService, messageReader contextapp.Reader, tokenRepo token.Repository, version string, leases LeaseClient) *Engine {
+	e := NewEngineWithStages(providers, projects, sessions, messages, stages, messageReader, tokenRepo, version, leases)
+	e.planning = planning
+	e.governance = governance
+	e.memories = memories
+	e.ontology = ontology
+	e.skills = skills
 	return e
 }
 
