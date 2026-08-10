@@ -266,6 +266,36 @@ func (s *Service) ResumePlan(ctx context.Context, planID string) error {
 	return s.write.UpdatePlanStatus(ctx, planID, string(planning.PlanStatusActive))
 }
 
+// CompletePlan transitions an active plan to completed if all nodes are in terminal states.
+func (s *Service) CompletePlan(ctx context.Context, planID string) error {
+	if s == nil || s.write == nil {
+		return errors.New("planning writer unavailable")
+	}
+	plan, err := s.read.GetPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+	if plan == nil {
+		return ErrPlanNotFound
+	}
+	if !plan.CanTransitionTo(planning.PlanStatusCompleted) {
+		return ErrInvalidTransition
+	}
+	nodes, err := s.read.ListNodesByPlan(ctx, planID, 100)
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		if !node.Status.IsTerminal() {
+			return errors.New("plan has non-terminal nodes")
+		}
+		if node.Status == planning.NodeStatusFailed {
+			return errors.New("plan has failed nodes")
+		}
+	}
+	return s.write.UpdatePlanStatus(ctx, planID, string(planning.PlanStatusCompleted))
+}
+
 // checkPlanCompletion checks if all nodes are completed and transitions the plan to completed.
 func (s *Service) checkPlanCompletion(ctx context.Context, planID string) error {
 	nodes, err := s.read.ListNodesByPlan(ctx, planID, 100)
