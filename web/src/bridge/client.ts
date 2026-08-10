@@ -11,20 +11,28 @@ import {
   type MessageAppendPayload, type MessageAppendResult, type MessageListPayload, type MessageListResult,
   type StageCreatePayload, type StageCreateResult, type StageListPayload, type StageListResult,
   type PlanGetPayload, type PlanGetResult, type PlanListPayload, type PlanListResult,
+  type PlanCreatePayload, type PlanCreateResult,
   type PlanActivatePayload, type PlanActivateResult, type PlanCompletePayload, type PlanCompleteResult,
   type PlanPausePayload, type PlanPauseResult, type PlanResumePayload, type PlanResumeResult,
   type NodeListPayload, type NodeListResult, type NodeStartPayload, type NodeStartResult,
+  type NodeCreatePayload, type NodeCreateResult,
   type NodeCompletePayload, type NodeCompleteResult, type NodeFailPayload, type NodeFailResult,
   type ReviewListPayload, type ReviewListResult, type ReviewApprovePayload, type ReviewApproveResult,
   type ReviewRejectPayload, type ReviewRejectResult,
   type MemoryGetPayload, type MemoryGetResult, type MemoryListPayload, type MemoryListResult,
   type MemorySearchPayload, type MemorySearchResult, type MemoryUpdatePayload, type MemoryUpdateResult,
-  type MemoryDeletePayload, type MemoryDeleteResult,
+  type MemoryDeletePayload, type MemoryDeleteResult, type MemoryCreatePayload, type MemoryCreateResult,
   type OntologyNodeGetPayload, type OntologyNodeGetResult, type OntologyNodeListPayload, type OntologyNodeListResult,
   type OntologyNodeSearchPayload, type OntologyNodeSearchResult, type OntologyEdgeListPayload, type OntologyEdgeListResult,
+  type OntologyNodeCreatePayload, type OntologyNodeCreateResult, type OntologyNodeUpdatePayload, type OntologyNodeUpdateResult,
+  type OntologyNodeDeletePayload, type OntologyNodeDeleteResult,
+  type OntologyEdgeCreatePayload, type OntologyEdgeCreateResult, type OntologyEdgeUpdatePayload, type OntologyEdgeUpdateResult,
+  type OntologyEdgeDeletePayload, type OntologyEdgeDeleteResult,
   type SkillGetPayload, type SkillGetResult, type SkillListPayload, type SkillListResult,
   type SkillMatchPayload, type SkillMatchResult, type SkillPublishPayload, type SkillPublishResult,
   type SkillDeprecatePayload, type SkillDeprecateResult, type SkillDisablePayload, type SkillDisableResult,
+  type SkillCreatePayload, type SkillCreateResult, type SkillUpdatePayload, type SkillUpdateResult,
+  type SkillDeletePayload, type SkillDeleteResult,
   type PlanDTO, type PlanNodeDTO, type ReviewDTO, type MemoryDTO, type OntologyNodeDTO, type OntologyEdgeDTO, type SkillDTO, type SkillMatchDTO,
   type PlanStatus, type NodeStatus, type RiskLevel, type ReviewStatus, type MemoryLayer, type MemoryScope,
   type OntologyNodeType, type OntologyEdgeType, type SkillStatus, type SkillPermission,
@@ -42,7 +50,7 @@ export interface WebViewTransport {
 }
 declare global { interface Window { chrome?: { webview?: WebViewTransport } } }
 
-export type MutationMethod = 'project.create'|'session.create'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'
+export type MutationMethod = 'project.create'|'session.create'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -72,7 +80,7 @@ export interface ProjectBridge {
 }
 export interface SessionBridge { list(payload:SessionListPayload):Promise<SessionListResult>; create(payload:SessionCreatePayload,options?:MutationOptions<SessionCreatePayload>):Promise<SessionCreateResult> }
 export interface MessageBridge { list(payload:MessageListPayload):Promise<MessageListResult>; append(payload:MessageAppendPayload,options?:MutationOptions<MessageAppendPayload>):Promise<MessageAppendResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','message.append','provider.create','provider.update','provider.delete','provider.model.sync','stage.create'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','message.append','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','plan.create','node.create','memory.create','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -171,9 +179,10 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
     if (raw.ok) waiting.resolve(raw.payload)
     else waiting.reject(new BridgeClientError(raw.error.message, raw.error.code, raw.error.retryable, raw.error.correlationId))
   })
-  const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs): Promise<T> => {
+  const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
     const id = ulid(), traceId = ulid()
-    const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: clone(payload), deadlineMs: Math.min(30_000, Math.max(1, deadlineMs)) }
+    const mutation = mutationMethods.has(method) ? checkedAttempt(method as MutationMethod, payload, attempt) : undefined
+    const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: mutation?.payload ?? clone(payload), deadlineMs: Math.min(30_000, Math.max(1, deadlineMs)), ...(mutation ? { idempotencyKey: mutation.key } : {}) }
     return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => { pending.delete(id); reject(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, traceId)) }, message.deadlineMs + 250)
       pending.set(id, { resolve, reject, timer })
@@ -186,11 +195,13 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
 export interface PlanBridge {
   get(payload: PlanGetPayload): Promise<PlanGetResult>
   list(payload: PlanListPayload): Promise<PlanListResult>
+  create(payload: PlanCreatePayload, options?: MutationOptions<PlanCreatePayload>): Promise<PlanCreateResult>
   activate(payload: PlanActivatePayload): Promise<PlanActivateResult>
   complete(payload: PlanCompletePayload): Promise<PlanCompleteResult>
   pause(payload: PlanPausePayload): Promise<PlanPauseResult>
   resume(payload: PlanResumePayload): Promise<PlanResumeResult>
   listNodes(payload: NodeListPayload): Promise<NodeListResult>
+  createNode(payload: NodeCreatePayload, options?: MutationOptions<NodeCreatePayload>): Promise<NodeCreateResult>
   startNode(payload: NodeStartPayload): Promise<NodeStartResult>
   completeNode(payload: NodeCompletePayload): Promise<NodeCompleteResult>
   failNode(payload: NodeFailPayload): Promise<NodeFailResult>
@@ -200,11 +211,13 @@ export function createPlanBridge(transport: WebViewTransport, defaultDeadlineMs 
   return {
     get: p => core.request('plan.get', p),
     list: p => core.request('plan.list', p),
+    create: (p, o) => core.request('plan.create', p, defaultDeadlineMs, o?.attempt),
     activate: p => core.request('plan.activate', p),
     complete: p => core.request('plan.complete', p),
     pause: p => core.request('plan.pause', p),
     resume: p => core.request('plan.resume', p),
     listNodes: p => core.request('node.list', p),
+    createNode: (p, o) => core.request('node.create', p, defaultDeadlineMs, o?.attempt),
     startNode: p => core.request('node.start', p),
     completeNode: p => core.request('node.complete', p),
     failNode: p => core.request('node.fail', p),
@@ -212,7 +225,7 @@ export function createPlanBridge(transport: WebViewTransport, defaultDeadlineMs 
 }
 let planSingleton: PlanBridge | undefined
 export function getPlanBridge(): PlanBridge { return planSingleton ??= createPlanBridge(webview()) }
-export const planBridge: PlanBridge = { get: p => getPlanBridge().get(p), list: p => getPlanBridge().list(p), activate: p => getPlanBridge().activate(p), complete: p => getPlanBridge().complete(p), pause: p => getPlanBridge().pause(p), resume: p => getPlanBridge().resume(p), listNodes: p => getPlanBridge().listNodes(p), startNode: p => getPlanBridge().startNode(p), completeNode: p => getPlanBridge().completeNode(p), failNode: p => getPlanBridge().failNode(p) }
+export const planBridge: PlanBridge = { get: p => getPlanBridge().get(p), list: p => getPlanBridge().list(p), create: (p, o) => getPlanBridge().create(p, o), activate: p => getPlanBridge().activate(p), complete: p => getPlanBridge().complete(p), pause: p => getPlanBridge().pause(p), resume: p => getPlanBridge().resume(p), listNodes: p => getPlanBridge().listNodes(p), createNode: (p, o) => getPlanBridge().createNode(p, o), startNode: p => getPlanBridge().startNode(p), completeNode: p => getPlanBridge().completeNode(p), failNode: p => getPlanBridge().failNode(p) }
 
 export interface ReviewBridge {
   list(payload: ReviewListPayload): Promise<ReviewListResult>
@@ -230,35 +243,45 @@ export const reviewBridge: ReviewBridge = { list: p => getReviewBridge().list(p)
 export interface MemoryBridge {
   get(payload: MemoryGetPayload): Promise<MemoryGetResult>
   list(payload: MemoryListPayload): Promise<MemoryListResult>
+  create(payload: MemoryCreatePayload, options?: MutationOptions<MemoryCreatePayload>): Promise<MemoryCreateResult>
   search(payload: MemorySearchPayload): Promise<MemorySearchResult>
   update(payload: MemoryUpdatePayload): Promise<MemoryUpdateResult>
   delete(payload: MemoryDeletePayload): Promise<MemoryDeleteResult>
 }
 export function createMemoryBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): MemoryBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
-  return { get: p => core.request('memory.get', p), list: p => core.request('memory.list', p), search: p => core.request('memory.search', p), update: p => core.request('memory.update', p), delete: p => core.request('memory.delete', p) }
+  return { get: p => core.request('memory.get', p), list: p => core.request('memory.list', p), create: (p, o) => core.request('memory.create', p, defaultDeadlineMs, o?.attempt), search: p => core.request('memory.search', p), update: p => core.request('memory.update', p), delete: p => core.request('memory.delete', p) }
 }
 let memorySingleton: MemoryBridge | undefined
 export function getMemoryBridge(): MemoryBridge { return memorySingleton ??= createMemoryBridge(webview()) }
-export const memoryBridge: MemoryBridge = { get: p => getMemoryBridge().get(p), list: p => getMemoryBridge().list(p), search: p => getMemoryBridge().search(p), update: p => getMemoryBridge().update(p), delete: p => getMemoryBridge().delete(p) }
+export const memoryBridge: MemoryBridge = { get: p => getMemoryBridge().get(p), list: p => getMemoryBridge().list(p), create: (p, o) => getMemoryBridge().create(p, o), search: p => getMemoryBridge().search(p), update: p => getMemoryBridge().update(p), delete: p => getMemoryBridge().delete(p) }
 
 export interface OntologyBridge {
   getNode(payload: OntologyNodeGetPayload): Promise<OntologyNodeGetResult>
   listNodes(payload: OntologyNodeListPayload): Promise<OntologyNodeListResult>
   searchNodes(payload: OntologyNodeSearchPayload): Promise<OntologyNodeSearchResult>
+  createNode(payload: OntologyNodeCreatePayload): Promise<OntologyNodeCreateResult>
+  updateNode(payload: OntologyNodeUpdatePayload): Promise<OntologyNodeUpdateResult>
+  deleteNode(payload: OntologyNodeDeletePayload): Promise<OntologyNodeDeleteResult>
   listEdges(payload: OntologyEdgeListPayload): Promise<OntologyEdgeListResult>
+  createEdge(payload: OntologyEdgeCreatePayload): Promise<OntologyEdgeCreateResult>
+  updateEdge(payload: OntologyEdgeUpdatePayload): Promise<OntologyEdgeUpdateResult>
+  deleteEdge(payload: OntologyEdgeDeletePayload): Promise<OntologyEdgeDeleteResult>
 }
 export function createOntologyBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): OntologyBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
-  return { getNode: p => core.request('ontology.node.get', p), listNodes: p => core.request('ontology.node.list', p), searchNodes: p => core.request('ontology.node.search', p), listEdges: p => core.request('ontology.edge.list', p) }
+  return { getNode: p => core.request('ontology.node.get', p), listNodes: p => core.request('ontology.node.list', p), searchNodes: p => core.request('ontology.node.search', p), createNode: p => core.request('ontology.node.create', p), updateNode: p => core.request('ontology.node.update', p), deleteNode: p => core.request('ontology.node.delete', p), listEdges: p => core.request('ontology.edge.list', p), createEdge: p => core.request('ontology.edge.create', p), updateEdge: p => core.request('ontology.edge.update', p), deleteEdge: p => core.request('ontology.edge.delete', p) }
 }
 let ontologySingleton: OntologyBridge | undefined
 export function getOntologyBridge(): OntologyBridge { return ontologySingleton ??= createOntologyBridge(webview()) }
-export const ontologyBridge: OntologyBridge = { getNode: p => getOntologyBridge().getNode(p), listNodes: p => getOntologyBridge().listNodes(p), searchNodes: p => getOntologyBridge().searchNodes(p), listEdges: p => getOntologyBridge().listEdges(p) }
+export const ontologyBridge: OntologyBridge = { getNode: p => getOntologyBridge().getNode(p), listNodes: p => getOntologyBridge().listNodes(p), searchNodes: p => getOntologyBridge().searchNodes(p), createNode: p => getOntologyBridge().createNode(p), updateNode: p => getOntologyBridge().updateNode(p), deleteNode: p => getOntologyBridge().deleteNode(p), listEdges: p => getOntologyBridge().listEdges(p), createEdge: p => getOntologyBridge().createEdge(p), updateEdge: p => getOntologyBridge().updateEdge(p), deleteEdge: p => getOntologyBridge().deleteEdge(p) }
 
 export interface SkillBridge {
   get(payload: SkillGetPayload): Promise<SkillGetResult>
   list(payload: SkillListPayload): Promise<SkillListResult>
+  create(payload: SkillCreatePayload, options?: MutationOptions<SkillCreatePayload>): Promise<SkillCreateResult>
+  update(payload: SkillUpdatePayload, options?: MutationOptions<SkillUpdatePayload>): Promise<SkillUpdateResult>
+  delete(payload: SkillDeletePayload, options?: MutationOptions<SkillDeletePayload>): Promise<SkillDeleteResult>
   match(payload: SkillMatchPayload): Promise<SkillMatchResult>
   publish(payload: SkillPublishPayload): Promise<SkillPublishResult>
   deprecate(payload: SkillDeprecatePayload): Promise<SkillDeprecateResult>
@@ -266,11 +289,11 @@ export interface SkillBridge {
 }
 export function createSkillBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): SkillBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
-  return { get: p => core.request('skill.get', p), list: p => core.request('skill.list', p), match: p => core.request('skill.match', p), publish: p => core.request('skill.publish', p), deprecate: p => core.request('skill.deprecate', p), disable: p => core.request('skill.disable', p) }
+  return { get: p => core.request('skill.get', p), list: p => core.request('skill.list', p), create: (p, o) => core.request('skill.create', p, defaultDeadlineMs, o?.attempt), update: (p, o) => core.request('skill.update', p, defaultDeadlineMs, o?.attempt), delete: (p, o) => core.request('skill.delete', p, defaultDeadlineMs, o?.attempt), match: p => core.request('skill.match', p), publish: p => core.request('skill.publish', p), deprecate: p => core.request('skill.deprecate', p), disable: p => core.request('skill.disable', p) }
 }
 let skillSingleton: SkillBridge | undefined
 export function getSkillBridge(): SkillBridge { return skillSingleton ??= createSkillBridge(webview()) }
-export const skillBridge: SkillBridge = { get: p => getSkillBridge().get(p), list: p => getSkillBridge().list(p), match: p => getSkillBridge().match(p), publish: p => getSkillBridge().publish(p), deprecate: p => getSkillBridge().deprecate(p), disable: p => getSkillBridge().disable(p) }
+export const skillBridge: SkillBridge = { get: p => getSkillBridge().get(p), list: p => getSkillBridge().list(p), create: (p, o) => getSkillBridge().create(p, o), update: (p, o) => getSkillBridge().update(p, o), delete: (p, o) => getSkillBridge().delete(p, o), match: p => getSkillBridge().match(p), publish: p => getSkillBridge().publish(p), deprecate: p => getSkillBridge().deprecate(p), disable: p => getSkillBridge().disable(p) }
 
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}

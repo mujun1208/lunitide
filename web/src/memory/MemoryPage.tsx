@@ -7,6 +7,7 @@ const LAYER_LABELS: Record<MemoryLayer, string> = {
 }
 const SCOPE_LABELS: Record<MemoryScope, string> = { workspace: '工作区', project: '项目', session: '会话' }
 const LAYER_ORDER: MemoryLayer[] = ['working', 'episodic', 'semantic', 'procedural']
+const SCOPE_OPTIONS: MemoryScope[] = ['workspace', 'project', 'session']
 
 const layerColor = (l: MemoryLayer): string => {
   if (l === 'working') return '#60a5fa'
@@ -14,6 +15,10 @@ const layerColor = (l: MemoryLayer): string => {
   if (l === 'semantic') return '#fbbf24'
   return '#a78bfa'
 }
+
+const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: '#0a0e1a', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', boxSizing: 'border-box' }
+const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: '#1e293b', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer' }
+const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 
 export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: string; bridge?: MemoryBridge }): React.JSX.Element {
   const [memories, setMemories] = useState<MemoryDTO[]>([])
@@ -24,6 +29,12 @@ export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: st
   const [searchQuery, setSearchQuery] = useState('')
   const [layerFilter, setLayerFilter] = useState<MemoryLayer | ''>('')
   const [editContent, setEditContent] = useState<string | null>(null)
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [newLayer, setNewLayer] = useState<MemoryLayer>('working')
+  const [newScope, setNewScope] = useState<MemoryScope>('project')
+  const [newKey, setNewKey] = useState('')
+  const [newContent, setNewContent] = useState('')
 
   const load = useCallback(async () => {
     if (!projectId) { setLoading(false); return }
@@ -43,6 +54,18 @@ export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: st
     try { const r = await bridge.search({ projectId, query: searchQuery.trim() }); setMemories(r.items) }
     catch (e) { setError(e instanceof Error ? e.message : '搜索失败') }
     finally { setLoading(false) }
+  }
+
+  const doCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!projectId || !newKey.trim() || !newContent.trim()) return
+    setBusy(true); setError(undefined)
+    try {
+      await bridge.create({ projectId, layer: newLayer, scope: newScope, key: newKey.trim(), content: newContent })
+      setNewKey(''); setNewContent(''); setShowCreate(false)
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : '创建失败') }
+    finally { setBusy(false) }
   }
 
   const doUpdate = async (id: string) => {
@@ -83,7 +106,32 @@ export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: st
         </select>
         <button onClick={() => void doSearch()} disabled={loading}>搜索</button>
         <button onClick={() => void load()} disabled={loading} aria-label="刷新">↻</button>
+        <button style={btnStyle} onClick={() => setShowCreate(v => !v)}>新建记忆</button>
       </div>
+      {showCreate && (
+        <form onSubmit={e => void doCreate(e)} style={{ marginBottom: '18px', padding: '14px', border: '1px solid #334155', borderRadius: '8px', background: '#0a0e1a', display: 'grid', gap: '8px', gridTemplateColumns: '1fr 1fr' }}>
+          <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>层级
+            <select style={inputStyle} value={newLayer} onChange={e => setNewLayer(e.target.value as MemoryLayer)} aria-label="层级">
+              {LAYER_ORDER.map(l => <option key={l} value={l}>{LAYER_LABELS[l]}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>作用域
+            <select style={inputStyle} value={newScope} onChange={e => setNewScope(e.target.value as MemoryScope)} aria-label="作用域">
+              {SCOPE_OPTIONS.map(s => <option key={s} value={s}>{SCOPE_LABELS[s]}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: '4px', fontSize: '13px', gridColumn: '1 / -1' }}>键名
+            <input style={inputStyle} value={newKey} onChange={e => setNewKey(e.target.value)} aria-label="键名" placeholder="输入记忆键名" />
+          </label>
+          <label style={{ display: 'grid', gap: '4px', fontSize: '13px', gridColumn: '1 / -1' }}>内容
+            <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '80px' }} value={newContent} onChange={e => setNewContent(e.target.value)} aria-label="内容" placeholder="输入记忆内容" />
+          </label>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '8px' }}>
+            <button type="submit" style={primaryBtnStyle} disabled={busy || !newKey.trim() || !newContent.trim()}>{busy ? '创建中…' : '创建记忆'}</button>
+            <button type="button" style={btnStyle} onClick={() => setShowCreate(false)}>取消</button>
+          </div>
+        </form>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,380px) 1fr', gap: '20px' }}>
         <section style={panelStyle}>
           <h2 style={{ margin: '0 0 14px', fontSize: '18px' }}>记忆列表</h2>
