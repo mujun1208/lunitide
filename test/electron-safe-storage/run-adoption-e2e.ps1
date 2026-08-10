@@ -1,3 +1,4 @@
+param([switch]$Race)
 $ErrorActionPreference = 'Stop'
 $root = Join-Path ([IO.Path]::GetTempPath()) ('lunitide-electron-corpus-' + [guid]::NewGuid().ToString('N'))
 $previousCorpus = $env:LUNITIDE_ELECTRON_CORPUS
@@ -11,7 +12,8 @@ try {
   foreach ($name in @('providers.json', 'Local State')) {
     if (-not (Test-Path (Join-Path $root $name) -PathType Leaf)) { throw "Electron corpus is missing $name" }
   }
-  & go test -tags=integration ./internal/credentialsubmission -run '^TestElectronSafeStorageAdoptionE2E$' -count=1
+  $raceArg = if ($Race) { @('-race') } else { @() }
+  & go test @raceArg -tags=integration ./internal/credentialsubmission -run '^TestElectronSafeStorageAdoptionE2E$' -count=1
   if ($LASTEXITCODE) { throw "Electron credential adoption E2E failed: $LASTEXITCODE" }
 } finally {
   $env:LUNITIDE_ELECTRON_CORPUS = $previousCorpus

@@ -34,13 +34,21 @@ func main() {
 }
 
 func run() error {
+	showVersion := flag.Bool("version", false, "print version and exit")
+	enginePath := flag.String("engine", "", "engine executable")
+	pipe := flag.String("pipe", "", "development-only named pipe override")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.Version)
+		return nil
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	enginePath := flag.String("engine", filepath.Join(filepath.Dir(executable), "lunitide-engine.exe"), "engine executable")
-	pipe := flag.String("pipe", "", "development-only named pipe override")
-	flag.Parse()
+	if *enginePath == "" {
+		*enginePath = filepath.Join(filepath.Dir(executable), "lunitide-engine.exe")
+	}
 	pipeID := make([]byte, 16)
 	if _, err := rand.Read(pipeID); err != nil {
 		return err

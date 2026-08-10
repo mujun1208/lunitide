@@ -1,6 +1,5 @@
 name: Release candidate
 on:
-  pull_request:
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -47,6 +46,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: choco install mingw --version=13.2.0 --yes --no-progress
       - name: Select MinGW compiler
         shell: pwsh
@@ -56,6 +60,9 @@ jobs:
           $gcc.Directory.FullName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
       - run: go test -race ./...
+      - name: Race-test authentic Electron credential adoption
+        shell: pwsh
+        run: ./test/electron-safe-storage/run-adoption-e2e.ps1 -Race
 
   x64-release-candidate:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')
@@ -99,12 +106,23 @@ jobs:
         shell: pwsh
         run: |
           $version=(Get-Content VERSION -Raw).Trim()
-          ./release/Test-Install.ps1 -Installer "release/out/Lunitide-Setup-$version-x64.exe" -ExpectedVersion $version -TestRoot "$env:RUNNER_TEMP\lunitide-acceptance"
+          $signer=if($env:GITHUB_REF_TYPE -eq 'tag'){$env:LUNITIDE_SIGNER_THUMBPRINT}else{''}
+          $installer="Lunitide-Setup-$version-x64.exe"
+          $line=Get-Content release/out/SHA256SUMS.txt | Where-Object {$_ -match "  $([regex]::Escape($installer))$"}
+          if(@($line).Count -ne 1 -or $line -notmatch '^([0-9a-f]{64})  '){throw 'Trusted release manifest does not contain exactly one installer hash'}
+          $unsignedArgs=if($env:GITHUB_REF_TYPE -eq 'tag'){@()}else{@('-AllowUnsignedDevelopment')}
+          ./release/Test-Install.ps1 -Installer "release/out/$installer" -ExpectedVersion $version -ExpectedInstallerHash $Matches[1] -TestRoot "$env:RUNNER_TEMP\lunitide-acceptance" -ExpectedSignerThumbprint $signer @unsignedArgs
+        env:
+          LUNITIDE_SIGNER_THUMBPRINT: ${{ secrets.LUNITIDE_SIGNER_THUMBPRINT }}
       - name: Reverify staged artifact before upload
         shell: pwsh
         run: |
           $version=(Get-Content VERSION -Raw).Trim()
-          ./release/Verify-Layout.ps1 -Stage "release/out/Lunitide-$version-x64" -Version $version -VerifyManifest
+          $unsignedArgs=if($env:GITHUB_REF_TYPE -eq 'tag'){@()}else{@('-AllowUnsignedDevelopment')}
+          $signer=if($env:GITHUB_REF_TYPE -eq 'tag'){$env:LUNITIDE_SIGNER_THUMBPRINT}else{''}
+          ./release/Verify-Release.ps1 -OutputRoot release/out -Version $version -ExpectedSignerThumbprint $signer @unsignedArgs
+        env:
+          LUNITIDE_SIGNER_THUMBPRINT: ${{ secrets.LUNITIDE_SIGNER_THUMBPRINT }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lunitide-x64-${{ github.sha }}

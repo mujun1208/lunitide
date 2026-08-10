@@ -73,8 +73,8 @@ ownership_ok:
   CreateDirectory "$LOCALAPPDATA\Programs"
   IfErrors parent_failed
   SetOutPath "$PLUGINSDIR"
-  File /oname=stop-install-processes.ps1 "${__FILEDIR__}\stop-install-processes.ps1"
-  File /oname=verify-install-directory.ps1 "${__FILEDIR__}\verify-install-directory.ps1"
+  File /oname=stop-install-processes.ps1 "${STAGE}\stop-install-processes.ps1"
+  File /oname=verify-install-directory.ps1 "${STAGE}\verify-install-directory.ps1"
   ${GetFileName} "$PLUGINSDIR" $1
   StrCpy $InstallStage "$LOCALAPPDATA\Programs\Lunitide.installing.$1"
   StrCpy $InstallBackup "$LOCALAPPDATA\Programs\Lunitide.backup.$1"
@@ -102,7 +102,6 @@ stop_ok:
   Goto stage_failed
 	SetOutPath "$InstallStage"
   File /r "${STAGE}\*"
-  File "${__FILEDIR__}\stop-install-processes.ps1"
 	IfErrors stage_failed
 	IfFileExists "$InstallStage\Lunitide.exe" 0 stage_failed
 	IfFileExists "$InstallStage\lunitide-engine.exe" 0 stage_failed

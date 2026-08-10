@@ -27,11 +27,11 @@ Electron/Python `0.2.1` is retained only as a regression baseline and a historic
 | OpenAI-compatible and Anthropic gateway, pinned DNS/SSRF/TLS policy, streaming/cancel/terminal arbitration | Complete | gateway/network/stream tests, including exactly-once aggregate usage | Closed |
 | React Provider UI and generated Bridge contracts | Complete | schema drift gate, TypeScript check, 32 Renderer tests, production Vite build | Closed |
 | Electron metadata and authentic Chromium `safeStorage` migration | Complete | fail-fast `npm run test:electron-adoption:e2e` | Closed |
-| Native release layout, pinned WebView2Loader, PE/export/manifest checks, NSIS lifecycle scripts | Complete | local stage/installer verification and CI workflow | Closed internally |
+| Native release layout, pinned WebView2Loader, PE/export/manifest/content checks, exact binary version binding, NSIS lifecycle scripts | Complete | local positive/negative stage and installer verification plus CI workflow | Closed internally |
 | WebView2 profile isolation and failure-safe installer replacement | Complete | secured `%LOCALAPPDATA%\\Lunitide\\WebView2` profile; sibling stage/backup/restore installer flow | Closed internally |
-| Windows CGO race detector | Workflow complete | `.github/workflows/quality.yml`; no remote run is available in this repository yet | External evidence required |
-| Install/upgrade/retain/reinstall/`/PURGE` on disposable Win10 and Win11 | Script complete | `.github/workflows/release-candidate.yml`; current local profile is intentionally rejected because it contains an installation | External evidence required |
-| Authenticode publisher signing and timestamp | Build policy complete and fail-closed | Production installer build requires `LUNITIDE_SIGN_COMMAND`; no certificate exists on this machine | External credential required |
+| Windows CGO race detector | Workflow complete, including authentic Electron adoption under `-race` | `.github/workflows/quality.yml` and `.github/workflows/release-candidate.yml`; no remote run is available in this repository yet | External evidence required |
+| Install/upgrade/retain/reinstall/`/PURGE` on disposable Win10 and Win11 | Script complete | `.github/workflows/release-candidate.yml`; current local profile is intentionally rejected because it contains an installation; client matrix must cover Evergreen WebView2 present and absent | External evidence required |
+| Authenticode publisher signing and timestamp | Build policy complete and fail-closed | Production build signs/verifies all three app-owned PE files before the manifest, then signs/verifies the installer; no certificate exists on this machine | External credential required |
 | Committed source baseline | Complete | P0/P1 `0.3.0` baseline changeset; release tag intentionally withheld | Closed |
 | Matching `v0.3.0` release tag | Not established | Must point at the accepted signed/clean-machine baseline | Required before release |
 
@@ -48,15 +48,21 @@ The latest local hardening closes additional release-safety gaps:
 - Host-to-Engine writes and handshake I/O honor context cancellation, poison partially written connections, and reject failed post-handshake deadline resets;
 - synchronous stream events are bounded and buffered until the initial response is committed, preserving response-before-event ordering without deadlocking handlers;
 - client shutdown immediately interrupts stalled event delivery, and session shutdown bounds draining of non-cooperative request handlers.
+- Desktop and Engine expose side-effect-free `--version`; staged and installed layout acceptance requires exact ordinal equality with `VERSION`.
+- production signing now signs and verifies each app-owned PE before manifest generation and signs/verifies the NSIS container last; every signature requires the pinned publisher, trusted timestamp, and Windows policy validation.
+- release assets use positive extension allowlists and reject PE, ZIP, and CAB magic even when payloads are renamed; negative acceptance proves disguised PE and wrong-version rejection.
+- both remote CGO race jobs generate a real Electron `safeStorage` corpus and run the integration-tagged credential adoption test under `-race`.
 
 The complete local Go, legacy migration TypeScript, Bridge, Renderer (32 tests), authentic Electron safeStorage adoption, native layout, NSIS compilation, and real WebView2 runtime command set passes on this tree. The latest explicitly non-publishable unsigned development installer is:
 
 ```text
 release/out/Lunitide-Setup-0.3.0-x64.exe
-SHA-256 f72ca6fe134eb5e03c6d0fefb96fb2068c0971be1f6fea860aaea0571497f17e
+SHA-256 f7bd26f95bf06bf9700c5cf15805e3d91b0e167ff8a67b4c4cff6edcd5967a6c
 ```
 
 This evidence does not replace the external Win10/Win11 lifecycle, final-commit remote race, Authenticode/timestamp, or release-tag requirements below.
+
+`WebView2Loader.dll` is not the Evergreen WebView2 Runtime. The Host detects a missing runtime and fails closed; clean-client acceptance must explicitly exercise both a supported preinstalled Runtime and a Runtime-absent machine. The product must choose and validate an approved Runtime acquisition policy before calling the Runtime-absent case releasable.
 
 ## Verification commands
 

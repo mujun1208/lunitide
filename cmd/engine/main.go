@@ -21,9 +21,14 @@ import (
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
 	pipe := flag.String("pipe", "", "per-launch named pipe path (required)")
 	hostPID := flag.Int("host-pid", 0, "expected Host process ID")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.Version)
+		return
+	}
 	if *hostPID < 1 {
 		log.Fatal("valid host-pid is required")
 	}

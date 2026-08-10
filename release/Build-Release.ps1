@@ -14,6 +14,24 @@ $version=(Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') { throw 'VERSION is invalid' }
 if (-not $SkipInstaller -and -not $AllowUnsignedDevelopment) { $RequireSignature=$true }
 $out=Join-Path $root $OutputRoot; $stage=Join-Path $out "Lunitide-$version-x64"; $cache=Join-Path $root '.release-cache'
+function Invoke-ArtifactSigning([string]$Artifact) {
+  if ($SignCommand) { & powershell -NoProfile -Command ($SignCommand.Replace('{artifact}',$Artifact)); if ($LASTEXITCODE) { throw "signature command failed for $Artifact" } }
+  elseif ($RequireSignature) { throw 'Production signing is required; set LUNITIDE_SIGN_COMMAND with an {artifact} token, or use -AllowUnsignedDevelopment only for a non-publishable test candidate' }
+}
+function Assert-PublisherSignature([string]$Artifact) {
+  if (-not $RequireSignature) { return }
+  if (-not $ExpectedSignerThumbprint) { throw 'Production signing requires LUNITIDE_SIGNER_THUMBPRINT' }
+  $expected=$ExpectedSignerThumbprint.Trim()
+  if ($expected -notmatch '\A[0-9A-Fa-f]{40}\z') { throw 'LUNITIDE_SIGNER_THUMBPRINT must be exactly 40 hexadecimal characters' }
+  $sig=Get-AuthenticodeSignature $Artifact
+  if ($sig.Status -ne 'Valid') { throw "Invalid signature for $Artifact`: $($sig.Status)" }
+  if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $expected.ToUpperInvariant()) { throw "Signer does not match the pinned publisher certificate: $Artifact" }
+  if (-not $sig.TimeStamperCertificate) { throw "Signature is missing a trusted timestamp: $Artifact" }
+  $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue
+  if (-not $signtool) { throw 'Production verification requires Windows SDK signtool.exe' }
+  & $signtool.Source verify /pa /all /v $Artifact
+  if ($LASTEXITCODE) { throw "Windows Authenticode policy rejected the signature or timestamp chain: $Artifact" }
+}
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $stage,$cache,(Join-Path $stage 'web\dist'),(Join-Path $stage 'licenses') -ItemType Directory -Force | Out-Null
 $oldCgo=$env:CGO_ENABLED; $oldOs=$env:GOOS; $oldArch=$env:GOARCH
@@ -63,7 +81,14 @@ if ((Get-FileHash $loader -Algorithm SHA256).Hash.ToLowerInvariant() -ne $wvLoad
 Copy-Item $loader $stage
 Copy-Item (Join-Path $wvExtract 'LICENSE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-LICENSE.txt')
 Copy-Item (Join-Path $wvExtract 'NOTICE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-NOTICE.txt')
+Copy-Item (Join-Path $PSScriptRoot 'stop-install-processes.ps1') $stage
+Copy-Item (Join-Path $PSScriptRoot 'verify-install-directory.ps1') $stage
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $stage 'WebView2Loader.dll') -RequiredExports @('CreateCoreWebView2EnvironmentWithOptions','GetAvailableCoreWebView2BrowserVersionString','CompareBrowserVersions')
+foreach($binary in @('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe')){
+  $artifact=Join-Path $stage $binary
+  Invoke-ArtifactSigning $artifact
+  Assert-PublisherSignature $artifact
+}
 & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $stage -Version $version
 
 $manifest=Join-Path $stage 'SHA256SUMS.txt'
@@ -101,22 +126,8 @@ if (-not $SkipInstaller) {
   } finally {
     Remove-Item $nsis -Recurse -Force -ErrorAction SilentlyContinue
   }
-  if ($SignCommand) { & powershell -NoProfile -Command ($SignCommand.Replace('{artifact}',$installer)); if ($LASTEXITCODE) { throw 'signature command failed' } }
-  elseif ($RequireSignature) { throw 'Production signing is required; set LUNITIDE_SIGN_COMMAND with an {artifact} token, or use -AllowUnsignedDevelopment only for a non-publishable test candidate' }
-  if ($RequireSignature) {
-    if (-not $ExpectedSignerThumbprint) { throw 'Production signing requires LUNITIDE_SIGNER_THUMBPRINT' }
-    $expected=$ExpectedSignerThumbprint.Trim()
-    if ($expected -notmatch '\A[0-9A-Fa-f]{40}\z') { throw 'LUNITIDE_SIGNER_THUMBPRINT must be exactly 40 hexadecimal characters' }
-    $expected=$expected.ToUpperInvariant()
-    $sig=Get-AuthenticodeSignature $installer
-    if ($sig.Status -ne 'Valid') { throw "Invalid installer signature: $($sig.Status)" }
-    if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $expected) { throw 'Installer signer does not match the pinned publisher certificate' }
-    if (-not $sig.TimeStamperCertificate) { throw 'Installer signature is missing a trusted timestamp' }
-    $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue
-    if (-not $signtool) { throw 'Production verification requires Windows SDK signtool.exe' }
-    & $signtool.Source verify /pa /all /v $installer
-    if ($LASTEXITCODE) { throw 'Windows Authenticode policy rejected the installer signature or timestamp chain' }
-  }
+  Invoke-ArtifactSigning $installer
+  Assert-PublisherSignature $installer
   $releaseManifest=Join-Path $out 'SHA256SUMS.txt'
   $installerName=Split-Path $installer -Leaf
   $stageManifestName=(Split-Path $stage -Leaf)+'/SHA256SUMS.txt'

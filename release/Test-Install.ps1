@@ -1,5 +1,14 @@
-param([Parameter(Mandatory)][string]$Installer,[Parameter(Mandatory)][string]$ExpectedVersion,[string]$TestRoot)
+param([Parameter(Mandatory)][string]$Installer,[Parameter(Mandatory)][string]$ExpectedVersion,[Parameter(Mandatory)][string]$ExpectedInstallerHash,[string]$TestRoot,[string]$ExpectedSignerThumbprint,[switch]$AllowUnsignedDevelopment)
 $ErrorActionPreference='Stop'; $Installer=(Resolve-Path $Installer).Path
+if($ExpectedInstallerHash -notmatch '\A[0-9A-Fa-f]{64}\z'){throw 'Expected installer SHA-256 must be exactly 64 hexadecimal characters'}
+if(-not $AllowUnsignedDevelopment){
+  if($ExpectedSignerThumbprint -notmatch '\A[0-9A-Fa-f]{40}\z'){throw 'Signed acceptance requires an exact publisher thumbprint'}
+  $sig=Get-AuthenticodeSignature $Installer
+  if($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -cne $ExpectedSignerThumbprint.ToUpperInvariant() -or -not $sig.TimeStamperCertificate){throw 'Installer publisher signature or timestamp is invalid'}
+  $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue; if(-not $signtool){throw 'Signed acceptance requires Windows SDK signtool.exe'}
+  & $signtool.Source verify /pa /all /v $Installer; if($LASTEXITCODE){throw 'Windows policy rejected the installer signature or timestamp chain'}
+}
+function Assert-InstallerHash { if((Get-FileHash $Installer -Algorithm SHA256).Hash -cne $ExpectedInstallerHash.ToUpperInvariant()){throw 'Installer SHA-256 changed before execution'} }
 if(-not $TestRoot){$TestRoot=Join-Path ([IO.Path]::GetTempPath()) ('lunitide-install-test-'+[guid]::NewGuid().ToString('N'))}
 $appid='Lunitide.Desktop.7A565D82-936E-4E06-962D-83B5DD24E53C'
 $uninstallKey="HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$appid"
@@ -21,7 +30,7 @@ try {
   New-Item $uninstallKey -Force|Out-Null
   Set-ItemProperty $uninstallKey InstallLocation $install
   Set-ItemProperty $uninstallKey DisplayVersion '0.0.1'
-  $p=Start-Process $Installer -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "install failed: $($p.ExitCode)"}; $p.Dispose()
+  Assert-InstallerHash; $p=Start-Process $Installer -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "install failed: $($p.ExitCode)"}; $p.Dispose()
   if(Test-Path (Join-Path $install 'stale-electron-canary.dll')){throw 'upgrade retained a stale old-release file'}
   $installParent=Split-Path $install -Parent
   if(Get-ChildItem $installParent -Directory -Filter 'Lunitide.backup.*' -ErrorAction SilentlyContinue){throw 'upgrade retained a backup release directory'}
@@ -30,9 +39,9 @@ try {
   if(-not(Test-Path (Join-Path $install 'purge-user-data.exe'))){throw 'installed purge helper missing'}
   if((Get-Content $owner -Raw) -cne $appid){throw 'installation ownership marker is missing or invalid'}
   if((Get-ItemProperty $uninstallKey).DisplayVersion -cne $ExpectedVersion){throw 'installed DisplayVersion does not match the expected release version'}
-  & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -VerifyManifest -Installed
+  & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -Version $ExpectedVersion -VerifyManifest -Installed -ExpectedSignerThumbprint $ExpectedSignerThumbprint
   & (Join-Path $PSScriptRoot 'Test-Runtime.ps1') -Executable (Join-Path $install 'Lunitide.exe')
-  & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -VerifyManifest -Installed
+  & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -Version $ExpectedVersion -VerifyManifest -Installed -ExpectedSignerThumbprint $ExpectedSignerThumbprint
   if((Get-ItemProperty $uninstallKey).UninstallString -ne ('"'+(Join-Path $install 'Uninstall.exe')+'"')){throw 'uninstall registration is not the fixed installation path'}
   if(-not(Test-Path (Join-Path $profileAppData 'Microsoft\Windows\Start Menu\Programs\Lunitide\Lunitide.lnk'))){throw 'Start Menu shortcut missing'}
   Set-Content $owner 'not-the-appid' -NoNewline
@@ -46,7 +55,7 @@ try {
   if(Test-Path $install){throw 'default uninstall retained installation files'}
   if(Test-Path (Join-Path $profileAppData 'Microsoft\Windows\Start Menu\Programs\Lunitide')){throw 'default uninstall retained Start Menu shortcuts'}
   [GC]::Collect(); [GC]::WaitForPendingFinalizers()
-  $p=Start-Process $Installer -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw 'reinstall failed'}; $p.Dispose()
+  Assert-InstallerHash; $p=Start-Process $Installer -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw 'reinstall failed'}; $p.Dispose()
   $p=Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S /PURGE' -Wait -PassThru; if($p.ExitCode){throw "purge uninstall failed: $($p.ExitCode)"}; $p.Dispose()
   if(Test-Path $marker){throw 'explicit purge retained data'}
   if(Test-Path $install){throw 'purge uninstall retained installation files'}
