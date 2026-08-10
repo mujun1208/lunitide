@@ -50,7 +50,55 @@ const assert = (condition, message) => { if (!condition) throw new Error(`Bridge
 const ulidRef = schema => refEndsWith(schema, '#/$defs/ULID')
 const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 && schema.maxItems === 50 && refEndsWith(schema.items, '#/$defs/ModelDTO')
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
-assert(JSON.stringify(enabled) === JSON.stringify(['chat.start', 'message.append', 'message.list', 'project.create', 'project.list', 'provider.create', 'provider.credential.submit', 'provider.delete', 'provider.get', 'provider.list', 'provider.model.sync', 'provider.test', 'provider.update', 'session.create', 'session.list', 'stage.create', 'stage.list', 'stream.cancel', 'system.health']), 'enabled method set drift')
+assert(JSON.stringify(enabled) === JSON.stringify([
+  'chat.start',
+  'memory.delete',
+  'memory.get',
+  'memory.list',
+  'memory.search',
+  'memory.update',
+  'message.append',
+  'message.list',
+  'node.complete',
+  'node.fail',
+  'node.list',
+  'node.start',
+  'ontology.edge.list',
+  'ontology.node.get',
+  'ontology.node.list',
+  'ontology.node.search',
+  'plan.activate',
+  'plan.complete',
+  'plan.get',
+  'plan.list',
+  'plan.pause',
+  'plan.resume',
+  'project.create',
+  'project.list',
+  'provider.create',
+  'provider.credential.submit',
+  'provider.delete',
+  'provider.get',
+  'provider.list',
+  'provider.model.sync',
+  'provider.test',
+  'provider.update',
+  'review.approve',
+  'review.list',
+  'review.reject',
+  'session.create',
+  'session.list',
+  'skill.deprecate',
+  'skill.disable',
+  'skill.get',
+  'skill.list',
+  'skill.match',
+  'skill.publish',
+  'stage.create',
+  'stage.list',
+  'stream.cancel',
+  'system.health'
+]), 'enabled method set drift')
 for (const method of ['session.create', 'session.list']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
 assert(required(methodSchema('session.create')).has('title') && refEndsWith(methodSchema('session.create')['x-result'], '#/$defs/SessionDTO'), 'session.create contract drift')
 assert(required(methodSchema('session.list')).has('projectId') && methodSchema('session.list')['x-result']?.properties?.items?.maxItems === 100, 'session.list contract drift')
