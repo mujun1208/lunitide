@@ -13,13 +13,18 @@ import (
 	"github.com/lunitide/lunitide/internal/app"
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/ontologyapp"
+	"github.com/lunitide/lunitide/internal/planningapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/sessionapp"
+	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/stageapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
@@ -90,7 +95,12 @@ func main() {
 	secret.Zero(cursorKey)
 	if err != nil { log.Fatal(err) }
 	stageService := stageapp.New(store, store)
-	engine := app.NewEngineWithStages(providerService, projectService, sessionService, messageService, stageService, store.ContextReader(), store, buildinfo.Version, leaseClient)
+	governanceService := governanceapp.New(store, store)
+	planningService := planningapp.New(store, store, governanceService)
+	memoryService := memoryapp.New(store, store)
+	ontologyService := ontologyapp.New(store, store, store, store)
+	skillService := skillapp.New(store, store)
+	engine := app.NewEngineWithP3P4(providerService, projectService, sessionService, messageService, stageService, planningService, governanceService, memoryService, ontologyService, skillService, store.ContextReader(), store, buildinfo.Version, leaseClient)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()
