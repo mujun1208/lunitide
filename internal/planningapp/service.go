@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/planning"
+	"github.com/oklog/ulid/v2"
 )
 
 var (
@@ -31,6 +32,8 @@ type PlanReader interface {
 
 // PlanWriter writes plan and node status updates.
 type PlanWriter interface {
+	CreatePlan(ctx context.Context, plan planning.Plan) (planning.Plan, error)
+	CreateNode(ctx context.Context, node planning.Node) (planning.Node, error)
 	UpdatePlanStatus(ctx context.Context, id, status string) error
 	UpdateNodeStatus(ctx context.Context, id, status string) error
 }
@@ -73,6 +76,74 @@ func (s *Service) Get(ctx context.Context, id string) (*planning.Plan, error) {
 		return nil, ErrPlanNotFound
 	}
 	return p, nil
+}
+
+// CreatePlan validates and persists a new plan with initial draft status.
+func (s *Service) CreatePlan(ctx context.Context, plan planning.Plan) (planning.Plan, error) {
+	if s == nil || s.write == nil {
+		return planning.Plan{}, errors.New("planning writer unavailable")
+	}
+	if !canonicalULID(plan.ProjectID) {
+		return planning.Plan{}, errors.New("plan project_id is not a canonical ULID")
+	}
+	if len(plan.Name) < 1 || len(plan.Name) > 200 {
+		return planning.Plan{}, errors.New("plan name must be 1-200 characters")
+	}
+	if len(plan.Description) > 4096 {
+		return planning.Plan{}, errors.New("plan description too long")
+	}
+	if plan.StageID != nil && !canonicalULID(*plan.StageID) {
+		return planning.Plan{}, errors.New("plan stage_id is not a canonical ULID")
+	}
+	now := s.clock.Now()
+	plan.ID = ""
+	plan.Version = 1
+	plan.Status = planning.PlanStatusDraft
+	plan.CreatedAt = now
+	plan.UpdatedAt = now
+	return s.write.CreatePlan(ctx, plan)
+}
+
+// CreateNode validates and persists a new plan node with initial pending status.
+func (s *Service) CreateNode(ctx context.Context, node planning.Node) (planning.Node, error) {
+	if s == nil || s.write == nil {
+		return planning.Node{}, errors.New("planning writer unavailable")
+	}
+	if !canonicalULID(node.PlanID) {
+		return planning.Node{}, errors.New("node plan_id is not a canonical ULID")
+	}
+	if node.ParentNodeID != nil && !canonicalULID(*node.ParentNodeID) {
+		return planning.Node{}, errors.New("node parent_node_id is not a canonical ULID")
+	}
+	if len(node.Name) < 1 || len(node.Name) > 200 {
+		return planning.Node{}, errors.New("node name must be 1-200 characters")
+	}
+	if len(node.Description) > 4096 {
+		return planning.Node{}, errors.New("node description too long")
+	}
+	switch node.RiskLevel {
+	case planning.RiskLow, planning.RiskMedium, planning.RiskHigh, planning.RiskCritical:
+	default:
+		return planning.Node{}, errors.New("node risk level invalid")
+	}
+	if len(node.WorkerRole) < 1 || len(node.WorkerRole) > 128 {
+		return planning.Node{}, errors.New("node worker_role must be 1-128 characters")
+	}
+	if node.Sequence < 0 {
+		return planning.Node{}, errors.New("node sequence must be non-negative")
+	}
+	if node.BudgetTokens != nil && *node.BudgetTokens < 1 {
+		return planning.Node{}, errors.New("node budget_tokens must be positive")
+	}
+	if node.EstimateTokens != nil && *node.EstimateTokens < 0 {
+		return planning.Node{}, errors.New("node estimate_tokens must be non-negative")
+	}
+	now := s.clock.Now()
+	node.ID = ""
+	node.Status = planning.NodeStatusPending
+	node.CreatedAt = now
+	node.UpdatedAt = now
+	return s.write.CreateNode(ctx, node)
 }
 
 // ListByProject returns plans for a project.
@@ -361,4 +432,9 @@ func validateDAG(nodes []planning.Node) error {
 		}
 	}
 	return nil
+}
+
+func canonicalULID(v string) bool {
+	u, err := ulid.ParseStrict(v)
+	return err == nil && u.String() == v && v[0] <= '7'
 }

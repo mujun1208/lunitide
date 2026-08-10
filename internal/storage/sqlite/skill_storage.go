@@ -208,6 +208,18 @@ func (s *Store) UpdateSkill(ctx context.Context, id, displayName, description st
 	return mapWriteError(err)
 }
 
+// UpdateSkillFields updates the mutable fields of a skill and bumps version.
+func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string) error {
+	var minEV any
+	if minEngineVersion != nil {
+		minEV = *minEngineVersion
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, version=version+1, updated_at=? WHERE id=?`,
+		displayName, description, entryPoint, manifestJSON, permissionsJSON, minEV, formatTime(time.Now().UTC()), id)
+	return mapWriteError(err)
+}
+
 // UpdateSkillStatus updates the status of a skill.
 func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string) error {
 	_, err := s.db.ExecContext(ctx,

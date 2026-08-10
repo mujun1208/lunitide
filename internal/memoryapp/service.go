@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/memory"
+	"github.com/oklog/ulid/v2"
 )
 
 var (
@@ -24,6 +25,7 @@ type MemoryReader interface {
 
 // MemoryWriter writes and updates memories.
 type MemoryWriter interface {
+	CreateMemory(ctx context.Context, m memory.Memory) (memory.Memory, error)
 	UpdateMemory(ctx context.Context, id string, content string) error
 	DeleteMemory(ctx context.Context, id string) error
 	IncrementAccessCount(ctx context.Context, id string) error
@@ -70,6 +72,44 @@ func (s *Service) Get(ctx context.Context, id string) (*memory.Memory, error) {
 		_ = s.write.IncrementAccessCount(ctx, id)
 	}
 	return m, nil
+}
+
+// Create validates and persists a new memory.
+func (s *Service) Create(ctx context.Context, m memory.Memory) (memory.Memory, error) {
+	if s == nil || s.write == nil {
+		return memory.Memory{}, errors.New("memory writer unavailable")
+	}
+	if !canonicalULID(m.ProjectID) {
+		return memory.Memory{}, errors.New("memory project_id is not a canonical ULID")
+	}
+	switch m.Layer {
+	case memory.LayerWorking, memory.LayerEpisodic, memory.LayerSemantic, memory.LayerProcedural:
+	default:
+		return memory.Memory{}, ErrInvalidLayer
+	}
+	switch m.Scope {
+	case memory.ScopeWorkspace, memory.ScopeProject, memory.ScopeSession:
+	default:
+		return memory.Memory{}, ErrInvalidScope
+	}
+	if len(m.Key) < 1 || len(m.Key) > 256 {
+		return memory.Memory{}, errors.New("memory key must be 1-256 characters")
+	}
+	if len(m.Content) < 1 || len(m.Content) > 65536 {
+		return memory.Memory{}, errors.New("memory content must be 1-65536 characters")
+	}
+	if err := m.Confidence.Validate(); err != nil {
+		return memory.Memory{}, err
+	}
+	if m.ExpiresAt != nil && m.ExpiresAt.Location() != time.UTC {
+		return memory.Memory{}, errors.New("memory expires_at must be UTC")
+	}
+	now := s.clock.Now()
+	m.ID = ""
+	m.AccessCount = 0
+	m.CreatedAt = now
+	m.UpdatedAt = now
+	return s.write.CreateMemory(ctx, m)
 }
 
 // ListByProject returns memories for a project, optionally filtered by layer.
@@ -183,4 +223,9 @@ func (s *Service) PurgeExpired(ctx context.Context, projectID string) (int, erro
 		}
 	}
 	return count, nil
+}
+
+func canonicalULID(v string) bool {
+	u, err := ulid.ParseStrict(v)
+	return err == nil && u.String() == v && v[0] <= '7'
 }

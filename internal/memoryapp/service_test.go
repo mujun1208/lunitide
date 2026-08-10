@@ -29,9 +29,20 @@ type mockMemWriter struct {
 	updatedContent string
 	deletedID      string
 	incrementedID  string
+	createdMem     memory.Memory
 	err            error
 }
 
+func (m *mockMemWriter) CreateMemory(_ context.Context, mem memory.Memory) (memory.Memory, error) {
+	if m.err != nil {
+		return mem, m.err
+	}
+	if mem.ID == "" {
+		mem.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	}
+	m.createdMem = mem
+	return mem, nil
+}
 func (m *mockMemWriter) UpdateMemory(_ context.Context, _, content string) error {
 	m.updatedContent = content
 	return m.err

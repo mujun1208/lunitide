@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/ontology"
+	"github.com/oklog/ulid/v2"
 )
 
 var (
@@ -37,12 +38,14 @@ type EdgeReader interface {
 
 // NodeWriter writes ontology node updates.
 type NodeWriter interface {
+	CreateOntologyNode(ctx context.Context, node ontology.Node) (ontology.Node, error)
 	UpdateOntologyNode(ctx context.Context, id string, description, metadataJSON string) error
 	DeleteOntologyNode(ctx context.Context, id string) error
 }
 
 // EdgeWriter writes ontology edge updates.
 type EdgeWriter interface {
+	CreateOntologyEdge(ctx context.Context, edge ontology.Edge) (ontology.Edge, error)
 	UpdateOntologyEdge(ctx context.Context, id string, weight float64) error
 	DeleteOntologyEdge(ctx context.Context, id string) error
 }
@@ -86,6 +89,44 @@ func (s *Service) GetNode(ctx context.Context, id string) (*ontology.Node, error
 		return nil, ErrNodeNotFound
 	}
 	return n, nil
+}
+
+// CreateNode validates and persists a new ontology node.
+func (s *Service) CreateNode(ctx context.Context, node ontology.Node) (ontology.Node, error) {
+	if s == nil || s.nodeWrite == nil {
+		return ontology.Node{}, errors.New("ontology node writer unavailable")
+	}
+	if !canonicalULID(node.ProjectID) {
+		return ontology.Node{}, errors.New("ontology node project_id is not a canonical ULID")
+	}
+	switch node.Type {
+	case ontology.NodeTypeClass, ontology.NodeTypeInterface, ontology.NodeTypeFunction, ontology.NodeTypeModule,
+		ontology.NodeTypeTable, ontology.NodeTypeFile, ontology.NodeTypeRequirement, ontology.NodeTypeArtifact,
+		ontology.NodeTypeComponent, ontology.NodeTypeEndpoint, ontology.NodeTypeTest:
+	default:
+		return ontology.Node{}, ErrInvalidNodeType
+	}
+	if len(node.Name) < 1 || len(node.Name) > 256 {
+		return ontology.Node{}, errors.New("ontology node name must be 1-256 characters")
+	}
+	if len(node.FullPath) > 1024 {
+		return ontology.Node{}, errors.New("ontology node full_path too long")
+	}
+	if len(node.Description) > 4096 {
+		return ontology.Node{}, ErrDescriptionTooLong
+	}
+	if len(node.MetadataJSON) > 65536 {
+		return ontology.Node{}, ErrMetadataTooLarge
+	}
+	if node.MetadataJSON == "" {
+		node.MetadataJSON = "{}"
+	}
+	now := s.clock.Now()
+	node.ID = ""
+	node.Version = 1
+	node.CreatedAt = now
+	node.UpdatedAt = now
+	return s.nodeWrite.CreateOntologyNode(ctx, node)
 }
 
 // ListNodesByProject returns nodes for a project, optionally filtered by type.
@@ -196,6 +237,48 @@ func (s *Service) GetEdge(ctx context.Context, id string) (*ontology.Edge, error
 	return e, nil
 }
 
+// CreateEdge validates and persists a new ontology edge.
+func (s *Service) CreateEdge(ctx context.Context, edge ontology.Edge) (ontology.Edge, error) {
+	if s == nil || s.edgeWrite == nil {
+		return ontology.Edge{}, errors.New("ontology edge writer unavailable")
+	}
+	if !canonicalULID(edge.SourceNodeID) || !canonicalULID(edge.TargetNodeID) {
+		return ontology.Edge{}, errors.New("ontology edge source_node_id or target_node_id is not a canonical ULID")
+	}
+	if edge.SourceNodeID == edge.TargetNodeID {
+		return ontology.Edge{}, ErrSelfReference
+	}
+	switch edge.Type {
+	case ontology.EdgeTypeImplements, ontology.EdgeTypeExtends, ontology.EdgeTypeDependsOn, ontology.EdgeTypeReferences,
+		ontology.EdgeTypeContains, ontology.EdgeTypeTests, ontology.EdgeTypeImports, ontology.EdgeTypeSatisfies,
+		ontology.EdgeTypeTraces, ontology.EdgeTypeGenerates, ontology.EdgeTypeConfigures,
+		ontology.EdgeTypeAuthenticates, ontology.EdgeTypeAuthorizes:
+	default:
+		return ontology.Edge{}, ErrInvalidEdgeType
+	}
+	if len(edge.Label) > 256 {
+		return ontology.Edge{}, errors.New("ontology edge label too long")
+	}
+	if len(edge.PropertiesJSON) > 65536 {
+		return ontology.Edge{}, errors.New("ontology edge properties_json too large")
+	}
+	if edge.Weight < 0 || edge.Weight > 1 {
+		return ontology.Edge{}, errors.New("ontology edge weight must be between 0.0 and 1.0")
+	}
+	if edge.PropertiesJSON == "" {
+		edge.PropertiesJSON = "{}"
+	}
+	if edge.Weight == 0 {
+		edge.Weight = 1.0
+	}
+	now := s.clock.Now()
+	edge.ID = ""
+	edge.Version = 1
+	edge.CreatedAt = now
+	edge.UpdatedAt = now
+	return s.edgeWrite.CreateOntologyEdge(ctx, edge)
+}
+
 // ListOutgoingEdges returns edges originating from a node.
 func (s *Service) ListOutgoingEdges(ctx context.Context, sourceNodeID string) ([]ontology.Edge, error) {
 	if s == nil || s.edges == nil {
@@ -288,4 +371,9 @@ func (s *Service) GetNeighbors(ctx context.Context, nodeID string) ([]string, er
 		}
 	}
 	return neighbors, nil
+}
+
+func canonicalULID(v string) bool {
+	u, err := ulid.ParseStrict(v)
+	return err == nil && u.String() == v && v[0] <= '7'
 }
