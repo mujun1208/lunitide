@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -102,6 +103,12 @@ func (s *Store) Close() error {
 	return err
 }
 
+// ContextReader returns a contextapp.Reader backed by this store, enabling
+// the chat engine to assemble durable session context for model input.
+func (s *Store) ContextReader() contextapp.Reader {
+	return newContextAdapter(s)
+}
+
 func (s *Store) ResolveProvider(ctx context.Context, id string) (provider.Provider, error) {
 	return s.Get(ctx, id)
 }
@@ -140,6 +147,11 @@ var manifest = []struct{ name, checksum string }{
 	{"0009_message.sql", "5695394548899d026a045f8cdbcb0ed869920563ba88c9f0b2766f85e4d06220"},
 	{"0010_token_ledger.sql", "5149c8b0db94cbc87a1451351c47bc132fac75c1b420a45faef4e707c6dcbabc"},
 	{"0011_compaction_checkpoint.sql", "e3cae92156656cedb1cf336b3987e046f60eafec68e3a325d7253d9c5f2a6061"},
+	{"0012_planning.sql", "4356919714fb5b637ac011db8ef2899b2711282b8ce0b32c5621af11ea5ea7bf"},
+	{"0013_governance.sql", "9def982ac0e9aa359d31e387c1a87000bdc365a8854f094f11757cb53bd685d0"},
+	{"0014_memory.sql", "9c568f2422970421a9a30b34a096510af622b74961c3cad583a4cee206f03796"},
+	{"0015_ontology.sql", "9bbd48db722e2e896367cb0c3e658c58d4564d213aadfa6955d7499dc0d7cdd9"},
+	{"0016_skill.sql", "3c1b38188bc150f201a94daa5993626738154af2e6811edd66ccd56121455e58"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -762,6 +774,26 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_compaction_checkpoints_status":                      "CREATE INDEX ix_compaction_checkpoints_status ON compaction_checkpoints(session_id, status)",
 	"index:ix_handoff_capsules_source":                            "CREATE INDEX ix_handoff_capsules_source ON handoff_capsules(source_session_id, created_at DESC)",
 	"index:ix_handoff_capsules_dest":                              "CREATE INDEX ix_handoff_capsules_dest ON handoff_capsules(dest_session_id)",
+	"table:plans":                                                 "CREATE TABLE plans (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    stage_id TEXT,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    version INTEGER NOT NULL CHECK (version > 0),\n    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'paused', 'completed', 'cancelled', 'failed')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"table:plan_nodes":                                            "CREATE TABLE plan_nodes (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,\n    parent_node_id TEXT REFERENCES plan_nodes(id),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'ready', 'running', 'paused', 'completed', 'failed', 'cancelled', 'blocked')),\n    risk_level TEXT NOT NULL DEFAULT 'low' CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),\n    budget_tokens INTEGER,\n    estimate_tokens INTEGER,\n    worker_role TEXT NOT NULL DEFAULT '' CHECK (length(worker_role) <= 128),\n    sequence INTEGER NOT NULL CHECK (sequence > 0),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    UNIQUE (plan_id, sequence)\n)",
+	"table:governance_reviews":                                    "CREATE TABLE governance_reviews (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    plan_id TEXT REFERENCES plans(id),\n    node_id TEXT REFERENCES plan_nodes(id),\n    action_type TEXT NOT NULL CHECK (length(action_type) BETWEEN 1 AND 64),\n    action_digest TEXT NOT NULL CHECK (length(action_digest) = 64 AND action_digest NOT GLOB '*[^0-9a-f]*'),\n    input_digest TEXT NOT NULL CHECK (length(input_digest) = 64 AND input_digest NOT GLOB '*[^0-9a-f]*'),\n    state_digest TEXT NOT NULL CHECK (length(state_digest) = 64 AND state_digest NOT GLOB '*[^0-9a-f]*'),\n    policy_version INTEGER NOT NULL CHECK (policy_version > 0),\n    risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'changed_after_approval')),\n    reviewer_note TEXT NOT NULL DEFAULT '' CHECK (length(reviewer_note) <= 4096),\n    expires_at TEXT,\n    created_at TEXT NOT NULL,\n    reviewed_at TEXT\n)",
+	"table:governance_policies":                                   "CREATE TABLE governance_policies (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    version INTEGER NOT NULL CHECK (version > 0),\n    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),\n    rules_json TEXT NOT NULL CHECK (length(rules_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"table:memories":                                              "CREATE TABLE memories (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    layer TEXT NOT NULL CHECK (layer IN ('working', 'episodic', 'semantic', 'procedural')),\n    scope TEXT NOT NULL CHECK (scope IN ('workspace', 'project', 'session')),\n    key TEXT NOT NULL CHECK (length(key) BETWEEN 1 AND 256),\n    content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 65536),\n    embedding_id TEXT,\n    source_id TEXT,\n    source_type TEXT CHECK (source_type IS NULL OR length(source_type) <= 64),\n    confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence >= 0.0 AND confidence <= 1.0),\n    access_count INTEGER NOT NULL DEFAULT 0 CHECK (access_count >= 0),\n    last_accessed TEXT,\n    expires_at TEXT,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"table:ontology_nodes":                                        "CREATE TABLE ontology_nodes (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    type TEXT NOT NULL CHECK (type IN ('class', 'interface', 'function', 'module', 'table', 'file', 'requirement', 'artifact', 'component', 'endpoint', 'test')),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 256),\n    full_path TEXT NOT NULL DEFAULT '' CHECK (length(full_path) <= 1024),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (length(metadata_json) <= 65536),\n    version INTEGER NOT NULL CHECK (version > 0),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"table:ontology_edges":                                        "CREATE TABLE ontology_edges (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    source_node_id TEXT NOT NULL REFERENCES ontology_nodes(id) ON DELETE CASCADE,\n    target_node_id TEXT NOT NULL REFERENCES ontology_nodes(id) ON DELETE CASCADE,\n    type TEXT NOT NULL CHECK (type IN ('implements', 'extends', 'depends_on', 'references', 'contains', 'tests', 'imports', 'satisfies', 'traces', 'generates', 'configures', 'authenticates', 'authorizes')),\n    label TEXT NOT NULL DEFAULT '' CHECK (length(label) <= 256),\n    properties_json TEXT NOT NULL DEFAULT '{}' CHECK (length(properties_json) <= 65536),\n    weight REAL NOT NULL DEFAULT 1.0 CHECK (weight >= 0.0 AND weight <= 1.0),\n    version INTEGER NOT NULL CHECK (version > 0),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    CHECK (source_node_id != target_node_id)\n)",
+	"table:skills":                                                "CREATE TABLE skills (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    version TEXT NOT NULL CHECK (length(version) BETWEEN 1 AND 32),\n    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated', 'disabled')),\n    permissions_json TEXT NOT NULL CHECK (length(permissions_json) BETWEEN 2 AND 2048),\n    entry_point TEXT NOT NULL CHECK (length(entry_point) BETWEEN 1 AND 512),\n    manifest_json TEXT NOT NULL CHECK (length(manifest_json) BETWEEN 2 AND 65536),\n    signature TEXT CHECK (signature IS NULL OR length(signature) <= 1024),\n    publisher_id TEXT,\n    min_engine_version TEXT CHECK (min_engine_version IS NULL OR length(min_engine_version) <= 32),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"index:ix_plans_project_status":                               "CREATE INDEX ix_plans_project_status ON plans(project_id, status)",
+	"index:ix_plan_nodes_plan_sequence":                           "CREATE INDEX ix_plan_nodes_plan_sequence ON plan_nodes(plan_id, sequence)",
+	"index:ix_plan_nodes_status":                                  "CREATE INDEX ix_plan_nodes_status ON plan_nodes(plan_id, status)",
+	"index:ix_governance_reviews_plan":                            "CREATE INDEX ix_governance_reviews_plan ON governance_reviews(plan_id, created_at DESC)",
+	"index:ix_governance_reviews_node":                            "CREATE INDEX ix_governance_reviews_node ON governance_reviews(node_id)",
+	"index:ix_memories_project_layer":                             "CREATE INDEX ix_memories_project_layer ON memories(project_id, layer)",
+	"index:ix_memories_key":                                       "CREATE INDEX ix_memories_key ON memories(project_id, key)",
+	"index:ix_ontology_nodes_project_type":                        "CREATE INDEX ix_ontology_nodes_project_type ON ontology_nodes(project_id, type)",
+	"index:ux_ontology_nodes_project_path":                        "CREATE UNIQUE INDEX ux_ontology_nodes_project_path ON ontology_nodes(project_id, full_path) WHERE full_path != ''",
+	"index:ix_ontology_edges_source":                              "CREATE INDEX ix_ontology_edges_source ON ontology_edges(source_node_id)",
+	"index:ix_ontology_edges_target":                              "CREATE INDEX ix_ontology_edges_target ON ontology_edges(target_node_id)",
+	"index:ux_skills_name_version":                                "CREATE UNIQUE INDEX ux_skills_name_version ON skills(name, version)",
 }
 
 type columnSpec struct {
@@ -791,6 +823,14 @@ var expectedColumns = map[string][]columnSpec{
 	"token_ledger":                      {{"id", "TEXT", "", 0, 1, 0}, {"message_id", "TEXT", "", 1, 0, 0}, {"provider", "TEXT", "''", 1, 0, 0}, {"model", "TEXT", "''", 1, 0, 0}, {"tokenizer_revision", "TEXT", "''", 1, 0, 0}, {"token_count", "INTEGER", "", 1, 0, 0}, {"estimation_method", "TEXT", "", 1, 0, 0}, {"utf8_bytes", "INTEGER", "", 1, 0, 0}, {"computed_at", "TEXT", "", 1, 0, 0}},
 	"compaction_checkpoints":           {{"id", "TEXT", "", 0, 1, 0}, {"session_id", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"source_start_id", "TEXT", "", 1, 0, 0}, {"source_end_id", "TEXT", "", 1, 0, 0}, {"source_start_seq", "INTEGER", "", 1, 0, 0}, {"source_end_seq", "INTEGER", "", 1, 0, 0}, {"source_digest", "TEXT", "", 1, 0, 0}, {"prev_checkpoint_id", "TEXT", "", 0, 0, 0}, {"prev_checkpoint_digest", "TEXT", "", 0, 0, 0}, {"summary_schema_version", "TEXT", "'1.0'", 1, 0, 0}, {"trigger", "TEXT", "", 1, 0, 0}, {"trigger_reason", "TEXT", "''", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"provider", "TEXT", "''", 1, 0, 0}, {"model", "TEXT", "''", 1, 0, 0}, {"summary_json", "TEXT", "'{}'", 1, 0, 0}, {"human_summary", "TEXT", "''", 1, 0, 0}, {"failure_code", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"completed_at", "TEXT", "", 0, 0, 0}},
 	"handoff_capsules":                 {{"id", "TEXT", "", 0, 1, 0}, {"source_session_id", "TEXT", "", 1, 0, 0}, {"dest_session_id", "TEXT", "", 0, 0, 0}, {"checkpoint_id", "TEXT", "", 1, 0, 0}, {"active_tasks_json", "TEXT", "'[]'", 1, 0, 0}, {"recent_message_ids", "TEXT", "'[]'", 1, 0, 0}, {"digest", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"activated_at", "TEXT", "", 0, 0, 0}, {"expires_at", "TEXT", "", 0, 0, 0}},
+	"plans":                             {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"stage_id", "TEXT", "", 0, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"status", "TEXT", "'draft'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"plan_nodes":                        {{"id", "TEXT", "", 0, 1, 0}, {"plan_id", "TEXT", "", 1, 0, 0}, {"parent_node_id", "TEXT", "", 0, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"risk_level", "TEXT", "'low'", 1, 0, 0}, {"budget_tokens", "INTEGER", "", 0, 0, 0}, {"estimate_tokens", "INTEGER", "", 0, 0, 0}, {"worker_role", "TEXT", "''", 1, 0, 0}, {"sequence", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"governance_reviews":                {{"id", "TEXT", "", 0, 1, 0}, {"plan_id", "TEXT", "", 0, 0, 0}, {"node_id", "TEXT", "", 0, 0, 0}, {"action_type", "TEXT", "", 1, 0, 0}, {"action_digest", "TEXT", "", 1, 0, 0}, {"input_digest", "TEXT", "", 1, 0, 0}, {"state_digest", "TEXT", "", 1, 0, 0}, {"policy_version", "INTEGER", "", 1, 0, 0}, {"risk_level", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"reviewer_note", "TEXT", "''", 1, 0, 0}, {"expires_at", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"reviewed_at", "TEXT", "", 0, 0, 0}},
+	"governance_policies":               {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"is_active", "INTEGER", "1", 1, 0, 0}, {"rules_json", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"memories":                          {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"layer", "TEXT", "", 1, 0, 0}, {"scope", "TEXT", "", 1, 0, 0}, {"key", "TEXT", "", 1, 0, 0}, {"content", "TEXT", "", 1, 0, 0}, {"embedding_id", "TEXT", "", 0, 0, 0}, {"source_id", "TEXT", "", 0, 0, 0}, {"source_type", "TEXT", "", 0, 0, 0}, {"confidence", "REAL", "1.0", 1, 0, 0}, {"access_count", "INTEGER", "0", 1, 0, 0}, {"last_accessed", "TEXT", "", 0, 0, 0}, {"expires_at", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"ontology_nodes":                    {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"full_path", "TEXT", "''", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"metadata_json", "TEXT", "'{}'", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"ontology_edges":                    {{"id", "TEXT", "", 0, 1, 0}, {"source_node_id", "TEXT", "", 1, 0, 0}, {"target_node_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"label", "TEXT", "''", 1, 0, 0}, {"properties_json", "TEXT", "'{}'", 1, 0, 0}, {"weight", "REAL", "1.0", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"skills":                            {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'draft'", 1, 0, 0}, {"permissions_json", "TEXT", "", 1, 0, 0}, {"entry_point", "TEXT", "", 1, 0, 0}, {"manifest_json", "TEXT", "", 1, 0, 0}, {"signature", "TEXT", "", 0, 0, 0}, {"publisher_id", "TEXT", "", 0, 0, 0}, {"min_engine_version", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 }
 
 func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
@@ -850,7 +890,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
+	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -979,6 +1019,183 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 		return 0, "", fmt.Errorf("handoff_capsules FK checkpoint_id mismatch: %+v", r)
 	}
 	canonical = append(canonical, fmt.Sprintf("fk:handoff_capsules:checkpoint_id:%d:%d:%s:%s:%s:%s:%s:%s", hcFKs["checkpoint_id"].id, hcFKs["checkpoint_id"].seq, hcFKs["checkpoint_id"].table, hcFKs["checkpoint_id"].from, hcFKs["checkpoint_id"].to, hcFKs["checkpoint_id"].update, hcFKs["checkpoint_id"].del, hcFKs["checkpoint_id"].match))
+	// plans FKs: project_id → projects
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('plans')`).Scan(&count); err != nil || count != 1 {
+		return 0, "", fmt.Errorf("plans FK set mismatch: count=%d err=%w", count, err)
+	}
+	var plansFkRows *sql.Rows
+	plansFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('plans') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("plans FK query: %w", err)
+	}
+	plansFKs := map[string]fkRow{}
+	for plansFkRows.Next() {
+		var r fkRow
+		if err := plansFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			plansFkRows.Close()
+			return 0, "", err
+		}
+		plansFKs[r.from] = r
+	}
+	plansFkRows.Close()
+	if len(plansFKs) != 1 {
+		return 0, "", fmt.Errorf("plans FK count mismatch: got %d", len(plansFKs))
+	}
+	// FK: project_id → projects
+	if r, ok := plansFKs["project_id"]; !ok || r.seq != 0 || r.table != "projects" || r.from != "project_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("plans FK project_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:plans:project_id:%d:%d:%s:%s:%s:%s:%s:%s", plansFKs["project_id"].id, plansFKs["project_id"].seq, plansFKs["project_id"].table, plansFKs["project_id"].from, plansFKs["project_id"].to, plansFKs["project_id"].update, plansFKs["project_id"].del, plansFKs["project_id"].match))
+	// plan_nodes FKs: plan_id → plans, parent_node_id → plan_nodes
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('plan_nodes')`).Scan(&count); err != nil || count != 2 {
+		return 0, "", fmt.Errorf("plan_nodes FK set mismatch: count=%d err=%w", count, err)
+	}
+	var pnFkRows *sql.Rows
+	pnFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('plan_nodes') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("plan_nodes FK query: %w", err)
+	}
+	pnFKs := map[string]fkRow{}
+	for pnFkRows.Next() {
+		var r fkRow
+		if err := pnFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			pnFkRows.Close()
+			return 0, "", err
+		}
+		pnFKs[r.from] = r
+	}
+	pnFkRows.Close()
+	if len(pnFKs) != 2 {
+		return 0, "", fmt.Errorf("plan_nodes FK count mismatch: got %d", len(pnFKs))
+	}
+	// FK: plan_id → plans
+	if r, ok := pnFKs["plan_id"]; !ok || r.seq != 0 || r.table != "plans" || r.from != "plan_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "CASCADE" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("plan_nodes FK plan_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:plan_nodes:plan_id:%d:%d:%s:%s:%s:%s:%s:%s", pnFKs["plan_id"].id, pnFKs["plan_id"].seq, pnFKs["plan_id"].table, pnFKs["plan_id"].from, pnFKs["plan_id"].to, pnFKs["plan_id"].update, pnFKs["plan_id"].del, pnFKs["plan_id"].match))
+	// FK: parent_node_id → plan_nodes
+	if r, ok := pnFKs["parent_node_id"]; !ok || r.seq != 0 || r.table != "plan_nodes" || r.from != "parent_node_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "NO ACTION" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("plan_nodes FK parent_node_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:plan_nodes:parent_node_id:%d:%d:%s:%s:%s:%s:%s:%s", pnFKs["parent_node_id"].id, pnFKs["parent_node_id"].seq, pnFKs["parent_node_id"].table, pnFKs["parent_node_id"].from, pnFKs["parent_node_id"].to, pnFKs["parent_node_id"].update, pnFKs["parent_node_id"].del, pnFKs["parent_node_id"].match))
+	// governance_reviews FKs: plan_id → plans, node_id → plan_nodes
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('governance_reviews')`).Scan(&count); err != nil || count != 2 {
+		return 0, "", fmt.Errorf("governance_reviews FK set mismatch: count=%d err=%w", count, err)
+	}
+	var grFkRows *sql.Rows
+	grFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('governance_reviews') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("governance_reviews FK query: %w", err)
+	}
+	grFKs := map[string]fkRow{}
+	for grFkRows.Next() {
+		var r fkRow
+		if err := grFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			grFkRows.Close()
+			return 0, "", err
+		}
+		grFKs[r.from] = r
+	}
+	grFkRows.Close()
+	if len(grFKs) != 2 {
+		return 0, "", fmt.Errorf("governance_reviews FK count mismatch: got %d", len(grFKs))
+	}
+	// FK: plan_id → plans
+	if r, ok := grFKs["plan_id"]; !ok || r.seq != 0 || r.table != "plans" || r.from != "plan_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "NO ACTION" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("governance_reviews FK plan_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:governance_reviews:plan_id:%d:%d:%s:%s:%s:%s:%s:%s", grFKs["plan_id"].id, grFKs["plan_id"].seq, grFKs["plan_id"].table, grFKs["plan_id"].from, grFKs["plan_id"].to, grFKs["plan_id"].update, grFKs["plan_id"].del, grFKs["plan_id"].match))
+	// FK: node_id → plan_nodes
+	if r, ok := grFKs["node_id"]; !ok || r.seq != 0 || r.table != "plan_nodes" || r.from != "node_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "NO ACTION" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("governance_reviews FK node_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:governance_reviews:node_id:%d:%d:%s:%s:%s:%s:%s:%s", grFKs["node_id"].id, grFKs["node_id"].seq, grFKs["node_id"].table, grFKs["node_id"].from, grFKs["node_id"].to, grFKs["node_id"].update, grFKs["node_id"].del, grFKs["node_id"].match))
+	// memories FKs: project_id → projects
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('memories')`).Scan(&count); err != nil || count != 1 {
+		return 0, "", fmt.Errorf("memories FK set mismatch: count=%d err=%w", count, err)
+	}
+	var memFkRows *sql.Rows
+	memFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('memories') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("memories FK query: %w", err)
+	}
+	memFKs := map[string]fkRow{}
+	for memFkRows.Next() {
+		var r fkRow
+		if err := memFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			memFkRows.Close()
+			return 0, "", err
+		}
+		memFKs[r.from] = r
+	}
+	memFkRows.Close()
+	if len(memFKs) != 1 {
+		return 0, "", fmt.Errorf("memories FK count mismatch: got %d", len(memFKs))
+	}
+	// FK: project_id → projects
+	if r, ok := memFKs["project_id"]; !ok || r.seq != 0 || r.table != "projects" || r.from != "project_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("memories FK project_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:memories:project_id:%d:%d:%s:%s:%s:%s:%s:%s", memFKs["project_id"].id, memFKs["project_id"].seq, memFKs["project_id"].table, memFKs["project_id"].from, memFKs["project_id"].to, memFKs["project_id"].update, memFKs["project_id"].del, memFKs["project_id"].match))
+	// ontology_nodes FKs: project_id → projects
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('ontology_nodes')`).Scan(&count); err != nil || count != 1 {
+		return 0, "", fmt.Errorf("ontology_nodes FK set mismatch: count=%d err=%w", count, err)
+	}
+	var onFkRows *sql.Rows
+	onFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('ontology_nodes') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("ontology_nodes FK query: %w", err)
+	}
+	onFKs := map[string]fkRow{}
+	for onFkRows.Next() {
+		var r fkRow
+		if err := onFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			onFkRows.Close()
+			return 0, "", err
+		}
+		onFKs[r.from] = r
+	}
+	onFkRows.Close()
+	if len(onFKs) != 1 {
+		return 0, "", fmt.Errorf("ontology_nodes FK count mismatch: got %d", len(onFKs))
+	}
+	// FK: project_id → projects
+	if r, ok := onFKs["project_id"]; !ok || r.seq != 0 || r.table != "projects" || r.from != "project_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("ontology_nodes FK project_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:ontology_nodes:project_id:%d:%d:%s:%s:%s:%s:%s:%s", onFKs["project_id"].id, onFKs["project_id"].seq, onFKs["project_id"].table, onFKs["project_id"].from, onFKs["project_id"].to, onFKs["project_id"].update, onFKs["project_id"].del, onFKs["project_id"].match))
+	// ontology_edges FKs: source_node_id → ontology_nodes, target_node_id → ontology_nodes
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('ontology_edges')`).Scan(&count); err != nil || count != 2 {
+		return 0, "", fmt.Errorf("ontology_edges FK set mismatch: count=%d err=%w", count, err)
+	}
+	var oeFkRows *sql.Rows
+	oeFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('ontology_edges') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("ontology_edges FK query: %w", err)
+	}
+	oeFKs := map[string]fkRow{}
+	for oeFkRows.Next() {
+		var r fkRow
+		if err := oeFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			oeFkRows.Close()
+			return 0, "", err
+		}
+		oeFKs[r.from] = r
+	}
+	oeFkRows.Close()
+	if len(oeFKs) != 2 {
+		return 0, "", fmt.Errorf("ontology_edges FK count mismatch: got %d", len(oeFKs))
+	}
+	// FK: source_node_id → ontology_nodes
+	if r, ok := oeFKs["source_node_id"]; !ok || r.seq != 0 || r.table != "ontology_nodes" || r.from != "source_node_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "CASCADE" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("ontology_edges FK source_node_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:ontology_edges:source_node_id:%d:%d:%s:%s:%s:%s:%s:%s", oeFKs["source_node_id"].id, oeFKs["source_node_id"].seq, oeFKs["source_node_id"].table, oeFKs["source_node_id"].from, oeFKs["source_node_id"].to, oeFKs["source_node_id"].update, oeFKs["source_node_id"].del, oeFKs["source_node_id"].match))
+	// FK: target_node_id → ontology_nodes
+	if r, ok := oeFKs["target_node_id"]; !ok || r.seq != 0 || r.table != "ontology_nodes" || r.from != "target_node_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "CASCADE" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("ontology_edges FK target_node_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:ontology_edges:target_node_id:%d:%d:%s:%s:%s:%s:%s:%s", oeFKs["target_node_id"].id, oeFKs["target_node_id"].seq, oeFKs["target_node_id"].table, oeFKs["target_node_id"].from, oeFKs["target_node_id"].to, oeFKs["target_node_id"].update, oeFKs["target_node_id"].del, oeFKs["target_node_id"].match))
 	var unique, partial int
 	var origin, columns string
 	if err := q.QueryRowContext(ctx, `SELECT "unique",origin,partial FROM pragma_index_list('provider_models') WHERE name='ux_provider_default_model'`).Scan(&unique, &origin, &partial); err != nil || unique != 1 || origin != "c" || partial != 1 {

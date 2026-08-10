@@ -1,0 +1,184 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/lunitide/lunitide/internal/domain/handoff"
+)
+
+// CreateCapsule inserts a new handoff capsule.
+func (s *Store) CreateCapsule(ctx context.Context, c handoff.Capsule) (handoff.Capsule, error) {
+	if c.ID == "" {
+		var err error
+		c.ID, err = s.newULID(time.Now())
+		if err != nil {
+			return c, err
+		}
+	}
+	c.CreatedAt = time.Now().UTC()
+	if c.Status == "" {
+		c.Status = handoff.StatusActive
+	}
+	if c.ActiveTasksJSON == "" {
+		c.ActiveTasksJSON = "[]"
+	}
+	if c.RecentMessageIDs == "" {
+		c.RecentMessageIDs = "[]"
+	}
+	if err := c.Validate(); err != nil {
+		return c, err
+	}
+	var destSessionID, activatedAt, expiresAt any
+	if c.DestSessionID != nil {
+		destSessionID = *c.DestSessionID
+	}
+	if c.ActivatedAt != nil {
+		activatedAt = formatTime(*c.ActivatedAt)
+	}
+	if c.ExpiresAt != nil {
+		expiresAt = formatTime(*c.ExpiresAt)
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO handoff_capsules(id, source_session_id, dest_session_id, checkpoint_id,
+		 active_tasks_json, recent_message_ids, digest, status, created_at, activated_at, expires_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.SourceSessionID, destSessionID, c.CheckpointID,
+		c.ActiveTasksJSON, c.RecentMessageIDs, c.Digest, c.Status,
+		formatTime(c.CreatedAt), activatedAt, expiresAt)
+	return c, mapWriteError(err)
+}
+
+// GetCapsule returns a capsule by ID.
+func (s *Store) GetCapsule(ctx context.Context, id string) (*handoff.Capsule, error) {
+	var c handoff.Capsule
+	var created string
+	var destSessionID, activatedAt, expiresAt sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, source_session_id, dest_session_id, checkpoint_id,
+		 active_tasks_json, recent_message_ids, digest, status, created_at, activated_at, expires_at
+		 FROM handoff_capsules WHERE id=?`, id).Scan(
+		&c.ID, &c.SourceSessionID, &destSessionID, &c.CheckpointID,
+		&c.ActiveTasksJSON, &c.RecentMessageIDs, &c.Digest, &c.Status,
+		&created, &activatedAt, &expiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return nil, err
+	}
+	if destSessionID.Valid {
+		c.DestSessionID = &destSessionID.String
+	}
+	if activatedAt.Valid {
+		t, err := time.Parse(time.RFC3339Nano, activatedAt.String)
+		if err != nil {
+			return nil, err
+		}
+		c.ActivatedAt = &t
+	}
+	if expiresAt.Valid {
+		t, err := time.Parse(time.RFC3339Nano, expiresAt.String)
+		if err != nil {
+			return nil, err
+		}
+		c.ExpiresAt = &t
+	}
+	return &c, nil
+}
+
+// ListCapsulesBySourceSession returns capsules for a source session ordered by creation time descending.
+func (s *Store) ListCapsulesBySourceSession(ctx context.Context, sessionID string, limit int) ([]handoff.Capsule, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, source_session_id, dest_session_id, checkpoint_id,
+		 active_tasks_json, recent_message_ids, digest, status, created_at, activated_at, expires_at
+		 FROM handoff_capsules WHERE source_session_id=? ORDER BY created_at DESC LIMIT ?`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanCapsules(rows)
+}
+
+// ListActiveCapsules returns all active (non-terminal) capsules for a session.
+func (s *Store) ListActiveCapsules(ctx context.Context, sessionID string) ([]handoff.Capsule, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, source_session_id, dest_session_id, checkpoint_id,
+		 active_tasks_json, recent_message_ids, digest, status, created_at, activated_at, expires_at
+		 FROM handoff_capsules WHERE source_session_id=? AND status='active' ORDER BY created_at DESC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanCapsules(rows)
+}
+
+// ActivateCapsule binds a capsule to a destination session and sets its status to activated.
+func (s *Store) ActivateCapsule(ctx context.Context, id string, destSessionID string) error {
+	now := formatTime(time.Now().UTC())
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE handoff_capsules SET dest_session_id=?, status='activated', activated_at=? WHERE id=? AND status='active'`,
+		destSessionID, now, id)
+	return mapWriteError(err)
+}
+
+// RevokeCapsule sets a capsule's status to revoked.
+func (s *Store) RevokeCapsule(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE handoff_capsules SET status='revoked' WHERE id=? AND status='active'`, id)
+	return mapWriteError(err)
+}
+
+// ExpireCapsule sets a capsule's status to expired.
+func (s *Store) ExpireCapsule(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE handoff_capsules SET status='expired' WHERE id=? AND status='active'`, id)
+	return mapWriteError(err)
+}
+
+func scanCapsules(rows *sql.Rows) ([]handoff.Capsule, error) {
+	var result []handoff.Capsule
+	for rows.Next() {
+		var c handoff.Capsule
+		var created string
+		var destSessionID, activatedAt, expiresAt sql.NullString
+		if err := rows.Scan(
+			&c.ID, &c.SourceSessionID, &destSessionID, &c.CheckpointID,
+			&c.ActiveTasksJSON, &c.RecentMessageIDs, &c.Digest, &c.Status,
+			&created, &activatedAt, &expiresAt); err != nil {
+			return nil, err
+		}
+		var err error
+		c.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, err
+		}
+		if destSessionID.Valid {
+			c.DestSessionID = &destSessionID.String
+		}
+		if activatedAt.Valid {
+			t, err := time.Parse(time.RFC3339Nano, activatedAt.String)
+			if err != nil {
+				return nil, err
+			}
+			c.ActivatedAt = &t
+		}
+		if expiresAt.Valid {
+			t, err := time.Parse(time.RFC3339Nano, expiresAt.String)
+			if err != nil {
+				return nil, err
+			}
+			c.ExpiresAt = &t
+		}
+		result = append(result, c)
+	}
+	return result, rows.Err()
+}
