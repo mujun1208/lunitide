@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
+	"github.com/lunitide/lunitide/internal/domain/token"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -28,6 +31,10 @@ func (s *Store) DoProject(ctx context.Context, fn func(projectapp.Tx) error) (re
 }
 
 func (s *Store) DoSession(ctx context.Context, fn func(sessionapp.Tx) error) error {
+	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
+}
+
+func (s *Store) DoMessage(ctx context.Context, fn func(messageapp.Tx) error) error {
 	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
 }
 
@@ -89,6 +96,9 @@ func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (proje
 		return p, err
 	}
 	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?)`, p.ID, p.Name, p.Status, formatTime(now), formatTime(now), p.Version)
+	if err == nil {
+		_, err = t.q.ExecContext(ctx, `INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, p.ID)
+	}
 	return p, mapWriteError(err)
 }
 
@@ -125,7 +135,136 @@ func (t *txAdapter) CreateSession(ctx context.Context, v session.Session) (sessi
 		return v, err
 	}
 	_, err = t.q.ExecContext(ctx, `INSERT INTO sessions(id,project_id,title,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?)`, v.ID, v.ProjectID, v.Title, v.Status, formatTime(now), formatTime(now), v.Version)
+	if err == nil {
+		_, err = t.q.ExecContext(ctx, `INSERT INTO message_session_state(session_id,last_sequence,message_count,text_bytes) VALUES(?,0,0,0)`, v.ID)
+	}
 	return v, mapWriteError(err)
+}
+
+func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (message.Message, error) {
+	var projectID string
+	if err := t.q.QueryRowContext(ctx, `SELECT project_id FROM sessions WHERE id=?`, v.SessionID).Scan(&projectID); err != nil {
+		if err == sql.ErrNoRows {
+			return v, messageapp.ErrSessionNotFound
+		}
+		return v, err
+	}
+	var sequence, count, sessionBytes int64
+	if err := t.q.QueryRowContext(ctx, `SELECT last_sequence,message_count,text_bytes FROM message_session_state WHERE session_id=?`, v.SessionID).Scan(&sequence, &count, &sessionBytes); err != nil {
+		return v, err
+	}
+	if sequence != count {
+		return v, messageapp.ErrDataInvariantViolation
+	}
+	if sequence > 0 {
+		var tail int64
+		if err := t.q.QueryRowContext(ctx, `SELECT sequence FROM messages WHERE session_id=? ORDER BY sequence DESC LIMIT 1`, v.SessionID).Scan(&tail); err != nil || tail != sequence {
+			return v, messageapp.ErrDataInvariantViolation
+		}
+	}
+	sequence++
+	if sequence < 1 || sequence > message.MaxSafeSequence {
+		return v, messageapp.ErrDataInvariantViolation
+	}
+	text, err := message.NormalizeText(v.Text)
+	if err != nil {
+		return v, err
+	}
+	v.Text = text
+	textBytes := int64(len(text))
+	res, err := t.q.ExecContext(ctx, `UPDATE message_project_usage SET text_bytes=text_bytes+? WHERE project_id=? AND text_bytes<=?-?`, textBytes, projectID, message.ProjectTextQuotaBytes, textBytes)
+	if err != nil {
+		return v, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return v, err
+	}
+	if n != 1 {
+		var used int64
+		if err = t.q.QueryRowContext(ctx, `SELECT text_bytes FROM message_project_usage WHERE project_id=?`, projectID).Scan(&used); err != nil {
+			if err == sql.ErrNoRows {
+				return v, messageapp.ErrDataInvariantViolation
+			}
+			return v, err
+		}
+		if n != 0 || used < 0 || used > message.ProjectTextQuotaBytes || textBytes <= message.ProjectTextQuotaBytes-used {
+			return v, messageapp.ErrDataInvariantViolation
+		}
+		return v, messageapp.ErrMessageStorageQuotaReached
+	}
+	res, err = t.q.ExecContext(ctx, `UPDATE message_workspace_usage SET text_bytes=text_bytes+? WHERE singleton=1 AND text_bytes<=?-?`, textBytes, message.WorkspaceTextQuotaBytes, textBytes)
+	if err != nil {
+		return v, err
+	}
+	n, err = res.RowsAffected()
+	if err != nil {
+		return v, err
+	}
+	if n != 1 {
+		var used int64
+		if err = t.q.QueryRowContext(ctx, `SELECT text_bytes FROM message_workspace_usage WHERE singleton=1`).Scan(&used); err != nil {
+			if err == sql.ErrNoRows {
+				return v, messageapp.ErrDataInvariantViolation
+			}
+			return v, err
+		}
+		if n != 0 || used < 0 || used > message.WorkspaceTextQuotaBytes || textBytes <= message.WorkspaceTextQuotaBytes-used {
+			return v, messageapp.ErrDataInvariantViolation
+		}
+		return v, messageapp.ErrMessageStorageQuotaReached
+	}
+	res, err = t.q.ExecContext(ctx, `UPDATE message_session_state SET last_sequence=last_sequence+1,message_count=message_count+1,text_bytes=text_bytes+? WHERE session_id=? AND last_sequence=?`, textBytes, v.SessionID, sequence-1)
+	if err != nil {
+		return v, err
+	}
+	n, err = res.RowsAffected()
+	if err != nil {
+		return v, err
+	}
+	if n != 1 {
+		return v, messageapp.ErrDataInvariantViolation
+	}
+	v.ID, err = t.s.newULID(time.Now())
+	if err != nil {
+		return v, err
+	}
+	v.Role, v.Status, v.Sequence, v.CreatedAt = message.RoleUser, message.StatusCompleted, sequence, time.Now().UTC()
+	if err = v.Validate(); err != nil {
+		return v, err
+	}
+	if _, err = t.q.ExecContext(ctx, `INSERT INTO messages(id,session_id,role,status,sequence,created_at) VALUES(?,?,?,?,?,?)`, v.ID, v.SessionID, v.Role, v.Status, v.Sequence, formatTime(v.CreatedAt)); err != nil {
+		return v, mapWriteError(err)
+	}
+	_, err = t.q.ExecContext(ctx, `INSERT INTO message_parts(message_id,ordinal,type,text) VALUES(?,1,'text',?)`, v.ID, v.Text)
+	if err != nil {
+		return v, mapWriteError(err)
+	}
+	// Record a conservative token estimate for this message.
+	tokenID, err := t.s.newULID(time.Now())
+	if err != nil {
+		return v, err
+	}
+	tokenEstimate := token.EstimateTokens(v.Text)
+	_, err = t.q.ExecContext(ctx,
+		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
+		 VALUES(?,?,?,?,?,?,?,?,?)`,
+		tokenID, v.ID, "", "", "", tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC()))
+	return v, mapWriteError(err)
+}
+
+func (t *txAdapter) Message(ctx context.Context, id string) (message.Message, error) {
+	var v message.Message
+	var created string
+	err := t.q.QueryRowContext(ctx, `SELECT m.id,m.session_id,m.role,m.status,m.sequence,MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END),m.created_at FROM messages m LEFT JOIN message_parts p ON p.message_id=m.id WHERE m.id=? GROUP BY m.id HAVING count(p.message_id)=1 AND count(CASE WHEN p.ordinal=1 AND p.type='text' THEN 1 END)=1`, id).Scan(&v.ID, &v.SessionID, &v.Role, &v.Status, &v.Sequence, &v.Text, &created)
+	if err != nil {
+		return v, err
+	}
+	v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+	if err != nil || v.Validate() != nil {
+		return v, messageapp.ErrDataInvariantViolation
+	}
+	return v, nil
 }
 
 func (t *txAdapter) Get(ctx context.Context, id string) (provider.Provider, error) {
@@ -317,3 +456,5 @@ var _ projectapp.UnitOfWork = (*Store)(nil)
 var _ projectapp.Tx = (*txAdapter)(nil)
 var _ sessionapp.UnitOfWork = (*Store)(nil)
 var _ sessionapp.Tx = (*txAdapter)(nil)
+var _ messageapp.UnitOfWork = (*Store)(nil)
+var _ messageapp.Tx = (*txAdapter)(nil)

@@ -8,6 +8,8 @@ type Method string
 const (
 	MethodChatStart                Method = "chat.start"
 	MethodDiagnosticsExport        Method = "diagnostics.export"
+	MethodMessageAppend            Method = "message.append"
+	MethodMessageList              Method = "message.list"
 	MethodMigrationInspect         Method = "migration.inspect"
 	MethodMigrationRun             Method = "migration.run"
 	MethodMigrationStatus          Method = "migration.status"
@@ -35,6 +37,8 @@ type MethodMetadata struct {
 var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodChatStart:                {Owner: "engine", Enabled: true},
 	MethodDiagnosticsExport:        {Owner: "host", Enabled: false},
+	MethodMessageAppend:            {Owner: "engine", Enabled: true},
+	MethodMessageList:              {Owner: "engine", Enabled: true},
 	MethodMigrationInspect:         {Owner: "engine", Enabled: false},
 	MethodMigrationRun:             {Owner: "engine", Enabled: false},
 	MethodMigrationStatus:          {Owner: "engine", Enabled: false},
@@ -53,6 +57,6 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodStreamCancel:             {Owner: "engine", Enabled: true},
 	MethodSystemHealth:             {Owner: "engine", Enabled: true},
 }
-var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodSessionCreate, MethodSessionList, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodSessionCreate, MethodSessionList, MethodStreamCancel, MethodSystemHealth}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

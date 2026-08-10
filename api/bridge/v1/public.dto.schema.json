@@ -144,6 +144,17 @@
       },
       "required": ["id", "projectId", "title", "status", "createdAt", "updatedAt", "version"]
     },
+    "MessageDTO": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/ULID" }, "sessionId": { "$ref": "#/$defs/ULID" },
+        "role": { "const": "user" }, "status": { "const": "completed" },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "sessionId", "role", "status", "sequence", "text", "createdAt"]
+    },
     "MigrationStatusDTO": {
       "type": "object",
       "additionalProperties": false,

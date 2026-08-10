@@ -14,6 +14,7 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -42,6 +43,7 @@ func main() {
 		log.Fatal(err)
 	}
 	brokerKey := secretlease.DeriveKey(bootstrapSecret)
+	cursorKey := messageapp.DeriveCursorKey(bootstrapSecret)
 	authenticator := ipc.NewSessionAuthenticator(bootstrapSecret)
 	leaseClient, err := secretlease.NewClient(brokerPipe, *hostPID, brokerKey)
 	secret.Zero(brokerKey)
@@ -83,7 +85,10 @@ func main() {
 	providerService := providerapp.New(store, store)
 	projectService := projectapp.New(store, store)
 	sessionService := sessionapp.New(store, store)
-	engine := app.NewEngineWithSessions(providerService, projectService, sessionService, buildinfo.Version, leaseClient)
+	messageService, err := messageapp.New(store, store, cursorKey)
+	secret.Zero(cursorKey)
+	if err != nil { log.Fatal(err) }
+	engine := app.NewEngineWithMessages(providerService, projectService, sessionService, messageService, buildinfo.Version, leaseClient)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

@@ -1,5 +1,5 @@
 // Code generated from discovered api/bridge/v1 and api/rpc/v1 schemas. DO NOT EDIT.
-export const BRIDGE_METHODS = ["chat.start", "diagnostics.export", "migration.inspect", "migration.run", "migration.status", "project.create", "project.list", "provider.create", "provider.credential.submit", "provider.delete", "provider.get", "provider.list", "provider.model.sync", "provider.test", "provider.update", "session.create", "session.list", "stream.cancel", "system.health"] as const
+export const BRIDGE_METHODS = ["chat.start", "diagnostics.export", "message.append", "message.list", "migration.inspect", "migration.run", "migration.status", "project.create", "project.list", "provider.create", "provider.credential.submit", "provider.delete", "provider.get", "provider.list", "provider.model.sync", "provider.test", "provider.update", "session.create", "session.list", "stream.cancel", "system.health"] as const
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]
 export const PROVIDER_PROTOCOLS = ["openai_compatible", "anthropic"] as const
 export type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number]
@@ -37,11 +37,16 @@ export type ProjectStatus = "active" | "archived"
 export type ProjectDTO = { "id": ULID; "name": string; "status": ProjectStatus; "createdAt": string; "updatedAt": string; "version": number }
 export type SessionStatus = "active"
 export type SessionDTO = { "id": ULID; "projectId": ULID; "title": string; "status": SessionStatus; "createdAt": string; "updatedAt": string; "version": 1 }
+export type MessageDTO = { "id": ULID; "sessionId": ULID; "role": "user"; "status": "completed"; "sequence": number; "text": string; "createdAt": string }
 export type MigrationStatusDTO = { "state": "idle" | "running" | "completed" | "failed"; "processed": number; "total": number }
 export type ChatStartPayload = { "providerId": ULID; "modelId": string; "messages": Array<{ "role": "system" | "user" | "assistant"; "content": string }> }
 export type ChatStartResult = { "streamId": ULID }
 export type DiagnosticsExportPayload = { "includeLogs"?: boolean; "redactPaths"?: boolean }
 export type DiagnosticsExportResult = { "path": string; "createdAt": string; "redacted": true }
+export type MessageAppendPayload = { "sessionId": ULID; "text": string }
+export type MessageAppendResult = MessageDTO
+export type MessageListPayload = { "sessionId": ULID; "cursor"?: string; "direction"?: "forward" | "backward"; "limit"?: number; "byteBudget"?: number }
+export type MessageListResult = { "items": Array<MessageDTO>; "hasMore": boolean; "nextCursor": string | null; "snapshotSequence": number }
 export type MigrationInspectPayload = Record<string, never>
 export type MigrationInspectResult = { "required": boolean; "items": number; "sourceVersion": number; "targetVersion": number }
 export type MigrationRunPayload = { "dryRun"?: boolean }

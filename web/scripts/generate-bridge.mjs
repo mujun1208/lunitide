@@ -50,7 +50,7 @@ const assert = (condition, message) => { if (!condition) throw new Error(`Bridge
 const ulidRef = schema => refEndsWith(schema, '#/$defs/ULID')
 const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 && schema.maxItems === 50 && refEndsWith(schema.items, '#/$defs/ModelDTO')
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
-assert(JSON.stringify(enabled) === JSON.stringify(['chat.start', 'project.create', 'project.list', 'provider.create', 'provider.credential.submit', 'provider.delete', 'provider.get', 'provider.list', 'provider.model.sync', 'provider.test', 'provider.update', 'session.create', 'session.list', 'stream.cancel', 'system.health']), 'enabled method set drift')
+assert(JSON.stringify(enabled) === JSON.stringify(['chat.start', 'message.append', 'message.list', 'project.create', 'project.list', 'provider.create', 'provider.credential.submit', 'provider.delete', 'provider.get', 'provider.list', 'provider.model.sync', 'provider.test', 'provider.update', 'session.create', 'session.list', 'stream.cancel', 'system.health']), 'enabled method set drift')
 for (const method of ['session.create', 'session.list']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
 assert(required(methodSchema('session.create')).has('title') && refEndsWith(methodSchema('session.create')['x-result'], '#/$defs/SessionDTO'), 'session.create contract drift')
 assert(required(methodSchema('session.list')).has('projectId') && methodSchema('session.list')['x-result']?.properties?.items?.maxItems === 100, 'session.list contract drift')
@@ -97,6 +97,7 @@ const pascal = value => value.split(/[^a-zA-Z0-9]+/).map(part => part[0]?.toUppe
 const refName = ref => pascal(ref.split('/').at(-1).replace(/\.schema\.json$/, '').replace(/^#\/$defs\//, ''))
 const tsType = (schema, name = '') => {
   if (!schema) return 'unknown'
+  if (Array.isArray(schema.type)) return schema.type.map(type => type === 'null' ? 'null' : tsType({ ...schema, type })).join(' | ')
   if (schema.$ref) return schema.$ref.includes('#/$defs/') ? pascal(schema.$ref.split('/').at(-1)) : refName(schema.$ref)
   if ('const' in schema) return json(schema.const)
   if (name === 'method') return 'BridgeMethod'

@@ -8,6 +8,7 @@ import {
   type ChatStartPayload, type ChatStartResult, type StreamCancelResult,
   type ProjectCreatePayload, type ProjectCreateResult, type ProjectListPayload, type ProjectListResult,
   type SessionCreatePayload, type SessionCreateResult, type SessionListPayload, type SessionListResult,
+  type MessageAppendPayload, type MessageAppendResult, type MessageListPayload, type MessageListResult,
 } from '../generated/bridge'
 
 export class BridgeClientError extends Error {
@@ -22,7 +23,7 @@ export interface WebViewTransport {
 }
 declare global { interface Window { chrome?: { webview?: WebViewTransport } } }
 
-export type MutationMethod = 'project.create'|'session.create'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'
+export type MutationMethod = 'project.create'|'session.create'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -51,12 +52,13 @@ export interface ProjectBridge {
   create(payload:ProjectCreatePayload,options?:MutationOptions<ProjectCreatePayload>):Promise<ProjectCreateResult>
 }
 export interface SessionBridge { list(payload:SessionListPayload):Promise<SessionListResult>; create(payload:SessionCreatePayload,options?:MutationOptions<SessionCreatePayload>):Promise<SessionCreateResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','provider.create','provider.update','provider.delete','provider.model.sync'])
+export interface MessageBridge { list(payload:MessageListPayload):Promise<MessageListResult>; append(payload:MessageAppendPayload,options?:MutationOptions<MessageAppendPayload>):Promise<MessageAppendResult> }
+const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','message.append','provider.create','provider.update','provider.delete','provider.model.sync'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
 const isULID=(v:unknown)=>typeof v==='string'&&/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(v)
-const isTime=(v:unknown)=>typeof v==='string'&&!Number.isNaN(Date.parse(v))
+const isTime=(v:unknown)=>{if(typeof v!=='string')return false;const m=/^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(\.\d+)?(Z|[+-]\d\d:\d\d)$/.exec(v);if(!m)return false;const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+m[6];if(mo<1||mo>12||d<1||d>31||h>23||mi>59||s>59)return false;const days=[31,28+(y%4===0&&(y%100!==0||y%400===0)?1:0),31,30,31,30,31,31,30,31,30,31];if(d>days[mo-1])return false;const parsed=Date.parse(v);if(Number.isNaN(parsed))return false;const iso=new Date(parsed).toISOString();const roundtrip=iso.replace('T',' ').replace(/\.\d{3}Z$/,'Z').replace(/[+-]\d\d:\d\d$/,'Z');const original=v.replace('T',' ').replace(/\.\d+Z?/,'Z').replace(/[+-]\d\d:\d\d$/,'Z');return roundtrip===original}
 const normalizedProjectName=(v:string)=>v.split(/\p{White_Space}+/u).filter(Boolean).join(' ')
 const isProject=(v:unknown)=>isObj(v)&&exact(v,['id','name','status','createdAt','updatedAt','version'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===normalizedProjectName(v.name)&&Array.from(v.name).length>=1&&Array.from(v.name).length<=200&&['active','archived'].includes(String(v.status))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Date.parse(String(v.updatedAt))>=Date.parse(String(v.createdAt))&&Number.isInteger(v.version)&&Number(v.version)>=1
 const isSession=(v:unknown,projectId:string)=>isObj(v)&&exact(v,['id','projectId','title','status','createdAt','updatedAt','version'])&&isULID(v.id)&&v.projectId===projectId&&typeof v.title==='string'&&v.title===normalizedProjectName(v.title)&&Array.from(v.title).length>=1&&Array.from(v.title).length<=200&&v.status==='active'&&isTime(v.createdAt)&&v.createdAt===v.updatedAt&&v.version===1
@@ -104,6 +106,20 @@ export function createSessionBridge(transport:WebViewTransport,defaultDeadlineMs
 let sessionSingleton:SessionBridge|undefined
 export function getSessionBridge():SessionBridge{return sessionSingleton??=createSessionBridge(webview())}
 export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),create:(p,o)=>getSessionBridge().create(p,o)}
+
+const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
+const isMessage=(v:unknown,sessionId:string)=>isObj(v)&&exact(v,['id','sessionId','role','status','sequence','text','createdAt'])&&isULID(v.id)&&v.sessionId===sessionId&&v.role==='user'&&v.status==='completed'&&Number.isSafeInteger(v.sequence)&&Number(v.sequence)>0&&textValid(v.text)&&isTime(v.createdAt)
+export function createMessageBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):MessageBridge{
+ type Waiting={method:'message.append'|'message.list';sessionId:string;direction:'forward'|'backward';cursor?:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}
+ const pending=new Map<string,Waiting>(),cursors=new Map<string,{sessionId:string;direction:'forward'|'backward';snapshot:number}>()
+ transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const waiting=pending.get(raw.requestId)!;clearTimeout(waiting.timer);pending.delete(raw.requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,raw.requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}let valid=isMessage(raw.payload,waiting.sessionId);if(waiting.method==='message.list'){const p=raw.payload as Record<string,unknown>,known=waiting.cursor?cursors.get(waiting.cursor):undefined;valid=isObj(p)&&exact(p,['items','hasMore','nextCursor','snapshotSequence'])&&Array.isArray(p.items)&&p.items.length<=256&&p.items.every(x=>isMessage(x,waiting.sessionId))&&typeof p.hasMore==='boolean'&&Number.isSafeInteger(p.snapshotSequence)&&Number(p.snapshotSequence)>=0&&(p.nextCursor===null||typeof p.nextCursor==='string'&&p.nextCursor.length>=1&&p.nextCursor.length<=1024)&&p.hasMore===(p.nextCursor!==null)&&(!p.hasMore||p.items.length>0)&&(!known||known.sessionId===waiting.sessionId&&known.direction===waiting.direction&&known.snapshot===p.snapshotSequence);if(valid){const messageItems=p.items as unknown[],seq=messageItems.map((x:unknown)=>Number((x as Record<string,unknown>).sequence));for(let i=1;i<seq.length;i++)if(seq[i]!==seq[i-1]+(waiting.direction==='forward'?1:-1))valid=false;if(seq.some((x:number)=>x>Number(p.snapshotSequence)))valid=false;if(valid&&typeof p.nextCursor==='string')cursors.set(p.nextCursor,{sessionId:waiting.sessionId,direction:waiting.direction,snapshot:Number(p.snapshotSequence)})}}
+ if(!valid){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
+ const request=<T>(method:'message.append'|'message.list',payload:MessageAppendPayload|MessageListPayload,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method==='message.append'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30000,Math.max(1,defaultDeadlineMs)),listPayload=payload as MessageListPayload,appendPayload=payload as MessageAppendPayload,direction=method==='message.list'?(listPayload.direction??'backward'):'backward';if(method==='message.list'&&(listPayload.cursor!==undefined&&(listPayload.cursor.length<1||listPayload.cursor.length>1024)||listPayload.limit!==undefined&&(!Number.isInteger(listPayload.limit)||listPayload.limit<1||listPayload.limit>256)||listPayload.byteBudget!==undefined&&(!Number.isInteger(listPayload.byteBudget)||listPayload.byteBudget<16384||listPayload.byteBudget>245760)))return Promise.reject(new BridgeClientError('消息分页参数无效','INVALID_BRIDGE_REQUEST',false,'renderer'));if(method==='message.append'&&!textValid(appendPayload.text))return Promise.reject(new BridgeClientError('消息文本无效','INVALID_BRIDGE_REQUEST',false,'renderer'));const message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,sessionId:payload.sessionId,direction,cursor:method==='message.list'?listPayload.cursor:undefined,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:p=>request('message.list',p),append:(p,o)=>request('message.append',p,o?.attempt)}
+}
+let messageSingleton:MessageBridge|undefined
+export function getMessageBridge():MessageBridge{return messageSingleton??=createMessageBridge(webview())}
+export const messageBridge:MessageBridge={list:p=>getMessageBridge().list(p),append:(p,o)=>getMessageBridge().append(p,o)}
 
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}

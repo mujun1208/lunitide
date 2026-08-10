@@ -35,6 +35,8 @@
       "enum": [
         "chat.start",
         "diagnostics.export",
+        "message.append",
+        "message.list",
         "migration.inspect",
         "migration.run",
         "migration.status",

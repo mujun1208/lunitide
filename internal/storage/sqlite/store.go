@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,9 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/migrations"
@@ -134,6 +137,9 @@ var manifest = []struct{ name, checksum string }{
 	{"0006_electron_credential_adoption.sql", "0417131a4abe5e9d2c5f70809c542a0bdde36385dc710ef031bf84c39ad0a936"},
 	{"0007_project.sql", "eb31143f8347a75a3abee8670fd8c9a047fe712db64c4e8378720d08698864a3"},
 	{"0008_session.sql", "08b1478bd48900da0f89a83de15c7517fbd6445790759d2374c449f67d436620"},
+	{"0009_message.sql", "5695394548899d026a045f8cdbcb0ed869920563ba88c9f0b2766f85e4d06220"},
+	{"0010_token_ledger.sql", "5149c8b0db94cbc87a1451351c47bc132fac75c1b420a45faef4e707c6dcbabc"},
+	{"0011_compaction_checkpoint.sql", "e3cae92156656cedb1cf336b3987e046f60eafec68e3a325d7253d9c5f2a6061"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -509,6 +515,98 @@ func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 	if err = rows.Close(); err != nil {
 		return err
 	}
+	rows, err = q.QueryContext(ctx, `SELECT m.id,m.session_id,m.role,m.status,m.sequence,MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END),m.created_at,count(p.message_id),count(CASE WHEN p.ordinal=1 AND p.type='text' THEN 1 END) FROM messages m LEFT JOIN message_parts p ON p.message_id=m.id GROUP BY m.id ORDER BY m.session_id,m.sequence`)
+	if err != nil {
+		return err
+	}
+	messageCounts := map[string]int64{}
+	for rows.Next() {
+		var v message.Message
+		var created string
+		var text sql.NullString
+		var parts, validParts int
+		if err = rows.Scan(&v.ID, &v.SessionID, &v.Role, &v.Status, &v.Sequence, &text, &created, &parts, &validParts); err != nil {
+			rows.Close()
+			return err
+		}
+		if parts != 1 || validParts != 1 || !text.Valid {
+			rows.Close()
+			return fmt.Errorf("message data invariant violation")
+		}
+		v.Text = text.String
+		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		messageCounts[v.SessionID]++
+		if err != nil || v.Validate() != nil || messageCounts[v.SessionID] != v.Sequence {
+			rows.Close()
+			return fmt.Errorf("message data invariant violation")
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	var badState int
+	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM message_session_state st LEFT JOIN sessions s ON s.id=st.session_id WHERE s.id IS NULL OR st.text_bytes>? OR st.last_sequence<>(SELECT COALESCE(max(sequence),0) FROM messages WHERE session_id=st.session_id) OR st.message_count<>(SELECT count(*) FROM messages WHERE session_id=st.session_id) OR st.text_bytes<>(SELECT COALESCE(sum(length(CAST(p.text AS BLOB))),0) FROM messages m JOIN message_parts p ON p.message_id=m.id WHERE m.session_id=st.session_id)`, message.WorkspaceTextQuotaBytes).Scan(&badState); err != nil || badState != 0 {
+		return fmt.Errorf("message state invariant violation: %w", err)
+	}
+	if err = q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM sessions)<>(SELECT count(*) FROM message_session_state)`).Scan(&badState); err != nil || badState != 0 {
+		return fmt.Errorf("message state invariant violation: %w", err)
+	}
+	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM message_project_usage u LEFT JOIN projects p ON p.id=u.project_id WHERE p.id IS NULL OR u.text_bytes>? OR u.text_bytes<>(SELECT COALESCE(sum(length(CAST(mp.text AS BLOB))),0) FROM sessions s JOIN messages m ON m.session_id=s.id JOIN message_parts mp ON mp.message_id=m.id WHERE s.project_id=u.project_id)`, message.ProjectTextQuotaBytes).Scan(&badState); err != nil || badState != 0 {
+		return fmt.Errorf("message project usage invariant violation: %w", err)
+	}
+	if err = q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM projects)<>(SELECT count(*) FROM message_project_usage)`).Scan(&badState); err != nil || badState != 0 {
+		return fmt.Errorf("message project usage invariant violation: %w", err)
+	}
+	var workspaceActual, workspaceStored int64
+	if err = q.QueryRowContext(ctx, `SELECT COALESCE(sum(length(CAST(text AS BLOB))),0) FROM message_parts`).Scan(&workspaceActual); err != nil {
+		return err
+	}
+	if err = q.QueryRowContext(ctx, `SELECT count(*),COALESCE(max(CASE WHEN singleton=1 THEN text_bytes END),-1) FROM message_workspace_usage`).Scan(&badState, &workspaceStored); err != nil || badState != 1 || workspaceStored != workspaceActual || workspaceStored > message.WorkspaceTextQuotaBytes {
+		return fmt.Errorf("message workspace usage invariant violation: %w", err)
+	}
+	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM messages m WHERE (SELECT count(*) FROM message_parts p WHERE p.message_id=m.id)<>1`).Scan(&bad); err != nil || bad != 0 {
+		return fmt.Errorf("message data invariant violation: %w", err)
+	}
+	rows, err = q.QueryContext(ctx, `SELECT response_json FROM idempotency_records WHERE operation='message.append'`)
+	if err != nil {
+		return err
+	}
+	var replayResponses [][]byte
+	for rows.Next() {
+		var raw []byte
+		if err = rows.Scan(&raw); err != nil {
+			rows.Close()
+			return fmt.Errorf("message idempotency data invariant violation")
+		}
+		replayResponses = append(replayResponses, append([]byte(nil), raw...))
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	for _, raw := range replayResponses {
+		var replay message.Message
+		if json.Unmarshal(raw, &replay) != nil || replay.Validate() != nil {
+			return fmt.Errorf("message idempotency data invariant violation")
+		}
+		var authoritative message.Message
+		var created string
+		if err = q.QueryRowContext(ctx, `SELECT m.id,m.session_id,m.role,m.status,m.sequence,p.text,m.created_at FROM messages m JOIN message_parts p ON p.message_id=m.id AND p.ordinal=1 AND p.type='text' WHERE m.id=? AND (SELECT count(*) FROM message_parts x WHERE x.message_id=m.id)=1`, replay.ID).Scan(&authoritative.ID, &authoritative.SessionID, &authoritative.Role, &authoritative.Status, &authoritative.Sequence, &authoritative.Text, &created); err != nil {
+			rows.Close()
+			return fmt.Errorf("message idempotency data invariant violation")
+		}
+		authoritative.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil || authoritative != replay {
+			return fmt.Errorf("message idempotency data invariant violation")
+		}
+	}
 	return nil
 }
 
@@ -636,9 +734,13 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_credential_adoptions_provider":                      "CREATE INDEX ix_credential_adoptions_provider ON credential_adoptions(provider_id)",
 	"index:ix_projects_status_created":                            "CREATE INDEX ix_projects_status_created ON projects(status, created_at, id)",
 	"index:ix_sessions_project_created":                           "CREATE INDEX ix_sessions_project_created ON sessions(project_id, created_at, id)",
-	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_messages_session_sequence":                          "CREATE INDEX ix_messages_session_sequence ON messages(session_id, sequence)",
+	"index:ix_token_ledger_message":                               "CREATE INDEX ix_token_ledger_message ON token_ledger(message_id)",
+	"index:ix_token_ledger_computed":                              "CREATE INDEX ix_token_ledger_computed ON token_ledger(computed_at)",
+	"table:token_ledger":                                          "CREATE TABLE token_ledger (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,\n    provider TEXT NOT NULL DEFAULT '' CHECK (length(provider) <= 128),\n    model TEXT NOT NULL DEFAULT '' CHECK (length(model) <= 128),\n    tokenizer_revision TEXT NOT NULL DEFAULT '' CHECK (length(tokenizer_revision) <= 64),\n    token_count INTEGER NOT NULL CHECK (token_count >= 0),\n    estimation_method TEXT NOT NULL CHECK (estimation_method IN ('char-ratio', 'tiktoken', 'provider-reported', 'manual')),\n    utf8_bytes INTEGER NOT NULL CHECK (utf8_bytes >= 0),\n    computed_at TEXT NOT NULL,\n    UNIQUE (message_id, provider, model, tokenizer_revision)\n)",
+	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created', 'message.appended')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
 	"table:credential_adoptions":                                  "CREATE TABLE credential_adoptions (\n    credential_ref TEXT PRIMARY KEY CHECK (length(credential_ref) BETWEEN 1 AND 256),\n    provider_id TEXT NOT NULL REFERENCES providers(id),\n    origin TEXT NOT NULL CHECK (length(origin) BETWEEN 1 AND 2048),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    receipt_id TEXT NOT NULL UNIQUE CHECK (length(receipt_id) BETWEEN 1 AND 64),\n    adopted_at TEXT NOT NULL\n)",
-	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
+	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create', 'message.append')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:idempotency_claims":                                    "CREATE TABLE idempotency_claims (\n    operation TEXT NOT NULL CHECK (operation = 'provider.model.sync'),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    owner TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:outbox_events":                                         "CREATE TABLE outbox_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    topic TEXT NOT NULL CHECK (length(topic) BETWEEN 1 AND 128),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 2 AND 65536),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'dead_letter')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 1000),\n    available_at TEXT NOT NULL,\n    lease_owner TEXT CHECK (lease_owner IS NULL OR length(lease_owner) BETWEEN 1 AND 128),\n    lease_until TEXT,\n    last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 2000),\n    created_at TEXT NOT NULL,\n    completed_at TEXT,\n    CHECK ((status = 'claimed') = (lease_owner IS NOT NULL AND lease_until IS NOT NULL)),\n    CHECK ((status IN ('completed', 'failed', 'dead_letter')) = (completed_at IS NOT NULL))\n)",
 	"table:provider_tests":                                        "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
@@ -648,7 +750,18 @@ var expectedSchemaSQL = map[string]string{
 	"table:providers":                                             "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
 	"table:projects":                                              "CREATE TABLE projects (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200 AND name = trim(name)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
 	"table:sessions":                                              "CREATE TABLE sessions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200 AND title = trim(title)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status = 'active'),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version = 1)\n)",
+	"table:messages":                                              "CREATE TABLE messages (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,\n    role TEXT NOT NULL DEFAULT 'user' CHECK (role = 'user'),\n    status TEXT NOT NULL DEFAULT 'completed' CHECK (status = 'completed'),\n    sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 9007199254740991),\n    created_at TEXT NOT NULL,\n    UNIQUE (session_id, sequence)\n)",
+	"table:message_parts":                                         "CREATE TABLE message_parts (\n    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,\n    ordinal INTEGER NOT NULL CHECK (ordinal = 1),\n    type TEXT NOT NULL DEFAULT 'text' CHECK (type = 'text'),\n    text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 2048 AND length(CAST(text AS BLOB)) <= 8192),\n    PRIMARY KEY (message_id, ordinal)\n)",
+	"table:message_session_state":                                 "CREATE TABLE message_session_state (\n    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE RESTRICT,\n    last_sequence INTEGER NOT NULL CHECK (last_sequence BETWEEN 0 AND 9007199254740991),\n    message_count INTEGER NOT NULL CHECK (message_count BETWEEN 0 AND 9007199254740991),\n    text_bytes INTEGER NOT NULL CHECK (text_bytes BETWEEN 0 AND 268435456),\n    CHECK (last_sequence = message_count)\n)",
+	"table:message_project_usage":                                 "CREATE TABLE message_project_usage (\n    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE RESTRICT,\n    text_bytes INTEGER NOT NULL CHECK (text_bytes BETWEEN 0 AND 67108864)\n)",
+	"table:message_workspace_usage":                               "CREATE TABLE message_workspace_usage (\n    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n    text_bytes INTEGER NOT NULL CHECK (text_bytes BETWEEN 0 AND 268435456)\n)",
 	"table:schema_migrations":                                     "CREATE TABLE schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL, checksum TEXT)",
+	"table:compaction_checkpoints":                                "CREATE TABLE compaction_checkpoints (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,\n    version INTEGER NOT NULL CHECK (version > 0),\n    source_start_id TEXT NOT NULL REFERENCES messages(id) ON DELETE RESTRICT,\n    source_end_id TEXT NOT NULL REFERENCES messages(id) ON DELETE RESTRICT,\n    source_start_seq INTEGER NOT NULL CHECK (source_start_seq BETWEEN 1 AND 9007199254740991),\n    source_end_seq INTEGER NOT NULL CHECK (source_end_seq BETWEEN 1 AND 9007199254740991),\n    source_digest TEXT NOT NULL CHECK (length(source_digest) = 64 AND source_digest NOT GLOB '*[^0-9a-f]*'),\n    prev_checkpoint_id TEXT REFERENCES compaction_checkpoints(id),\n    prev_checkpoint_digest TEXT CHECK (prev_checkpoint_digest IS NULL OR (length(prev_checkpoint_digest) = 64 AND prev_checkpoint_digest NOT GLOB '*[^0-9a-f]*')),\n    summary_schema_version TEXT NOT NULL DEFAULT '1.0' CHECK (length(summary_schema_version) <= 16),\n    trigger TEXT NOT NULL CHECK (trigger IN ('automatic', 'manual', 'handoff')),\n    trigger_reason TEXT NOT NULL DEFAULT '' CHECK (length(trigger_reason) <= 1024),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'superseded')),\n    provider TEXT NOT NULL DEFAULT '' CHECK (length(provider) <= 128),\n    model TEXT NOT NULL DEFAULT '' CHECK (length(model) <= 128),\n    summary_json TEXT NOT NULL DEFAULT '{}' CHECK (length(summary_json) BETWEEN 2 AND 65536),\n    human_summary TEXT NOT NULL DEFAULT '' CHECK (length(human_summary) <= 32768),\n    failure_code TEXT CHECK (failure_code IS NULL OR length(failure_code) <= 64),\n    created_at TEXT NOT NULL,\n    completed_at TEXT,\n    UNIQUE (session_id, version),\n    CHECK (source_start_seq <= source_end_seq),\n    CHECK ((status IN ('succeeded', 'failed', 'superseded')) = (completed_at IS NOT NULL))\n)",
+	"table:handoff_capsules":                                      "CREATE TABLE handoff_capsules (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    source_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,\n    dest_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,\n    checkpoint_id TEXT NOT NULL REFERENCES compaction_checkpoints(id) ON DELETE RESTRICT,\n    active_tasks_json TEXT NOT NULL DEFAULT '[]' CHECK (length(active_tasks_json) <= 65536),\n    recent_message_ids TEXT NOT NULL DEFAULT '[]' CHECK (length(recent_message_ids) <= 65536),\n    digest TEXT NOT NULL CHECK (length(digest) = 64 AND digest NOT GLOB '*[^0-9a-f]*'),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'activated', 'expired', 'revoked')),\n    created_at TEXT NOT NULL,\n    activated_at TEXT,\n    expires_at TEXT\n)",
+	"index:ix_compaction_checkpoints_session":                     "CREATE INDEX ix_compaction_checkpoints_session ON compaction_checkpoints(session_id, version DESC)",
+	"index:ix_compaction_checkpoints_status":                      "CREATE INDEX ix_compaction_checkpoints_status ON compaction_checkpoints(session_id, status)",
+	"index:ix_handoff_capsules_source":                            "CREATE INDEX ix_handoff_capsules_source ON handoff_capsules(source_session_id, created_at DESC)",
+	"index:ix_handoff_capsules_dest":                              "CREATE INDEX ix_handoff_capsules_dest ON handoff_capsules(dest_session_id)",
 }
 
 type columnSpec struct {
@@ -670,6 +783,14 @@ var expectedColumns = map[string][]columnSpec{
 	"credential_adoptions":              {{"credential_ref", "TEXT", "", 0, 1, 0}, {"provider_id", "TEXT", "", 1, 0, 0}, {"origin", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"receipt_id", "TEXT", "", 1, 0, 0}, {"adopted_at", "TEXT", "", 1, 0, 0}},
 	"projects":                          {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
 	"sessions":                          {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"title", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
+	"messages":                          {{"id", "TEXT", "", 0, 1, 0}, {"session_id", "TEXT", "", 1, 0, 0}, {"role", "TEXT", "'user'", 1, 0, 0}, {"status", "TEXT", "'completed'", 1, 0, 0}, {"sequence", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"message_parts":                     {{"message_id", "TEXT", "", 1, 1, 0}, {"ordinal", "INTEGER", "", 1, 2, 0}, {"type", "TEXT", "'text'", 1, 0, 0}, {"text", "TEXT", "", 1, 0, 0}},
+	"message_session_state":             {{"session_id", "TEXT", "", 0, 1, 0}, {"last_sequence", "INTEGER", "", 1, 0, 0}, {"message_count", "INTEGER", "", 1, 0, 0}, {"text_bytes", "INTEGER", "", 1, 0, 0}},
+	"message_project_usage":             {{"project_id", "TEXT", "", 0, 1, 0}, {"text_bytes", "INTEGER", "", 1, 0, 0}},
+	"message_workspace_usage":           {{"singleton", "INTEGER", "", 0, 1, 0}, {"text_bytes", "INTEGER", "", 1, 0, 0}},
+	"token_ledger":                      {{"id", "TEXT", "", 0, 1, 0}, {"message_id", "TEXT", "", 1, 0, 0}, {"provider", "TEXT", "''", 1, 0, 0}, {"model", "TEXT", "''", 1, 0, 0}, {"tokenizer_revision", "TEXT", "''", 1, 0, 0}, {"token_count", "INTEGER", "", 1, 0, 0}, {"estimation_method", "TEXT", "", 1, 0, 0}, {"utf8_bytes", "INTEGER", "", 1, 0, 0}, {"computed_at", "TEXT", "", 1, 0, 0}},
+	"compaction_checkpoints":           {{"id", "TEXT", "", 0, 1, 0}, {"session_id", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"source_start_id", "TEXT", "", 1, 0, 0}, {"source_end_id", "TEXT", "", 1, 0, 0}, {"source_start_seq", "INTEGER", "", 1, 0, 0}, {"source_end_seq", "INTEGER", "", 1, 0, 0}, {"source_digest", "TEXT", "", 1, 0, 0}, {"prev_checkpoint_id", "TEXT", "", 0, 0, 0}, {"prev_checkpoint_digest", "TEXT", "", 0, 0, 0}, {"summary_schema_version", "TEXT", "'1.0'", 1, 0, 0}, {"trigger", "TEXT", "", 1, 0, 0}, {"trigger_reason", "TEXT", "''", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"provider", "TEXT", "''", 1, 0, 0}, {"model", "TEXT", "''", 1, 0, 0}, {"summary_json", "TEXT", "'{}'", 1, 0, 0}, {"human_summary", "TEXT", "''", 1, 0, 0}, {"failure_code", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"completed_at", "TEXT", "", 0, 0, 0}},
+	"handoff_capsules":                 {{"id", "TEXT", "", 0, 1, 0}, {"source_session_id", "TEXT", "", 1, 0, 0}, {"dest_session_id", "TEXT", "", 0, 0, 0}, {"checkpoint_id", "TEXT", "", 1, 0, 0}, {"active_tasks_json", "TEXT", "'[]'", 1, 0, 0}, {"recent_message_ids", "TEXT", "'[]'", 1, 0, 0}, {"digest", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"activated_at", "TEXT", "", 0, 0, 0}, {"expires_at", "TEXT", "", 0, 0, 0}},
 }
 
 func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
@@ -729,7 +850,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
+	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -775,6 +896,89 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 		return 0, "", fmt.Errorf("sessions foreign key set mismatch: %w", err)
 	}
 	canonical = append(canonical, fmt.Sprintf("fk:sessions:%d:%d:%s:%s:%s:%s:%s:%s", id, seq, table, from, to, update, del, match))
+	// compaction_checkpoints FKs: session_id, source_start_id, source_end_id, prev_checkpoint_id
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('compaction_checkpoints')`).Scan(&count); err != nil || count != 4 {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK set mismatch: count=%d err=%w", count, err)
+	}
+	var cpFkRows *sql.Rows
+	cpFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('compaction_checkpoints') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK query: %w", err)
+	}
+	type fkRow struct {
+		id, seq                          int
+		table, from, to, update, del, match string
+	}
+	cpFKs := map[string]fkRow{}
+	for cpFkRows.Next() {
+		var r fkRow
+		if err := cpFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			cpFkRows.Close()
+			return 0, "", err
+		}
+		cpFKs[r.from] = r
+	}
+	cpFkRows.Close()
+	if len(cpFKs) != 4 {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK count mismatch: got %d", len(cpFKs))
+	}
+	// FK: session_id → sessions
+	if r, ok := cpFKs["session_id"]; !ok || r.seq != 0 || r.table != "sessions" || r.from != "session_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK session_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:compaction_checkpoints:session_id:%d:%d:%s:%s:%s:%s:%s:%s", cpFKs["session_id"].id, cpFKs["session_id"].seq, cpFKs["session_id"].table, cpFKs["session_id"].from, cpFKs["session_id"].to, cpFKs["session_id"].update, cpFKs["session_id"].del, cpFKs["session_id"].match))
+	// FK: source_start_id → messages
+	if r, ok := cpFKs["source_start_id"]; !ok || r.seq != 0 || r.table != "messages" || r.from != "source_start_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK source_start_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:compaction_checkpoints:source_start_id:%d:%d:%s:%s:%s:%s:%s:%s", cpFKs["source_start_id"].id, cpFKs["source_start_id"].seq, cpFKs["source_start_id"].table, cpFKs["source_start_id"].from, cpFKs["source_start_id"].to, cpFKs["source_start_id"].update, cpFKs["source_start_id"].del, cpFKs["source_start_id"].match))
+	// FK: source_end_id → messages
+	if r, ok := cpFKs["source_end_id"]; !ok || r.seq != 0 || r.table != "messages" || r.from != "source_end_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK source_end_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:compaction_checkpoints:source_end_id:%d:%d:%s:%s:%s:%s:%s:%s", cpFKs["source_end_id"].id, cpFKs["source_end_id"].seq, cpFKs["source_end_id"].table, cpFKs["source_end_id"].from, cpFKs["source_end_id"].to, cpFKs["source_end_id"].update, cpFKs["source_end_id"].del, cpFKs["source_end_id"].match))
+	// FK: prev_checkpoint_id → compaction_checkpoints
+	if r, ok := cpFKs["prev_checkpoint_id"]; !ok || r.seq != 0 || r.table != "compaction_checkpoints" || r.from != "prev_checkpoint_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "NO ACTION" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("compaction_checkpoints FK prev_checkpoint_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:compaction_checkpoints:prev_checkpoint_id:%d:%d:%s:%s:%s:%s:%s:%s", cpFKs["prev_checkpoint_id"].id, cpFKs["prev_checkpoint_id"].seq, cpFKs["prev_checkpoint_id"].table, cpFKs["prev_checkpoint_id"].from, cpFKs["prev_checkpoint_id"].to, cpFKs["prev_checkpoint_id"].update, cpFKs["prev_checkpoint_id"].del, cpFKs["prev_checkpoint_id"].match))
+	// handoff_capsules FKs: source_session_id, dest_session_id, checkpoint_id
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('handoff_capsules')`).Scan(&count); err != nil || count != 3 {
+		return 0, "", fmt.Errorf("handoff_capsules FK set mismatch: count=%d err=%w", count, err)
+	}
+	var hcFkRows *sql.Rows
+	hcFkRows, err = q.QueryContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('handoff_capsules') ORDER BY id`)
+	if err != nil {
+		return 0, "", fmt.Errorf("handoff_capsules FK query: %w", err)
+	}
+	hcFKs := map[string]fkRow{}
+	for hcFkRows.Next() {
+		var r fkRow
+		if err := hcFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); err != nil {
+			hcFkRows.Close()
+			return 0, "", err
+		}
+		hcFKs[r.from] = r
+	}
+	hcFkRows.Close()
+	if len(hcFKs) != 3 {
+		return 0, "", fmt.Errorf("handoff_capsules FK count mismatch: got %d", len(hcFKs))
+	}
+	// FK: source_session_id → sessions
+	if r, ok := hcFKs["source_session_id"]; !ok || r.seq != 0 || r.table != "sessions" || r.from != "source_session_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("handoff_capsules FK source_session_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:handoff_capsules:source_session_id:%d:%d:%s:%s:%s:%s:%s:%s", hcFKs["source_session_id"].id, hcFKs["source_session_id"].seq, hcFKs["source_session_id"].table, hcFKs["source_session_id"].from, hcFKs["source_session_id"].to, hcFKs["source_session_id"].update, hcFKs["source_session_id"].del, hcFKs["source_session_id"].match))
+	// FK: dest_session_id → sessions
+	if r, ok := hcFKs["dest_session_id"]; !ok || r.seq != 0 || r.table != "sessions" || r.from != "dest_session_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "SET NULL" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("handoff_capsules FK dest_session_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:handoff_capsules:dest_session_id:%d:%d:%s:%s:%s:%s:%s:%s", hcFKs["dest_session_id"].id, hcFKs["dest_session_id"].seq, hcFKs["dest_session_id"].table, hcFKs["dest_session_id"].from, hcFKs["dest_session_id"].to, hcFKs["dest_session_id"].update, hcFKs["dest_session_id"].del, hcFKs["dest_session_id"].match))
+	// FK: checkpoint_id → compaction_checkpoints
+	if r, ok := hcFKs["checkpoint_id"]; !ok || r.seq != 0 || r.table != "compaction_checkpoints" || r.from != "checkpoint_id" || r.to != "id" || r.update != "NO ACTION" || r.del != "RESTRICT" || r.match != "NONE" {
+		return 0, "", fmt.Errorf("handoff_capsules FK checkpoint_id mismatch: %+v", r)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:handoff_capsules:checkpoint_id:%d:%d:%s:%s:%s:%s:%s:%s", hcFKs["checkpoint_id"].id, hcFKs["checkpoint_id"].seq, hcFKs["checkpoint_id"].table, hcFKs["checkpoint_id"].from, hcFKs["checkpoint_id"].to, hcFKs["checkpoint_id"].update, hcFKs["checkpoint_id"].del, hcFKs["checkpoint_id"].match))
 	var unique, partial int
 	var origin, columns string
 	if err := q.QueryRowContext(ctx, `SELECT "unique",origin,partial FROM pragma_index_list('provider_models') WHERE name='ux_provider_default_model'`).Scan(&unique, &origin, &partial); err != nil || unique != 1 || origin != "c" || partial != 1 {
@@ -867,6 +1071,83 @@ func (s *Store) ListSessions(ctx context.Context, filter session.Filter) ([]sess
 		return nil, errors.New("session data invariant violation: list exceeds capacity")
 	}
 	return items, nil
+}
+
+func (s *Store) ListMessages(ctx context.Context, q messageapp.PageQuery) ([]message.Message, int64, bool, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer tx.Rollback()
+	var snapshot int64
+	if err := tx.QueryRowContext(ctx, `SELECT last_sequence FROM message_session_state WHERE session_id=?`, q.SessionID).Scan(&snapshot); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, 0, false, messageapp.ErrSessionNotFound
+		}
+		return nil, 0, false, err
+	}
+	if q.Snapshot != 0 {
+		snapshot = q.Snapshot
+	}
+	boundary := q.Boundary
+	if boundary == 0 && q.Direction == messageapp.Backward {
+		boundary = snapshot + 1
+	}
+	op, order := ">", "ASC"
+	if q.Direction == messageapp.Backward {
+		op, order = "<", "DESC"
+	}
+	statement := fmt.Sprintf(`SELECT m.id,m.session_id,m.role,m.status,m.sequence,MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END),m.created_at,count(p.message_id),count(CASE WHEN p.ordinal=1 AND p.type='text' THEN 1 END) FROM messages m LEFT JOIN message_parts p ON p.message_id=m.id WHERE m.session_id=? AND m.sequence<=? AND m.sequence %s ? GROUP BY m.id ORDER BY m.sequence %s LIMIT ?`, op, order)
+	rows, err := tx.QueryContext(ctx, statement, q.SessionID, snapshot, boundary, q.Limit+1)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer rows.Close()
+	items := make([]message.Message, 0, q.Limit+1)
+	for rows.Next() {
+		var v message.Message
+		var created string
+		var text sql.NullString
+		var parts, validParts int
+		if err = rows.Scan(&v.ID, &v.SessionID, &v.Role, &v.Status, &v.Sequence, &text, &created, &parts, &validParts); err != nil {
+			return nil, 0, false, err
+		}
+		if parts != 1 || validParts != 1 || !text.Valid {
+			return nil, 0, false, messageapp.ErrDataInvariantViolation
+		}
+		v.Text = text.String
+		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		expected := boundary + int64(len(items)) + 1
+		if q.Direction == messageapp.Backward {
+			expected = boundary - int64(len(items)) - 1
+		}
+		if err != nil || v.Validate() != nil || v.Sequence != expected {
+			return nil, 0, false, messageapp.ErrDataInvariantViolation
+		}
+		items = append(items, v)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, false, err
+	}
+	more := len(items) > q.Limit
+	if more {
+		items = items[:q.Limit]
+	}
+	if !more && snapshot > 0 {
+		if q.Direction == messageapp.Forward && (len(items) == 0 || items[len(items)-1].Sequence != snapshot) {
+			return nil, 0, false, messageapp.ErrDataInvariantViolation
+		}
+		if q.Direction == messageapp.Backward && (len(items) == 0 || items[len(items)-1].Sequence != 1) {
+			return nil, 0, false, messageapp.ErrDataInvariantViolation
+		}
+	}
+	if err = rows.Close(); err != nil {
+		return nil, 0, false, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, 0, false, err
+	}
+	return items, snapshot, more, nil
 }
 
 func (s *Store) List(ctx context.Context, filter provider.Filter) ([]provider.Provider, error) {

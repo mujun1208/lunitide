@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -36,6 +38,10 @@ type SessionService interface {
 	Create(context.Context, string, string, any, session.Session) (session.Session, error)
 	List(context.Context, session.Filter) ([]session.Session, error)
 }
+type MessageService interface {
+	Append(context.Context, string, string, any, message.Message) (message.Message, error)
+	List(context.Context, messageapp.PageRequest) (messageapp.Page, error)
+}
 
 type credentialLifecycleService interface {
 	UpdateCredentialRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
@@ -54,6 +60,7 @@ type Engine struct {
 	providers      ProviderService
 	projects       ProjectService
 	sessions       SessionService
+	messages       MessageService
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -100,6 +107,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProjectList:       handleProjectList,
 	bridge.MethodSessionCreate:     handleSessionCreate,
 	bridge.MethodSessionList:       handleSessionList,
+	bridge.MethodMessageAppend:     handleMessageAppend,
+	bridge.MethodMessageList:       handleMessageList,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -143,6 +152,12 @@ func NewEngineWithProjects(providers ProviderService, projects ProjectService, v
 func NewEngineWithSessions(providers ProviderService, projects ProjectService, sessions SessionService, version string, leases LeaseClient) *Engine {
 	e := NewEngineWithProjects(providers, projects, version, leases)
 	e.sessions = sessions
+	return e
+}
+
+func NewEngineWithMessages(providers ProviderService, projects ProjectService, sessions SessionService, messages MessageService, version string, leases LeaseClient) *Engine {
+	e := NewEngineWithSessions(providers, projects, sessions, version, leases)
+	e.messages = messages
 	return e
 }
 
