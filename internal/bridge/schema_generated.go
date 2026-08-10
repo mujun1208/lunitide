@@ -8,6 +8,7 @@ type Method string
 const (
 	MethodChatStart                Method = "chat.start"
 	MethodDiagnosticsExport        Method = "diagnostics.export"
+	MethodMemoryCreate             Method = "memory.create"
 	MethodMemoryDelete             Method = "memory.delete"
 	MethodMemoryGet                Method = "memory.get"
 	MethodMemoryList               Method = "memory.list"
@@ -19,15 +20,23 @@ const (
 	MethodMigrationRun             Method = "migration.run"
 	MethodMigrationStatus          Method = "migration.status"
 	MethodNodeComplete             Method = "node.complete"
+	MethodNodeCreate               Method = "node.create"
 	MethodNodeFail                 Method = "node.fail"
 	MethodNodeList                 Method = "node.list"
 	MethodNodeStart                Method = "node.start"
+	MethodOntologyEdgeCreate       Method = "ontology.edge.create"
+	MethodOntologyEdgeDelete       Method = "ontology.edge.delete"
 	MethodOntologyEdgeList         Method = "ontology.edge.list"
+	MethodOntologyEdgeUpdate       Method = "ontology.edge.update"
+	MethodOntologyNodeCreate       Method = "ontology.node.create"
+	MethodOntologyNodeDelete       Method = "ontology.node.delete"
 	MethodOntologyNodeGet          Method = "ontology.node.get"
 	MethodOntologyNodeList         Method = "ontology.node.list"
 	MethodOntologyNodeSearch       Method = "ontology.node.search"
+	MethodOntologyNodeUpdate       Method = "ontology.node.update"
 	MethodPlanActivate             Method = "plan.activate"
 	MethodPlanComplete             Method = "plan.complete"
+	MethodPlanCreate               Method = "plan.create"
 	MethodPlanGet                  Method = "plan.get"
 	MethodPlanList                 Method = "plan.list"
 	MethodPlanPause                Method = "plan.pause"
@@ -47,12 +56,15 @@ const (
 	MethodReviewReject             Method = "review.reject"
 	MethodSessionCreate            Method = "session.create"
 	MethodSessionList              Method = "session.list"
+	MethodSkillCreate              Method = "skill.create"
+	MethodSkillDelete              Method = "skill.delete"
 	MethodSkillDeprecate           Method = "skill.deprecate"
 	MethodSkillDisable             Method = "skill.disable"
 	MethodSkillGet                 Method = "skill.get"
 	MethodSkillList                Method = "skill.list"
 	MethodSkillMatch               Method = "skill.match"
 	MethodSkillPublish             Method = "skill.publish"
+	MethodSkillUpdate              Method = "skill.update"
 	MethodStageCreate              Method = "stage.create"
 	MethodStageList                Method = "stage.list"
 	MethodStreamCancel             Method = "stream.cancel"
@@ -67,6 +79,7 @@ type MethodMetadata struct {
 var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodChatStart:                {Owner: "engine", Enabled: true},
 	MethodDiagnosticsExport:        {Owner: "host", Enabled: false},
+	MethodMemoryCreate:             {Owner: "engine", Enabled: true},
 	MethodMemoryDelete:             {Owner: "engine", Enabled: true},
 	MethodMemoryGet:                {Owner: "engine", Enabled: true},
 	MethodMemoryList:               {Owner: "engine", Enabled: true},
@@ -78,15 +91,23 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodMigrationRun:             {Owner: "engine", Enabled: false},
 	MethodMigrationStatus:          {Owner: "engine", Enabled: false},
 	MethodNodeComplete:             {Owner: "engine", Enabled: true},
+	MethodNodeCreate:               {Owner: "engine", Enabled: true},
 	MethodNodeFail:                 {Owner: "engine", Enabled: true},
 	MethodNodeList:                 {Owner: "engine", Enabled: true},
 	MethodNodeStart:                {Owner: "engine", Enabled: true},
+	MethodOntologyEdgeCreate:       {Owner: "engine", Enabled: true},
+	MethodOntologyEdgeDelete:       {Owner: "engine", Enabled: true},
 	MethodOntologyEdgeList:         {Owner: "engine", Enabled: true},
+	MethodOntologyEdgeUpdate:       {Owner: "engine", Enabled: true},
+	MethodOntologyNodeCreate:       {Owner: "engine", Enabled: true},
+	MethodOntologyNodeDelete:       {Owner: "engine", Enabled: true},
 	MethodOntologyNodeGet:          {Owner: "engine", Enabled: true},
 	MethodOntologyNodeList:         {Owner: "engine", Enabled: true},
 	MethodOntologyNodeSearch:       {Owner: "engine", Enabled: true},
+	MethodOntologyNodeUpdate:       {Owner: "engine", Enabled: true},
 	MethodPlanActivate:             {Owner: "engine", Enabled: true},
 	MethodPlanComplete:             {Owner: "engine", Enabled: true},
+	MethodPlanCreate:               {Owner: "engine", Enabled: true},
 	MethodPlanGet:                  {Owner: "engine", Enabled: true},
 	MethodPlanList:                 {Owner: "engine", Enabled: true},
 	MethodPlanPause:                {Owner: "engine", Enabled: true},
@@ -106,17 +127,20 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodReviewReject:             {Owner: "engine", Enabled: true},
 	MethodSessionCreate:            {Owner: "engine", Enabled: true},
 	MethodSessionList:              {Owner: "engine", Enabled: true},
+	MethodSkillCreate:              {Owner: "engine", Enabled: true},
+	MethodSkillDelete:              {Owner: "engine", Enabled: true},
 	MethodSkillDeprecate:           {Owner: "engine", Enabled: true},
 	MethodSkillDisable:             {Owner: "engine", Enabled: true},
 	MethodSkillGet:                 {Owner: "engine", Enabled: true},
 	MethodSkillList:                {Owner: "engine", Enabled: true},
 	MethodSkillMatch:               {Owner: "engine", Enabled: true},
 	MethodSkillPublish:             {Owner: "engine", Enabled: true},
+	MethodSkillUpdate:              {Owner: "engine", Enabled: true},
 	MethodStageCreate:              {Owner: "engine", Enabled: true},
 	MethodStageList:                {Owner: "engine", Enabled: true},
 	MethodStreamCancel:             {Owner: "engine", Enabled: true},
 	MethodSystemHealth:             {Owner: "engine", Enabled: true},
 }
-var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeList, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodPlanActivate, MethodPlanComplete, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionList, MethodSkillDeprecate, MethodSkillDisable, MethodSkillGet, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionList, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillGet, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }
