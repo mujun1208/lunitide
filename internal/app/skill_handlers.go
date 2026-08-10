@@ -16,6 +16,9 @@ type SkillService interface {
 	Get(context.Context, string) (*skill.Skill, error)
 	List(context.Context, skill.SkillStatus) ([]skill.Skill, error)
 	Match(context.Context, string) ([]skill.SkillMatch, error)
+	Create(context.Context, skill.Skill) (skill.Skill, error)
+	UpdateFields(context.Context, string, *string, *string, *string, *string, []skill.PermissionLevel, *string, int64) (*skill.Skill, error)
+	Delete(context.Context, string) error
 	Publish(context.Context, string) error
 	Deprecate(context.Context, string) error
 	Disable(context.Context, string) error
@@ -96,6 +99,80 @@ func handleSkillGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		return skillFailure(r, err)
 	}
 	return bridge.Success(r.ID, newSkillDTO(*s))
+}
+
+func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		Name             string                  `json:"name"`
+		DisplayName      string                  `json:"displayName"`
+		Description      string                  `json:"description"`
+		Version          string                  `json:"version"`
+		Permissions      []skill.PermissionLevel `json:"permissions"`
+		EntryPoint       string                  `json:"entryPoint"`
+		ManifestJSON     string                  `json:"manifestJson"`
+		MinEngineVersion *string                 `json:"minEngineVersion,omitempty"`
+	}
+	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.DisplayName) == "" || strings.TrimSpace(p.Version) == "" || len(p.Permissions) == 0 || strings.TrimSpace(p.EntryPoint) == "" || strings.TrimSpace(p.ManifestJSON) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.create 参数无效", false)
+	}
+	if !skillServiceAvailable(e.skills) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+	}
+	s, err := e.skills.Create(ctx, skill.Skill{
+		Name:             p.Name,
+		DisplayName:      p.DisplayName,
+		Description:      p.Description,
+		Version:          p.Version,
+		Permissions:      p.Permissions,
+		EntryPoint:       p.EntryPoint,
+		ManifestJSON:     p.ManifestJSON,
+		MinEngineVersion: p.MinEngineVersion,
+	})
+	if err != nil {
+		return skillFailure(r, err)
+	}
+	return bridge.Success(r.ID, newSkillDTO(s))
+}
+
+func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID               string                  `json:"id"`
+		DisplayName      *string                 `json:"displayName,omitempty"`
+		Description      *string                 `json:"description,omitempty"`
+		Permissions      []skill.PermissionLevel `json:"permissions,omitempty"`
+		EntryPoint       *string                 `json:"entryPoint,omitempty"`
+		ManifestJSON     *string                 `json:"manifestJson,omitempty"`
+		MinEngineVersion *string                 `json:"minEngineVersion,omitempty"`
+		ExpectedVersion  int64                   `json:"expectedVersion"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.update 参数无效", false)
+	}
+	if !skillServiceAvailable(e.skills) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+	}
+	s, err := e.skills.UpdateFields(ctx, p.ID, p.DisplayName, p.Description, p.EntryPoint, p.ManifestJSON, p.Permissions, p.MinEngineVersion, p.ExpectedVersion)
+	if err != nil {
+		return skillFailure(r, err)
+	}
+	return bridge.Success(r.ID, newSkillDTO(*s))
+}
+
+func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID              string `json:"id"`
+		ExpectedVersion int64  `json:"expectedVersion"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.delete 参数无效", false)
+	}
+	if !skillServiceAvailable(e.skills) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+	}
+	if err := e.skills.Delete(ctx, p.ID); err != nil {
+		return skillFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"deleted": true})
 }
 
 func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

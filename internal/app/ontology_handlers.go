@@ -16,6 +16,13 @@ type OntologyService interface {
 	GetNode(context.Context, string) (*ontology.Node, error)
 	ListNodesByProject(context.Context, string, ontology.NodeType) ([]ontology.Node, error)
 	SearchNodes(context.Context, string, string) ([]ontology.Node, error)
+	CreateNode(context.Context, ontology.Node) (ontology.Node, error)
+	UpdateNode(context.Context, string, string, string) error
+	DeleteNode(context.Context, string) error
+	GetEdge(context.Context, string) (*ontology.Edge, error)
+	CreateEdge(context.Context, ontology.Edge) (ontology.Edge, error)
+	UpdateEdge(context.Context, string, float64) error
+	DeleteEdge(context.Context, string) error
 	ListOutgoingEdges(context.Context, string) ([]ontology.Edge, error)
 	ListIncomingEdges(context.Context, string) ([]ontology.Edge, error)
 }
@@ -101,6 +108,73 @@ func handleOntologyNodeGet(e *Engine, ctx context.Context, r bridge.Request) bri
 	return bridge.Success(r.ID, newOntologyNodeDTO(*node))
 }
 
+func handleOntologyNodeCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ProjectID    string `json:"projectId"`
+		Type         string `json:"type"`
+		Name         string `json:"name"`
+		FullPath     string `json:"fullPath"`
+		Description  string `json:"description"`
+		MetadataJSON string `json:"metadataJson"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Type) == "" || strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.FullPath) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.create 参数无效", false)
+	}
+	if !ontologyServiceAvailable(e.ontology) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+	}
+	node, err := e.ontology.CreateNode(ctx, ontology.Node{
+		ProjectID:    p.ProjectID,
+		Type:         ontology.NodeType(p.Type),
+		Name:         p.Name,
+		FullPath:     p.FullPath,
+		Description:  p.Description,
+		MetadataJSON: p.MetadataJSON,
+	})
+	if err != nil {
+		return ontologyFailure(r, err)
+	}
+	return bridge.Success(r.ID, newOntologyNodeDTO(node))
+}
+
+func handleOntologyNodeUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID           string `json:"id"`
+		Description  string `json:"description"`
+		MetadataJSON string `json:"metadataJson"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.update 参数无效", false)
+	}
+	if !ontologyServiceAvailable(e.ontology) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+	}
+	if err := e.ontology.UpdateNode(ctx, p.ID, p.Description, p.MetadataJSON); err != nil {
+		return ontologyFailure(r, err)
+	}
+	node, err := e.ontology.GetNode(ctx, p.ID)
+	if err != nil {
+		return ontologyFailure(r, err)
+	}
+	return bridge.Success(r.ID, newOntologyNodeDTO(*node))
+}
+
+func handleOntologyNodeDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.delete 参数无效", false)
+	}
+	if !ontologyServiceAvailable(e.ontology) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+	}
+	if err := e.ontology.DeleteNode(ctx, p.ID); err != nil {
+		return ontologyFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"deleted": true})
+}
+
 func handleOntologyNodeList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ProjectID string            `json:"projectId"`
@@ -184,6 +258,76 @@ func handleOntologyEdgeList(e *Engine, ctx context.Context, r bridge.Request) br
 	return bridge.Success(r.ID, struct {
 		Items []ontologyEdgeDTO `json:"items"`
 	}{Items: dtos})
+}
+
+func handleOntologyEdgeCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		SourceNodeID   string  `json:"sourceNodeId"`
+		TargetNodeID   string  `json:"targetNodeId"`
+		Type           string  `json:"type"`
+		Label          string  `json:"label"`
+		PropertiesJSON string  `json:"propertiesJson"`
+		Weight         float64 `json:"weight"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SourceNodeID) || !validCanonicalULID(p.TargetNodeID) || strings.TrimSpace(p.Type) == "" || strings.TrimSpace(p.Label) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.create 参数无效", false)
+	}
+	if !ontologyServiceAvailable(e.ontology) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+	}
+	edge, err := e.ontology.CreateEdge(ctx, ontology.Edge{
+		SourceNodeID:   p.SourceNodeID,
+		TargetNodeID:   p.TargetNodeID,
+		Type:           ontology.EdgeType(p.Type),
+		Label:          p.Label,
+		PropertiesJSON: p.PropertiesJSON,
+		Weight:         p.Weight,
+	})
+	if err != nil {
+		return ontologyFailure(r, err)
+	}
+	return bridge.Success(r.ID, newOntologyEdgeDTO(edge))
+}
+
+func handleOntologyEdgeUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID            string   `json:"id"`
+		Label         *string  `json:"label,omitempty"`
+		PropertiesJSON *string `json:"propertiesJson,omitempty"`
+		Weight        *float64 `json:"weight,omitempty"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.update 参数无效", false)
+	}
+	if !ontologyServiceAvailable(e.ontology) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+	}
+	if p.Weight != nil {
+		if err := e.ontology.UpdateEdge(ctx, p.ID, *p.Weight); err != nil {
+			return ontologyFailure(r, err)
+		}
+	}
+	edge, err := e.ontology.GetEdge(ctx, p.ID)
+	if err != nil {
+		return ontologyFailure(r, err)
+	}
+	return bridge.Success(r.ID, newOntologyEdgeDTO(*edge))
+}
+
+func handleOntologyEdgeDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.delete 参数无效", false)
+	}
+	if !ontologyServiceAvailable(e.ontology) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+	}
+	if err := e.ontology.DeleteEdge(ctx, p.ID); err != nil {
+		return ontologyFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"deleted": true})
 }
 
 func ontologyFailure(r bridge.Request, err error) bridge.Response {
