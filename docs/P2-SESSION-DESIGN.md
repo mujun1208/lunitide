@@ -19,6 +19,8 @@ Stable public errors are `BRIDGE_SCHEMA_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`, `I
 - Session DTO fields are exactly `id`, `projectId`, `title`, `status`, `createdAt`, `updatedAt`, `version`.
 - IDs, status, timestamps, and version are engine-owned; unknown or forged fields are rejected.
 
+Project and Session data share one local-user authorization domain in this single-user desktop phase. The trusted top-frame Renderer may list every Project and may use any returned `projectId` with the Session methods; `projectId` is a data-scope selector, not a security capability. A compromised trusted Renderer is therefore inside the local-data trust boundary. Project-scoped capabilities, collaboration roles, and multi-user authorization are explicitly deferred and must be designed before those trust assumptions change.
+
 ## Explicit exclusions
 
 This authorization does **not** include Message, Stage/StageRun, model profile, chat behavior, Session update/archive/delete, pagination, or search. It does not alter Project lifecycle semantics.

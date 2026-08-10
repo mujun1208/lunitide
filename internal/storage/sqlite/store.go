@@ -502,6 +502,10 @@ func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 			return fmt.Errorf("session data invariant violation: project capacity exceeds 100")
 		}
 	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("session data invariant validation failed: %w", err)
+	}
 	if err = rows.Close(); err != nil {
 		return err
 	}
