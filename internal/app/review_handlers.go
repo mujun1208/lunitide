@@ -87,7 +87,7 @@ func handleReviewList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 func handleReviewApprove(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ReviewID string `json:"reviewId"`
-		Note     string `json:"note"`
+		Note     string `json:"reviewerNote"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ReviewID) {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "review.approve 参数无效", false)
@@ -104,7 +104,7 @@ func handleReviewApprove(e *Engine, ctx context.Context, r bridge.Request) bridg
 func handleReviewReject(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ReviewID string `json:"reviewId"`
-		Note     string `json:"note"`
+		Note     string `json:"reviewerNote"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ReviewID) {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "review.reject 参数无效", false)
