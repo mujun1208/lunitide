@@ -16,6 +16,7 @@ type MemoryService interface {
 	Get(context.Context, string) (*memory.Memory, error)
 	ListByProject(context.Context, string, memory.Layer) ([]memory.Memory, error)
 	Search(context.Context, string, string) ([]memory.Memory, error)
+	Create(context.Context, memory.Memory) (memory.Memory, error)
 	UpdateContent(context.Context, string, string) error
 	Delete(context.Context, string) error
 }
@@ -81,6 +82,37 @@ func handleMemoryGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return memoryFailure(r, err)
 	}
 	return bridge.Success(r.ID, newMemoryDTO(*m))
+}
+
+func handleMemoryCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ProjectID  string     `json:"projectId"`
+		Layer      string     `json:"layer"`
+		Scope      string     `json:"scope"`
+		Key        string     `json:"key"`
+		Content    string     `json:"content"`
+		Confidence float64    `json:"confidence"`
+		ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Key) == "" || strings.TrimSpace(p.Content) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.create 参数无效", false)
+	}
+	if !memoryServiceAvailable(e.memories) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+	}
+	m, err := e.memories.Create(ctx, memory.Memory{
+		ProjectID:  p.ProjectID,
+		Layer:      memory.Layer(p.Layer),
+		Scope:      memory.MemoryScope(p.Scope),
+		Key:        p.Key,
+		Content:    p.Content,
+		Confidence: memory.Confidence(p.Confidence),
+		ExpiresAt:  p.ExpiresAt,
+	})
+	if err != nil {
+		return memoryFailure(r, err)
+	}
+	return bridge.Success(r.ID, newMemoryDTO(m))
 }
 
 func handleMemoryList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

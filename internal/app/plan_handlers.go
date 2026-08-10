@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -15,6 +16,8 @@ type PlanningService interface {
 	Get(context.Context, string) (*planning.Plan, error)
 	ListByProject(context.Context, string) ([]planning.Plan, error)
 	ListNodes(context.Context, string) ([]planning.Node, error)
+	CreatePlan(context.Context, planning.Plan) (planning.Plan, error)
+	CreateNode(context.Context, planning.Node) (planning.Node, error)
 	Activate(context.Context, string) error
 	CompletePlan(context.Context, string) error
 	StartNode(context.Context, string) error
@@ -107,6 +110,36 @@ func handlePlanGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 		return planFailure(r, err)
 	}
 	return bridge.Success(r.ID, newPlanDTO(*plan))
+}
+
+func handlePlanCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ProjectID   string  `json:"projectId"`
+		StageID     *string `json:"stageId,omitempty"`
+		Name        string  `json:"name"`
+		Description string  `json:"description"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Name) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plan.create 参数无效", false)
+	}
+	if p.StageID != nil && !validCanonicalULID(*p.StageID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plan.create 参数无效", false)
+	}
+	if !planningServiceAvailable(e.planning) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "计划数据暂时不可用", true)
+	}
+	plan, err := e.planning.CreatePlan(ctx, planning.Plan{
+		ProjectID:   p.ProjectID,
+		StageID:     p.StageID,
+		Name:        p.Name,
+		Description: p.Description,
+	})
+	if err != nil {
+		return planFailure(r, err)
+	}
+	return bridge.Success(r.ID, struct {
+		Plan planDTO `json:"plan"`
+	}{Plan: newPlanDTO(plan)})
 }
 
 func handlePlanList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -217,6 +250,46 @@ func handleNodeList(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 	return bridge.Success(r.ID, struct {
 		Items []planNodeDTO `json:"items"`
 	}{Items: dtos})
+}
+
+func handleNodeCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		PlanID         string  `json:"planId"`
+		ParentNodeID   *string `json:"parentNodeId,omitempty"`
+		Name           string  `json:"name"`
+		Description    string  `json:"description"`
+		RiskLevel      string  `json:"riskLevel"`
+		BudgetTokens   *int64  `json:"budgetTokens,omitempty"`
+		EstimateTokens *int64  `json:"estimateTokens,omitempty"`
+		WorkerRole     string  `json:"workerRole"`
+		Sequence       int64   `json:"sequence"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.PlanID) || strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.RiskLevel) == "" || strings.TrimSpace(p.WorkerRole) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "node.create 参数无效", false)
+	}
+	if p.ParentNodeID != nil && !validCanonicalULID(*p.ParentNodeID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "node.create 参数无效", false)
+	}
+	if !planningServiceAvailable(e.planning) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "计划数据暂时不可用", true)
+	}
+	node, err := e.planning.CreateNode(ctx, planning.Node{
+		PlanID:         p.PlanID,
+		ParentNodeID:   p.ParentNodeID,
+		Name:           p.Name,
+		Description:    p.Description,
+		RiskLevel:      planning.RiskLevel(p.RiskLevel),
+		BudgetTokens:   p.BudgetTokens,
+		EstimateTokens: p.EstimateTokens,
+		WorkerRole:     p.WorkerRole,
+		Sequence:       p.Sequence,
+	})
+	if err != nil {
+		return planFailure(r, err)
+	}
+	return bridge.Success(r.ID, struct {
+		Node planNodeDTO `json:"node"`
+	}{Node: newPlanNodeDTO(node)})
 }
 
 func handleNodeStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
