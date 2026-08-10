@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -31,6 +32,10 @@ type ProjectService interface {
 	Create(context.Context, string, string, any, project.Project) (project.Project, error)
 	List(context.Context, project.Filter) ([]project.Project, error)
 }
+type SessionService interface {
+	Create(context.Context, string, string, any, session.Session) (session.Session, error)
+	List(context.Context, session.Filter) ([]session.Session, error)
+}
 
 type credentialLifecycleService interface {
 	UpdateCredentialRequest(context.Context, string, string, any, string, int64, func(provider.Provider) (provider.Provider, error)) (provider.Provider, error)
@@ -48,6 +53,7 @@ type electronCredentialMigrationService interface {
 type Engine struct {
 	providers      ProviderService
 	projects       ProjectService
+	sessions       SessionService
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -92,6 +98,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProviderUpdate:    handleProviderUpdate,
 	bridge.MethodProjectCreate:     handleProjectCreate,
 	bridge.MethodProjectList:       handleProjectList,
+	bridge.MethodSessionCreate:     handleSessionCreate,
+	bridge.MethodSessionList:       handleSessionList,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -129,6 +137,12 @@ func NewEngine(providers ProviderService, version string) *Engine {
 func NewEngineWithProjects(providers ProviderService, projects ProjectService, version string, leases LeaseClient) *Engine {
 	e := NewEngineWithGateway(providers, version, leases)
 	e.projects = projects
+	return e
+}
+
+func NewEngineWithSessions(providers ProviderService, projects ProjectService, sessions SessionService, version string, leases LeaseClient) *Engine {
+	e := NewEngineWithProjects(providers, projects, version, leases)
+	e.sessions = sessions
 	return e
 }
 

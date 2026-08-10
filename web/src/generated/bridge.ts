@@ -1,5 +1,5 @@
 // Code generated from discovered api/bridge/v1 and api/rpc/v1 schemas. DO NOT EDIT.
-export const BRIDGE_METHODS = ["chat.start", "diagnostics.export", "migration.inspect", "migration.run", "migration.status", "project.create", "project.list", "provider.create", "provider.credential.submit", "provider.delete", "provider.get", "provider.list", "provider.model.sync", "provider.test", "provider.update", "stream.cancel", "system.health"] as const
+export const BRIDGE_METHODS = ["chat.start", "diagnostics.export", "migration.inspect", "migration.run", "migration.status", "project.create", "project.list", "provider.create", "provider.credential.submit", "provider.delete", "provider.get", "provider.list", "provider.model.sync", "provider.test", "provider.update", "session.create", "session.list", "stream.cancel", "system.health"] as const
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]
 export const PROVIDER_PROTOCOLS = ["openai_compatible", "anthropic"] as const
 export type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number]
@@ -35,6 +35,8 @@ export type ModelDTO = { "modelId": string; "displayName": string; "isDefault": 
 export type ProviderDTO = { "id": ULID; "name": string; "protocol": ProviderProtocol; "baseUrl": string; "models": Array<ModelDTO>; "status": ProviderStatus; "credentialState": CredentialState; "createdAt": string; "updatedAt": string; "version": number }
 export type ProjectStatus = "active" | "archived"
 export type ProjectDTO = { "id": ULID; "name": string; "status": ProjectStatus; "createdAt": string; "updatedAt": string; "version": number }
+export type SessionStatus = "active"
+export type SessionDTO = { "id": ULID; "projectId": ULID; "title": string; "status": SessionStatus; "createdAt": string; "updatedAt": string; "version": 1 }
 export type MigrationStatusDTO = { "state": "idle" | "running" | "completed" | "failed"; "processed": number; "total": number }
 export type ChatStartPayload = { "providerId": ULID; "modelId": string; "messages": Array<{ "role": "system" | "user" | "assistant"; "content": string }> }
 export type ChatStartResult = { "streamId": ULID }
@@ -66,6 +68,10 @@ export type ProviderTestPayload = { "providerId": ULID; "modelId"?: string }
 export type ProviderTestResult = { "status": "passed" | "failed"; "stage": "resolve" | "connect" | "authenticate" | "request" | "response"; "httpStatus"?: number; "latencyMs": number; "retryable": boolean; "errorCode"?: string; "sanitizedMessage"?: string; "testedAt": string }
 export type ProviderUpdatePayload = { "id": ULID; "name"?: string; "protocol"?: ProviderProtocol; "baseUrl"?: string; "models"?: Array<ModelDTO>; "credentialSubmissionId"?: ULID; "status"?: ProviderStatus; "expectedVersion": number }
 export type ProviderUpdateResult = ProviderDTO
+export type SessionCreatePayload = { "projectId": ULID; "title": string }
+export type SessionCreateResult = SessionDTO
+export type SessionListPayload = { "projectId": ULID }
+export type SessionListResult = { "items": Array<SessionDTO> }
 export type StreamCancelPayload = { "streamId": ULID }
 export type StreamCancelResult = { "cancelled": boolean }
 export type SystemHealthPayload = Record<string, never>

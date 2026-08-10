@@ -18,6 +18,7 @@ import (
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/sessionapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -81,7 +82,8 @@ func main() {
 	fmt.Println("lunitide-engine ready")
 	providerService := providerapp.New(store, store)
 	projectService := projectapp.New(store, store)
-	engine := app.NewEngineWithProjects(providerService, projectService, buildinfo.Version, leaseClient)
+	sessionService := sessionapp.New(store, store)
+	engine := app.NewEngineWithSessions(providerService, projectService, sessionService, buildinfo.Version, leaseClient)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

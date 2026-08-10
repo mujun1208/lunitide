@@ -133,6 +133,17 @@
       },
       "required": ["id", "name", "status", "createdAt", "updatedAt", "version"]
     },
+    "SessionStatus": { "enum": ["active"] },
+    "SessionDTO": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/ULID" }, "projectId": { "$ref": "#/$defs/ULID" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 }, "status": { "$ref": "#/$defs/SessionStatus" },
+        "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" },
+        "version": { "type": "integer", "const": 1 }
+      },
+      "required": ["id", "projectId", "title", "status", "createdAt", "updatedAt", "version"]
+    },
     "MigrationStatusDTO": {
       "type": "object",
       "additionalProperties": false,

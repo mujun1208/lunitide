@@ -8,9 +8,11 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
+	"github.com/lunitide/lunitide/internal/sessionapp"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -22,6 +24,10 @@ func (s *Store) Do(ctx context.Context, fn func(providerapp.Tx) error) (resultEr
 }
 
 func (s *Store) DoProject(ctx context.Context, fn func(projectapp.Tx) error) (resultErr error) {
+	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
+}
+
+func (s *Store) DoSession(ctx context.Context, fn func(sessionapp.Tx) error) error {
 	return s.do(ctx, func(tx *txAdapter) error { return fn(tx) })
 }
 
@@ -84,6 +90,42 @@ func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (proje
 	}
 	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?)`, p.ID, p.Name, p.Status, formatTime(now), formatTime(now), p.Version)
 	return p, mapWriteError(err)
+}
+
+func (t *txAdapter) CreateSession(ctx context.Context, v session.Session) (session.Session, error) {
+	var exists int
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id=?`, v.ProjectID).Scan(&exists); err != nil {
+		return v, err
+	}
+	if exists != 1 {
+		return v, sessionapp.ErrProjectNotFound
+	}
+	var count int
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE project_id=?`, v.ProjectID).Scan(&count); err != nil {
+		return v, err
+	}
+	if count >= 100 {
+		return v, sessionapp.ErrSessionCapacityReached
+	}
+	var err error
+	v.Title, err = session.NormalizeTitle(v.Title)
+	if err != nil {
+		return v, err
+	}
+	v.ID, err = t.s.newULID(time.Now())
+	if err != nil {
+		return v, err
+	}
+	now := time.Now().UTC()
+	v.Status = session.StatusActive
+	v.CreatedAt = now
+	v.UpdatedAt = now
+	v.Version = 1
+	if err = v.Validate(); err != nil {
+		return v, err
+	}
+	_, err = t.q.ExecContext(ctx, `INSERT INTO sessions(id,project_id,title,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?)`, v.ID, v.ProjectID, v.Title, v.Status, formatTime(now), formatTime(now), v.Version)
+	return v, mapWriteError(err)
 }
 
 func (t *txAdapter) Get(ctx context.Context, id string) (provider.Provider, error) {
@@ -273,3 +315,5 @@ var _ providerapp.UnitOfWork = (*Store)(nil)
 var _ providerapp.Tx = (*txAdapter)(nil)
 var _ projectapp.UnitOfWork = (*Store)(nil)
 var _ projectapp.Tx = (*txAdapter)(nil)
+var _ sessionapp.UnitOfWork = (*Store)(nil)
+var _ sessionapp.Tx = (*txAdapter)(nil)

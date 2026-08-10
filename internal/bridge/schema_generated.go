@@ -21,6 +21,8 @@ const (
 	MethodProviderModelSync        Method = "provider.model.sync"
 	MethodProviderTest             Method = "provider.test"
 	MethodProviderUpdate           Method = "provider.update"
+	MethodSessionCreate            Method = "session.create"
+	MethodSessionList              Method = "session.list"
 	MethodStreamCancel             Method = "stream.cancel"
 	MethodSystemHealth             Method = "system.health"
 )
@@ -46,9 +48,11 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodProviderModelSync:        {Owner: "engine", Enabled: true},
 	MethodProviderTest:             {Owner: "engine", Enabled: true},
 	MethodProviderUpdate:           {Owner: "engine", Enabled: true},
+	MethodSessionCreate:            {Owner: "engine", Enabled: true},
+	MethodSessionList:              {Owner: "engine", Enabled: true},
 	MethodStreamCancel:             {Owner: "engine", Enabled: true},
 	MethodSystemHealth:             {Owner: "engine", Enabled: true},
 }
-var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodChatStart, MethodDiagnosticsExport, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodProjectCreate, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodSessionCreate, MethodSessionList, MethodStreamCancel, MethodSystemHealth}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

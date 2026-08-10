@@ -16,6 +16,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/migrations"
@@ -132,6 +133,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0005_electron_provider_metadata.sql", "8b9ab1a5b7600555a7674113fa2b1cee106e16274629b4957d4d92234439fb1f"},
 	{"0006_electron_credential_adoption.sql", "0417131a4abe5e9d2c5f70809c542a0bdde36385dc710ef031bf84c39ad0a936"},
 	{"0007_project.sql", "eb31143f8347a75a3abee8670fd8c9a047fe712db64c4e8378720d08698864a3"},
+	{"0008_session.sql", "08b1478bd48900da0f89a83de15c7517fbd6445790759d2374c449f67d436620"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -463,10 +465,45 @@ func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 		}
 	}
 	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err = rows.Close(); err != nil {
 		return err
 	}
 	if count > 100 {
 		return fmt.Errorf("project data invariant violation: capacity %d exceeds 100", count)
+	}
+	rows, err = q.QueryContext(ctx, `SELECT id,project_id,title,status,created_at,updated_at,version FROM sessions`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var v session.Session
+		var created, updated string
+		if err = rows.Scan(&v.ID, &v.ProjectID, &v.Title, &v.Status, &created, &updated, &v.Version); err != nil {
+			return err
+		}
+		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return fmt.Errorf("session data invariant violation: %w", err)
+		}
+		v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return fmt.Errorf("session data invariant violation: %w", err)
+		}
+		if err = v.Validate(); err != nil {
+			return fmt.Errorf("session data invariant violation: %w", err)
+		}
+		counts[v.ProjectID]++
+		if counts[v.ProjectID] > 100 {
+			return fmt.Errorf("session data invariant violation: project capacity exceeds 100")
+		}
+	}
+	if err = rows.Close(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -594,9 +631,10 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_provider_metadata_migration_items_credential_state": "CREATE INDEX ix_provider_metadata_migration_items_credential_state\n    ON provider_metadata_migration_items(credential_migration_state, source_fingerprint)",
 	"index:ix_credential_adoptions_provider":                      "CREATE INDEX ix_credential_adoptions_provider ON credential_adoptions(provider_id)",
 	"index:ix_projects_status_created":                            "CREATE INDEX ix_projects_status_created ON projects(status, created_at, id)",
-	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_sessions_project_created":                           "CREATE INDEX ix_sessions_project_created ON sessions(project_id, created_at, id)",
+	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
 	"table:credential_adoptions":                                  "CREATE TABLE credential_adoptions (\n    credential_ref TEXT PRIMARY KEY CHECK (length(credential_ref) BETWEEN 1 AND 256),\n    provider_id TEXT NOT NULL REFERENCES providers(id),\n    origin TEXT NOT NULL CHECK (length(origin) BETWEEN 1 AND 2048),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    receipt_id TEXT NOT NULL UNIQUE CHECK (length(receipt_id) BETWEEN 1 AND 64),\n    adopted_at TEXT NOT NULL\n)",
-	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
+	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:idempotency_claims":                                    "CREATE TABLE idempotency_claims (\n    operation TEXT NOT NULL CHECK (operation = 'provider.model.sync'),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    owner TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:outbox_events":                                         "CREATE TABLE outbox_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    topic TEXT NOT NULL CHECK (length(topic) BETWEEN 1 AND 128),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 2 AND 65536),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'dead_letter')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 1000),\n    available_at TEXT NOT NULL,\n    lease_owner TEXT CHECK (lease_owner IS NULL OR length(lease_owner) BETWEEN 1 AND 128),\n    lease_until TEXT,\n    last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 2000),\n    created_at TEXT NOT NULL,\n    completed_at TEXT,\n    CHECK ((status = 'claimed') = (lease_owner IS NOT NULL AND lease_until IS NOT NULL)),\n    CHECK ((status IN ('completed', 'failed', 'dead_letter')) = (completed_at IS NOT NULL))\n)",
 	"table:provider_tests":                                        "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
@@ -605,6 +643,7 @@ var expectedSchemaSQL = map[string]string{
 	"table:provider_models":                                       "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49),\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
 	"table:providers":                                             "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
 	"table:projects":                                              "CREATE TABLE projects (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200 AND name = trim(name)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
+	"table:sessions":                                              "CREATE TABLE sessions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200 AND title = trim(title)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status = 'active'),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version = 1)\n)",
 	"table:schema_migrations":                                     "CREATE TABLE schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL, checksum TEXT)",
 }
 
@@ -626,12 +665,36 @@ var expectedColumns = map[string][]columnSpec{
 	"audit_events":                      {{"id", "TEXT", "", 0, 1, 0}, {"action", "TEXT", "", 1, 0, 0}, {"aggregate_id", "TEXT", "", 1, 0, 0}, {"actor", "TEXT", "", 1, 0, 0}, {"metadata_json", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
 	"credential_adoptions":              {{"credential_ref", "TEXT", "", 0, 1, 0}, {"provider_id", "TEXT", "", 1, 0, 0}, {"origin", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"receipt_id", "TEXT", "", 1, 0, 0}, {"adopted_at", "TEXT", "", 1, 0, 0}},
 	"projects":                          {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
+	"sessions":                          {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"title", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'active'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
 }
 
 func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	var integrity string
 	if err := q.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		return 0, "", fmt.Errorf("integrity check: %q: %w", integrity, err)
+	}
+	fkRows, err := q.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return 0, "", fmt.Errorf("foreign key check: %w", err)
+	}
+	if fkRows.Next() {
+		var table string
+		var rowID sql.NullInt64
+		var parent string
+		var fkID int
+		if err = fkRows.Scan(&table, &rowID, &parent, &fkID); err != nil {
+			fkRows.Close()
+			return 0, "", fmt.Errorf("foreign key check: %w", err)
+		}
+		fkRows.Close()
+		return 0, "", fmt.Errorf("foreign key violation: table=%s rowid=%v parent=%s constraint=%d", table, rowID, parent, fkID)
+	}
+	if err = fkRows.Err(); err != nil {
+		fkRows.Close()
+		return 0, "", fmt.Errorf("foreign key check: %w", err)
+	}
+	if err = fkRows.Close(); err != nil {
+		return 0, "", err
 	}
 	rows, err := q.QueryContext(ctx, `SELECT type,name,coalesce(sql,'') FROM sqlite_schema WHERE name NOT LIKE 'sqlite_autoindex_%' ORDER BY type,name`)
 	if err != nil {
@@ -662,7 +725,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "projects", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
+	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -701,6 +764,13 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 		return 0, "", fmt.Errorf("foreign key set mismatch: %w", err)
 	}
 	canonical = append(canonical, fmt.Sprintf("fk:%d:%d:%s:%s:%s:%s:%s:%s", id, seq, table, from, to, update, del, match))
+	if err := q.QueryRowContext(ctx, `SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('sessions')`).Scan(&id, &seq, &table, &from, &to, &update, &del, &match); err != nil || id != 0 || seq != 0 || table != "projects" || from != "project_id" || to != "id" || update != "NO ACTION" || del != "RESTRICT" || match != "NONE" {
+		return 0, "", fmt.Errorf("sessions foreign key mismatch: %w", err)
+	}
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('sessions')`).Scan(&count); err != nil || count != 1 {
+		return 0, "", fmt.Errorf("sessions foreign key set mismatch: %w", err)
+	}
+	canonical = append(canonical, fmt.Sprintf("fk:sessions:%d:%d:%s:%s:%s:%s:%s:%s", id, seq, table, from, to, update, del, match))
 	var unique, partial int
 	var origin, columns string
 	if err := q.QueryRowContext(ctx, `SELECT "unique",origin,partial FROM pragma_index_list('provider_models') WHERE name='ux_provider_default_model'`).Scan(&unique, &origin, &partial); err != nil || unique != 1 || origin != "c" || partial != 1 {
@@ -756,6 +826,41 @@ func (s *Store) ListProjects(ctx context.Context, filter project.Filter) ([]proj
 	}
 	if len(items) > 100 {
 		return nil, errors.New("project data invariant violation: list exceeds capacity")
+	}
+	return items, nil
+}
+
+func (s *Store) ListSessions(ctx context.Context, filter session.Filter) ([]session.Session, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,project_id,title,status,created_at,updated_at,version FROM sessions WHERE project_id=? ORDER BY created_at,id LIMIT 101`, filter.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []session.Session{}
+	for rows.Next() {
+		var v session.Session
+		var created, updated string
+		if err = rows.Scan(&v.ID, &v.ProjectID, &v.Title, &v.Status, &created, &updated, &v.Version); err != nil {
+			return nil, err
+		}
+		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, err
+		}
+		v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		if err = v.Validate(); err != nil {
+			return nil, err
+		}
+		items = append(items, v)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) > 100 {
+		return nil, errors.New("session data invariant violation: list exceeds capacity")
 	}
 	return items, nil
 }

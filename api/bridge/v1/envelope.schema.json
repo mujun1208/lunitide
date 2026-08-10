@@ -48,6 +48,8 @@
         "provider.model.sync",
         "provider.test",
         "provider.update",
+        "session.create",
+        "session.list",
         "stream.cancel",
         "system.health"
       ]

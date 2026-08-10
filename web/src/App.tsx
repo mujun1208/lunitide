@@ -1,9 +1,7 @@
 import React,{useState}from'react'
-import{projectBridge,providerBridge,type ProjectBridge,type ProviderBridge}from'./bridge/client'
+import{projectBridge,providerBridge,sessionBridge,type ProjectBridge,type ProviderBridge,type SessionBridge}from'./bridge/client'
+import type{ProjectDTO}from'./generated/bridge'
 import{ProjectPage}from'./project/ProjectPage'
 import{ProviderApp}from'./provider/ProviderApp'
-
-export function App({projects=projectBridge,providers=providerBridge}:{projects?:ProjectBridge;providers?:ProviderBridge}):React.JSX.Element{
- const[page,setPage]=useState<'projects'|'providers'>('projects')
- return <><nav className="top-nav" aria-label="主导航"><strong>Lunitide <span>月汐</span></strong><div><button aria-current={page==='projects'?'page':undefined} onClick={()=>setPage('projects')}>项目</button><button aria-current={page==='providers'?'page':undefined} onClick={()=>setPage('providers')}>供应商</button></div></nav>{page==='projects'?<ProjectPage bridge={projects}/>:<ProviderApp bridge={providers}/>}</>
-}
+import{SessionPage}from'./session/SessionPage'
+export function App({projects=projectBridge,providers=providerBridge,sessions=sessionBridge}:{projects?:ProjectBridge;providers?:ProviderBridge;sessions?:SessionBridge}):React.JSX.Element{const[page,setPage]=useState<'projects'|'providers'>('projects'),[selected,setSelected]=useState<ProjectDTO>();return <><nav className="top-nav" aria-label="主导航"><strong>Lunitide <span>月汐</span></strong><div><button aria-current={page==='projects'?'page':undefined} onClick={()=>{setPage('projects');setSelected(undefined)}}>项目</button><button aria-current={page==='providers'?'page':undefined} onClick={()=>{setPage('providers');setSelected(undefined)}}>供应商</button></div></nav>{selected?<SessionPage project={selected} bridge={sessions} onBack={()=>setSelected(undefined)}/>:page==='projects'?<ProjectPage bridge={projects} onSelect={setSelected}/>:<ProviderApp bridge={providers}/>}</>}

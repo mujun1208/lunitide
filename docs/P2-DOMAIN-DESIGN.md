@@ -1,6 +1,6 @@
 # P2 domain design — Project create/list slice
 
-Status: **frozen and implemented for this slice only**. This document authorizes Project create/list; it does not authorize Session, Message, Stage, Artifact, snapshot, backup, project archive/update/delete, or filesystem workspace behavior.
+Status: **frozen and implemented for the Project slice only**. This document authorizes Project create/list. Session create/list is separately frozen and authorized by [P2-SESSION-DESIGN.md](P2-SESSION-DESIGN.md); all other Session behavior remains excluded.
 
 The product baseline is *Lunitide 月汐：全链路统一产品与系统设计 v1.0*: Project is the top-level business container and P2 later expands into Session, Message, Stage, Artifact, snapshots, and backup. This slice deliberately establishes only the smallest durable container.
 
@@ -116,7 +116,7 @@ The slice requires:
 | Domain | Decisions still required |
 |---|---|
 | Project lifecycle/workspace | Rename and name uniqueness; archive/restore/delete state machine; root capability and workspace authorization; pagination/search; import/export. |
-| Session | Lifecycle, title generation, Project/Stage association, model-profile pinning, ordering and deletion behavior. |
+| Session | Beyond separately authorized create/list: generated titles, lifecycle/update/archive/delete, Stage association, model-profile pinning, pagination/search. |
 | Message | Durable parts, roles/status, sequencing, stream checkpoint/replay, cancellation recovery, usage/attachments, retention. |
 | Stage | Exact nine-stage identifiers, transitions, StageRun attempts, parallelism, blocked/stale/cancelled recovery, exit criteria. |
 | Artifact | Type registry, storage, versioning, approval immutability, trace links, stale propagation, deletion/export. |
