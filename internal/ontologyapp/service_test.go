@@ -52,8 +52,19 @@ type mockNodeWriter struct {
 	deletedID     string
 	err           error
 	deletedEdges  []string
+	createdNode   ontology.Node
 }
 
+func (m *mockNodeWriter) CreateOntologyNode(_ context.Context, node ontology.Node) (ontology.Node, error) {
+	if m.err != nil {
+		return node, m.err
+	}
+	if node.ID == "" {
+		node.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	}
+	m.createdNode = node
+	return node, nil
+}
 func (m *mockNodeWriter) UpdateOntologyNode(_ context.Context, id, desc, meta string) error {
 	m.updatedDesc = desc
 	m.updatedMeta = meta
@@ -68,8 +79,19 @@ type mockEdgeWriter struct {
 	updatedWeight float64
 	deletedID     string
 	err           error
+	createdEdge   ontology.Edge
 }
 
+func (m *mockEdgeWriter) CreateOntologyEdge(_ context.Context, edge ontology.Edge) (ontology.Edge, error) {
+	if m.err != nil {
+		return edge, m.err
+	}
+	if edge.ID == "" {
+		edge.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	}
+	m.createdEdge = edge
+	return edge, nil
+}
 func (m *mockEdgeWriter) UpdateOntologyEdge(_ context.Context, _ string, weight float64) error {
 	m.updatedWeight = weight
 	return m.err

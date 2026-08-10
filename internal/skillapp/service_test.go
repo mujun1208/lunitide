@@ -38,9 +38,25 @@ type mockSkillWriter struct {
 	updatedDesc    string
 	updatedStatus  string
 	deletedID      string
+	createdSkill   skill.Skill
 	err            error
 }
 
+func (m *mockSkillWriter) CreateSkill(_ context.Context, sk skill.Skill) (skill.Skill, error) {
+	if m.err != nil {
+		return sk, m.err
+	}
+	if sk.ID == "" {
+		sk.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	}
+	m.createdSkill = sk
+	return sk, nil
+}
+func (m *mockSkillWriter) UpdateSkillFields(_ context.Context, id, display, desc, _, _, _ string, _ *string) error {
+	m.updatedDisplay = display
+	m.updatedDesc = desc
+	return m.err
+}
 func (m *mockSkillWriter) UpdateSkill(_ context.Context, _, display, desc string) error {
 	m.updatedDisplay = display
 	m.updatedDesc = desc

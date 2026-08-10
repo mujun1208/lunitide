@@ -46,6 +46,24 @@ type mockWriter struct {
 	err         error
 	reader      *mockReader
 }
+func (m *mockWriter) CreatePlan(_ context.Context, plan planning.Plan) (planning.Plan, error) {
+	if m.err != nil {
+		return plan, m.err
+	}
+	if plan.ID == "" {
+		plan.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	}
+	return plan, nil
+}
+func (m *mockWriter) CreateNode(_ context.Context, node planning.Node) (planning.Node, error) {
+	if m.err != nil {
+		return node, m.err
+	}
+	if node.ID == "" {
+		node.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	}
+	return node, nil
+}
 func (m *mockWriter) UpdatePlanStatus(_ context.Context, _, status string) error {
 	m.planStatus = status
 	if m.reader != nil && m.reader.plan != nil {

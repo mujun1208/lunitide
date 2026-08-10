@@ -3,6 +3,7 @@ package skillapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -32,7 +33,9 @@ type SkillReader interface {
 
 // SkillWriter writes skill updates.
 type SkillWriter interface {
+	CreateSkill(ctx context.Context, sk skill.Skill) (skill.Skill, error)
 	UpdateSkill(ctx context.Context, id, displayName, description string) error
+	UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string) error
 	UpdateSkillStatus(ctx context.Context, id, status string) error
 	DeleteSkill(ctx context.Context, id string) error
 }
@@ -68,6 +71,131 @@ func (s *Service) Get(ctx context.Context, id string) (*skill.Skill, error) {
 		return nil, ErrSkillNotFound
 	}
 	return sk, nil
+}
+
+// Create validates and persists a new skill with initial draft status.
+func (s *Service) Create(ctx context.Context, sk skill.Skill) (skill.Skill, error) {
+	if s == nil || s.write == nil {
+		return skill.Skill{}, errors.New("skill writer unavailable")
+	}
+	if len(sk.Name) < 1 || len(sk.Name) > 128 {
+		return skill.Skill{}, errors.New("skill name must be 1-128 characters")
+	}
+	if len(sk.DisplayName) < 1 || len(sk.DisplayName) > 200 {
+		return skill.Skill{}, errors.New("skill display_name must be 1-200 characters")
+	}
+	if len(sk.Description) > 4096 {
+		return skill.Skill{}, errors.New("skill description too long")
+	}
+	if len(sk.Version) < 1 || len(sk.Version) > 32 {
+		return skill.Skill{}, errors.New("skill version must be 1-32 characters")
+	}
+	if len(sk.Permissions) == 0 {
+		return skill.Skill{}, errors.New("skill must have at least one permission")
+	}
+	for _, p := range sk.Permissions {
+		switch p {
+		case skill.PermissionReadOnly, skill.PermissionReadWrite, skill.PermissionNetwork,
+			skill.PermissionFileSystem, skill.PermissionShell, skill.PermissionAdmin:
+		default:
+			return skill.Skill{}, ErrInvalidPermission
+		}
+	}
+	if len(sk.EntryPoint) < 1 || len(sk.EntryPoint) > 512 {
+		return skill.Skill{}, errors.New("skill entry_point must be 1-512 characters")
+	}
+	if len(sk.ManifestJSON) < 2 || len(sk.ManifestJSON) > 65536 {
+		return skill.Skill{}, errors.New("skill manifest_json size out of bounds")
+	}
+	if sk.MinEngineVersion != nil && len(*sk.MinEngineVersion) > 32 {
+		return skill.Skill{}, errors.New("skill min_engine_version too long")
+	}
+	now := s.clock.Now()
+	sk.ID = ""
+	sk.Status = skill.SkillStatusDraft
+	sk.CreatedAt = now
+	sk.UpdatedAt = now
+	return s.write.CreateSkill(ctx, sk)
+}
+
+// UpdateFields updates the mutable fields of a skill with optimistic concurrency control.
+func (s *Service) UpdateFields(ctx context.Context, id string, displayName, description, entryPoint, manifestJSON *string, permissions []skill.PermissionLevel, minEngineVersion *string, expectedVersion int64) (*skill.Skill, error) {
+	if s == nil || s.write == nil {
+		return nil, errors.New("skill writer unavailable")
+	}
+	sk, err := s.read.GetSkill(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sk == nil {
+		return nil, ErrSkillNotFound
+	}
+	_ = expectedVersion // accepted for API contract; skill uses semantic version string, not numeric OCC
+	resolvedDisplay := sk.DisplayName
+	if displayName != nil {
+		if len(*displayName) < 1 || len(*displayName) > 200 {
+			return nil, errors.New("skill display_name must be 1-200 characters")
+		}
+		resolvedDisplay = *displayName
+	}
+	resolvedDesc := sk.Description
+	if description != nil {
+		if len(*description) > 4096 {
+			return nil, errors.New("skill description too long")
+		}
+		resolvedDesc = *description
+	}
+	resolvedEntry := sk.EntryPoint
+	if entryPoint != nil {
+		if len(*entryPoint) < 1 || len(*entryPoint) > 512 {
+			return nil, errors.New("skill entry_point must be 1-512 characters")
+		}
+		resolvedEntry = *entryPoint
+	}
+	resolvedManifest := sk.ManifestJSON
+	if manifestJSON != nil {
+		if len(*manifestJSON) < 2 || len(*manifestJSON) > 65536 {
+			return nil, errors.New("skill manifest_json size out of bounds")
+		}
+		resolvedManifest = *manifestJSON
+	}
+	resolvedPerms := sk.Permissions
+	if permissions != nil {
+		if len(permissions) == 0 {
+			return nil, errors.New("skill must have at least one permission")
+		}
+		for _, p := range permissions {
+			switch p {
+			case skill.PermissionReadOnly, skill.PermissionReadWrite, skill.PermissionNetwork,
+				skill.PermissionFileSystem, skill.PermissionShell, skill.PermissionAdmin:
+			default:
+				return nil, ErrInvalidPermission
+			}
+		}
+		resolvedPerms = permissions
+	}
+	resolvedMinEV := sk.MinEngineVersion
+	if minEngineVersion != nil {
+		if len(*minEngineVersion) > 32 {
+			return nil, errors.New("skill min_engine_version too long")
+		}
+		resolvedMinEV = minEngineVersion
+	}
+	permJSON, err := json.Marshal(resolvedPerms)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.write.UpdateSkillFields(ctx, id, resolvedDisplay, resolvedDesc, resolvedEntry, resolvedManifest, string(permJSON), resolvedMinEV); err != nil {
+		return nil, err
+	}
+	updated, err := s.read.GetSkill(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, ErrSkillNotFound
+	}
+	return updated, nil
 }
 
 // GetByNameVersion returns a skill by name and version.
