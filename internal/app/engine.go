@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/domain/handoff"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -19,6 +20,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/handoffapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -90,6 +92,7 @@ type Engine struct {
 	compactionTrigger    *compactionapp.Trigger
 	compactionExecutor   *compactionapp.Executor
 	summaryReader        CompactionSummaryReader
+	handoffService       *handoffapp.Service
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -325,6 +328,73 @@ func (e *Engine) RecoverCompaction(ctx context.Context) ([]compactionapp.Recover
 		return nil, nil
 	}
 	return e.compactionExecutor.RecoverOrphanedCheckpoints(ctx)
+}
+
+// SetHandoffService wires the handoff capsule service into the engine.
+// When set, the Engine can create, inspect, activate, and revoke cross-window
+// handoff capsules (ADR-005 §5). The Engine, not the Renderer, validates and
+// activates capsules.
+func (e *Engine) SetHandoffService(s *handoffapp.Service) { e.handoffService = s }
+
+// CreateHandoffCapsule creates a cross-window handoff capsule from a succeeded
+// compaction checkpoint. The capsule carries the checkpoint's structured
+// summary plus active task state and recent message IDs for cross-window
+// continuation (ADR-005 §5).
+func (e *Engine) CreateHandoffCapsule(ctx context.Context, req handoffapp.CreateCapsuleRequest) (handoff.Capsule, error) {
+	if e.handoffService == nil {
+		return handoff.Capsule{}, errors.New("handoff service not configured")
+	}
+	return e.handoffService.CreateCapsule(ctx, req)
+}
+
+// GetHandoffCapsule returns a capsule by ID for inspection. This allows the
+// user to inspect the summary and jump to source Messages (ADR-005 §5).
+func (e *Engine) GetHandoffCapsule(ctx context.Context, id string) (*handoff.Capsule, error) {
+	if e.handoffService == nil {
+		return nil, errors.New("handoff service not configured")
+	}
+	return e.handoffService.GetCapsule(ctx, id)
+}
+
+// ListHandoffCapsules returns capsules for a source session, ordered by
+// creation time descending. A limit <= 0 or > 100 defaults to 50.
+func (e *Engine) ListHandoffCapsules(ctx context.Context, sessionID string, limit int) ([]handoff.Capsule, error) {
+	if e.handoffService == nil {
+		return nil, errors.New("handoff service not configured")
+	}
+	return e.handoffService.ListCapsulesBySourceSession(ctx, sessionID, limit)
+}
+
+// ListActiveHandoffCapsules returns all active (non-terminal) capsules for a
+// session. These are capsules that can still be activated or revoked.
+func (e *Engine) ListActiveHandoffCapsules(ctx context.Context, sessionID string) ([]handoff.Capsule, error) {
+	if e.handoffService == nil {
+		return nil, errors.New("handoff service not configured")
+	}
+	return e.handoffService.ListActiveCapsules(ctx, sessionID)
+}
+
+// ActivateHandoffCapsule binds a capsule to a destination session and activates
+// it. The Engine validates the capsule (digest binding, expiration) before
+// activation (ADR-005 §5: "The Engine, not the Renderer, validates and
+// activates capsules").
+//
+// On success, the caller is responsible for injecting the capsule's summary
+// into the assembled prompt of the destination session via AssembleOptions.
+func (e *Engine) ActivateHandoffCapsule(ctx context.Context, capsuleID, destSessionID string) (handoffapp.ActivateCapsuleResult, error) {
+	if e.handoffService == nil {
+		return handoffapp.ActivateCapsuleResult{}, errors.New("handoff service not configured")
+	}
+	return e.handoffService.ActivateCapsule(ctx, capsuleID, destSessionID)
+}
+
+// RevokeHandoffCapsule revokes an active capsule. Once revoked, a capsule
+// cannot be activated (terminal state).
+func (e *Engine) RevokeHandoffCapsule(ctx context.Context, id string) error {
+	if e.handoffService == nil {
+		return errors.New("handoff service not configured")
+	}
+	return e.handoffService.RevokeCapsule(ctx, id)
 }
 
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
