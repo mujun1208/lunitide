@@ -29,6 +29,10 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, id); err != nil {
 		return fmt.Errorf("delete message_parts: %w", err)
 	}
+	// Delete token_ledger entries (before messages; ledger has message_id, not session_id)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM token_ledger WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, id); err != nil {
+		return fmt.Errorf("delete token_ledger: %w", err)
+	}
 	// Delete messages
 	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE session_id=?`, id); err != nil {
 		return fmt.Errorf("delete messages: %w", err)
@@ -40,10 +44,6 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	// Delete compaction_checkpoints
 	if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, id); err != nil {
 		return fmt.Errorf("delete compaction_checkpoints: %w", err)
-	}
-	// Delete token_ledger entries
-	if _, err := tx.ExecContext(ctx, `DELETE FROM token_ledger WHERE session_id=?`, id); err != nil {
-		return fmt.Errorf("delete token_ledger: %w", err)
 	}
 	// Delete handoff_capsules
 	if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE source_session_id=? OR dest_session_id=?`, id, id); err != nil {
@@ -100,6 +100,9 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, sid); err != nil {
 			return fmt.Errorf("delete message_parts for session %s: %w", sid, err)
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM token_ledger WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, sid); err != nil {
+			return fmt.Errorf("delete token_ledger for session %s: %w", sid, err)
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE session_id=?`, sid); err != nil {
 			return fmt.Errorf("delete messages for session %s: %w", sid, err)
 		}
@@ -108,9 +111,6 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, sid); err != nil {
 			return fmt.Errorf("delete compaction_checkpoints for session %s: %w", sid, err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM token_ledger WHERE session_id=?`, sid); err != nil {
-			return fmt.Errorf("delete token_ledger for session %s: %w", sid, err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE source_session_id=? OR dest_session_id=?`, sid, sid); err != nil {
 			return fmt.Errorf("delete handoff_capsules for session %s: %w", sid, err)
