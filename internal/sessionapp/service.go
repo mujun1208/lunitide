@@ -32,18 +32,30 @@ type UnitOfWork interface {
 type Reader interface {
 	ListSessions(context.Context, session.Filter) ([]session.Session, error)
 }
+// Deleter removes a session and all its dependent records.
+type Deleter interface {
+	DeleteSession(context.Context, string) error
+}
 type Clock interface{ Now() time.Time }
 type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	read  Reader
-	uow   UnitOfWork
-	clock Clock
+	read    Reader
+	uow     UnitOfWork
+	deleter Deleter
+	clock   Clock
 }
 
-func New(r Reader, u UnitOfWork) *Service { return &Service{r, u, systemClock{}} }
+func New(r Reader, u UnitOfWork) *Service { return &Service{read: r, uow: u, clock: systemClock{}} }
+func (s *Service) SetDeleter(d Deleter) { s.deleter = d }
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if s == nil || s.deleter == nil {
+		return errors.New("session deleter unavailable")
+	}
+	return s.deleter.DeleteSession(ctx, id)
+}
 func (s *Service) List(ctx context.Context, f session.Filter) ([]session.Session, error) {
 	if s == nil || s.read == nil {
 		return nil, errors.New("session reader unavailable")

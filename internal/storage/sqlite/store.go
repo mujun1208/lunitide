@@ -156,6 +156,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0017_stage.sql", "d2112f8276a176f84eab1c10bcb51cbbd3099fe1f5b4238873b1059b7af0d8ed"},
 	{"0018_extended_entities.sql", "dc9b65b15dbb554f3750fcf721a37abd6540d7601ab4b0606b75ef3feb70a71d"},
 	{"0019_durable_chat.sql", "4dd945a0e2c44c80a92a76079a0d0148470884f9fe036d02d66448d864d32a5a"},
+	{"0020_model_context_window.sql", "ee48181f46441bba742086251bc11848a968f7c005d5a14f35e8b1dc3216c0ed"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -809,7 +810,7 @@ var expectedSchemaSQL = map[string]string{
 	"table:provider_tests":                                        "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
 	"table:provider_metadata_migrations":                          "CREATE TABLE provider_metadata_migrations (\n    source_fingerprint TEXT PRIMARY KEY CHECK (length(source_fingerprint) = 64 AND source_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    source_path_hash TEXT NOT NULL CHECK (length(source_path_hash) = 64 AND source_path_hash NOT GLOB '*[^0-9a-f]*'),\n    source_version TEXT NOT NULL CHECK (source_version IN ('0.1', '0.2', '0.2.1')),\n    state TEXT NOT NULL CHECK (state IN ('running', 'completed', 'failed')),\n    processed INTEGER NOT NULL DEFAULT 0 CHECK (processed >= 0),\n    total INTEGER NOT NULL DEFAULT 0 CHECK (total BETWEEN 0 AND 100),\n    imported INTEGER NOT NULL DEFAULT 0 CHECK (imported >= 0),\n    duplicates INTEGER NOT NULL DEFAULT 0 CHECK (duplicates >= 0),\n    conflicts INTEGER NOT NULL DEFAULT 0 CHECK (conflicts >= 0),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    CHECK (processed <= total),\n    CHECK (imported + duplicates + conflicts <= processed)\n)",
 	"table:provider_metadata_migration_items":                     "CREATE TABLE provider_metadata_migration_items (\n    source_fingerprint TEXT NOT NULL REFERENCES provider_metadata_migrations(source_fingerprint) ON DELETE CASCADE,\n    item_fingerprint TEXT NOT NULL CHECK (length(item_fingerprint) = 64 AND item_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    legacy_id TEXT NOT NULL CHECK (length(legacy_id) BETWEEN 1 AND 128),\n    result TEXT NOT NULL CHECK (result IN ('imported', 'duplicate', 'conflict')),\n    provider_id TEXT,\n    detail_code TEXT NOT NULL CHECK (length(detail_code) BETWEEN 1 AND 64), credential_migration_state TEXT NOT NULL DEFAULT 'none'\n    CHECK (credential_migration_state IN ('pending', 'adopted', 'superseded', 'rejected', 'none')), credential_receipt_id TEXT\n    CHECK (credential_receipt_id IS NULL OR length(credential_receipt_id) BETWEEN 1 AND 64), credential_updated_at TEXT,\n    PRIMARY KEY (source_fingerprint, item_fingerprint)\n)",
-	"table:provider_models":                                       "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49),\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
+	"table:provider_models":                                       "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49), context_window INTEGER,\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
 	"table:providers":                                             "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
 	"table:projects":                                              "CREATE TABLE projects (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200 AND name = trim(name)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
 	"table:sessions":                                              "CREATE TABLE sessions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200 AND title = trim(title)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status = 'active'),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version = 1)\n)",
@@ -878,7 +879,7 @@ type columnSpec struct {
 
 var expectedColumns = map[string][]columnSpec{
 	"providers":                         {{"id", "TEXT", "", 0, 1, 0}, {"legacy_id", "TEXT", "", 0, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"base_url", "TEXT", "", 1, 0, 0}, {"credential_ref", "TEXT", "", 0, 0, 0}, {"credential_state", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'enabled'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}, {"deleted_at", "TEXT", "", 0, 0, 0}, {"origin_fingerprint", "TEXT", "'0000000000000000000000000000000000000000000000000000000000000000'", 1, 0, 0}},
-	"provider_models":                   {{"provider_id", "TEXT", "", 1, 1, 0}, {"model_id", "TEXT", "", 1, 2, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"is_default", "INTEGER", "0", 1, 0, 0}, {"position", "INTEGER", "0", 1, 0, 0}},
+	"provider_models":                   {{"provider_id", "TEXT", "", 1, 1, 0}, {"model_id", "TEXT", "", 1, 2, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"is_default", "INTEGER", "0", 1, 0, 0}, {"position", "INTEGER", "0", 1, 0, 0}, {"context_window", "INTEGER", "", 0, 0, 0}},
 	"schema_migrations":                 {{"version", "TEXT", "", 0, 1, 0}, {"applied_at", "TEXT", "", 1, 0, 0}, {"checksum", "TEXT", "", 0, 0, 0}},
 	"provider_metadata_migrations":      {{"source_fingerprint", "TEXT", "", 0, 1, 0}, {"source_path_hash", "TEXT", "", 1, 0, 0}, {"source_version", "TEXT", "", 1, 0, 0}, {"state", "TEXT", "", 1, 0, 0}, {"processed", "INTEGER", "0", 1, 0, 0}, {"total", "INTEGER", "0", 1, 0, 0}, {"imported", "INTEGER", "0", 1, 0, 0}, {"duplicates", "INTEGER", "0", 1, 0, 0}, {"conflicts", "INTEGER", "0", 1, 0, 0}, {"error_code", "TEXT", "", 0, 0, 0}, {"started_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"provider_metadata_migration_items": {{"source_fingerprint", "TEXT", "", 1, 1, 0}, {"item_fingerprint", "TEXT", "", 1, 2, 0}, {"legacy_id", "TEXT", "", 1, 0, 0}, {"result", "TEXT", "", 1, 0, 0}, {"provider_id", "TEXT", "", 0, 0, 0}, {"detail_code", "TEXT", "", 1, 0, 0}, {"credential_migration_state", "TEXT", "'none'", 1, 0, 0}, {"credential_receipt_id", "TEXT", "", 0, 0, 0}, {"credential_updated_at", "TEXT", "", 0, 0, 0}},
@@ -1765,7 +1766,11 @@ func replaceModels(ctx context.Context, tx sqlRunner, id string, models []provid
 		return err
 	}
 	for position, model := range models {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO provider_models(provider_id,model_id,display_name,is_default,position) VALUES(?,?,?,?,?)`, id, model.ModelID, model.DisplayName, model.IsDefault, position); err != nil {
+		var cw any
+		if model.ContextWindow > 0 {
+			cw = model.ContextWindow
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO provider_models(provider_id,model_id,display_name,is_default,position,context_window) VALUES(?,?,?,?,?,?)`, id, model.ModelID, model.DisplayName, model.IsDefault, position, cw); err != nil {
 			return fmt.Errorf("write provider models: %w", err)
 		}
 	}
@@ -1798,7 +1803,7 @@ func (s *Store) listModels(ctx context.Context, id string) ([]provider.Model, er
 }
 
 func listModelsWith(ctx context.Context, q sqlRunner, id string) ([]provider.Model, error) {
-	rows, err := q.QueryContext(ctx, `SELECT model_id, display_name, is_default FROM provider_models WHERE provider_id = ? ORDER BY position, model_id`, id)
+	rows, err := q.QueryContext(ctx, `SELECT model_id, display_name, is_default, context_window FROM provider_models WHERE provider_id = ? ORDER BY position, model_id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1806,8 +1811,12 @@ func listModelsWith(ctx context.Context, q sqlRunner, id string) ([]provider.Mod
 	result := []provider.Model{}
 	for rows.Next() {
 		var m provider.Model
-		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.IsDefault); err != nil {
+		var cw sql.NullInt64
+		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.IsDefault, &cw); err != nil {
 			return nil, err
+		}
+		if cw.Valid {
+			m.ContextWindow = cw.Int64
 		}
 		result = append(result, m)
 	}

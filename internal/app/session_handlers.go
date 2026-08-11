@@ -99,3 +99,19 @@ func sessionFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}
 }
+
+func handleSessionDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.delete 参数无效", false)
+	}
+	if !sessionServiceAvailable(e.sessions) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+	}
+	if err := e.sessions.Delete(ctx, p.ID); err != nil {
+		return sessionFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"deleted": true, "id": p.ID})
+}

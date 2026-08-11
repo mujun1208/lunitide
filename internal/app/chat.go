@@ -59,16 +59,48 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	var messages []gateway.Message
 	if hasSession && e.messageReader != nil {
 		// Durable session path: assemble context from session history.
+		// Dynamic context window: read from provider model config, fallback to 128000.
+		contextWindow := int64(128000)
+		safetyCeiling := int64(120000)
+		for _, m := range item.Models {
+			if m.ModelID == p.ModelID && m.ContextWindow > 0 {
+				contextWindow = m.ContextWindow
+				safetyCeiling = int64(float64(contextWindow) * 0.9375) // 93.75% safety ceiling
+				break
+			}
+		}
 		providerInfo := contextapp.ProviderInfo{
 			Provider:       string(item.Protocol),
 			Model:          p.ModelID,
-			ContextWindow:  128000,
-			SafetyCeiling:  120000,
+			ContextWindow:  contextWindow,
+			SafetyCeiling:  safetyCeiling,
 			ReservedOutput: 4096,
 			SystemTokens:   0,
 			SafetyMargin:   1024,
 		}
-		assembled, assembleErr := contextapp.Assemble(ctx, e.messageReader, p.SessionID, providerInfo, contextapp.AssembleOptions{})
+
+		// ADR-005 §2: Check token usage and trigger automatic compaction
+		// when the high watermark is exceeded. Compaction runs asynchronously
+		// to avoid blocking the current chat turn.
+		if e.compactionTrigger != nil {
+			if triggerResult, trErr := e.compactionTrigger.CheckAndTrigger(ctx, p.SessionID, string(item.Protocol), p.ModelID, "", providerInfo.ContextWindow); trErr == nil && triggerResult.Triggered && e.compactionExecutor != nil {
+				checkpointID := triggerResult.CheckpointID
+				go func() {
+					_, _ = e.compactionExecutor.Execute(context.Background(), checkpointID)
+				}()
+			}
+		}
+
+		// Inject the latest succeeded compaction summary as a system-level
+		// preamble, if available (ADR-005 §3).
+		var priorSummary string
+		if e.summaryReader != nil {
+			priorSummary, _ = e.summaryReader.GetLatestCompactionSummary(ctx, p.SessionID)
+		}
+
+		assembled, assembleErr := contextapp.Assemble(ctx, e.messageReader, p.SessionID, providerInfo, contextapp.AssembleOptions{
+			PriorSummary: priorSummary,
+		})
 		if assembleErr != nil {
 			return bridge.Failure(request.ID, request.TraceID, "CONTEXT_ASSEMBLY_FAILED", "上下文装配失败: "+assembleErr.Error(), true)
 		}

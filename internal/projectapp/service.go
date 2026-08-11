@@ -32,15 +32,20 @@ type UnitOfWork interface {
 type Reader interface {
 	ListProjects(context.Context, project.Filter) ([]project.Project, error)
 }
+// Deleter removes a project and all its dependent records.
+type Deleter interface {
+	DeleteProject(context.Context, string) error
+}
 type Clock interface{ Now() time.Time }
 type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	read  Reader
-	uow   UnitOfWork
-	clock Clock
+	read    Reader
+	uow     UnitOfWork
+	deleter Deleter
+	clock   Clock
 }
 
 func New(read Reader, uow UnitOfWork) *Service {
@@ -48,6 +53,13 @@ func New(read Reader, uow UnitOfWork) *Service {
 }
 func NewWithClock(read Reader, uow UnitOfWork, clock Clock) *Service {
 	return &Service{read: read, uow: uow, clock: clock}
+}
+func (s *Service) SetDeleter(d Deleter) { s.deleter = d }
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if s == nil || s.deleter == nil {
+		return errors.New("project deleter unavailable")
+	}
+	return s.deleter.DeleteProject(ctx, id)
 }
 func (s *Service) List(ctx context.Context, f project.Filter) ([]project.Project, error) {
 	if s == nil || s.read == nil {

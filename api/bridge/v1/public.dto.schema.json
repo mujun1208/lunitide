@@ -50,6 +50,11 @@
         },
         "isDefault": {
           "type": "boolean"
+        },
+        "contextWindow": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
         }
       },
       "required": [

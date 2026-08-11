@@ -70,7 +70,7 @@ func TestLeaseExpiryReplayAndConcurrentOnce(t *testing.T) {
 	}
 	tooLong := validRequest(now)
 	tooLong.Operation = OperationProviderTest
-	tooLong.Deadline = now.Add(MaxTTL + time.Millisecond)
+	tooLong.Deadline = now.Add(TestMaxTTL + time.Millisecond)
 	if s.consume(tooLong, now) == nil {
 		t.Fatal("excessive TTL accepted")
 	}
@@ -102,11 +102,19 @@ func TestBrokerKernelPIDRejectsWrongEngine(t *testing.T) {
 func TestOperationSpecificTTL(t *testing.T) {
 	now := time.Now()
 	s := &Server{used: make(map[[32]byte]time.Time)}
-	nonChat := validRequest(now)
-	nonChat.Operation = OperationModelDiscover
-	nonChat.Deadline = now.Add(6 * time.Second)
-	if s.consume(nonChat, now) == nil {
-		t.Fatal("non-chat lease over five seconds accepted")
+	for _, op := range []Operation{OperationProviderTest, OperationModelDiscover} {
+		excessive := validRequest(now)
+		excessive.Operation = op
+		excessive.Deadline = now.Add(TestMaxTTL + time.Millisecond)
+		if s.consume(excessive, now) == nil {
+			t.Fatalf("%s lease over TestMaxTTL accepted", op)
+		}
+		bounded := validRequest(now)
+		bounded.Operation = op
+		bounded.Deadline = now.Add(TestMaxTTL - time.Millisecond)
+		if err := s.consume(bounded, now); err != nil {
+			t.Fatalf("bounded %s lease rejected: %v", op, err)
+		}
 	}
 	chat := validRequest(now)
 	chat.Deadline = now.Add(9 * time.Minute)

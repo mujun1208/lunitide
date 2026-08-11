@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
@@ -36,10 +37,12 @@ type ProviderService interface {
 type ProjectService interface {
 	Create(context.Context, string, string, any, project.Project) (project.Project, error)
 	List(context.Context, project.Filter) ([]project.Project, error)
+	Delete(context.Context, string) error
 }
 type SessionService interface {
 	Create(context.Context, string, string, any, session.Session) (session.Session, error)
 	List(context.Context, session.Filter) ([]session.Session, error)
+	Delete(context.Context, string) error
 }
 type MessageService interface {
 	Append(context.Context, string, string, any, message.Message) (message.Message, error)
@@ -57,6 +60,12 @@ type credentialLifecycleService interface {
 	ClaimCredentialCleanup(context.Context, string, time.Time, time.Duration, int) ([]providerapp.ClaimedEvent, error)
 	CompleteCredentialCleanup(context.Context, string, string, time.Time) error
 	RetryCredentialCleanup(context.Context, string, string, time.Time, string) error
+}
+
+// CompactionSummaryReader reads the latest succeeded compaction summary for a session.
+// Used by the context assembler to inject prior summaries into the model context.
+type CompactionSummaryReader interface {
+	GetLatestCompactionSummary(ctx context.Context, sessionID string) (string, error)
 }
 type electronCredentialMigrationService interface {
 	PlanElectronCredentials(context.Context, []providerapp.ElectronCredentialTuple) ([]providerapp.ElectronCredentialPlan, error)
@@ -78,6 +87,9 @@ type Engine struct {
 	migration      MigrationService
 	messageReader  contextapp.Reader
 	tokenRepo      token.Repository
+	compactionTrigger    *compactionapp.Trigger
+	compactionExecutor   *compactionapp.Executor
+	summaryReader        CompactionSummaryReader
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -121,8 +133,10 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProviderTest:      handleProviderTest,
 	bridge.MethodProviderUpdate:    handleProviderUpdate,
 	bridge.MethodProjectCreate:     handleProjectCreate,
+	bridge.MethodProjectDelete:     handleProjectDelete,
 	bridge.MethodProjectList:       handleProjectList,
 	bridge.MethodSessionCreate:     handleSessionCreate,
+	bridge.MethodSessionDelete:     handleSessionDelete,
 	bridge.MethodSessionList:       handleSessionList,
 	bridge.MethodMessageAppend:     handleMessageAppend,
 	bridge.MethodMessageList:       handleMessageList,
@@ -254,6 +268,16 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 
 // SetMigrationService wires the migration service into the engine.
 func (e *Engine) SetMigrationService(m MigrationService) { e.migration = m }
+
+// SetCompactionServices wires the compaction trigger, executor, and summary reader
+// into the engine. When set, chat.start will check token usage and automatically
+// trigger compaction when the high watermark is exceeded. The assembler will also
+// inject the latest succeeded checkpoint summary into the model context.
+func (e *Engine) SetCompactionServices(trigger *compactionapp.Trigger, executor *compactionapp.Executor, summaryReader CompactionSummaryReader) {
+	e.compactionTrigger = trigger
+	e.compactionExecutor = executor
+	e.summaryReader = summaryReader
+}
 
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.

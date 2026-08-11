@@ -13,8 +13,11 @@ import (
 // Implementations typically call an LLM via the gateway.
 type Summarizer interface {
 	// Summarize produces a summary for the given message range.
+	// providerID and modelID identify which LLM to use for summarization.
+	// priorSummary is the JSON summary of the previous succeeded checkpoint
+	// (empty for the first compaction), enabling rolling/incremental summaries.
 	// Returns summaryJSON (structured), humanSummary (plain text), and error.
-	Summarize(ctx context.Context, sessionID string, sourceStartSeq, sourceEndSeq int64, messages []SummaryMessage) (summaryJSON, humanSummary string, err error)
+	Summarize(ctx context.Context, sessionID, providerID, modelID string, sourceStartSeq, sourceEndSeq int64, messages []SummaryMessage, priorSummary string) (summaryJSON, humanSummary string, err error)
 }
 
 // SummaryMessage is a minimal message representation passed to the Summarizer.
@@ -126,8 +129,20 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 		messages = messages[:e.maxMessages]
 	}
 
+	// Load the previous succeeded checkpoint's summary for rolling/incremental
+	// compaction (ADR-005 §3). The checkpoint's PrevCheckpointID links to the
+	// prior version; if that checkpoint succeeded, its SummaryJSON becomes the
+	// priorSummary passed to the Summarizer.
+	var priorSummary string
+	if cp.PrevCheckpointID != nil {
+		prevCp, prevErr := e.store.GetCheckpoint(execCtx, *cp.PrevCheckpointID)
+		if prevErr == nil && prevCp != nil && prevCp.Status == compaction.StatusSucceeded && prevCp.SummaryJSON != "" && prevCp.SummaryJSON != "{}" {
+			priorSummary = prevCp.SummaryJSON
+		}
+	}
+
 	// 4. Generate summary.
-	summaryJSON, humanSummary, err := e.summarizer.Summarize(execCtx, cp.SessionID, cp.SourceStartSeq, cp.SourceEndSeq, messages)
+	summaryJSON, humanSummary, err := e.summarizer.Summarize(execCtx, cp.SessionID, cp.Provider, cp.Model, cp.SourceStartSeq, cp.SourceEndSeq, messages, priorSummary)
 	if err != nil {
 		e.markFailed(execCtx, checkpointID, "SUMMARY_FAILED", err)
 		result.Status = compaction.StatusFailed

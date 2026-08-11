@@ -1,5 +1,5 @@
 // Code generated from discovered api/bridge/v1 and api/rpc/v1 schemas. DO NOT EDIT.
-export const BRIDGE_METHODS = ["chat.start", "diagnostics.export", "memory.create", "memory.delete", "memory.get", "memory.list", "memory.search", "memory.update", "message.append", "message.list", "migration.inspect", "migration.run", "migration.status", "node.complete", "node.create", "node.fail", "node.list", "node.start", "ontology.edge.create", "ontology.edge.delete", "ontology.edge.list", "ontology.edge.update", "ontology.node.create", "ontology.node.delete", "ontology.node.get", "ontology.node.list", "ontology.node.search", "ontology.node.update", "plan.activate", "plan.complete", "plan.create", "plan.get", "plan.list", "plan.pause", "plan.resume", "project.create", "project.list", "provider.create", "provider.credential.submit", "provider.delete", "provider.get", "provider.list", "provider.model.sync", "provider.test", "provider.update", "review.approve", "review.list", "review.reject", "session.create", "session.list", "skill.create", "skill.delete", "skill.deprecate", "skill.disable", "skill.get", "skill.list", "skill.match", "skill.publish", "skill.update", "stage.create", "stage.list", "stream.cancel", "system.health"] as const
+export const BRIDGE_METHODS = ["chat.start", "diagnostics.export", "memory.create", "memory.delete", "memory.get", "memory.list", "memory.search", "memory.update", "message.append", "message.list", "migration.inspect", "migration.run", "migration.status", "node.complete", "node.create", "node.fail", "node.list", "node.start", "ontology.edge.create", "ontology.edge.delete", "ontology.edge.list", "ontology.edge.update", "ontology.node.create", "ontology.node.delete", "ontology.node.get", "ontology.node.list", "ontology.node.search", "ontology.node.update", "plan.activate", "plan.complete", "plan.create", "plan.get", "plan.list", "plan.pause", "plan.resume", "project.create", "project.delete", "project.list", "provider.create", "provider.credential.submit", "provider.delete", "provider.get", "provider.list", "provider.model.sync", "provider.test", "provider.update", "review.approve", "review.list", "review.reject", "session.create", "session.delete", "session.list", "skill.create", "skill.delete", "skill.deprecate", "skill.disable", "skill.get", "skill.list", "skill.match", "skill.publish", "skill.update", "stage.create", "stage.list", "stream.cancel", "system.health"] as const
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]
 export const PROVIDER_PROTOCOLS = ["openai_compatible", "anthropic"] as const
 export type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number]
@@ -31,7 +31,7 @@ export type BridgeResponse<TPayload = unknown> =
   | { v: "1.0"; kind: "response"; id: string; requestId: string; ok: false; payload?: never; error: BridgeError }
 export type ULID = string
 export type ProviderStatus = "enabled" | "disabled"
-export type ModelDTO = { "modelId": string; "displayName": string; "isDefault": boolean }
+export type ModelDTO = { "modelId": string; "displayName": string; "isDefault": boolean; "contextWindow"?: number }
 export type ProviderDTO = { "id": ULID; "name": string; "protocol": ProviderProtocol; "baseUrl": string; "models": Array<ModelDTO>; "status": ProviderStatus; "credentialState": CredentialState; "createdAt": string; "updatedAt": string; "version": number }
 export type ProjectStatus = "active" | "archived"
 export type ProjectDTO = { "id": ULID; "name": string; "status": ProjectStatus; "createdAt": string; "updatedAt": string; "version": number }
@@ -131,6 +131,8 @@ export type PlanResumePayload = { "planId": ULID }
 export type PlanResumeResult = { "resumed": boolean }
 export type ProjectCreatePayload = { "name": string }
 export type ProjectCreateResult = ProjectDTO
+export type ProjectDeletePayload = { "id": ULID }
+export type ProjectDeleteResult = { "deleted": true; "id": ULID }
 export type ProjectListPayload = { "status"?: ProjectStatus }
 export type ProjectListResult = { "items": Array<ProjectDTO> }
 export type ProviderCreatePayload = { "name": string; "protocol": ProviderProtocol; "baseUrl": string; "models": Array<ModelDTO>; "credentialSubmissionId"?: ULID; "status"?: ProviderStatus }
@@ -157,6 +159,8 @@ export type ReviewRejectPayload = { "reviewId": ULID; "reviewerNote"?: string }
 export type ReviewRejectResult = { "rejected": boolean }
 export type SessionCreatePayload = { "projectId": ULID; "title": string }
 export type SessionCreateResult = SessionDTO
+export type SessionDeletePayload = { "id": ULID }
+export type SessionDeleteResult = { "deleted": true; "id": ULID }
 export type SessionListPayload = { "projectId": ULID }
 export type SessionListResult = { "items": Array<SessionDTO> }
 export type SkillCreatePayload = { "name": string; "displayName": string; "description": string; "version": string; "permissions": Array<SkillPermission>; "entryPoint": string; "manifestJson": string; "minEngineVersion"?: string }
