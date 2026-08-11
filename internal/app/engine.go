@@ -43,6 +43,7 @@ type SessionService interface {
 }
 type MessageService interface {
 	Append(context.Context, string, string, any, message.Message) (message.Message, error)
+	AppendAssistant(context.Context, string, string, string, string, messageapp.AssistantUsage) (message.Message, error)
 	List(context.Context, messageapp.PageRequest) (messageapp.Page, error)
 }
 type StageService interface {

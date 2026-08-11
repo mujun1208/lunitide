@@ -106,7 +106,7 @@ func TestRunStreamEmitsUsageExactlyOnce(t *testing.T) {
 		}, gateway.Request{}, func(event bridge.Event) error {
 			events = append(events, event)
 			return nil
-		})
+		}, "")
 		usageCount := 0
 		for _, event := range events {
 			if event.Type == bridge.EventUsage {

@@ -14,18 +14,20 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/message"
+	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/oklog/ulid/v2"
 )
 
 var (
-	ErrIdempotencyKeyRequired     = errors.New("idempotency key is required")
-	ErrIdempotencyConflict        = errors.New("idempotency key reused with different request")
-	ErrSessionNotFound            = errors.New("session not found")
-	ErrMessageStorageQuotaReached = errors.New("message storage quota reached")
-	ErrDataInvariantViolation     = errors.New("message data invariant violation")
-	ErrCursorInvalid              = errors.New("message cursor invalid")
-	ErrPageBudgetTooSmall         = errors.New("message page byte budget too small")
+	ErrIdempotencyKeyRequired       = errors.New("idempotency key is required")
+	ErrIdempotencyConflict          = errors.New("idempotency key reused with different request")
+	ErrSessionNotFound              = errors.New("session not found")
+	ErrMessageStorageQuotaReached   = errors.New("message storage quota reached")
+	ErrDataInvariantViolation       = errors.New("message data invariant violation")
+	ErrCursorInvalid                = errors.New("message cursor invalid")
+	ErrPageBudgetTooSmall           = errors.New("message page byte budget too small")
+	ErrAssistantResponseTooLarge    = errors.New("assistant response too large")
 )
 
 type Tx interface {
@@ -34,6 +36,7 @@ type Tx interface {
 	Idempotency(context.Context, string, string, time.Time) (providerapp.Record, bool, error)
 	PutIdempotency(context.Context, providerapp.Record) error
 	PutAudit(context.Context, providerapp.Audit) error
+	PutTokenLedgerEntry(context.Context, token.LedgerEntry) error
 }
 type UnitOfWork interface {
 	DoMessage(context.Context, func(Tx) error) error
@@ -267,6 +270,112 @@ func (s *Service) Append(ctx context.Context, key, actor string, request any, va
 			return e
 		}
 		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+	})
+	return result, err
+}
+
+// AssistantUsage carries provider-reported token usage for an assistant message.
+type AssistantUsage struct {
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
+	TotalTokens int64  `json:"totalTokens"`
+}
+
+// assistantRequest is the idempotency digest input for AppendAssistant.
+type assistantRequest struct {
+	SessionID string         `json:"sessionId"`
+	Text      string         `json:"text"`
+	Usage     AssistantUsage `json:"usage"`
+}
+
+// AppendAssistant durably persists a completed assistant response with
+// provider-reported token usage. The streamID serves as the idempotency key:
+// if the stream completes but the durable write fails, a retry with the same
+// streamID replays the original result. A different request with the same
+// streamID returns ErrIdempotencyConflict.
+func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionID, text string, usage AssistantUsage) (message.Message, error) {
+	if !providerapp.ValidIdempotencyKey(streamID) {
+		return message.Message{}, ErrIdempotencyKeyRequired
+	}
+	if s == nil || !available(s.uow) {
+		return message.Message{}, errors.New("message unit of work unavailable")
+	}
+	// Pre-validate assistant text size before entering the transaction.
+	normalized, err := message.NormalizeAssistantText(text)
+	if err != nil {
+		return message.Message{}, ErrAssistantResponseTooLarge
+	}
+	// Build the idempotency request digest from the semantic inputs.
+	request := assistantRequest{SessionID: sessionID, Text: normalized, Usage: usage}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return message.Message{}, err
+	}
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	var result message.Message
+	err = s.uow.DoMessage(ctx, func(tx Tx) error {
+		now := s.now().UTC()
+		record, found, e := tx.Idempotency(ctx, "message.append-assistant", streamID, now)
+		if e != nil {
+			return e
+		}
+		if found {
+			if record.Digest != digest {
+				return ErrIdempotencyConflict
+			}
+			if decodeReplay(record.Response, &result) != nil || result.Validate() != nil || result.SessionID != sessionID || result.Text != normalized {
+				return ErrDataInvariantViolation
+			}
+			authoritative, getErr := tx.Message(ctx, result.ID)
+			if getErr != nil || authoritative != result {
+				return ErrDataInvariantViolation
+			}
+			return nil
+		}
+		// Build the assistant message for storage. AppendMessage allocates
+		// ID, sequence, and created_at; role and status are set here.
+		value := message.Message{
+			SessionID: sessionID,
+			Role:      message.RoleAssistant,
+			Status:    message.StatusCompleted,
+			Text:      normalized,
+		}
+		result, e = tx.AppendMessage(ctx, value)
+		if e != nil {
+			return e
+		}
+		// Write provider-reported token ledger entry when the gateway
+		// reports non-zero usage. This is a cache, not message truth.
+		if usage.TotalTokens > 0 {
+			entry := token.LedgerEntry{
+				ID:                ulid.Make().String(),
+				MessageID:         result.ID,
+				Provider:          usage.Provider,
+				Model:             usage.Model,
+				TokenizerRevision: "unknown",
+				TokenCount:        usage.TotalTokens,
+				EstimationMethod:  token.ProviderReport,
+				UTF8Bytes:         int64(len(normalized)),
+				ComputedAt:        now,
+			}
+			if e = tx.PutTokenLedgerEntry(ctx, entry); e != nil {
+				return e
+			}
+		}
+		// Persist the audit event and idempotency record.
+		response, e := json.Marshal(result)
+		if e != nil {
+			return e
+		}
+		meta, _ := json.Marshal(map[string]any{"sessionId": result.SessionID, "sequence": result.Sequence, "streamId": streamID})
+		eventSum := sha256.Sum256([]byte("message-audit\x00" + digest + "\x00" + result.ID))
+		var event ulid.ULID
+		copy(event[:], eventSum[:16])
+		if e = tx.PutAudit(ctx, providerapp.Audit{ID: event.String(), Action: "message.assistant.appended", AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); e != nil {
+			return e
+		}
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append-assistant", Key: streamID, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
 	})
 	return result, err
 }
