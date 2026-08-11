@@ -75,14 +75,16 @@ func (e *Engine) SetupCompactionServices(store CompactionStore, messageReader co
 type HandoffStore interface {
 	handoffapp.CheckpointReader
 	handoffapp.CapsuleStore
+	handoffapp.TombstoneChecker
 }
 
 // SetupHandoffService wires the handoff capsule service into the engine.
-// The store must satisfy HandoffStore (checkpoint reader + capsule store).
-// When the store is nil, the method is a no-op (ADR-005 §5).
+// The store must satisfy HandoffStore (checkpoint reader + capsule store +
+// tombstone checker). When the store is nil, the method is a no-op
+// (ADR-005 §5).
 func (e *Engine) SetupHandoffService(store HandoffStore) {
 	if store == nil {
 		return
 	}
-	e.SetHandoffService(handoffapp.NewService(store, store))
+	e.SetHandoffService(handoffapp.NewService(store, store).WithTombstoneChecker(store))
 }

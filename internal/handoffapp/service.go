@@ -44,6 +44,14 @@ type CheckpointReader interface {
 	GetCheckpoint(ctx context.Context, id string) (*compaction.Checkpoint, error)
 }
 
+// TombstoneChecker reports whether a source has been logically deleted.
+// Used for fail-closed readability checks: a tombstoned source is never
+// imported or injected as prior context, even if its row somehow survives
+// physical deletion (defense-in-depth, ADR-005 §6).
+type TombstoneChecker interface {
+	HasTombstone(ctx context.Context, ownerType, ownerID string) (bool, error)
+}
+
 // CapsuleStore defines the storage operations for handoff capsules.
 type CapsuleStore interface {
 	CreateCapsule(ctx context.Context, c handoff.Capsule) (handoff.Capsule, error)
@@ -75,6 +83,7 @@ type CapsuleStore interface {
 type Service struct {
 	checkpoints CheckpointReader
 	capsules    CapsuleStore
+	tombstones  TombstoneChecker // optional; when nil, only GetCheckpoint nil check is used
 	idFactory   func() string
 	now         func() time.Time
 }
@@ -87,6 +96,37 @@ func NewService(checkpoints CheckpointReader, capsules CapsuleStore) *Service {
 		idFactory:   func() string { return ulid.Make().String() },
 		now:         func() time.Time { return time.Now().UTC() },
 	}
+}
+
+// WithTombstoneChecker sets the tombstone checker used for fail-closed
+// readability checks (ADR-005 §6). When set, ImportCapsule and
+// ListImportedCapsuleContexts explicitly check for tombstones on the
+// source session and checkpoint, providing defense-in-depth beyond the
+// GetCheckpoint nil check.
+func (s *Service) WithTombstoneChecker(tc TombstoneChecker) *Service {
+	s.tombstones = tc
+	return s
+}
+
+// sourceDeleted checks whether the source session or checkpoint has been
+// tombstoned. Returns true if a tombstone exists for either, or if
+// tombstones are not configured (falls back to GetCheckpoint nil check
+// by the caller). Returns an error only on storage failures.
+func (s *Service) sourceDeleted(ctx context.Context, sourceSessionID, checkpointID string) (bool, error) {
+	if s.tombstones == nil {
+		return false, nil
+	}
+	if deleted, err := s.tombstones.HasTombstone(ctx, "session", sourceSessionID); err != nil {
+		return false, fmt.Errorf("check session tombstone: %w", err)
+	} else if deleted {
+		return true, nil
+	}
+	if deleted, err := s.tombstones.HasTombstone(ctx, "checkpoint", checkpointID); err != nil {
+		return false, fmt.Errorf("check checkpoint tombstone: %w", err)
+	} else if deleted {
+		return true, nil
+	}
+	return false, nil
 }
 
 // CreateCapsuleRequest defines the parameters for creating a handoff capsule.
@@ -370,6 +410,15 @@ func (s *Service) ImportCapsule(ctx context.Context, capsuleID, targetSessionID 
 	if cp == nil {
 		return result, ErrSourceDeleted
 	}
+	// 3b. Defense-in-depth: explicitly check tombstones for the source
+	// session and checkpoint. Even if the checkpoint row survived physical
+	// deletion (e.g. a future cascade bug), the tombstone still triggers
+	// fail-closed (ADR-005 §6).
+	if deleted, err := s.sourceDeleted(ctx, capsule.SourceSessionID, capsule.CheckpointID); err != nil {
+		return result, err
+	} else if deleted {
+		return result, ErrSourceDeleted
+	}
 
 	// 4. Verify digest: recompute and compare. A mismatch indicates the
 	// checkpoint or carried state was tampered with.
@@ -410,17 +459,20 @@ func (s *Service) ListImportedCapsules(ctx context.Context, targetSessionID stri
 // CapsuleContext pairs an imported capsule with its source checkpoint. When
 // Checkpoint is nil, the source has been deleted (deletion propagation) and
 // the caller must fail-closed: skip the capsule rather than injecting stale
-// or unverified content.
+// or unverified content. SourceDeleted is set true when the deletion was
+// confirmed via tombstone (explicit audit trail).
 type CapsuleContext struct {
-	Capsule    handoff.Capsule
-	Checkpoint *compaction.Checkpoint
+	Capsule       handoff.Capsule
+	Checkpoint    *compaction.Checkpoint
+	SourceDeleted bool // true when source session/checkpoint tombstoned
 }
 
 // ListImportedCapsuleContexts returns all capsules imported into the target
 // session together with their source checkpoints. Capsules whose source
-// checkpoint was deleted are returned with a nil Checkpoint so the caller
-// can fail-closed. Revoked and expired capsules are skipped: they are no
-// longer valid prior context (ADR-005 §5, §6).
+// checkpoint was deleted are returned with a nil Checkpoint and
+// SourceDeleted=true so the caller can fail-closed. Revoked and expired
+// capsules are skipped: they are no longer valid prior context
+// (ADR-005 §5, §6).
 //
 // This is the primary read path used by chat.start to populate
 // ContextEnvelope.HandoffCapsules.
@@ -446,9 +498,23 @@ func (s *Service) ListImportedCapsuleContexts(ctx context.Context, targetSession
 		if err != nil {
 			return nil, fmt.Errorf("get checkpoint for capsule %s: %w", c.ID, err)
 		}
+		// Defense-in-depth: check tombstones even when the checkpoint row
+		// still exists. A tombstone means the source was logically deleted
+		// and must never be re-injected (ADR-005 §6).
+		deleted, err := s.sourceDeleted(ctx, c.SourceSessionID, c.CheckpointID)
+		if err != nil {
+			return nil, err
+		}
+		if deleted {
+			cp = nil // force fail-closed
+		}
 		// If cp is nil, the source checkpoint was deleted. Fail-closed: skip
 		// the capsule rather than injecting unverified content.
-		result = append(result, CapsuleContext{Capsule: *c, Checkpoint: cp})
+		result = append(result, CapsuleContext{
+			Capsule:       *c,
+			Checkpoint:    cp,
+			SourceDeleted: deleted || cp == nil,
+		})
 	}
 	return result, nil
 }

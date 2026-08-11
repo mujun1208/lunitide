@@ -28,6 +28,16 @@ func (m *mockCheckpointReader) GetCheckpoint(_ context.Context, id string) (*com
 	return nil, nil
 }
 
+// mockTombstoneChecker is a TombstoneChecker that reports specific owners
+// as deleted. Used to test defense-in-depth fail-closed behavior.
+type mockTombstoneChecker struct {
+	tombstoned map[string]bool // key: ownerType+":"+ownerID
+}
+
+func (m *mockTombstoneChecker) HasTombstone(_ context.Context, ownerType, ownerID string) (bool, error) {
+	return m.tombstoned[ownerType+":"+ownerID], nil
+}
+
 type mockCapsuleStore struct {
 	capsules  map[string]*handoff.Capsule
 	created   []handoff.Capsule
@@ -974,5 +984,144 @@ func TestService_ListImportedCapsuleContexts_SkipsRevoked(t *testing.T) {
 	}
 	if len(contexts) != 0 {
 		t.Errorf("contexts count = %d, want 0 (revoked capsules skipped)", len(contexts))
+	}
+}
+
+// --- Tombstone fail-closed tests (ADR-005 §6) ---
+
+// TestService_ImportCapsule_FailClosedOnSessionTombstone verifies that when
+// the source session has a tombstone (deleted), ImportCapsule fails closed
+// with ErrSourceDeleted even though the checkpoint row still exists.
+// This is the defense-in-depth guarantee: tombstones catch deletions that
+// physical row removal might miss (ADR-005 §6).
+func TestService_ImportCapsule_FailClosedOnSessionTombstone(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	reader := &mockCheckpointReader{checkpoint: &cp}
+	store := newMockCapsuleStore()
+	tc := &mockTombstoneChecker{tombstoned: map[string]bool{
+		"session:" + sessionID: true,
+	}}
+	svc := NewService(reader, store).WithTombstoneChecker(tc)
+
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateCapsule failed: %v", err)
+	}
+
+	targetSession := mustULID()
+	_, err = svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if !errors.Is(err, ErrSourceDeleted) {
+		t.Errorf("err = %v, want ErrSourceDeleted (session tombstoned)", err)
+	}
+}
+
+// TestService_ImportCapsule_FailClosedOnCheckpointTombstone verifies that a
+// checkpoint-level tombstone also triggers fail-closed during import.
+func TestService_ImportCapsule_FailClosedOnCheckpointTombstone(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	reader := &mockCheckpointReader{checkpoint: &cp}
+	store := newMockCapsuleStore()
+	tc := &mockTombstoneChecker{tombstoned: map[string]bool{
+		"checkpoint:" + cp.ID: true,
+	}}
+	svc := NewService(reader, store).WithTombstoneChecker(tc)
+
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateCapsule failed: %v", err)
+	}
+
+	targetSession := mustULID()
+	_, err = svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if !errors.Is(err, ErrSourceDeleted) {
+		t.Errorf("err = %v, want ErrSourceDeleted (checkpoint tombstoned)", err)
+	}
+}
+
+// TestService_ListImportedCapsuleContexts_TombstoneFailClosed verifies that
+// ListImportedCapsuleContexts returns SourceDeleted=true and nil Checkpoint
+// when the source session is tombstoned, even if the checkpoint row exists.
+func TestService_ListImportedCapsuleContexts_TombstoneFailClosed(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	reader := &mockCheckpointReader{checkpoint: &cp}
+	store := newMockCapsuleStore()
+	tc := &mockTombstoneChecker{tombstoned: map[string]bool{
+		"session:" + sessionID: true,
+	}}
+	svc := NewService(reader, store).WithTombstoneChecker(tc)
+
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateCapsule failed: %v", err)
+	}
+
+	targetSession := mustULID()
+	// Bypass ImportCapsule's tombstone check by recording the import directly,
+	// simulating a capsule that was imported BEFORE the source was deleted.
+	store.imports[created.ID+":"+targetSession] = time.Now().UTC()
+
+	contexts, err := svc.ListImportedCapsuleContexts(context.Background(), targetSession)
+	if err != nil {
+		t.Fatalf("ListImportedCapsuleContexts failed: %v", err)
+	}
+	if len(contexts) != 1 {
+		t.Fatalf("contexts count = %d, want 1", len(contexts))
+	}
+	if contexts[0].Checkpoint != nil {
+		t.Error("Checkpoint should be nil when source session is tombstoned")
+	}
+	if !contexts[0].SourceDeleted {
+		t.Error("SourceDeleted should be true when source session is tombstoned")
+	}
+}
+
+// TestService_ListImportedCapsuleContexts_NoTombstoneChecker verifies that
+// when no tombstone checker is configured, the service falls back to the
+// GetCheckpoint nil check (backward compatible).
+func TestService_ListImportedCapsuleContexts_NoTombstoneChecker(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	reader := &mockCheckpointReader{checkpoint: &cp}
+	store := newMockCapsuleStore()
+	svc := NewService(reader, store) // no tombstone checker
+
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateCapsule failed: %v", err)
+	}
+
+	targetSession := mustULID()
+	_, err = svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if err != nil {
+		t.Fatalf("ImportCapsule failed: %v", err)
+	}
+
+	contexts, err := svc.ListImportedCapsuleContexts(context.Background(), targetSession)
+	if err != nil {
+		t.Fatalf("ListImportedCapsuleContexts failed: %v", err)
+	}
+	if len(contexts) != 1 {
+		t.Fatalf("contexts count = %d, want 1", len(contexts))
+	}
+	if contexts[0].Checkpoint == nil {
+		t.Error("Checkpoint should not be nil when source is alive and no tombstone checker")
+	}
+	if contexts[0].SourceDeleted {
+		t.Error("SourceDeleted should be false when source is alive")
 	}
 }
