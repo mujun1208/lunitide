@@ -52,6 +52,10 @@ const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 &
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
 assert(JSON.stringify(enabled) === JSON.stringify([
   'chat.start',
+  'context.compact.cancel',
+  'context.compact.commit',
+  'context.compact.preview',
+  'context.status',
   'diagnostics.export',
   'memory.create',
   'memory.delete',

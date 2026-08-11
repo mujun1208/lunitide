@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/handoff"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/project"
@@ -126,6 +127,10 @@ type runtimeHandler func(*Engine, context.Context, bridge.Request) bridge.Respon
 // Contract tests compare its non-nil handlers with the public schema.
 var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodChatStart:         handleChatStart,
+	bridge.MethodContextStatus:           handleContextStatus,
+	bridge.MethodContextCompactPreview:   handleContextCompactPreview,
+	bridge.MethodContextCompactCommit:    handleContextCompactCommit,
+	bridge.MethodContextCompactCancel:    handleContextCompactCancel,
 	bridge.MethodStreamCancel:      handleStreamCancel,
 	bridge.MethodSystemHealth:      handleSystemHealth,
 	bridge.MethodProviderCreate:    handleProviderCreate,
@@ -280,6 +285,7 @@ func (e *Engine) SetCompactionServices(trigger *compactionapp.Trigger, executor 
 	e.compactionTrigger = trigger
 	e.compactionExecutor = executor
 	e.summaryReader = summaryReader
+	executor.SetTrigger(trigger)
 }
 
 // TriggerManualCompaction creates a manual compaction checkpoint for the
@@ -328,6 +334,116 @@ func (e *Engine) RecoverCompaction(ctx context.Context) ([]compactionapp.Recover
 		return nil, nil
 	}
 	return e.compactionExecutor.RecoverOrphanedCheckpoints(ctx)
+}
+
+// ContextStatusResult describes the current context state for a session.
+type ContextStatusResult struct {
+	CanonicalLogicalTokens int64   `json:"canonicalLogicalTokens"`
+	EstimatedRequestTokens int64   `json:"estimatedRequestTokens"`
+	ModelContextWindow     int64   `json:"modelContextWindow"`
+	ActiveCheckpointVersion int64  `json:"activeCheckpointVersion"`
+	BudgetUsage            float64 `json:"budgetUsage"`
+	IsCompacting           bool    `json:"isCompacting"`
+}
+
+// ContextStatus returns the current context state for a session, including
+// canonical logical tokens, estimated request tokens, model context window,
+// active checkpoint version, budget usage ratio, and whether compaction is
+// in progress (ADR-005 §4.2).
+func (e *Engine) ContextStatus(ctx context.Context, sessionID string) (ContextStatusResult, error) {
+	result := ContextStatusResult{}
+
+	// Get the latest checkpoint to determine provider/model and compaction state.
+	var latest *compaction.Checkpoint
+	if e.compactionTrigger != nil {
+		var err error
+		latest, err = e.compactionTrigger.GetLatestCheckpoint(ctx, sessionID)
+		if err != nil {
+			return result, err
+		}
+	}
+
+	// Active checkpoint version (0 if no succeeded checkpoint).
+	if latest != nil && latest.Status == compaction.StatusSucceeded {
+		result.ActiveCheckpointVersion = latest.Version
+	}
+
+	// IsCompacting: true if latest checkpoint is pending or running.
+	if latest != nil && (latest.Status == compaction.StatusPending || latest.Status == compaction.StatusRunning) {
+		result.IsCompacting = true
+	}
+
+	// Token usage and context window from the latest checkpoint's provider/model.
+	if latest != nil {
+		if e.tokenRepo != nil {
+			usage, err := e.tokenRepo.SumTokenLedgerBySession(ctx, sessionID, latest.Provider, latest.Model, "")
+			if err == nil {
+				result.CanonicalLogicalTokens = usage
+				result.EstimatedRequestTokens = usage
+			}
+		}
+
+		// Look up context window from provider model config.
+		if e.providers != nil {
+			providers, err := e.providers.List(ctx, provider.Filter{})
+			if err == nil {
+				for _, p := range providers {
+					if string(p.Protocol) == latest.Provider {
+						for _, m := range p.Models {
+							if m.ModelID == latest.Model && m.ContextWindow > 0 {
+								result.ModelContextWindow = m.ContextWindow
+								break
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Budget usage: usage / (contextWindow * highWatermark).
+	if result.ModelContextWindow > 0 {
+		budget := float64(result.ModelContextWindow) * 0.80
+		if budget > 0 {
+			result.BudgetUsage = float64(result.EstimatedRequestTokens) / budget
+			if result.BudgetUsage > 1 {
+				result.BudgetUsage = 1
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// CompactPreview generates a draft compaction checkpoint for the session and
+// returns the summary preview without changing the active checkpoint
+// (ADR-005 §4.2). The checkpoint is executed to succeeded status; Commit must
+// be called to confirm activation.
+func (e *Engine) CompactPreview(ctx context.Context, sessionID, providerID, modelID, tokenizerRevision string, contextWindow int64) (*compactionapp.PreviewResult, error) {
+	if e.compactionExecutor == nil {
+		return nil, errors.New("compaction services not configured")
+	}
+	return e.compactionExecutor.Preview(ctx, sessionID, providerID, modelID, tokenizerRevision, contextWindow)
+}
+
+// CompactCommit activates a previewed checkpoint using CAS on baseVersion.
+// Returns ErrVersionConflict if the baseVersion does not match the checkpoint's
+// current version (ADR-005 §4.2).
+func (e *Engine) CompactCommit(ctx context.Context, checkpointID string, baseVersion int64) (*compactionapp.CommitResult, error) {
+	if e.compactionExecutor == nil {
+		return nil, errors.New("compaction services not configured")
+	}
+	return e.compactionExecutor.Commit(ctx, checkpointID, baseVersion)
+}
+
+// CompactCancel cancels a pending compaction checkpoint by marking it failed
+// with code "CANCELLED" (ADR-005 §4.2).
+func (e *Engine) CompactCancel(ctx context.Context, checkpointID string) (*compactionapp.CancelResult, error) {
+	if e.compactionExecutor == nil {
+		return nil, errors.New("compaction services not configured")
+	}
+	return e.compactionExecutor.Cancel(ctx, checkpointID)
 }
 
 // SetHandoffService wires the handoff capsule service into the engine.

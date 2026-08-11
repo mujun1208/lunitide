@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/context.status.schema.json",
+  "title": "context.status payload",
+  "x-method": "context.status",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "canonicalLogicalTokens": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "estimatedRequestTokens": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "modelContextWindow": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "activeCheckpointVersion": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "budgetUsage": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "isCompacting": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "canonicalLogicalTokens",
+      "estimatedRequestTokens",
+      "modelContextWindow",
+      "activeCheckpointVersion",
+      "budgetUsage",
+      "isCompacting"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
+	"github.com/lunitide/lunitide/internal/domain/token"
 )
 
 type mockExecutorStore struct {
@@ -46,15 +47,36 @@ func (m *mockExecutorStore) GetCheckpoint(_ context.Context, id string) (*compac
 	}
 	return nil, nil
 }
-func (m *mockExecutorStore) UpdateCheckpointStatus(_ context.Context, id string, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error {
+func (m *mockExecutorStore) UpdateCheckpointStatus(_ context.Context, id string, expectedStatus, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error {
 	if m.updateErr != nil {
 		return m.updateErr
 	}
-	m.updates = append(m.updates, mockUpdate{id, status, summaryJSON, humanSummary, failureCode})
-	// Update status in byStatus if present.
+	// CAS check: verify the checkpoint's current status matches expectedStatus.
+	// Check the single checkpoint first.
+	if m.checkpoint != nil && m.checkpoint.ID == id {
+		if m.checkpoint.Status != expectedStatus {
+			return ErrConcurrentModification
+		}
+		m.updates = append(m.updates, mockUpdate{id, status, summaryJSON, humanSummary, failureCode})
+		m.checkpoint.Status = status
+		return nil
+	}
+	if m.prevCheckpoint != nil && m.prevCheckpoint.ID == id {
+		if m.prevCheckpoint.Status != expectedStatus {
+			return ErrConcurrentModification
+		}
+		m.updates = append(m.updates, mockUpdate{id, status, summaryJSON, humanSummary, failureCode})
+		m.prevCheckpoint.Status = status
+		return nil
+	}
+	// Check byStatus for recovery tests.
 	for oldStatus, cps := range m.byStatus {
 		for i := range cps {
 			if cps[i].ID == id {
+				if cps[i].Status != expectedStatus {
+					return ErrConcurrentModification
+				}
+				m.updates = append(m.updates, mockUpdate{id, status, summaryJSON, humanSummary, failureCode})
 				cps[i].Status = status
 				// Move to new status bucket.
 				m.byStatus[status] = append(m.byStatus[status], cps[i])
@@ -430,5 +452,182 @@ func TestRecoverOrphanedCheckpoints_Mixed(t *testing.T) {
 	}
 	if results[1].Action != "reexecuted" {
 		t.Fatalf("expected second result reexecuted, got %s", results[1].Action)
+	}
+}
+
+// GetCheckpoint and UpdateCheckpointStatus extend fakeCheckpointStore (defined
+// in trigger_test.go) to also implement ExecutorStore, enabling Preview tests
+// that use a single store for both trigger and executor.
+
+func (f *fakeCheckpointStore) GetCheckpoint(_ context.Context, id string) (*compaction.Checkpoint, error) {
+	return f.checkpoints[id], nil
+}
+
+func (f *fakeCheckpointStore) UpdateCheckpointStatus(_ context.Context, id string, expectedStatus, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error {
+	cp, ok := f.checkpoints[id]
+	if !ok {
+		return ErrCheckpointNotFound
+	}
+	if cp.Status != expectedStatus {
+		return ErrConcurrentModification
+	}
+	cp.Status = status
+	cp.SummaryJSON = summaryJSON
+	cp.HumanSummary = humanSummary
+	cp.FailureCode = failureCode
+	return nil
+}
+
+// TestPreviewCreatesCheckpointAndReturnsSummary verifies that Preview creates
+// a checkpoint, executes it to succeeded, and returns the summary preview
+// (ADR-005 §4.2).
+func TestPreviewCreatesCheckpointAndReturnsSummary(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 100000 // above 80% of 100000 context window
+	messages := makeMessages(50)
+	for i := range messages {
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{
+			MessageID:  messages[i].ID,
+			TokenCount: 2000,
+		}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	msgReader := &fakeMessageReader{messages: messages}
+
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, msgReader)
+
+	sourceReader := &mockSourceReader{messages: []SummaryMessage{
+		{ID: "msg-1", Role: "user", Content: "hello world", Sequence: 1},
+		{ID: "msg-2", Role: "assistant", Content: "hi there", Sequence: 2},
+	}}
+	summarizer := &mockSummarizer{
+		summaryJSON:  `{"topics":["greeting"]}`,
+		humanSummary: "用户打招呼",
+	}
+
+	exec := NewExecutor(checkpointStore, sourceReader, summarizer)
+	exec.SetTrigger(trigger)
+
+	result, err := exec.Preview(context.Background(), "s1", "p1", "m1", "v1", 100000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.CheckpointID == "" {
+		t.Fatal("expected non-empty checkpoint ID")
+	}
+	if result.Version < 1 {
+		t.Fatalf("expected version >= 1, got %d", result.Version)
+	}
+	if result.SourceStartSeq < 1 || result.SourceEndSeq < result.SourceStartSeq {
+		t.Fatalf("invalid source range: %d-%d", result.SourceStartSeq, result.SourceEndSeq)
+	}
+	if result.SourceDigest == "" {
+		t.Fatal("expected non-empty source digest")
+	}
+	if result.SummaryPreview == "" {
+		t.Fatal("expected non-empty summary preview")
+	}
+	if result.HumanSummary == "" {
+		t.Fatal("expected non-empty human summary")
+	}
+	if result.Status != string(compaction.StatusSucceeded) {
+		t.Fatalf("expected succeeded status, got %s", result.Status)
+	}
+}
+
+// TestCommitWithCorrectBaseVersionActivates verifies that Commit succeeds when
+// baseVersion matches the checkpoint's version (ADR-005 §4.2).
+func TestCommitWithCorrectBaseVersionActivates(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	cp.Version = 3
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	result, err := exec.Commit(context.Background(), cp.ID, 3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Activated {
+		t.Fatal("expected activated=true")
+	}
+	if result.Version != 3 {
+		t.Fatalf("expected version 3, got %d", result.Version)
+	}
+	if result.Status != string(compaction.StatusSucceeded) {
+		t.Fatalf("expected succeeded, got %s", result.Status)
+	}
+}
+
+// TestCommitWithWrongBaseVersionReturnsConflict verifies that Commit returns
+// ErrVersionConflict when baseVersion does not match (ADR-005 §4.2 CAS).
+func TestCommitWithWrongBaseVersionReturnsConflict(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	cp.Version = 3
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	_, err := exec.Commit(context.Background(), cp.ID, 2)
+	if !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("expected ErrVersionConflict, got %v", err)
+	}
+}
+
+// TestCancelPendingCheckpoint verifies that Cancel transitions a pending
+// checkpoint to failed with code CANCELLED (ADR-005 §4.2).
+func TestCancelPendingCheckpoint(t *testing.T) {
+	cp := makePendingCheckpoint()
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	result, err := exec.Cancel(context.Background(), cp.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Cancelled {
+		t.Fatal("expected cancelled=true")
+	}
+	if result.Status != string(compaction.StatusFailed) {
+		t.Fatalf("expected failed status, got %s", result.Status)
+	}
+	// Verify CAS update was recorded with CANCELLED failure code.
+	if len(store.updates) != 1 {
+		t.Fatalf("expected 1 update, got %d", len(store.updates))
+	}
+	if store.updates[0].failureCode == nil || *store.updates[0].failureCode != "CANCELLED" {
+		t.Fatalf("expected failure code CANCELLED, got %v", store.updates[0].failureCode)
+	}
+	if store.checkpoint.Status != compaction.StatusFailed {
+		t.Fatalf("expected checkpoint status failed, got %s", store.checkpoint.Status)
+	}
+}
+
+// TestCancelNonPendingReturnsError verifies that Cancel rejects checkpoints
+// not in pending state (ADR-005 §4.2).
+func TestCancelNonPendingReturnsError(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	_, err := exec.Cancel(context.Background(), cp.ID)
+	if !errors.Is(err, ErrCheckpointNotPending) {
+		t.Fatalf("expected ErrCheckpointNotPending, got %v", err)
+	}
+}
+
+// TestExecuteCASConflict verifies that Execute returns ErrConcurrentModification
+// when the CAS on pending→running fails (ADR-005 §4.2).
+func TestExecuteCASConflict(t *testing.T) {
+	store := &mockExecutorStore{
+		checkpoint: makePendingCheckpoint(),
+		updateErr:  ErrConcurrentModification,
+	}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	_, err := exec.Execute(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FA0")
+	if !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("expected ErrConcurrentModification, got %v", err)
 	}
 }

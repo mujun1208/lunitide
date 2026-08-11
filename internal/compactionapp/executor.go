@@ -37,12 +37,26 @@ var ErrCheckpointNotFound = errors.New("checkpoint not found")
 // ErrNoMessagesToSummarize is returned when the source message range contains no messages.
 var ErrNoMessagesToSummarize = errors.New("no messages in source range to summarize")
 
+// ErrConcurrentModification is returned when the CAS (compare-and-swap) on
+// checkpoint status fails because the expected status does not match the
+// current status in storage (ADR-005 §4.2).
+var ErrConcurrentModification = errors.New("concurrent modification: checkpoint status changed")
+
+// ErrCheckpointNotSucceeded is returned when attempting to commit a checkpoint that is not in succeeded state.
+var ErrCheckpointNotSucceeded = errors.New("checkpoint is not succeeded")
+
+// ErrVersionConflict is returned when the baseVersion does not match the checkpoint's version (CAS failure).
+var ErrVersionConflict = errors.New("baseVersion does not match checkpoint version")
+
 // ExecutorStore provides the storage operations needed by the compaction executor.
 type ExecutorStore interface {
 	// GetCheckpoint returns the checkpoint by ID.
 	GetCheckpoint(ctx context.Context, id string) (*compaction.Checkpoint, error)
-	// UpdateCheckpointStatus updates status, summary, and failure code.
-	UpdateCheckpointStatus(ctx context.Context, id string, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error
+	// UpdateCheckpointStatus atomically updates status, summary, and failure code
+	// using CAS (compare-and-swap) on expectedStatus. If the current status in
+	// storage does not match expectedStatus, the update affects 0 rows and the
+	// implementation returns ErrConcurrentModification (ADR-005 §4.2).
+	UpdateCheckpointStatus(ctx context.Context, id string, expectedStatus, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error
 	// ListCheckpointsByStatus returns checkpoints matching the given status,
 	// ordered by created_at ascending. Used by restart recovery to find
 	// orphaned pending/running checkpoints (ADR-005 §5).
@@ -58,9 +72,12 @@ type SourceReader interface {
 
 // Executor processes pending compaction checkpoints by generating summaries.
 type Executor struct {
-	store       ExecutorStore
+	store        ExecutorStore
 	sourceReader SourceReader
-	summarizer  Summarizer
+	summarizer   Summarizer
+	// trigger is used by Preview to create checkpoints via the same watermark
+	// logic as automatic compaction. Optional; only needed for Preview.
+	trigger *Trigger
 	// maxMessages limits the number of messages passed to the summarizer to bound cost.
 	maxMessages int
 	// timeout bounds the entire execution.
@@ -77,6 +94,10 @@ func NewExecutor(store ExecutorStore, sourceReader SourceReader, summarizer Summ
 		timeout:      60 * time.Second,
 	}
 }
+
+// SetTrigger wires the compaction trigger into the executor, enabling Preview
+// to create checkpoints using the same watermark logic as automatic compaction.
+func (e *Executor) SetTrigger(t *Trigger) { e.trigger = t }
 
 // ExecuteResult describes the outcome of executing a checkpoint.
 type ExecuteResult struct {
@@ -108,8 +129,8 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 		return result, fmt.Errorf("%w: current status %s", ErrCheckpointNotPending, cp.Status)
 	}
 
-	// 2. Transition pending → running.
-	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusRunning, "{}", "", nil); err != nil {
+	// 2. Transition pending → running (CAS: expectedStatus=pending).
+	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusPending, compaction.StatusRunning, "{}", "", nil); err != nil {
 		return result, fmt.Errorf("transition to running: %w", err)
 	}
 
@@ -164,8 +185,8 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 		return result, nil
 	}
 
-	// 5. Transition running → succeeded.
-	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusSucceeded, summaryJSON, humanSummary, nil); err != nil {
+	// 5. Transition running → succeeded (CAS: expectedStatus=running).
+	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusRunning, compaction.StatusSucceeded, summaryJSON, humanSummary, nil); err != nil {
 		return result, fmt.Errorf("transition to succeeded: %w", err)
 	}
 
@@ -177,9 +198,10 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 }
 
 // markFailed transitions a checkpoint to failed status with a failure code.
+// CAS: expectedStatus=running (markFailed is only called after pending→running).
 func (e *Executor) markFailed(ctx context.Context, checkpointID, code string, cause error) {
 	failureCode := code
-	_ = e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusFailed, "{}", "", &failureCode)
+	_ = e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusRunning, compaction.StatusFailed, "{}", "", &failureCode)
 	_ = cause // cause is logged via failure code; full error not stored to avoid leaking details
 }
 
@@ -233,7 +255,7 @@ func (e *Executor) RecoverOrphanedCheckpoints(ctx context.Context) ([]RecoveryRe
 	}
 	for _, cp := range running {
 		failureCode := "INTERRUPTED_BY_RESTART"
-		if err := e.store.UpdateCheckpointStatus(ctx, cp.ID, compaction.StatusFailed, "{}", "", &failureCode); err != nil {
+		if err := e.store.UpdateCheckpointStatus(ctx, cp.ID, compaction.StatusRunning, compaction.StatusFailed, "{}", "", &failureCode); err != nil {
 			results = append(results, RecoveryResult{
 				CheckpointID: cp.ID,
 				SessionID:    cp.SessionID,
@@ -281,4 +303,138 @@ func (e *Executor) RecoverOrphanedCheckpoints(ctx context.Context) ([]RecoveryRe
 	}
 
 	return results, nil
+}
+
+// PreviewResult describes the outcome of a preview compaction.
+type PreviewResult struct {
+	CheckpointID   string
+	Version        int64
+	SourceStartSeq int64
+	SourceEndSeq   int64
+	SourceDigest   string
+	SummaryPreview string
+	HumanSummary   string
+	Status         string
+}
+
+// Preview generates a draft checkpoint without activating it. The checkpoint
+// is created with status "pending" and the summary is generated via Execute
+// (pending→running→succeeded). The succeeded checkpoint becomes the latest
+// checkpoint but does not change the active prompt assembly until Commit is
+// called (ADR-005 §4.2: preview must not change active checkpoint).
+//
+// Preview uses the Trigger's CheckAndTrigger logic to determine the source
+// range and create the checkpoint. If the token usage is below the high
+// watermark, no checkpoint is created and an error is returned.
+func (e *Executor) Preview(ctx context.Context, sessionID, provider, model, tokenizerRevision string, contextWindow int64) (*PreviewResult, error) {
+	if e.trigger == nil {
+		return nil, errors.New("trigger not configured on executor")
+	}
+
+	// 1. Create a pending checkpoint via the trigger's watermark logic.
+	triggerResult, err := e.trigger.CheckAndTrigger(ctx, sessionID, provider, model, tokenizerRevision, contextWindow)
+	if err != nil {
+		return nil, fmt.Errorf("trigger preview checkpoint: %w", err)
+	}
+	if !triggerResult.Triggered {
+		return nil, fmt.Errorf("compaction not triggered: %s", triggerResult.Reason)
+	}
+
+	// 2. Execute the checkpoint to generate the summary (pending→running→succeeded).
+	execResult, err := e.Execute(ctx, triggerResult.CheckpointID)
+	if err != nil {
+		return nil, fmt.Errorf("execute preview checkpoint: %w", err)
+	}
+	if execResult.Status != compaction.StatusSucceeded {
+		return nil, fmt.Errorf("preview execution failed: status %s", execResult.Status)
+	}
+
+	// 3. Load the checkpoint to get full details for the preview result.
+	cp, err := e.store.GetCheckpoint(ctx, triggerResult.CheckpointID)
+	if err != nil {
+		return nil, fmt.Errorf("load preview checkpoint: %w", err)
+	}
+	if cp == nil {
+		return nil, ErrCheckpointNotFound
+	}
+
+	return &PreviewResult{
+		CheckpointID:   cp.ID,
+		Version:        cp.Version,
+		SourceStartSeq: cp.SourceStartSeq,
+		SourceEndSeq:   cp.SourceEndSeq,
+		SourceDigest:   cp.SourceDigest,
+		SummaryPreview: cp.SummaryJSON,
+		HumanSummary:   cp.HumanSummary,
+		Status:         string(cp.Status),
+	}, nil
+}
+
+// CommitResult describes the outcome of committing a previewed checkpoint.
+type CommitResult struct {
+	CheckpointID string
+	Version      int64
+	Status       string
+	Activated    bool
+}
+
+// Commit activates a previewed checkpoint using CAS on baseVersion.
+// It re-validates that the checkpoint exists, is in "succeeded" status,
+// and that baseVersion matches the current version (ADR-005 §4.2).
+// A succeeded checkpoint is already active (latest by version), so Commit
+// only confirms the CAS validation and returns Activated=true.
+func (e *Executor) Commit(ctx context.Context, checkpointID string, baseVersion int64) (*CommitResult, error) {
+	cp, err := e.store.GetCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint: %w", err)
+	}
+	if cp == nil {
+		return nil, ErrCheckpointNotFound
+	}
+	if cp.Status != compaction.StatusSucceeded {
+		return nil, fmt.Errorf("%w: current status %s", ErrCheckpointNotSucceeded, cp.Status)
+	}
+	if cp.Version != baseVersion {
+		return nil, fmt.Errorf("%w: expected %d, got %d", ErrVersionConflict, baseVersion, cp.Version)
+	}
+	return &CommitResult{
+		CheckpointID: cp.ID,
+		Version:      cp.Version,
+		Status:       string(cp.Status),
+		Activated:    true,
+	}, nil
+}
+
+// CancelResult describes the outcome of cancelling a pending checkpoint.
+type CancelResult struct {
+	CheckpointID string
+	Status       string
+	Cancelled    bool
+}
+
+// Cancel cancels a pending checkpoint by marking it as failed with code
+// "CANCELLED" using CAS (expectedStatus=pending). Only pending checkpoints
+// can be cancelled; checkpoints in running or terminal states return an error.
+func (e *Executor) Cancel(ctx context.Context, checkpointID string) (*CancelResult, error) {
+	cp, err := e.store.GetCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint: %w", err)
+	}
+	if cp == nil {
+		return nil, ErrCheckpointNotFound
+	}
+	if cp.Status != compaction.StatusPending {
+		return nil, fmt.Errorf("%w: current status %s", ErrCheckpointNotPending, cp.Status)
+	}
+
+	failureCode := "CANCELLED"
+	if err := e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusPending, compaction.StatusFailed, "{}", "", &failureCode); err != nil {
+		return nil, fmt.Errorf("cancel checkpoint: %w", err)
+	}
+
+	return &CancelResult{
+		CheckpointID: checkpointID,
+		Status:       string(compaction.StatusFailed),
+		Cancelled:    true,
+	}, nil
 }

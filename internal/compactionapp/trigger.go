@@ -289,6 +289,12 @@ func (t *Trigger) ResetCooldown(sessionID string) {
 	delete(t.lastTrigger, sessionID)
 }
 
+// GetLatestCheckpoint returns the latest checkpoint (by version) for a session,
+// or nil if no checkpoint exists. Delegates to the checkpoint store.
+func (t *Trigger) GetLatestCheckpoint(ctx context.Context, sessionID string) (*compaction.Checkpoint, error) {
+	return t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)
+}
+
 // ManualTriggerResult describes the outcome of a manual compaction trigger.
 type ManualTriggerResult struct {
 	// Triggered indicates whether a checkpoint was created.
