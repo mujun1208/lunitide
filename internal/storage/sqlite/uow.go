@@ -208,7 +208,14 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 	if sequence < 1 || sequence > message.MaxSafeSequence {
 		return v, messageapp.ErrDataInvariantViolation
 	}
-	text, err := message.NormalizeText(v.Text)
+	// Validate text based on role: assistant messages allow wider limits.
+	var text string
+	var err error
+	if v.Role == message.RoleAssistant {
+		text, err = message.NormalizeAssistantText(v.Text)
+	} else {
+		text, err = message.NormalizeText(v.Text)
+	}
 	if err != nil {
 		return v, err
 	}
@@ -271,7 +278,13 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 	if err != nil {
 		return v, err
 	}
-	v.Role, v.Status, v.Sequence, v.CreatedAt = message.RoleUser, message.StatusCompleted, sequence, time.Now().UTC()
+	if v.Role == "" {
+		v.Role = message.RoleUser
+	}
+	if v.Status == "" {
+		v.Status = message.StatusCompleted
+	}
+	v.Sequence, v.CreatedAt = sequence, time.Now().UTC()
 	if err = v.Validate(); err != nil {
 		return v, err
 	}
@@ -282,17 +295,22 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 	if err != nil {
 		return v, mapWriteError(err)
 	}
-	// Record a conservative token estimate for this message.
-	tokenID, err := t.s.newULID(time.Now())
-	if err != nil {
-		return v, err
+	// Only write char-ratio token estimate for user messages.
+	// Assistant messages get provider-reported entries via PutTokenLedgerEntry.
+	if v.Role == message.RoleUser {
+		tokenID, err := t.s.newULID(time.Now())
+		if err != nil {
+			return v, err
+		}
+		tokenEstimate := token.EstimateTokens(v.Text)
+		if _, err = t.q.ExecContext(ctx,
+			`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
+			 VALUES(?,?,?,?,?,?,?,?,?)`,
+			tokenID, v.ID, "", "", "", tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC())); err != nil {
+			return v, mapWriteError(err)
+		}
 	}
-	tokenEstimate := token.EstimateTokens(v.Text)
-	_, err = t.q.ExecContext(ctx,
-		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
-		 VALUES(?,?,?,?,?,?,?,?,?)`,
-		tokenID, v.ID, "", "", "", tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC()))
-	return v, mapWriteError(err)
+	return v, nil
 }
 
 func (t *txAdapter) Message(ctx context.Context, id string) (message.Message, error) {
@@ -476,6 +494,17 @@ func (t *txAdapter) ReleaseIdempotencyClaim(ctx context.Context, op, key, owner 
 func (t *txAdapter) PutAudit(ctx context.Context, a providerapp.Audit) error {
 	_, err := t.q.ExecContext(ctx, `INSERT INTO audit_events(id,action,aggregate_id,actor,metadata_json,created_at) VALUES(?,?,?,?,?,?)`, a.ID, a.Action, a.AggregateID, a.Actor, string(a.Metadata), formatTime(a.CreatedAt))
 	return err
+}
+func (t *txAdapter) PutTokenLedgerEntry(ctx context.Context, entry token.LedgerEntry) error {
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	_, err := t.q.ExecContext(ctx,
+		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
+		 VALUES(?,?,?,?,?,?,?,?,?)`,
+		entry.ID, entry.MessageID, entry.Provider, entry.Model, entry.TokenizerRevision,
+		entry.TokenCount, string(entry.EstimationMethod), entry.UTF8Bytes, formatTime(entry.ComputedAt))
+	return mapWriteError(err)
 }
 func (t *txAdapter) PutOutbox(ctx context.Context, e providerapp.Event) error {
 	if len(e.Payload) < 2 {
