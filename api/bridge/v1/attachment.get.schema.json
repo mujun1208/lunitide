@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/attachment.get.schema.json",
+  "title": "attachment.get payload",
+  "x-method": "attachment.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "attachmentId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["attachmentId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "attachmentId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "projectId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "sessionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "originalName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "mime": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "size": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10485760
+      },
+      "sha256": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "parseStatus": {
+        "type": "string",
+        "enum": ["pending", "parsing", "succeeded", "failed"]
+      },
+      "parseErrorCode": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "parsedText": {
+        "type": "string",
+        "maxLength": 1048576
+      },
+      "parsedTextBytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1048576
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": ["attachmentId", "projectId", "originalName", "mime", "size", "sha256", "parseStatus", "parseErrorCode", "parsedTextBytes", "createdAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "attachmentId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

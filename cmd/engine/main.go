@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/lunitide/lunitide/internal/app"
+	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/governanceapp"
@@ -104,6 +105,16 @@ func main() {
 	engine.SetMigrationService(app.NewMigrationAdapter(store))
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
 	engine.SetupHandoffService(store)
+	// Attachment service: prepare a DACL-protected subdirectory for file
+	// content, then wire the service into the engine (ADR-005 §7). File
+	// content lives outside SQLite; only metadata and parsed text are stored
+	// in the database.
+	attachmentRoot, err := dataRoot.PrepareSubdirectory("attachments")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer attachmentRoot.Close()
+	engine.SetupAttachmentService(store, attachmentapp.NewDirFileStorage(attachmentRoot.Path()))
 	// Reconcile orphaned compaction checkpoints left in pending or running
 	// state by a previous process crash (ADR-005 §5: "restart recovery must be
 	// called once at engine startup before serving traffic"). Best-effort: log

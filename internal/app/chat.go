@@ -147,6 +147,26 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			})
 		}
 
+		// Attachment excerpts: parsed text from user-supplied files attached to
+		// the session, injected as untrusted prior context (ADR-005 §7:
+		// attachment isolation). Only readable (non-deleted, succeeded)
+		// attachments are injected; failed or pending attachments are skipped
+		// fail-closed.
+		readableAttachments, _ := e.ListReadableAttachmentsBySession(ctx, p.SessionID)
+		for _, att := range readableAttachments {
+			if att.ParsedText == "" {
+				continue
+			}
+			excerptContent := att.OriginalName + "\n" + att.ParsedText
+			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{
+				Type:       contextapp.SourceAttachmentExcerpt,
+				ID:         att.ID,
+				Authority:  contextapp.AuthorityCheckpoint,
+				Content:    excerptContent,
+				Provenance: "attachment:" + att.ID + ":project:" + att.ProjectID,
+			})
+		}
+
 		// Assemble the context envelope with full priority ordering and
 		// selection trace (ADR-005 §3).
 		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, p.SessionID, envelope)

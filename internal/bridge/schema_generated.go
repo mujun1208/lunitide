@@ -6,6 +6,10 @@ const Version = "1.0"
 type Method string
 
 const (
+	MethodAttachmentDelete          Method = "attachment.delete"
+	MethodAttachmentGet             Method = "attachment.get"
+	MethodAttachmentIngest          Method = "attachment.ingest"
+	MethodAttachmentList            Method = "attachment.list"
 	MethodChatStart                 Method = "chat.start"
 	MethodContextCompactCancel      Method = "context.compact.cancel"
 	MethodContextCompactCommit      Method = "context.compact.commit"
@@ -89,6 +93,10 @@ type MethodMetadata struct {
 }
 
 var MethodMetadataByMethod = map[Method]MethodMetadata{
+	MethodAttachmentDelete:          {Owner: "engine", Enabled: true},
+	MethodAttachmentGet:             {Owner: "engine", Enabled: true},
+	MethodAttachmentIngest:          {Owner: "engine", Enabled: true},
+	MethodAttachmentList:            {Owner: "engine", Enabled: true},
 	MethodChatStart:                 {Owner: "engine", Enabled: true},
 	MethodContextCompactCancel:      {Owner: "engine", Enabled: true},
 	MethodContextCompactCommit:      {Owner: "engine", Enabled: true},
@@ -165,6 +173,6 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodStreamCancel:              {Owner: "engine", Enabled: true},
 	MethodSystemHealth:              {Owner: "engine", Enabled: true},
 }
-var Methods = [...]Method{MethodChatStart, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDiagnosticsExport, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillGet, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodChatStart, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDiagnosticsExport, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillGet, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }
