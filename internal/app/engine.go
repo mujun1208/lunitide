@@ -309,6 +309,24 @@ func (e *Engine) TriggerManualCompaction(ctx context.Context, sessionID, provide
 	return triggerResult, execResult, err
 }
 
+// RecoverCompaction reconciles orphaned compaction checkpoints left in pending
+// or running state by a previous process crash. This is the restart recovery
+// entry point (ADR-005 §5) and must be called once at engine startup before
+// serving traffic.
+//
+// Recovery policy:
+//   - Running checkpoints are marked failed with code "INTERRUPTED_BY_RESTART".
+//   - Pending checkpoints are re-executed synchronously.
+//
+// Returns one RecoveryResult per orphaned checkpoint. If compaction services
+// are not configured, returns nil with no error (no-op).
+func (e *Engine) RecoverCompaction(ctx context.Context) ([]compactionapp.RecoveryResult, error) {
+	if e.compactionExecutor == nil {
+		return nil, nil
+	}
+	return e.compactionExecutor.RecoverOrphanedCheckpoints(ctx)
+}
+
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {

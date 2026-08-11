@@ -47,6 +47,9 @@ type CheckpointStore interface {
 	GetLatestCheckpoint(ctx context.Context, sessionID string) (*compaction.Checkpoint, error)
 	// CountCheckpointsBySession returns the number of checkpoints for a session.
 	CountCheckpointsBySession(ctx context.Context, sessionID string) (int64, error)
+	// ListCheckpointsByStatus returns checkpoints matching the given status,
+	// ordered by created_at ascending. Used by restart recovery.
+	ListCheckpointsByStatus(ctx context.Context, status compaction.Status, limit int) ([]compaction.Checkpoint, error)
 }
 
 // MessageReader provides access to messages for source range computation.

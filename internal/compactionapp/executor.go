@@ -43,6 +43,10 @@ type ExecutorStore interface {
 	GetCheckpoint(ctx context.Context, id string) (*compaction.Checkpoint, error)
 	// UpdateCheckpointStatus updates status, summary, and failure code.
 	UpdateCheckpointStatus(ctx context.Context, id string, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error
+	// ListCheckpointsByStatus returns checkpoints matching the given status,
+	// ordered by created_at ascending. Used by restart recovery to find
+	// orphaned pending/running checkpoints (ADR-005 §5).
+	ListCheckpointsByStatus(ctx context.Context, status compaction.Status, limit int) ([]compaction.Checkpoint, error)
 }
 
 // SourceReader provides access to the messages in the source range.
@@ -191,4 +195,90 @@ func (e *Executor) SetTimeout(d time.Duration) {
 	if d > 0 {
 		e.timeout = d
 	}
+}
+
+// RecoveryResult describes the outcome of a single checkpoint recovery.
+type RecoveryResult struct {
+	CheckpointID string
+	SessionID    string
+	Version      int64
+	// Action taken: "reexecuted", "marked_failed", "skipped".
+	Action string
+	// Status is the final status after recovery.
+	Status compaction.Status
+	// Err is non-nil if recovery encountered an error.
+	Err error
+}
+
+// RecoverOrphanedCheckpoints scans for checkpoints left in pending or running
+// state by a previous process crash and reconciles them (ADR-005 §5: "restart
+// recovery"). This must be called once at engine startup before serving traffic.
+//
+// Recovery policy:
+//   - Running checkpoints: The previous process crashed mid-execution. The
+//     summary is likely incomplete or missing. Mark as failed with code
+//     "INTERRUPTED_BY_RESTART" so the trigger can re-compact on the next chat
+//     turn. Re-executing would risk duplicate LLM calls.
+//   - Pending checkpoints: The checkpoint was created but never started. Re-
+//     execute synchronously to preserve the compaction intent.
+//
+// The method returns one RecoveryResult per orphaned checkpoint found.
+func (e *Executor) RecoverOrphanedCheckpoints(ctx context.Context) ([]RecoveryResult, error) {
+	var results []RecoveryResult
+
+	// Phase 1: Find and mark running checkpoints as failed.
+	running, err := e.store.ListCheckpointsByStatus(ctx, compaction.StatusRunning, 1000)
+	if err != nil {
+		return nil, fmt.Errorf("list running checkpoints: %w", err)
+	}
+	for _, cp := range running {
+		failureCode := "INTERRUPTED_BY_RESTART"
+		if err := e.store.UpdateCheckpointStatus(ctx, cp.ID, compaction.StatusFailed, "{}", "", &failureCode); err != nil {
+			results = append(results, RecoveryResult{
+				CheckpointID: cp.ID,
+				SessionID:    cp.SessionID,
+				Version:      cp.Version,
+				Action:       "marked_failed",
+				Status:       compaction.StatusFailed,
+				Err:          fmt.Errorf("update status: %w", err),
+			})
+			continue
+		}
+		results = append(results, RecoveryResult{
+			CheckpointID: cp.ID,
+			SessionID:    cp.SessionID,
+			Version:      cp.Version,
+			Action:       "marked_failed",
+			Status:       compaction.StatusFailed,
+		})
+	}
+
+	// Phase 2: Find and re-execute pending checkpoints.
+	pending, err := e.store.ListCheckpointsByStatus(ctx, compaction.StatusPending, 1000)
+	if err != nil {
+		return results, fmt.Errorf("list pending checkpoints: %w", err)
+	}
+	for _, cp := range pending {
+		execResult, err := e.Execute(ctx, cp.ID)
+		if err != nil {
+			results = append(results, RecoveryResult{
+				CheckpointID: cp.ID,
+				SessionID:    cp.SessionID,
+				Version:      cp.Version,
+				Action:       "reexecuted",
+				Status:       compaction.StatusFailed,
+				Err:          err,
+			})
+			continue
+		}
+		results = append(results, RecoveryResult{
+			CheckpointID: cp.ID,
+			SessionID:    cp.SessionID,
+			Version:      cp.Version,
+			Action:       "reexecuted",
+			Status:       execResult.Status,
+		})
+	}
+
+	return results, nil
 }
