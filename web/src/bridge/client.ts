@@ -43,6 +43,12 @@ import {
   type ContextHandoffListPayload, type ContextHandoffListResult,
   type ContextHandoffListImportsPayload, type ContextHandoffListImportsResult,
   type ContextHandoffRevokePayload, type ContextHandoffRevokeResult,
+  type AttachmentIngestPayload, type AttachmentIngestResult,
+  type AttachmentGetPayload, type AttachmentGetResult,
+  type AttachmentListPayload, type AttachmentListResult,
+  type AttachmentDeletePayload, type AttachmentDeleteResult,
+  type ProjectDeletePayload, type ProjectDeleteResult,
+  type SessionDeletePayload, type SessionDeleteResult,
   type PlanDTO, type PlanNodeDTO, type ReviewDTO, type MemoryDTO, type OntologyNodeDTO, type OntologyEdgeDTO, type SkillDTO, type SkillMatchDTO,
   type PlanStatus, type NodeStatus, type RiskLevel, type ReviewStatus, type MemoryLayer, type MemoryScope,
   type OntologyNodeType, type OntologyEdgeType, type SkillStatus, type SkillPermission,
@@ -60,7 +66,7 @@ export interface WebViewTransport {
 }
 declare global { interface Window { chrome?: { webview?: WebViewTransport } } }
 
-export type MutationMethod = 'project.create'|'session.create'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'
+export type MutationMethod = 'project.create'|'project.delete'|'session.create'|'session.delete'|'message.append'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'attachment.ingest'|'attachment.delete'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -87,10 +93,11 @@ export interface ProviderBridge {
 export interface ProjectBridge {
   list(payload?:ProjectListPayload):Promise<ProjectListResult>
   create(payload:ProjectCreatePayload,options?:MutationOptions<ProjectCreatePayload>):Promise<ProjectCreateResult>
+  delete(payload:ProjectDeletePayload,options?:MutationOptions<ProjectDeletePayload>):Promise<ProjectDeleteResult>
 }
-export interface SessionBridge { list(payload:SessionListPayload):Promise<SessionListResult>; create(payload:SessionCreatePayload,options?:MutationOptions<SessionCreatePayload>):Promise<SessionCreateResult> }
+export interface SessionBridge { list(payload:SessionListPayload):Promise<SessionListResult>; create(payload:SessionCreatePayload,options?:MutationOptions<SessionCreatePayload>):Promise<SessionCreateResult>; delete(payload:SessionDeletePayload,options?:MutationOptions<SessionDeletePayload>):Promise<SessionDeleteResult> }
 export interface MessageBridge { list(payload:MessageListPayload):Promise<MessageListResult>; append(payload:MessageAppendPayload,options?:MutationOptions<MessageAppendPayload>):Promise<MessageAppendResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','session.create','message.append','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','plan.create','node.create','memory.create','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','session.create','session.delete','message.append','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','plan.create','node.create','memory.create','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','attachment.ingest','attachment.delete'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -105,6 +112,7 @@ const isProvider=(v:unknown)=>isObj(v)&&exact(v,['id','name','protocol','baseUrl
 const guards:Partial<Record<BridgeMethod,(v:unknown)=>boolean>>={
  'project.create':isProject,
  'project.list':v=>isObj(v)&&exact(v,['items'])&&Array.isArray(v.items)&&v.items.length<=100&&v.items.every(isProject),
+ 'project.delete':v=>isObj(v)&&exact(v,['deleted','id'])&&v.deleted===true&&isULID(v.id),
  'provider.get':isProvider,'provider.create':isProvider,'provider.update':isProvider,
  'provider.list':v=>isObj(v)&&exact(v,['items'])&&Array.isArray(v.items)&&v.items.every(isProvider),
  'provider.delete':v=>isObj(v)&&exact(v,['deleted'])&&v.deleted===true,
@@ -127,22 +135,22 @@ export const providerBridge:ProviderBridge={get:p=>getProviderBridge().get(p),li
 export function createProjectBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):ProjectBridge{
  const pending=new Map<string,{method:BridgeMethod;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
  transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const requestId=raw.requestId,waiting=pending.get(requestId)!;clearTimeout(waiting.timer);pending.delete(requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}if(!guards[waiting.method]?.(raw.payload)){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
- const request=<T>(method:'project.create'|'project.list',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method==='project.create'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30_000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
- return{list:(p={})=>request('project.list',p),create:(p,o)=>request('project.create',p,o?.attempt)}
+ const request=<T>(method:'project.create'|'project.list'|'project.delete',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=(method==='project.create'||method==='project.delete')?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30_000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:(p={})=>request('project.list',p),create:(p,o)=>request('project.create',p,o?.attempt),delete:(p,o)=>request('project.delete',p,o?.attempt)}
 }
 let projectSingleton:ProjectBridge|undefined
 export function getProjectBridge():ProjectBridge{return projectSingleton??=createProjectBridge(webview())}
-export const projectBridge:ProjectBridge={list:p=>getProjectBridge().list(p),create:(p,o)=>getProjectBridge().create(p,o)}
+export const projectBridge:ProjectBridge={list:p=>getProjectBridge().list(p),create:(p,o)=>getProjectBridge().create(p,o),delete:(p,o)=>getProjectBridge().delete(p,o)}
 
 export function createSessionBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):SessionBridge{
- const pending=new Map<string,{method:'session.create'|'session.list';projectId:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
- transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const waiting=pending.get(raw.requestId)!;clearTimeout(waiting.timer);pending.delete(raw.requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,raw.requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}const valid=waiting.method==='session.create'?isSession(raw.payload,waiting.projectId):isObj(raw.payload)&&exact(raw.payload,['items'])&&Array.isArray(raw.payload.items)&&raw.payload.items.length<=100&&raw.payload.items.every(v=>isSession(v,waiting.projectId));if(!valid){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
- const request=<T>(method:'session.create'|'session.list',payload:SessionCreatePayload|SessionListPayload,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method==='session.create'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,projectId:payload.projectId,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
- return{list:p=>request('session.list',p),create:(p,o)=>request('session.create',p,o?.attempt)}
+ const pending=new Map<string,{method:'session.create'|'session.list'|'session.delete';projectId:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
+ transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const waiting=pending.get(raw.requestId)!;clearTimeout(waiting.timer);pending.delete(raw.requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,raw.requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}let valid:boolean;if(waiting.method==='session.create')valid=isSession(raw.payload,waiting.projectId);else if(waiting.method==='session.delete')valid=isObj(raw.payload)&&exact(raw.payload,['deleted','id'])&&raw.payload.deleted===true&&isULID(raw.payload.id);else valid=isObj(raw.payload)&&exact(raw.payload,['items'])&&Array.isArray(raw.payload.items)&&raw.payload.items.length<=100&&raw.payload.items.every(v=>isSession(v,waiting.projectId));if(!valid){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
+ const request=<T>(method:'session.create'|'session.list'|'session.delete',payload:SessionCreatePayload|SessionListPayload|SessionDeletePayload,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=(method==='session.create'||method==='session.delete')?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);const p=payload as{projectId?:string;id?:string};pending.set(id,{method,projectId:p.projectId??p.id??'',resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:p=>request('session.list',p),create:(p,o)=>request('session.create',p,o?.attempt),delete:(p,o)=>request('session.delete',p,o?.attempt)}
 }
 let sessionSingleton:SessionBridge|undefined
 export function getSessionBridge():SessionBridge{return sessionSingleton??=createSessionBridge(webview())}
-export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),create:(p,o)=>getSessionBridge().create(p,o)}
+export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),create:(p,o)=>getSessionBridge().create(p,o),delete:(p,o)=>getSessionBridge().delete(p,o)}
 
 const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 const isMessage=(v:unknown,sessionId:string)=>isObj(v)&&exact(v,['id','sessionId','role','status','sequence','text','createdAt'])&&isULID(v.id)&&v.sessionId===sessionId&&v.role==='user'&&v.status==='completed'&&Number.isSafeInteger(v.sequence)&&Number(v.sequence)>0&&textValid(v.text)&&isTime(v.createdAt)
@@ -380,4 +388,28 @@ export const contextBridge: ContextBridge = {
   handoffList: p => getContextBridge().handoffList(p),
   handoffListImports: p => getContextBridge().handoffListImports(p),
   handoffRevoke: p => getContextBridge().handoffRevoke(p),
+}
+
+export interface AttachmentBridge {
+  ingest(payload: AttachmentIngestPayload, options?: MutationOptions<AttachmentIngestPayload>): Promise<AttachmentIngestResult>
+  get(payload: AttachmentGetPayload): Promise<AttachmentGetResult>
+  list(payload: AttachmentListPayload): Promise<AttachmentListResult>
+  delete(payload: AttachmentDeletePayload, options?: MutationOptions<AttachmentDeletePayload>): Promise<AttachmentDeleteResult>
+}
+export function createAttachmentBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): AttachmentBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    ingest: (p, o) => core.request('attachment.ingest', p, 30_000, o?.attempt),
+    get: p => core.request('attachment.get', p),
+    list: p => core.request('attachment.list', p),
+    delete: (p, o) => core.request('attachment.delete', p, defaultDeadlineMs, o?.attempt),
+  }
+}
+let attachmentSingleton: AttachmentBridge | undefined
+export function getAttachmentBridge(): AttachmentBridge { return attachmentSingleton ??= createAttachmentBridge(webview()) }
+export const attachmentBridge: AttachmentBridge = {
+  ingest: (p, o) => getAttachmentBridge().ingest(p, o),
+  get: p => getAttachmentBridge().get(p),
+  list: p => getAttachmentBridge().list(p),
+  delete: (p, o) => getAttachmentBridge().delete(p, o),
 }
