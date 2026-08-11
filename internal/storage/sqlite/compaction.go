@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 )
 
@@ -196,16 +197,29 @@ func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*com
 	return &cp, nil
 }
 
-// UpdateCheckpointStatus updates the status and optionally the summary of a checkpoint.
-func (s *Store) UpdateCheckpointStatus(ctx context.Context, id string, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error {
+// UpdateCheckpointStatus atomically updates the status and optionally the summary
+// of a checkpoint using CAS (compare-and-swap) on expectedStatus. If the current
+// status does not match expectedStatus, 0 rows are affected and the method
+// returns compactionapp.ErrConcurrentModification (ADR-005 §4.2).
+func (s *Store) UpdateCheckpointStatus(ctx context.Context, id string, expectedStatus, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error {
 	var completedAt any
 	if status.IsTerminal() {
 		completedAt = formatTime(time.Now().UTC())
 	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE compaction_checkpoints SET status=?, summary_json=?, human_summary=?, failure_code=?, completed_at=? WHERE id=?`,
-		status, summaryJSON, humanSummary, failureCode, completedAt, id)
-	return mapWriteError(err)
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE compaction_checkpoints SET status=?, summary_json=?, human_summary=?, failure_code=?, completed_at=? WHERE id=? AND status=?`,
+		status, summaryJSON, humanSummary, failureCode, completedAt, id, expectedStatus)
+	if err != nil {
+		return mapWriteError(err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return compactionapp.ErrConcurrentModification
+	}
+	return nil
 }
 
 // ListCheckpointsByStatus returns checkpoints matching the given status,
