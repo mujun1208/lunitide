@@ -285,3 +285,119 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 func (t *Trigger) ResetCooldown(sessionID string) {
 	delete(t.lastTrigger, sessionID)
 }
+
+// ManualTriggerResult describes the outcome of a manual compaction trigger.
+type ManualTriggerResult struct {
+	// Triggered indicates whether a checkpoint was created.
+	Triggered bool
+	// CheckpointID is the ID of the created pending checkpoint.
+	CheckpointID string
+	// SourceStartSeq is the first sequence number in the compaction range.
+	SourceStartSeq int64
+	// SourceEndSeq is the last sequence number in the compaction range.
+	SourceEndSeq int64
+	// MessageCount is the number of messages in the compaction range.
+	MessageCount int
+	// Reason describes the outcome.
+	Reason string
+}
+
+// TriggerManual creates a manual compaction checkpoint for the specified source
+// range. Unlike CheckAndTrigger, it bypasses watermark checks and cooldowns,
+// but still respects:
+//   - No compaction in progress (pending/running checkpoint exists).
+//   - The source range must contain at least MinMessagesBeforeCompaction messages.
+//   - The source range must be valid (startSeq <= endSeq, both >= 1).
+//
+// The caller is responsible for executing the checkpoint via the Executor after
+// creation. Manual compaction never deletes source messages (ADR-005 §1).
+func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model string, startSeq, endSeq int64) (ManualTriggerResult, error) {
+	result := ManualTriggerResult{}
+
+	if startSeq < 1 || endSeq < 1 || startSeq > endSeq {
+		return result, fmt.Errorf("invalid source range: start=%d end=%d", startSeq, endSeq)
+	}
+
+	// Check if a compaction is already in progress.
+	latest, err := t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)
+	if err != nil {
+		return result, fmt.Errorf("get latest checkpoint: %w", err)
+	}
+	if latest != nil && (latest.Status == compaction.StatusPending || latest.Status == compaction.StatusRunning) {
+		result.Reason = fmt.Sprintf("compaction already in progress (checkpoint %s, status %s)", latest.ID, latest.Status)
+		return result, nil
+	}
+
+	// Fetch all messages to find the ones in the source range.
+	allMessages, err := t.messageReader.ListMessages(ctx, sessionID, "forward", 10000)
+	if err != nil {
+		return result, fmt.Errorf("list messages: %w", err)
+	}
+
+	// Filter messages to the specified range.
+	var rangeMessages []MessageInfo
+	for _, msg := range allMessages {
+		if msg.Sequence >= startSeq && msg.Sequence <= endSeq {
+			rangeMessages = append(rangeMessages, msg)
+		}
+	}
+
+	if len(rangeMessages) < t.config.MinMessagesBeforeCompaction {
+		result.Reason = fmt.Sprintf("insufficient messages in range (%d < %d)", len(rangeMessages), t.config.MinMessagesBeforeCompaction)
+		return result, nil
+	}
+
+	sourceStart := rangeMessages[0]
+	sourceEnd := rangeMessages[len(rangeMessages)-1]
+
+	// Compute source digest (deterministic, covers the range boundaries).
+	digestInput := fmt.Sprintf("%s:%d:%d:%s:%s", sessionID, sourceStart.Sequence, sourceEnd.Sequence, sourceStart.ID, sourceEnd.ID)
+	digest := sha256.Sum256([]byte(digestInput))
+
+	// Determine the next version.
+	nextVersion := int64(1)
+	if latest != nil {
+		nextVersion = latest.Version + 1
+	}
+
+	// Link to the previous succeeded checkpoint for rolling compaction.
+	prevCheckpointID := (*string)(nil)
+	prevCheckpointDigest := (*string)(nil)
+	if latest != nil && latest.Status == compaction.StatusSucceeded {
+		prevCheckpointID = &latest.ID
+		prevCheckpointDigest = &latest.SourceDigest
+	}
+
+	checkpoint := compaction.Checkpoint{
+		SessionID:            sessionID,
+		Version:              nextVersion,
+		SourceStartID:        sourceStart.ID,
+		SourceEndID:          sourceEnd.ID,
+		SourceStartSeq:       sourceStart.Sequence,
+		SourceEndSeq:         sourceEnd.Sequence,
+		SourceDigest:         hex.EncodeToString(digest[:]),
+		PrevCheckpointID:     prevCheckpointID,
+		PrevCheckpointDigest: prevCheckpointDigest,
+		SummarySchemaVersion: compaction.SummarySchemaVersion,
+		Trigger:              compaction.TriggerManual,
+		TriggerReason:        fmt.Sprintf("manual compaction requested for messages %d-%d", sourceStart.Sequence, sourceEnd.Sequence),
+		Status:               compaction.StatusPending,
+		Provider:             provider,
+		Model:                model,
+		SummaryJSON:          "{}",
+	}
+
+	created, err := t.checkpointStore.CreateCheckpoint(ctx, checkpoint)
+	if err != nil {
+		return result, fmt.Errorf("create checkpoint: %w", err)
+	}
+
+	result.Triggered = true
+	result.CheckpointID = created.ID
+	result.SourceStartSeq = sourceStart.Sequence
+	result.SourceEndSeq = sourceEnd.Sequence
+	result.MessageCount = len(rangeMessages)
+	result.Reason = fmt.Sprintf("manual checkpoint %s created for messages %d-%d (%d messages)",
+		created.ID, sourceStart.Sequence, sourceEnd.Sequence, len(rangeMessages))
+	return result, nil
+}

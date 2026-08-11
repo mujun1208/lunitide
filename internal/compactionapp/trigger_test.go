@@ -401,3 +401,144 @@ func makeMessages(n int) []MessageInfo {
 	return msgs
 }
 
+// makeForwardMessages generates n messages in forward order (oldest first).
+func makeForwardMessages(n int) []MessageInfo {
+	msgs := make([]MessageInfo, n)
+	for i := 0; i < n; i++ {
+		seq := int64(i + 1)
+		msgs[i] = MessageInfo{
+			ID:       fmt.Sprintf("msg-%d", seq),
+			Sequence: seq,
+		}
+	}
+	return msgs
+}
+
+func TestTriggerManualCreatesCheckpoint(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	checkpointStore := newFakeCheckpointStore()
+	msgReader := &fakeMessageReader{messages: makeForwardMessages(50)}
+
+	config := DefaultWatermarkConfig()
+	trigger := NewTrigger(config, tokenRepo, checkpointStore, msgReader)
+
+	result, err := trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Triggered {
+		t.Fatalf("expected trigger, got: %s", result.Reason)
+	}
+	if result.MessageCount != 20 {
+		t.Fatalf("expected 20 messages in range, got %d", result.MessageCount)
+	}
+	if result.SourceStartSeq != 1 || result.SourceEndSeq != 20 {
+		t.Fatalf("expected range 1-20, got %d-%d", result.SourceStartSeq, result.SourceEndSeq)
+	}
+
+	// Verify checkpoint was created with manual trigger.
+	latest, err := checkpointStore.GetLatestCheckpoint(context.Background(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest == nil {
+		t.Fatal("no checkpoint created")
+	}
+	if latest.Trigger != compaction.TriggerManual {
+		t.Fatalf("expected trigger manual, got %s", latest.Trigger)
+	}
+	if latest.Status != compaction.StatusPending {
+		t.Fatalf("expected pending status, got %s", latest.Status)
+	}
+	if latest.Version != 1 {
+		t.Fatalf("expected version 1, got %d", latest.Version)
+	}
+}
+
+func TestTriggerManualInvalidRange(t *testing.T) {
+	trigger := NewTrigger(DefaultWatermarkConfig(), newFakeTokenRepo(), newFakeCheckpointStore(), &fakeMessageReader{})
+
+	_, err := trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 10, 5)
+	if err == nil {
+		t.Fatal("expected error for start > end")
+	}
+
+	_, err = trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 0, 5)
+	if err == nil {
+		t.Fatal("expected error for start < 1")
+	}
+}
+
+func TestTriggerManualInsufficientMessages(t *testing.T) {
+	config := DefaultWatermarkConfig() // MinMessagesBeforeCompaction = 10
+	msgReader := &fakeMessageReader{messages: makeForwardMessages(5)}
+	trigger := NewTrigger(config, newFakeTokenRepo(), newFakeCheckpointStore(), msgReader)
+
+	result, err := trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 1, 5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Triggered {
+		t.Fatal("expected no trigger for insufficient messages")
+	}
+}
+
+func TestTriggerManualAlreadyInProgress(t *testing.T) {
+	checkpointStore := newFakeCheckpointStore()
+	// Pre-create a pending checkpoint.
+	checkpointStore.checkpoints["cp1"] = &compaction.Checkpoint{
+		ID:        "cp1",
+		SessionID: "s1",
+		Version:   1,
+		Status:    compaction.StatusPending,
+	}
+	checkpointStore.bySession["s1"] = []*compaction.Checkpoint{checkpointStore.checkpoints["cp1"]}
+
+	msgReader := &fakeMessageReader{messages: makeForwardMessages(50)}
+	trigger := NewTrigger(DefaultWatermarkConfig(), newFakeTokenRepo(), checkpointStore, msgReader)
+
+	result, err := trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Triggered {
+		t.Fatal("expected no trigger when compaction in progress")
+	}
+}
+
+func TestTriggerManualLinksToPrevSucceeded(t *testing.T) {
+	checkpointStore := newFakeCheckpointStore()
+	// Pre-create a succeeded checkpoint.
+	succeededDigest := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	checkpointStore.checkpoints["cp1"] = &compaction.Checkpoint{
+		ID:           "cp1",
+		SessionID:    "s1",
+		Version:      1,
+		Status:       compaction.StatusSucceeded,
+		SourceDigest: succeededDigest,
+	}
+	checkpointStore.bySession["s1"] = []*compaction.Checkpoint{checkpointStore.checkpoints["cp1"]}
+
+	msgReader := &fakeMessageReader{messages: makeForwardMessages(50)}
+	trigger := NewTrigger(DefaultWatermarkConfig(), newFakeTokenRepo(), checkpointStore, msgReader)
+
+	result, err := trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Triggered {
+		t.Fatalf("expected trigger, got: %s", result.Reason)
+	}
+
+	latest, _ := checkpointStore.GetLatestCheckpoint(context.Background(), "s1")
+	if latest.Version != 2 {
+		t.Fatalf("expected version 2, got %d", latest.Version)
+	}
+	if latest.PrevCheckpointID == nil || *latest.PrevCheckpointID != "cp1" {
+		t.Fatalf("expected prev_checkpoint_id cp1, got %v", latest.PrevCheckpointID)
+	}
+	if latest.PrevCheckpointDigest == nil || *latest.PrevCheckpointDigest != succeededDigest {
+		t.Fatalf("expected prev_checkpoint_digest, got %v", latest.PrevCheckpointDigest)
+	}
+}
+
