@@ -91,16 +91,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			TokenizerRevision: tokenizerRevision,
 		}
 
-		// ADR-005 §2: Check token usage and trigger automatic compaction
-		// when the high watermark is exceeded. Compaction runs asynchronously
-		// to avoid blocking the current chat turn.
-		if e.compactionTrigger != nil {
-			if triggerResult, trErr := e.compactionTrigger.CheckAndTrigger(ctx, p.SessionID, string(item.Protocol), p.ModelID, tokenizerRevision, providerInfo.ContextWindow); trErr == nil && triggerResult.Triggered && e.compactionExecutor != nil {
-				checkpointID := triggerResult.CheckpointID
-				go func() {
-					_, _ = e.compactionExecutor.Execute(context.Background(), checkpointID)
-				}()
-			}
+		// ADR-005 §5: Synchronous pre-turn compaction. When token usage exceeds
+		// the high watermark, compaction is triggered and executed synchronously
+		// BEFORE context assembly. This ensures the current turn benefits from
+		// the compaction (summary is available for assembly). The flow is:
+		// budget check → generate compaction candidate → validate → CAS activate
+		// → re-assemble → send request.
+		if e.compactionTrigger != nil && e.compactionExecutor != nil {
+			e.TriggerPreTurnCompaction(ctx, p.SessionID, string(item.Protocol), p.ModelID, tokenizerRevision, providerInfo.ContextWindow)
 		}
 
 		// Build the ContextEnvelope (ADR-005 §3 seven-level priority).

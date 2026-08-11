@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
@@ -88,6 +89,13 @@ type Trigger struct {
 	messageReader   MessageReader
 	// lastTrigger tracks the last trigger time per session to enforce cooldown.
 	lastTrigger map[string]time.Time
+	// lastMu protects lastTrigger from concurrent access.
+	lastMu sync.Mutex
+	// sessionLocks provides per-session mutexes to prevent concurrent
+	// compaction triggers and executions on the same session (ADR-005 §5:
+	// "automatic and manual compaction must not run concurrently on the same
+	// session").
+	sessionLocks sync.Map // map[string]*sync.Mutex
 }
 
 // NewTrigger creates a new compaction trigger.
@@ -113,6 +121,23 @@ func NewTrigger(config WatermarkConfig, tokenRepo token.Repository, checkpointSt
 	}
 }
 
+// sessionLock returns the mutex for the given session, creating it if needed.
+// This mutex serializes all compaction operations (trigger + execute) for a
+// single session, preventing TOCTOU races and concurrent checkpoint creation.
+func (t *Trigger) sessionLock(sessionID string) *sync.Mutex {
+	v, _ := t.sessionLocks.LoadOrStore(sessionID, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
+
+// LockSession acquires the per-session compaction lock. The returned unlock
+// function must be called when done. This allows the Executor to coordinate
+// with the Trigger to prevent concurrent compactions on the same session.
+func (t *Trigger) LockSession(sessionID string) func() {
+	mu := t.sessionLock(sessionID)
+	mu.Lock()
+	return func() { mu.Unlock() }
+}
+
 // CheckAndTrigger evaluates whether automatic compaction should be triggered
 // for the given session. It returns a TriggerResult describing the outcome.
 //
@@ -121,10 +146,17 @@ func NewTrigger(config WatermarkConfig, tokenRepo token.Repository, checkpointSt
 //  2. The session has enough messages to justify compaction.
 //  3. The cooldown period has elapsed since the last trigger.
 //  4. The latest checkpoint is not already in a pending/running state.
+//
+// This method acquires a per-session lock to prevent concurrent compaction
+// triggers on the same session (ADR-005 §5).
 func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, model, tokenizerRevision string, contextWindow int64) (TriggerResult, error) {
 	result := TriggerResult{
 		Budget: contextWindow,
 	}
+
+	// Acquire per-session lock to serialize compaction operations.
+	unlock := t.LockSession(sessionID)
+	defer unlock()
 
 	// Calculate effective budget using the high watermark.
 	effectiveBudget := int64(float64(contextWindow) * t.config.HighWatermark)
@@ -145,13 +177,16 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 		return result, nil
 	}
 
-	// Check cooldown.
+	// Check cooldown (thread-safe).
+	t.lastMu.Lock()
 	if last, ok := t.lastTrigger[sessionID]; ok {
 		if time.Since(last) < t.config.CheckCooldown {
+			t.lastMu.Unlock()
 			result.Reason = fmt.Sprintf("cooldown period not elapsed (last trigger: %s)", last.Format(time.RFC3339))
 			return result, nil
 		}
 	}
+	t.lastMu.Unlock()
 
 	// Check if a compaction is already in progress.
 	latest, err := t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)
@@ -275,7 +310,9 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 		return result, fmt.Errorf("create checkpoint: %w", err)
 	}
 
+	t.lastMu.Lock()
 	t.lastTrigger[sessionID] = time.Now()
+	t.lastMu.Unlock()
 
 	result.Triggered = true
 	result.CheckpointID = created.ID
@@ -286,7 +323,9 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 
 // ResetCooldown clears the cooldown for a session, allowing immediate re-trigger.
 func (t *Trigger) ResetCooldown(sessionID string) {
+	t.lastMu.Lock()
 	delete(t.lastTrigger, sessionID)
+	t.lastMu.Unlock()
 }
 
 // GetLatestCheckpoint returns the latest checkpoint (by version) for a session,
@@ -326,6 +365,10 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 	if startSeq < 1 || endSeq < 1 || startSeq > endSeq {
 		return result, fmt.Errorf("invalid source range: start=%d end=%d", startSeq, endSeq)
 	}
+
+	// Acquire per-session lock to serialize compaction operations.
+	unlock := t.LockSession(sessionID)
+	defer unlock()
 
 	// Check if a compaction is already in progress.
 	latest, err := t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)

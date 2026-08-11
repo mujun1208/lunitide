@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -444,6 +445,96 @@ func (e *Engine) CompactCancel(ctx context.Context, checkpointID string) (*compa
 		return nil, errors.New("compaction services not configured")
 	}
 	return e.compactionExecutor.Cancel(ctx, checkpointID)
+}
+
+// CompactRetry retries a failed checkpoint by transitioning it back to pending
+// and re-executing it (ADR-005 §5: "failed checkpoints can be retried").
+func (e *Engine) CompactRetry(ctx context.Context, checkpointID string) (*compactionapp.RetryResult, *compactionapp.ExecuteResult, error) {
+	if e.compactionExecutor == nil {
+		return nil, nil, errors.New("compaction services not configured")
+	}
+	retryResult, execResult, err := e.compactionExecutor.Retry(ctx, checkpointID)
+	return &retryResult, &execResult, err
+}
+
+// PreTurnCompactionResult describes the outcome of a synchronous pre-turn
+// compaction. When Compacted is true, the current turn should re-assemble
+// context using the new summary.
+type PreTurnCompactionResult struct {
+	// Compacted indicates whether compaction was triggered and completed.
+	Compacted bool
+	// CheckpointID is the ID of the new checkpoint, if compacted.
+	CheckpointID string
+	// Version is the new checkpoint version, if compacted.
+	Version int64
+	// LowWatermarkVerified is true when the post-compaction reusable context
+	// was verified to be below the low watermark.
+	LowWatermarkVerified bool
+	// LowWatermarkUsageFraction is the remaining reusable context as a fraction
+	// of the context window (0.0–1.0).
+	LowWatermarkUsageFraction float64
+	// Reason describes why compaction was or was not triggered.
+	Reason string
+}
+
+// TriggerPreTurnCompaction synchronously triggers and executes compaction when
+// the token usage exceeds the high watermark. This is called before context
+// assembly so the current turn benefits from the compaction (ADR-005 §5:
+// "pre-turn: budget check → generate compaction candidate → validate → CAS
+// activate → re-assemble → send request").
+//
+// After successful compaction:
+//  1. Previous succeeded checkpoints are marked as superseded (activation).
+//  2. Low-watermark verification is performed (remaining context < 60%).
+//
+// If compaction fails or is not triggered, the caller proceeds with the
+// existing context (fail-open for chat, fail-closed for assembly).
+func (e *Engine) TriggerPreTurnCompaction(ctx context.Context, sessionID, provider, model, tokenizerRevision string, contextWindow int64) PreTurnCompactionResult {
+	result := PreTurnCompactionResult{}
+
+	if e.compactionTrigger == nil || e.compactionExecutor == nil {
+		return result
+	}
+
+	// 1. Check if compaction should be triggered.
+	triggerResult, err := e.compactionTrigger.CheckAndTrigger(ctx, sessionID, provider, model, tokenizerRevision, contextWindow)
+	if err != nil || !triggerResult.Triggered {
+		if err != nil {
+			result.Reason = fmt.Sprintf("trigger error: %v", err)
+		} else {
+			result.Reason = triggerResult.Reason
+		}
+		return result
+	}
+
+	// 2. Synchronously execute the checkpoint (pending → running → succeeded/failed).
+	execResult, err := e.compactionExecutor.Execute(ctx, triggerResult.CheckpointID)
+	if err != nil || execResult.Status != compaction.StatusSucceeded {
+		if err != nil {
+			result.Reason = fmt.Sprintf("execute error: %v", err)
+		} else {
+			result.Reason = fmt.Sprintf("execution failed: status %s", execResult.Status)
+		}
+		return result
+	}
+
+	// 3. Activate: mark previous succeeded checkpoints as superseded.
+	if _, err := e.compactionExecutor.MarkPreviousSucceededSuperseded(ctx, sessionID, triggerResult.CheckpointID); err != nil {
+		// Non-fatal: the new checkpoint is still the latest by version.
+		// GetLatestCompactionSummary will return it regardless.
+	}
+
+	// 4. Low-watermark verification (ADR-005 §5: "below 60%").
+	verified, fraction, _ := e.compactionExecutor.VerifyLowWatermark(ctx, triggerResult.CheckpointID, contextWindow, 0.60)
+
+	result.Compacted = true
+	result.CheckpointID = triggerResult.CheckpointID
+	result.Version = execResult.Version
+	result.LowWatermarkVerified = verified
+	result.LowWatermarkUsageFraction = fraction
+	result.Reason = fmt.Sprintf("compaction completed: checkpoint %s, low-watermark verified=%v (%.1f%%)",
+		triggerResult.CheckpointID, verified, fraction*100)
+	return result
 }
 
 // SetHandoffService wires the handoff capsule service into the engine.
