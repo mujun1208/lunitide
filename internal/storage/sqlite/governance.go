@@ -45,6 +45,9 @@ func (s *Store) CreateReview(ctx context.Context, r governance.Review) (governan
 		r.ID, planID, nodeID, r.ActionType, r.ActionDigest,
 		r.InputDigest, r.StateDigest, r.PolicyVersion, r.RiskLevel, r.Status,
 		r.ReviewerNote, expiresAt, formatTime(r.CreatedAt), reviewedAt)
+	if err == nil {
+		s.appendAudit(ctx, "review.created", r.ID, "engine", map[string]any{"actionType": r.ActionType, "riskLevel": r.RiskLevel})
+	}
 	return r, mapWriteError(err)
 }
 
@@ -161,6 +164,9 @@ func (s *Store) UpdateReviewStatus(ctx context.Context, id string, status govern
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE governance_reviews SET status=?, reviewer_note=?, reviewed_at=? WHERE id=?`,
 		status, reviewerNote, reviewedAtVal, id)
+	if err == nil {
+		s.appendAudit(ctx, "review.status_updated", id, "engine", map[string]any{"status": status})
+	}
 	return mapWriteError(err)
 }
 

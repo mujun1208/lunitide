@@ -36,6 +36,9 @@ func (s *Store) CreatePlan(ctx context.Context, plan planning.Plan) (planning.Pl
 		 VALUES(?,?,?,?,?,?,?,?,?)`,
 		plan.ID, plan.ProjectID, plan.StageID, plan.Name, plan.Description,
 		plan.Version, plan.Status, formatTime(plan.CreatedAt), formatTime(plan.UpdatedAt))
+	if err == nil {
+		s.appendAudit(ctx, "plan.created", plan.ID, "engine", map[string]any{"projectId": plan.ProjectID, "status": plan.Status})
+	}
 	return plan, mapWriteError(err)
 }
 
@@ -110,6 +113,9 @@ func (s *Store) UpdatePlanStatus(ctx context.Context, id, status string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE plans SET status=?, updated_at=? WHERE id=?`,
 		status, formatTime(time.Now().UTC()), id)
+	if err == nil {
+		s.appendAudit(ctx, "plan.status_updated", id, "engine", map[string]any{"status": status})
+	}
 	return mapWriteError(err)
 }
 
@@ -146,6 +152,9 @@ func (s *Store) CreateNode(ctx context.Context, node planning.Node) (planning.No
 		node.ID, node.PlanID, node.ParentNodeID, node.Name, node.Description,
 		node.Status, node.RiskLevel, node.BudgetTokens, node.EstimateTokens,
 		node.WorkerRole, node.Sequence, formatTime(node.CreatedAt), formatTime(node.UpdatedAt))
+	if err == nil {
+		s.appendAudit(ctx, "node.created", node.ID, "engine", map[string]any{"planId": node.PlanID, "sequence": node.Sequence})
+	}
 	return node, mapWriteError(err)
 }
 
@@ -238,5 +247,8 @@ func (s *Store) UpdateNodeStatus(ctx context.Context, id, status string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE plan_nodes SET status=?, updated_at=? WHERE id=?`,
 		status, formatTime(time.Now().UTC()), id)
+	if err == nil {
+		s.appendAudit(ctx, "node.status_updated", id, "engine", map[string]any{"status": status})
+	}
 	return mapWriteError(err)
 }

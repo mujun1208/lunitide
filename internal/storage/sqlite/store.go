@@ -154,6 +154,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0015_ontology.sql", "9bbd48db722e2e896367cb0c3e658c58d4564d213aadfa6955d7499dc0d7cdd9"},
 	{"0016_skill.sql", "3c1b38188bc150f201a94daa5993626738154af2e6811edd66ccd56121455e58"},
 	{"0017_stage.sql", "d2112f8276a176f84eab1c10bcb51cbbd3099fe1f5b4238873b1059b7af0d8ed"},
+	{"0018_extended_entities.sql", "dc9b65b15dbb554f3750fcf721a37abd6540d7601ab4b0606b75ef3feb70a71d"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -831,6 +832,28 @@ var expectedSchemaSQL = map[string]string{
 	"index:ux_skills_name_version":                                "CREATE UNIQUE INDEX ux_skills_name_version ON skills(name, version)",
 	"table:stages":                                                "CREATE TABLE stages (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    phase INTEGER NOT NULL CHECK (phase BETWEEN 1 AND 9),\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200 AND title = trim(title)),\n    status TEXT NOT NULL DEFAULT 'not_started' CHECK (status IN ('not_started', 'in_progress', 'waiting_review', 'approved', 'completed', 'rejected', 'stale', 'paused', 'blocked', 'cancelled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    UNIQUE (project_id, phase)\n)",
 	"index:ix_stages_project_phase":                               "CREATE INDEX ix_stages_project_phase ON stages(project_id, phase, id)",
+	"table:plan_versions":                                          "CREATE TABLE plan_versions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,\n    version_no INTEGER NOT NULL CHECK (version_no > 0),\n    graph_hash TEXT NOT NULL CHECK (length(graph_hash) = 64 AND graph_hash NOT GLOB '*[^0-9a-f]*'),\n    created_at TEXT NOT NULL,\n    UNIQUE (plan_id, version_no)\n)",
+	"index:ix_plan_versions_plan":                                  "CREATE INDEX ix_plan_versions_plan ON plan_versions(plan_id, version_no DESC)",
+	"table:plan_edges":                                             "CREATE TABLE plan_edges (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    plan_version_id TEXT NOT NULL REFERENCES plan_versions(id) ON DELETE CASCADE,\n    from_node_id TEXT NOT NULL REFERENCES plan_nodes(id) ON DELETE CASCADE,\n    to_node_id TEXT NOT NULL REFERENCES plan_nodes(id) ON DELETE CASCADE,\n    condition_json TEXT NOT NULL DEFAULT '{}' CHECK (length(condition_json) BETWEEN 2 AND 8192),\n    created_at TEXT NOT NULL,\n    CHECK (from_node_id != to_node_id)\n)",
+	"index:ix_plan_edges_version":                                  "CREATE INDEX ix_plan_edges_version ON plan_edges(plan_version_id)",
+	"table:node_runs":                                              "CREATE TABLE node_runs (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    node_id TEXT NOT NULL REFERENCES plan_nodes(id) ON DELETE CASCADE,\n    attempt INTEGER NOT NULL CHECK (attempt > 0),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out')),\n    result_ref TEXT CHECK (result_ref IS NULL OR length(result_ref) BETWEEN 1 AND 512),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    ended_at TEXT,\n    created_at TEXT NOT NULL,\n    UNIQUE (node_id, attempt),\n    CHECK (ended_at IS NULL OR started_at IS NOT NULL)\n)",
+	"index:ix_node_runs_node":                                      "CREATE INDEX ix_node_runs_node ON node_runs(node_id, attempt DESC)",
+	"index:ix_node_runs_status":                                    "CREATE INDEX ix_node_runs_status ON node_runs(status)",
+	"table:node_run_checkpoints":                                   "CREATE TABLE node_run_checkpoints (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    node_run_id TEXT NOT NULL REFERENCES node_runs(id) ON DELETE CASCADE,\n    state_ref TEXT NOT NULL CHECK (length(state_ref) BETWEEN 1 AND 512),\n    external_effect_digest TEXT NOT NULL CHECK (length(external_effect_digest) = 64 AND external_effect_digest NOT GLOB '*[^0-9a-f]*'),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_node_run_checkpoints_run":                            "CREATE INDEX ix_node_run_checkpoints_run ON node_run_checkpoints(node_run_id, created_at DESC)",
+	"table:tool_calls":                                             "CREATE TABLE tool_calls (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    node_run_id TEXT NOT NULL REFERENCES node_runs(id) ON DELETE CASCADE,\n    tool_id TEXT NOT NULL CHECK (length(tool_id) BETWEEN 1 AND 128),\n    args_hash TEXT NOT NULL CHECK (length(args_hash) = 64 AND args_hash NOT GLOB '*[^0-9a-f]*'),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    result_ref TEXT CHECK (result_ref IS NULL OR length(result_ref) BETWEEN 1 AND 512),\n    risk TEXT NOT NULL DEFAULT 'low' CHECK (risk IN ('low', 'medium', 'high', 'critical')),\n    approval_id TEXT REFERENCES governance_reviews(id),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_tool_calls_run":                                      "CREATE INDEX ix_tool_calls_run ON tool_calls(node_run_id)",
+	"table:approval_decisions":                                     "CREATE TABLE approval_decisions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    review_id TEXT NOT NULL REFERENCES governance_reviews(id) ON DELETE CASCADE,\n    decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    reason TEXT NOT NULL DEFAULT '' CHECK (length(reason) <= 4096),\n    decided_at TEXT NOT NULL,\n    UNIQUE (review_id)\n)",
+	"index:ix_approval_decisions_review":                           "CREATE INDEX ix_approval_decisions_review ON approval_decisions(review_id)",
+	"table:memory_sources":                                         "CREATE TABLE memory_sources (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,\n    source_type TEXT NOT NULL CHECK (length(source_type) BETWEEN 1 AND 64),\n    source_id TEXT NOT NULL CHECK (length(source_id) BETWEEN 1 AND 256),\n    source_revision TEXT NOT NULL DEFAULT '' CHECK (length(source_revision) <= 128),\n    quote_ref TEXT CHECK (quote_ref IS NULL OR length(quote_ref) BETWEEN 1 AND 512),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_memory_sources_memory":                               "CREATE INDEX ix_memory_sources_memory ON memory_sources(memory_id)",
+	"table:memory_revisions":                                       "CREATE TABLE memory_revisions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,\n    old_ref TEXT CHECK (old_ref IS NULL OR length(old_ref) BETWEEN 1 AND 512),\n    new_ref TEXT NOT NULL CHECK (length(new_ref) BETWEEN 1 AND 512),\n    reason TEXT NOT NULL DEFAULT '' CHECK (length(reason) <= 1024),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_memory_revisions_memory":                             "CREATE INDEX ix_memory_revisions_memory ON memory_revisions(memory_id, created_at DESC)",
+	"table:recall_events":                                          "CREATE TABLE recall_events (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,\n    query_hash TEXT NOT NULL CHECK (length(query_hash) = 64 AND query_hash NOT GLOB '*[^0-9a-f]*'),\n    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,\n    score REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),\n    rank INTEGER NOT NULL CHECK (rank > 0),\n    injected_tokens INTEGER NOT NULL DEFAULT 0 CHECK (injected_tokens >= 0),\n    created_at TEXT NOT NULL\n)",
+	"index:ix_recall_events_session":                               "CREATE INDEX ix_recall_events_session ON recall_events(session_id, created_at DESC)",
+	"index:ix_recall_events_memory":                                "CREATE INDEX ix_recall_events_memory ON recall_events(memory_id)",
+	"table:deletion_tombstones":                                    "CREATE TABLE deletion_tombstones (\n    owner_type TEXT NOT NULL CHECK (length(owner_type) BETWEEN 1 AND 64),\n    owner_id TEXT NOT NULL CHECK (length(owner_id) BETWEEN 1 AND 64),\n    deleted_at TEXT NOT NULL,\n    propagation_status TEXT NOT NULL DEFAULT 'pending' CHECK (propagation_status IN ('pending', 'propagated', 'failed')),\n    PRIMARY KEY (owner_type, owner_id)\n)",
+	"index:ix_deletion_tombstones_status":                          "CREATE INDEX ix_deletion_tombstones_status ON deletion_tombstones(propagation_status, deleted_at)",
 }
 
 type columnSpec struct {
@@ -869,6 +892,16 @@ var expectedColumns = map[string][]columnSpec{
 	"ontology_edges":                    {{"id", "TEXT", "", 0, 1, 0}, {"source_node_id", "TEXT", "", 1, 0, 0}, {"target_node_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"label", "TEXT", "''", 1, 0, 0}, {"properties_json", "TEXT", "'{}'", 1, 0, 0}, {"weight", "REAL", "1.0", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"skills":                            {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'draft'", 1, 0, 0}, {"permissions_json", "TEXT", "", 1, 0, 0}, {"entry_point", "TEXT", "", 1, 0, 0}, {"manifest_json", "TEXT", "", 1, 0, 0}, {"signature", "TEXT", "", 0, 0, 0}, {"publisher_id", "TEXT", "", 0, 0, 0}, {"min_engine_version", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"stages":                            {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"phase", "INTEGER", "", 1, 0, 0}, {"title", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'not_started'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
+	"plan_versions":                     {{"id", "TEXT", "", 0, 1, 0}, {"plan_id", "TEXT", "", 1, 0, 0}, {"version_no", "INTEGER", "", 1, 0, 0}, {"graph_hash", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"plan_edges":                        {{"id", "TEXT", "", 0, 1, 0}, {"plan_version_id", "TEXT", "", 1, 0, 0}, {"from_node_id", "TEXT", "", 1, 0, 0}, {"to_node_id", "TEXT", "", 1, 0, 0}, {"condition_json", "TEXT", "'{}'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"node_runs":                         {{"id", "TEXT", "", 0, 1, 0}, {"node_id", "TEXT", "", 1, 0, 0}, {"attempt", "INTEGER", "", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"result_ref", "TEXT", "", 0, 0, 0}, {"error_code", "TEXT", "", 0, 0, 0}, {"started_at", "TEXT", "", 0, 0, 0}, {"ended_at", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"node_run_checkpoints":              {{"id", "TEXT", "", 0, 1, 0}, {"node_run_id", "TEXT", "", 1, 0, 0}, {"state_ref", "TEXT", "", 1, 0, 0}, {"external_effect_digest", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"tool_calls":                        {{"id", "TEXT", "", 0, 1, 0}, {"node_run_id", "TEXT", "", 1, 0, 0}, {"tool_id", "TEXT", "", 1, 0, 0}, {"args_hash", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'pending'", 1, 0, 0}, {"result_ref", "TEXT", "", 0, 0, 0}, {"risk", "TEXT", "'low'", 1, 0, 0}, {"approval_id", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"approval_decisions":                {{"id", "TEXT", "", 0, 1, 0}, {"review_id", "TEXT", "", 1, 0, 0}, {"decision", "TEXT", "", 1, 0, 0}, {"actor", "TEXT", "", 1, 0, 0}, {"reason", "TEXT", "''", 1, 0, 0}, {"decided_at", "TEXT", "", 1, 0, 0}},
+	"memory_sources":                    {{"id", "TEXT", "", 0, 1, 0}, {"memory_id", "TEXT", "", 1, 0, 0}, {"source_type", "TEXT", "", 1, 0, 0}, {"source_id", "TEXT", "", 1, 0, 0}, {"source_revision", "TEXT", "''", 1, 0, 0}, {"quote_ref", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"memory_revisions":                  {{"id", "TEXT", "", 0, 1, 0}, {"memory_id", "TEXT", "", 1, 0, 0}, {"old_ref", "TEXT", "", 0, 0, 0}, {"new_ref", "TEXT", "", 1, 0, 0}, {"reason", "TEXT", "''", 1, 0, 0}, {"actor", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"recall_events":                     {{"id", "TEXT", "", 0, 1, 0}, {"session_id", "TEXT", "", 1, 0, 0}, {"query_hash", "TEXT", "", 1, 0, 0}, {"memory_id", "TEXT", "", 1, 0, 0}, {"score", "REAL", "", 1, 0, 0}, {"rank", "INTEGER", "", 1, 0, 0}, {"injected_tokens", "INTEGER", "0", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
+	"deletion_tombstones":               {{"owner_type", "TEXT", "", 1, 1, 0}, {"owner_id", "TEXT", "", 1, 2, 0}, {"deleted_at", "TEXT", "", 1, 0, 0}, {"propagation_status", "TEXT", "'pending'", 1, 0, 0}},
 }
 
 func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
@@ -928,7 +961,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "stages"} {
+	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "provider_metadata_migrations", "provider_metadata_migration_items", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "stages", "plan_versions", "plan_edges", "node_runs", "node_run_checkpoints", "tool_calls", "approval_decisions", "memory_sources", "memory_revisions", "recall_events", "deletion_tombstones"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -1242,6 +1275,69 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 		return 0, "", fmt.Errorf("ontology_edges FK target_node_id mismatch: %+v", r)
 	}
 	canonical = append(canonical, fmt.Sprintf("fk:ontology_edges:target_node_id:%d:%d:%s:%s:%s:%s:%s:%s", oeFKs["target_node_id"].id, oeFKs["target_node_id"].seq, oeFKs["target_node_id"].table, oeFKs["target_node_id"].from, oeFKs["target_node_id"].to, oeFKs["target_node_id"].update, oeFKs["target_node_id"].del, oeFKs["target_node_id"].match))
+	// Extended entity tables (0018): validate FK sets and append canonical entries.
+	extendedFKExpectations := []struct {
+		table string
+		count int
+		fks   map[string]fkRow
+	}{
+		{"plan_versions", 1, map[string]fkRow{"plan_id": {0, 0, "plans", "plan_id", "id", "NO ACTION", "CASCADE", "NONE"}}},
+		{"plan_edges", 3, map[string]fkRow{
+			"plan_version_id": {0, 0, "plan_versions", "plan_version_id", "id", "NO ACTION", "CASCADE", "NONE"},
+			"from_node_id":    {1, 0, "plan_nodes", "from_node_id", "id", "NO ACTION", "CASCADE", "NONE"},
+			"to_node_id":      {2, 0, "plan_nodes", "to_node_id", "id", "NO ACTION", "CASCADE", "NONE"},
+		}},
+		{"node_runs", 1, map[string]fkRow{"node_id": {0, 0, "plan_nodes", "node_id", "id", "NO ACTION", "CASCADE", "NONE"}}},
+		{"node_run_checkpoints", 1, map[string]fkRow{"node_run_id": {0, 0, "node_runs", "node_run_id", "id", "NO ACTION", "CASCADE", "NONE"}}},
+		{"tool_calls", 2, map[string]fkRow{
+			"node_run_id": {0, 0, "node_runs", "node_run_id", "id", "NO ACTION", "CASCADE", "NONE"},
+			"approval_id": {1, 0, "governance_reviews", "approval_id", "id", "NO ACTION", "NO ACTION", "NONE"},
+		}},
+		{"approval_decisions", 1, map[string]fkRow{"review_id": {0, 0, "governance_reviews", "review_id", "id", "NO ACTION", "CASCADE", "NONE"}}},
+		{"memory_sources", 1, map[string]fkRow{"memory_id": {0, 0, "memories", "memory_id", "id", "NO ACTION", "CASCADE", "NONE"}}},
+		{"memory_revisions", 1, map[string]fkRow{"memory_id": {0, 0, "memories", "memory_id", "id", "NO ACTION", "CASCADE", "NONE"}}},
+		{"recall_events", 2, map[string]fkRow{
+			"session_id": {0, 0, "sessions", "session_id", "id", "NO ACTION", "CASCADE", "NONE"},
+			"memory_id":  {1, 0, "memories", "memory_id", "id", "NO ACTION", "CASCADE", "NONE"},
+		}},
+	}
+	for _, exp := range extendedFKExpectations {
+		if err := q.QueryRowContext(ctx, fmt.Sprintf(`SELECT count(*) FROM pragma_foreign_key_list('%s')`, exp.table)).Scan(&count); err != nil || count != exp.count {
+			return 0, "", fmt.Errorf("%s FK set mismatch: count=%d err=%w", exp.table, count, err)
+		}
+		ekFkRows, e := q.QueryContext(ctx, fmt.Sprintf(`SELECT id,seq,"table","from","to",on_update,on_delete,match FROM pragma_foreign_key_list('%s') ORDER BY id`, exp.table))
+		if e != nil {
+			return 0, "", fmt.Errorf("%s FK query: %w", exp.table, e)
+		}
+		gotFKs := map[string]fkRow{}
+		for ekFkRows.Next() {
+			var r fkRow
+			if e = ekFkRows.Scan(&r.id, &r.seq, &r.table, &r.from, &r.to, &r.update, &r.del, &r.match); e != nil {
+				ekFkRows.Close()
+				return 0, "", e
+			}
+			gotFKs[r.from] = r
+		}
+		ekFkRows.Close()
+		if len(gotFKs) != exp.count {
+			return 0, "", fmt.Errorf("%s FK count mismatch: got %d", exp.table, len(gotFKs))
+		}
+		// Iterate FK columns in deterministic id order to keep the canonical
+		// fingerprint stable across runs (Go map iteration is randomized).
+		orderedCols := make([]string, 0, len(exp.fks))
+		for col := range exp.fks {
+			orderedCols = append(orderedCols, col)
+		}
+		sort.Strings(orderedCols)
+		for _, from := range orderedCols {
+			want := exp.fks[from]
+			r, ok := gotFKs[from]
+			if !ok || r.seq != 0 || r.table != want.table || r.from != from || r.to != want.to || r.update != want.update || r.del != want.del || r.match != want.match {
+				return 0, "", fmt.Errorf("%s FK %s mismatch: %+v", exp.table, from, r)
+			}
+			canonical = append(canonical, fmt.Sprintf("fk:%s:%s:%d:%d:%s:%s:%s:%s:%s:%s", exp.table, from, r.id, r.seq, r.table, r.from, r.to, r.update, r.del, r.match))
+		}
+	}
 	var unique, partial int
 	var origin, columns string
 	if err := q.QueryRowContext(ctx, `SELECT "unique",origin,partial FROM pragma_index_list('provider_models') WHERE name='ux_provider_default_model'`).Scan(&unique, &origin, &partial); err != nil || unique != 1 || origin != "c" || partial != 1 {
