@@ -48,15 +48,16 @@ func TestTypedNilDependenciesDoNotPanic(t *testing.T) {
 
 // assistantTx is a controllable Tx mock for AppendAssistant tests.
 type assistantTx struct {
-	mu                sync.Mutex
-	idempotency       map[string]providerapp.Record // key: operation+"\x00"+key
-	appendCallCount   int
-	tokenLedgerCalls  int
-	auditCalls        int
-	idempotencyPuts   int
-	appendErr         error
-	lastAppended      message.Message // returned by Message() for the last append
-	now               time.Time
+	mu               sync.Mutex
+	idempotency      map[string]providerapp.Record // key: operation+"\x00"+key
+	appendCallCount  int
+	tokenLedgerCalls int
+	ledgerEntries    []token.LedgerEntry
+	auditCalls       int
+	idempotencyPuts  int
+	appendErr        error
+	lastAppended     message.Message // returned by Message() for the last append
+	now              time.Time
 }
 
 func newAssistantTx(now time.Time) *assistantTx {
@@ -111,10 +112,11 @@ func (t *assistantTx) PutAudit(_ context.Context, _ providerapp.Audit) error {
 	return nil
 }
 
-func (t *assistantTx) PutTokenLedgerEntry(_ context.Context, _ token.LedgerEntry) error {
+func (t *assistantTx) PutTokenLedgerEntry(_ context.Context, entry token.LedgerEntry) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.tokenLedgerCalls++
+	t.ledgerEntries = append(t.ledgerEntries, entry)
 	return nil
 }
 
@@ -157,12 +159,30 @@ func TestAppendAssistantSuccess(t *testing.T) {
 	if msg.SessionID != sessionID || msg.Sequence != 1 || msg.ID == "" {
 		t.Fatalf("unexpected message metadata: %+v", msg)
 	}
-	// Verify side effects: 1 append, 1 token ledger, 1 audit, 1 idempotency put.
+	// Verify side effects: 1 append, 2 token ledger (canonical + provider-reported),
+	// 1 audit, 1 idempotency put.
 	if tx.appendCallCount != 1 {
 		t.Fatalf("expected 1 AppendMessage call, got %d", tx.appendCallCount)
 	}
-	if tx.tokenLedgerCalls != 1 {
-		t.Fatalf("expected 1 PutTokenLedgerEntry call, got %d", tx.tokenLedgerCalls)
+	if tx.tokenLedgerCalls != 2 {
+		t.Fatalf("expected 2 PutTokenLedgerEntry calls (canonical + provider), got %d", tx.tokenLedgerCalls)
+	}
+	// Verify the canonical entry uses the frozen tokenizer revision.
+	canonicalFound := false
+	providerFound := false
+	for _, e := range tx.ledgerEntries {
+		if e.TokenizerRevision == token.CanonicalTokenizerRevision && e.Provider == "" && e.EstimationMethod == token.CharRatio {
+			canonicalFound = true
+		}
+		if e.Provider == "openai_compatible" && e.Model == "gpt-4" && e.EstimationMethod == token.ProviderReport {
+			providerFound = true
+		}
+	}
+	if !canonicalFound {
+		t.Fatal("canonical token ledger entry not found")
+	}
+	if !providerFound {
+		t.Fatal("provider-reported token ledger entry not found")
 	}
 	if tx.auditCalls != 1 {
 		t.Fatalf("expected 1 PutAudit call, got %d", tx.auditCalls)
@@ -240,16 +260,31 @@ func TestAppendAssistantRejectsInvalidStreamID(t *testing.T) {
 	}
 }
 
-func TestAppendAssistantSkipsTokenLedgerWhenZeroUsage(t *testing.T) {
+func TestAppendAssistantCanonicalAlwaysWrittenEvenWithZeroUsage(t *testing.T) {
 	tx := newAssistantTx(time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC))
 	s := newAssistantService(t, tx)
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	// TotalTokens = 0 → no token ledger entry.
+	// TotalTokens = 0 → no provider-reported entry, but canonical entry is
+	// always written (architecture doc §12.1.1: persist tokenizer ID/version).
 	if _, err := s.AppendAssistant(context.Background(), "stream-zero", "engine", sessionID, "text", AssistantUsage{TotalTokens: 0}); err != nil {
 		t.Fatalf("AppendAssistant failed: %v", err)
 	}
-	if tx.tokenLedgerCalls != 0 {
-		t.Fatalf("expected 0 token ledger calls for zero usage, got %d", tx.tokenLedgerCalls)
+	if tx.tokenLedgerCalls != 1 {
+		t.Fatalf("expected 1 token ledger call (canonical only), got %d", tx.tokenLedgerCalls)
+	}
+	// Verify the single entry is the canonical one.
+	if len(tx.ledgerEntries) != 1 {
+		t.Fatalf("expected 1 ledger entry, got %d", len(tx.ledgerEntries))
+	}
+	e := tx.ledgerEntries[0]
+	if e.TokenizerRevision != token.CanonicalTokenizerRevision {
+		t.Fatalf("expected canonical revision %q, got %q", token.CanonicalTokenizerRevision, e.TokenizerRevision)
+	}
+	if e.EstimationMethod != token.CharRatio {
+		t.Fatalf("expected char-ratio method, got %s", e.EstimationMethod)
+	}
+	if e.Provider != "" || e.Model != "" {
+		t.Fatalf("canonical entry should have empty provider/model, got %q/%q", e.Provider, e.Model)
 	}
 }
 
