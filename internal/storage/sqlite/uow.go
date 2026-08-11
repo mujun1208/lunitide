@@ -296,7 +296,11 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 		return v, mapWriteError(err)
 	}
 	// Only write char-ratio token estimate for user messages.
-	// Assistant messages get provider-reported entries via PutTokenLedgerEntry.
+	// Assistant messages get canonical + provider-reported entries via
+	// PutTokenLedgerEntry in messageapp.AppendAssistant.
+	// The canonical tokenizer revision is persisted so that context.status
+	// can report canonicalTokenizerVersion and the ledger can be queried by
+	// the frozen revision (architecture doc §12.1.1).
 	if v.Role == message.RoleUser {
 		tokenID, err := t.s.newULID(time.Now())
 		if err != nil {
@@ -306,7 +310,7 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 		if _, err = t.q.ExecContext(ctx,
 			`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
 			 VALUES(?,?,?,?,?,?,?,?,?)`,
-			tokenID, v.ID, "", "", "", tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC())); err != nil {
+			tokenID, v.ID, "", "", token.CanonicalTokenizerRevision, tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC())); err != nil {
 			return v, mapWriteError(err)
 		}
 	}

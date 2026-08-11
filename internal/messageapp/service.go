@@ -345,10 +345,33 @@ func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionI
 		if e != nil {
 			return e
 		}
+		// Always write a canonical token ledger entry for the assistant
+		// message. The canonical tokenizer is the stable capacity gauge
+		// (architecture doc §12.1.1): it persists tokenizer ID/version so
+		// that context.status can report canonicalTokenizerVersion and the
+		// ledger can be queried by the frozen revision. This entry uses
+		// empty provider/model to distinguish it from provider-specific
+		// entries.
+		canonicalEntry := token.LedgerEntry{
+			ID:                ulid.Make().String(),
+			MessageID:         result.ID,
+			Provider:          "",
+			Model:             "",
+			TokenizerRevision: token.CanonicalTokenizerRevision,
+			TokenCount:        token.EstimateTokens(normalized),
+			EstimationMethod:  token.CharRatio,
+			UTF8Bytes:         int64(len(normalized)),
+			ComputedAt:        now,
+		}
+		if e = tx.PutTokenLedgerEntry(ctx, canonicalEntry); e != nil {
+			return e
+		}
 		// Write provider-reported token ledger entry when the gateway
-		// reports non-zero usage. This is a cache, not message truth.
+		// reports non-zero usage. This is a separate cache entry from the
+		// canonical estimate — it records the actual tokens consumed by
+		// the provider's tokenizer for this model.
 		if usage.TotalTokens > 0 {
-			entry := token.LedgerEntry{
+			providerEntry := token.LedgerEntry{
 				ID:                ulid.Make().String(),
 				MessageID:         result.ID,
 				Provider:          usage.Provider,
@@ -359,7 +382,7 @@ func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionI
 				UTF8Bytes:         int64(len(normalized)),
 				ComputedAt:        now,
 			}
-			if e = tx.PutTokenLedgerEntry(ctx, entry); e != nil {
+			if e = tx.PutTokenLedgerEntry(ctx, providerEntry); e != nil {
 				return e
 			}
 		}
