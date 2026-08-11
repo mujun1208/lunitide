@@ -333,7 +333,7 @@ footer .bottom{max-width:1180px;margin:30px auto 0;padding:18px 28px 0;border-to
       <span class="tag">阶段：<b>九 · CR / 发布 / 部署</b></span>
       <span class="tag">域：<b>Release &amp; Deployment</b></span>
       <span class="tag">基线：<b>v1.0</b></span>
-      <span class="tag">状态：<b>M6 目标设计；M0/M1 仅领域与契约基线</b></span>
+      <span class="tag">状态：<b>M7 目标设计；M0 安装 POC / M2 Alpha 安装 / M7 生产门禁</b></span>
     </div>
     <p class="lead" style="margin-top:22px">
       本 PRD 定义 Lunitide 月汐的变更请求（CR）与发布部署体系。CR MUST 绑定 Git 提交、依赖 CR DAG、
@@ -1118,7 +1118,7 @@ footer .bottom{max-width:1180px;margin:30px auto 0;padding:18px 28px 0;border-to
 <section id="ch11">
   <div class="wrap">
     <div class="sec-head"><div><div class="num">NORMATIVE ADDENDUM</div><h2>并发安全、环境晋级与代码 + 数据库同包发布</h2></div><span class="tag">分阶段基线</span></div>
-    <div class="warn"><b>范围裁决：</b>v1 仍是单一自然人用户，ADR-011 仍为 Deferred。M0–M6 MUST 实现的是本机用户、Agent、VS Code、文件监视器之间的 base hash / version、CAS、三方合并、不可变修订与短租约；多人身份、Presence 传输、实时协作、N-of-M 审批和职责分离属于未来协作版，不得作为 v1 发布前置条件。下文的 actor / owner_id / presence 字段仅作前向兼容数据模型；v1 actor 固定为本机 Owner 或有明确类型的系统主体。</div>
+    <div class="warn"><b>范围裁决：</b>v1 仍是单一自然人用户，ADR-011 仍为 Deferred。M0–M7 MUST 实现的是本机用户、Agent、VS Code、文件监视器之间的 base hash / version、CAS、三方合并、不可变修订与短租约；多人身份、Presence 传输、实时协作、N-of-M 审批和职责分离属于未来协作版，不得作为 v1 发布前置条件。下文的 actor / owner_id / presence 字段仅作前向兼容数据模型；v1 actor 固定为本机 Owner 或有明确类型的系统主体。</div>
 
     <h3>11.1 实体、并发编辑与 CR 汇总</h3>
     <div class="table-wrap"><table><thead><tr><th>实体</th><th>关键字段</th><th>不变量</th></tr></thead><tbody>
@@ -1212,7 +1212,7 @@ footer .bottom{max-width:1180px;margin:30px auto 0;padding:18px 28px 0;border-to
     </div>
   </div>
   <div class="bottom">
-    <span>© 2026 Lunitide 月汐 · v1.0 · M6 目标设计</span>
+    <span>© 2026 Lunitide 月汐 · v1.0 · M7 目标设计</span>
     <span>最后更新：2026-08-09 · 协作与数据库发布规范已合入</span>
   </div>
 </footer>

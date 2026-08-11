@@ -531,7 +531,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     </div>
 
     <div class="warn">
-      <b>关键约束：不构成完整安全沙箱。</b>Job Object 只提供生命周期和资源限制，不是安全边界。任意第三方脚本 / stdio MCP 在 AppContainer / 低完整性方案通过 POC 前<b>禁止执行</b>；M0/M1 仅允许签名内建工具。
+      <b>关键约束：不构成完整安全沙箱。</b>Job Object 只提供生命周期和资源限制，不是安全边界。任意第三方脚本 / stdio MCP 在 AppContainer / 低完整性方案通过 POC 前<b>禁止执行</b>；M0–M2 不开放第三方执行，M5 在隔离 ADR/POC 未通过时仍仅允许签名内建工具。
     </div>
   </div>
 </section>
@@ -699,6 +699,9 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
 │  └─ <span class="k">migrator/</span>                <span class="c"># 原型与 Schema 迁移</span>
 ├─ <span class="n">internal/</span>
 │  ├─ <span class="k">app/</span>                     <span class="c"># use cases / application services</span>
+│  ├─ <span class="k">agent/</span>                   <span class="c"># runtime, loop, profile, budget, recovery</span>
+│  ├─ <span class="k">config/</span>                  <span class="c"># registry, resolver, snapshot, migration</span>
+│  ├─ <span class="k">events/</span>                  <span class="c"># domain, wire, audit, outbox</span>
 │  ├─ <span class="k">domain/</span>
 │  │  ├─ <span class="s">project/ stage/ artifact/</span>
 │  │  ├─ <span class="s">conversation/ provider/</span>
@@ -730,6 +733,35 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <div class="warn">
       <b>依赖约束：</b>禁止 domain 引用 WebView2、SQLite 驱动或具体模型 SDK。领域包只依赖端口接口；connector 和 storage 实现端口。
     </div>
+
+    <h3>7.1 Go-native Agent Kernel</h3>
+    <p><b>Agent Kernel 是 Go Engine 内部应用内核</b>，不是新进程、不是第六智能内核、不是新增 UI 功能，也不引入 Node/Python/Rust sidecar。它把 Session/Context、Planner、ModelGateway、ToolRuntime、Policy/Review 和 durable recovery 编排为可测试的执行循环。</p>
+<pre>User Message → AgentRun / Turn
+  → ResolvedConfigSnapshot
+  → ContextBuilder → ModelGateway
+  → ProposedToolCall → PolicyDecision
+  → allow | deny | Review
+  → Checkpoint → ToolRuntime / Worker
+  → Observation / Evidence
+  → next turn | completed | failed | cancelled | outcome_unknown</pre>
+    <div class="card"><table>
+      <tr><th>基础组件</th><th>职责</th><th>不得承担</th></tr>
+      <tr><td><b>AgentRuntime</b></td><td>Run/Turn/Step 生命周期、预算、取消、first-terminal-wins、恢复</td><td>不得绕过领域服务直接写库或执行副作用</td></tr>
+      <tr><td><b>ConfigResolver</b></td><td>Registry、scope、Policy 合并并冻结 ResolvedConfigSnapshot</td><td>不得让 session/run override 放宽强制策略</td></tr>
+      <tr><td><b>AgentProfileRegistry</b></td><td>Ask/Architect/Plan/Code/Debug/Review 的 Prompt、候选工具和上下文偏好</td><td>Profile 不授予权限</td></tr>
+      <tr><td><b>ToolRuntime</b></td><td>结构化调用、授权、checkpoint、Worker、Observation</td><td>不得执行模型生成的任意 shell 字符串</td></tr>
+      <tr><td><b>RecoveryCoordinator</b></td><td>checkpoint、EffectJournal、outbox、receipt、对账与恢复</td><td>无法证明副作用结果时不得自动重试</td></tr>
+    </table></div>
+    <h4>三轴正交模型</h4>
+    <ul><li><b>Agent Profile</b>只改变角色、Prompt、候选工具和上下文偏好；</li><li><b>Automation Level</b>为 Manual / Assisted / Full-Managed，只影响低中风险动作；</li><li><b>Business Stage</b>为既有九阶段，决定输入、产物和门禁；</li><li><b>Policy Engine</b>始终对规范化的具体动作最终裁决，高风险强制 Review 不因任何轴变化而降级。</li></ul>
+
+    <h3>7.2 三类事件与恢复事实</h3>
+    <table><thead><tr><th>类型</th><th>用途</th><th>可靠性</th></tr></thead><tbody>
+      <tr><td><b>Domain Event</b></td><td>Run、Session、Plan、Tool、Setting、Artifact 等权威业务变化</td><td>与聚合状态同事务写 outbox；至少一次投递，按 eventId 去重</td></tr>
+      <tr><td><b>Wire Event</b></td><td>Renderer 流式展示和状态投影</td><td>seq/ACK/背压；关键事件可重放，纯 token delta 可合并</td></tr>
+      <tr><td><b>Audit Event</b></td><td>Policy、Review、Secret、工具和外部副作用追责</td><td>append-only + hash chain + 外置签名 checkpoint</td></tr>
+    </tbody></table>
+    <div class="callout"><b>副作用恢复：</b>执行前写 <code>EffectJournal{operationDigest,state=prepared}</code>，执行后保存外部 receipt 并转 succeeded；崩溃恢复先向外部系统对账。只有具备稳定幂等键或确定补偿的操作可自动恢复；其他操作进入 <code>outcome_unknown</code> 并阻断后续依赖节点。</div>
   </div>
 </section>
 
@@ -805,6 +837,9 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td><b class="col">provider.test</b></td><td>providerId/modelId → TestResult</td><td>30s，可取消</td></tr>
         <tr><td><b class="col">chat.start</b></td><td>ChatRequest → streamId</td><td>idempotencyKey，默认120s</td></tr>
         <tr><td><b class="col">stream.cancel</b></td><td>streamId/reason → accepted</td><td>幂等，2s</td></tr>
+        <tr><td><b class="col">agent.run.start/get/cancel/resume/reconcile</b></td><td>AgentRunRequest/runId → AgentRun/accepted</td><td>持久状态、first-terminal-wins；resume 只恢复满足幂等/补偿条件的步骤</td></tr>
+        <tr><td><b class="col">settings.registry/snapshot/validate/patch</b></td><td>scope/version/changes → definitions/effective/changeSet</td><td>非秘密；patch 原子、CAS、幂等</td></tr>
+        <tr><td><b class="col">settings.override.remove/change.status</b></td><td>scope/key/changeSet → inherited/status</td><td>恢复继承与断线对账</td></tr>
         <tr><td><b class="col">appSchemaMigration.inspect/status</b></td><td>source/version → report</td><td>仅应用自身迁移；run 为 Host/Engine 启动内部命令，不向 Renderer 暴露</td></tr>
         <tr><td><b class="col">diagnostics.export</b></td><td>options → fileRef</td><td>60s</td></tr>
       </table>
@@ -814,11 +849,11 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <b>协议枚举冻结：</b><code>openai_compatible | anthropic</code>。迁移映射：旧 <code>openai</code>→<code>openai_compatible</code>；旧 UUID 保存为 <code>legacy_id</code>，新实体使用 ULID；旧 <code>checkedAt</code>→<code>testedAt</code>；旧 <code>ok/detail</code>→<code>status/errorCode/sanitizedMessage</code>。Golden fixtures MUST 覆盖映射。
     </div>
 
-    <h3>8.4.1 Electron/Python 0.2.1 → Go M1 迁移契约</h3>
+    <h3>8.4.1 Electron/Python 0.2.1 → Go 迁移契约（M1 冻结 / M2 用户验收）</h3>
     <div class="warn"><b>原型定位不变：</b>React 设置交互意图、Provider 领域规则、模型列表和诊断分类可迁移；Electron/Python/FastAPI/electron-updater 技术实现一律重写。迁移前原型保持可回退，失败不得修改原目录，也不得生成明文 Key 导出文件。</div>
     <div class="card"><table>
       <tr><th>步骤</th><th>强制契约</th></tr>
-      <tr><td><b>来源探测</b></td><td>M1 MUST 支持原型 provider schema v1/v2；来源仅为 <code>%APPDATA%/lunitide/providers.json</code> 和用户显式选择的备份。以内容 schema version + 结构校验为准，不信任 README/package.json 展示版本。启动前记录 source path、schema version、safeStorage backend availability、file SHA-256、记录数和损坏状态。</td></tr>
+      <tr><td><b>来源探测</b></td><td>M1 MUST 冻结对原型 provider schema v1/v2 的迁移契约，M2 MUST 完成真实用户迁移验收；来源仅为 <code>%APPDATA%/lunitide/providers.json</code> 和用户显式选择的备份。以内容 schema version + 结构校验为准，不信任 README/package.json 展示版本。启动前记录 source path、schema version、safeStorage backend availability、file SHA-256、记录数和损坏状态。</td></tr>
       <tr><td><b>非敏感配置</b></td><td>只读解析 providers.json，迁移 name/protocol/origin/models/defaultModel 到 SQLite staging；校验数量、唯一性和默认模型后事务提交。old UUID 通过持久 journal 确定性映射到固定 new ULID，重复运行复用映射。</td></tr>
       <tr><td><b>签名 helper</b></td><td>一次性迁移 helper 必须来自已签名旧安装上下文，仅作迁移工具而非生产依赖。Host 创建随机 Pipe 名和 256-bit nonce，通过受保护的继承句柄传递；Pipe ACL 仅当前用户，Host 校验 helper 签名、file identity、PID、父子关系和 nonce；协议固定为 <code>migration.secret.v1</code>，frame ≤128 KiB。</td></tr>
       <tr><td><b>Key 转移</b></td><td>用户先确认 provider 清单；helper 每次只解密一条 safeStorage Key，经一次性 Pipe 发送；Host 立即以 DPAPI CurrentUser 重加密并清零缓冲。禁止临时文件、日志、剪贴板和 Renderer；每条以 <code>oldProviderId + sourceFileHash</code> 为 journal 主键并逐条 ACK。</td></tr>
@@ -847,7 +882,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <tr><td><b class="col">contract.inspect/compare</b></td><td>binding + expected contract → DatabaseContract + diff</td><td>只读账号；禁止任意 SQL</td></tr>
       <tr><td><b class="col">migration.validate/package</b></td><td>versioned repository scripts/tool manifest + contract diff → MigrationPackage</td><td>只打包仓库中已有且版本受控的迁移产物；内容 hash、方言校验、与代码同包；禁止任意生产 SQL 输入</td></tr>
       <tr><td><b class="col">promotion.plan/freeze/import/status</b></td><td>releasePackage + route → Promotion/stream</td><td>同 digest、门禁快照；freeze/import 使用 TTL 短租约</td></tr>
-      <tr><td><b class="col">workspace.editSource/merge</b></td><td>resource + base version/hash + edits → local edit source/merged revision/conflict</td><td>M0–M6 本机并发安全；三方合并；禁止 last-write-wins。远端 Presence 等 ADR-011</td></tr>
+      <tr><td><b class="col">workspace.editSource/merge</b></td><td>resource + base version/hash + edits → local edit source/merged revision/conflict</td><td>M0–M7 本机并发安全；三方合并；禁止 last-write-wins。远端 Presence 等 ADR-011</td></tr>
     </table></div>
 
     <div id="ch8-dev"></div>
@@ -1269,7 +1304,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     </div>
 
     <h3>12.1.1 Context Engine：百万 token 逻辑会话</h3>
-    <p><b>Context Engine</b> 位于 Session Store 与 ModelGateway 之间。它按产品固定、版本化的 canonical tokenizer artifact 维护至少 1,000,000 tokens 的单会话逻辑上下文，但绝不假设任一供应商都能在单次请求接收 1M tokens；发送前再以当前模型 tokenizer 和能力声明构建 <code>ContextEnvelope</code>。1M 只计入已持久化、可授权读取且可重建的实际文本/结构化内容，不计失效外链或引用字符串本身。M2 开工前必须在代码库冻结 tokenizer ID、版本、artifact SHA-256、Unicode NFC/换行规范、结构化对象 canonical serialization、附件计量规则及 golden corpus 预期 token 数；未冻结前不得宣称通过 1M 验收。</p>
+    <p><b>Context Engine</b> 位于 Session Store 与 ModelGateway 之间。它按产品固定、版本化的 canonical tokenizer artifact 维护至少 1,000,000 tokens 的单会话逻辑上下文，但绝不假设任一供应商都能在单次请求接收 1M tokens；发送前再以当前模型 tokenizer 和能力声明构建 <code>ContextEnvelope</code>。1M 只计入已持久化、可授权读取且可重建的实际文本/结构化内容，不计失效外链或引用字符串本身。M3 开工前必须在代码库冻结 tokenizer ID、版本、artifact SHA-256、Unicode NFC/换行规范、结构化对象 canonical serialization、附件计量规则及 golden corpus 预期 token 数；未冻结前不得宣称通过 1M 验收。</p>
 <pre>append-only Message / MessagePart / ToolResultRef
   → SegmentSummary（分段、不可变、带 source range）
   → RollingSummary（增量合并、版本化、可回退）
@@ -1391,7 +1426,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     </div>
 
     <div class="note">
-      <b>阻断关系：</b>ADR-005/006/009/010/012 阻断对应 M4–M6，不阻断 M0/M1。Open ADR 未批准前，不得由实现者自行扩展范围。
+      <b>阻断关系：</b>ADR-005/006/009 阻断 M5 对应向量、解析与第三方 Skill 能力；ADR-012 阻断 M4/M7 对应模板格式；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M3；未批准能力必须 disabled/quarantined，不得由实现者自行扩展。ADR-011 始终不阻断 v1。
     </div>
 
     <h3>13.1 关键冲突裁决</h3>

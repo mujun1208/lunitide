@@ -282,14 +282,13 @@ footer .links a:hover{color:var(--tide1)}
     <h1 class="accent-grad">模块详细设计</h1>
     <div class="meta-row">
       <span class="tag"><b>文档</b> Lunitide-MDD-v1.0</span>
-      <span class="tag"><b>范围</b> 横向业务模块 + 全域实体</span>
+      <span class="tag"><b>范围</b> 横向业务模块 + 全域实体 + 设置配置模型</span>
       <span class="tag"><b>状态</b> Draft</span>
       <span class="tag"><b>日期</b> 2026-08-10</span>
     </div>
     <p class="lead">
       本文档是 Lunitide 月汐系统的模块级详细设计，涵盖<b>模板管理</b>、<b>底座复用</b>、<b>Provider 与模型</b>、
-      <b>开发任务</b>、<b>集成管理</b>的实体设计与业务规则。每一模块给出状态机、数据表 DDL、字段约束、索引规范与关键治理 callout，
-      作为工程实现的权威依据。
+      <b>开发任务</b>、<b>集成管理</b>与<b>设置中心</b>的实体设计与业务规则。本文档为 Draft：仅对已明确给出字段、状态机、RPC、DDL、约束和验收的条款具有实现约束；S5–S9 专项文档对各自领域优先，未补齐实现合同的实体目录不得被误认为已可直接编码。
     </p>
   </div>
 </section>
@@ -309,6 +308,7 @@ footer .links a:hover{color:var(--tide1)}
       <a href="#ch8"><div class="n">CH 08</div><div class="t">Memory 实体</div></a>
       <a href="#ch9"><div class="n">CH 09</div><div class="t">Skill 与 Tool 实体</div></a>
       <a href="#ch10"><div class="n">CH 10</div><div class="t">集成、任务与发布实体</div></a>
+      <a href="#ch11"><div class="n">CH 11</div><div class="t">设置中心与配置模型</div></a>
     </div>
   </div>
 </section>
@@ -1154,6 +1154,85 @@ footer .links a:hover{color:var(--tide1)}
       <div class="node err">failed</div>
     </div>
     <div class="callout"><b>CR、Deployment 和应用自身 Update 使用不同枚举与表。</b>迁移失败不得继续启动新版核心业务，应进入 <code>recovery_required</code>，允许导出诊断、恢复备份或回到兼容旧二进制。</div>
+  </div>
+</section>
+
+<hr class="brk">
+
+<section id="ch11">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="num">CHAPTER 11</div><h2>设置中心与配置模型</h2></div><span class="tag"><b>实体</b> setting_definition / setting_scope / setting_change_set / setting_migration_journal</span></div>
+    <p class="lead">设置中心保持现有原型、分类、搜索、应用默认/当前项目作用域和底部保存条不变。Settings Registry 定义稳定 key 与 schema，Engine 计算继承和 Policy 后的权威有效值；Renderer 只持有短生命周期 draft，不是配置权威。</p>
+    <div class="note"><b>机制参考边界：</b>借鉴成熟 IDE 的 user/workspace 分层、系统无障碍与更新策略、扩展权限差异和系统凭据库秘密不回显；不复制参考产品的 UI、品牌或文案。</div>
+
+    <h3>11.1 SettingDefinition 合同</h3>
+    <table><thead><tr><th>字段</th><th>语义</th><th>强制约束</th></tr></thead><tbody>
+      <tr><td><b>key / category</b></td><td>永久稳定 key 与现有设置分类</td><td>重命名只能用 alias + migration；禁止复用旧 key 表达新语义</td></tr>
+      <tr><td><b>value_type / schema</b></td><td>类型、枚举、范围和跨字段规则</td><td>Registry 版本化并生成 Go/TS 类型；Engine 必须再次验证</td></tr>
+      <tr><td><b>default_value</b></td><td>内建默认</td><td>默认变更只影响无本地 override 的 scope</td></tr>
+      <tr><td><b>allowed_scopes</b></td><td>application / workspace / project</td><td>session/run 临时行为归 AgentRun snapshot，不写普通设置</td></tr>
+      <tr><td><b>sensitivity</b></td><td>public / internal / sensitive / secret_ref</td><td>secret 明文和密文禁止进入 setting_value；只允许专用 SecretService</td></tr>
+      <tr><td><b>merge_strategy</b></td><td>replace / min / max / set-intersection / set-union</td><td>allowlist 取交集、denylist 取并集、预算上限取最小；安全约束只能更严格</td></tr>
+      <tr><td><b>apply_mode</b></td><td>live / renderer_reload / app_restart / command_only</td><td>UI 必须准确展示 pending apply 状态</td></tr>
+      <tr><td><b>policy_mode</b></td><td>preference / constrained / managed / forbidden</td><td>Policy 来源、版本和理由由 Engine 返回，不接受 Renderer 伪造</td></tr>
+    </tbody></table>
+
+    <h3>11.2 作用域与有效值</h3>
+<pre>built-in default
+  → application / workspace value
+  → project override（仅 allowedScopes 允许时）
+  → Mandatory Policy（locked value / stricter constraints）
+  → ResolvedSetting{effectiveValue, source, inherited, overridden,
+                    managed, reason, version, applyMode}</pre>
+    <ul><li>当前无项目时禁用“当前项目” scope 并解释原因；项目缺值表示继承。</li><li>“恢复继承”删除当前 scope override，不把父值复制到项目。</li><li>普通设置、Agent Profile 和 Automation Level 均不能覆盖 Mandatory Policy。</li><li>每次 AgentRun 创建不可变 <code>ResolvedConfigSnapshot</code>，记录 registry/policy/profile/model/tool-set digest；运行中普通偏好变化不静默改写已执行步骤，高风险策略收紧则在下一动作前强制重验。</li></ul>
+
+    <h3>11.3 持久化与事务</h3>
+<pre>setting_definition(key PK, category, schema_json, default_json,
+  allowed_scopes_json, sensitivity, merge_strategy, apply_mode,
+  policy_mode, definition_version)
+setting_scope(scope_type, scope_id, version, updated_at,
+  PRIMARY KEY(scope_type, scope_id))
+setting_value(scope_type, scope_id, setting_key, value_json, value_hash,
+  created_at, updated_at, PRIMARY KEY(scope_type, scope_id, setting_key))
+setting_change_set(id PK, scope_type, scope_id, base_version,
+  changed_keys_json, changes_digest, status, actor, created_at, committed_at)
+setting_migration_journal(migration_id, from_version, to_version, step_id,
+  source_digest, status, error_code, started_at, completed_at)</pre>
+    <div class="callout"><b>事务边界：</b>同一 settings patch 的 value、scope version、change set、domain event outbox 和 audit event 必须在 Engine 单事务提交。任一验证失败时 0 项写入；禁止逐字段部分成功和 last-write-wins。</div>
+
+    <h3>11.4 Save / Apply 与危险操作分流</h3>
+    <table><thead><tr><th>类型</th><th>保存与生效</th><th>失败/取消</th></tr></thead><tbody>
+      <tr><td>普通设置</td><td>draft → validate → 原子 patch → event → component apply</td><td>保留 draft 与字段错误；版本冲突展示脱敏 diff</td></tr>
+      <tr><td>外观</td><td>Renderer 内存预览；保存后持久化</td><td>取消、离页或预览超时恢复最后提交值</td></tr>
+      <tr><td>语言/运行时</td><td>保存后标记 renderer_reload/app_restart</td><td>允许稍后重载，不得显示虚假完成</td></tr>
+      <tr><td>Provider/Key</td><td>Provider 专用 RPC；Key 走一次性输入 → Host SecretService</td><td>失败清零缓冲；只返回 configured/requires_reentry</td></tr>
+      <tr><td>安全/保留策略</td><td>影响摘要 + 显式确认 + Policy/Review</td><td>策略变化使旧批准失效，不追溯自动执行</td></tr>
+      <tr><td>删除/恢复/导出/更新</td><td>专用 Command RPC、参数摘要、状态查询和恢复</td><td>outcome_unknown 时先对账，禁止盲目重放</td></tr>
+    </tbody></table>
+
+    <h3>11.5 Bridge / RPC 与事件</h3>
+    <table><thead><tr><th>RPC</th><th>输入 → 输出</th><th>约束</th></tr></thead><tbody>
+      <tr><td><b>settings.registry.get</b></td><td>knownVersion? → definitions/capabilities</td><td>只读；UI hints 非授权依据</td></tr>
+      <tr><td><b>settings.snapshot.get</b></td><td>scope/keys? → raw/effective/source/managed/version</td><td>秘密只返回状态</td></tr>
+      <tr><td><b>settings.validate</b></td><td>scope/baseVersion/changes → normalized/errors/policy impacts/apply plan</td><td>无写入</td></tr>
+      <tr><td><b>settings.patch</b></td><td>scope/expectedVersion/idempotencyKey/digest/changes → changeSet/version/effectiveDiff/applyPlan</td><td>单事务；非秘密设置</td></tr>
+      <tr><td><b>settings.override.remove</b></td><td>scope/key/version → inherited effective value</td><td>实现恢复继承</td></tr>
+      <tr><td><b>settings.change.status</b></td><td>changeSet/idempotencyKey → committed/failed/outcome_unknown</td><td>断线对账</td></tr>
+      <tr><td><b>settings.export/import.*</b></td><td>preview → confirm/validate → commit</td><td>默认排除 secrets、源码、prompt、附件和记忆正文</td></tr>
+    </tbody></table>
+    <p>领域事件至少包括 <code>settings.changed.v1</code>、<code>settings.apply.completed.v1</code>、<code>settings.policy.changed.v1</code>、<code>settings.migration.progress.v1</code> 和 <code>provider.credential.state.changed.v1</code>；事件不含秘密，消费者按 eventId 去重并重新读取权威 snapshot。</p>
+
+    <h3>11.6 状态、错误与恢复</h3>
+<pre>initial → loading → ready ↔ dirty → validating → saving → saved/applying
+saving → conflict | error | outcome_unknown
+applying → applied | partial | restart_required
+任一可读态 → refreshing | stale | offline | permission_denied
+migration: detected → preview → staging → validating → committing
+           → completed | requires_reentry | failed | recovery_required</pre>
+    <p>错误码至少包括 <code>SETTINGS_KEY_UNKNOWN</code>、<code>SETTINGS_SCOPE_NOT_ALLOWED</code>、<code>SETTINGS_VALIDATION_FAILED</code>、<code>SETTINGS_VERSION_CONFLICT</code>、<code>SETTINGS_POLICY_LOCKED</code>、<code>SETTINGS_APPLY_PARTIAL</code>、<code>SETTINGS_IMPORT_CONFLICT</code>、<code>SETTINGS_MIGRATION_REQUIRED</code>、<code>SETTINGS_STORAGE_FULL</code> 和 <code>SETTINGS_OUTCOME_UNKNOWN</code>。全部使用统一脱敏 AppError 与 correlationId。</p>
+
+    <h3>11.7 验收门禁</h3>
+    <ul class="checklist"><li>分类、搜索、作用域切换、现有默认值和保存条与原型一致；未复制参考产品视觉。</li><li>application 变更只影响未覆盖项目；恢复继承正确；Policy 冲突取更严格者。</li><li>批量保存全成或全败；双窗口并发返回 conflict；相同幂等键不重复提交。</li><li>Key 在 Renderer 稳定状态、Zustand/localStorage、SQLite、日志、诊断、dump 和稳定内存扫描 0 明文。</li><li>外观预览可完整撤销；reload/restart 状态准确；断线 outcome_unknown 可对账恢复。</li><li>导出预览、删除传播、备份恢复、更新签名/防降级和 schema migration 故障用例通过。</li><li>initial/loading/refreshing/empty/error/partial/stale/offline/permission-denied/saving/conflict/outcome-unknown/restart-required 均有 E2E 和无障碍验证。</li><li>每个设置动作可追踪到 capability、schema、SDK、Engine handler、Policy、事件、错误和测试。</li></ul>
   </div>
 </section>
 

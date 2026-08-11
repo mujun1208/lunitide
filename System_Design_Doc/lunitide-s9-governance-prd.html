@@ -281,13 +281,14 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
     <div class="kicker">SPEC S9 · 治理与审批</div>
     <h1 class="accent-grad">S9 · 治理与审批 PRD</h1>
     <p class="lead" style="margin-top:20px">
-      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；协作采用 Presence + 乐观并发 + Git 三方合并，发布采用不可变包、同 digest 环境晋级与代码/数据库顺序门禁。
+      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；协作采用 Presence + 乐观并发 + Git 三方合并，发布采用不可变包、同 digest 环境晋级与代码/数据库顺序门禁。M0 建立信任与审计基线，M2 保护 Provider/BYOK 与模型外发，M5 关闭完整 Agent ToolCall 治理门禁，M7 原样复用该内核处理发布，禁止另造更宽松审批。
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
       <span class="tag"><b>v1.0</b> · 规范冻结</span>
       <span class="tag">状态机 · <b>9态</b></span>
       <span class="tag">威胁面 · <b>7类</b></span>
       <span class="tag">审计 · <b>append-only</b></span>
+      <span class="tag"><b>实施</b> M0 基线 · M2 Provider · M5 完整治理 · M7 发布</span>
     </div>
   </div>
 </section>
@@ -638,7 +639,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
       </ul>
       <p style="margin-top:10px">Worker 安全 POC 必须验证：读取 <code>%USERPROFILE%</code> 被拒、未授权局域网访问被拒、子进程逃逸失败、Named Pipe 探测失败、junction / ADS 逃逸失败。若任一项无法满足，v1 继续只允许签名内建工具。</p>
     </div>
-    <div class="callout"><b>关键控制：句柄级路径授权 + Job Object + 条件性 OS 隔离。</b>Job Object 仅限制生命周期和资源，绝不是完整安全沙箱；canonicalize 也不能单独消除 junction/reparse-point TOCTOU。M0/M1 只运行随产品发布、签名且 manifest 固定的内建工具。只有 AppContainer/低完整性 POC 全部通过并由独立 ADR 批准后，才可声称开放受限第三方执行；不得承诺“被攻破后绝对无法逃逸”。文件读写必须逐级以句柄打开并校验最终 file identity、volume、祖先根和 reparse point，检查与 open/rename/delete 绑定同一父目录句柄。</div>
+    <div class="callout"><b>关键控制：句柄级路径授权 + Job Object + 条件性 OS 隔离。</b>Job Object 仅限制生命周期和资源，绝不是完整安全沙箱；canonicalize 也不能单独消除 junction/reparse-point TOCTOU。M0–M2 不开放第三方执行；M5 仍只运行随产品发布、签名且 manifest 固定的内建工具，直到 AppContainer/低完整性 POC 全部通过并由独立 ADR 批准。即使未来开放，也不得承诺“被攻破后绝对无法逃逸”。文件读写必须逐级以句柄打开并校验最终 file identity、volume、祖先根和 reparse point，检查与 open/rename/delete 绑定同一父目录句柄。</div>
 
     <h3>7.4 Skill / MCP 供应链</h3>
     <div class="card">
@@ -646,7 +647,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
         <li>包、manifest、依赖锁必须 hash；生产源应签名</li>
         <li>安装展示权限清单；权限扩张视为新授权</li>
         <li>支持撤销列表、quarantine、回滚</li>
-        <li>M0/M1 第三方 stdio server 一律不可运行；可导入、校验并显示为 quarantined。未来隔离 ADR 批准后，未信任 server 仍不得启动</li>
+        <li>M0–M2 第三方 stdio server 一律不可运行；可导入、校验并显示为 quarantined。M5 只有隔离 ADR/POC 批准后才可扩大 capability，未信任 server 仍不得启动</li>
         <li>SBOM 和许可证记录必须保留</li>
       </ul>
     </div>
