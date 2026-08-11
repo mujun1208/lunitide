@@ -1,6 +1,7 @@
-import React, { useState, useCallback } from 'react'
-import { reviewBridge, type ReviewBridge } from '../bridge/client'
-import type { ReviewDTO, ReviewStatus, RiskLevel } from '../generated/bridge'
+import React, { useEffect, useState, useCallback } from 'react'
+import { reviewBridge, planBridge, type ReviewBridge, type PlanBridge } from '../bridge/client'
+import type { ReviewDTO, ReviewStatus, RiskLevel, PlanDTO } from '../generated/bridge'
+import { BridgeClientError } from '../bridge/client'
 
 const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
   pending: '待审批', approved: '已批准', rejected: '已拒绝', expired: '已过期', changed_after_approval: '变更后失效'
@@ -15,31 +16,46 @@ const statusColor = (s: ReviewStatus): string => {
 }
 const riskColor = (r: RiskLevel): string => r === 'low' ? '#34d399' : r === 'medium' ? '#60a5fa' : r === 'high' ? '#fbbf24' : '#f87171'
 
-export function ReviewPage({ bridge = reviewBridge }: { bridge?: ReviewBridge }): React.JSX.Element {
-  const [planId, setPlanId] = useState('')
+const isRetryable = (e: unknown): boolean => e instanceof BridgeClientError && e.retryable
+
+export function ReviewPage({ projectId, bridge = reviewBridge, plans = planBridge }: { projectId: string; bridge?: ReviewBridge; plans?: PlanBridge }): React.JSX.Element {
+  const [plansList, setPlansList] = useState<PlanDTO[]>([])
+  const [selectedPlanId, setSelectedPlanId] = useState('')
   const [reviews, setReviews] = useState<ReviewDTO[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
+  const [retryable, setRetryable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notes, setNotes] = useState<Record<string, string>>({})
 
+  const loadPlans = useCallback(async () => {
+    if (!projectId) return
+    try {
+      const r = await plans.list({ projectId })
+      setPlansList(r.items)
+    } catch { /* 计划列表加载失败不阻塞审批页面 */ }
+  }, [projectId, plans])
+
   const load = useCallback(async (pid: string) => {
     if (!pid) return
-    setLoading(true); setError(undefined)
+    setLoading(true); setError(undefined); setRetryable(false)
     try { const r = await bridge.list({ planId: pid }); setReviews(r.items) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    catch (e) { setError(e instanceof Error ? e.message : '加载失败'); setRetryable(isRetryable(e)) }
     finally { setLoading(false) }
   }, [bridge])
 
+  useEffect(() => { void loadPlans() }, [loadPlans])
+  useEffect(() => { if (selectedPlanId) void load(selectedPlanId); else setReviews([]) }, [selectedPlanId, load])
+
   const doReview = async (op: 'approve' | 'reject', reviewId: string) => {
-    setBusy(true); setError(undefined)
+    setBusy(true); setError(undefined); setRetryable(false)
     try {
       const reviewerNote = notes[reviewId]
       if (op === 'approve') await bridge.approve({ reviewId, ...(reviewerNote ? { reviewerNote } : {}) })
       else await bridge.reject({ reviewId, ...(reviewerNote ? { reviewerNote } : {}) })
       setNotes(prev => { const next = { ...prev }; delete next[reviewId]; return next })
-      await load(planId)
-    } catch (e) { setError(e instanceof Error ? e.message : '操作失败') }
+      await load(selectedPlanId)
+    } catch (e) { setError(e instanceof Error ? e.message : '操作失败'); setRetryable(isRetryable(e)) }
     finally { setBusy(false) }
   }
 
@@ -49,17 +65,28 @@ export function ReviewPage({ bridge = reviewBridge }: { bridge?: ReviewBridge })
   return (
     <div className="shell">
       <header className="brand"><div><p className="eyebrow">GOVERNANCE REVIEW</p><h1>治理审批</h1><p>审批计划与节点操作请求。</p></div></header>
-      {error && <div className="error" role="alert"><b>{error}</b></div>}
+      {error && <div className="error" role="alert"><b>{error}</b>{retryable && <button onClick={() => void load(selectedPlanId)} style={{ marginLeft: '12px' }}>重试</button>}</div>}
       <section style={panelStyle}>
-        <form onSubmit={e => { e.preventDefault(); void load(planId) }} style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '18px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '18px' }}>
           <label style={{ display: 'grid', gap: '4px', fontSize: '13px', color: '#e5e7eb', flex: 1 }}>
-            计划 ID
-            <input value={planId} onChange={e => setPlanId(e.target.value)} placeholder="输入计划 ULID" />
+            选择计划
+            {!projectId ? (
+              <input disabled placeholder="请先选择项目" />
+            ) : plansList.length === 0 ? (
+              <input disabled placeholder="该项目下暂无计划" />
+            ) : (
+              <select value={selectedPlanId} onChange={e => setSelectedPlanId(e.target.value)}>
+                <option value="">— 选择计划 —</option>
+                {plansList.map(p => <option key={p.id} value={p.id}>{p.name} ({p.status})</option>)}
+              </select>
+            )}
           </label>
-          <button type="submit" className="primary" disabled={loading || !planId}>{loading ? '查询中…' : '查询审批'}</button>
-        </form>
-        {reviews.length === 0 ? (
-          <div className="empty"><b>暂无审批记录</b><span>输入计划 ID 查询审批列表。</span></div>
+          {selectedPlanId && <button onClick={() => void load(selectedPlanId)} disabled={loading}>{loading ? '查询中…' : '刷新'}</button>}
+        </div>
+        {!selectedPlanId ? (
+          <div className="empty"><b>请选择计划</b><span>从下拉列表中选择一个计划查看其审批记录。</span></div>
+        ) : reviews.length === 0 ? (
+          <div className="empty"><b>暂无审批记录</b><span>该计划下还没有审批记录。</span></div>
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {reviews.map(review => (

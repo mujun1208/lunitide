@@ -201,26 +201,33 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
           {!selectedPlan ? <div className="empty"><b>请选择计划</b><span>从左侧选择一个计划查看其节点。</span></div> :
            nodes.length === 0 ? <div className="empty"><b>暂无节点</b></div> :
            <div style={{ display: 'grid', gap: '10px' }}>
-             {nodes.map(node => (
-               <div key={node.id} style={cardStyle}>
+             {nodes.map(node => {
+               const parent = node.parentNodeId ? nodes.find(n => n.id === node.parentNodeId) : undefined
+               const isReady = node.status === 'pending' && (!node.parentNodeId || parent?.status === 'completed')
+               return (
+               <div key={node.id} style={{ ...cardStyle, ...(isReady ? { borderColor: '#34d399', boxShadow: '0 0 0 1px rgba(52,211,153,0.2)' } : {}) }}>
                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                    <div>
                      <strong style={{ fontSize: '14px' }}>{node.sequence}. {node.name}</strong>
                      {node.description && <p style={{ margin: '4px 0 0', color: '#8fa3bf', fontSize: '12px' }}>{node.description}</p>}
                    </div>
                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                     <span style={{ color: statusColor(node.status), fontSize: '12px' }}>{NODE_STATUS_LABELS[node.status]}</span>
+                     <span style={{ color: statusColor(isReady ? 'ready' : node.status), fontSize: '12px' }}>{isReady ? '✓ 就绪' : NODE_STATUS_LABELS[node.status]}</span>
                      <span style={{ color: riskColor(node.riskLevel), fontSize: '11px' }}>风险: {RISK_LABELS[node.riskLevel]}</span>
                    </div>
                  </div>
-                 <div style={{ marginTop: '6px', fontSize: '11px', color: '#8fa3bf' }}>角色: {node.workerRole}{node.budgetTokens ? ` · 预算 ${node.budgetTokens}` : ''}</div>
+                 <div style={{ marginTop: '6px', fontSize: '11px', color: '#8fa3bf' }}>
+                   角色: {node.workerRole}{node.budgetTokens ? ` · 预算 ${node.budgetTokens}` : ''}
+                   {node.parentNodeId && (parent ? ` · 依赖: ${parent.name} (${NODE_STATUS_LABELS[parent.status]})` : ' · 依赖: 已删除节点')}
+                 </div>
                  <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                    {(node.status === 'pending' || node.status === 'ready') && <button disabled={busy} onClick={() => void doNodeOp('startNode', node.id)}>启动</button>}
                    {node.status === 'running' && <button disabled={busy} onClick={() => void doNodeOp('completeNode', node.id)}>完成</button>}
                    {node.status === 'running' && <button disabled={busy} onClick={() => void doNodeOp('failNode', node.id)} style={{ color: '#f87171' }}>标记失败</button>}
                  </div>
                </div>
-             ))}
+               )
+             })}
            </div>}
         </section>
       </div>
