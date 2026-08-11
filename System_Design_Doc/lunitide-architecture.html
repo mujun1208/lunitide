@@ -674,7 +674,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
 
     <h3>6.4 WebView2 Runtime</h3>
     <div class="note">
-      <b>ADR-015 已裁决</b>：v1 使用 Evergreen Runtime；安装器 MUST 检测最低版本并给出可恢复安装引导。若未来评估随包分发 Fixed Runtime，必须新建独立 ADR，不属于 ADR-015。
+      <b>ADR-003 已裁决</b>：v1 使用 Evergreen Runtime；安装器 MUST 检测最低版本并给出可恢复安装引导。若未来评估随包分发 Fixed Runtime，必须新建独立 ADR，不属于 ADR-003。
     </div>
   </div>
 </section>
@@ -1327,7 +1327,6 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <tr><td><b class="col">context.compact.commit</b></td><td>summaryVersion, baseVersion → activeVersion</td><td>手动显式提交或自动模式 CAS；失败保留旧版并重新预算</td></tr>
       <tr><td><b class="col">context.handoff.create/import</b></td><td>sourceSessionId, sourceRange/version → Handoff；handoffId → targetSessionId</td><td>校验 source digest、作用域和删除墓碑；重复导入幂等</td></tr>
     </table></div>
-    <div class="callout"><b>压缩状态机合同（ADR-005 §4.1/§4.2 权威源）：</b>当前实现将执行生命周期、内容校验与激活三维度合并到单一 <code>status</code> 字段（<code>pending / running / succeeded / failed / superseded</code>），与上表 <code>context.compact.preview</code> 的 <code>draft → validating → validated / rejected</code> 描述并不冲突——后者仅描述 <code>validation_status</code> 维度，对应 preview/commit RPC 路径（Phase D 实现）。映射权威：<code>draft</code> ≡ 当前 <code>pending</code>（执行前）或 <code>running</code>（执行中校验未完成）；<code>validated</code> ≡ 当前 <code>succeeded</code> 且 <code>ValidateProtectedFacts</code> 通过；<code>rejected</code> ≡ 当前 <code>failed</code> 且 <code>failure_code='PROTECTED_FACTS_VIOLATION'</code>；<code>active</code> ≡ 会话内按 <code>version</code> 最新 <code>succeeded</code> 的 checkpoint，前任进入 <code>superseded</code>。四条命令路径互不替换：自动/手动触发当前已实现并隐式完成校验+激活；preview 与 commit 在 Phase D 拆分为 <code>execution_status / validation_status / activation_status</code> 三字段后引入，并通过前向兼容迁移回填旧行。失败码 <code>failure_code</code> 是 append-only 枚举：<code>SOURCE_READ_FAILED</code>、<code>EMPTY_SOURCE_RANGE</code>、<code>SUMMARY_FAILED</code>、<code>PROTECTED_FACTS_VIOLATION</code>、<code>INTERRUPTED_BY_RESTART</code>、<code>BASE_VERSION_CONFLICT</code>（Phase D）、<code>SOURCE_DELETED</code>（Phase D/E）、<code>BUDGET_STILL_EXCEEDED</code>（Phase D）。任何 <code>succeeded</code> checkpoint 若未记录 protected-facts 校验结果，必须视为 <code>unvalidated</code> 且不得用于 prompt assembly。</div>
     <div class="warn"><b>保留与删除：</b>压缩、归档、切换模型和跨窗口续接均不得删除原始 Message。用户显式删除或合规保留期是唯一删除入口；墓碑与源对象变为不可读 MUST 在同一事务完成，所有读取/召回/装配/import 立即 fail-closed，再异步物理清除内容及递归派生物。传播失败也不得恢复可读。</div>
     <div class="note"><b>压缩错误码：</b><code>COMPACTION_GENERATION_FAILED</code>、<code>FIDELITY_REJECTED</code>、<code>BASE_VERSION_CONFLICT</code>、<code>SOURCE_DELETED</code>、<code>BUDGET_STILL_EXCEEDED</code>。任一失败后必须重跑 Context Builder；旧 active version 若仍超预算，不得继续发送。</div>
     <div class="callout"><b>1M 可用性门禁：</b>固定 corpus 必须覆盖消息、工具大输出、附件、摘要、Handoff 和删除墓碑；验收 append/page/query P95、重建/压缩耗时、内存峰值、磁盘放大、崩溃恢复与不同模型窗口矩阵。摘要先以 JSON Schema、claim type、source span、引用完整性和 deterministic verifier 为强制门禁；语义保真使用人工标注 benchmark，不以模型自评冒充 100% 正确。</div>
@@ -1413,9 +1412,9 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><th>ADR</th><th>状态</th><th>事项</th></tr>
         <tr><td><b class="col">ADR-001</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Go + WebView2 + React 唯一生产架构</td></tr>
         <tr><td><b class="col">ADR-002</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Host/Engine 双进程 + 当前用户 ACL Named Pipe</td></tr>
-        <tr><td><b class="col">ADR-003</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Local storage threat boundary（本地存储威胁边界）</td></tr>
+        <tr><td><b class="col">ADR-003</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>v1 使用 Evergreen WebView2；安装器检测/引导安装</td></tr>
         <tr><td><b class="col">ADR-004</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>DPAPI CurrentUser 为 v1 Secret backend；Credential Manager 后续可插拔</td></tr>
-        <tr><td><b class="col">ADR-005</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Long-context compaction and cross-window handoff（长上下文压缩与跨窗口 handoff）</td></tr>
+        <tr><td><b class="col">ADR-005</b></td><td><b style="color:var(--warn)">Open</b></td><td>SQLite 向量扩展 / 独立本地向量索引选型</td></tr>
         <tr><td><b class="col">ADR-006</b></td><td><b style="color:var(--warn)">Open</b></td><td>首期支持的代码语言解析器范围</td></tr>
         <tr><td><b class="col">ADR-007</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>已保存 Key 不向 Renderer 回显，只允许覆盖；输入窗口为唯一明文例外</td></tr>
         <tr><td><b class="col">ADR-008</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>per-user NSIS 初装 + 独立签名 Go Updater；签名 manifest 与 staging 替换</td></tr>
@@ -1423,14 +1422,11 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td><b class="col">ADR-010</b></td><td><b style="color:var(--warn)">Open</b></td><td>用户项目部署执行器的首批目标环境</td></tr>
         <tr><td><b class="col">ADR-011</b></td><td><b style="color:var(--muted)">Deferred</b></td><td>多人协作部署形态和身份源</td></tr>
         <tr><td><b class="col">ADR-012</b></td><td><b style="color:var(--warn)">Open</b></td><td>模板 docx/html 支持矩阵和渲染引擎</td></tr>
-        <tr><td><b class="col">ADR-013</b></td><td><b style="color:var(--warn)">Open</b></td><td>SQLite 向量扩展 / 独立本地向量索引选型</td></tr>
-        <tr><td><b class="col">ADR-014</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Provider status（enabled/disabled + requires_reentry）</td></tr>
-        <tr><td><b class="col">ADR-015</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>v1 使用 Evergreen WebView2；安装器检测/引导安装</td></tr>
       </table>
     </div>
 
     <div class="note">
-      <b>阻断关系：</b>ADR-013/006/009 阻断 M5 对应向量、解析与第三方 Skill 能力；ADR-012 阻断 M4/M7 对应模板格式；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M3；未批准能力必须 disabled/quarantined，不得由实现者自行扩展。ADR-011 始终不阻断 v1。ADR-005（长上下文压缩与 handoff）已 Accepted，不阻断任何阶段。
+      <b>阻断关系：</b>ADR-005/006/009 阻断 M5 对应向量、解析与第三方 Skill 能力；ADR-012 阻断 M4/M7 对应模板格式；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M3；未批准能力必须 disabled/quarantined，不得由实现者自行扩展。ADR-011 始终不阻断 v1。
     </div>
 
     <h3>13.1 关键冲突裁决</h3>
