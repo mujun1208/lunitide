@@ -87,6 +87,30 @@ func (f *fakeCheckpointStore) CountCheckpointsBySession(ctx context.Context, ses
 	return int64(len(f.bySession[sessionID])), nil
 }
 
+// ListCheckpointsByStatus returns checkpoints matching the given status across
+// all sessions, ordered by CreatedAt ascending.
+func (f *fakeCheckpointStore) ListCheckpointsByStatus(ctx context.Context, status compaction.Status, limit int) ([]compaction.Checkpoint, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	var result []compaction.Checkpoint
+	for _, cp := range f.checkpoints {
+		if cp.Status == status {
+			result = append(result, *cp)
+		}
+	}
+	// Sort by CreatedAt ascending.
+	for i := 1; i < len(result); i++ {
+		for j := i; j > 0 && result[j-1].CreatedAt.After(result[j].CreatedAt); j-- {
+			result[j-1], result[j] = result[j], result[j-1]
+		}
+	}
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
 // fakeMessageReader implements MessageReader for testing.
 type fakeMessageReader struct {
 	messages []MessageInfo

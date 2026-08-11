@@ -208,6 +208,61 @@ func (s *Store) UpdateCheckpointStatus(ctx context.Context, id string, status co
 	return mapWriteError(err)
 }
 
+// ListCheckpointsByStatus returns checkpoints matching the given status,
+// ordered by created_at ascending. Used by restart recovery to find orphaned
+// pending/running checkpoints left over from a previous process crash
+// (ADR-005 §5: "automatic high/low-watermark compaction and restart recovery").
+func (s *Store) ListCheckpointsByStatus(ctx context.Context, status compaction.Status, limit int) ([]compaction.Checkpoint, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, session_id, version, source_start_id, source_end_id,
+		 source_start_seq, source_end_seq, source_digest, prev_checkpoint_id, prev_checkpoint_digest,
+		 summary_schema_version, trigger, trigger_reason, status, provider, model,
+		 summary_json, human_summary, failure_code, created_at, completed_at
+		 FROM compaction_checkpoints WHERE status=? ORDER BY created_at ASC LIMIT ?`, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []compaction.Checkpoint
+	for rows.Next() {
+		var cp compaction.Checkpoint
+		var created, completed sql.NullString
+		var prevCheckpointID, prevCheckpointDigest, failureCode sql.NullString
+		if err = rows.Scan(
+			&cp.ID, &cp.SessionID, &cp.Version, &cp.SourceStartID, &cp.SourceEndID,
+			&cp.SourceStartSeq, &cp.SourceEndSeq, &cp.SourceDigest, &prevCheckpointID, &prevCheckpointDigest,
+			&cp.SummarySchemaVersion, &cp.Trigger, &cp.TriggerReason, &cp.Status, &cp.Provider, &cp.Model,
+			&cp.SummaryJSON, &cp.HumanSummary, &failureCode, &created, &completed); err != nil {
+			return nil, err
+		}
+		cp.CreatedAt, err = time.Parse(time.RFC3339Nano, created.String)
+		if err != nil {
+			return nil, err
+		}
+		if prevCheckpointID.Valid {
+			cp.PrevCheckpointID = &prevCheckpointID.String
+		}
+		if prevCheckpointDigest.Valid {
+			cp.PrevCheckpointDigest = &prevCheckpointDigest.String
+		}
+		if failureCode.Valid {
+			cp.FailureCode = &failureCode.String
+		}
+		if completed.Valid {
+			t, err := time.Parse(time.RFC3339Nano, completed.String)
+			if err != nil {
+				return nil, err
+			}
+			cp.CompletedAt = &t
+		}
+		result = append(result, cp)
+	}
+	return result, rows.Err()
+}
+
 // CountCheckpointsBySession returns the number of checkpoints for a session.
 func (s *Store) CountCheckpointsBySession(ctx context.Context, sessionID string) (int64, error) {
 	var count int64
