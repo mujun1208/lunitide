@@ -108,6 +108,50 @@ A checkpoint is accepted only after deterministic validation confirms valid sour
 
 Repeated compaction summarizes the previous accepted checkpoint plus the next immutable source range. It does not recursively summarize an already lossy free-form string without provenance.
 
+#### 4.1 `status` field semantics (current implementation vs. target contract)
+
+The `status` field defined above (`pending`, `running`, `succeeded`, `failed`, `superseded`) carries **two orthogonal dimensions collapsed into a single column** in the current implementation (migration 0011, `internal/domain/compaction/checkpoint.go`):
+
+| Dimension | Current `status` value | Target dedicated field | Target value |
+|---|---|---|---|
+| Execution lifecycle | `pending` / `running` / `succeeded` / `failed` | `execution_status` | `pending` / `running` / `succeeded` / `failed` / `canceled` |
+| Content validation | (collapsed into `succeeded`/`failed`) | `validation_status` | `unvalidated` / `validating` / `accepted` / `rejected` |
+| Activation | (collapsed into `succeeded`/`superseded`) | `activation_status` | `inactive` / `active` / `superseded` |
+
+This collapse is intentional for the **automatic compaction** and **manual trigger** paths already implemented: a checkpoint whose summary generation succeeds and whose protected-facts validation passes is immediately both `succeeded` (execution) and `accepted` (validation) and is the implicit `active` version until a newer one supersedes it. The `failure_code` column distinguishes validation failures (`PROTECTED_FACTS_VIOLATION`) from execution failures (`SUMMARY_FAILED`, `SOURCE_READ_FAILED`, `EMPTY_SOURCE_RANGE`, `INTERRUPTED_BY_RESTART`).
+
+The architecture HTML's `context.compact.preview` RPC contract (chapter 12.1.1: `draft → validating → validated / rejected`) describes the **`validation_status` dimension in isolation**, applicable only to the preview/commit RPC path (see §4.2) that has not yet been implemented. Until that path lands, the following mapping is authoritative:
+
+- Architecture HTML `draft` ≡ current `pending` (before execution) or `running` (during execution, before validation completes).
+- Architecture HTML `validated` ≡ current `succeeded` with a successful `ValidateProtectedFacts` outcome.
+- Architecture HTML `rejected` ≡ current `failed` with `failure_code = 'PROTECTED_FACTS_VIOLATION'`.
+- Architecture HTML `active` (set by `context.compact.commit`) ≡ the latest `succeeded` checkpoint by `version` for the session; supersession is recorded by transitioning the prior `succeeded` checkpoint to `superseded`.
+
+The split into three dedicated columns (`execution_status`, `validation_status`, `activation_status`) is **deferred to Phase D** (§4.2 implementation) and will be introduced via a forward-compatible migration that backfills existing rows. No code path may rely on the current collapse to bypass validation: a `succeeded` checkpoint whose protected-facts validation has not been recorded MUST be treated as `unvalidated` and never used in prompt assembly.
+
+#### 4.2 Compaction command paths (target contract, partially implemented)
+
+The four compaction paths MUST be kept as distinct command flows; they are not interchangeable:
+
+| Path | Implemented | `execution_status` flow | `validation_status` flow | `activation_status` flow |
+|---|---|---|---|---|
+| **Automatic** (high/low watermark) | ✅ | `pending → running → succeeded/failed` | implicit `unvalidated → accepted` (via `ValidateProtectedFacts`) | implicit `inactive → active`, prior → `superseded` (CAS by `version`) |
+| **Manual trigger** (one-shot) | ✅ | same as automatic | same as automatic | same as automatic |
+| **Manual preview** (`context.compact.preview`) | ❌ Phase D | `pending → running → succeeded/failed` (draft generation) | `unvalidated → validating → accepted/rejected` (preview MUST NOT mutate `active`) | `inactive` only |
+| **Manual commit** (`context.compact.commit`) | ❌ Phase D | (no execution; uses preview's `succeeded` row) | inherited from preview's `accepted` | `inactive → active`, prior → `superseded` (CAS on `baseVersion`) |
+| **Handoff capsule** (`context.handoff.create/import`) | ✅ (create), ⚠️ (import) | `pending → running → succeeded/failed` | implicit `accepted` for the source-side checkpoint | `inactive` on source side; import-side `active` is set by `context.handoff.import` against the target session |
+
+Failure codes are append-only and MUST be one of:
+
+- `SOURCE_READ_FAILED` — could not load source messages.
+- `EMPTY_SOURCE_RANGE` — source range contained zero messages.
+- `SUMMARY_FAILED` — summarizer returned an error.
+- `PROTECTED_FACTS_VIOLATION` — generated summary failed `ValidateProtectedFacts` (validation rejection).
+- `INTERRUPTED_BY_RESTART` — checkpoint was `running` at process restart; marked failed so the next turn re-compacts.
+- `BASE_VERSION_CONFLICT` — (Phase D) commit CAS failed because `baseVersion` no longer matches the active version.
+- `SOURCE_DELETED` — (Phase D/E) source range became unreadable due to deletion tombstone propagation.
+- `BUDGET_STILL_EXCEEDED` — (Phase D) post-compaction re-assembly still exceeds the effective input budget; caller MUST return `CONTEXT_BUDGET_EXCEEDED` rather than send an oversized request.
+
 ### 5. Cross-window handoff capsule
 
 A user may manually create a handoff before opening a new window. Automatic handoff is offered near the UI/model-context threshold. A handoff capsule is a specialized accepted checkpoint containing:
