@@ -135,6 +135,16 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 		return result, nil
 	}
 
+	// 4.5. Protected facts validation: verify the summary preserves exact
+	// identifiers, values, and quotations from the source range (ADR-005 §4).
+	facts := ExtractProtectedFacts(messages)
+	if err := ValidateProtectedFacts(summaryJSON, facts); err != nil {
+		e.markFailed(execCtx, checkpointID, "PROTECTED_FACTS_VIOLATION", err)
+		result.Status = compaction.StatusFailed
+		result.DurationMs = time.Since(start).Milliseconds()
+		return result, nil
+	}
+
 	// 5. Transition running → succeeded.
 	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusSucceeded, summaryJSON, humanSummary, nil); err != nil {
 		return result, fmt.Errorf("transition to succeeded: %w", err)
