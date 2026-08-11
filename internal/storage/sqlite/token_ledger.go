@@ -14,13 +14,13 @@ func (s *Store) UpsertTokenLedger(ctx context.Context, entry token.LedgerEntry) 
 		return err
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
-		 VALUES(?,?,?,?,?,?,?,?,?)
+		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at, subject_type, subject_id, tokenizer_id)
+		 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, 'lunitide-canonical-v1')
 		 ON CONFLICT(message_id, provider, model, tokenizer_revision)
 		 DO UPDATE SET token_count=excluded.token_count, estimation_method=excluded.estimation_method,
 		              utf8_bytes=excluded.utf8_bytes, computed_at=excluded.computed_at`,
 		entry.ID, entry.MessageID, entry.Provider, entry.Model, entry.TokenizerRevision,
-		entry.TokenCount, entry.EstimationMethod, entry.UTF8Bytes, formatTime(entry.ComputedAt))
+		entry.TokenCount, entry.EstimationMethod, entry.UTF8Bytes, formatTime(entry.ComputedAt), entry.MessageID)
 	return mapWriteError(err)
 }
 
