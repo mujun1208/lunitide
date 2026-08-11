@@ -34,7 +34,7 @@ const sidebar=<aside className="sidebar" aria-label="侧边导航">
 
 const activeProjectId=selected?.id??''
 if(selected)return<div className="app-shell">{sidebar}<SessionPage key={selected.id} project={selected} bridge={sessions} messages={messages} onBack={()=>setSelected(undefined)} stages={stages} chat={chatBridge} providers={providers}/><ActivityPanel project={selected}/></div>
-return<div className="app-shell no-activity">{sidebar}<main className="main">{page==='plans'?<PlanPage projectId={activeProjectId}/>:page==='reviews'?<ReviewPage/>:page==='memory'?<MemoryPage projectId={activeProjectId}/>:page==='ontology'?<OntologyPage projectId={activeProjectId}/>:page==='skills'?<SkillPage/>:page==='projects'?<ProjectPage bridge={projects} onSelect={setSelected}/>:<ProviderApp bridge={providers}/>}</main></div>
+return<div className="app-shell no-activity">{sidebar}<main className="main">{page==='plans'?<PlanPage projectId={activeProjectId}/>:page==='reviews'?<ReviewPage projectId={activeProjectId}/>:page==='memory'?<MemoryPage projectId={activeProjectId}/>:page==='ontology'?<OntologyPage projectId={activeProjectId}/>:page==='skills'?<SkillPage/>:page==='projects'?<ProjectPage bridge={projects} onSelect={setSelected}/>:<ProviderApp bridge={providers}/>}</main></div>
 }
 
 function ActivityPanel({project}:{project:ProjectDTO}):React.JSX.Element{
