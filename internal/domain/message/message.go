@@ -24,6 +24,7 @@ type Status string
 
 const RoleUser Role = "user"
 const RoleAssistant Role = "assistant"
+const RoleTool Role = "tool"
 const StatusCompleted Status = "completed"
 const StatusFailed Status = "failed"
 
@@ -76,7 +77,7 @@ func (m Message) Validate() error {
 		if err != nil || text != m.Text || m.Status != StatusCompleted {
 			return errors.New("message invariant violation")
 		}
-	case RoleAssistant:
+	case RoleAssistant, RoleTool:
 		text, err := NormalizeAssistantText(m.Text)
 		if err != nil || text != m.Text || m.Status != StatusCompleted {
 			return errors.New("message invariant violation")

@@ -8,6 +8,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -69,13 +70,22 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				break
 			}
 		}
+		// Estimate system instruction token cost from explicitly provided
+		// messages (ADR-005 §3 priority 1: authoritative system/security/product
+		// instructions). System messages are reserved before message selection.
+		var systemTokens int64
+		for _, m := range p.Messages {
+			if m.Role == gateway.RoleSystem {
+				systemTokens += token.EstimateTokens(m.Content)
+			}
+		}
 		providerInfo := contextapp.ProviderInfo{
 			Provider:       string(item.Protocol),
 			Model:          p.ModelID,
 			ContextWindow:  contextWindow,
 			SafetyCeiling:  safetyCeiling,
 			ReservedOutput: 4096,
-			SystemTokens:   0,
+			SystemTokens:   systemTokens,
 			SafetyMargin:   1024,
 		}
 
@@ -104,6 +114,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if assembleErr != nil {
 			return bridge.Failure(request.ID, request.TraceID, "CONTEXT_ASSEMBLY_FAILED", "上下文装配失败: "+assembleErr.Error(), true)
 		}
+		// Validate the assembled message sequence (ADR-005 §3: "never emits
+		// an invalid provider message sequence").
+		if seqErr := contextapp.ValidateProviderSequence(assembled); seqErr != nil {
+			return bridge.Failure(request.ID, request.TraceID, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效: "+seqErr.Error(), true)
+		}
 		messages = make([]gateway.Message, len(assembled))
 		for i, m := range assembled {
 			messages[i] = gateway.Message{
@@ -123,7 +138,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		totalBytes := len(p.ModelID)
 		for _, m := range p.Messages {
 			totalBytes += len(m.Content)
-			if (m.Role != gateway.RoleSystem && m.Role != gateway.RoleUser && m.Role != gateway.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
+			if (m.Role != gateway.RoleSystem && m.Role != gateway.RoleUser && m.Role != gateway.RoleAssistant && m.Role != gateway.RoleTool) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
 				return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
 			}
 		}
@@ -159,6 +174,8 @@ func gatewayRole(role string) gateway.Role {
 		return gateway.RoleSystem
 	case "assistant":
 		return gateway.RoleAssistant
+	case "tool":
+		return gateway.RoleTool
 	default:
 		return gateway.RoleUser
 	}

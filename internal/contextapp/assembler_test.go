@@ -328,3 +328,309 @@ func TestAssembleNoUserMessagesReturnsError(t *testing.T) {
 		t.Fatalf("expected ErrNoMessages, got %v", err)
 	}
 }
+
+// TestValidateProviderSequenceValid verifies that a well-formed alternating
+// sequence passes validation.
+func TestValidateProviderSequenceValid(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []Message
+	}{
+		{"simple user-assistant", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "hello"},
+		}},
+		{"system at start", []Message{
+			{Role: "system", Content: "instructions"},
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "hello"},
+		}},
+		{"multiple system at start", []Message{
+			{Role: "system", Content: "instructions"},
+			{Role: "system", Content: "more instructions"},
+			{Role: "user", Content: "hi"},
+		}},
+		{"consecutive user messages", []Message{
+			{Role: "user", Content: "first"},
+			{Role: "user", Content: "second"},
+			{Role: "assistant", Content: "reply"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateProviderSequence(tt.msgs); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestValidateProviderSequenceInvalid verifies that invalid sequences are
+// rejected.
+func TestValidateProviderSequenceInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []Message
+	}{
+		{"empty", []Message{}},
+		{"system after non-system", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "system", Content: "late system"},
+		}},
+		{"consecutive assistant", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "reply1"},
+			{Role: "assistant", Content: "reply2"},
+		}},
+		{"no user message", []Message{
+			{Role: "system", Content: "instructions"},
+			{Role: "assistant", Content: "reply"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateProviderSequence(tt.msgs); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
+}
+
+// TestAssemblePinnedFactsInjection verifies that PinnedFacts is injected as a
+// system-level preamble (ADR-005 §3 priority 4).
+func TestAssemblePinnedFactsInjection(t *testing.T) {
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m1", Role: "user", Content: "hello", Sequence: 1, TokenCount: 5},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 1000, ReservedOutput: 0}
+	msgs, err := Assemble(context.Background(), reader, "s1", info, AssembleOptions{
+		RecentUserReserve: 20,
+		PinnedFacts:       "Decision: use PostgreSQL for persistence.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Expect: [Pinned Facts system msg] + [user message]
+	if len(msgs) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(msgs))
+	}
+	if msgs[0].Role != "system" {
+		t.Fatalf("expected first message to be system, got %s", msgs[0].Role)
+	}
+	if !strings.Contains(msgs[0].Content, "[Pinned Facts]") {
+		t.Fatalf("expected pinned facts preamble, got %q", msgs[0].Content)
+	}
+}
+
+// TestAssemblePinnedFactsWithPriorSummary verifies that both PriorSummary and
+// PinnedFacts are injected in the correct order (summary first, then facts).
+func TestAssemblePinnedFactsWithPriorSummary(t *testing.T) {
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m1", Role: "user", Content: "hello", Sequence: 1, TokenCount: 5},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 1000, ReservedOutput: 0}
+	msgs, err := Assemble(context.Background(), reader, "s1", info, AssembleOptions{
+		RecentUserReserve: 20,
+		PriorSummary:      "Context summary text.",
+		PinnedFacts:       "Pinned decision text.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Expect: [PriorSummary] + [PinnedFacts] + [user message]
+	if len(msgs) < 3 {
+		t.Fatalf("expected at least 3 messages, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "[Prior Context Summary]") {
+		t.Fatalf("expected first message to be prior summary, got %q", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[1].Content, "[Pinned Facts]") {
+		t.Fatalf("expected second message to be pinned facts, got %q", msgs[1].Content)
+	}
+}
+
+// TestAssembleRetrievedEvidenceWithinBudget verifies that RetrievedEvidence is
+// appended when within the remaining budget.
+func TestAssembleRetrievedEvidenceWithinBudget(t *testing.T) {
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m1", Role: "user", Content: "hello", Sequence: 1, TokenCount: 5},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 1000, ReservedOutput: 0}
+	msgs, err := Assemble(context.Background(), reader, "s1", info, AssembleOptions{
+		RecentUserReserve: 20,
+		RetrievedEvidence: "Older evidence from memory.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Last message should be the retrieved evidence system message.
+	last := msgs[len(msgs)-1]
+	if last.Role != "system" {
+		t.Fatalf("expected last message to be system, got %s", last.Role)
+	}
+	if !strings.Contains(last.Content, "[Retrieved Evidence]") {
+		t.Fatalf("expected retrieved evidence preamble, got %q", last.Content)
+	}
+}
+
+// TestAssembleRetrievedEvidenceExceedingBudget verifies that RetrievedEvidence
+// is NOT appended when it exceeds the remaining budget.
+func TestAssembleRetrievedEvidenceExceedingBudget(t *testing.T) {
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m1", Role: "user", Content: "hello", Sequence: 1, TokenCount: 5},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 100, ReservedOutput: 0}
+	// Budget = 100. Reserve = 20, remaining after m1 = 75.
+	// RetrievedEvidence is very large, should exceed remaining.
+	largeEvidence := strings.Repeat("evidence ", 1000)
+	msgs, err := Assemble(context.Background(), reader, "s1", info, AssembleOptions{
+		RecentUserReserve: 20,
+		RetrievedEvidence: largeEvidence,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Last message should NOT be retrieved evidence (exceeds budget).
+	last := msgs[len(msgs)-1]
+	if strings.Contains(last.Content, "[Retrieved Evidence]") {
+		t.Fatal("retrieved evidence should not be included when exceeding budget")
+	}
+}
+
+// TestAssembleToolCallToolResultAtomicity verifies that a tool result and its
+// corresponding assistant tool_call are always included together (ADR-005 §3:
+// "never splits an assistant tool call from its tool result").
+func TestAssembleToolCallToolResultAtomicity(t *testing.T) {
+	// Forward order: m1(user), m2(assistant tool_call), m3(tool result), m4(assistant final), m5(user)
+	// Backward order: m5, m4, m3, m2, m1
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m5", Role: "user", Content: "latest user", Sequence: 5, TokenCount: 10},
+			{ID: "m4", Role: "assistant", Content: "final reply", Sequence: 4, TokenCount: 10},
+			{ID: "m3", Role: "tool", Content: `{"result":"sunny"}`, Sequence: 3, TokenCount: 10},
+			{ID: "m2", Role: "assistant", Content: `{"tool":"get_weather"}`, Sequence: 2, TokenCount: 10},
+			{ID: "m1", Role: "user", Content: "first user", Sequence: 1, TokenCount: 10},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 1000, ReservedOutput: 0}
+	msgs, err := Assemble(context.Background(), reader, "s1", info, AssembleOptions{RecentUserReserve: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool, len(msgs))
+	for _, m := range msgs {
+		ids[m.ID] = true
+	}
+	// m3 (tool) and m2 (assistant tool_call) must both be present or both absent.
+	if ids["m3"] != ids["m2"] {
+		t.Fatalf("tool_call/tool_result atomicity violation: m3(tool)=%v m2(assistant)=%v", ids["m3"], ids["m2"])
+	}
+}
+
+// TestAssembleToolCallToolResultSkippedTogether verifies that when the
+// tool+assistant pair exceeds budget, both are skipped (not just one).
+func TestAssembleToolCallToolResultSkippedTogether(t *testing.T) {
+	// Forward: m1(user), m2(assistant tool_call, 80), m3(tool result, 80), m4(assistant, 10), m5(user, 10)
+	// Backward: m5(10), m4(10), m3(80), m2(80), m1(10)
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m5", Role: "user", Content: "latest", Sequence: 5, TokenCount: 10},
+			{ID: "m4", Role: "assistant", Content: "reply", Sequence: 4, TokenCount: 10},
+			{ID: "m3", Role: "tool", Content: strings.Repeat("r", 80), Sequence: 3, TokenCount: 80},
+			{ID: "m2", Role: "assistant", Content: strings.Repeat("c", 80), Sequence: 2, TokenCount: 80},
+			{ID: "m1", Role: "user", Content: "first", Sequence: 1, TokenCount: 10},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 120, ReservedOutput: 0}
+	// Budget = 120. Reserve = 20, remaining = 100.
+	// m4(10) fits → remaining = 90.
+	// m3(tool,80) + m2(assistant,80) = 160 > 90 → skip BOTH.
+	// m1(10) fits → remaining = 80.
+	msgs, err := Assemble(context.Background(), reader, "s1", info, AssembleOptions{RecentUserReserve: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool, len(msgs))
+	for _, m := range msgs {
+		ids[m.ID] = true
+	}
+	// Both m3 and m2 must be absent (skipped together).
+	if ids["m3"] || ids["m2"] {
+		t.Fatalf("expected m3 and m2 to be skipped together, got m3=%v m2=%v", ids["m3"], ids["m2"])
+	}
+	// m5 (latest user) and m1 should be present.
+	if !ids["m5"] {
+		t.Fatal("latest user m5 not included")
+	}
+	if !ids["m1"] {
+		t.Fatal("m1 should be included within budget")
+	}
+}
+
+// TestValidateProviderSequenceToolValid verifies that sequences with tool
+// messages in valid positions pass validation.
+func TestValidateProviderSequenceToolValid(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []Message
+	}{
+		{"assistant then tool", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "call tool"},
+			{Role: "tool", Content: "result"},
+			{Role: "assistant", Content: "final reply"},
+		}},
+		{"assistant then multiple tools", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "call tools"},
+			{Role: "tool", Content: "result1"},
+			{Role: "tool", Content: "result2"},
+			{Role: "assistant", Content: "final reply"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateProviderSequence(tt.msgs); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestValidateProviderSequenceToolInvalid verifies that invalid tool message
+// positions are rejected.
+func TestValidateProviderSequenceToolInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []Message
+	}{
+		{"tool without preceding assistant", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "tool", Content: "result"},
+		}},
+		{"tool at start", []Message{
+			{Role: "tool", Content: "result"},
+			{Role: "user", Content: "hi"},
+		}},
+		{"tool after user", []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "tool", Content: "result"},
+			{Role: "assistant", Content: "reply"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateProviderSequence(tt.msgs); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
+}
