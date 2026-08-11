@@ -17,6 +17,7 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/credentialsubmission"
 	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/diagnosticapp"
 	"github.com/lunitide/lunitide/internal/engineclient"
 	"github.com/lunitide/lunitide/internal/hostbridge"
 	"github.com/lunitide/lunitide/internal/ipc"
@@ -164,6 +165,7 @@ func run() error {
 		bridge.MethodProviderCreate:           credentialHandler,
 		bridge.MethodProviderUpdate:           credentialHandler,
 		bridge.MethodProviderDelete:           credentialHandler,
+		bridge.MethodDiagnosticsExport:        &diagnosticapp.HostHandler{},
 	})
 	if err != nil {
 		return err

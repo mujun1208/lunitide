@@ -74,6 +74,7 @@ type Engine struct {
 	memories       MemoryService
 	ontology       OntologyService
 	skills         SkillService
+	migration      MigrationService
 	messageReader  contextapp.Reader
 	tokenRepo      token.Repository
 	version        string
@@ -166,6 +167,9 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSkillPublish:      handleSkillPublish,
 	bridge.MethodSkillDeprecate:    handleSkillDeprecate,
 	bridge.MethodSkillDisable:      handleSkillDisable,
+	bridge.MethodMigrationInspect:  handleMigrationInspect,
+	bridge.MethodMigrationRun:      handleMigrationRun,
+	bridge.MethodMigrationStatus:   handleMigrationStatus,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -246,6 +250,9 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 	e.skills = skills
 	return e
 }
+
+// SetMigrationService wires the migration service into the engine.
+func (e *Engine) SetMigrationService(m MigrationService) { e.migration = m }
 
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.
