@@ -87,6 +87,22 @@ func (s *Store) SumTokenLedgerBySession(ctx context.Context, sessionID, provider
 	return total.Int64, nil
 }
 
+// SumTokenLedgerAfterSeq returns the total token count for messages in a session
+// with sequence > afterSeq. Used for low-watermark verification after compaction
+// (remaining uncompacted messages).
+func (s *Store) SumTokenLedgerAfterSeq(ctx context.Context, sessionID, provider, model, tokenizerRevision string, afterSeq int64) (int64, error) {
+	var total sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(tl.token_count), 0) FROM token_ledger tl
+		 JOIN messages m ON m.id = tl.message_id
+		 WHERE m.session_id=? AND m.sequence > ? AND tl.provider=? AND tl.model=?`,
+		sessionID, afterSeq, provider, model).Scan(&total)
+	if err != nil {
+		return 0, err
+	}
+	return total.Int64, nil
+}
+
 // DeleteTokenLedgerByMessage removes all ledger entries for a message.
 func (s *Store) DeleteTokenLedgerByMessage(ctx context.Context, messageID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM token_ledger WHERE message_id=?`, messageID)

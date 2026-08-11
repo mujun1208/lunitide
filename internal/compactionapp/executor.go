@@ -61,6 +61,19 @@ type ExecutorStore interface {
 	// ordered by created_at ascending. Used by restart recovery to find
 	// orphaned pending/running checkpoints (ADR-005 §5).
 	ListCheckpointsByStatus(ctx context.Context, status compaction.Status, limit int) ([]compaction.Checkpoint, error)
+	// MarkPreviousSucceededAsSuperseded marks all succeeded checkpoints for the
+	// session (except the one with the given currentCheckpointID) as superseded.
+	// This is called when a new checkpoint is activated to ensure only one
+	// active succeeded checkpoint exists per session (ADR-005 §4.2).
+	MarkPreviousSucceededAsSuperseded(ctx context.Context, sessionID, currentCheckpointID string) (int64, error)
+	// GetLatestSucceededCheckpoint returns the latest succeeded checkpoint for
+	// the session, or nil if none. Used for low-watermark verification and
+	// rolling summary loading.
+	GetLatestSucceededCheckpoint(ctx context.Context, sessionID string) (*compaction.Checkpoint, error)
+	// SumTokenLedgerAfterSeq returns the total token count for messages in the
+	// session with sequence > afterSeq. Used for low-watermark verification
+	// (remaining uncompacted messages).
+	SumTokenLedgerAfterSeq(ctx context.Context, sessionID, provider, model, tokenizerRevision string, afterSeq int64) (int64, error)
 }
 
 // SourceReader provides access to the messages in the source range.
@@ -102,11 +115,19 @@ func (e *Executor) SetTrigger(t *Trigger) { e.trigger = t }
 // ExecuteResult describes the outcome of executing a checkpoint.
 type ExecuteResult struct {
 	CheckpointID  string
+	Version       int64
 	Status        compaction.Status
 	SummaryJSON   string
 	HumanSummary  string
 	FailureCode   *string
 	DurationMs    int64
+	// LowWatermarkVerified is true when the post-compaction reusable context
+	// was verified to be below the low watermark (ADR-005 §5). False when
+	// verification was not performed (e.g., context window unknown).
+	LowWatermarkVerified bool
+	// LowWatermarkUsageFraction is the remaining reusable context as a fraction
+	// of the context window (0.0–1.0). Only meaningful when LowWatermarkVerified is true.
+	LowWatermarkUsageFraction float64
 }
 
 // Execute processes a pending checkpoint: transitions to running, generates summary, transitions to succeeded/failed.
@@ -193,6 +214,7 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 	result.Status = compaction.StatusSucceeded
 	result.SummaryJSON = summaryJSON
 	result.HumanSummary = humanSummary
+	result.Version = cp.Version
 	result.DurationMs = time.Since(start).Milliseconds()
 	return result, nil
 }
@@ -381,8 +403,10 @@ type CommitResult struct {
 // Commit activates a previewed checkpoint using CAS on baseVersion.
 // It re-validates that the checkpoint exists, is in "succeeded" status,
 // and that baseVersion matches the current version (ADR-005 §4.2).
-// A succeeded checkpoint is already active (latest by version), so Commit
-// only confirms the CAS validation and returns Activated=true.
+//
+// On successful commit, all previous succeeded checkpoints for the same
+// session are marked as superseded, ensuring only one active succeeded
+// checkpoint exists per session.
 func (e *Executor) Commit(ctx context.Context, checkpointID string, baseVersion int64) (*CommitResult, error) {
 	cp, err := e.store.GetCheckpoint(ctx, checkpointID)
 	if err != nil {
@@ -397,6 +421,16 @@ func (e *Executor) Commit(ctx context.Context, checkpointID string, baseVersion 
 	if cp.Version != baseVersion {
 		return nil, fmt.Errorf("%w: expected %d, got %d", ErrVersionConflict, baseVersion, cp.Version)
 	}
+
+	// Mark all previous succeeded checkpoints for this session as superseded.
+	// This ensures GetLatestCompactionSummary returns only the newly committed
+	// checkpoint (ADR-005 §4.2: "commit activates the new checkpoint").
+	superseded, err := e.store.MarkPreviousSucceededAsSuperseded(ctx, cp.SessionID, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("mark previous succeeded as superseded: %w", err)
+	}
+	_ = superseded // count of superseded checkpoints (for diagnostics)
+
 	return &CommitResult{
 		CheckpointID: cp.ID,
 		Version:      cp.Version,
@@ -437,4 +471,97 @@ func (e *Executor) Cancel(ctx context.Context, checkpointID string) (*CancelResu
 		Status:       string(compaction.StatusFailed),
 		Cancelled:    true,
 	}, nil
+}
+
+// RetryResult describes the outcome of retrying a failed checkpoint.
+type RetryResult struct {
+	CheckpointID string
+	Status       compaction.Status
+	Retried      bool
+}
+
+// Retry transitions a failed checkpoint back to pending and re-executes it
+// (ADR-005 §5: "failed checkpoints can be retried"). The state machine allows
+// failed→pending→running→succeeded/failed. If the checkpoint is not in failed
+// state, an error is returned.
+//
+// The retry is idempotent in the sense that re-executing a failed checkpoint
+// creates a new summary attempt without duplicating the checkpoint record.
+// The source range and digest are preserved; only the summary is regenerated.
+func (e *Executor) Retry(ctx context.Context, checkpointID string) (RetryResult, ExecuteResult, error) {
+	cp, err := e.store.GetCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return RetryResult{}, ExecuteResult{}, fmt.Errorf("get checkpoint: %w", err)
+	}
+	if cp == nil {
+		return RetryResult{}, ExecuteResult{}, ErrCheckpointNotFound
+	}
+	if cp.Status != compaction.StatusFailed {
+		return RetryResult{}, ExecuteResult{}, fmt.Errorf("checkpoint not in failed state (current: %s)", cp.Status)
+	}
+
+	// Transition failed → pending (CAS: expectedStatus=failed).
+	// Clear the failure code and reset summary to empty JSON.
+	if err := e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusFailed, compaction.StatusPending, "{}", "", nil); err != nil {
+		return RetryResult{}, ExecuteResult{}, fmt.Errorf("transition to pending: %w", err)
+	}
+
+	// Re-execute the checkpoint (pending → running → succeeded/failed).
+	execResult, err := e.Execute(ctx, checkpointID)
+	retryResult := RetryResult{
+		CheckpointID: checkpointID,
+		Status:       execResult.Status,
+		Retried:      true,
+	}
+	return retryResult, execResult, err
+}
+
+// VerifyLowWatermark checks that the reusable conversational input after
+// compaction is below the low watermark (default 60% of the context window).
+// This is a post-compaction verification: the remaining uncompacted messages
+// (sequence > sourceEndSeq) plus the summary tokens should be below
+// LowWatermark * contextWindow (ADR-005 §5).
+//
+// Returns (verified, usageFraction, error). When verified is false, the
+// compaction was insufficient but cannot be undone — the caller should log a
+// warning and potentially trigger another compaction on the next turn.
+func (e *Executor) VerifyLowWatermark(ctx context.Context, checkpointID string, contextWindow int64, lowWatermark float64) (bool, float64, error) {
+	if contextWindow <= 0 {
+		return false, 0, nil
+	}
+	if lowWatermark <= 0 || lowWatermark > 1 {
+		lowWatermark = 0.60
+	}
+
+	cp, err := e.store.GetCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return false, 0, fmt.Errorf("get checkpoint: %w", err)
+	}
+	if cp == nil {
+		return false, 0, ErrCheckpointNotFound
+	}
+
+	// Sum tokens for messages after the compaction range (remaining context).
+	remaining, err := e.store.SumTokenLedgerAfterSeq(ctx, cp.SessionID, cp.Provider, cp.Model, "", cp.SourceEndSeq)
+	if err != nil {
+		return false, 0, fmt.Errorf("sum remaining tokens: %w", err)
+	}
+
+	// Estimate summary token cost (rough: 4 bytes per token, JSON content).
+	summaryTokens := int64(len(cp.SummaryJSON) / 4)
+	totalReusable := remaining + summaryTokens
+
+	threshold := int64(float64(contextWindow) * lowWatermark)
+	fraction := float64(totalReusable) / float64(contextWindow)
+	verified := totalReusable < threshold
+
+	return verified, fraction, nil
+}
+
+// MarkPreviousSucceededSuperseded marks all succeeded checkpoints for the
+// session (except the one with currentCheckpointID) as superseded. This is
+// the activation step for automatic compaction (ADR-005 §4.2). Returns the
+// number of checkpoints superseded.
+func (e *Executor) MarkPreviousSucceededSuperseded(ctx context.Context, sessionID, currentCheckpointID string) (int64, error) {
+	return e.store.MarkPreviousSucceededAsSuperseded(ctx, sessionID, currentCheckpointID)
 }

@@ -3,6 +3,7 @@ package compactionapp
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
@@ -100,6 +101,49 @@ func (m *mockExecutorStore) ListCheckpointsByStatus(_ context.Context, status co
 	result := make([]compaction.Checkpoint, len(cps))
 	copy(result, cps)
 	return result, nil
+}
+
+// MarkPreviousSucceededAsSuperseded marks all succeeded checkpoints (except the
+// current one) as superseded. In the mock, this updates the checkpoint's status
+// in-place.
+func (m *mockExecutorStore) MarkPreviousSucceededAsSuperseded(_ context.Context, sessionID, currentCheckpointID string) (int64, error) {
+	var count int64
+	if m.checkpoint != nil && m.checkpoint.SessionID == sessionID && m.checkpoint.ID != currentCheckpointID && m.checkpoint.Status == compaction.StatusSucceeded {
+		m.checkpoint.Status = compaction.StatusSuperseded
+		count++
+	}
+	if m.prevCheckpoint != nil && m.prevCheckpoint.SessionID == sessionID && m.prevCheckpoint.ID != currentCheckpointID && m.prevCheckpoint.Status == compaction.StatusSucceeded {
+		m.prevCheckpoint.Status = compaction.StatusSuperseded
+		count++
+	}
+	for _, cps := range m.byStatus {
+		for i := range cps {
+			if cps[i].SessionID == sessionID && cps[i].ID != currentCheckpointID && cps[i].Status == compaction.StatusSucceeded {
+				cps[i].Status = compaction.StatusSuperseded
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
+// GetLatestSucceededCheckpoint returns the latest succeeded checkpoint for the session.
+func (m *mockExecutorStore) GetLatestSucceededCheckpoint(_ context.Context, sessionID string) (*compaction.Checkpoint, error) {
+	var latest *compaction.Checkpoint
+	if m.checkpoint != nil && m.checkpoint.SessionID == sessionID && m.checkpoint.Status == compaction.StatusSucceeded {
+		latest = m.checkpoint
+	}
+	if m.prevCheckpoint != nil && m.prevCheckpoint.SessionID == sessionID && m.prevCheckpoint.Status == compaction.StatusSucceeded {
+		if latest == nil || m.prevCheckpoint.Version > latest.Version {
+			latest = m.prevCheckpoint
+		}
+	}
+	return latest, nil
+}
+
+// SumTokenLedgerAfterSeq returns a mock value for remaining tokens after a sequence.
+func (m *mockExecutorStore) SumTokenLedgerAfterSeq(_ context.Context, _, _, _, _ string, _ int64) (int64, error) {
+	return 0, nil
 }
 
 type mockSourceReader struct {
@@ -478,6 +522,37 @@ func (f *fakeCheckpointStore) UpdateCheckpointStatus(_ context.Context, id strin
 	return nil
 }
 
+// MarkPreviousSucceededAsSuperseded marks all succeeded checkpoints for the
+// session (except currentCheckpointID) as superseded.
+func (f *fakeCheckpointStore) MarkPreviousSucceededAsSuperseded(_ context.Context, sessionID, currentCheckpointID string) (int64, error) {
+	var count int64
+	for _, cp := range f.bySession[sessionID] {
+		if cp.ID != currentCheckpointID && cp.Status == compaction.StatusSucceeded {
+			cp.Status = compaction.StatusSuperseded
+			count++
+		}
+	}
+	return count, nil
+}
+
+// GetLatestSucceededCheckpoint returns the latest succeeded checkpoint for the session.
+func (f *fakeCheckpointStore) GetLatestSucceededCheckpoint(_ context.Context, sessionID string) (*compaction.Checkpoint, error) {
+	var latest *compaction.Checkpoint
+	for _, cp := range f.bySession[sessionID] {
+		if cp.Status == compaction.StatusSucceeded {
+			if latest == nil || cp.Version > latest.Version {
+				latest = cp
+			}
+		}
+	}
+	return latest, nil
+}
+
+// SumTokenLedgerAfterSeq returns a mock value for remaining tokens after a sequence.
+func (f *fakeCheckpointStore) SumTokenLedgerAfterSeq(_ context.Context, _, _, _, _ string, _ int64) (int64, error) {
+	return 0, nil
+}
+
 // TestPreviewCreatesCheckpointAndReturnsSummary verifies that Preview creates
 // a checkpoint, executes it to succeeded, and returns the summary preview
 // (ADR-005 §4.2).
@@ -629,5 +704,187 @@ func TestExecuteCASConflict(t *testing.T) {
 	_, err := exec.Execute(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FA0")
 	if !errors.Is(err, ErrConcurrentModification) {
 		t.Fatalf("expected ErrConcurrentModification, got %v", err)
+	}
+}
+
+// TestCommitMarksPreviousSucceededAsSuperseded verifies that Commit marks all
+// previous succeeded checkpoints as superseded (ADR-005 §4.2).
+func TestCommitMarksPreviousSucceededAsSuperseded(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	cp.Version = 2
+	cp.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+
+	// Previous succeeded checkpoint (should be superseded).
+	prevCp := &compaction.Checkpoint{
+		ID:                  "01ARZ3NDEKTSV4RRFFQ69G5FAB",
+		SessionID:           cp.SessionID,
+		Version:             1,
+		SourceStartID:       "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+		SourceEndID:         "01ARZ3NDEKTSV4RRFFQ69G5FA3",
+		SourceStartSeq:      1,
+		SourceEndSeq:        5,
+		SourceDigest:        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		Status:              compaction.StatusSucceeded,
+		SummaryJSON:         "{}",
+		SummarySchemaVersion: "1.0",
+		Provider:            "test",
+		Model:               "test",
+	}
+
+	store := &mockExecutorStore{
+		checkpoint:     cp,
+		prevCheckpoint: prevCp,
+	}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	result, err := exec.Commit(context.Background(), cp.ID, cp.Version)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Activated {
+		t.Fatal("expected activated=true")
+	}
+	// Previous checkpoint should be superseded.
+	if prevCp.Status != compaction.StatusSuperseded {
+		t.Fatalf("expected previous checkpoint superseded, got %s", prevCp.Status)
+	}
+	// Current checkpoint should still be succeeded (not superseded).
+	if cp.Status != compaction.StatusSucceeded {
+		t.Fatalf("expected current checkpoint still succeeded, got %s", cp.Status)
+	}
+}
+
+// TestRetryFailedCheckpoint verifies that Retry transitions a failed checkpoint
+// back to pending and re-executes it (ADR-005 §5).
+func TestRetryFailedCheckpoint(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusFailed
+	cp.SummaryJSON = "{}"
+	failureCode := "SUMMARY_FAILED"
+	cp.FailureCode = &failureCode
+
+	store := &mockExecutorStore{checkpoint: cp}
+	reader := &mockSourceReader{messages: []SummaryMessage{
+		{ID: "m1", Role: "user", Content: "hello", Sequence: 1},
+		{ID: "m2", Role: "assistant", Content: "hi", Sequence: 2},
+	}}
+	summarizer := &mockSummarizer{summaryJSON: `{"summary":"test"}`, humanSummary: "Test summary"}
+	exec := NewExecutor(store, reader, summarizer)
+
+	retryResult, execResult, err := exec.Retry(context.Background(), cp.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !retryResult.Retried {
+		t.Fatal("expected retried=true")
+	}
+	if execResult.Status != compaction.StatusSucceeded {
+		t.Fatalf("expected succeeded after retry, got %s", execResult.Status)
+	}
+	// Checkpoint should now be succeeded.
+	if cp.Status != compaction.StatusSucceeded {
+		t.Fatalf("expected checkpoint succeeded, got %s", cp.Status)
+	}
+}
+
+// TestRetryNonFailedReturnsError verifies that Retry rejects checkpoints not
+// in failed state.
+func TestRetryNonFailedReturnsError(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	_, _, err := exec.Retry(context.Background(), cp.ID)
+	if err == nil {
+		t.Fatal("expected error for non-failed checkpoint")
+	}
+}
+
+// TestVerifyLowWatermarkPasses verifies that low-watermark verification passes
+// when remaining tokens are below 60% of context window.
+func TestVerifyLowWatermarkPasses(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	cp.SummaryJSON = `{"summary":"short"}`
+	cp.SourceEndSeq = 50
+
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	// contextWindow=100000, lowWatermark=0.60 → threshold=60000
+	// SumTokenLedgerAfterSeq returns 0 (mock) → totalReusable = 0 + ~6 = 6
+	verified, fraction, err := exec.VerifyLowWatermark(context.Background(), cp.ID, 100000, 0.60)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !verified {
+		t.Fatal("expected low-watermark verification to pass")
+	}
+	if fraction > 0.60 {
+		t.Fatalf("expected fraction <= 0.60, got %f", fraction)
+	}
+}
+
+// TestVerifyLowWatermarkZeroContextWindow verifies that verification returns
+// false when contextWindow is 0 (unknown).
+func TestVerifyLowWatermarkZeroContextWindow(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Status = compaction.StatusSucceeded
+	store := &mockExecutorStore{checkpoint: cp}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	verified, _, err := exec.VerifyLowWatermark(context.Background(), cp.ID, 0, 0.60)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if verified {
+		t.Fatal("expected verified=false when contextWindow=0")
+	}
+}
+
+// TestConcurrentCheckAndTriggerSameSession verifies that concurrent
+// CheckAndTrigger calls on the same session are serialized by the per-session
+// lock, preventing duplicate checkpoint creation (ADR-005 §5).
+func TestConcurrentCheckAndTriggerSameSession(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 100000 // above 80% of 100000
+	messages := makeMessages(50)
+	for i := range messages {
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{
+			MessageID:  messages[i].ID,
+			TokenCount: 2000,
+		}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	msgReader := &fakeMessageReader{messages: messages}
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, msgReader)
+
+	// Launch 3 concurrent CheckAndTrigger calls.
+	var wg sync.WaitGroup
+	results := make([]TriggerResult, 3)
+	errs := make([]error, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx], errs[idx] = trigger.CheckAndTrigger(context.Background(), "s1", "test", "test", "", 100000)
+		}(i)
+	}
+	wg.Wait()
+
+	// At most one should have triggered (created a checkpoint).
+	triggeredCount := 0
+	for i := range results {
+		if errs[i] != nil {
+			continue
+		}
+		if results[i].Triggered {
+			triggeredCount++
+		}
+	}
+	if triggeredCount > 1 {
+		t.Fatalf("expected at most 1 triggered compaction, got %d", triggeredCount)
 	}
 }

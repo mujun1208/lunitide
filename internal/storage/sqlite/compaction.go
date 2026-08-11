@@ -284,3 +284,69 @@ func (s *Store) CountCheckpointsBySession(ctx context.Context, sessionID string)
 		`SELECT count(*) FROM compaction_checkpoints WHERE session_id=?`, sessionID).Scan(&count)
 	return count, err
 }
+
+// MarkPreviousSucceededAsSuperseded marks all succeeded checkpoints for the
+// session (except the one with currentCheckpointID) as superseded. This ensures
+// only one active succeeded checkpoint exists per session after a commit
+// (ADR-005 §4.2). Returns the number of checkpoints superseded.
+func (s *Store) MarkPreviousSucceededAsSuperseded(ctx context.Context, sessionID, currentCheckpointID string) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE compaction_checkpoints SET status='superseded', completed_at=?
+		 WHERE session_id=? AND status='succeeded' AND id != ?`,
+		formatTime(time.Now().UTC()), sessionID, currentCheckpointID)
+	if err != nil {
+		return 0, mapWriteError(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
+// GetLatestSucceededCheckpoint returns the latest succeeded checkpoint for the
+// session (highest version among succeeded), or nil if none. Used for low-
+// watermark verification and rolling summary loading.
+func (s *Store) GetLatestSucceededCheckpoint(ctx context.Context, sessionID string) (*compaction.Checkpoint, error) {
+	var cp compaction.Checkpoint
+	var created, completed sql.NullString
+	var prevCheckpointID, prevCheckpointDigest, failureCode sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, session_id, version, source_start_id, source_end_id,
+		 source_start_seq, source_end_seq, source_digest, prev_checkpoint_id, prev_checkpoint_digest,
+		 summary_schema_version, trigger, trigger_reason, status, provider, model,
+		 summary_json, human_summary, failure_code, created_at, completed_at
+		 FROM compaction_checkpoints WHERE session_id=? AND status='succeeded'
+		 ORDER BY version DESC LIMIT 1`, sessionID).Scan(
+		&cp.ID, &cp.SessionID, &cp.Version, &cp.SourceStartID, &cp.SourceEndID,
+		&cp.SourceStartSeq, &cp.SourceEndSeq, &cp.SourceDigest, &prevCheckpointID, &prevCheckpointDigest,
+		&cp.SummarySchemaVersion, &cp.Trigger, &cp.TriggerReason, &cp.Status, &cp.Provider, &cp.Model,
+		&cp.SummaryJSON, &cp.HumanSummary, &failureCode, &created, &completed)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	cp.CreatedAt, err = time.Parse(time.RFC3339Nano, created.String)
+	if err != nil {
+		return nil, err
+	}
+	if prevCheckpointID.Valid {
+		cp.PrevCheckpointID = &prevCheckpointID.String
+	}
+	if prevCheckpointDigest.Valid {
+		cp.PrevCheckpointDigest = &prevCheckpointDigest.String
+	}
+	if failureCode.Valid {
+		cp.FailureCode = &failureCode.String
+	}
+	if completed.Valid {
+		t, err := time.Parse(time.RFC3339Nano, completed.String)
+		if err != nil {
+			return nil, err
+		}
+		cp.CompletedAt = &t
+	}
+	return &cp, nil
+}
