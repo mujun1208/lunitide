@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 — 模块详细设计</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;
+  --bg2:#0a1424;
+  --bg3:#0e1c30;
+  --ink:#eaf3ff;
+  --muted:#8fa3bf;
+  --rule:rgba(143,163,191,.16);
+  --line:rgba(143,163,191,.25);
+  --moon:#f4f6ff;
+  --moon2:#cfe0ff;
+  --glow:#7fb4ff;
+  --glow2:#4f8bff;
+  --tide1:#3bd6ff;
+  --tide2:#7f5bff;
+  --tide3:#2fd6b5;
+  --ok:#3bd6a0;
+  --warn:#ffc46b;
+  --err:#ff7a7a;
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+
+/* ── Atmospheric Background: Black Starry Sky ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+
+/* ── Stars ── */
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon (LOGO & Ambient) ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Moon LOGO (small, inline) ── */
+.moon-logo{
+  width:46px;height:46px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 36%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 26px rgba(207,224,255,.35), 0 0 50px rgba(127,180,255,.15);
+}
+.moon-logo::after{content:"";position:absolute;inset:5px;border-radius:50%;
+  border:1px solid rgba(150,170,205,.5);opacity:.5}
+.moon-logo.sm{width:26px;height:26px;box-shadow:0 0 14px rgba(207,224,255,.35)}
+.moon-logo.sm::after{inset:3px}
+
+/* ── Tide Ring ── */
+.tide-ring{position:fixed;left:50%;bottom:-160px;transform:translateX(-50%);width:1400px;height:500px;z-index:-1;pointer-events:none}
+.tide-ring path{stroke-width:1;fill:none;stroke-linecap:round}
+.tide-ring .r1{stroke:rgba(63,214,255,.16);animation:sweep 11s ease-in-out infinite}
+.tide-ring .r2{stroke:rgba(127,91,255,.13);animation:sweep 15s ease-in-out infinite reverse}
+.tide-ring .r3{stroke:rgba(47,214,181,.10);animation:sweep 19s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.narrow{max-width:860px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{
+  font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;
+  text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h1{font-size:clamp(38px,6vw,60px);line-height:1.05}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+h4{font-size:15.5px;margin:18px 0 8px;font-weight:600;color:var(--tide1)}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+p b,li b{color:var(--ink);font-weight:600}
+p em{color:var(--tide1);font-style:normal}
+ul,ol{margin:10px 0 10px 22px;color:var(--muted)}
+li{margin:5px 0}
+
+/* ── Gradient Text ── */
+.accent-grad,.accent{
+  background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+/* ── Top Nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(4,7,15,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule)}
+nav .inner{max-width:1180px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+nav .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em;font-size:16px}
+nav .logo .zh{color:var(--glow);margin-left:2px}
+nav .links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav .links a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:6px 11px;border-radius:8px;transition:.15s}
+nav .links a:hover{color:var(--ink);background:rgba(127,180,255,.08)}
+nav .tag{font-family:var(--mono);font-size:10.5px;color:var(--tide1);border:1px solid rgba(63,214,255,.3);padding:2px 9px;border-radius:999px}
+
+/* ── Cards ── */
+.card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));
+  border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;
+  transition:.2s;
+}
+.card:hover{border-color:var(--glow);box-shadow:0 10px 30px -14px rgba(63,134,255,.3)}
+
+/* ── Callouts ── */
+.callout{border-left:3px solid var(--tide1);background:rgba(63,214,255,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.callout b{color:var(--ink)}
+.note{border-left:3px solid var(--warn);background:rgba(255,196,107,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.warn{border-left:3px solid var(--err);background:rgba(255,122,122,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--glow);text-transform:uppercase}
+td b{color:var(--ink)}
+td .col{color:var(--tide1)}
+
+/* ── Tags / Pills ── */
+.tag{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--muted);
+  border:1px solid var(--rule);border-radius:999px;padding:7px 15px;background:rgba(14,28,48,.5);
+  backdrop-filter:blur(4px);
+}
+.tag b{color:var(--tide1);font-weight:600}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+
+/* ── TOC ── */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:34px 0 10px}
+.toc a{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-decoration:none;color:var(--ink);transition:.18s;display:block}
+.toc a:hover{transform:translateY(-2px);border-color:var(--glow);box-shadow:0 10px 24px -12px rgba(63,134,255,.4)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--glow);letter-spacing:.14em}
+.toc .t{font-size:14px;font-weight:600;margin-top:4px}
+
+/* ── Mermaid-like diagrams (CSS-based) ── */
+.dag{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;padding:20px}
+.dag .node{padding:8px 14px;border-radius:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--line);background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:80px}
+.dag .node.active{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.1)}
+.dag .node.done{border-color:var(--tide3);color:var(--tide3);background:rgba(47,214,181,.08)}
+.dag .node.warn{border-color:var(--warn);color:var(--warn);background:rgba(255,196,107,.08)}
+.dag .node.err{border-color:var(--err);color:var(--err);background:rgba(255,122,122,.08)}
+.dag .arrow{color:var(--rule);font-size:14px}
+
+/* ── SQL / Code Blocks ── */
+pre.sql{
+  background:#060c18;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:18px 20px;
+  margin:16px 0;
+  overflow-x:auto;
+  font-family:var(--mono);
+  font-size:12.5px;
+  line-height:1.65;
+  color:#cfe0ff;
+}
+pre.sql .kw{color:var(--tide2);font-weight:600}
+pre.sql .typ{color:var(--tide1)}
+pre.sql .str{color:var(--tide3)}
+pre.sql .com{color:var(--muted);font-style:italic}
+pre.sql .fn{color:var(--warn)}
+.code-label{
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--glow);
+  margin-top:18px;margin-bottom:-8px;display:block;
+}
+
+/* ── Entity Grid ── */
+.entity-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:18px 0}
+.entity-card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));
+  border:1px solid var(--line);border-radius:12px;padding:16px 18px;
+}
+.entity-card .ename{font-family:var(--mono);font-size:14px;color:var(--tide1);font-weight:600;margin-bottom:8px}
+.entity-card .efield{font-size:12.5px;color:var(--muted);line-height:1.6}
+.entity-card .efield b{color:var(--ink);font-weight:600}
+
+/* ── Meta info row ── */
+.meta-row{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px}
+.meta-row .tag{font-size:11.5px;padding:5px 13px}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--rule);padding:40px 0 60px;margin-top:40px}
+footer .inner{max-width:1180px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+footer .copy{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+footer .links{margin-left:auto;display:flex;gap:14px}
+footer .links a{font-family:var(--mono);font-size:11.5px;color:var(--muted);text-decoration:none}
+footer .links a:hover{color:var(--tide1)}
+
+/* ── Hero ── */
+.hero{padding:90px 0 30px}
+.hero .lead{font-size:18px;max-width:680px;margin-top:18px}
+
+/* ── State machine label ── */
+.sm-label{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spacing:.1em;margin:20px 0 4px;text-transform:uppercase}
+
+/* ── Break ── */
+.brk{border:none;border-top:1px solid var(--rule);margin:36px 0}
+</style>
+</head>
+<body>
+
+<!-- ═══ Atmosphere ═══ -->
+<div class="sky"></div>
+<div class="stars"></div>
+<div class="moon-glow"></div>
+<div class="moon"></div>
+<svg class="tide-ring" viewBox="0 0 1400 500" preserveAspectRatio="none">
+  <path class="r1" d="M0,320 Q350,200 700,320 T1400,320"/>
+  <path class="r2" d="M0,360 Q350,240 700,360 T1400,360"/>
+  <path class="r3" d="M0,400 Q350,280 700,400 T1400,400"/>
+</svg>
+
+<!-- ═══ Nav ═══ -->
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE</span><span class="zh">月汐</span>
+    </div>
+    <div class="links">
+      <a href="#ch1">模板管理</a>
+      <a href="#ch2">底座复用</a>
+      <a href="#ch3">Provider</a>
+      <a href="#ch4">工作区</a>
+      <a href="#ch5">阶段产物</a>
+      <a href="#ch6">Planning</a>
+      <a href="#ch7">Ontology</a>
+      <a href="#ch8">Memory</a>
+      <a href="#ch9">Skill</a>
+      <a href="#ch10">集成发布</a>
+    </div>
+    <span class="tag">v1.0 · 模块详设</span>
+  </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="kicker">Module Detail Design · 模块详细设计</div>
+    <h1 class="accent-grad">模块详细设计</h1>
+    <div class="meta-row">
+      <span class="tag"><b>文档</b> Lunitide-MDD-v1.0</span>
+      <span class="tag"><b>范围</b> 横向业务模块 + 全域实体</span>
+      <span class="tag"><b>状态</b> Draft</span>
+      <span class="tag"><b>日期</b> 2026-08-10</span>
+    </div>
+    <p class="lead">
+      本文档是 Lunitide 月汐系统的模块级详细设计，涵盖<b>模板管理</b>、<b>底座复用</b>、<b>Provider 与模型</b>、
+      <b>开发任务</b>、<b>集成管理</b>的实体设计与业务规则。每一模块给出状态机、数据表 DDL、字段约束、索引规范与关键治理 callout，
+      作为工程实现的权威依据。
+    </p>
+  </div>
+</section>
+
+<!-- ═══ TOC ═══ -->
+<section style="padding-top:20px">
+  <div class="wrap">
+    <h3 style="margin-top:0">目录</h3>
+    <div class="toc">
+      <a href="#ch1"><div class="n">CH 01</div><div class="t">模板管理模块</div></a>
+      <a href="#ch2"><div class="n">CH 02</div><div class="t">底座复用模块</div></a>
+      <a href="#ch3"><div class="n">CH 03</div><div class="t">Provider 与模型管理</div></a>
+      <a href="#ch4"><div class="n">CH 04</div><div class="t">工作区、项目与会话</div></a>
+      <a href="#ch5"><div class="n">CH 05</div><div class="t">阶段与产物</div></a>
+      <a href="#ch6"><div class="n">CH 06</div><div class="t">Planning 与治理实体</div></a>
+      <a href="#ch7"><div class="n">CH 07</div><div class="t">Ontology 实体</div></a>
+      <a href="#ch8"><div class="n">CH 08</div><div class="t">Memory 实体</div></a>
+      <a href="#ch9"><div class="n">CH 09</div><div class="t">Skill 与 Tool 实体</div></a>
+      <a href="#ch10"><div class="n">CH 10</div><div class="t">集成、任务与发布实体</div></a>
+    </div>
+  </div>
+</section>
+<!-- ═══════════════════════════════════════════════════════════
+     第 1 章：模板管理模块
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch1">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 01</div>
+        <h2>模板管理模块</h2>
+      </div>
+      <span class="tag"><b>实体</b> tpl_template / tpl_version / tpl_usage</span>
+    </div>
+    <p class="lead">模板是产物生成的格式契约。模块负责模板的草稿、启用、停用与作废全生命周期，以及版本的发布与弃用，确保产物可追溯、可重现。</p>
+
+    <h3>1.1 模板状态机</h3>
+    <p>模板主记录的顶层状态控制其是否可被引用：</p>
+    <div class="dag">
+      <div class="node active">draft<br><small>草稿</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">enabled<br><small>已启用</small></div>
+      <div class="arrow">→</div>
+      <div class="node warn">disabled<br><small>已停用</small></div>
+      <div class="arrow">→</div>
+      <div class="node err">void<br><small>已作废</small></div>
+    </div>
+    <div class="callout"><b>void 后禁止新引用</b>，但历史引用仍可基于已锁定的 <code>template_version_id</code> 完整重现。</div>
+
+    <h3>1.2 模板版本状态</h3>
+    <p>版本状态独立于模板主状态，用于细粒度版本治理：</p>
+    <div class="dag">
+      <div class="node active">draft<br><small>版本草稿</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">published<br><small>已发布</small></div>
+      <div class="arrow">→</div>
+      <div class="node warn">deprecated<br><small>已弃用</small></div>
+    </div>
+
+    <h3>1.3 业务规则</h3>
+    <div class="card">
+      <ul>
+        <li><b>上传默认保存草稿</b>，不"上传即启用"——新模板必须经过显式启用才能进入引用链。</li>
+        <li>同一 <code>report_type</code> 同一 <code>scope</code> <b>最多一个默认模板</b>，由部分唯一索引强制约束。</li>
+        <li>未配置、未选择或解析失败时 <b>MUST 使用内建默认模板</b>生成，保证链路不中断。</li>
+        <li>产物记录确切的 <code>template_version_id</code>，而非模板主 ID——确保历史产物可精确重现。</li>
+        <li>已被引用的模板 / 版本 <b>禁止物理删除</b>，只允许逻辑作废。</li>
+        <li><code>void</code> 后禁止新引用，但历史引用可重现。</li>
+      </ul>
+    </div>
+
+    <span class="code-label">DDL · tpl_template / tpl_version / tpl_usage</span>
+    <pre class="sql"><span class="kw">CREATE TABLE</span> <span class="typ">tpl_template</span> (
+  id              <span class="typ">TEXT</span> <span class="kw">PRIMARY KEY</span>,
+  name            <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  report_type     <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  scope_type      <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  scope_id        <span class="typ">TEXT</span>,
+  status          <span class="typ">TEXT</span> <span class="kw">NOT NULL CHECK</span>(status <span class="kw">IN</span> (<span class="str">'draft'</span>,<span class="str">'enabled'</span>,<span class="str">'disabled'</span>,<span class="str">'void'</span>)),
+  is_default      <span class="typ">INTEGER</span> <span class="kw">NOT NULL DEFAULT</span> 0 <span class="kw">CHECK</span>(is_default <span class="kw">IN</span> (0,1)),
+  current_version_id <span class="typ">TEXT</span>,
+  created_at      <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  updated_at      <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  version         <span class="typ">INTEGER</span> <span class="kw">NOT NULL DEFAULT</span> 1
+);
+
+<span class="com">-- 同一 report_type + scope 最多一个 enabled 默认模板</span>
+<span class="kw">CREATE UNIQUE INDEX</span> <span class="fn">ux_tpl_default</span>
+<span class="kw">ON</span> <span class="typ">tpl_template</span>(report_type, scope_type, <span class="fn">COALESCE</span>(scope_id,<span class="str">''</span>))
+<span class="kw">WHERE</span> is_default=1 <span class="kw">AND</span> status=<span class="str">'enabled'</span>;
+
+<span class="kw">CREATE TABLE</span> <span class="typ">tpl_version</span> (
+  id                 <span class="typ">TEXT</span> <span class="kw">PRIMARY KEY</span>,
+  template_id        <span class="typ">TEXT</span> <span class="kw">NOT NULL REFERENCES</span> <span class="typ">tpl_template</span>(id),
+  semver             <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  status             <span class="typ">TEXT</span> <span class="kw">NOT NULL CHECK</span>(status <span class="kw">IN</span> (<span class="str">'draft'</span>,<span class="str">'published'</span>,<span class="str">'deprecated'</span>)),
+  style_asset_ref    <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  chapter_schema_json <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  sha256             <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  created_at         <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  <span class="kw">UNIQUE</span>(template_id, semver)
+);
+
+<span class="kw">CREATE TABLE</span> <span class="typ">tpl_usage</span> (
+  id                  <span class="typ">TEXT</span> <span class="kw">PRIMARY KEY</span>,
+  project_id          <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  stage_run_id        <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  artifact_version_id <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  template_version_id <span class="typ">TEXT</span> <span class="kw">NOT NULL REFERENCES</span> <span class="typ">tpl_version</span>(id),
+  created_at          <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>
+);</pre>
+
+    <h3>1.4 唯一索引说明</h3>
+    <table>
+      <tr><th>索引</th><th>定义</th><th>语义</th></tr>
+      <tr><td><b>ux_tpl_default</b></td><td class="col">UNIQUE(report_type, scope_type, COALESCE(scope_id,'')) WHERE is_default=1 AND status='enabled'</td><td>部分唯一索引，保证每个 report_type × scope 至多一个启用的默认模板；scope_id 为 NULL 时以空串参与比较</td></tr>
+      <tr><td><b>ux_tpl_version_semver</b></td><td class="col">UNIQUE(template_id, semver)</td><td>同一模板下语义版本号唯一</td></tr>
+      <tr><td><b>ix_tpl_usage_ver</b></td><td class="col">INDEX(template_version_id)</td><td>反向查找：某版本被哪些产物引用，支撑"禁止物理删除"判断</td></tr>
+    </table>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 2 章：底座复用模块
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch2">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 02</div>
+        <h2>底座复用模块</h2>
+      </div>
+      <span class="tag"><b>实体</b> BaseAsset / BaseVersion / BaseRef</span>
+    </div>
+    <p class="lead">底座是跨项目共享的可复用资产单元。项目通过 BaseRef 锁定具体版本，业务 overlay 与底座内容分离，确保上游演进不静默破坏下游。</p>
+
+    <h3>2.1 底座种类</h3>
+    <div class="entity-grid">
+      <div class="entity-card">
+        <div class="ename">UI Base</div>
+        <div class="efield">组件库、主题、布局模板、设计令牌。项目引用锁定版本后，业务侧仅以 overlay 注入差异。</div>
+      </div>
+      <div class="entity-card">
+        <div class="ename">Database Base</div>
+        <div class="efield">共享 schema、迁移脚本、种子数据。版本化与 schema 演进绑定，breaking 变更需显式确认。</div>
+      </div>
+      <div class="entity-card">
+        <div class="ename">Common Code</div>
+        <div class="efield">跨项目通用代码包：工具函数、SDK、协议定义。以 semver + package_hash 锁定。</div>
+      </div>
+    </div>
+
+    <h3>2.2 版本锁定机制</h3>
+    <p>项目通过 <code>BaseRef</code> 锁定具体版本，<b>不是</b>浮动范围引用。BaseRef 必须保存以下字段：</p>
+    <div class="card">
+      <ul>
+        <li><b>locked_version_id</b> — 锁定的 BaseVersion 主键，决定项目实际使用的底座内容。</li>
+        <li><b>overlay_ref</b> — 项目侧覆盖内容引用，与底座内容物理分离。</li>
+        <li><b>compatibility_status</b> — 当前锁定版本相对最新版本的兼容状态。</li>
+        <li><b>last_checked_at</b> — 上次检查上游新版本的时间戳。</li>
+      </ul>
+    </div>
+
+    <div class="callout"><b>上游发布新版本不得静默影响项目。</b>新版本仅更新 BaseVersion 表与兼容性提示；项目实际使用的底座内容由 BaseRef.locked_version_id 决定，必须由项目显式升级动作才能变更。</div>
+
+    <h3>2.3 overlay 分离机制</h3>
+    <p>底座内容与业务 overlay 分离存储。合并发生在构建/渲染期，而非存储期：</p>
+    <div class="dag">
+      <div class="node">BaseVersion<br><small>底座内容</small></div>
+      <div class="arrow">+</div>
+      <div class="node active">Overlay<br><small>业务覆盖</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">合并产物<br><small>build-time</small></div>
+    </div>
+    <p>这一分离保证了底座可独立升级、overlay 可独立演进，二者解耦。</p>
+
+    <h3>2.4 breaking 升级规则</h3>
+    <div class="warn"><b>breaking 升级 MUST 展示差异和兼容性报告并显式确认。</b>系统不得自动将项目从 v1 升级到 v2-breaking；必须呈现 breaking change 列表、受影响 overlay 项、迁移建议，并由有权限的角色显式批准。</div>
+
+    <h3>2.5 数据表设计</h3>
+    <span class="code-label">DDL · BaseAsset / BaseVersion / BaseRef</span>
+    <pre class="sql"><span class="kw">CREATE TABLE</span> <span class="typ">base_asset</span> (
+  id            <span class="typ">TEXT</span> <span class="kw">PRIMARY KEY</span>,
+  name          <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  kind          <span class="typ">TEXT</span> <span class="kw">NOT NULL CHECK</span>(kind <span class="kw">IN</span> (<span class="str">'ui'</span>,<span class="str">'database'</span>,<span class="str">'common_code'</span>)),
+  publisher     <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  status        <span class="typ">TEXT</span> <span class="kw">NOT NULL DEFAULT</span> <span class="str">'active'</span>,
+  current_version_id <span class="typ">TEXT</span>,
+  created_at    <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  updated_at    <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="typ">base_version</span> (
+  id            <span class="typ">TEXT</span> <span class="kw">PRIMARY KEY</span>,
+  asset_id      <span class="typ">TEXT</span> <span class="kw">NOT NULL REFERENCES</span> <span class="typ">base_asset</span>(id),
+  semver        <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  is_breaking   <span class="typ">INTEGER</span> <span class="kw">NOT NULL DEFAULT</span> 0,
+  package_ref   <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  package_hash  <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  changelog_ref <span class="typ">TEXT</span>,
+  compat_report_json <span class="typ">TEXT</span>,
+  created_at    <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  <span class="kw">UNIQUE</span>(asset_id, semver)
+);
+
+<span class="kw">CREATE TABLE</span> <span class="typ">base_ref</span> (
+  id                  <span class="typ">TEXT</span> <span class="kw">PRIMARY KEY</span>,
+  project_id          <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  asset_id            <span class="typ">TEXT</span> <span class="kw">NOT NULL REFERENCES</span> <span class="typ">base_asset</span>(id),
+  locked_version_id   <span class="typ">TEXT</span> <span class="kw">NOT NULL REFERENCES</span> <span class="typ">base_version</span>(id),
+  overlay_ref         <span class="typ">TEXT</span>,
+  compatibility_status <span class="typ">TEXT</span> <span class="kw">NOT NULL DEFAULT</span> <span class="str">'unknown'</span>,
+  last_checked_at     <span class="typ">TEXT</span> <span class="kw">NOT NULL</span>,
+  <span class="kw">UNIQUE</span>(project_id, asset_id)
+);</pre>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 3 章：Provider 与模型管理
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 03</div>
+        <h2>Provider 与模型管理</h2>
+      </div>
+      <span class="tag"><b>实体</b> provider / model_profile / provider_test / usage_record</span>
+    </div>
+    <p class="lead">Provider 是模型网关的接入抽象。模块管理 Provider 注册、模型 Profile、连通性测试与用量记录，并通过统一端口向编排层暴露能力。</p>
+
+    <h3>3.1 Provider 实体</h3>
+    <table>
+      <tr><th>字段</th><th>说明</th><th>敏感性</th></tr>
+      <tr><td><b>id</b></td><td class="col">Provider 主键</td><td>非秘密</td></tr>
+      <tr><td><b>name</b></td><td class="col">展示名称</td><td>非秘密</td></tr>
+      <tr><td><b>protocol</b></td><td class="col">协议类型（openai-compatible / anthropic 等）</td><td>非秘密</td></tr>
+      <tr><td><b>base_url</b></td><td class="col">服务端点 URL</td><td>URL 敏感配置</td></tr>
+      <tr><td><b>credential_ref</b></td><td class="col">凭据引用（仅存引用，不存明文）</td><td>引用非秘密；明文不落库</td></tr>
+      <tr><td><b>status</b></td><td class="col">健康状态枚举</td><td>非秘密</td></tr>
+      <tr><td><b>origin_fingerprint</b></td><td class="col">协议 + 主机指纹，用于检测 origin 变化</td><td>非秘密</td></tr>
+      <tr><td><b>version</b></td><td class="col">乐观锁版本号</td><td>非秘密</td></tr>
+    </table>
+
+    <h3>3.2 Model Profile 实体</h3>
+    <table>
+      <tr><th>字段</th><th>说明</th><th>敏感性</th></tr>
+      <tr><td><b>id</b></td><td class="col">Profile 主键</td><td>非秘密</td></tr>
+      <tr><td><b>provider_id</b></td><td class="col">所属 Provider</td><td>非秘密</td></tr>
+      <tr><td><b>model_id</b></td><td class="col">上游模型标识</td><td>非秘密</td></tr>
+      <tr><td><b>display_name</b></td><td class="col">展示名称</td><td>非秘密</td></tr>
+      <tr><td><b>capabilities_json</b></td><td class="col">能力声明（vision / tools / streaming 等）</td><td>非秘密</td></tr>
+      <tr><td><b>is_default</b></td><td class="col">是否默认模型</td><td>非秘密</td></tr>
+      <tr><td><b>enabled</b></td><td class="col">是否启用</td><td>非秘密</td></tr>
+      <tr><td><b>limits_json</b></td><td class="col">速率 / token 上限</td><td>非秘密</td></tr>
+    </table>
+
+    <h3>3.3 Provider Test 实体</h3>
+    <table>
+      <tr><th>字段</th><th>说明</th><th>敏感性</th></tr>
+      <tr><td><b>id</b></td><td class="col">测试记录主键</td><td>—</td></tr>
+      <tr><td><b>provider_id</b></td><td class="col">被测 Provider</td><td>—</td></tr>
+      <tr><td><b>model_profile_id</b></td><td class="col">被测模型 Profile</td><td>—</td></tr>
+      <tr><td><b>status</b></td><td class="col">测试结果状态</td><td>—</td></tr>
+      <tr><td><b>http_status</b></td><td class="col">HTTP 响应码</td><td>—</td></tr>
+      <tr><td><b>latency_ms</b></td><td class="col">往返延迟</td><td>—</td></tr>
+      <tr><td><b>error_code</b></td><td class="col">错误分类码</td><td>必须脱敏</td></tr>
+      <tr><td><b>tested_at</b></td><td class="col">测试时间</td><td>—</td></tr>
+    </table>
+
+    <h3>3.4 Usage Record 实体</h3>
+    <table>
+      <tr><th>字段</th><th>说明</th><th>敏感性</th></tr>
+      <tr><td><b>id</b></td><td class="col">用量记录主键</td><td>—</td></tr>
+      <tr><td><b>project_id</b></td><td class="col">归属项目</td><td>—</td></tr>
+      <tr><td><b>session_id</b></td><td class="col">归属会话</td><td>—</td></tr>
+      <tr><td><b>provider_id / model_id</b></td><td class="col">用量产生方</td><td>—</td></tr>
+      <tr><td><b>input_tokens / output_tokens</b></td><td class="col">token 用量</td><td>—</td></tr>
+      <tr><td><b>cost</b></td><td class="col">费用</td><td>业务敏感</td></tr>
+      <tr><td><b>occurred_at</b></td><td class="col">发生时间</td><td>—</td></tr>
+    </table>
+
+    <h3>3.5 约束规则</h3>
+    <div class="card">
+      <ul>
+        <li>每个 Provider <b>最多一个 enabled default model</b>——由部分唯一索引约束。</li>
+        <li><code>UNIQUE(provider_id, model_id)</code>——同一 Provider 下模型标识唯一。</li>
+        <li>协议或主机变化 <b>触发 credential origin 再确认</b>：origin_fingerprint 不匹配时，旧凭据引用视为需重新授权。</li>
+        <li>健康状态不得只依赖最后一次结果，应由<b>滑动窗口</b>计算。</li>
+      </ul>
+    </div>
+
+    <h3>3.6 Provider 状态</h3>
+    <p>健康状态由滑动窗口聚合，非单次探测结果：</p>
+    <div class="dag">
+      <div class="node">unknown<br><small>未知</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">healthy<br><small>健康</small></div>
+      <div class="arrow">↔</div>
+      <div class="node warn">degraded<br><small>降级</small></div>
+      <div class="arrow">↔</div>
+      <div class="node err">unhealthy<br><small>不可用</small></div>
+      <div class="arrow">⇢</div>
+      <div class="node">paused<br><small>暂停</small></div>
+    </div>
+
+    <h3>3.7 Key 安全规则</h3>
+    <div class="warn"><b>API Key 永不回显。</b>凭据仅存引用（credential_ref），不存明文；任何接口返回、日志、审计事件中均不得出现密钥原文。ChatRequest 不得携带 API Key，密钥由网关在出口侧注入。</div>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 4 章：工作区、项目与会话
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 04</div>
+        <h2>工作区、项目与会话</h2>
+      </div>
+      <span class="tag"><b>实体</b> workspace / project / session / message / context_summary / context_handoff</span>
+    </div>
+    <p class="lead">这是系统的组织骨架：Workspace 隔离租户级边界，Project 承载工程上下文，Session 与 Message 构成交互流水。</p>
+
+    <h3>4.1 实体字段</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th><th>约束 / 索引</th></tr>
+      <tr><td><b>workspace</b></td><td class="col">id, name, settings_json</td><td>首期仅一个 active workspace</td></tr>
+      <tr><td><b>project</b></td><td class="col">id, workspace_id, name, root_path, status, current_stage, version</td><td>UNIQUE(workspace_id, name)；root_path 授权前规范化</td></tr>
+      <tr><td><b>project_setting</b></td><td class="col">project_id, key, value_json</td><td>UNIQUE(project_id, key)</td></tr>
+      <tr><td><b>session</b></td><td class="col">id, project_id, stage_run_id, title, status, model_profile_id</td><td>INDEX(project_id, updated_at)</td></tr>
+      <tr><td><b>message</b></td><td class="col">id, session_id, role, status, content_ref, sequence, usage_json</td><td>UNIQUE(session_id, sequence)</td></tr>
+      <tr><td><b>message_part</b></td><td class="col">id, message_id, type, text/file_ref/tool_call_id, ordinal</td><td>UNIQUE(message_id, ordinal)</td></tr>
+      <tr><td><b>attachment</b></td><td class="col">id, project_id, file_ref, mime, size, parse_status, sha256</td><td>sha256 索引；解析隔离</td></tr>
+      <tr><td><b>context_summary</b></td><td class="col">id, session_id, kind, version, source_seq_start/end, source_digest, parent_summary_ids, content_ref, token_count, fidelity_json, status</td><td>UNIQUE(session_id, kind, version)；源范围不可变</td></tr>
+      <tr><td><b>summary_claim_source</b></td><td class="col">summary_id, claim_id, claim_type, source_type/id, seq_start/end, quote_ref, artifact_revision, source_digest, verification_status</td><td>INDEX(summary_id, claim_id)；所有需溯源 claim 覆盖率 100%</td></tr>
+      <tr><td><b>context_handoff</b></td><td class="col">id, workspace_id, project_id, source/target_session_id, version, source_seq_start/end, source_digest, source_summary_version, schema_version, content_ref, status, invalid_reason, created/imported_at</td><td>CHECK(start≤end)；UNIQUE(source_session_id, version)</td></tr>
+      <tr><td><b>handoff_import</b></td><td class="col">handoff_id, target_session_id, imported_at, status</td><td>UNIQUE(handoff_id, target_session_id)；同项目导入幂等</td></tr>
+      <tr><td><b>context_build</b></td><td class="col">id, session_id, model_id, canonical_logical_tokens, canonical_tokenizer_version, estimated_request_tokens, effective_window, reserve_tokens, summary_version, manifest_ref</td><td>记录每轮实际装配清单，不保存秘密</td></tr>
+    </table>
+
+    <h3>4.2 消息状态机</h3>
+    <div class="dag">
+      <div class="node active">accepted<br><small>已接受</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">streaming<br><small>流式中</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">completed<br><small>完成</small></div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node warn">cancelled<br><small>取消</small></div>
+      <div class="node warn">interrupted<br><small>中断</small></div>
+      <div class="node err">failed<br><small>失败</small></div>
+    </div>
+    <p><code>streaming</code> 可正常转入 <code>completed</code>，也可因取消、引擎中断或上游失败转入对应异常终态。</p>
+
+    <h3>4.3 关键约束说明</h3>
+    <div class="card">
+      <ul>
+        <li><b>root_path 授权前必须规范化</b>——防止路径穿越、符号链接逃逸与大小写歧义。</li>
+        <li><b>attachment 解析隔离</b>——附件解析在沙箱内进行，parse_status 独立追踪，失败不阻断会话主流程。</li>
+        <li><b>message sequence 严格递增</b>——UNIQUE(session_id, sequence) 保证消息有序且可回放。</li>
+        <li><b>message_part ordinal 唯一</b>——同一消息内多模态片段有序且不重复。</li>
+        <li><b>单会话逻辑上下文至少 1M tokens</b>——logical_tokens 是累计可重建容量，不受模型单次窗口或消息分页上限约束。</li>
+        <li><b>消息原文与摘要分离</b>——压缩只追加 context_summary；不得 UPDATE/DELETE 源 message。显式数据删除是唯一例外，并通过墓碑使派生摘要和 Handoff 失效。</li>
+        <li><b>摘要保真合同</b>——每个事实性、状态性、决策性、约束性、任务性和证据性 claim 必须关联叶级 Message/ToolResult/Artifact revision；建议/推断显式标型并保存 derivation sources，仅指向父摘要不算完成溯源。</li>
+        <li><b>分页不是容量限制</b>——消息 RPC 使用 sequence cursor 向前/向后分页；单页最大 200 条和 payload 上限不得写入 session 总量校验。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 5 章：阶段与产物
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 05</div>
+        <h2>阶段与产物</h2>
+      </div>
+      <span class="tag"><b>实体</b> stage_run / stage_input_snapshot / artifact / artifact_version / artifact_review / trace_link</span>
+    </div>
+    <p class="lead">阶段（Stage）是流水线的执行单元，产物（Artifact）是阶段的输出与下一阶段的输入。输入快照保证阶段可重现，版本与 Review 保证产物可治理。</p>
+
+    <h3>5.1 实体字段</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th></tr>
+      <tr><td><b>stage_run</b></td><td class="col">id, project_id, stage_type, status, attempt, input_snapshot_id, started_at, completed_at, version</td></tr>
+      <tr><td><b>stage_input_snapshot</b></td><td class="col">id, stage_run_id, snapshot_hash, created_at</td></tr>
+      <tr><td><b>stage_input_item</b></td><td class="col">snapshot_id, artifact_version_id, role, required</td></tr>
+      <tr><td><b>artifact</b></td><td class="col">id, project_id, stage_type, artifact_type, title, status, current_version</td></tr>
+      <tr><td><b>artifact_version</b></td><td class="col">id, artifact_id, version_no, file_ref, sha256, template_version_id, created_by, created_at</td></tr>
+      <tr><td><b>artifact_review</b></td><td class="col">id, artifact_version_id, reviewer_type, decision, findings_ref, created_at</td></tr>
+      <tr><td><b>trace_link</b></td><td class="col">from_type, from_id, to_type, to_id, relation</td></tr>
+    </table>
+
+    <h3>5.2 阶段状态机</h3>
+    <div class="sm-label">正常路径</div>
+    <div class="dag">
+      <div class="node">not_started<br><small>未开始</small></div>
+      <div class="arrow">→</div>
+      <div class="node active">in_progress<br><small>进行中</small></div>
+      <div class="arrow">→</div>
+      <div class="node warn">waiting_review<br><small>待评审</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">approved<br><small>已批准</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">completed<br><small>完成</small></div>
+    </div>
+    <div class="sm-label">异常路径</div>
+    <div class="dag">
+      <div class="node err">rejected<br><small>驳回</small></div>
+      <div class="node warn">stale<br><small>过期</small></div>
+      <div class="node warn">paused<br><small>暂停</small></div>
+      <div class="node err">blocked<br><small>阻塞</small></div>
+      <div class="node err">cancelled<br><small>取消</small></div>
+    </div>
+
+    <h3>5.3 Artifact 状态机</h3>
+    <div class="dag">
+      <div class="node active">draft<br><small>草稿</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">generated<br><small>已生成</small></div>
+      <div class="arrow">→</div>
+      <div class="node warn">reviewing<br><small>评审中</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">approved<br><small>已批准</small></div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node warn">superseded<br><small>被取代</small></div>
+      <div class="node">archived<br><small>归档</small></div>
+    </div>
+
+    <div class="callout"><b>批准后的版本不可原地修改。</b>已 <code>approved</code> 的 artifact_version 视为不可变；任何修订必须创建新版本（version_no 递增），旧版本转为 <code>superseded</code>。这一规则保证了产物审计链的完整性与可重现性。</div>
+
+    <h3>5.4 输入快照与可追溯</h3>
+    <p>每次 stage_run 启动时冻结输入：<code>stage_input_snapshot</code> 记录哈希，<code>stage_input_item</code> 记录每个输入产物版本与角色。<code>trace_link</code> 以多态外键形式建立跨实体追溯关系（需求→设计→任务→代码→测试→产物）。</p>
+  </div>
+</section>
+<!-- ═══════════════════════════════════════════════════════════
+     第 6 章：Planning 与治理实体
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 06</div>
+        <h2>Planning 与治理实体</h2>
+      </div>
+      <span class="tag"><b>实体</b> plan / plan_version / plan_node / plan_edge / node_run / checkpoint / tool_call / policy / review / approval_decision / audit_event</span>
+    </div>
+    <p class="lead">Planning 负责将目标分解为可执行的 DAG，Governance 负责策略评估、审批门控与不可篡改的审计链。二者共同保证"自治可追溯、高风险必确认"。</p>
+
+    <h3>6.1 Planning 实体</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th></tr>
+      <tr><td><b>plan</b></td><td class="col">id, project_id, goal, status, current_version, budget_json</td></tr>
+      <tr><td><b>plan_version</b></td><td class="col">id, plan_id, version_no, graph_hash, created_at</td></tr>
+      <tr><td><b>plan_node</b></td><td class="col">id, plan_version_id, type, title, status, risk, inputs_json, acceptance_json, idempotency_key</td></tr>
+      <tr><td><b>plan_edge</b></td><td class="col">plan_version_id, from_node_id, to_node_id, condition_json</td></tr>
+      <tr><td><b>node_run</b></td><td class="col">id, node_id, attempt, status, started_at, ended_at, result_ref, error_code</td></tr>
+      <tr><td><b>checkpoint</b></td><td class="col">id, node_run_id, state_ref, external_effect_digest, created_at</td></tr>
+      <tr><td><b>tool_call</b></td><td class="col">id, node_run_id, tool_id, args_hash, status, result_ref, risk, approval_id</td></tr>
+    </table>
+
+    <h4>Planner / Orchestrator 规则</h4>
+    <div class="card">
+      <ul>
+        <li>Planner 输出 <b>DAG 及 graph hash</b>，保存为 PlanVersion；graph_hash 用于检测计划被篡改。</li>
+        <li>Orchestrator 只调度<b>依赖满足、策略允许、预算充足</b>的节点。</li>
+        <li>预算包括：最大模型调用、tokens、费用、墙钟时间、工具调用数、并行数。</li>
+        <li>每个副作用节点必须有 <b>idempotency key</b>、风险等级和可验证完成条件。</li>
+        <li>反思不得无限循环；达到重试/预算上限后<b>熔断并请求人工决定</b>。</li>
+      </ul>
+    </div>
+
+    <h3>6.2 治理实体</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th></tr>
+      <tr><td><b>policy</b></td><td class="col">id, scope, version, status, rules_ref</td></tr>
+      <tr><td><b>review</b></td><td class="col">id, resource_type, resource_id, operation, params_hash, policy_version, risk, status, expires_at</td></tr>
+      <tr><td><b>approval_decision</b></td><td class="col">id, review_id, decision, actor, reason, decided_at</td></tr>
+      <tr><td><b>audit_event</b></td><td class="col">id, trace_id, actor, action, resource, before_hash, after_hash, result, prev_hash, event_hash, time</td></tr>
+    </table>
+
+    <h4>Policy 与 Review 规则</h4>
+    <div class="card">
+      <ul>
+        <li>Policy 输入：actor、project、operation、resource、normalized args、data classification、tool trust、environment、plan version。</li>
+        <li>Policy 输出：<code>allow / deny / require_review</code> + reason + policy version。</li>
+        <li>规则冲突取<b>更严格者</b>；模型和 Review Agent 不能修改系统强制策略。</li>
+        <li>Review 绑定操作类型、规范化参数哈希、目标资源、计划版本、策略版本、风险、过期时间。<b>参数变化后旧批准失效</b>。</li>
+        <li>超时默认保持<b>暂停或拒绝</b>，绝不自动执行。</li>
+      </ul>
+    </div>
+
+    <h3>6.3 审计事件：append-only + hash chain</h3>
+    <p>audit_event 是系统治理的最终证据层，采用追加写与哈希链双重保护：</p>
+    <div class="dag">
+      <div class="node">event_1<br><small>prev_hash=∅</small></div>
+      <div class="arrow">→</div>
+      <div class="node active">event_2<br><small>prev_hash=h1</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">event_3<br><small>prev_hash=h2</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">event_N<br><small>prev_hash=h(N-1)</small></div>
+    </div>
+    <div class="callout"><b>审计事件 append-only + tamper-evident hash chain。</b>权威算法见治理 PRD：每个 Workspace 使用 chain_id + 单调 audit_seq，Engine 单写者串行追加并计算版本化 canonical event_hash。普通链可检测中间记录篡改/删除，但不能单独检测完整链尾截断或整库回滚；周期性签名 checkpoint 必须包含 workspace_id、epoch、last_sequence、head_hash、timestamp，并保存在业务备份之外的受保护位置。恢复时若备份 head 落后于已知最高 checkpoint，进入 <code>audit_rollback_detected / recovery_required</code>，禁止宣称链完整。</div>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 7 章：Ontology 实体
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch7">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 07</div>
+        <h2>Ontology 实体</h2>
+      </div>
+      <span class="tag"><b>实体</b> source_snapshot / parse_job / ontology_node / ontology_edge / embedding_ref</span>
+    </div>
+    <p class="lead">Ontology Engine 将代码库与文档解析为节点-边知识图谱，支撑语义检索与跨实体追溯。源快照保证可重现，增量索引按内容哈希驱动。</p>
+
+    <h3>7.1 实体字段</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th></tr>
+      <tr><td><b>source_snapshot</b></td><td class="col">id, project_id, source_type, source_ref, sha256, index_version</td></tr>
+      <tr><td><b>parse_job</b></td><td class="col">id, snapshot_id, status, parser_version, error_code</td></tr>
+      <tr><td><b>ontology_node</b></td><td class="col">id, project_id, node_type, natural_key, name, properties_json, source_snapshot_id, revision</td></tr>
+      <tr><td><b>ontology_edge</b></td><td class="col">id, project_id, from_id, to_id, edge_type, properties_json, revision</td></tr>
+      <tr><td><b>embedding_ref</b></td><td class="col">id, project_id, owner_type, owner_id, model, dimension, index_key, revision</td></tr>
+    </table>
+
+    <h3>7.2 节点类型注册表（15 种）</h3>
+    <p>节点类型使用可扩展注册表，MVP 至少覆盖以下 15 种：</p>
+    <div class="entity-grid">
+      <div class="entity-card"><div class="ename">File</div><div class="efield">文件节点</div></div>
+      <div class="entity-card"><div class="ename">Document</div><div class="efield">文档节点</div></div>
+      <div class="entity-card"><div class="ename">Artifact</div><div class="efield">产物节点</div></div>
+      <div class="entity-card"><div class="ename">Requirement</div><div class="efield">需求节点</div></div>
+      <div class="entity-card"><div class="ename">Decision</div><div class="efield">决策节点</div></div>
+      <div class="entity-card"><div class="ename">Module</div><div class="efield">模块节点</div></div>
+      <div class="entity-card"><div class="ename">Class</div><div class="efield">类节点</div></div>
+      <div class="entity-card"><div class="ename">Function</div><div class="efield">函数节点</div></div>
+      <div class="entity-card"><div class="ename">Interface</div><div class="efield">接口节点</div></div>
+      <div class="entity-card"><div class="ename">Table</div><div class="efield">表节点</div></div>
+      <div class="entity-card"><div class="ename">Field</div><div class="efield">字段节点</div></div>
+      <div class="entity-card"><div class="ename">UseCase</div><div class="efield">用例节点</div></div>
+      <div class="entity-card"><div class="ename">TestCase</div><div class="efield">测试用例节点</div></div>
+      <div class="entity-card"><div class="ename">Task</div><div class="efield">任务节点</div></div>
+      <div class="entity-card"><div class="ename">Release</div><div class="efield">发布节点</div></div>
+    </div>
+
+    <h3>7.3 索引约束</h3>
+    <div class="card">
+      <ul>
+        <li><code>(project_id, node_type, natural_key)</code> <b>唯一</b>——同一项目内同类节点的自然键唯一，防止重复解析产生重复节点。</li>
+        <li>Edge：<code>(project_id, from_id, edge_type)</code> 索引——支撑从源节点出发的邻接遍历。</li>
+        <li><b>所有查询强制 project_id</b>——本体查询不可跨项目，从数据层杜绝越权读取。</li>
+        <li>向量记录必须带 workspace/project scope、source revision 和 tombstone。</li>
+      </ul>
+    </div>
+
+    <h3>7.4 解析与增量索引</h3>
+    <p>Ontology Engine 职责链：<b>源快照 → 解析 → 节点边 → 版本化索引 → 查询</b>。增量索引按内容哈希驱动；<b>单文件失败不阻断其他文件</b>。查询返回来源与 revision，保证可追溯。Markdown / JSON / Go / TS 是候选 POC 范围，最终首期范围以 <b>ADR-006</b> 批准结果为准；其他语言通过 parser registry 扩展。</p>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 8 章：Memory 实体
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch8">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 08</div>
+        <h2>Memory 实体</h2>
+      </div>
+      <span class="tag"><b>实体</b> memory_entry / memory_source / memory_revision / recall_event / deletion_tombstone</span>
+    </div>
+    <p class="lead">Memory Manager 是系统的记忆中枢。记忆按四层分级管理，每条记忆带来源、作用域、可信度、重要度与修订记录，召回综合多维评分并返回解释。</p>
+
+    <h3>8.1 实体字段</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th></tr>
+      <tr><td><b>memory_entry</b></td><td class="col">id, workspace_id, project_id, layer, kind, content_ref, confidence, importance, status, ttl_at, revision</td></tr>
+      <tr><td><b>memory_source</b></td><td class="col">memory_id, source_type, source_id, source_revision, quote_ref</td></tr>
+      <tr><td><b>memory_revision</b></td><td class="col">id, memory_id, old_ref, new_ref, reason, actor, time</td></tr>
+      <tr><td><b>recall_event</b></td><td class="col">id, session_id, query_hash, memory_id, score, rank, injected_tokens, time</td></tr>
+      <tr><td><b>deletion_tombstone</b></td><td class="col">owner_type, owner_id, deleted_at, propagation_status</td></tr>
+    </table>
+
+    <h3>8.2 四层统一</h3>
+    <div class="entity-grid">
+      <div class="entity-card">
+        <div class="ename">working</div>
+        <div class="efield">当前 run 的临时状态，生命周期最短，run 结束即清理。</div>
+      </div>
+      <div class="entity-card">
+        <div class="ename">short_term</div>
+        <div class="efield">会话级摘要，跨单轮但限于会话范围。</div>
+      </div>
+      <div class="entity-card">
+        <div class="ename">long_term</div>
+        <div class="efield">用户确认的事实、偏好、决策、情节。情节记忆作为 <code>kind=episodic</code> 的长期记忆，而非第五层。</div>
+      </div>
+      <div class="entity-card">
+        <div class="ename">semantic</div>
+        <div class="efield">由本体或事实结构化出的知识，与 Ontology 节点联动。</div>
+      </div>
+    </div>
+
+    <h3>8.3 写入与召回规则</h3>
+    <div class="card">
+      <ul>
+        <li>每条记忆必须有<b>来源、作用域、可信度、重要度和修订记录</b>。</li>
+        <li>模型推断<b>不能自动升级</b>成"已确认事实"——必须经用户显式确认。</li>
+        <li>召回综合<b>相关度、时效、重要度和可信度</b>，并返回解释（为何召回这条）。</li>
+        <li>删除需传播至结构化记录、向量、缓存和摘要——<code>deletion_tombstone</code> 驱动多存储一致性。</li>
+      </ul>
+    </div>
+
+    <h3>8.4 隔离红线</h3>
+    <div class="warn"><b>跨项目泄漏率必须为 0。</b>记忆以 project_id 强作用域，查询层与存储层双重强制；任何召回路径不得返回非当前 project 的记忆。向量索引同样带 workspace/project scope，删除需传播 tombstone。</div>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 9 章：Skill 与 Tool 实体
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch9">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 09</div>
+        <h2>Skill 与 Tool 实体</h2>
+      </div>
+      <span class="tag"><b>实体</b> skill / skill_version / skill_dependency / skill_install / skill_trigger / tool_definition / tool_grant</span>
+    </div>
+    <p class="lead">Skill 是可分发的能力包，Tool 是底层执行单元。Skill 安装需哈希校验、签名验证、依赖锁与权限差异审查；匹配不等于授权。</p>
+
+    <h3>9.1 实体字段</h3>
+    <table>
+      <tr><th>实体</th><th>关键字段</th></tr>
+      <tr><td><b>skill</b></td><td class="col">id, name, publisher, status, current_version</td></tr>
+      <tr><td><b>skill_version</b></td><td class="col">id, skill_id, semver, manifest_ref, package_hash, signature_status, permissions_json</td></tr>
+      <tr><td><b>skill_dependency</b></td><td class="col">skill_version_id, dependency_type, name, constraint</td></tr>
+      <tr><td><b>skill_install</b></td><td class="col">id, skill_version_id, workspace_id, status, installed_at</td></tr>
+      <tr><td><b>skill_trigger</b></td><td class="col">id, session_id, skill_version_id, score, reason, status, result_ref</td></tr>
+      <tr><td><b>tool_definition</b></td><td class="col">id, name, input_schema_ref, output_schema_ref, risk, executor, version</td></tr>
+      <tr><td><b>tool_grant</b></td><td class="col">scope_type, scope_id, tool_id, constraints_json</td></tr>
+    </table>
+
+    <h3>9.2 Skill Manifest 必备字段</h3>
+    <div class="card">
+      <p>Skill Manifest 至少包含：</p>
+      <ul>
+        <li>name、version、publisher、description</li>
+        <li>triggers、entrypoint</li>
+        <li>input/output schema</li>
+        <li>permissions、dependencies</li>
+        <li>timeout、resource limits、signature</li>
+      </ul>
+    </div>
+
+    <h3>9.3 Skill 状态机</h3>
+    <div class="dag">
+      <div class="node active">draft<br><small>草稿</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">validated<br><small>已校验</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">installed<br><small>已安装</small></div>
+      <div class="arrow">→</div>
+      <div class="node done">enabled<br><small>已启用</small></div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node warn">disabled<br><small>已禁用</small></div>
+      <div class="arrow">⇢</div>
+      <div class="node err">quarantined<br><small>隔离</small></div>
+      <div class="arrow">⇢</div>
+      <div class="node">uninstalled<br><small>已卸载</small></div>
+    </div>
+
+    <div class="warn"><b>未签名或权限扩大的升级默认 quarantined。</b>Skill 升级时若签名校验失败或新版本 permissions_json 相对已安装版本存在权限扩大，系统自动将新版本置入 <code>quarantined</code> 隔离态，不自动启用，必须由人工审查后显式放行。</div>
+
+    <h3>9.4 匹配与授权分离</h3>
+    <div class="card">
+      <ul>
+        <li>自动匹配采用<b>显式触发优先、语义评分其次</b>；低于阈值回退普通对话；并列高分时提示选择。</li>
+        <li><b>匹配不授予权限</b>——Skill 被触发不等于其 tools 被授权执行。</li>
+        <li>安装需<b>哈希、签名、依赖锁、权限差异和撤销机制</b>。</li>
+        <li>Tool 执行受 tool_grant 约束：scope_type × scope_id × tool_id × constraints_json。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="brk">
+
+<!-- ═══════════════════════════════════════════════════════════
+     第 10 章：集成、任务与发布实体
+     ═══════════════════════════════════════════════════════════ -->
+<section id="ch10">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 10</div>
+        <h2>集成、任务与发布实体</h2>
+      </div>
+      <span class="tag"><b>三大域</b> 集成 / 开发 / 发布</span>
+    </div>
+    <p class="lead">集成域管理外部连接与数据流，开发域管理需求到代码的全链路可追踪，发布域管理变更请求到部署的受控交付。CR、Deployment 与应用自身 Update 使用不同枚举与表。</p>
+
+    <h3>10.1 集成实体</h3>
+    <p>统一以“连接配置 + 数据库结构契约 + 迁移包”交付，覆盖 API、MCP、FAST 自定义、SAP RFC、Database Connector 与 OData；Connector Registry 提供动态 schema/UI。月汐只做连接、映射、只读结构比对、测试与迁移编排，<b>不做完整 DB IDE</b>：</p>
+    <div class="entity-grid">
+      <div class="entity-card"><div class="ename">Integration</div><div class="efield">集成主记录，类型 + 端点 + 认证 + 健康状态</div></div>
+      <div class="entity-card"><div class="ename">IntegrationVersion</div><div class="efield">id, integration_id, version_no, connector_type, schema_version, config_hash, status</div></div>
+      <div class="entity-card"><div class="ename">Binding</div><div class="efield">id, integration_version_id, environment_id, credential_ref, endpoint_ref, status；至少开发+生产</div></div>
+      <div class="entity-card"><div class="ename">ConnectionTest</div><div class="efield">id, binding_id, direction, status, latency_ms, sanitized_log_ref, tested_at</div></div>
+      <div class="entity-card"><div class="ename">CredentialRef</div><div class="efield">凭据引用，仅存引用不存明文</div></div>
+      <div class="entity-card"><div class="ename">ApiOperation</div><div class="efield">API 操作定义（HTTP 方法、路径、映射）</div></div>
+      <div class="entity-card"><div class="ename">McpServer</div><div class="efield">MCP 服务端注册（stdio / Streamable HTTP/SSE）</div></div>
+      <div class="entity-card"><div class="ename">McpTool</div><div class="efield">MCP 工具发现结果，先入隔离 registry</div></div>
+      <div class="entity-card"><div class="ename">EtlJob</div><div class="efield">ETL 作业定义：source/target/mode/watermark/mapping</div></div>
+      <div class="entity-card"><div class="ename">EtlRun</div><div class="efield">ETL 执行记录：input range/watermark/统计/错误</div></div>
+      <div class="entity-card"><div class="ename">FieldMapping</div><div class="efield">字段映射规则</div></div>
+      <div class="entity-card"><div class="ename">DatabaseContract</div><div class="efield">id, project_id, version, source_binding_id, contract_hash, captured_at；只读结构快照</div></div>
+      <div class="entity-card"><div class="ename">ContractObject</div><div class="efield">id, contract_id, kind, qualified_name, definition_json, object_hash；表/字段/类型/PK/索引/约束</div></div>
+      <div class="entity-card"><div class="ename">MigrationPackage</div><div class="efield">id, from_contract_id, to_contract_id, dialect, manifest_ref, digest, status</div></div>
+      <div class="entity-card"><div class="ename">ODataService</div><div class="efield">OData v4 服务根与元数据</div></div>
+      <div class="entity-card"><div class="ename">ODataEntitySet</div><div class="efield">OData 实体集与查询选项</div></div>
+      <div class="entity-card"><div class="ename">DatabaseConnector</div><div class="efield">数据库直连，默认只读，独立高风险类型</div></div>
+      <div class="entity-card"><div class="ename">CallLog</div><div class="efield">调用日志（脱敏）</div></div>
+      <div class="entity-card"><div class="ename">HealthSample</div><div class="efield">健康采样，驱动滑动窗口状态</div></div>
+    </div>
+    <div class="card"><table>
+      <tr><th>规则</th><th>约束</th></tr>
+      <tr><td>环境绑定</td><td>每个 IntegrationVersion 必须各有一个 development 与 production Binding；test 可选；UNIQUE(integration_version_id, environment_id)</td></tr>
+      <tr><td>方向与映射</td><td>接口清单/详情记录 inbound、outbound 或 bidirectional；FieldMapping 绑定 source_path、target_path、transform、null/error policy</td></tr>
+      <tr><td>测试日志</td><td>ConnectionTest 与调用日志均须可从清单进入详情查看；密钥、token、连接串和业务敏感字段必须脱敏</td></tr>
+      <tr><td>结构契约</td><td>ContractInspector 使用只读权限比对 DatabaseContract；禁止通用 SQL 控制台和直接结构编辑</td></tr>
+    </table></div>
+    <div class="callout"><b>健康状态不得只依赖最后一次结果</b>，应由滑动窗口计算 <code>unknown/healthy/degraded/unhealthy/paused</code>。ETL 水位只在目标事务成功后推进；部分失败不得提前推进水位，重试使用 source key + batch id 去重。</div>
+
+    <h3>10.2 开发实体</h3>
+    <p>需求 → 设计 → 任务 → 代码 → 测试的<b>双向可追踪</b>链路：</p>
+    <div class="entity-grid">
+      <div class="entity-card"><div class="ename">DevTask</div><div class="efield">开发任务主记录</div></div>
+      <div class="entity-card"><div class="ename">ChangeTask</div><div class="efield">id, cr_id, task_type, resource_ref, base_hash, base_version, status, assignee_ref</div></div>
+      <div class="entity-card"><div class="ename">CRRevision</div><div class="efield">id, cr_id, revision_no, base_revision_id, content_hash, author_ref, created_at</div></div>
+      <div class="entity-card"><div class="ename">TaskSourceLink</div><div class="efield">任务与需求/设计的双向追溯</div></div>
+      <div class="entity-card"><div class="ename">TaskDependency</div><div class="efield">任务间依赖</div></div>
+      <div class="entity-card"><div class="ename">Assignment</div><div class="efield">任务分配</div></div>
+      <div class="entity-card"><div class="ename">CodeChange</div><div class="efield">代码变更记录</div></div>
+      <div class="entity-card"><div class="ename">ScanRun</div><div class="efield">扫描运行（自检/SAST/SCA/secret scan）</div></div>
+      <div class="entity-card"><div class="ename">ScanFinding</div><div class="efield">扫描发现，输出不可变证据</div></div>
+      <div class="entity-card"><div class="ename">TestCase</div><div class="efield">测试用例</div></div>
+      <div class="entity-card"><div class="ename">TestRun</div><div class="efield">测试执行</div></div>
+      <div class="entity-card"><div class="ename">TestEvidence</div><div class="efield">测试证据</div></div>
+    </div>
+    <div class="warn"><b>高危发现不得由 Agent 自行豁免。</b>自检、SAST、SCA、secret scan 输出不可变证据；高危扫描发现必须经人工安全角色确认，Agent 无权自动标记为误报或已处理。</div>
+    <div class="callout"><b>多人修改不使用长锁。</b>presence 仅表达在线/光标/正在编辑；ChangeTask、CRRevision 修改必须携带 base hash/version，分叉时以共同基线执行三方合并或人工解决，禁止 last-write-wins。短租约只允许用于 ReleasePackage 冻结和环境导入。</div>
+
+    <h3>10.3 发布实体</h3>
+    <p>变更请求 → 打包 → 部署 → 回滚的受控发布链：</p>
+    <div class="entity-grid">
+      <div class="entity-card"><div class="ename">ChangeRequest</div><div class="efield">变更请求（CR）</div></div>
+      <div class="entity-card"><div class="ename">CRDependency</div><div class="efield">CR 间依赖</div></div>
+      <div class="entity-card"><div class="ename">ReleasePackage</div><div class="efield">发布包</div></div>
+      <div class="entity-card"><div class="ename">Promotion</div><div class="efield">id, release_package_id, from_environment_id, to_environment_id, package_digest, status</div></div>
+      <div class="entity-card"><div class="ename">PromotionGateSnapshot</div><div class="efield">id, promotion_id, policy_version, evidence_hash, contract_diff_hash, decision, captured_at</div></div>
+      <div class="entity-card"><div class="ename">EnvironmentLease</div><div class="efield">id, environment_id, purpose, owner_id, token_hash, expires_at, renewed_at；仅 freeze/import</div></div>
+      <div class="entity-card"><div class="ename">ArtifactDigest</div><div class="efield">制品摘要</div></div>
+      <div class="entity-card"><div class="ename">Environment</div><div class="efield">环境定义</div></div>
+      <div class="entity-card"><div class="ename">Deployment</div><div class="efield">部署记录</div></div>
+      <div class="entity-card"><div class="ename">RollbackAttempt</div><div class="efield">回滚尝试</div></div>
+    </div>
+    <div class="note"><b>不可变晋级规则：</b><code>ReleasePackage</code> 同时包含代码制品和 <code>MigrationPackage</code>，development → test（可选）→ production 全程使用同一 digest，禁止按环境重打包。PromotionOrchestrator 在每次晋级前冻结 PromotionGateSnapshot，并按 <b>Expand → Migrate → Contract</b> 编排；Contract 必须等待旧版本退出及兼容门禁通过。</div>
+
+    <h3>10.4 CR / Deployment / Update 状态机</h3>
+    <div class="sm-label">CR 状态</div>
+    <div class="dag">
+      <div class="node active">draft</div>
+      <div class="arrow">→</div>
+      <div class="node warn">submitted</div>
+      <div class="arrow">→</div>
+      <div class="node done">approved</div>
+      <div class="arrow">→</div>
+      <div class="node done">packaged</div>
+      <div class="arrow">→</div>
+      <div class="node done">released</div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node err">rejected</div>
+      <div class="node err">changed_after_approval</div>
+      <div class="node warn">withdrawn</div>
+    </div>
+    <p>任意制品摘要、提交、依赖或测试证据变化使 approved CR 进入 <code>changed_after_approval</code>。</p>
+
+    <div class="sm-label">Deployment 状态</div>
+    <div class="dag">
+      <div class="node">pending</div>
+      <div class="arrow">→</div>
+      <div class="node active">running</div>
+      <div class="arrow">→</div>
+      <div class="node done">succeeded</div>
+      <div class="arrow">|</div>
+      <div class="node err">failed</div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node warn">rollback_pending</div>
+      <div class="arrow">→</div>
+      <div class="node warn">rolling_back</div>
+      <div class="arrow">→</div>
+      <div class="node done">rolled_back</div>
+      <div class="arrow">|</div>
+      <div class="node err">rollback_failed</div>
+    </div>
+
+    <div class="sm-label">Update / Migration 状态</div>
+    <div class="dag">
+      <div class="node">checking</div>
+      <div class="arrow">→</div>
+      <div class="node">available</div>
+      <div class="arrow">→</div>
+      <div class="node">downloading</div>
+      <div class="arrow">→</div>
+      <div class="node">verifying</div>
+      <div class="arrow">→</div>
+      <div class="node done">ready</div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node active">applying</div>
+      <div class="arrow">→</div>
+      <div class="node active">migrating</div>
+      <div class="arrow">→</div>
+      <div class="node done">succeeded</div>
+      <div class="arrow">|</div>
+      <div class="node warn">recovery_required</div>
+      <div class="arrow">|</div>
+      <div class="node err">failed</div>
+    </div>
+    <div class="callout"><b>CR、Deployment 和应用自身 Update 使用不同枚举与表。</b>迁移失败不得继续启动新版核心业务，应进入 <code>recovery_required</code>，允许导出诊断、恢复备份或回到兼容旧二进制。</div>
+  </div>
+</section>
+
+<!-- ═══ Footer ═══ -->
+<footer>
+  <div class="inner">
+    <div class="moon-logo sm"></div>
+    <div>
+      <div style="font-family:var(--serif);font-size:14px;color:var(--ink)">Lunitide 月汐</div>
+      <div class="copy">模块详细设计 · v1.0 · 2026-08-10</div>
+    </div>
+    <div class="links">
+      <a href="#ch1">模板</a>
+      <a href="#ch3">Provider</a>
+      <a href="#ch6">Planning</a>
+      <a href="#ch9">Skill</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var s=document.querySelector('.stars');if(!s)return;
+  for(var i=0;i<80;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+</body>
+</html>

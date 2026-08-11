@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 · S8 记忆与技能 PRD</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — S8 记忆与技能 PRD (Black Starry Sky + Moon)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;
+  --bg2:#0a1424;
+  --bg3:#0e1c30;
+  --ink:#eaf3ff;
+  --muted:#8fa3bf;
+  --rule:rgba(143,163,191,.16);
+  --line:rgba(143,163,191,.25);
+  --moon:#f4f6ff;
+  --moon2:#cfe0ff;
+  --glow:#7fb4ff;
+  --glow2:#4f8bff;
+  --tide1:#3bd6ff;
+  --tide2:#7f5bff;
+  --tide3:#2fd6b5;
+  --ok:#3bd6a0;
+  --warn:#ffc46b;
+  --err:#ff7a7a;
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+
+/* ── Atmospheric Background: Black Starry Sky ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+
+/* ── Stars ── */
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon (LOGO & Ambient) ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Moon LOGO (small, inline) ── */
+.moon-logo{
+  width:46px;height:46px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 36%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 26px rgba(207,224,255,.35), 0 0 50px rgba(127,180,255,.15);
+}
+.moon-logo::after{content:"";position:absolute;inset:5px;border-radius:50%;
+  border:1px solid rgba(150,170,205,.5);opacity:.5}
+.moon-logo.sm{width:26px;height:26px;box-shadow:0 0 14px rgba(207,224,255,.35)}
+.moon-logo.sm::after{inset:3px}
+
+/* ── Tide Ring (ambient wave) ── */
+.tide-ring{position:fixed;left:50%;bottom:-160px;transform:translateX(-50%);width:1400px;height:500px;z-index:-1;pointer-events:none}
+.tide-ring path{stroke-width:1;fill:none;stroke-linecap:round}
+.tide-ring .r1{stroke:rgba(63,214,255,.16);animation:sweep 11s ease-in-out infinite}
+.tide-ring .r2{stroke:rgba(127,91,255,.13);animation:sweep 15s ease-in-out infinite reverse}
+.tide-ring .r3{stroke:rgba(47,214,181,.10);animation:sweep 19s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.narrow{max-width:860px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{
+  font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;
+  text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h1{font-size:clamp(38px,6vw,60px);line-height:1.05}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+h4{font-size:15.5px;margin:18px 0 8px;font-weight:600;color:var(--tide1)}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+p b,li b{color:var(--ink);font-weight:600}
+p em{color:var(--tide1);font-style:normal}
+ul,ol{margin:10px 0 10px 22px;color:var(--muted)}
+li{margin:5px 0}
+
+/* ── Gradient Text ── */
+.accent-grad,.accent{
+  background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+/* ── Top Nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(4,7,15,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule)}
+nav .inner{max-width:1180px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+nav .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em;font-size:16px}
+nav .logo .zh{color:var(--glow);margin-left:2px}
+nav .links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav .links a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:6px 11px;border-radius:8px;transition:.15s}
+nav .links a:hover{color:var(--ink);background:rgba(127,180,255,.08)}
+nav .tag{font-family:var(--mono);font-size:10.5px;color:var(--tide1);border:1px solid rgba(63,214,255,.3);padding:2px 9px;border-radius:999px}
+
+/* ── Cards ── */
+.card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));
+  border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;
+  transition:.2s;
+}
+.card:hover{border-color:var(--glow);box-shadow:0 10px 30px -14px rgba(63,134,255,.3)}
+
+/* ── Callouts ── */
+.callout{border-left:3px solid var(--tide1);background:rgba(63,214,255,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.callout b{color:var(--ink)}
+.note{border-left:3px solid var(--warn);background:rgba(255,196,107,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.warn{border-left:3px solid var(--err);background:rgba(255,122,122,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--glow);text-transform:uppercase}
+td b{color:var(--ink)}
+td .col{color:var(--tide1)}
+
+/* ── Tags / Pills ── */
+.tag{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--muted);
+  border:1px solid var(--rule);border-radius:999px;padding:7px 15px;background:rgba(14,28,48,.5);
+  backdrop-filter:blur(4px);
+}
+.tag b{color:var(--tide1);font-weight:600}
+
+/* ── Stage / Mockup Frame ── */
+.stage{
+  position:relative;border-radius:18px;padding:26px;
+  background:linear-gradient(160deg,#0b1626,#081020);
+  border:1px solid var(--line);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.stage::before{
+  content:attr(data-label);position:absolute;top:-12px;left:26px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--glow);
+  background:#0b1729;padding:2px 12px;border:1px solid var(--rule);border-radius:999px;
+}
+.browser-dots{display:flex;gap:7px;margin-bottom:18px}
+.browser-dots i{width:11px;height:11px;border-radius:50%;background:#29405f}
+.browser-dots i:nth-child(1){background:#ff7a7a}
+.browser-dots i:nth-child(2){background:#ffc46b}
+.browser-dots i:nth-child(3){background:#3bd6a0}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+
+/* ── TOC ── */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:34px 0 10px}
+.toc a{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-decoration:none;color:var(--ink);transition:.18s;display:block}
+.toc a:hover{transform:translateY(-2px);border-color:var(--glow);box-shadow:0 10px 24px -12px rgba(63,134,255,.4)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--glow);letter-spacing:.14em}
+.toc .t{font-size:14px;font-weight:600;margin-top:4px}
+
+/* ── Mermaid-like diagrams (CSS-based) ── */
+.dag{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;padding:20px}
+.dag .node{padding:8px 14px;border-radius:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--line);background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:80px}
+.dag .node.active{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.1)}
+.dag .node.done{border-color:var(--tide3);color:var(--tide3);background:rgba(47,214,181,.08)}
+.dag .arrow{color:var(--rule);font-size:14px}
+
+/* ── Four-Layer Memory Cards ── */
+.layer-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin:24px 0}
+.layer-card{
+  position:relative;border-radius:14px;padding:22px 20px;
+  background:linear-gradient(165deg,rgba(14,28,48,.7),rgba(10,20,32,.6));
+  border:1px solid var(--line);overflow:hidden;transition:.2s;
+}
+.layer-card:hover{transform:translateY(-3px);border-color:var(--glow);box-shadow:0 14px 34px -16px rgba(63,134,255,.4)}
+.layer-card .lvl{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+.layer-card .ln{font-family:var(--serif);font-size:21px;margin:8px 0 4px;font-weight:600}
+.layer-card .lc{font-size:13px;color:var(--muted);line-height:1.6}
+.layer-card .life{font-family:var(--mono);font-size:11px;margin-top:14px;padding-top:12px;border-top:1px solid var(--rule)}
+.layer-card .bar{position:absolute;left:0;top:0;bottom:0;width:4px}
+.layer-card.l1 .ln{color:var(--tide1)}
+.layer-card.l1 .bar{background:linear-gradient(180deg,var(--tide1),transparent)}
+.layer-card.l2 .ln{color:var(--glow)}
+.layer-card.l2 .bar{background:linear-gradient(180deg,var(--glow),transparent)}
+.layer-card.l3 .ln{color:var(--tide2)}
+.layer-card.l3 .bar{background:linear-gradient(180deg,var(--tide2),transparent)}
+.layer-card.l4 .ln{color:var(--tide3)}
+.layer-card.l4 .bar{background:linear-gradient(180deg,var(--tide3),transparent)}
+
+/* ── State Machine ── */
+.fsm-wrap{background:linear-gradient(160deg,rgba(14,28,48,.5),rgba(10,20,32,.4));border:1px solid var(--line);border-radius:14px;padding:28px 20px;margin:18px 0}
+.fsm-row{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.fsm-row:last-child{margin-bottom:0}
+.fsm-node{padding:9px 15px;border-radius:10px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:96px;transition:.2s}
+.fsm-node:hover{transform:translateY(-2px)}
+.fsm-node.s-draft{border-color:var(--muted);color:var(--muted)}
+.fsm-node.s-valid{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.08)}
+.fsm-node.s-install{border-color:var(--glow);color:var(--glow)}
+.fsm-node.s-enable{border-color:var(--ok);color:var(--ok);background:rgba(59,214,160,.08)}
+.fsm-node.s-disable{border-color:var(--warn);color:var(--warn);background:rgba(255,196,107,.06)}
+.fsm-node.s-quar{border-color:var(--err);color:var(--err);background:rgba(255,122,122,.08)}
+.fsm-node.s-uninst{border-color:var(--rule);color:var(--muted);opacity:.6}
+.fsm-arr{color:var(--rule);font-size:15px;font-family:var(--mono)}
+.fsm-arr.warn{color:var(--err)}
+.fsm-arr.note{color:var(--warn)}
+.fsm-label{font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center;margin-top:6px}
+
+/* ── Memory Center UI ── */
+.mc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:6px}
+.mc-col{background:rgba(10,20,32,.55);border:1px solid var(--rule);border-radius:11px;padding:14px;min-height:180px}
+.mc-col h5{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.mc-col h5 .cnt{margin-left:auto;font-size:10px;color:var(--muted)}
+.mc-item{background:rgba(14,28,48,.6);border:1px solid var(--rule);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:12px}
+.mc-item .mt{color:var(--ink);font-weight:600;font-size:12.5px}
+.mc-item .mm{color:var(--muted);font-size:11px;margin-top:3px;display:flex;gap:10px;flex-wrap:wrap}
+.mc-item .mm .conf{color:var(--tide3)}
+.mc-item .mm .imp{color:var(--tide2)}
+.mc-item .mm .st{color:var(--warn)}
+
+/* ── Skill Center UI ── */
+.sc-grid{display:grid;grid-template-columns:240px 1fr;gap:14px;margin-top:6px}
+.sc-list{background:rgba(10,20,32,.55);border:1px solid var(--rule);border-radius:11px;padding:12px}
+.sc-list h5{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px;color:var(--muted)}
+.sc-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;transition:.15s;margin-bottom:4px}
+.sc-row:hover{background:rgba(127,180,255,.07)}
+.sc-row.on{background:linear-gradient(90deg,rgba(63,214,255,.16),rgba(127,91,255,.10));border-left:2px solid var(--tide1)}
+.sc-row .si{width:9px;height:9px;border-radius:3px;flex:none}
+.sc-row .sn{font-size:12.5px;font-weight:600;color:var(--ink)}
+.sc-row .sv{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--muted)}
+.sc-detail{background:rgba(10,20,32,.55);border:1px solid var(--rule);border-radius:11px;padding:16px}
+.sc-detail .dh{display:flex;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--rule)}
+.sc-detail .dh .dt{font-family:var(--serif);font-size:17px;font-weight:600}
+.sc-detail .dh .dp{margin-left:auto;font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:999px}
+.sc-detail .drow{display:flex;gap:10px;font-size:12px;margin-bottom:8px}
+.sc-detail .drow .dk{font-family:var(--mono);color:var(--glow);min-width:110px;font-size:11px}
+.sc-detail .drow .dv{color:var(--muted)}
+.sc-detail .perms{display:flex;gap:7px;flex-wrap:wrap;margin-top:6px}
+.sc-detail .perm{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:6px;border:1px solid var(--rule);color:var(--muted)}
+.sc-detail .perm.risk{color:var(--err);border-color:rgba(255,122,122,.3)}
+.sc-detail .perm.safe{color:var(--tide3);border-color:rgba(47,214,181,.3)}
+
+/* ── Manifest block ── */
+.manifest{background:#07101d;border:1px solid var(--rule);border-radius:11px;padding:16px 18px;font-family:var(--mono);font-size:12px;color:#cfe0ff;line-height:1.8;overflow-x:auto;margin:14px 0}
+.manifest .k{color:var(--tide2)}
+.manifest .s{color:var(--tide3)}
+.manifest .c{color:var(--muted)}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--rule);padding:46px 0 60px;margin-top:40px;text-align:center}
+footer .fl{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:14px}
+footer p{font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacing:.05em}
+
+@media(max-width:760px){
+  .mc-grid,.sc-grid{grid-template-columns:1fr}
+  .fsm-node{min-width:74px;font-size:10.5px;padding:7px 10px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Atmospheric Background ═══ -->
+<div class="sky"></div>
+<div class="stars"></div>
+<div class="moon-glow"></div>
+<div class="moon"></div>
+<svg class="tide-ring" viewBox="0 0 1400 500" preserveAspectRatio="none">
+  <path class="r1" d="M0,260 Q350,120 700,260 T1400,260"/>
+  <path class="r2" d="M0,300 Q350,180 700,300 T1400,300"/>
+  <path class="r3" d="M0,340 Q350,240 700,340 T1400,340"/>
+</svg>
+
+<!-- ═══ Top Nav ═══ -->
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE <span class="zh">月汐</span></span>
+    </div>
+    <div class="links">
+      <a href="#toc">目录</a>
+      <a href="#part-memory">记忆系统</a>
+      <a href="#part-skill">技能系统</a>
+      <a href="#ch-memory-ui">记忆中心</a>
+      <a href="#ch-skill-ui">技能中心</a>
+    </div>
+    <span class="tag">S8 · PRD v1.0</span>
+  </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section style="padding-top:90px;padding-bottom:30px">
+  <div class="wrap">
+    <div class="kicker">Lunitide · 五大内核之 Memory + Skills</div>
+    <h1>S8 · <span class="accent-grad">记忆与技能</span> PRD</h1>
+    <p class="lead" style="margin-top:18px">
+      四层记忆模型确保<b>时间连续性</b>，可插拔技能系统提供<b>可扩展能力</b>。
+      记忆负责"记住什么、忘掉什么、如何安全召回"，技能负责"在何时、以何种权限、调用什么"——
+      两者共同构成 Agent 跨会话、跨任务的可信任执行底座。
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
+      <span class="tag">Memory Manager</span>
+      <span class="tag">Skill System</span>
+      <span class="tag"><b>4</b> 层记忆</span>
+      <span class="tag"><b>7</b> 态状态机</span>
+      <span class="tag">跨项目泄漏率 <b>= 0</b></span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ TOC ═══ -->
+<section id="toc" style="padding-top:20px;padding-bottom:20px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="kicker" style="margin-bottom:8px">目录</div>
+        <h2>Contents</h2>
+      </div>
+      <span class="num">13 章 · 2 部分</span>
+    </div>
+    <div class="toc">
+      <a href="#ch1"><span class="n">CH 01</span><div class="t">四层记忆模型</div></a>
+      <a href="#ch2"><span class="n">CH 02</span><div class="t">记忆实体设计</div></a>
+      <a href="#ch3"><span class="n">CH 03</span><div class="t">记忆写入与分级规则</div></a>
+      <a href="#ch4"><span class="n">CH 04</span><div class="t">上下文压缩、续接与记忆召回</div></a>
+      <a href="#ch5"><span class="n">CH 05</span><div class="t">记忆安全与隔离</div></a>
+      <a href="#ch6"><span class="n">CH 06</span><div class="t">Skill Manifest 规范</div></a>
+      <a href="#ch7"><span class="n">CH 07</span><div class="t">技能实体设计</div></a>
+      <a href="#ch8"><span class="n">CH 08</span><div class="t">技能状态机</div></a>
+      <a href="#ch9"><span class="n">CH 09</span><div class="t">技能匹配与触发</div></a>
+      <a href="#ch10"><span class="n">CH 10</span><div class="t">技能安装与安全</div></a>
+      <a href="#ch11"><span class="n">CH 11</span><div class="t">Tool 定义与授权</div></a>
+      <a href="#ch-memory-ui"><span class="n">CH 12</span><div class="t">记忆中心 UI 原型</div></a>
+      <a href="#ch-skill-ui"><span class="n">CH 13</span><div class="t">技能中心 UI 原型</div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     第一部分：记忆系统
+     ═══════════════════════════════════════════════════════════ -->
+<section id="part-memory" style="padding-top:40px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="kicker" style="margin-bottom:8px">Part 1 / Memory System</div>
+        <h2>第一部分 · <span class="accent">记忆系统</span></h2>
+      </div>
+      <span class="num">CH 01 — CH 05</span>
+    </div>
+    <p class="lead">
+      Memory Manager 负责记忆的生命周期管理：写入分级、来源追溯、可信度标注、重要度评估、
+      召回解释与删除传播。所有记忆按四层分层存储，确保<b>时间连续性</b>与<b>跨会话一致性</b>。
+    </p>
+  </div>
+</section>
+
+<!-- ── 第1章：四层记忆模型 ── -->
+<section id="ch1">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 01</span><h2 style="margin-top:8px">四层记忆模型</h2></div>
+    </div>
+    <p>Lunitide 将记忆统一划分为四层：<b>working / short_term / long_term / semantic</b>。每一层有不同的生命周期、写入门槛与召回权重，共同保证 Agent 在时间维度上的连续性。</p>
+
+    <div class="layer-grid">
+      <div class="layer-card l1">
+        <div class="bar"></div>
+        <div class="lvl">Layer 1 · Working</div>
+        <div class="ln">工作记忆</div>
+        <div class="lc">当前 run 的临时状态，包括本次推理的中间变量、工具返回的暂存结果、尚未提交的计划节点。</div>
+        <div class="life">生命周期：run 结束自动清理</div>
+      </div>
+      <div class="layer-card l2">
+        <div class="bar"></div>
+        <div class="lvl">Layer 2 · Short-term</div>
+        <div class="ln">短期记忆</div>
+        <div class="lc">会话摘要与近期交互片段，支撑上下文窗口内的连贯对话，会话结束后归档或遗忘。</div>
+        <div class="life">生命周期：会话结束归档 / 遗忘</div>
+      </div>
+      <div class="layer-card l3">
+        <div class="bar"></div>
+        <div class="lvl">Layer 3 · Long-term</div>
+        <div class="ln">长期记忆</div>
+        <div class="lc">用户确认的事实、偏好、决策与情节。只有经用户确认的内容才可进入此层，持久化存储。</div>
+        <div class="life">生命周期：持久化，可修订 / 删除</div>
+      </div>
+      <div class="layer-card l4">
+        <div class="bar"></div>
+        <div class="lvl">Layer 4 · Semantic</div>
+        <div class="ln">语义记忆</div>
+        <div class="lc">由本体（ontology）或事实结构化出的知识图谱节点，提供可推理、可关联的结构化知识。</div>
+        <div class="life">生命周期：本体维护，版本化</div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>层级关系说明：</b>四层并非简单的"时间长短"划分，而是<b>可信度与持久化承诺</b>的递进。
+      Working → Short-term 的<b>派生记忆条目</b>属于可按 TTL 清理区间；Long-term → Semantic 属于"已确认可信赖"区间。原始 Message 是独立事实源，不因 short_term 清理或上下文压缩而删除。
+      越往深层，写入门槛越高、删除传播范围越广、召回权重越稳。
+    </div>
+
+    <h3>情节记忆不是第五层</h3>
+    <p>情节记忆（episodic memory）作为 <code style="color:var(--tide1);font-family:var(--mono)">kind=episodic</code> 的<b>长期记忆</b>存在，而非独立的第五层。它记录"何时、何地、发生了什么"的事件序列，与 <code style="color:var(--tide1);font-family:var(--mono)">kind=fact</code>（事实）、<code style="color:var(--tide1);font-family:var(--mono)">kind=preference</code>（偏好）、<code style="color:var(--tide1);font-family:var(--mono)">kind=decision</code>（决策）并列，共享 long_term 层的写入门槛与安全约束。</p>
+
+    <div class="note">
+      <b>设计意图：</b>避免"五层"造成层级膨胀。情节性只是记忆内容的一种 <em>kind</em>，分层维度保持正交——
+      <em>layer</em> 回答"存多久、多可信"，<em>kind</em> 回答"是什么类型的内容"。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第2章：记忆实体设计 ── -->
+<section id="ch2">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 02</span><h2 style="margin-top:8px">记忆实体设计</h2></div>
+    </div>
+    <p>记忆系统由五个核心实体构成，分别承载<b>记忆条目、来源追溯、修订历史、召回日志、删除墓碑</b>。</p>
+
+    <h3>2.1 memory_entry — 记忆条目</h3>
+    <p>记忆的主实体，每一条记录代表一条可被召回的记忆单元。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>记忆唯一标识</td></tr>
+        <tr><td><span class="col">workspace_id</span></td><td>ULID</td><td>所属工作空间，隔离边界</td></tr>
+        <tr><td><span class="col">project_id</span></td><td>ULID</td><td>所属项目，作用域粒度</td></tr>
+        <tr><td><span class="col">layer</span></td><td>enum</td><td><b>working / short_term / long_term / semantic</b></td></tr>
+        <tr><td><span class="col">kind</span></td><td>enum</td><td>fact / preference / decision / episodic / summary …</td></tr>
+        <tr><td><span class="col">content_ref</span></td><td>ref</td><td>内容引用（结构化记录 + 向量索引）</td></tr>
+        <tr><td><span class="col">confidence</span></td><td>float</td><td>可信度 [0,1]，用户确认 = 1.0</td></tr>
+        <tr><td><span class="col">importance</span></td><td>float</td><td>重要度 [0,1]，影响召回权重</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>active / archived / deleted</td></tr>
+        <tr><td><span class="col">ttl_at</span></td><td>timestamp</td><td>过期时间，working/short_term 有效</td></tr>
+        <tr><td><span class="col">revision</span></td><td>int</td><td>修订版本号，单调递增</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 memory_source — 记忆来源</h3>
+    <p>每条记忆必须可追溯到其来源，来源类型包括用户消息、工具输出、模型推断、外部导入等。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">memory_id</span></td><td>ULID</td><td>关联记忆条目</td></tr>
+        <tr><td><span class="col">source_type</span></td><td>enum</td><td>user_message / tool_output / model_inference / import</td></tr>
+        <tr><td><span class="col">source_id</span></td><td>ULID</td><td>来源消息 / 工具调用 / 推理记录 ID</td></tr>
+        <tr><td><span class="col">source_revision</span></td><td>int</td><td>来源内容的版本快照</td></tr>
+        <tr><td><span class="col">quote_ref</span></td><td>text</td><td>原文引用片段，支撑召回解释</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.3 memory_revision — 记忆修订</h3>
+    <p>长期记忆可被修订，每次修订记录旧值、新值、原因与操作者，形成完整审计链。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>修订记录标识</td></tr>
+        <tr><td><span class="col">memory_id</span></td><td>ULID</td><td>被修订的记忆条目</td></tr>
+        <tr><td><span class="col">old_ref</span></td><td>ref</td><td>修订前内容引用</td></tr>
+        <tr><td><span class="col">new_ref</span></td><td>ref</td><td>修订后内容引用</td></tr>
+        <tr><td><span class="col">reason</span></td><td>text</td><td>修订原因</td></tr>
+        <tr><td><span class="col">actor</span></td><td>enum</td><td>user / agent / system</td></tr>
+        <tr><td><span class="col">time</span></td><td>timestamp</td><td>修订时间</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.4 recall_event — 召回事件</h3>
+    <p>每次记忆召回都会记录一条事件，用于召回质量分析与召回链路审计。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>召回事件标识</td></tr>
+        <tr><td><span class="col">session_id</span></td><td>ULID</td><td>发起召回的会话</td></tr>
+        <tr><td><span class="col">query_hash</span></td><td>hash</td><td>召回查询的哈希，便于去重分析</td></tr>
+        <tr><td><span class="col">memory_id</span></td><td>ULID</td><td>被召回的记忆条目</td></tr>
+        <tr><td><span class="col">score</span></td><td>float</td><td>综合召回得分</td></tr>
+        <tr><td><span class="col">rank</span></td><td>int</td><td>本次召回中的排序</td></tr>
+        <tr><td><span class="col">injected_tokens</span></td><td>int</td><td>注入到上下文的 token 数</td></tr>
+        <tr><td><span class="col">time</span></td><td>timestamp</td><td>召回时间</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.5 deletion_tombstone — 删除墓碑</h3>
+    <p>删除分为<b>内容清除</b>和<b>最小审计墓碑</b>：事务提交墓碑时，源对象同时变为不可读，所有读取、召回、摘要装配和 Handoff 导入路径 MUST 立即 fail-closed；随后异步物理清除原文、content_ref、向量、缓存和全部递归派生内容。仅可保留不含原文、摘要、向量或可逆标识的最小审计墓碑。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">owner_type</span></td><td>enum</td><td>memory_entry / skill / tool 等</td></tr>
+        <tr><td><span class="col">owner_id</span></td><td>ULID</td><td>被删除对象标识</td></tr>
+        <tr><td><span class="col">deleted_at</span></td><td>timestamp</td><td>删除发起时间</td></tr>
+        <tr><td><span class="col">propagation_status</span></td><td>enum</td><td>pending / propagating / completed / failed</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <b>实体关系总览：</b>
+      <code style="font-family:var(--mono);color:var(--tide1)">memory_entry</code> 1—N
+      <code style="font-family:var(--mono);color:var(--tide1)">memory_source</code>（一条记忆可有多个来源），
+      1—N <code style="font-family:var(--mono);color:var(--tide1)">memory_revision</code>（修订历史），
+      1—N <code style="font-family:var(--mono);color:var(--tide1)">recall_event</code>（被多次召回），
+      删除时生成 1 条 <code style="font-family:var(--mono);color:var(--tide1)">deletion_tombstone</code> 并传播。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第3章：记忆写入与分级规则 ── -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 03</span><h2 style="margin-top:8px">记忆写入与分级规则</h2></div>
+    </div>
+    <p>Memory Manager 在写入时必须为每条记忆标注<b>来源、作用域、可信度、重要度与修订记录</b>，并根据内容性质归入对应层级。写入门槛随层级递进升高。</p>
+
+    <h3>3.1 写入分级规则</h3>
+    <table>
+      <thead><tr><th>层级</th><th>写入门槛</th><th>典型内容</th><th>可信度来源</th></tr></thead>
+      <tbody>
+        <tr><td><b>working</b></td><td>无门槛，run 内自动写入</td><td>中间变量、工具暂存结果</td><td>不标注，run 结束清理</td></tr>
+        <tr><td><b>short_term</b></td><td>会话内自动摘要</td><td>近期交互片段、会话摘要</td><td>模型生成，标注低可信度</td></tr>
+        <tr><td><b>long_term</b></td><td><b>需用户确认</b></td><td>事实、偏好、决策、情节</td><td>用户确认 = 1.0</td></tr>
+        <tr><td><b>semantic</b></td><td>本体校验 + 结构化</td><td>知识图谱节点、关系</td><td>本体权威性决定</td></tr>
+      </tbody>
+    </table>
+
+    <h3>3.2 每条记忆的必备属性</h3>
+    <ul>
+      <li><b>来源（source）</b>：必须可追溯到 user_message / tool_output / model_inference / import 之一，记录 quote_ref 原文引用。</li>
+      <li><b>作用域（scope）</b>：workspace_id + project_id 双重隔离，决定可见范围与召回边界。</li>
+      <li><b>可信度（confidence）</b>：[0,1] 浮点，用户确认 = 1.0，模型推断 &lt; 1.0，影响召回权重。</li>
+      <li><b>重要度（importance）</b>：[0,1] 浮点，由内容性质与用户行为信号综合评估。</li>
+      <li><b>修订记录（revision）</b>：每次修订生成 memory_revision，记录 old_ref / new_ref / reason / actor。</li>
+    </ul>
+
+    <div class="warn">
+      <b>关键约束：</b>模型推断不能自动升级成"已确认事实"。模型生成的内容只能写入 short_term 并标注低可信度；
+      升级到 long_term 必须<b>经过用户显式确认</b>，且 confidence 设为 1.0。这一约束防止幻觉被固化为"记忆"。
+    </div>
+
+    <div class="callout">
+      <b>升级路径：</b>short_term → long_term 是一条<b>单向、需确认</b>的路径。
+      当模型识别出"可能值得长期记住"的内容时，将其作为<em>候选</em>暂存于 short_term，并向用户发起确认请求；
+      用户确认后方可写入 long_term。未被确认的候选在会话结束后按遗忘策略清理。
+    </div>
+
+    <div class="callout">
+      <b>核心原则：</b>只有用户确认的事实才能进入 long_term。这是 Lunitide 记忆系统可信性的基石——
+      long_term 层的每一条记忆都带有"用户背书"，召回时可信赖，不会把模型的一次推断当作既定事实。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第4章：上下文压缩、续接与记忆召回 ── -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 04</span><h2 style="margin-top:8px">上下文压缩、续接与记忆召回</h2></div>
+    </div>
+    <p>会话上下文与长期记忆是两套相关但不同的机制：<b>上下文压缩</b>负责在同一任务中保留完整脉络，<b>Context Handoff</b>负责把工作态续接到新会话，<b>记忆召回</b>负责按需引入跨会话事实。三者不得互相替代。</p>
+
+    <h3>4.1 百万 token 逻辑上下文</h3>
+    <div class="card"><ul>
+      <li>单个 Session MUST 可累计、分页、索引并重建至少 <b>1,000,000 tokens</b> 的原始消息、工具引用与附件引用。</li>
+      <li>逻辑上下文不等于模型物理窗口。32K、128K、200K 或更大窗口模型均由 Context Builder 构造适配后的本轮请求。</li>
+      <li>原始 Message 是事实源且默认 append-only；分段摘要、滚动摘要和 Handoff 都是可失效、可重建的派生视图。</li>
+      <li>单页消息数、Bridge frame、RPC payload 和 Renderer 虚拟列表上限只限制一次传输/渲染，不得限制会话累计规模。</li>
+    </ul></div>
+
+    <h3>4.2 分层压缩与触发</h3>
+    <table><thead><tr><th>层</th><th>处理方式</th><th>保留策略</th></tr></thead><tbody>
+      <tr><td><b>近期原文</b></td><td>保留最近消息和当前任务相关原文</td><td>最新用户输入、系统约束、活跃审批不得摘要替代</td></tr>
+      <tr><td><b>Segment Summary</b></td><td>对稳定 message sequence 区间做增量摘要</td><td>每段绑定 source digest、起止 sequence 和 token 数</td></tr>
+      <tr><td><b>Rolling Summary</b></td><td>合并多个分段摘要，形成可回退摘要树</td><td>引用 parent summary IDs，不递归丢失来源</td></tr>
+      <tr><td><b>外置内容</b></td><td>大工具输出、日志、文件全文保存为 ArtifactRef</td><td>提示中只放摘要、hash、范围和按需读取入口</td></tr>
+    </tbody></table>
+    <p>请求预算利用率采用架构统一公式：有效窗口扣除 tokenizer 安全余量，requiredTokens 同时计入 system、tool schema、选定上下文、当前输入、最大输出和工具续接预留。70% 仅预生成 draft，校验通过成为 validated；自动模式 85% 可 CAS 激活。手动“压缩上下文”先 preview，只有显式 commit 才激活。95% 强制先压缩并重新预算；仍超限返回 CONTEXT_BUDGET_EXCEEDED，不发送越窗请求。</p>
+
+    <h3>4.3 摘要保真、版本与失败语义</h3>
+    <div class="card"><p>每个摘要/Handoff 使用固定结构，而不是一段无约束自由文本：</p><ul>
+      <li><b>goal_and_state</b>：目标、当前阶段、已完成事项；</li>
+      <li><b>decisions</b>：关键决策、理由、替代方案及来源；</li>
+      <li><b>constraints</b>：用户硬约束、安全边界、禁止事项；</li>
+      <li><b>open_tasks</b>：未完成任务、阻断、负责人/下一步；</li>
+      <li><b>code_refs</b>：workspace、Git SHA/checkpoint、文件、行范围、symbol 与 content hash；</li>
+      <li><b>tool_and_evidence</b>：命令、测试、构建、浏览器证据及结果引用；</li>
+      <li><b>risks_and_unknowns</b>：风险、假设、仍需确认事项。</li>
+    </ul></div>
+    <p>每个事实性、状态性、决策性、约束性、任务性和证据性 claim 必须关联至少一个叶级 Message/ToolResult/Artifact revision；建议/推断必须标记 claim_type 并保存 derivation sources，不得展示为已确认事实。生成后执行 schema、来源/digest/作用域、数字/路径/符号、未完成任务和硬约束覆盖校验；仅指向 parent summary 不算溯源完成。fidelityReport 至少返回 claim 总数、验证数、缺失来源数、冲突数、硬约束与 open-task 覆盖率。校验失败标记 <code>rejected</code>；压缩采用 baseVersion 乐观并发，失败保留上一 active version并重新预算，不得静默截断。</p>
+
+    <h3>4.4 Context Handoff：续接到新对话</h3>
+    <p>当窗口接近上限、用户主动切换话题或需要并行分支时，可从当前会话生成不可变 Handoff。它记录 workspace/project、source_session_id、source_seq_start/end、source_digest、summary/schema version、项目/任务/计划/checkpoint 引用和上述结构化内容。create 在同一快照读取闭区间并计算 digest；import 重验 scope、range、digest 和墓碑，默认拒绝跨项目导入。目标会话导入前展示摘要、来源范围与差异；导入后建立 parent/child 关系，可一键回到原文查证。</p>
+    <div class="warn"><b>禁止语义：</b>Handoff 不是复制整段聊天，也不是把低可信长期记忆冒充当前任务事实；它不得自动继承审批授权、Secret、临时 capability token 或已过期工具权限。</div>
+
+    <h3>4.5 Token 节省策略</h3>
+    <div class="card"><ul>
+      <li>稳定 system/tool 前缀保持确定顺序以利用供应商 prompt cache；缓存命中只作为优化，不影响正确性。</li>
+      <li>按符号、引用闭包和 diff 读取代码；相同 content hash 不重复注入全文。</li>
+      <li>工具大输出外置，优先注入结构化结果和可按需展开引用；失败日志先去重再摘要。</li>
+      <li>摘要按新增稳定区间增量生成，不反复总结完整历史；摘要树允许针对当前任务只展开相关分支。</li>
+      <li>记忆采用 BM25 + 向量 + 时效/重要度/可信度混合召回，并设置独立 token 配额，避免挤占近期对话。</li>
+      <li>容量采用固定版本 canonical tokenizer；本轮预算采用模型 tokenizer 并以真实 usage 回校。记录 canonical/request/cached/output tokens、tokenizer version、消息/字节/附件量和压缩节省率。</li>
+    </ul></div>
+
+    <h3>4.6 可借鉴实现与边界</h3>
+    <table><thead><tr><th>项目</th><th>借鉴点</th><th>月汐取舍</th></tr></thead><tbody>
+      <tr><td><b>OpenAI Codex CLI</b><br><code>github.com/openai/codex</code></td><td><code>/compact</code>、自动压缩、续接任务的用户心智</td><td>借鉴交互；补强版本、来源范围、保真报告和失败回退。仓库 Apache-2.0，复用代码仍须保留 NOTICE/许可证</td></tr>
+      <tr><td><b>Aider</b><br><code>github.com/Aider-AI/aider</code></td><td>chat history 摘要、repo map、按相关代码进入上下文</td><td>借鉴“仓库地图 + 按需代码”，不把 repo map 当事实源</td></tr>
+      <tr><td><b>LangGraph</b><br><code>github.com/langchain-ai/langgraph</code></td><td>checkpoint、线程状态、消息裁剪/摘要节点</td><td>借鉴状态机与可恢复 checkpoint；生产实现仍使用既定 Go Engine，不引入 Python 运行时</td></tr>
+      <tr><td><b>Letta / MemGPT</b><br><code>github.com/letta-ai/letta</code></td><td>工作记忆与归档记忆分层、按需调入</td><td>借鉴分层理念；继续保持“摘要上下文”和“确认后的长期记忆”边界</td></tr>
+    </tbody></table>
+    <div class="note"><b>引入规则：</b>优先借鉴公开协议、算法和测试思想，不直接复制产品品牌或 UI；任何源码依赖在锁定版本前复核许可证、NOTICE、维护状态与供应链风险。</div>
+
+    <h3>4.7 验收与回归基线</h3>
+    <table><thead><tr><th>测试</th><th>必须满足</th></tr></thead><tbody>
+      <tr><td><b>1M 长会话 corpus</b></td><td>累计至少 1,000,000 tokens 后仍可按 cursor 查看任意历史范围、生成新消息、重启恢复并重建 active summary；不得出现固定消息总数截断</td></tr>
+      <tr><td><b>窗口矩阵</b></td><td>同一 corpus 在 32K / 128K / 200K 能力模型下均不超窗；保留输出预算，切换小窗口不静默丢弃约束</td></tr>
+      <tr><td><b>摘要保真 golden set</b></td><td>人工标注的决策、硬约束、open tasks、路径/数字/符号引用 100% 保留且来源可打开；不得生成无来源关键 claim</td></tr>
+      <tr><td><b>并发与失败注入</b></td><td>压缩期间追加消息、模型超时、摘要格式错误、数据库重启均不替换最后可用版本，不丢原消息</td></tr>
+      <tr><td><b>Handoff E2E</b></td><td>新会话恢复目标、状态、待办、checkpoint 和文件符号；不继承审批、Secret 或临时权限；可返回源范围查证</td></tr>
+      <tr><td><b>删除传播</b></td><td>显式删除后，覆盖该来源的摘要、缓存、向量和 Handoff 100% 失效或重建，任何 ContextEnvelope 不再包含被删内容</td></tr>
+      <tr><td><b>Token 经济性</b></td><td>记录全历史直塞基线与实际 request tokens、cache hit 和压缩率；在保真 golden set 通过前提下评估节省，不以节省率换取关键信息丢失</td></tr>
+    </tbody></table>
+
+    <h3>4.8 召回综合因素</h3>
+    <table>
+      <thead><tr><th>因素</th><th>权重维度</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><b>相关度</b></td><td>语义相似 + 关键词命中</td><td>向量相似度与词项匹配的加权融合</td></tr>
+        <tr><td><b>时效</b></td><td>时间衰减</td><td>越近期的记忆权重越高，长期记忆衰减更慢</td></tr>
+        <tr><td><b>重要度</b></td><td>importance 字段</td><td>写入时标注的重要度直接参与评分</td></tr>
+        <tr><td><b>可信度</b></td><td>confidence 字段</td><td>用户确认的记忆优先于模型推断</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.9 返回解释</h3>
+    <p>每次召回不仅返回记忆内容，还返回<b>为什么召回这条记忆</b>的解释——包括命中的因素、得分构成与来源引用（quote_ref）。解释能力让召回过程可审计、可调试，也支撑 UI 上的"记忆溯源"展示。</p>
+
+    <h3>4.10 RecallEvent 召回日志</h3>
+    <p>每次召回写入一条 recall_event，记录 session_id、query_hash、memory_id、score、rank、injected_tokens、time。这些日志用于：</p>
+    <ul>
+      <li><b>召回质量分析</b>：统计命中率、排序合理性、低质量召回占比。</li>
+      <li><b>上下文预算管理</b>：追踪 injected_tokens 累积，防止记忆注入挤占模型上下文。</li>
+      <li><b>召回链路审计</b>：回答"这条记忆是在什么会话、什么查询下被召回的"。</li>
+    </ul>
+
+    <h3>4.11 injected_tokens 注入限制</h3>
+    <p>召回的记忆会被注入到模型上下文中，但注入量受 <code style="color:var(--tide1);font-family:var(--mono)">injected_tokens</code> 上限约束。当召回结果超出预算时，按 rank 裁剪低分记忆，确保不挤压用户当前输入与系统指令的空间。</p>
+
+    <div class="callout">
+      <b>召回质量保障：</b>召回综合相关度、时效、重要度和可信度，并返回解释。
+      这意味着每一条进入上下文的记忆都是<b>可解释、可追溯、有依据</b>的——
+      模型不仅能"记住"，还能说清"为什么在这个时刻想起这条"。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第5章：记忆安全与隔离 ── -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 05</span><h2 style="margin-top:8px">记忆安全与隔离</h2></div>
+    </div>
+    <p>记忆承载用户隐私与项目机密，安全隔离是不可妥协的硬性要求。Lunitide 在作用域隔离、删除传播两方面建立完整机制。</p>
+
+    <h3>5.1 跨项目隔离</h3>
+    <p>每条记忆绑定 <code style="color:var(--tide1);font-family:var(--mono)">workspace_id</code> 与 <code style="color:var(--tide1);font-family:var(--mono)">project_id</code>，召回查询始终携带作用域过滤，确保 A 项目的记忆永远不会出现在 B 项目的上下文中。</p>
+
+    <div class="warn">
+      <b>硬性约束：</b>跨项目 Memory 泄漏率必须为 <b>0</b>。
+      这是安全底线，不是"尽力而为"的指标——任何导致跨项目记忆泄漏的路径都被视为缺陷。
+      召回链路在向量检索、结果过滤、上下文注入三个环节均强制携带作用域校验。
+    </div>
+
+    <h3>5.2 删除传播</h3>
+    <p><b>压缩不是删除。</b>自动/手动压缩、归档、模型切换和 Handoff 均不得触发源 Message 删除。只有用户显式删除或已生效的合规保留期策略可以创建删除墓碑；墓碑创建与源对象不可读在同一事务完成。所有 pending/propagating/failed 状态均禁止注入，之后递归清除重叠摘要、Handoff、目标会话再派生摘要/记忆、向量、缓存、context_build manifest 和内容寻址资产。</p>
+    <p>记忆删除不是单点操作，必须传播至所有承载该记忆的存储与派生数据。一条长期记忆可能同时存在于：</p>
+    <ul>
+      <li><b>结构化记录</b>：memory_entry 行记录及其关联的 source / revision。</li>
+      <li><b>向量索引</b>：用于语义召回的 embedding 向量。</li>
+      <li><b>缓存</b>：召回结果缓存、会话上下文缓存。</li>
+      <li><b>摘要</b>：已生成的会话摘要、长期摘要中引用该记忆的片段。</li>
+    </ul>
+
+    <h3>5.3 DeletionTombstone 传播机制</h3>
+    <p>删除时生成一条 deletion_tombstone，记录 owner_type / owner_id / deleted_at / propagation_status。传播状态机为：</p>
+    <div class="dag">
+      <div class="node">pending</div>
+      <span class="arrow">→</span>
+      <div class="node active">propagating</div>
+      <span class="arrow">→</span>
+      <div class="node done">completed</div>
+      <span class="arrow warn">↯</span>
+      <div class="node" style="border-color:var(--err);color:var(--err)">failed</div>
+    </div>
+    <p style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted)">propagation_status: pending → propagating → completed（失败时 failed，触发告警与重试）</p>
+
+    <p>传播过程逐项物理清理结构化内容、向量、缓存、摘要和递归派生物，每完成一项更新 propagation_status。只有所有目标都完成清理，墓碑状态才置为 completed；任一失败则置为 failed 并告警重试，但绝不恢复可读。备份可按合规期限延迟清除，但恢复时必须先重放墓碑再开放读取。</p>
+
+    <div class="callout">
+      <b>删除的彻底性：</b>删除需传播至结构化记录、向量、缓存和摘要。
+      这意味着一条被删除的记忆不会残留在任何可被召回的路径中——
+      既防止"幽灵记忆"被召回，也满足隐私合规的"被遗忘权"要求。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     第二部分：技能系统
+     ═══════════════════════════════════════════════════════════ -->
+<section id="part-skill" style="padding-top:40px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="kicker" style="margin-bottom:8px">Part 2 / Skill System</div>
+        <h2>第二部分 · <span class="accent">技能系统</span></h2>
+      </div>
+      <span class="num">CH 06 — CH 11</span>
+    </div>
+    <p class="lead">
+      Skill System 提供可插拔的能力扩展机制：技能以 Manifest 声明自身能力与权限，经过验证、签名、安装后进入运行态。
+      匹配与触发遵循"显式优先、语义其次"，且<em>匹配不等于授权</em>——命中只表示候选，执行仍需过 Policy。
+    </p>
+  </div>
+</section>
+
+<!-- ── 第6章：Skill Manifest 规范 ── -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 06</span><h2 style="margin-top:8px">Skill Manifest 规范</h2></div>
+    </div>
+    <p>Skill Manifest 是技能的"身份证 + 合同"——它声明技能的身份、能力、权限、依赖与资源约束。Manifest 必须完整、可校验、可签名，是技能进入运行态的前置条件。</p>
+
+    <h3>6.1 Manifest 必备字段</h3>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">name</span></td><td>string</td><td>技能唯一名称，遵循命名规范</td></tr>
+        <tr><td><span class="col">version</span></td><td>semver</td><td>语义化版本号</td></tr>
+        <tr><td><span class="col">publisher</span></td><td>string</td><td>发布者标识，关联签名链</td></tr>
+        <tr><td><span class="col">description</span></td><td>text</td><td>技能能力描述，用于语义匹配</td></tr>
+        <tr><td><span class="col">triggers</span></td><td>array</td><td><b>触发条件</b>：显式关键词 / 指令模式 / 语义描述</td></tr>
+        <tr><td><span class="col">entrypoint</span></td><td>ref</td><td><b>执行入口</b>：可调用函数 / 远程端点 / 沙箱程序</td></tr>
+        <tr><td><span class="col">input_schema</span></td><td>schema</td><td>输入参数 JSON Schema</td></tr>
+        <tr><td><span class="col">output_schema</span></td><td>schema</td><td>输出结构 JSON Schema</td></tr>
+        <tr><td><span class="col">permissions</span></td><td>array</td><td><b>权限清单</b>：所需工具、数据访问、网络等</td></tr>
+        <tr><td><span class="col">dependencies</span></td><td>array</td><td><b>依赖锁</b>：依赖的技能 / 库及其版本约束</td></tr>
+        <tr><td><span class="col">timeout</span></td><td>duration</td><td>单次执行超时上限</td></tr>
+        <tr><td><span class="col">resource_limits</span></td><td>object</td><td>内存、CPU、并发数等资源限制</td></tr>
+        <tr><td><span class="col">signature</span></td><td>crypto</td><td><b>签名</b>：发布者对 Manifest 的数字签名</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 Manifest 示例</h3>
+    <div class="manifest">
+<span class="c">// Skill Manifest — 示例</span><br>
+{<br>
+&nbsp;&nbsp;<span class="k">"name"</span>: <span class="s">"web-search"</span>,<br>
+&nbsp;&nbsp;<span class="k">"version"</span>: <span class="s">"1.4.2"</span>,<br>
+&nbsp;&nbsp;<span class="k">"publisher"</span>: <span class="s">"lunitide/official"</span>,<br>
+&nbsp;&nbsp;<span class="k">"description"</span>: <span class="s">"对公开网络执行关键词检索并返回结构化结果"</span>,<br>
+&nbsp;&nbsp;<span class="k">"triggers"</span>: [<span class="s">"/search"</span>, <span class="s">"语义: 查一下/搜一下"</span>],<br>
+&nbsp;&nbsp;<span class="k">"entrypoint"</span>: <span class="s">"fn:web_search#v1"</span>,<br>
+&nbsp;&nbsp;<span class="k">"input_schema"</span>: { <span class="k">"query"</span>: <span class="s">"string"</span>, <span class="k">"top_k"</span>: <span class="s">"int"</span> },<br>
+&nbsp;&nbsp;<span class="k">"output_schema"</span>: { <span class="k">"results"</span>: <span class="s">"array<Result>"</span> },<br>
+&nbsp;&nbsp;<span class="k">"permissions"</span>: [<span class="s">"tool:http_get"</span>, <span class="s">"net:egress"</span>],<br>
+&nbsp;&nbsp;<span class="k">"dependencies"</span>: [{ <span class="k">"name"</span>: <span class="s">"html-parser"</span>, <span class="k">"constraint"</span>: <span class="s">"^2.0"</span> }],<br>
+&nbsp;&nbsp;<span class="k">"timeout"</span>: <span class="s">"15s"</span>,<br>
+&nbsp;&nbsp;<span class="k">"resource_limits"</span>: { <span class="k">"memory"</span>: <span class="s">"256Mi"</span>, <span class="k">"concurrency"</span>: <span class="s">3</span> },<br>
+&nbsp;&nbsp;<span class="k">"signature"</span>: <span class="s">"ed25519:9f3a...c1b2"</span><br>
+}
+    </div>
+
+    <div class="callout">
+      <b>Manifest 完整性：</b>Manifest 是技能可信执行的契约。任何字段缺失的 Manifest 都不得通过 validated 状态校验——
+      缺少 permissions 则无法评估授权，缺少 dependencies 则无法做依赖锁，缺少 signature 则无法验证来源。
+      完整的 Manifest 是"可验证、可审计、可回溯"的前提。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第7章：技能实体设计 ── -->
+<section id="ch7">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 07</span><h2 style="margin-top:8px">技能实体设计</h2></div>
+    </div>
+    <p>技能系统由五个核心实体构成：Skill（技能主体）、SkillVersion（版本）、SkillDependency（依赖）、SkillInstall（安装实例）、SkillTrigger（触发记录）。</p>
+
+    <h3>7.1 skill — 技能主体</h3>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>技能唯一标识</td></tr>
+        <tr><td><span class="col">name</span></td><td>string</td><td>技能名称，全局唯一</td></tr>
+        <tr><td><span class="col">publisher</span></td><td>string</td><td>发布者标识</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>技能当前生命周期状态</td></tr>
+        <tr><td><span class="col">current_version</span></td><td>semver</td><td>当前激活版本号</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.2 skill_version — 技能版本</h3>
+    <p>每个技能可有多个版本，版本绑定具体 Manifest、包哈希与签名状态。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>版本记录标识</td></tr>
+        <tr><td><span class="col">skill_id</span></td><td>ULID</td><td>所属技能</td></tr>
+        <tr><td><span class="col">semver</span></td><td>semver</td><td>语义化版本号</td></tr>
+        <tr><td><span class="col">manifest_ref</span></td><td>ref</td><td>Manifest 内容引用</td></tr>
+        <tr><td><span class="col">package_hash</span></td><td>hash</td><td>安装包哈希，用于完整性校验</td></tr>
+        <tr><td><span class="col">signature_status</span></td><td>enum</td><td>verified / unverified / invalid</td></tr>
+        <tr><td><span class="col">permissions_json</span></td><td>json</td><td>权限清单快照</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.3 skill_dependency — 技能依赖</h3>
+    <p>记录每个版本的依赖项与版本约束，支撑依赖锁与冲突检测。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">skill_version_id</span></td><td>ULID</td><td>所属技能版本</td></tr>
+        <tr><td><span class="col">dependency_type</span></td><td>enum</td><td>skill / library / runtime</td></tr>
+        <tr><td><span class="col">name</span></td><td>string</td><td>依赖项名称</td></tr>
+        <tr><td><span class="col">constraint</span></td><td>semver-range</td><td>版本约束（如 ^2.0、>=1.2 &lt;2.0）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.4 skill_install — 技能安装实例</h3>
+    <p>记录技能在某个工作空间的安装情况，是"技能被部署到了哪里"的事实记录。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>安装实例标识</td></tr>
+        <tr><td><span class="col">skill_version_id</span></td><td>ULID</td><td>安装的技能版本</td></tr>
+        <tr><td><span class="col">workspace_id</span></td><td>ULID</td><td>安装目标工作空间</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>installed / enabled / disabled / quarantined</td></tr>
+        <tr><td><span class="col">installed_at</span></td><td>timestamp</td><td>安装时间</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.5 skill_trigger — 技能触发记录</h3>
+    <p>每次技能匹配与触发都写入一条记录，用于匹配质量分析与触发审计。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>触发记录标识</td></tr>
+        <tr><td><span class="col">session_id</span></td><td>ULID</td><td>发起触发的会话</td></tr>
+        <tr><td><span class="col">skill_version_id</span></td><td>ULID</td><td>被触发的技能版本</td></tr>
+        <tr><td><span class="col">score</span></td><td>float</td><td>匹配得分</td></tr>
+        <tr><td><span class="col">reason</span></td><td>text</td><td>触发原因（显式命中 / 语义高分 / 用户选择）</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>matched / executed / skipped / denied</td></tr>
+        <tr><td><span class="col">result_ref</span></td><td>ref</td><td>执行结果引用</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <b>实体协作链路：</b>
+      <code style="font-family:var(--mono);color:var(--tide1)">skill</code> 1—N
+      <code style="font-family:var(--mono);color:var(--tide1)">skill_version</code>（多版本），
+      每个 version 1—N <code style="font-family:var(--mono);color:var(--tide1)">skill_dependency</code>（依赖锁），
+      1—N <code style="font-family:var(--mono);color:var(--tide1)">skill_install</code>（多工作空间部署），
+      触发时生成 <code style="font-family:var(--mono);color:var(--tide1)">skill_trigger</code> 记录匹配全过程。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第8章：技能状态机 ── -->
+<section id="ch8">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 08</span><h2 style="margin-top:8px">技能状态机</h2></div>
+    </div>
+    <p>技能从草稿到卸载经历七个状态，每个状态转换都有明确的触发条件与校验要求。状态机确保技能生命周期可控、可审计。</p>
+
+    <h3>8.1 七状态定义</h3>
+    <table>
+      <thead><tr><th>状态</th><th>含义</th><th>是否可执行</th></tr></thead>
+      <tbody>
+        <tr><td><b>draft</b></td><td>草稿，Manifest 编辑中，未校验</td><td>否</td></tr>
+        <tr><td><b>validated</b></td><td>已通过 Manifest 完整性与签名校验</td><td>否</td></tr>
+        <tr><td><b>installed</b></td><td>已安装到工作空间，尚未启用</td><td>否</td></tr>
+        <tr><td><b>enabled</b></td><td>已启用，可被匹配与触发</td><td>是</td></tr>
+        <tr><td><b>disabled</b></td><td>已禁用，暂停触发但保留安装</td><td>否</td></tr>
+        <tr><td><b>quarantined</b></td><td>隔离，因安全风险暂停，需人工审查</td><td>否</td></tr>
+        <tr><td><b>uninstalled</b></td><td>已卸载，安装记录归档</td><td>否</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8.2 状态机流转图</h3>
+    <div class="fsm-wrap">
+      <div class="fsm-row">
+        <div class="fsm-node s-draft">draft</div>
+        <span class="fsm-arr">─▶</span>
+        <div class="fsm-node s-valid">validated</div>
+        <span class="fsm-arr">─▶</span>
+        <div class="fsm-node s-install">installed</div>
+        <span class="fsm-arr">─▶</span>
+        <div class="fsm-node s-enable">enabled</div>
+      </div>
+      <div class="fsm-row">
+        <div class="fsm-node s-enable">enabled</div>
+        <span class="fsm-arr note">◀▶</span>
+        <div class="fsm-node s-disable">disabled</div>
+        <span class="fsm-arr">─▶</span>
+        <div class="fsm-node s-uninst">uninstalled</div>
+      </div>
+      <div class="fsm-row">
+        <div class="fsm-node s-install">installed</div>
+        <span class="fsm-arr warn">─▶</span>
+        <div class="fsm-node s-quar">quarantined</div>
+        <span class="fsm-arr warn">─▶</span>
+        <div class="fsm-node s-uninst">uninstalled</div>
+      </div>
+      <div class="fsm-row">
+        <div class="fsm-node s-enable">enabled</div>
+        <span class="fsm-arr warn">─▶</span>
+        <div class="fsm-node s-quar">quarantined</div>
+        <span class="fsm-arr warn">─▶</span>
+        <div class="fsm-node s-uninst">uninstalled</div>
+      </div>
+      <p class="fsm-label">正常路径：draft → validated → installed → enabled ⇄ disabled → uninstalled ｜ 安全路径：installed/enabled → quarantined → uninstalled</p>
+    </div>
+
+    <div class="warn">
+      <b>隔离触发条件：</b>未签名或权限扩大的升级默认 <b>quarantined</b>。
+      当一个新版本的 signature_status 为 invalid，或其 permissions_json 相比已安装版本出现<b>权限扩张</b>时，
+      系统不自动启用，而是将其置入隔离态，等待人工审查与显式授权。这防止"静默提权"——技能通过版本升级悄悄获取更高权限。
+    </div>
+
+    <div class="callout">
+      <b>状态机设计意图：</b>七个状态覆盖了技能从"编辑"到"退役"的完整生命周期。
+      正常路径是单向递进的（draft → ... → enabled），而 quarantined 是一个"安全闸"——
+      任何可疑的升级或行为异常都会把技能拉回隔离态，阻断其继续执行，直到人工裁定。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第9章：技能匹配与触发 ── -->
+<section id="ch9">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 09</span><h2 style="margin-top:8px">技能匹配与触发</h2></div>
+    </div>
+    <p>技能匹配决定"在当前对话中，应该考虑哪些技能"。匹配策略遵循<b>显式触发优先、语义评分其次</b>，并对结果做阈值过滤与冲突消解。</p>
+
+    <h3>9.1 匹配策略</h3>
+    <table>
+      <thead><tr><th>策略</th><th>优先级</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><b>显式触发</b></td><td>最高</td><td>用户使用 <code style="font-family:var(--mono);color:var(--tide1)">/search</code> 等指令或精确关键词，直接命中 triggers</td></tr>
+        <tr><td><b>语义评分</b></td><td>其次</td><td>对 description 与 triggers 做语义相似度评分，取高分候选</td></tr>
+        <tr><td><b>阈值过滤</b></td><td>—</td><td>低于阈值的候选不进入触发流程，回退普通对话</td></tr>
+        <tr><td><b>并列消解</b></td><td>—</td><td>多个候选同处高分区间时，向用户提示选择</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.2 匹配流程</h3>
+    <div class="dag">
+      <div class="node">用户输入</div>
+      <span class="arrow">→</span>
+      <div class="node active">显式触发检测</div>
+      <span class="arrow">→</span>
+      <div class="node">命中？</div>
+      <span class="arrow">→</span>
+      <div class="node done">直接候选</div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node">未命中</div>
+      <span class="arrow">→</span>
+      <div class="node active">语义评分</div>
+      <span class="arrow">→</span>
+      <div class="node">≥阈值？</div>
+      <span class="arrow">→</span>
+      <div class="node done">候选技能</div>
+      <span class="arrow">→</span>
+      <div class="node">并列高分？</div>
+      <span class="arrow">→</span>
+      <div class="node active">提示选择</div>
+    </div>
+    <div class="dag" style="padding-top:0">
+      <div class="node" style="opacity:.5">低于阈值</div>
+      <span class="arrow">→</span>
+      <div class="node" style="border-color:var(--muted);opacity:.6">回退普通对话</div>
+    </div>
+
+    <h3>9.3 SkillTrigger 记录匹配过程</h3>
+    <p>每次匹配写入 skill_trigger，记录 score、reason（显式命中 / 语义高分 / 用户选择）、status（matched / executed / skipped / denied）与 result_ref。这些记录支撑：</p>
+    <ul>
+      <li><b>匹配质量分析</b>：哪些技能被频繁触发、哪些得分高却未执行。</li>
+      <li><b>误触发排查</b>：当技能被错误触发时，可回溯 reason 与 score 定位原因。</li>
+      <li><b>授权审计</b>：matched 但 denied 的记录揭示了"匹配通过但 Policy 拒绝"的情况。</li>
+    </ul>
+
+    <div class="callout">
+      <b>匹配与授权分离：</b>匹配不授予权限。技能被命中只表示它进入了"候选"集合，
+      真正执行前仍需经过 Policy 评估——检查当前 actor、project、operation 是否被允许调用该技能及其声明的工具与数据。
+      匹配是"能不能考虑用它"，授权是"能不能真的执行它"。
+    </div>
+
+    <div class="callout">
+      <b>候选 ≠ 执行：</b>技能命中只表示选择候选技能，不等于绕过 Policy 自动执行。
+      即使是显式触发的技能，也必须通过 Policy 评估、权限校验与预算检查后才能进入执行。
+      这条原则确保"用户想让 Agent 做什么"和"Agent 被允许做什么"之间始终有一层治理隔离。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第10章：技能安装与安全 ── -->
+<section id="ch10">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 10</span><h2 style="margin-top:8px">技能安装与安全</h2></div>
+    </div>
+    <p>技能安装是供应链安全的关键环节。安装前必须完成哈希验证、签名验证、依赖锁校验、权限差异检查，并建立撤销机制。</p>
+
+    <h3>10.1 安装校验清单</h3>
+    <table>
+      <thead><tr><th>校验项</th><th>说明</th><th>失败处理</th></tr></thead>
+      <tbody>
+        <tr><td><b>哈希验证</b></td><td>安装包 package_hash 与 Manifest 声明一致</td><td>拒绝安装</td></tr>
+        <tr><td><b>签名验证</b></td><td>signature 用发布者公钥校验通过</td><td>signature_status=invalid → quarantined</td></tr>
+        <tr><td><b>依赖锁</b></td><td>所有 dependencies 的版本约束可满足、无冲突</td><td>拒绝安装并报告冲突</td></tr>
+        <tr><td><b>权限差异检查</b></td><td>对比已安装版本的 permissions_json</td><td>权限扩张 → 视为新授权，需人工确认</td></tr>
+        <tr><td><b>撤销机制</b></td><td>发布者可发布撤销，已安装实例自动 disabled</td><td>传播撤销至所有 skill_install</td></tr>
+      </tbody>
+    </table>
+
+    <h3>10.2 权限扩张视为新授权</h3>
+    <p>当新版本的 permissions_json 相比已安装版本<b>新增</b>了权限项（如新增了网络出口、新增了高危工具调用），系统不自动沿用旧版授权，而是将此次升级视为一次<b>全新的授权请求</b>：</p>
+    <ul>
+      <li>新版本进入 <code style="color:var(--tide1);font-family:var(--mono)">quarantined</code> 状态。</li>
+      <li>向用户展示权限差异（新增了什么、为什么需要）。</li>
+      <li>用户显式批准后，状态流转至 enabled。</li>
+    </ul>
+
+    <h3>10.3 SBOM 与许可证记录</h3>
+    <p>每次安装记录<b>软件物料清单（SBOM）</b>与许可证信息，包括：</p>
+    <ul>
+      <li>直接依赖与传递依赖的名称、版本、来源。</li>
+      <li>每个组件的许可证类型（MIT / Apache-2.0 / GPL 等）。</li>
+      <li>已知漏洞（CVE）关联，安装时扫描并与 SBOM 一同存档。</li>
+    </ul>
+    <p>SBOM 使技能的供应链可追溯——当某个依赖被发现存在漏洞时，可快速定位哪些已安装技能受影响。</p>
+
+    <div class="warn">
+      <b>供应链安全：</b>安装需哈希、签名、依赖锁、权限差异和撤销机制。
+      技能是可执行代码，安装即信任——任何一环缺失都可能导致恶意代码注入、权限静默扩张或供应链投毒。
+      Lunitide 将安装视为<b>显式、可审计、可回滚</b>的治理动作，而非"点击即用"的便捷操作。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第11章：Tool 定义与授权 ── -->
+<section id="ch11">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 11</span><h2 style="margin-top:8px">Tool 定义与授权</h2></div>
+    </div>
+    <p>Tool 是技能执行时调用的原子能力（如 HTTP 请求、文件读写、代码执行）。每个 Tool 有独立的定义与授权，技能通过 permissions 声明所需 Tool，运行时由 ToolGrant 校验。</p>
+
+    <h3>11.1 tool_definition — 工具定义</h3>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>工具定义标识</td></tr>
+        <tr><td><span class="col">name</span></td><td>string</td><td>工具名称，如 http_get / file_write / code_exec</td></tr>
+        <tr><td><span class="col">input_schema_ref</span></td><td>ref</td><td>输入参数 Schema 引用</td></tr>
+        <tr><td><span class="col">output_schema_ref</span></td><td>ref</td><td>输出结构 Schema 引用</td></tr>
+        <tr><td><span class="col">risk</span></td><td>enum</td><td>风险等级：low / medium / high / critical</td></tr>
+        <tr><td><span class="col">executor</span></td><td>ref</td><td>执行器引用（本地函数 / 沙箱 / 远程端点）</td></tr>
+        <tr><td><span class="col">version</span></td><td>semver</td><td>工具版本</td></tr>
+      </tbody>
+    </table>
+
+    <h3>11.2 tool_grant — 工具授权</h3>
+    <p>ToolGrant 记录"谁在什么范围内被允许用什么工具，以及附加约束"。授权是作用域绑定的，不是全局的。</p>
+    <table>
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">scope_type</span></td><td>enum</td><td>workspace / project / session</td></tr>
+        <tr><td><span class="col">scope_id</span></td><td>ULID</td><td>作用域目标 ID</td></tr>
+        <tr><td><span class="col">tool_id</span></td><td>ULID</td><td>被授权的工具定义</td></tr>
+        <tr><td><span class="col">constraints_json</span></td><td>json</td><td>附加约束（如仅允许特定域名、参数上限）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>11.3 工具执行必须过 Policy 评估</h3>
+    <p>即使技能已 enabled 且 ToolGrant 存在，每次工具调用仍需经过 Policy 评估。Policy 输入包括：</p>
+    <ul>
+      <li><b>actor</b>：发起调用的身份（用户 / 技能 / Agent）。</li>
+      <li><b>project</b>：当前项目作用域。</li>
+      <li><b>operation</b>：具体工具操作。</li>
+      <li><b>resource</b>：操作目标资源。</li>
+      <li><b>normalized args</b>：归一化后的参数。</li>
+      <li><b>data classification</b>：涉及数据的安全分级。</li>
+      <li><b>tool trust</b>：工具的风险等级与可信度。</li>
+      <li><b>environment</b>：执行环境（生产 / 沙箱）。</li>
+    </ul>
+    <p>Policy 输出 <code style="color:var(--tide1);font-family:var(--mono)">allow / deny / require_review</code> + reason + policy_version。规则冲突时取更严格者；所有决定写入审计日志。</p>
+
+    <div class="callout">
+      <b>三层防护：</b>Tool 风险分级（tool_definition.risk）→ 作用域授权（tool_grant）→ 运行时策略评估（Policy）。
+      这三层叠加确保即使技能被匹配、即使授权存在，高风险工具调用仍可在最后一刻被 Policy 拦截或要求人工审批。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     UI 原型
+     ═══════════════════════════════════════════════════════════ -->
+
+<!-- ── 第12章：记忆中心 UI 原型 ── -->
+<section id="ch-memory-ui">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 12</span><h2 style="margin-top:8px">记忆中心 UI 原型</h2></div>
+    </div>
+    <p>记忆中心以四层分层面板呈现用户的记忆全景，每层显示该层下的记忆条目及其可信度、重要度与状态，支持溯源、修订与删除操作。</p>
+
+    <div class="stage" data-label="MEMORY CENTER · 记忆中心">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--rule)">
+        <div class="moon-logo sm"></div>
+        <div>
+          <div style="font-family:var(--serif);font-size:16px;font-weight:600">记忆中心 · Memory Center</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">workspace: proj-lunitide ｜ 共 142 条记忆 ｜ 召回预算 4096 tokens</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <span class="tag" style="font-size:11px;padding:5px 12px">召回日志</span>
+          <span class="tag" style="font-size:11px;padding:5px 12px">删除传播</span>
+        </div>
+      </div>
+
+      <div class="mc-grid">
+        <!-- Working -->
+        <div class="mc-col">
+          <h5 style="color:var(--tide1)"><span style="width:8px;height:8px;border-radius:2px;background:var(--tide1);display:inline-block"></span>Working · 工作记忆 <span class="cnt">3 条</span></h5>
+          <div class="mc-item">
+            <div class="mt">run #8821 中间变量：search_results[0..4]</div>
+            <div class="mm"><span>kind: summary</span><span class="conf">conf: —</span><span class="st">ttl: run 结束</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">工具暂存：http_get 返回的 HTML 原文</div>
+            <div class="mm"><span>kind: tool_output</span><span class="conf">conf: —</span><span class="st">ttl: run 结束</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">未提交计划节点：analyze → summarize</div>
+            <div class="mm"><span>kind: plan</span><span class="conf">conf: —</span><span class="st">ttl: run 结束</span></div>
+          </div>
+        </div>
+
+        <!-- Short-term -->
+        <div class="mc-col">
+          <h5 style="color:var(--glow)"><span style="width:8px;height:8px;border-radius:2px;background:var(--glow);display:inline-block"></span>Short-term · 短期记忆 <span class="cnt">7 条</span></h5>
+          <div class="mc-item">
+            <div class="mt">用户正在讨论 S8 记忆系统的召回策略</div>
+            <div class="mm"><span>kind: summary</span><span class="conf">conf: 0.62</span><span class="imp">imp: 0.5</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">候选事实：用户偏好深色主题（待确认）</div>
+            <div class="mm"><span>kind: preference</span><span class="conf">conf: 0.48</span><span class="st">候选未确认</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">本会话第 3 轮：询问 DeletionTombstone 机制</div>
+            <div class="mm"><span>kind: episodic</span><span class="conf">conf: 0.55</span><span class="imp">imp: 0.4</span></div>
+          </div>
+        </div>
+
+        <!-- Long-term -->
+        <div class="mc-col">
+          <h5 style="color:var(--tide2)"><span style="width:8px;height:8px;border-radius:2px;background:var(--tide2);display:inline-block"></span>Long-term · 长期记忆 <span class="cnt">24 条</span></h5>
+          <div class="mc-item">
+            <div class="mt">用户确认：项目使用 TypeScript + React 技术栈</div>
+            <div class="mm"><span>kind: fact</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.9</span><span>rev: 2</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">用户确认：偏好简洁风格，避免冗余装饰</div>
+            <div class="mm"><span>kind: preference</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.8</span><span>rev: 1</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">决策：记忆删除必须传播至向量索引</div>
+            <div class="mm"><span>kind: decision</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.95</span><span>rev: 1</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">情节：2026-08-09 用户完成了技能状态机评审</div>
+            <div class="mm"><span>kind: episodic</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.7</span><span>rev: 1</span></div>
+          </div>
+        </div>
+
+        <!-- Semantic -->
+        <div class="mc-col">
+          <h5 style="color:var(--tide3)"><span style="width:8px;height:8px;border-radius:2px;background:var(--tide3);display:inline-block"></span>Semantic · 语义记忆 <span class="cnt">108 条</span></h5>
+          <div class="mc-item">
+            <div class="mt">本体节点：MemoryEntry —layer→ MemoryLayer</div>
+            <div class="mm"><span>kind: ontology</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.85</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">关系：SkillVersion —signature→ SignatureStatus</div>
+            <div class="mm"><span>kind: relation</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.8</span></div>
+          </div>
+          <div class="mc-item">
+            <div class="mt">知识：四层记忆模型 = working + short + long + semantic</div>
+            <div class="mm"><span>kind: fact</span><span class="conf">conf: 1.0</span><span class="imp">imp: 0.9</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:11px;color:var(--muted)">
+        <span>跨项目泄漏率：<b style="color:var(--ok)">0</b></span>
+        <span style="color:var(--rule)">|</span>
+        <span>最近召回：<b style="color:var(--ink)">3 条</b> 注入 <b style="color:var(--tide1)">1,247 tokens</b></span>
+        <span style="color:var(--rule)">|</span>
+        <span>待确认候选：<b style="color:var(--warn)">2 条</b></span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>UI 设计要点：</b>四层以色彩区分（青/蓝/紫/青绿），与第1章的层级配色一致。
+      每条记忆展示 kind、confidence、importance、revision 四个关键属性，让用户一眼判断"这条记忆是什么、多可信、多重要、改过几次"。
+      候选事实以醒目的"待确认"标签标注，引导用户完成确认动作。
+    </div>
+  </div>
+</section>
+
+<!-- ── 第13章：技能中心 UI 原型 ── -->
+<section id="ch-skill-ui">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><span class="num">CHAPTER 13</span><h2 style="margin-top:8px">技能中心 UI 原型</h2></div>
+    </div>
+    <p>技能中心以"列表 + 详情"双栏布局呈现已安装技能，列表显示状态，详情面板展示 Manifest、权限、依赖与版本信息。</p>
+
+    <div class="stage" data-label="SKILL CENTER · 技能中心">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--rule)">
+        <div class="moon-logo sm"></div>
+        <div>
+          <div style="font-family:var(--serif);font-size:16px;font-weight:600">技能中心 · Skill Center</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">workspace: proj-lunitide ｜ 已安装 6 个技能 ｜ enabled: 4 ｜ quarantined: 1</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <span class="tag" style="font-size:11px;padding:5px 12px">安装技能</span>
+          <span class="tag" style="font-size:11px;padding:5px 12px">触发日志</span>
+        </div>
+      </div>
+
+      <div class="sc-grid">
+        <!-- 技能列表 -->
+        <div class="sc-list">
+          <h5>已安装技能</h5>
+          <div class="sc-row on">
+            <div class="si" style="background:var(--ok);box-shadow:0 0 6px var(--ok)"></div>
+            <div><div class="sn">web-search</div></div>
+            <div class="sv">v1.4.2</div>
+          </div>
+          <div class="sc-row">
+            <div class="si" style="background:var(--ok);box-shadow:0 0 6px var(--ok)"></div>
+            <div><div class="sn">code-runner</div></div>
+            <div class="sv">v2.1.0</div>
+          </div>
+          <div class="sc-row">
+            <div class="si" style="background:var(--warn)"></div>
+            <div><div class="sn">file-manager</div></div>
+            <div class="sv">v1.0.3</div>
+          </div>
+          <div class="sc-row">
+            <div class="si" style="background:var(--ok);box-shadow:0 0 6px var(--ok)"></div>
+            <div><div class="sn">data-viz</div></div>
+            <div class="sv">v0.9.1</div>
+          </div>
+          <div class="sc-row">
+            <div class="si" style="background:var(--err);box-shadow:0 0 6px var(--err)"></div>
+            <div><div class="sn">db-connector</div></div>
+            <div class="sv">v3.0.0</div>
+          </div>
+          <div class="sc-row">
+            <div class="si" style="background:var(--ok);box-shadow:0 0 6px var(--ok)"></div>
+            <div><div class="sn">html-parser</div></div>
+            <div class="sv">v2.0.4</div>
+          </div>
+        </div>
+
+        <!-- 技能详情 -->
+        <div class="sc-detail">
+          <div class="dh">
+            <div style="width:10px;height:10px;border-radius:3px;background:var(--ok);box-shadow:0 0 6px var(--ok)"></div>
+            <div class="dt">web-search</div>
+            <span class="dp" style="color:var(--ok);border:1px solid rgba(59,214,160,.3);background:rgba(59,214,160,.08)">enabled</span>
+            <span class="dp" style="color:var(--tide1);border:1px solid rgba(63,214,255,.3)">v1.4.2</span>
+          </div>
+
+          <div class="drow"><span class="dk">publisher</span><span class="dv">lunitide/official</span></div>
+          <div class="drow"><span class="dk">description</span><span class="dv">对公开网络执行关键词检索并返回结构化结果</span></div>
+          <div class="drow"><span class="dk">entrypoint</span><span class="dv">fn:web_search#v1</span></div>
+          <div class="drow"><span class="dk">triggers</span><span class="dv">/search ｜ 语义: 查一下/搜一下</span></div>
+          <div class="drow"><span class="dk">timeout</span><span class="dv">15s ｜ memory: 256Mi ｜ concurrency: 3</span></div>
+          <div class="drow"><span class="dk">signature</span><span class="dv" style="color:var(--ok)">verified · ed25519:9f3a...c1b2</span></div>
+          <div class="drow"><span class="dk">package_hash</span><span class="dv">sha256:a1b2c3...e4f5</span></div>
+
+          <h5 style="font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 8px;color:var(--muted)">权限清单</h5>
+          <div class="perms">
+            <span class="perm safe">tool:http_get</span>
+            <span class="perm safe">net:egress</span>
+            <span class="perm risk">data:read:public</span>
+          </div>
+
+          <h5 style="font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 8px;color:var(--muted)">依赖锁</h5>
+          <div class="perms">
+            <span class="perm">html-parser ^2.0</span>
+            <span class="perm">url-normalizer >=1.1 &lt;2.0</span>
+          </div>
+
+          <h5 style="font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 8px;color:var(--muted)">最近触发</h5>
+          <div class="drow"><span class="dk">score: 0.92</span><span class="dv">reason: 显式命中 /search ｜ status: executed ｜ 2 分钟前</span></div>
+          <div class="drow"><span class="dk">score: 0.81</span><span class="dv">reason: 语义高分 ｜ status: executed ｜ 18 分钟前</span></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:11px;color:var(--muted)">
+        <span>db-connector v3.0.0：<b style="color:var(--err)">quarantined</b>（权限扩张：新增 tool:db_write）</span>
+        <span style="color:var(--rule)">|</span>
+        <span>file-manager：<b style="color:var(--warn)">disabled</b>（用户手动暂停）</span>
+        <span style="color:var(--rule)">|</span>
+        <span>待审查：<b style="color:var(--err)">1</b></span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>UI 设计要点：</b>列表用状态色点（绿=enabled / 黄=disabled / 红=quarantined）一眼区分技能健康度。
+      详情面板完整呈现 Manifest 核心字段、权限清单（安全/风险分色标注）、依赖锁与触发历史。
+      底部状态栏突出隔离态技能及其原因，引导用户处理权限扩张审查。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     Footer
+     ═══════════════════════════════════════════════════════════ -->
+<footer>
+  <div class="wrap">
+    <div class="fl">
+      <div class="moon-logo sm"></div>
+      <span style="font-family:var(--serif);font-size:15px;letter-spacing:.05em">LUNITIDE <span style="color:var(--glow)">月汐</span></span>
+    </div>
+    <p>S8 · 记忆与技能 PRD · v1.0</p>
+    <p>四层记忆模型 ｜ 可插拔技能系统 ｜ 跨项目泄漏率 = 0 ｜ 匹配不授予权限</p>
+    <p style="margin-top:8px;opacity:.6">© 2026 Lunitide · 全链路统一产品与系统设计</p>
+  </div>
+</footer>
+
+<!-- ── Star Generator ── -->
+<script>
+(function(){
+  var s=document.querySelector('.stars');if(!s)return;
+  for(var i=0;i<80;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+
+</body>
+</html>

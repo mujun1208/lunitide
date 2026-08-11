@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 — 项目文档导航</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;
+  --bg2:#0a1424;
+  --bg3:#0e1c30;
+  --ink:#eaf3ff;
+  --muted:#8fa3bf;
+  --rule:rgba(143,163,191,.16);
+  --line:rgba(143,163,191,.25);
+  --moon:#f4f6ff;
+  --moon2:#cfe0ff;
+  --glow:#7fb4ff;
+  --glow2:#4f8bff;
+  --tide1:#3bd6ff;
+  --tide2:#7f5bff;
+  --tide3:#2fd6b5;
+  --ok:#3bd6a0;
+  --warn:#ffc46b;
+  --err:#ff7a7a;
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+
+/* ── Atmospheric Background: Black Starry Sky ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+
+/* ── Stars ── */
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon (Ambient top-right) ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{
+  font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;
+  text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+
+/* ── Gradient Text ── */
+.accent-grad{
+  background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INDEX PAGE — Custom Styles
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Hero Section ── */
+.hero{
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:120px 28px 80px;position:relative;
+}
+.hero-moon{
+  width:130px;height:130px;border-radius:50%;position:relative;margin-bottom:36px;
+  background:radial-gradient(circle at 38% 34%, #ffffff, #dce8ff 50%, #b9cdf2 80%, #9db8e8);
+  box-shadow:
+    0 0 50px 16px rgba(244,246,255,.22),
+    0 0 100px 40px rgba(207,224,255,.14),
+    0 0 180px 80px rgba(127,180,255,.08);
+  animation:heroMoonPulse 4s ease-in-out infinite;
+}
+.hero-moon::before{
+  content:"";position:absolute;inset:18px 22px 26px 24px;border-radius:50%;
+  background:radial-gradient(circle at 30% 28%, rgba(150,170,205,.28), transparent 60%);
+  filter:blur(2px);
+}
+.hero-moon::after{
+  content:"";position:absolute;inset:34px 44px 40px 38px;border-radius:50%;
+  background:radial-gradient(circle at 62% 42%, rgba(150,170,205,.22), transparent 70%);
+}
+@keyframes heroMoonPulse{
+  0%,100%{
+    transform:scale(1);
+    box-shadow:0 0 50px 16px rgba(244,246,255,.22),0 0 100px 40px rgba(207,224,255,.14),0 0 180px 80px rgba(127,180,255,.08);
+  }
+  50%{
+    transform:scale(1.04);
+    box-shadow:0 0 60px 22px rgba(244,246,255,.30),0 0 130px 55px rgba(207,224,255,.20),0 0 220px 100px rgba(127,180,255,.12);
+  }
+}
+.hero-title{
+  font-family:var(--serif);font-size:clamp(48px,8vw,82px);font-weight:700;
+  letter-spacing:.08em;line-height:1;margin-bottom:8px;
+  background:linear-gradient(180deg,#ffffff,#cfe0ff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero-subtitle{
+  font-family:var(--serif);font-size:clamp(28px,4.5vw,42px);font-weight:600;
+  letter-spacing:.12em;margin-bottom:24px;
+}
+.hero-desc{
+  color:var(--muted);font-size:clamp(15px,2vw,19px);max-width:560px;margin-bottom:32px;line-height:1.7;
+}
+.hero-desc em{color:var(--tide1);font-style:normal}
+
+/* ── Tag Pills ── */
+.pills{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:28px}
+.pill{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;
+  border:1px solid rgba(63,214,255,.28);border-radius:999px;padding:8px 18px;
+  background:rgba(14,28,48,.55);backdrop-filter:blur(6px);color:var(--ink);
+  display:flex;align-items:center;gap:7px;transition:.2s;
+}
+.pill .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.pill:nth-child(1) .dot{background:var(--tide1);box-shadow:0 0 8px var(--tide1)}
+.pill:nth-child(2) .dot{background:var(--tide2);box-shadow:0 0 8px var(--tide2)}
+.pill:nth-child(3) .dot{background:var(--tide3);box-shadow:0 0 8px var(--tide3)}
+.pill:nth-child(4) .dot{background:var(--glow);box-shadow:0 0 8px var(--glow)}
+.pill:nth-child(5) .dot{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.pill:hover{border-color:var(--tide1);box-shadow:0 0 18px -4px rgba(63,214,255,.4);transform:translateY(-2px)}
+.pill b{color:var(--tide1);font-weight:600}
+
+.tech-stack-line{
+  font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:.05em;
+  padding:9px 22px;border:1px solid var(--rule);border-radius:999px;
+  background:rgba(10,20,32,.5);backdrop-filter:blur(4px);
+}
+.tech-stack-line b{color:var(--tide3);font-weight:600}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+.sec-head h2{font-size:clamp(26px,3.5vw,34px)}
+.sec-head .sub{color:var(--muted);font-size:14px;font-family:var(--mono)}
+
+/* ── Doc Card Grid ── */
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:20px}
+.doc-card{
+  display:block;text-decoration:none;color:inherit;
+  background:linear-gradient(160deg,rgba(14,28,48,.7),rgba(10,20,32,.6));
+  border:1px solid var(--line);border-radius:16px;padding:24px 24px 22px;
+  position:relative;overflow:hidden;transition:.25s cubic-bezier(.2,.7,.3,1);
+}
+.doc-card::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--tide1),var(--glow),var(--tide2));
+  opacity:0;transition:.25s;
+}
+.doc-card:hover{
+  transform:translateY(-6px);
+  border-color:rgba(63,214,255,.5);
+  box-shadow:0 18px 50px -20px rgba(63,134,255,.45),0 0 0 1px rgba(63,214,255,.2);
+}
+.doc-card:hover::before{opacity:1}
+.doc-card .doc-num{
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--glow);
+  display:flex;align-items:center;gap:8px;margin-bottom:14px;
+}
+.doc-card .doc-num .icon{
+  width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+  font-size:15px;font-weight:700;font-family:var(--serif);
+  background:linear-gradient(135deg,rgba(63,214,255,.15),rgba(127,91,255,.12));
+  border:1px solid rgba(63,214,255,.25);color:var(--tide1);
+}
+.doc-card .doc-title{
+  font-family:var(--serif);font-size:18px;font-weight:600;color:var(--ink);
+  margin-bottom:4px;line-height:1.35;
+}
+.doc-card .doc-title-en{
+  font-family:var(--mono);font-size:11.5px;color:var(--glow);letter-spacing:.06em;
+  margin-bottom:12px;
+}
+.doc-card .doc-desc{
+  font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:16px;
+}
+.doc-card .doc-link{
+  font-family:var(--mono);font-size:11.5px;color:var(--tide1);
+  display:flex;align-items:center;gap:6px;letter-spacing:.04em;
+  transition:.2s;
+}
+.doc-card .doc-link .arrow{transition:.2s}
+.doc-card:hover .doc-link{color:var(--ink)}
+.doc-card:hover .doc-link .arrow{transform:translateX(5px)}
+
+/* Group label */
+.doc-group-label{
+  font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--tide3);
+  text-transform:uppercase;display:flex;align-items:center;gap:14px;margin:48px 0 22px;
+}
+.doc-group-label::before{content:"";width:28px;height:1px;background:linear-gradient(90deg,var(--tide3),transparent)}
+.doc-group-label::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--rule),transparent)}
+
+/* ── Three-Axis Model ── */
+.axis-section{padding:70px 0}
+.axis-container{
+  background:linear-gradient(160deg,rgba(14,28,48,.5),rgba(10,20,32,.4));
+  border:1px solid var(--line);border-radius:20px;padding:40px 36px;
+  position:relative;overflow:hidden;
+}
+.axis-diagram{
+  display:grid;grid-template-columns:1fr;gap:28px;margin-top:28px;
+}
+.axis-row{
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+}
+.axis-label{
+  font-family:var(--mono);font-size:12px;letter-spacing:.1em;
+  padding:6px 16px;border-radius:8px;flex:none;min-width:160px;text-align:center;
+}
+.axis-row.vertical .axis-label{
+  color:var(--tide2);border:1px solid rgba(127,91,255,.35);
+  background:rgba(127,91,255,.08);
+}
+.axis-row.horizontal .axis-label{
+  color:var(--tide1);border:1px solid rgba(63,214,255,.35);
+  background:rgba(63,214,255,.08);
+}
+.axis-row.diagonal .axis-label{
+  color:var(--tide3);border:1px solid rgba(47,214,181,.35);
+  background:rgba(47,214,181,.08);
+}
+.axis-items{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+.axis-chip{
+  font-size:12px;font-family:var(--mono);padding:7px 14px;border-radius:8px;
+  border:1px solid var(--line);background:rgba(14,28,48,.5);color:var(--muted);
+  transition:.18s;
+}
+.axis-chip:hover{color:var(--ink);border-color:var(--glow)}
+.axis-row.vertical .axis-chip:hover{border-color:var(--tide2);color:var(--tide2)}
+.axis-row.horizontal .axis-chip:hover{border-color:var(--tide1);color:var(--tide1)}
+.axis-row.diagonal .axis-chip:hover{border-color:var(--tide3);color:var(--tide3)}
+.axis-desc{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.6;width:100%;padding-left:176px}
+.axis-note{
+  margin-top:32px;padding:16px 20px;border-left:3px solid var(--tide2);
+  background:rgba(127,91,255,.06);border-radius:0 10px 10px 0;font-size:13.5px;color:var(--muted);
+}
+.axis-note b{color:var(--ink)}
+
+/* ── Tech Stack Cards ── */
+.tech-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+.tech-card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.5));
+  border:1px solid var(--line);border-radius:14px;padding:24px 20px;
+  text-align:center;transition:.22s;
+}
+.tech-card:hover{
+  transform:translateY(-4px);border-color:var(--tide3);
+  box-shadow:0 14px 36px -16px rgba(47,214,181,.35);
+}
+.tech-card .tech-icon{
+  width:48px;height:48px;margin:0 auto 14px;border-radius:12px;
+  display:grid;place-items:center;font-size:22px;font-weight:700;font-family:var(--serif);
+  background:linear-gradient(135deg,rgba(47,214,181,.15),rgba(63,214,255,.12));
+  border:1px solid rgba(47,214,181,.25);color:var(--tide3);
+}
+.tech-card .tech-name{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.tech-card .tech-tag{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em}
+
+/* ── Footer ── */
+footer{
+  padding:60px 28px 40px;text-align:center;border-top:1px solid var(--rule);
+  margin-top:40px;background:rgba(4,7,15,.6);
+}
+.footer-moon{
+  width:56px;height:56px;border-radius:50%;margin:0 auto 18px;
+  background:radial-gradient(circle at 38% 34%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 30px rgba(207,224,255,.35),0 0 60px rgba(127,180,255,.15);
+  animation:heroMoonPulse 5s ease-in-out infinite;
+  position:relative;
+}
+.footer-moon::before{
+  content:"";position:absolute;inset:7px;border-radius:50%;
+  background:radial-gradient(circle at 30% 28%, rgba(150,170,205,.25), transparent 60%);
+}
+.footer-title{font-family:var(--serif);font-size:20px;font-weight:600;letter-spacing:.06em;margin-bottom:4px}
+.footer-sub{color:var(--muted);font-size:14px;margin-bottom:12px}
+.footer-copy{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.05em;opacity:.7}
+
+/* ── Responsive ── */
+@media(max-width:720px){
+  .moon{width:80px;height:80px;top:32px;right:40px}
+  .moon-glow{width:340px;height:340px}
+  .hero{padding-top:100px}
+  .axis-desc{padding-left:0}
+  .axis-label{min-width:auto;width:100%}
+  .doc-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Atmospheric Layers ── -->
+<div class="sky"></div>
+<div class="moon-glow"></div>
+<div class="moon"></div>
+<div class="stars" id="stars"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HERO SECTION
+     ═══════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-moon"></div>
+  <h1 class="hero-title">LUNITIDE</h1>
+  <div class="hero-subtitle accent-grad">月汐</div>
+  <p class="hero-desc">
+    从<b style="color:var(--ink)">&ldquo;界面&rdquo;</b>到<em>&ldquo;大脑&rdquo;</em> &mdash; 全链路统一产品与系统设计 <b style="color:var(--tide1)">v1.0</b>
+  </p>
+
+  <div class="pills">
+    <span class="pill"><i class="dot"></i>Ontology <b>本体</b></span>
+    <span class="pill"><i class="dot"></i>Memory <b>记忆</b></span>
+    <span class="pill"><i class="dot"></i>Skills <b>技能</b></span>
+    <span class="pill"><i class="dot"></i>Planning <b>规划</b></span>
+    <span class="pill"><i class="dot"></i>Governance <b>治理</b></span>
+  </div>
+
+  <div class="tech-stack-line">
+    <b>Go Core Engine</b> &nbsp;+&nbsp; <b>WebView2 Host</b> &nbsp;+&nbsp; <b>React/TypeScript Renderer</b>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     DOCUMENT NAVIGATION
+     ═══════════════════════════════════════════════════════════ -->
+<section id="docs">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="kicker">Documentation Hub</div>
+        <h2>项目文档导航</h2>
+      </div>
+      <span class="sub">10 documents · 2 groups</span>
+    </div>
+
+    <!-- ── Group 1: Core Design Documents ── -->
+    <div class="doc-group-label">第一组 / Core Design Documents</div>
+    <div class="doc-grid">
+
+      <a class="doc-card" href="lunitide-mockup.html">
+        <div class="doc-num">
+          <span class="icon">M</span>
+          <span>DOC-01 · MOCKUP</span>
+        </div>
+        <div class="doc-title">工作台 UI 原型图</div>
+        <div class="doc-title-en">Workbench UI Prototype</div>
+        <div class="doc-desc">完整工作台界面原型，含九阶段管道、聊天、DAG、供应商管理、审批、记忆、技能等全模块交互设计。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-prd.html">
+        <div class="doc-num">
+          <span class="icon">P</span>
+          <span>DOC-02 · PRD</span>
+        </div>
+        <div class="doc-title">产品需求文档</div>
+        <div class="doc-title-en">Product Requirements Document</div>
+        <div class="doc-desc">产品愿景、术语体系、信息架构、九阶段详细设计、横向模块规则与约束的完整需求定义。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-concepts-design.html">
+        <div class="doc-num">
+          <span class="icon">C</span>
+          <span>DOC-03 · CONCEPTS</span>
+        </div>
+        <div class="doc-title">五大智能内核概念设计</div>
+        <div class="doc-title-en">Five Intelligent Cores Design</div>
+        <div class="doc-desc">Ontology / Memory / Skills / Planning / Governance 的职责边界、规则约束和融合架构设计。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-architecture.html">
+        <div class="doc-num">
+          <span class="icon">A</span>
+          <span>DOC-04 · ARCHITECTURE</span>
+        </div>
+        <div class="doc-title">系统架构设计</div>
+        <div class="doc-title-en">System Architecture Design</div>
+        <div class="doc-desc">Go + WebView2 + React 架构分层、Bridge / RPC 契约定义、状态机模型、ADR 架构决策记录。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+    </div>
+
+    <!-- ── Group 2: Module & Special PRDs ── -->
+    <div class="doc-group-label">第二组 / Module &amp; Special PRDs</div>
+    <div class="doc-grid">
+
+      <a class="doc-card" href="lunitide-module-detail.html">
+        <div class="doc-num">
+          <span class="icon">D</span>
+          <span>DOC-05 · MODULE</span>
+        </div>
+        <div class="doc-title">模块详细设计</div>
+        <div class="doc-title-en">Module Detail Design</div>
+        <div class="doc-desc">模板 / 底座 / Provider / 阶段产物 / Planning / Ontology / Memory / Skill 等核心实体的字段级设计。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-s5-interface-prd.html">
+        <div class="doc-num">
+          <span class="icon">5</span>
+          <span>DOC-06 · S5 INTERFACE</span>
+        </div>
+        <div class="doc-title">S5 接口统一管理 PRD</div>
+        <div class="doc-title-en">S5 Unified Interface Management</div>
+        <div class="doc-desc">API / MCP / ETL / OData / Database Connector 五种集成类型的统一管理模型与规范。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-s6-dev-task-prd.html">
+        <div class="doc-num">
+          <span class="icon">6</span>
+          <span>DOC-07 · S6 DEV TASK</span>
+        </div>
+        <div class="doc-title">S6 开发任务管理 PRD</div>
+        <div class="doc-title-en">S6 Development Task Management</div>
+        <div class="doc-desc">任务模型定义、状态机流转、安全扫描集成、测试关联管理、质量门禁规则设计。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-s7-deploy-cr-prd.html">
+        <div class="doc-num">
+          <span class="icon">7</span>
+          <span>DOC-08 · S7 DEPLOY &amp; CR</span>
+        </div>
+        <div class="doc-title">S7 CR 与发布部署 PRD</div>
+        <div class="doc-title-en">S7 Change Request &amp; Deployment</div>
+        <div class="doc-desc">CR 绑定机制、状态机管理、部署回退策略、更新流程编排、发布验收标准。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-s8-memory-skill-prd.html">
+        <div class="doc-num">
+          <span class="icon">8</span>
+          <span>DOC-09 · S8 MEMORY &amp; SKILL</span>
+        </div>
+        <div class="doc-title">S8 记忆与技能 PRD</div>
+        <div class="doc-title-en">S8 Memory &amp; Skill System</div>
+        <div class="doc-desc">working / short_term / long_term / semantic 四层记忆、workspace/project 强作用域隔离，以及技能 Manifest、匹配与安装安全策略。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+      <a class="doc-card" href="lunitide-s9-governance-prd.html">
+        <div class="doc-num">
+          <span class="icon">9</span>
+          <span>DOC-10 · S9 GOVERNANCE</span>
+        </div>
+        <div class="doc-title">S9 治理与审批 PRD</div>
+        <div class="doc-title-en">S9 Governance &amp; Approval</div>
+        <div class="doc-desc">Policy 引擎规则、Review 审批机制、威胁模型分析、审计日志、诊断与受控恢复能力。</div>
+        <div class="doc-link">查看文档 <span class="arrow">&rarr;</span></div>
+      </a>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     THREE-AXIS MODEL
+     ═══════════════════════════════════════════════════════════ -->
+<section class="axis-section">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="kicker">Architecture Model</div>
+        <h2>三轴融合模型</h2>
+      </div>
+      <span class="sub">3 dimensions · unified design</span>
+    </div>
+
+    <div class="axis-container">
+      <p class="lead" style="margin-bottom:8px">
+        Lunitide 的设计以三轴正交模型组织：纵轴定义<b style="color:var(--ink)">智能内核</b>，横轴串联<b style="color:var(--ink)">业务流程</b>，斜轴贯穿<b style="color:var(--ink)">平台能力</b>。三者交叉形成完整的产品矩阵。
+      </p>
+
+      <div class="axis-diagram">
+
+        <!-- Vertical Axis -->
+        <div class="axis-row vertical">
+          <div class="axis-label">纵轴<br>五大智能内核</div>
+          <div class="axis-items">
+            <span class="axis-chip">Ontology 本体</span>
+            <span class="axis-chip">Memory 记忆</span>
+            <span class="axis-chip">Skills 技能</span>
+            <span class="axis-chip">Planning 规划</span>
+            <span class="axis-chip">Governance 治理</span>
+          </div>
+          <div class="axis-desc">定义系统的&ldquo;大脑&rdquo;能力 &mdash; 负责知识表示、上下文保持、能力扩展、任务编排与合规约束。</div>
+        </div>
+
+        <!-- Horizontal Axis -->
+        <div class="axis-row horizontal">
+          <div class="axis-label">横轴<br>九阶段业务主链</div>
+          <div class="axis-items">
+            <span class="axis-chip">1 需求调研</span>
+            <span class="axis-chip">2 架构</span>
+            <span class="axis-chip">3 方案</span>
+            <span class="axis-chip">4 UI</span>
+            <span class="axis-chip">5 DB / 接口</span>
+            <span class="axis-chip">6 开发</span>
+            <span class="axis-chip">7 系统测试</span>
+            <span class="axis-chip">8 集成验收</span>
+            <span class="axis-chip">9 CR / 发布部署</span>
+          </div>
+          <div class="axis-desc">从需求到发布部署的端到端业务流水线 &mdash; 每个阶段有明确的输入、产物与门禁规则。S5–S9 是专项文档编号，不等同于阶段编号。</div>
+        </div>
+
+        <!-- Diagonal Axis -->
+        <div class="axis-row diagonal">
+          <div class="axis-label">斜轴<br>横向平台能力</div>
+          <div class="axis-items">
+            <span class="axis-chip">模板引擎</span>
+            <span class="axis-chip">Provider 管理</span>
+            <span class="axis-chip">DAG 编排</span>
+            <span class="axis-chip">审批流</span>
+            <span class="axis-chip">审计日志</span>
+            <span class="axis-chip">诊断与受控恢复</span>
+          </div>
+          <div class="axis-desc">跨阶段复用的平台级能力 &mdash; 为所有业务阶段提供统一的底层支撑与治理手段。</div>
+        </div>
+
+      </div>
+
+      <div class="axis-note">
+        <b>融合原则：</b>每个业务阶段（横轴）在执行时调用对应的智能内核（纵轴），同时受到横向平台能力（斜轴）的约束与增强。三轴交叉点即为系统的核心功能单元。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TECH STACK
+     ═══════════════════════════════════════════════════════════ -->
+<section id="tech">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="kicker">Technology Stack</div>
+        <h2>技术栈架构</h2>
+      </div>
+      <span class="sub">5 core technologies</span>
+    </div>
+
+    <div class="tech-grid">
+
+      <div class="tech-card">
+        <div class="tech-icon">Go</div>
+        <div class="tech-name">Go Core Engine</div>
+        <div class="tech-tag">后端核心引擎</div>
+      </div>
+
+      <div class="tech-card">
+        <div class="tech-icon">W</div>
+        <div class="tech-name">WebView2 Host</div>
+        <div class="tech-tag">桌面容器宿主</div>
+      </div>
+
+      <div class="tech-card">
+        <div class="tech-icon">R</div>
+        <div class="tech-name">React + TypeScript</div>
+        <div class="tech-tag">前端渲染层</div>
+      </div>
+
+      <div class="tech-card">
+        <div class="tech-icon">S</div>
+        <div class="tech-name">SQLite WAL</div>
+        <div class="tech-tag">本地持久化存储</div>
+      </div>
+
+      <div class="tech-card">
+        <div class="tech-icon">D</div>
+        <div class="tech-name">DPAPI</div>
+        <div class="tech-tag">凭据加密保护</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════ -->
+<footer>
+  <div class="footer-moon"></div>
+  <div class="footer-title">Lunitide <span class="accent-grad">月汐</span></div>
+  <div class="footer-sub">全链路统一产品与系统设计 v1.0</div>
+  <div class="footer-copy">&copy; 2026 Lunitide. All rights reserved.</div>
+</footer>
+
+<!-- ── Star Generator ── -->
+<script>
+(function(){
+  var s=document.getElementById('stars');
+  if(!s) return;
+  for(var i=0;i<80;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';
+    st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+
+</body>
+</html>
