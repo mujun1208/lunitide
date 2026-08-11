@@ -53,6 +53,9 @@ func (s *Store) CreateMemory(ctx context.Context, mem memory.Memory) (memory.Mem
 		mem.ID, mem.ProjectID, string(mem.Layer), string(mem.Scope), mem.Key, mem.Content,
 		embeddingID, sourceID, sourceType, float64(mem.Confidence), mem.AccessCount,
 		lastAccessed, expiresAt, formatTime(mem.CreatedAt), formatTime(mem.UpdatedAt))
+	if err == nil {
+		s.appendAudit(ctx, "memory.created", mem.ID, "engine", map[string]any{"projectId": mem.ProjectID, "layer": mem.Layer, "scope": mem.Scope})
+	}
 	return mem, mapWriteError(err)
 }
 
@@ -193,6 +196,9 @@ func (s *Store) UpdateMemory(ctx context.Context, id string, content string) err
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE memories SET content=?, updated_at=? WHERE id=?`,
 		content, formatTime(time.Now().UTC()), id)
+	if err == nil {
+		s.appendAudit(ctx, "memory.updated", id, "engine", nil)
+	}
 	return mapWriteError(err)
 }
 
@@ -200,6 +206,9 @@ func (s *Store) UpdateMemory(ctx context.Context, id string, content string) err
 func (s *Store) DeleteMemory(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM memories WHERE id=?`, id)
+	if err == nil {
+		s.appendAudit(ctx, "memory.deleted", id, "engine", nil)
+	}
 	return mapWriteError(err)
 }
 

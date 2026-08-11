@@ -53,6 +53,9 @@ func (s *Store) CreateSkill(ctx context.Context, sk skill.Skill) (skill.Skill, e
 		sk.ID, sk.Name, sk.DisplayName, sk.Description, sk.Version, sk.Status,
 		string(permJSON), sk.EntryPoint, sk.ManifestJSON, signature, publisherID,
 		minEngineVersion, formatTime(sk.CreatedAt), formatTime(sk.UpdatedAt))
+	if err == nil {
+		s.appendAudit(ctx, "skill.created", sk.ID, "engine", map[string]any{"name": sk.Name, "version": sk.Version})
+	}
 	return sk, mapWriteError(err)
 }
 
@@ -225,11 +228,17 @@ func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string) error 
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE skills SET status=?, updated_at=? WHERE id=?`,
 		status, formatTime(time.Now().UTC()), id)
+	if err == nil {
+		s.appendAudit(ctx, "skill.status_updated", id, "engine", map[string]any{"status": status})
+	}
 	return mapWriteError(err)
 }
 
 // DeleteSkill deletes a skill by ID.
 func (s *Store) DeleteSkill(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM skills WHERE id=?`, id)
+	if err == nil {
+		s.appendAudit(ctx, "skill.deleted", id, "engine", nil)
+	}
 	return mapWriteError(err)
 }
