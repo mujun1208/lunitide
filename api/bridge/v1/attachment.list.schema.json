@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/attachment.list.schema.json",
+  "title": "attachment.list payload",
+  "x-method": "attachment.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    }
+  },
+  "required": ["projectId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "attachmentId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "projectId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "sessionId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "originalName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "mime": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10485760
+            },
+            "sha256": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "parseStatus": {
+              "type": "string",
+              "enum": ["pending", "parsing", "succeeded", "failed"]
+            },
+            "parseErrorCode": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "parsedTextBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": ["attachmentId", "projectId", "originalName", "mime", "size", "sha256", "parseStatus", "parseErrorCode", "parsedTextBytes", "createdAt"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

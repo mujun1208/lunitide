@@ -255,6 +255,34 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM ontology_nodes WHERE project_id=?`, id); err != nil {
 		return fmt.Errorf("delete ontology_nodes: %w", err)
 	}
+	// Attachments: project_id has ON DELETE RESTRICT, so we must delete all
+	// attachments before deleting the project. Record tombstones for
+	// fail-closed readability (ADR-005 §7).
+	attRows, err := tx.QueryContext(ctx, `SELECT id FROM attachments WHERE project_id=?`, id)
+	if err != nil {
+		return fmt.Errorf("list attachments for project delete: %w", err)
+	}
+	var attachmentIDs []string
+	for attRows.Next() {
+		var aid string
+		if err := attRows.Scan(&aid); err != nil {
+			attRows.Close()
+			return fmt.Errorf("scan attachment id: %w", err)
+		}
+		attachmentIDs = append(attachmentIDs, aid)
+	}
+	attRows.Close()
+	if err := attRows.Err(); err != nil {
+		return fmt.Errorf("iterate attachments: %w", err)
+	}
+	for _, aid := range attachmentIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) VALUES('attachment',?,?,'pending')`, aid, now); err != nil {
+			return fmt.Errorf("record attachment tombstone: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE project_id=?`, id); err != nil {
+		return fmt.Errorf("delete attachments: %w", err)
+	}
 	// Delete project
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id=?`, id); err != nil {
 		return fmt.Errorf("delete project: %w", err)

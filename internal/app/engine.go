@@ -10,9 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/handoff"
 	"github.com/lunitide/lunitide/internal/domain/message"
@@ -95,6 +97,7 @@ type Engine struct {
 	compactionExecutor   *compactionapp.Executor
 	summaryReader        CompactionSummaryReader
 	handoffService       *handoffapp.Service
+	attachmentService    *attachmentapp.Service
 	version        string
 	leases         LeaseClient
 	network        networkpolicy.Options
@@ -127,6 +130,10 @@ type runtimeHandler func(*Engine, context.Context, bridge.Request) bridge.Respon
 // RuntimeHandlers is both the runtime allow-list and the dispatch table.
 // Contract tests compare its non-nil handlers with the public schema.
 var RuntimeHandlers = map[bridge.Method]runtimeHandler{
+	bridge.MethodAttachmentDelete:   handleAttachmentDelete,
+	bridge.MethodAttachmentGet:      handleAttachmentGet,
+	bridge.MethodAttachmentIngest:   handleAttachmentIngest,
+	bridge.MethodAttachmentList:     handleAttachmentList,
 	bridge.MethodChatStart:         handleChatStart,
 	bridge.MethodContextStatus:           handleContextStatus,
 	bridge.MethodContextCompactPreview:   handleContextCompactPreview,
@@ -543,11 +550,17 @@ func (e *Engine) TriggerPreTurnCompaction(ctx context.Context, sessionID, provid
 	return result
 }
 
-// SetHandoffService wires the handoff capsule service into the engine.
+// SetupHandoffService wires the handoff capsule service into the engine.
 // When set, the Engine can create, inspect, activate, and revoke cross-window
 // handoff capsules (ADR-005 §5). The Engine, not the Renderer, validates and
 // activates capsules.
 func (e *Engine) SetHandoffService(s *handoffapp.Service) { e.handoffService = s }
+
+// SetAttachmentService wires the attachment service into the engine.
+// When set, the Engine can ingest, query, and delete user-supplied file
+// attachments, and chat.start will inject parsed attachment excerpts as
+// untrusted prior context (ADR-005 §7).
+func (e *Engine) SetAttachmentService(s *attachmentapp.Service) { e.attachmentService = s }
 
 // CreateHandoffCapsule creates a cross-window handoff capsule from a succeeded
 // compaction checkpoint. The capsule carries the checkpoint's structured
@@ -655,6 +668,59 @@ func (e *Engine) ListImportedHandoffCapsuleContexts(ctx context.Context, targetS
 		return nil, nil
 	}
 	return e.handoffService.ListImportedCapsuleContexts(ctx, targetSessionID)
+}
+
+// IngestAttachment ingests a user-supplied file: validates content, writes to
+// the controlled data directory, creates the metadata record, and parses text
+// (ADR-005 §7). Returns the created attachment with parse status.
+func (e *Engine) IngestAttachment(ctx context.Context, req attachmentapp.IngestFileRequest) (attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return attachment.Attachment{}, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.IngestFile(ctx, req)
+}
+
+// GetAttachment returns an attachment by ID for inspection.
+func (e *Engine) GetAttachment(ctx context.Context, id string) (*attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return nil, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.GetAttachment(ctx, id)
+}
+
+// ListAttachmentsByProject returns attachments for a project (ADR-005 §7).
+func (e *Engine) ListAttachmentsByProject(ctx context.Context, projectID string, limit int) ([]attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return nil, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.ListByProject(ctx, projectID, limit)
+}
+
+// ListAttachmentsBySession returns attachments for a session (ADR-005 §7).
+func (e *Engine) ListAttachmentsBySession(ctx context.Context, sessionID string, limit int) ([]attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return nil, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.ListBySession(ctx, sessionID, limit)
+}
+
+// DeleteAttachment soft-deletes an attachment and removes the underlying file
+// from the data directory (ADR-005 §7).
+func (e *Engine) DeleteAttachment(ctx context.Context, id string) error {
+	if e.attachmentService == nil {
+		return errors.New("attachment service not configured")
+	}
+	return e.attachmentService.DeleteAttachment(ctx, id)
+}
+
+// ListReadableAttachmentsBySession returns succeeded, non-deleted attachments
+// for a session. This is the read path used by chat.start to populate
+// ContextEnvelope.AttachmentExcerpts (ADR-005 §7).
+func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID string) ([]attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return nil, nil
+	}
+	return e.attachmentService.ListReadableBySession(ctx, sessionID, 50)
 }
 
 // NewEngineWithGateway wires the existing policy connector and one-shot secret

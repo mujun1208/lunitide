@@ -33,6 +33,10 @@
     },
     "method": {
       "enum": [
+        "attachment.delete",
+        "attachment.get",
+        "attachment.ingest",
+        "attachment.list",
         "chat.start",
         "context.compact.cancel",
         "context.compact.commit",

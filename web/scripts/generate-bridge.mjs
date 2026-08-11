@@ -51,6 +51,10 @@ const ulidRef = schema => refEndsWith(schema, '#/$defs/ULID')
 const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 && schema.maxItems === 50 && refEndsWith(schema.items, '#/$defs/ModelDTO')
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
 assert(JSON.stringify(enabled) === JSON.stringify([
+  'attachment.delete',
+  'attachment.get',
+  'attachment.ingest',
+  'attachment.list',
   'chat.start',
   'context.compact.cancel',
   'context.compact.commit',

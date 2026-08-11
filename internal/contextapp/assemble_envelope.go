@@ -83,6 +83,11 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 			return nil, fmt.Errorf("%w: handoff capsule %s", ErrEnvelopeDeletedSource, env.HandoffCapsules[i].ID)
 		}
 	}
+	for i := range env.AttachmentExcerpts {
+		if env.AttachmentExcerpts[i].Deleted {
+			return nil, fmt.Errorf("%w: attachment excerpt %s", ErrEnvelopeDeletedSource, env.AttachmentExcerpts[i].ID)
+		}
+	}
 
 	if env.MaxMessages <= 0 {
 		env.MaxMessages = 256
@@ -90,8 +95,8 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 
 	trace := SelectionTrace{}
 
-	// Compute reserved token costs for preambles (priorities 3, 4, handoff).
-	var priorSummaryTokens, pinnedFactsTokens, handoffCapsuleTokens int64
+	// Compute reserved token costs for preambles (priorities 3, 4, handoff, attachments).
+	var priorSummaryTokens, pinnedFactsTokens, handoffCapsuleTokens, attachmentExcerptTokens int64
 	if env.AcceptedCheckpoint != nil && env.AcceptedCheckpoint.Content != "" {
 		priorSummaryTokens = env.AcceptedCheckpoint.TokenCost()
 	}
@@ -101,15 +106,19 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	for i := range env.HandoffCapsules {
 		handoffCapsuleTokens += env.HandoffCapsules[i].TokenCost()
 	}
+	for i := range env.AttachmentExcerpts {
+		attachmentExcerptTokens += env.AttachmentExcerpts[i].TokenCost()
+	}
 
 	trace.ReservedTokens = ReservedTokenBreakdown{
-		ReservedOutput:   env.Provider.ReservedOutput,
-		SystemTokens:     env.Provider.SystemTokens,
-		ToolSchemaTokens: env.Provider.ToolSchemaTokens,
-		SafetyMargin:     env.Provider.SafetyMargin,
-		PriorSummary:     priorSummaryTokens,
-		PinnedFacts:      pinnedFactsTokens,
-		HandoffCapsules:  handoffCapsuleTokens,
+		ReservedOutput:     env.Provider.ReservedOutput,
+		SystemTokens:       env.Provider.SystemTokens,
+		ToolSchemaTokens:   env.Provider.ToolSchemaTokens,
+		SafetyMargin:       env.Provider.SafetyMargin,
+		PriorSummary:       priorSummaryTokens,
+		PinnedFacts:        pinnedFactsTokens,
+		HandoffCapsules:    handoffCapsuleTokens,
+		AttachmentExcerpts: attachmentExcerptTokens,
 	}
 
 	// Effective input budget after all fixed reservations.
@@ -119,9 +128,9 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	}
 
 	// Subtract preamble token costs from the message selection budget.
-	// Preambles (priorities 3, 4, handoff) are mandatory once provided;
-	// they reduce the budget available for recent messages.
-	preambleTokens := priorSummaryTokens + pinnedFactsTokens + handoffCapsuleTokens
+	// Preambles (priorities 3, 4, handoff, attachments) are mandatory once
+	// provided; they reduce the budget available for recent messages.
+	preambleTokens := priorSummaryTokens + pinnedFactsTokens + handoffCapsuleTokens + attachmentExcerptTokens
 	messageBudget := budget - preambleTokens
 	if messageBudget < 0 {
 		return nil, ErrEnvelopeBudgetTooSmall
@@ -422,6 +431,25 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 			TokenCost:  capsule.TokenCost(),
 			Selected:   true,
 			Provenance: capsule.Provenance,
+		})
+	}
+
+	// Attachment excerpts: untrusted prior context from user-supplied files
+	// (ADR-005 §7). Injected as system preambles at checkpoint authority.
+	for i := range env.AttachmentExcerpts {
+		excerpt := env.AttachmentExcerpts[i]
+		preambles = append(preambles, Message{
+			Role:       "system",
+			Content:    "[Attachment Excerpt]\n" + excerpt.Content,
+			TokenCount: excerpt.TokenCost(),
+		})
+		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
+			SourceType: SourceAttachmentExcerpt,
+			SourceID:   excerpt.ID,
+			Authority:  excerpt.Authority,
+			TokenCost:  excerpt.TokenCost(),
+			Selected:   true,
+			Provenance: excerpt.Provenance,
 		})
 	}
 

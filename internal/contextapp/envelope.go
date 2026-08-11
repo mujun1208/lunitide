@@ -141,6 +141,13 @@ type ContextEnvelope struct {
 	// original messages.
 	HandoffCapsules []ContextSource
 
+	// AttachmentExcerpts are parsed text from user-supplied files attached to
+	// the session. Treated as untrusted prior context at checkpoint authority
+	// (ADR-005 §7: attachment isolation). Each excerpt is injected as a system
+	// preamble and participates in the assembly budget. Only readable (non-deleted,
+	// succeeded) attachments are injected; the caller must filter fail-closed.
+	AttachmentExcerpts []ContextSource
+
 	// MaxMessages limits the number of messages fetched from the Reader.
 	// If zero, defaults to 256.
 	MaxMessages int
@@ -189,17 +196,19 @@ type SelectionTrace struct {
 // ReservedTokenBreakdown details the token costs reserved before message
 // selection (priorities 1-2 and fixed overheads).
 type ReservedTokenBreakdown struct {
-	ReservedOutput   int64
-	SystemTokens     int64
-	ToolSchemaTokens int64
-	SafetyMargin     int64
-	PriorSummary     int64
-	PinnedFacts      int64
-	HandoffCapsules  int64
+	ReservedOutput     int64
+	SystemTokens       int64
+	ToolSchemaTokens   int64
+	SafetyMargin       int64
+	PriorSummary       int64
+	PinnedFacts        int64
+	HandoffCapsules    int64
+	AttachmentExcerpts int64
 }
 
 // Total returns the sum of all reserved token costs.
 func (r ReservedTokenBreakdown) Total() int64 {
 	return r.ReservedOutput + r.SystemTokens + r.ToolSchemaTokens +
-		r.SafetyMargin + r.PriorSummary + r.PinnedFacts + r.HandoffCapsules
+		r.SafetyMargin + r.PriorSummary + r.PinnedFacts + r.HandoffCapsules +
+		r.AttachmentExcerpts
 }
