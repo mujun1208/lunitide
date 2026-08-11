@@ -103,6 +103,7 @@ func main() {
 	engine := app.NewEngineWithP3P4(providerService, projectService, sessionService, messageService, stageService, planningService, governanceService, memoryService, ontologyService, skillService, store.ContextReader(), store, buildinfo.Version, leaseClient)
 	engine.SetMigrationService(app.NewMigrationAdapter(store))
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
+	engine.SetupHandoffService(store)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

@@ -6,6 +6,7 @@ import (
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/handoffapp"
 )
 
 // CompactionStore combines the storage interfaces needed by the compaction
@@ -66,4 +67,22 @@ func (e *Engine) SetupCompactionServices(store CompactionStore, messageReader co
 	trigger := compactionapp.NewTrigger(compactionapp.DefaultWatermarkConfig(), e.tokenRepo, store, messageReader)
 
 	e.SetCompactionServices(trigger, executor, store)
+}
+
+// HandoffStore combines the storage interfaces needed by the handoff capsule
+// service: checkpoint reading (for digest binding) and capsule persistence.
+// A single Store implementation typically satisfies both.
+type HandoffStore interface {
+	handoffapp.CheckpointReader
+	handoffapp.CapsuleStore
+}
+
+// SetupHandoffService wires the handoff capsule service into the engine.
+// The store must satisfy HandoffStore (checkpoint reader + capsule store).
+// When the store is nil, the method is a no-op (ADR-005 §5).
+func (e *Engine) SetupHandoffService(store HandoffStore) {
+	if store == nil {
+		return
+	}
+	e.SetHandoffService(handoffapp.NewService(store, store))
 }
