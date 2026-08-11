@@ -48,15 +48,16 @@ const (
 )
 
 type Event struct {
-	Version  string       `json:"v"`
-	Kind     string       `json:"kind"`
-	ID       string       `json:"id"`
-	StreamID string       `json:"streamId"`
-	Sequence uint64       `json:"sequence"`
-	Type     EventType    `json:"type"`
-	Delta    *DeltaEvent  `json:"delta,omitempty"`
-	Usage    *UsageEvent  `json:"usage,omitempty"`
-	Error    *StreamError `json:"error,omitempty"`
+	Version   string          `json:"v"`
+	Kind      string          `json:"kind"`
+	ID        string          `json:"id"`
+	StreamID  string          `json:"streamId"`
+	Sequence  uint64          `json:"sequence"`
+	Type      EventType       `json:"type"`
+	Delta     *DeltaEvent     `json:"delta,omitempty"`
+	Usage     *UsageEvent     `json:"usage,omitempty"`
+	Completed *CompletedEvent `json:"completed,omitempty"`
+	Error     *StreamError    `json:"error,omitempty"`
 }
 type DeltaEvent struct {
 	Text string `json:"text"`
@@ -65,6 +66,9 @@ type UsageEvent struct {
 	InputTokens  int `json:"inputTokens"`
 	OutputTokens int `json:"outputTokens"`
 	TotalTokens  int `json:"totalTokens"`
+}
+type CompletedEvent struct {
+	MessageID string `json:"messageId,omitempty"`
 }
 type StreamError struct {
 	Code      string `json:"code"`

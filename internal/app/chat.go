@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/oklog/ulid/v2"
 )
@@ -114,7 +116,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	state := &streamState{cancel: cancel}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
-	go e.runStream(streamCtx, streamID, state, item, gateway.Request{Model: p.ModelID, Messages: messages, MaxAttempts: 1}, emit)
+	go e.runStream(streamCtx, streamID, state, item, gateway.Request{Model: p.ModelID, Messages: messages, MaxAttempts: 1}, emit, p.SessionID)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
 }
 
@@ -141,8 +143,10 @@ func handleStreamCancel(e *Engine, _ context.Context, request bridge.Request) br
 	return bridge.Success(request.ID, map[string]any{"cancelled": ok})
 }
 
-func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter) {
+func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter, sessionID string) {
 	var seq uint64
+	var assistantText strings.Builder
+	var streamResult gateway.Response
 	send := func(event bridge.Event) error {
 		seq++
 		event.Version = bridge.Version
@@ -159,12 +163,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		result, streamErr := a.Stream(op, credential, req, func(d gateway.Delta) error {
 			if d.Text != "" {
+				assistantText.WriteString(d.Text)
 				if err := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: d.Text}}); err != nil {
 					return err
 				}
 			}
 			return nil
 		})
+		streamResult = result
 		if streamErr == nil && result.Usage.TotalTokens > 0 {
 			if sendErr := send(bridge.Event{Type: bridge.EventUsage, Usage: &bridge.UsageEvent{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens, TotalTokens: result.Usage.TotalTokens}}); sendErr != nil {
 				return sendErr
@@ -172,9 +178,36 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		return streamErr
 	})
+	// On stream success with a durable session, persist the assistant response.
+	var messageID string
+	if err == nil && sessionID != "" && e.messages != nil {
+		text := assistantText.String()
+		if text != "" {
+			usage := messageapp.AssistantUsage{
+				Provider:    string(p.Protocol),
+				Model:       req.Model,
+				TotalTokens: int64(streamResult.Usage.TotalTokens),
+			}
+			msg, appendErr := e.messages.AppendAssistant(ctx, id, "engine", sessionID, text, usage)
+			if appendErr != nil {
+				err = appendErr
+			} else {
+				messageID = msg.ID
+			}
+		}
+	}
 	terminal := bridge.Event{Type: e.selectTerminal(id, state, err)}
+	if terminal.Type == bridge.EventCompleted && messageID != "" {
+		terminal.Completed = &bridge.CompletedEvent{MessageID: messageID}
+	}
 	if terminal.Type == bridge.EventFailed {
-		terminal.Error = &bridge.StreamError{Code: "UPSTREAM_FAILED", Message: "模型请求失败", Retryable: true}
+		code, message, retryable := "UPSTREAM_FAILED", "模型请求失败", true
+		if errors.Is(err, messageapp.ErrAssistantResponseTooLarge) {
+			code, message, retryable = "ASSISTANT_RESPONSE_TOO_LARGE", "assistant 响应超过 16384 code points", false
+		} else if errors.Is(err, messageapp.ErrMessageStorageQuotaReached) {
+			code, message, retryable = "MESSAGE_STORAGE_QUOTA_REACHED", "消息存储配额已满", false
+		}
+		terminal.Error = &bridge.StreamError{Code: code, Message: message, Retryable: retryable}
 	}
 	if send(terminal) != nil {
 		state.cancel()
