@@ -279,6 +279,36 @@ func (e *Engine) SetCompactionServices(trigger *compactionapp.Trigger, executor 
 	e.summaryReader = summaryReader
 }
 
+// TriggerManualCompaction creates a manual compaction checkpoint for the
+// specified source range and executes it synchronously. This is the user-facing
+// entry point for manual compaction (ADR-005 §4: "Add checkpoint schema, state
+// machine, source digests and manual compaction").
+//
+// The caller specifies the message sequence range [startSeq, endSeq] to compact.
+// The method:
+//  1. Creates a pending checkpoint with TriggerManual and source digest.
+//  2. Executes the checkpoint (transitions pending → running → succeeded/failed).
+//  3. Returns the execution result.
+//
+// Manual compaction never deletes source messages (ADR-005 §1). If a compaction
+// is already in progress, the method returns an error.
+func (e *Engine) TriggerManualCompaction(ctx context.Context, sessionID, provider, model string, startSeq, endSeq int64) (compactionapp.ManualTriggerResult, compactionapp.ExecuteResult, error) {
+	if e.compactionTrigger == nil || e.compactionExecutor == nil {
+		return compactionapp.ManualTriggerResult{}, compactionapp.ExecuteResult{}, errors.New("compaction services not configured")
+	}
+
+	triggerResult, err := e.compactionTrigger.TriggerManual(ctx, sessionID, provider, model, startSeq, endSeq)
+	if err != nil {
+		return triggerResult, compactionapp.ExecuteResult{}, err
+	}
+	if !triggerResult.Triggered {
+		return triggerResult, compactionapp.ExecuteResult{}, nil
+	}
+
+	execResult, err := e.compactionExecutor.Execute(ctx, triggerResult.CheckpointID)
+	return triggerResult, execResult, err
+}
+
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
