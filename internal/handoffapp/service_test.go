@@ -29,15 +29,19 @@ func (m *mockCheckpointReader) GetCheckpoint(_ context.Context, id string) (*com
 }
 
 type mockCapsuleStore struct {
-	capsules map[string]*handoff.Capsule
-	created  []handoff.Capsule
+	capsules  map[string]*handoff.Capsule
+	created   []handoff.Capsule
 	activated []string
-	revoked  []string
-	expired  []string
+	revoked   []string
+	expired   []string
+	imports   map[string]time.Time // key: capsuleID+":"+targetSessionID
 }
 
 func newMockCapsuleStore() *mockCapsuleStore {
-	return &mockCapsuleStore{capsules: make(map[string]*handoff.Capsule)}
+	return &mockCapsuleStore{
+		capsules: make(map[string]*handoff.Capsule),
+		imports:  make(map[string]time.Time),
+	}
 }
 
 func (m *mockCapsuleStore) CreateCapsule(_ context.Context, c handoff.Capsule) (handoff.Capsule, error) {
@@ -124,6 +128,45 @@ func (m *mockCapsuleStore) ExpireCapsule(_ context.Context, id string) error {
 	c.Status = handoff.StatusExpired
 	m.expired = append(m.expired, id)
 	return nil
+}
+
+func (m *mockCapsuleStore) RecordImport(_ context.Context, capsuleID, targetSessionID string) (importID string, importedAt time.Time, isNew bool, err error) {
+	key := capsuleID + ":" + targetSessionID
+	if existingAt, ok := m.imports[key]; ok {
+		return "", existingAt, false, nil
+	}
+	now := time.Now().UTC()
+	m.imports[key] = now
+	return ulid.Make().String(), now, true, nil
+}
+
+func (m *mockCapsuleStore) GetImport(_ context.Context, capsuleID, targetSessionID string) (importedAt time.Time, ok bool, err error) {
+	key := capsuleID + ":" + targetSessionID
+	at, exists := m.imports[key]
+	return at, exists, nil
+}
+
+func (m *mockCapsuleStore) ListImportedCapsules(_ context.Context, targetSessionID string) ([]handoff.Capsule, error) {
+	var result []handoff.Capsule
+	for key := range m.imports {
+		// key = capsuleID + ":" + targetSessionID
+		parts := splitImportKey(key)
+		if parts[1] == targetSessionID {
+			if c, ok := m.capsules[parts[0]]; ok {
+				result = append(result, *c)
+			}
+		}
+	}
+	return result, nil
+}
+
+// splitImportKey splits a "capsuleID:targetSessionID" key. ULIDs are 26 chars
+// fixed-length, so the split is unambiguous.
+func splitImportKey(key string) [2]string {
+	if len(key) < 27 {
+		return [2]string{"", ""}
+	}
+	return [2]string{key[:26], key[27:]}
 }
 
 // --- Helpers ---
@@ -610,5 +653,326 @@ func TestService_DigestBinding_RoundTrip(t *testing.T) {
 	}
 	if !result.DigestValid {
 		t.Error("digest should be valid when checkpoint and carried state are unchanged")
+	}
+}
+
+// --- ImportCapsule Tests ---
+
+func TestService_ImportCapsule_Success(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, store, _ := newTestService(&cp, nil)
+
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateCapsule failed: %v", err)
+	}
+
+	targetSession := mustULID()
+	result, err := svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if err != nil {
+		t.Fatalf("ImportCapsule failed: %v", err)
+	}
+	if !result.DigestValid {
+		t.Error("DigestValid = false, want true")
+	}
+	if result.ExpiredCheck {
+		t.Error("ExpiredCheck = true, want false")
+	}
+	if result.AlreadyImported {
+		t.Error("AlreadyImported = true on first import")
+	}
+	if result.ImportedAt.IsZero() {
+		t.Error("ImportedAt should be set")
+	}
+	if result.Checkpoint == nil || result.Checkpoint.ID != cp.ID {
+		t.Error("checkpoint not returned or mismatched")
+	}
+	// Capsule status should remain active (import does not change status).
+	if result.Capsule.Status != handoff.StatusActive {
+		t.Errorf("status = %s, want active (import must not change status)", result.Capsule.Status)
+	}
+	// Import should be recorded in the store.
+	if len(store.imports) != 1 {
+		t.Errorf("imports count = %d, want 1", len(store.imports))
+	}
+}
+
+func TestService_ImportCapsule_IdempotentReimport(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, store, _ := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	targetSession := mustULID()
+	// First import.
+	result1, err := svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if err != nil {
+		t.Fatalf("first ImportCapsule failed: %v", err)
+	}
+	if result1.AlreadyImported {
+		t.Error("first import should not be AlreadyImported")
+	}
+	// Second import of the same capsule into the same session.
+	result2, err := svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if err != nil {
+		t.Fatalf("second ImportCapsule failed: %v", err)
+	}
+	if !result2.AlreadyImported {
+		t.Error("second import should be AlreadyImported (idempotent)")
+	}
+	// imported_at should be the same.
+	if !result1.ImportedAt.Equal(result2.ImportedAt) {
+		t.Errorf("imported_at changed: %v vs %v", result1.ImportedAt, result2.ImportedAt)
+	}
+	// Only one import record should exist.
+	if len(store.imports) != 1 {
+		t.Errorf("imports count = %d, want 1 (idempotent)", len(store.imports))
+	}
+}
+
+func TestService_ImportCapsule_DifferentTargets(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, store, _ := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	target1 := mustULID()
+	target2 := mustULID()
+	_, err := svc.ImportCapsule(context.Background(), created.ID, target1)
+	if err != nil {
+		t.Fatalf("ImportCapsule to target1 failed: %v", err)
+	}
+	_, err = svc.ImportCapsule(context.Background(), created.ID, target2)
+	if err != nil {
+		t.Fatalf("ImportCapsule to target2 failed: %v", err)
+	}
+	// Two distinct import records.
+	if len(store.imports) != 2 {
+		t.Errorf("imports count = %d, want 2 (multi-session import)", len(store.imports))
+	}
+}
+
+func TestService_ImportCapsule_NotFound(t *testing.T) {
+	svc, _, _ := newTestService(nil, nil)
+
+	_, err := svc.ImportCapsule(context.Background(), mustULID(), mustULID())
+	if !errors.Is(err, ErrCapsuleNotFound) {
+		t.Errorf("err = %v, want ErrCapsuleNotFound", err)
+	}
+}
+
+func TestService_ImportCapsule_NotActive(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, store, _ := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+	// Revoke the capsule to make it terminal.
+	_ = store.RevokeCapsule(context.Background(), created.ID)
+
+	_, err := svc.ImportCapsule(context.Background(), created.ID, mustULID())
+	if !errors.Is(err, ErrCapsuleNotActive) {
+		t.Errorf("err = %v, want ErrCapsuleNotActive", err)
+	}
+}
+
+func TestService_ImportCapsule_Expired(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, _, _ := newTestService(&cp, nil)
+
+	pastTime := time.Now().UTC().Add(-1 * time.Hour)
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+		ExpiresAt:       &pastTime,
+	})
+	if err != nil {
+		t.Fatalf("CreateCapsule failed: %v", err)
+	}
+
+	_, err = svc.ImportCapsule(context.Background(), created.ID, mustULID())
+	if !errors.Is(err, ErrCapsuleExpired) {
+		t.Errorf("err = %v, want ErrCapsuleExpired", err)
+	}
+}
+
+func TestService_ImportCapsule_SourceDeleted(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, _, reader := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	// Simulate checkpoint deletion: reader returns nil.
+	reader.checkpoint = nil
+
+	_, err := svc.ImportCapsule(context.Background(), created.ID, mustULID())
+	if !errors.Is(err, ErrSourceDeleted) {
+		t.Errorf("err = %v, want ErrSourceDeleted", err)
+	}
+}
+
+func TestService_ImportCapsule_DigestMismatch(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, store, _ := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	// Tamper with the stored capsule's digest.
+	store.capsules[created.ID].Digest = "0000000000000000000000000000000000000000000000000000000000000000"
+
+	_, err := svc.ImportCapsule(context.Background(), created.ID, mustULID())
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Errorf("err = %v, want ErrDigestMismatch", err)
+	}
+}
+
+// --- InspectCapsule Tests ---
+
+func TestService_InspectCapsule_Success(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, _, _ := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	result, err := svc.InspectCapsule(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("InspectCapsule failed: %v", err)
+	}
+	if result.Capsule.ID != created.ID {
+		t.Errorf("capsule ID = %s, want %s", result.Capsule.ID, created.ID)
+	}
+	if result.Checkpoint == nil || result.Checkpoint.ID != cp.ID {
+		t.Error("checkpoint not returned or mismatched")
+	}
+}
+
+func TestService_InspectCapsule_SourceDeleted(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, _, reader := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	// Simulate checkpoint deletion.
+	reader.checkpoint = nil
+
+	result, err := svc.InspectCapsule(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("InspectCapsule should not fail when source deleted, got: %v", err)
+	}
+	if result.Checkpoint != nil {
+		t.Error("checkpoint should be nil when source deleted")
+	}
+	if result.Capsule.ID != created.ID {
+		t.Errorf("capsule ID = %s, want %s", result.Capsule.ID, created.ID)
+	}
+}
+
+func TestService_InspectCapsule_NotFound(t *testing.T) {
+	svc, _, _ := newTestService(nil, nil)
+
+	_, err := svc.InspectCapsule(context.Background(), mustULID())
+	if !errors.Is(err, ErrCapsuleNotFound) {
+		t.Errorf("err = %v, want ErrCapsuleNotFound", err)
+	}
+}
+
+// --- ListImportedCapsuleContexts Tests ---
+
+func TestService_ListImportedCapsuleContexts_FailClosedOnDeletion(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, _, reader := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	targetSession := mustULID()
+	_, err := svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if err != nil {
+		t.Fatalf("ImportCapsule failed: %v", err)
+	}
+
+	// Before deletion: one capsule context with non-nil checkpoint.
+	contexts, err := svc.ListImportedCapsuleContexts(context.Background(), targetSession)
+	if err != nil {
+		t.Fatalf("ListImportedCapsuleContexts failed: %v", err)
+	}
+	if len(contexts) != 1 {
+		t.Fatalf("contexts count = %d, want 1", len(contexts))
+	}
+	if contexts[0].Checkpoint == nil {
+		t.Error("checkpoint should not be nil before deletion")
+	}
+
+	// After source checkpoint deletion: capsule context with nil checkpoint.
+	reader.checkpoint = nil
+	contexts, err = svc.ListImportedCapsuleContexts(context.Background(), targetSession)
+	if err != nil {
+		t.Fatalf("ListImportedCapsuleContexts after deletion failed: %v", err)
+	}
+	if len(contexts) != 1 {
+		t.Fatalf("contexts count = %d, want 1 (capsule still listed, checkpoint nil)", len(contexts))
+	}
+	if contexts[0].Checkpoint != nil {
+		t.Error("checkpoint should be nil after source deletion (fail-closed)")
+	}
+}
+
+func TestService_ListImportedCapsuleContexts_SkipsRevoked(t *testing.T) {
+	sessionID := mustULID()
+	cp := validCheckpoint(sessionID)
+	svc, store, _ := newTestService(&cp, nil)
+
+	created, _ := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sessionID,
+		CheckpointID:    cp.ID,
+	})
+
+	targetSession := mustULID()
+	_, _ = svc.ImportCapsule(context.Background(), created.ID, targetSession)
+
+	// Revoke the capsule.
+	_ = store.RevokeCapsule(context.Background(), created.ID)
+
+	contexts, err := svc.ListImportedCapsuleContexts(context.Background(), targetSession)
+	if err != nil {
+		t.Fatalf("ListImportedCapsuleContexts failed: %v", err)
+	}
+	if len(contexts) != 0 {
+		t.Errorf("contexts count = %d, want 0 (revoked capsules skipped)", len(contexts))
 	}
 }

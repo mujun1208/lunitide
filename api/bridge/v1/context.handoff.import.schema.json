@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/context.handoff.import.schema.json",
+  "title": "context.handoff.import payload",
+  "x-method": "context.handoff.import",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "capsuleId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "targetSessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["capsuleId", "targetSessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "capsuleId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "sourceSessionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "checkpointId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["active", "activated", "expired", "revoked"]
+      },
+      "digestValid": {
+        "type": "boolean"
+      },
+      "expiredCheck": {
+        "type": "boolean"
+      },
+      "alreadyImported": {
+        "type": "boolean"
+      },
+      "importedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "summaryPreview": {
+        "type": "string",
+        "maxLength": 65536
+      },
+      "humanSummary": {
+        "type": "string",
+        "maxLength": 32768
+      }
+    },
+    "required": ["capsuleId", "sourceSessionId", "checkpointId", "status", "digestValid", "expiredCheck", "alreadyImported", "importedAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "capsuleId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "targetSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "capsuleId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ]
+  }
+}

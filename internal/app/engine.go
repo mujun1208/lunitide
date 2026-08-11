@@ -132,6 +132,12 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodContextCompactPreview:   handleContextCompactPreview,
 	bridge.MethodContextCompactCommit:    handleContextCompactCommit,
 	bridge.MethodContextCompactCancel:    handleContextCompactCancel,
+	bridge.MethodContextHandoffCreate:        handleContextHandoffCreate,
+	bridge.MethodContextHandoffImport:        handleContextHandoffImport,
+	bridge.MethodContextHandoffInspect:       handleContextHandoffInspect,
+	bridge.MethodContextHandoffList:          handleContextHandoffList,
+	bridge.MethodContextHandoffListImports:   handleContextHandoffListImports,
+	bridge.MethodContextHandoffRevoke:        handleContextHandoffRevoke,
 	bridge.MethodStreamCancel:      handleStreamCancel,
 	bridge.MethodSystemHealth:      handleSystemHealth,
 	bridge.MethodProviderCreate:    handleProviderCreate,
@@ -563,6 +569,16 @@ func (e *Engine) GetHandoffCapsule(ctx context.Context, id string) (*handoff.Cap
 	return e.handoffService.GetCapsule(ctx, id)
 }
 
+// InspectHandoffCapsule returns a capsule by ID together with its source
+// checkpoint. The checkpoint summary lets the Renderer display the carried
+// context; the checkpoint may be nil if the source was deleted (ADR-005 §5).
+func (e *Engine) InspectHandoffCapsule(ctx context.Context, id string) (handoffapp.InspectCapsuleResult, error) {
+	if e.handoffService == nil {
+		return handoffapp.InspectCapsuleResult{}, errors.New("handoff service not configured")
+	}
+	return e.handoffService.InspectCapsule(ctx, id)
+}
+
 // ListHandoffCapsules returns capsules for a source session, ordered by
 // creation time descending. A limit <= 0 or > 100 defaults to 50.
 func (e *Engine) ListHandoffCapsules(ctx context.Context, sessionID string, limit int) ([]handoff.Capsule, error) {
@@ -602,6 +618,43 @@ func (e *Engine) RevokeHandoffCapsule(ctx context.Context, id string) error {
 		return errors.New("handoff service not configured")
 	}
 	return e.handoffService.RevokeCapsule(ctx, id)
+}
+
+// ImportHandoffCapsule imports a capsule into a target session as
+// provenance-linked untrusted prior context (ADR-005 §5). The Engine validates
+// the capsule (digest binding, expiration, source existence) before recording
+// the import. Repeat import of the same capsule into the same session is
+// idempotent.
+//
+// On success, the capsule's summary becomes available as untrusted prior
+// context for the target session. The chat send path injects imported
+// capsule summaries into ContextEnvelope.HandoffCapsules.
+func (e *Engine) ImportHandoffCapsule(ctx context.Context, capsuleID, targetSessionID string) (handoffapp.ImportCapsuleResult, error) {
+	if e.handoffService == nil {
+		return handoffapp.ImportCapsuleResult{}, errors.New("handoff service not configured")
+	}
+	return e.handoffService.ImportCapsule(ctx, capsuleID, targetSessionID)
+}
+
+// ListImportedHandoffCapsules returns all capsules imported into the target
+// session, ordered by imported_at descending (ADR-005 §5).
+func (e *Engine) ListImportedHandoffCapsules(ctx context.Context, targetSessionID string) ([]handoff.Capsule, error) {
+	if e.handoffService == nil {
+		return nil, errors.New("handoff service not configured")
+	}
+	return e.handoffService.ListImportedCapsules(ctx, targetSessionID)
+}
+
+// ListImportedHandoffCapsuleContexts returns all active capsules imported
+// into the target session together with their source checkpoints. Capsules
+// whose source checkpoint was deleted are returned with a nil Checkpoint so
+// the caller can fail-closed. This is the primary read path used by
+// chat.start to populate ContextEnvelope.HandoffCapsules (ADR-005 §5).
+func (e *Engine) ListImportedHandoffCapsuleContexts(ctx context.Context, targetSessionID string) ([]handoffapp.CapsuleContext, error) {
+	if e.handoffService == nil {
+		return nil, nil
+	}
+	return e.handoffService.ListImportedCapsuleContexts(ctx, targetSessionID)
 }
 
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
