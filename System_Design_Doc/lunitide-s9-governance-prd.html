@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 · S9 治理与审批 PRD</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;
+  --bg2:#0a1424;
+  --bg3:#0e1c30;
+  --ink:#eaf3ff;
+  --muted:#8fa3bf;
+  --rule:rgba(143,163,191,.16);
+  --line:rgba(143,163,191,.25);
+  --moon:#f4f6ff;
+  --moon2:#cfe0ff;
+  --glow:#7fb4ff;
+  --glow2:#4f8bff;
+  --tide1:#3bd6ff;
+  --tide2:#7f5bff;
+  --tide3:#2fd6b5;
+  --ok:#3bd6a0;
+  --warn:#ffc46b;
+  --err:#ff7a7a;
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+
+/* ── Atmospheric Background: Black Starry Sky ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+
+/* ── Stars ── */
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon (LOGO & Ambient) ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Moon LOGO (small, inline) ── */
+.moon-logo{
+  width:46px;height:46px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 36%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 26px rgba(207,224,255,.35), 0 0 50px rgba(127,180,255,.15);
+}
+.moon-logo::after{content:"";position:absolute;inset:5px;border-radius:50%;
+  border:1px solid rgba(150,170,205,.5);opacity:.5}
+.moon-logo.sm{width:26px;height:26px;box-shadow:0 0 14px rgba(207,224,255,.35)}
+.moon-logo.sm::after{inset:3px}
+
+/* ── Tide Ring (ambient wave) ── */
+.tide-ring{position:fixed;left:50%;bottom:-160px;transform:translateX(-50%);width:1400px;height:500px;z-index:-1;pointer-events:none}
+.tide-ring path{stroke-width:1;fill:none;stroke-linecap:round}
+.tide-ring .r1{stroke:rgba(63,214,255,.16);animation:sweep 11s ease-in-out infinite}
+.tide-ring .r2{stroke:rgba(127,91,255,.13);animation:sweep 15s ease-in-out infinite reverse}
+.tide-ring .r3{stroke:rgba(47,214,181,.10);animation:sweep 19s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.narrow{max-width:860px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{
+  font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;
+  text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h1{font-size:clamp(38px,6vw,60px);line-height:1.05}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+h4{font-size:15.5px;margin:18px 0 8px;font-weight:600;color:var(--tide1)}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+p b,li b{color:var(--ink);font-weight:600}
+p em{color:var(--tide1);font-style:normal}
+ul,ol{margin:10px 0 10px 22px;color:var(--muted)}
+li{margin:5px 0}
+
+/* ── Gradient Text ── */
+.accent-grad,.accent{
+  background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+/* ── Top Nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(4,7,15,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule)}
+nav .inner{max-width:1180px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+nav .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em;font-size:16px}
+nav .logo .zh{color:var(--glow);margin-left:2px}
+nav .links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav .links a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:6px 11px;border-radius:8px;transition:.15s}
+nav .links a:hover{color:var(--ink);background:rgba(127,180,255,.08)}
+nav .tag{font-family:var(--mono);font-size:10.5px;color:var(--tide1);border:1px solid rgba(63,214,255,.3);padding:2px 9px;border-radius:999px}
+
+/* ── Cards ── */
+.card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));
+  border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;
+  transition:.2s;
+}
+.card:hover{border-color:var(--glow);box-shadow:0 10px 30px -14px rgba(63,134,255,.3)}
+
+/* ── Callouts ── */
+.callout{border-left:3px solid var(--tide1);background:rgba(63,214,255,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.callout b{color:var(--ink)}
+.note{border-left:3px solid var(--warn);background:rgba(255,196,107,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.note b{color:var(--ink)}
+.warn{border-left:3px solid var(--err);background:rgba(255,122,122,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.warn b{color:var(--ink)}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--glow);text-transform:uppercase}
+td b{color:var(--ink)}
+td .col{color:var(--tide1)}
+
+/* ── Tags / Pills ── */
+.tag{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--muted);
+  border:1px solid var(--rule);border-radius:999px;padding:7px 15px;background:rgba(14,28,48,.5);
+  backdrop-filter:blur(4px);
+}
+.tag b{color:var(--tide1);font-weight:600}
+
+/* ── Code Blocks ── */
+pre{
+  background:linear-gradient(160deg,#07101d,#050b16);
+  border:1px solid var(--line);border-radius:12px;padding:16px 18px;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:#cfe0ff;
+  overflow-x:auto;margin:14px 0;
+}
+pre .kw{color:var(--tide2)}
+pre .ty{color:var(--tide1)}
+pre .cm{color:#5b7090;font-style:italic}
+pre .st{color:var(--tide3)}
+code{font-family:var(--mono);font-size:.9em;background:rgba(63,214,255,.08);padding:2px 6px;border-radius:5px;color:var(--tide1)}
+
+/* ── TOC ── */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:34px 0 10px}
+.toc a{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-decoration:none;color:var(--ink);transition:.18s;display:block}
+.toc a:hover{transform:translateY(-2px);border-color:var(--glow);box-shadow:0 10px 24px -12px rgba(63,134,255,.4)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--glow);letter-spacing:.14em}
+.toc .t{font-size:14px;font-weight:600;margin-top:4px}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+
+/* ── State Machine Diagram ── */
+.sm-diagram{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;padding:24px 12px}
+.sm-node{padding:9px 16px;border-radius:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--line);background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:92px;line-height:1.4}
+.sm-node.start{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.1)}
+.sm-node.success{border-color:var(--ok);color:var(--ok);background:rgba(59,214,160,.08)}
+.sm-node.fail{border-color:var(--err);color:var(--err);background:rgba(255,122,122,.08)}
+.sm-node.warn{border-color:var(--warn);color:var(--warn);background:rgba(255,196,107,.08)}
+.sm-node.review{border-color:var(--tide2);color:var(--tide2);background:rgba(127,91,255,.08)}
+.sm-arrow{color:var(--rule);font-size:16px;font-family:var(--mono);user-select:none}
+.sm-branch{display:flex;flex-direction:column;gap:8px;align-items:center}
+
+/* ── Approval UI Mockup ── */
+.stage{
+  position:relative;border-radius:18px;padding:26px;
+  background:linear-gradient(160deg,#0b1626,#081020);
+  border:1px solid var(--line);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.stage::before{
+  content:attr(data-label);position:absolute;top:-12px;left:26px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--glow);
+  background:#0b1729;padding:2px 12px;border:1px solid var(--rule);border-radius:999px;
+}
+.browser-dots{display:flex;gap:7px;margin-bottom:18px}
+.browser-dots i{width:11px;height:11px;border-radius:50%;background:#29405f}
+.browser-dots i:nth-child(1){background:#ff7a7a}
+.browser-dots i:nth-child(2){background:#ffc46b}
+.browser-dots i:nth-child(3){background:#3bd6a0}
+.review-item{background:linear-gradient(160deg,rgba(14,28,48,.7),rgba(10,20,32,.6));border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0;transition:.2s}
+.review-item:hover{border-color:var(--glow)}
+.review-item .ri-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.review-item .ri-type{font-family:var(--mono);font-size:12.5px;color:var(--ink);font-weight:600}
+.review-item .ri-risk{font-family:var(--mono);font-size:10px;padding:2px 9px;border-radius:999px;letter-spacing:.06em}
+.ri-risk.high{color:var(--err);background:rgba(255,122,122,.12);border:1px solid rgba(255,122,122,.3)}
+.ri-risk.med{color:var(--warn);background:rgba(255,196,107,.12);border:1px solid rgba(255,196,107,.3)}
+.ri-risk.low{color:var(--tide3);background:rgba(47,214,181,.12);border:1px solid rgba(47,214,181,.3)}
+.review-item .ri-row{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:6px 0}
+.review-item .ri-row b{color:var(--ink);font-family:var(--mono);font-size:11.5px}
+.review-item .ri-actions{display:flex;gap:8px;margin-top:12px}
+.ri-btn{font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:7px;border:1px solid var(--line);color:var(--ink);cursor:pointer;transition:.15s;background:transparent}
+.ri-btn:hover{background:rgba(63,214,255,.1);border-color:var(--tide1)}
+.ri-btn.approve{background:linear-gradient(120deg,var(--tide3),var(--ok));color:#04121f;font-weight:700;border:none}
+.ri-btn.reject{background:rgba(255,122,122,.15);border-color:rgba(255,122,122,.4);color:var(--err)}
+.review-item .ri-hash{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:rgba(7,16,29,.7);padding:6px 10px;border-radius:6px;border:1px solid var(--rule);word-break:break-all}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--rule);padding:48px 0 40px;text-align:center;color:var(--muted)}
+footer .moon-logo{margin:0 auto 16px}
+footer p{font-size:13px}
+footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spacing:.1em;margin-top:8px}
+</style>
+</head>
+<body>
+
+<!-- ═══ Atmospheric Layers ═══ -->
+<div class="sky"></div>
+<div class="stars" id="stars"></div>
+<div class="moon-glow"></div>
+<div class="moon"></div>
+<svg class="tide-ring" viewBox="0 0 1400 500" preserveAspectRatio="none">
+  <path class="r1" d="M0,300 Q350,180 700,260 T1400,220"/>
+  <path class="r2" d="M0,340 Q350,220 700,320 T1400,280"/>
+  <path class="r3" d="M0,380 Q350,260 700,380 T1400,340"/>
+</svg>
+
+<!-- ═══ Top Nav ═══ -->
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE</span><span class="zh">月汐</span>
+    </div>
+    <div class="links">
+      <a href="#ch1">Policy Engine</a>
+      <a href="#ch2">运行模式</a>
+      <a href="#ch3">Review</a>
+      <a href="#ch4">状态机</a>
+      <a href="#ch6">权限分类</a>
+      <a href="#ch7">威胁模型</a>
+      <a href="#ch8">审计</a>
+      <a href="#ch9">可观测性</a>
+    </div>
+    <span class="tag">S9 · GOVERNANCE</span>
+  </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section style="padding-top:90px">
+  <div class="wrap">
+    <div class="kicker">SPEC S9 · 治理与审批</div>
+    <h1 class="accent-grad">S9 · 治理与审批 PRD</h1>
+    <p class="lead" style="margin-top:20px">
+      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；协作采用 Presence + 乐观并发 + Git 三方合并，发布采用不可变包、同 digest 环境晋级与代码/数据库顺序门禁。
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
+      <span class="tag"><b>v1.0</b> · 规范冻结</span>
+      <span class="tag">状态机 · <b>9态</b></span>
+      <span class="tag">威胁面 · <b>7类</b></span>
+      <span class="tag">审计 · <b>append-only</b></span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ TOC ═══ -->
+<section style="padding-top:0">
+  <div class="wrap">
+    <h2 style="font-size:22px;margin-bottom:6px">目录</h2>
+    <p class="lead" style="font-size:14px;margin-bottom:0">十三条线索，从策略引擎、审批 UI 到协作与发布治理，构成完整闭环。</p>
+    <div class="toc">
+      <a href="#ch1"><div class="n">01</div><div class="t">Policy Engine</div></a>
+      <a href="#ch2"><div class="n">02</div><div class="t">运行模式与自动化级别</div></a>
+      <a href="#ch3"><div class="n">03</div><div class="t">Review 机制</div></a>
+      <a href="#ch4"><div class="n">04</div><div class="t">Review 状态机</div></a>
+      <a href="#ch5"><div class="n">05</div><div class="t">审批 TOCTOU 防护</div></a>
+      <a href="#ch6"><div class="n">06</div><div class="t">权限与数据分类</div></a>
+      <a href="#ch7"><div class="n">07</div><div class="t">威胁模型</div></a>
+      <a href="#ch8"><div class="n">08</div><div class="t">审计系统</div></a>
+      <a href="#ch9"><div class="n">09</div><div class="t">可观测性</div></a>
+      <a href="#ch10"><div class="n">10</div><div class="t">诊断包</div></a>
+      <a href="#ch11"><div class="n">11</div><div class="t">错误语义</div></a>
+      <a href="#ch12"><div class="n">12</div><div class="t">治理审批 UI 原型</div></a>
+      <a href="#ch13"><div class="n">13</div><div class="t">协作冲突与发布治理裁决</div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 1: Policy Engine ═══ -->
+<section id="ch1">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 01</div>
+        <h2>Policy Engine</h2>
+      </div>
+      <span class="tag">独立风险判断</span>
+    </div>
+    <p class="lead">Policy Engine 是治理体系的大脑。它接受结构化输入，独立于模型与 Review Agent 做出授权决定，并产出可追溯的策略裁决。</p>
+
+    <h3>Policy 输入</h3>
+    <table>
+      <thead>
+        <tr><th>字段</th><th>含义</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>actor</b></td><td>操作发起者</td><td>用户身份 / 技能身份，决定权限边界</td></tr>
+        <tr><td><b>project</b></td><td>所属项目</td><td>资源隔离粒度，限制跨项目访问</td></tr>
+        <tr><td><b>operation</b></td><td>操作类型</td><td>如 push / deploy / db_write / skill_install</td></tr>
+        <tr><td><b>resource</b></td><td>目标资源</td><td>资源句柄与版本，用于 TOCTOU 绑定</td></tr>
+        <tr><td><b>normalized args</b></td><td>规范化参数</td><td>去空格、排序、类型标准化后的参数</td></tr>
+        <tr><td><b>data classification</b></td><td>数据分类</td><td>Secret / Restricted / Internal / Public</td></tr>
+        <tr><td><b>tool trust</b></td><td>工具信任级别</td><td>内建签名 / 第三方已审核 / 未信任</td></tr>
+        <tr><td><b>environment</b></td><td>执行环境</td><td>Worker 隔离级别、网络策略、运行模式</td></tr>
+        <tr><td><b>plan version</b></td><td>计划版本</td><td>当前执行 Plan 的不可变版本号</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Policy 输出</h3>
+    <table>
+      <thead>
+        <tr><th>裁决</th><th>语义</th><th>后续动作</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="col">allow</span></td><td>允许执行</td><td>直接进入执行管线</td></tr>
+        <tr><td><span style="color:var(--err)">deny</span></td><td>拒绝执行</td><td>阻断并返回 POLICY_DENIED</td></tr>
+        <tr><td><span style="color:var(--warn)">require_review</span></td><td>需人工审批</td><td>创建 Review，进入 pending 状态</td></tr>
+      </tbody>
+    </table>
+    <p>每次裁决同时携带 <code>reason</code>（人类可读理由）和 <code>policy version</code>（策略版本号），写入审计日志。</p>
+
+    <div class="callout"><b>规则冲突取更严格者。</b>当多条策略同时命中同一操作时，裁决以最严格的策略为准 —— deny 优先于 require_review，require_review 优先于 allow。不存在"宽松策略覆盖严格策略"的路径。</div>
+    <div class="warn"><b>模型和 Review Agent 不能修改系统强制策略。</b>LLM 输出与 Review Agent 仅可提出 ToolCall 建议，无权变更 Policy Engine 的强制规则。来自内容的"忽略规则""自动批准"指令没有权限效果。</div>
+    <div class="callout"><b>所有策略决定写审计。</b>无论 allow / deny / require_review，每一次 Policy 判断都生成 AuditEvent，记录 actor、operation、裁决、reason、policy version，进入 append-only 审计链。</div>
+
+    <h3>Policy Engine 架构要点</h3>
+    <div class="card">
+      <h4>独立于模型</h4>
+      <p>Policy Engine 是一个独立的策略裁决服务，<b>不依赖 LLM 推理</b>。它的输入是结构化字段，输出是确定性裁决。这保证了即使模型被 Prompt Injection 攻陷，策略边界仍然坚不可摧。</p>
+      <h4>策略版本化</h4>
+      <p>每条策略携带版本号。策略更新后，<code>policy_version</code> 递增，所有基于旧版本的 Review 批准自动失效。这确保策略变更能即时生效，不会因残留的旧批准而产生安全窗口。</p>
+      <h4>裁决可解释</h4>
+      <p>每次裁决携带 <code>reason</code> 字段，用人类可读语言说明"为什么 allow / deny / require_review"。这不仅服务于审计，也直接驱动审批 UI 向用户展示风险理由。</p>
+    </div>
+
+    <div class="note"><b>设计原则：最小惊讶。</b>当 Policy Engine 无法判断时，默认返回 <code>require_review</code> 而非 <code>allow</code>。在安全系统中，不确定时选择更严格的路总是正确的。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 2: 运行模式与自动化级别 ═══ -->
+<section id="ch2">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 02</div>
+        <h2>运行模式与自动化级别</h2>
+      </div>
+      <span class="tag">风险分级</span>
+    </div>
+    <p class="lead">运行模式（Manual / Assisted / Full-Managed）只影响低风险与中风险操作的自动化程度。高风险操作无论处于何种模式，都 MUST 经过显式确认。</p>
+
+    <h3>高风险强制确认清单</h3>
+    <p>以下五类操作<b>即使在全托管模式下也必须人工确认</b>，不可被自动化策略绕过：</p>
+    <div class="card">
+      <ul style="margin:0">
+        <li><b>push、发布、生产部署</b> —— 任何向远端推送代码、发布产物或部署到生产环境的操作。</li>
+        <li><b>破坏性数据库或文件操作</b> —— DROP、DELETE、TRUNCATE、批量删除文件、覆盖关键路径等不可逆写入。</li>
+        <li><b>凭据导出、跨域发送敏感数据</b> —— 读取 / 导出 Secret 级数据，或将 Restricted 数据发送到项目隔离边界之外。</li>
+        <li><b>执行未信任代码或扩大技能权限</b> —— 运行未签名 / 未审核的脚本，或提升 Skill / MCP 的权限范围。</li>
+        <li><b>修改安全策略、审计或更新信任根</b> —— 变更 Policy 规则、篡改审计链、轮换签名根证书等治理元操作。</li>
+      </ul>
+    </div>
+    <div class="warn"><b>强制确认不可降级。</b>高风险操作的设计意图是"即使全托管也不自动执行"。任何试图通过模式切换、配置覆盖或模型建议来跳过这五类确认的行为，都会被 Policy Engine 直接 deny。</div>
+
+    <h3>三种运行模式对照</h3>
+    <table>
+      <thead>
+        <tr><th>模式</th><th>低风险操作</th><th>中风险操作</th><th>高风险操作</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Manual</b></td><td>需确认</td><td>需确认</td><td>需确认</td></tr>
+        <tr><td><b>Assisted</b></td><td>自动执行</td><td>需确认</td><td>需确认</td></tr>
+        <tr><td><b>Full-Managed</b></td><td>自动执行</td><td>自动执行</td><td><span style="color:var(--err)">需确认（强制）</span></td></tr>
+      </tbody>
+    </table>
+    <p>可见，从 Manual 到 Full-Managed，自动化程度递增，但高风险操作的"需确认"列在三种模式下始终一致 —— 这是治理边界的不可逾越线。</p>
+  </div>
+</section>
+
+<!-- ═══ Chapter 3: Review 机制 ═══ -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 03</div>
+        <h2>Review 机制</h2>
+      </div>
+      <span class="tag">不可变摘要绑定</span>
+    </div>
+    <p class="lead">Review 不是对"意图"的模糊批准，而是对一组不可变字段的精确绑定。批准的生效范围严格限定于审批时锁定的操作摘要。</p>
+
+    <h3>Review 绑定字段</h3>
+    <table>
+      <thead>
+        <tr><th>字段</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>operation_type</b></td><td>操作类别，决定后续执行管线</td></tr>
+        <tr><td><b>params_hash</b></td><td>规范化参数的哈希，任何参数变化即失效</td></tr>
+        <tr><td><b>resource</b></td><td>目标资源标识</td></tr>
+        <tr><td><b>resource_version</b></td><td>资源版本，防止资源在审批后被替换</td></tr>
+        <tr><td><b>plan_version</b></td><td>计划版本，防止计划变更后沿用旧批准</td></tr>
+        <tr><td><b>policy_version</b></td><td>策略版本，策略更新后旧批准失效</td></tr>
+        <tr><td><b>risk</b></td><td>风险等级，用于审批 UI 展示</td></tr>
+        <tr><td><b>expires_at</b></td><td>过期时间，超时后批准自动失效</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout"><b>审批只对不可变摘要生效。</b>Review 锁定的是 params_hash + resource_version + plan_version + policy_version 的组合摘要。批准不针对"一个请求"，而是针对"这一份精确的操作快照"。</div>
+    <div class="callout"><b>参数变化后旧批准失效。</b>一旦 params_hash 发生变化（哪怕只改了一个参数），之前的 approved 状态立即作废，必须重新发起 Review。系统不会尝试"部分匹配"或"近似复用"。</div>
+    <div class="callout"><b>超时默认保持暂停或拒绝，绝不自动执行。</b>Review 到达 expires_at 后转入 expired 状态。系统不会因为"审批超时"而默认放行 —— 安全的默认值始终是"不执行"。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 4: Review 状态机 ═══ -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 04</div>
+        <h2>Review 状态机</h2>
+      </div>
+      <span class="tag">9 态有限自动机</span>
+    </div>
+    <p class="lead">Review 的生命周期由一个严格的状态机管理。每一次状态迁移都有明确的触发条件，且审批决策一旦产生即不可删除。</p>
+
+    <h3>状态流转</h3>
+    <div class="stage" data-label="REVIEW STATE MACHINE">
+      <div class="sm-diagram">
+        <div class="sm-node start">pending</div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-branch">
+          <div class="sm-node success">approved</div>
+          <div class="sm-node fail">rejected</div>
+          <div class="sm-node warn">changes_requested</div>
+          <div class="sm-node review">expired</div>
+          <div class="sm-node review">cancelled</div>
+        </div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-node start">executing</div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-branch">
+          <div class="sm-node success">executed</div>
+          <div class="sm-node fail">execution_failed</div>
+        </div>
+      </div>
+      <p style="text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:16px">
+        pending → approved / rejected / changes_requested / expired / cancelled → executing → executed / execution_failed
+      </p>
+    </div>
+
+    <h3>执行前二次校验</h3>
+    <div class="card">
+      <p>批准后、执行前，系统<b>再次计算参数哈希和策略版本</b>，并与 Review 绑定值比较：</p>
+      <ul>
+        <li>哈希一致且策略未变 → 进入 <code>executing</code></li>
+        <li>哈希不一致或策略已更新 → 转入 <code>changes_requested</code>，要求重新审批</li>
+      </ul>
+    </div>
+    <div class="callout"><b>Review 决策不可删除。</b>approved、rejected、changes_requested 等决策记录永久保留在 append-only 审计链中。即使用户取消操作或操作执行失败，决策本身的历史不会被擦除 —— 它是治理可追溯性的基石。</div>
+
+    <h3>状态语义说明</h3>
+    <table>
+      <thead>
+        <tr><th>状态</th><th>语义</th><th>可迁移至</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="col">pending</span></td><td>等待人工审批</td><td>approved / rejected / changes_requested / expired / cancelled</td></tr>
+        <tr><td><span style="color:var(--ok)">approved</span></td><td>已批准，待执行前二次校验</td><td>executing / changes_requested（校验失败时）</td></tr>
+        <tr><td><span style="color:var(--err)">rejected</span></td><td>已拒绝，终态</td><td>无（终态）</td></tr>
+        <tr><td><span style="color:var(--warn)">changes_requested</span></td><td>参数或策略变更，需重新审批</td><td>pending（重新发起时）</td></tr>
+        <tr><td><span style="color:var(--tide2)">expired</span></td><td>超时未审批，终态</td><td>无（终态）</td></tr>
+        <tr><td><span style="color:var(--tide2)">cancelled</span></td><td>发起者主动取消，终态</td><td>无（终态）</td></tr>
+        <tr><td><span class="col">executing</span></td><td>正在执行</td><td>executed / execution_failed</td></tr>
+        <tr><td><span style="color:var(--ok)">executed</span></td><td>执行成功，终态</td><td>无（终态）</td></tr>
+        <tr><td><span style="color:var(--err)">execution_failed</span></td><td>执行失败，终态</td><td>无（终态，可重新发起 Review）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ Chapter 5: 审批 TOCTOU 防护 ═══ -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 05</div>
+        <h2>审批 TOCTOU 防护</h2>
+      </div>
+      <span class="tag">Time-of-Check vs Time-of-Use</span>
+    </div>
+    <p class="lead">TOCTOU（检查时与使用时不一致）是审批系统最危险的攻击面。Lunitide 通过多维绑定 + 执行前重验 + 一次性令牌来消除这一窗口。</p>
+
+    <h3>防护层级</h3>
+    <div class="card">
+      <h4>1. 多维不可变绑定</h4>
+      <p>Review 在创建时锁定 <code>params_hash</code>、<code>resource_version</code>、<code>plan_version</code>、<code>policy_version</code>、<code>expires_at</code> 五个维度。任何一个维度发生变化，批准都不再有效。</p>
+    </div>
+    <div class="card">
+      <h4>2. 执行前重新读取与比较</h4>
+      <p>执行前系统<b>重新读取</b>当前参数、资源版本、计划版本和策略版本，逐一与 Review 绑定值比较。任何一项不匹配，立即中止并转入 <code>changes_requested</code>。</p>
+    </div>
+    <div class="card">
+      <h4>3. 一次性 approval token</h4>
+      <p>批准时生成一个 approval token，<b>消费后立即失效</b>。同一个 token 不可用于二次执行，防止重放攻击。</p>
+    </div>
+    <div class="card">
+      <h4>4. 并发批准互斥</h4>
+      <p>当多个审批者同时操作同一 Review 时，<b>仅第一个成功消费 token 的批准生效</b>，其余并发批准请求返回 APPROVAL_STALE 错误。</p>
+    </div>
+
+    <div class="warn"><b>TOCTOU 防护是审批系统的安全底线。</b>任何绕过执行前重验、复用 approval token、或允许并发重复执行的实现，都会使整个治理体系形同虚设。这四层防护 MUST 全部实现且不可降级。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 6: 权限与数据分类 ═══ -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 06</div>
+        <h2>权限与数据分类</h2>
+      </div>
+      <span class="tag">资源级能力控制</span>
+    </div>
+    <p class="lead">首期虽然是单用户，仍 MUST 做资源级能力控制。Owner 身份不等于任意 Skill 自动拥有 Owner 权限 —— 最小权限原则贯穿全系统。</p>
+
+    <h3>首期授权模型</h3>
+    <div class="card">
+      <p>Renderer、Host、Engine、Worker、Skill、Connector 各组件具有<b>不同权限集</b>。组件间调用需显式授权，不存在隐式权限继承：</p>
+      <ul>
+        <li><b>Renderer</b> —— 无 host object 通用反射、无文件 / shell / 网络 / secret API</li>
+        <li><b>Host</b> —— 持有系统资源句柄，可调度 Engine 与 Worker</li>
+        <li><b>Engine</b> —— 编排 Plan，调用模型与工具，受 Policy 约束</li>
+        <li><b>Worker</b> —— 沙箱执行，Job Object + AppContainer 限制进程树</li>
+        <li><b>Skill</b> —— 权限清单驱动，权限扩张视为新授权</li>
+        <li><b>Connector</b> —— Integration 凭据隔离，按项目限定访问域</li>
+      </ul>
+      <p style="margin-top:10px">未来协作扩展引入 User、Group、Role、Permission、ProjectMembership、Session。资源 × 动作至少覆盖 project、session、memory、skill、template、base、integration、credential、task、CR、deployment、review、audit。</p>
+    </div>
+
+    <h3>数据分类</h3>
+    <table>
+      <thead>
+        <tr><th>级别</th><th>示例</th><th>默认控制</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span style="color:var(--err)"><b>Secret</b></span></td><td>API Key、OAuth refresh token</td><td>OS 密钥存储；不进 DB / Renderer / 日志</td></tr>
+        <tr><td><span style="color:var(--warn)"><b>Restricted</b></span></td><td>源码、生产数据、附件、记忆</td><td>项目隔离；外发前同意；诊断默认排除</td></tr>
+        <tr><td><span style="color:var(--tide1)"><b>Internal</b></span></td><td>配置、计划、使用量、错误详情</td><td>本地 ACL；脱敏导出</td></tr>
+        <tr><td><span style="color:var(--tide3)"><b>Public</b></span></td><td>产品帮助、公开模板</td><td>可导出共享</td></tr>
+      </tbody>
+    </table>
+
+    <h3>ConsentSnapshot 规则</h3>
+    <div class="callout"><b>云模型调用前必须生成 ConsentSnapshot。</b>每次将数据发送到云端模型前，系统列出：<b>供应商</b>、<b>模型</b>、<b>发送的系统提示</b>、<b>记忆类别</b>、<b>附件和工具结果范围</b>。用户确认后才发起调用，ConsentSnapshot 写入审计。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 7: 威胁模型 ═══ -->
+<section id="ch7">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 07</div>
+        <h2>威胁模型与强制控制</h2>
+      </div>
+      <span class="tag">7 类攻击面</span>
+    </div>
+    <p class="lead">治理体系的强度取决于最薄弱的环节。以下七类威胁面均配有强制控制措施，每一项都不可降级实现。</p>
+
+    <h3>7.1 WebView2 / XSS 权限升级</h3>
+    <div class="card">
+      <ul>
+        <li>WebView2 只加载打包本地受信 origin；严格 CSP，禁止 inline script / eval</li>
+        <li>禁止不可信导航、新窗口和 iframe 调 Bridge</li>
+        <li>Bridge 校验 source、frame、schema 和白名单</li>
+        <li>React 禁止直接渲染未清洗 HTML；Markdown HTML 默认关闭</li>
+        <li>Renderer 无 host object 通用反射、文件、shell、网络和 secret API</li>
+      </ul>
+    </div>
+    <div class="callout"><b>关键控制：严格 CSP + Bridge 白名单校验。</b>Renderer 是攻击者接触的第一个界面，必须假设其所有输入均被污染。CSP 与 Bridge 双重校验确保 XSS 无法升级为本地权限调用。</div>
+
+    <h3>7.2 Prompt Injection</h3>
+    <div class="card">
+      <p>上传文件、网页、模型输出、MCP / 接口数据必须标记 <code>untrusted_content</code>。模型文本只可提出 ToolCall，<b>Policy Engine 基于结构化参数独立授权</b>。来自内容的"忽略规则""自动批准"没有权限效果。</p>
+    </div>
+    <div class="callout"><b>关键控制：untrusted_content 标记 + Policy 独立授权。</b>模型永远不能直接执行副作用操作。Prompt Injection 的危害止步于"建议"，因为授权决定权在 Policy Engine 而非模型。</div>
+
+    <h3>7.3 工具、文件与 Worker 隔离</h3>
+    <div class="card">
+      <ul>
+        <li>路径先 canonicalize 再授权；阻止 <code>..</code>、UNC、ADS、junction / symlink 逃逸</li>
+        <li>文件写入限定项目根及明确授权目录</li>
+        <li>命令使用 executable + argv，不拼接 shell 字符串</li>
+        <li>Worker 使用 Windows Job Object 限制进程树、CPU、内存和时间，另需 AppContainer 或低完整性 Restricted Token、staging ACL、网络默认拒绝和 capability token</li>
+        <li>环境变量白名单；secret 按单次调用最小化注入</li>
+        <li>输出大小有限，超限截断并保存安全引用</li>
+      </ul>
+      <p style="margin-top:10px">Worker 安全 POC 必须验证：读取 <code>%USERPROFILE%</code> 被拒、未授权局域网访问被拒、子进程逃逸失败、Named Pipe 探测失败、junction / ADS 逃逸失败。若任一项无法满足，v1 继续只允许签名内建工具。</p>
+    </div>
+    <div class="callout"><b>关键控制：句柄级路径授权 + Job Object + 条件性 OS 隔离。</b>Job Object 仅限制生命周期和资源，绝不是完整安全沙箱；canonicalize 也不能单独消除 junction/reparse-point TOCTOU。M0/M1 只运行随产品发布、签名且 manifest 固定的内建工具。只有 AppContainer/低完整性 POC 全部通过并由独立 ADR 批准后，才可声称开放受限第三方执行；不得承诺“被攻破后绝对无法逃逸”。文件读写必须逐级以句柄打开并校验最终 file identity、volume、祖先根和 reparse point，检查与 open/rename/delete 绑定同一父目录句柄。</div>
+
+    <h3>7.4 Skill / MCP 供应链</h3>
+    <div class="card">
+      <ul>
+        <li>包、manifest、依赖锁必须 hash；生产源应签名</li>
+        <li>安装展示权限清单；权限扩张视为新授权</li>
+        <li>支持撤销列表、quarantine、回滚</li>
+        <li>M0/M1 第三方 stdio server 一律不可运行；可导入、校验并显示为 quarantined。未来隔离 ADR 批准后，未信任 server 仍不得启动</li>
+        <li>SBOM 和许可证记录必须保留</li>
+      </ul>
+    </div>
+    <div class="callout"><b>关键控制：hash + 签名 + 权限清单 + quarantine。</b>第三方技能是供应链攻击的主要入口。每个技能的安装、升级、权限变更都必须经过显式审核与可验证的完整性校验。</div>
+
+    <h3>7.5 文件解析攻击</h3>
+    <div class="card">
+      <p>检查 MIME 与魔数；限制大小、页数、压缩比、嵌套深度；防 zip bomb 和路径穿越；禁用 Office 宏；HTML 清洗主动内容；高风险解析器在 Worker 运行。</p>
+    </div>
+    <div class="callout"><b>关键控制：MIME 魔数双校验 + 大小/压缩比限制 + Worker 隔离解析。</b>解析器是内存破坏漏洞的高发区。将高风险解析器放入 Worker 隔离执行，即使被攻破也无法影响宿主。</div>
+
+    <h3>7.6 更新供应链</h3>
+    <div class="card">
+      <p>安装器、二进制和更新 manifest 必须 Authenticode / 独立签名与 SHA-256 验证；防降级、防重放；记录最低允许版本；证书轮换需双签过渡；构建生成 SBOM 和制品证明。</p>
+    </div>
+    <div class="callout"><b>关键控制：Authenticode 签名 + 防降级 + SBOM。</b>更新通道被劫持可导致整个系统被替换。签名验证与版本下限确保只接受可信且不低于安全基线的更新。</div>
+
+    <h3>7.7 审批 TOCTOU</h3>
+    <div class="card">
+      <p>Review 绑定 params_hash、resource_version、plan_version、policy_version、expires_at。执行前重新读取并比较；一次性 approval token 消费后失效；并发批准仅一个成功。</p>
+    </div>
+    <div class="callout"><b>关键控制：多维绑定 + 执行前重验 + 一次性 token。</b>详见 <a href="#ch5" style="color:var(--tide1)">第 5 章</a>。TOCTOU 是审批系统最危险的窗口，必须用多层防护完全闭合。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 8: 审计系统 ═══ -->
+<section id="ch8">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 08</div>
+        <h2>审计系统</h2>
+      </div>
+      <span class="tag">append-only · hash chain</span>
+    </div>
+    <p class="lead">审计是治理可追溯性的最后防线。所有安全相关操作 MUST 写入 append-only 审计链，每条记录与前一条哈希链接，用户可独立验证完整性。</p>
+
+    <h3>必须审计的操作</h3>
+    <div class="card">
+      <ul style="columns:2;column-gap:32px">
+        <li>策略判断（Policy 裁决）</li>
+        <li>审批（Review 创建 / 决策）</li>
+        <li>密钥新增 / 替换 / 删除</li>
+        <li>技能安装 / 升级 / 卸载</li>
+        <li>工具副作用（文件写入 / 命令执行）</li>
+        <li>接口测试（Integration 调用）</li>
+        <li>任务状态变更</li>
+        <li>CR 审批</li>
+        <li>部署</li>
+        <li>更新（版本变更）</li>
+        <li>备份恢复</li>
+      </ul>
+    </div>
+
+    <h3>审计链完整性</h3>
+    <div class="callout"><b>append-only + tamper-evident hash chain。</b>每个 Workspace 使用一条明确 chain_id 的串行链；Engine 单写者在同一事务中分配单调 audit_seq，并以版本化 canonical encoding 计算 event_hash。唯一约束 (chain_id, audit_seq) 防止并发分叉。该本地链能检测部分损坏/非同步篡改，但不能声称抵御可重写整个 DB 的同用户攻击者。</div>
+    <div class="callout"><b>用户可验证完整性。</b>系统提供校验工具、genesis/epoch、链头与截断检测；发布和审计导出前强制验链。需要更强证据时，以 DPAPI/TPM 保护的签名密钥定期签链头，或锚定到独立位置。安全审计独立保留；业务内容删除后只保留最小、不可逆摘要和墓碑，不保留原文。</div>
+
+    <h3>AuditEvent 实体字段</h3>
+    <table>
+      <thead>
+        <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>id</b></td><td>ULID</td><td>事件唯一标识</td></tr>
+        <tr><td><b>chain_id / audit_seq</b></td><td>ULID / uint64</td><td>链标识与链内单调序号；事务内串行分配</td></tr>
+        <tr><td><b>timestamp</b></td><td>datetime</td><td>事件发生时间（UTC）</td></tr>
+        <tr><td><b>actor</b></td><td>string</td><td>操作发起者（用户 / 技能 / 系统）</td></tr>
+        <tr><td><b>action</b></td><td>string</td><td>操作类型（如 policy.decide / review.approve）</td></tr>
+        <tr><td><b>resource</b></td><td>string</td><td>目标资源标识</td></tr>
+        <tr><td><b>resource_version</b></td><td>string</td><td>资源版本</td></tr>
+        <tr><td><b>params_hash</b></td><td>string</td><td>操作参数哈希</td></tr>
+        <tr><td><b>policy_version</b></td><td>string</td><td>策略版本</td></tr>
+        <tr><td><b>result</b></td><td>string</td><td>执行结果（success / denied / failed）</td></tr>
+        <tr><td><b>reason</b></td><td>string</td><td>裁决理由（脱敏）</td></tr>
+        <tr><td><b>traceId</b></td><td>string</td><td>全链路追踪 ID</td></tr>
+        <tr><td><b>prev_hash</b></td><td>string</td><td>前一条审计事件的哈希</td></tr>
+        <tr><td><b>event_hash</b></td><td>string</td><td>本条事件的哈希（含 chain_id、audit_seq、prev_hash 与规范化字段）；全域统一命名</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ Chapter 9: 可观测性 ═══ -->
+<section id="ch9">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 09</div>
+        <h2>可观测性</h2>
+      </div>
+      <span class="tag">结构化日志 · 全链路 Trace</span>
+    </div>
+    <p class="lead">可观测性服务于排障与安全分析。日志必须结构化、可关联、可脱敏，安全审计与普通运行日志分离保留。</p>
+
+    <h3>结构化日志字段</h3>
+    <table>
+      <thead>
+        <tr><th>字段</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>timestamp</b></td><td>时间戳</td></tr>
+        <tr><td><b>level</b></td><td>日志级别（可配置）</td></tr>
+        <tr><td><b>component</b></td><td>组件名（Bridge / Engine / Worker / Provider）</td></tr>
+        <tr><td><b>event</b></td><td>事件类型</td></tr>
+        <tr><td><b>traceId</b></td><td>全链路追踪 ID</td></tr>
+        <tr><td><b>runId</b></td><td>运行实例 ID</td></tr>
+        <tr><td><b>projectId</b></td><td>项目 ID（可哈希）</td></tr>
+        <tr><td><b>errorCode</b></td><td>错误码</td></tr>
+        <tr><td><b>durationMs</b></td><td>耗时（毫秒）</td></tr>
+        <tr><td><b>result</b></td><td>结果</td></tr>
+      </tbody>
+    </table>
+
+    <h3>禁止记录的内容</h3>
+    <div class="warn"><b>日志脱敏是不可妥协的红线。</b>以下内容严禁出现在任何日志中：</div>
+    <div class="card">
+      <ul style="margin:0">
+        <li><b>secret</b> —— API Key、OAuth token、密码等凭据</li>
+        <li><b>Authorization</b> —— 认证头、Bearer token</li>
+        <li><b>完整提示词</b> —— 发送给模型的 system / user prompt 全文</li>
+        <li><b>附件正文</b> —— 上传文件的原始内容</li>
+        <li><b>未脱敏 URL</b> —— 含 token 或敏感参数的 URL</li>
+      </ul>
+    </div>
+
+    <h3>日志保留策略</h3>
+    <p>默认保留 <b>14 天或 200MB</b>，先到者清理。日志级别可配置。<b>安全审计独立保留</b>，不受普通日志清理策略影响，不能被普通日志清理删除。</p>
+
+    <h3>全链路 Trace</h3>
+    <div class="card">
+      <p>用户动作 → Bridge → Engine → 模型 / 工具 → 存储，全链路共享同一个 <code>traceId</code>。模型调用记录 <b>provider / model、阶段、耗时、token、结果码</b>，但<b>不记录 Key</b>。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 10: 诊断包 ═══ -->
+<section id="ch10">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 10</div>
+        <h2>诊断包</h2>
+      </div>
+      <span class="tag">安全导出 · 内容清单</span>
+    </div>
+    <p class="lead">诊断包用于排障上报。它默认排除所有敏感数据，导出前向用户展示完整内容清单，确保用户明确知道将要分享什么。</p>
+
+    <h3>默认包含</h3>
+    <div class="card">
+      <ul style="margin:0">
+        <li><b>版本</b> —— 应用版本号</li>
+        <li><b>OS / WebView2 版本</b> —— 操作系统与运行时版本</li>
+        <li><b>组件健康</b> —— 各组件状态</li>
+        <li><b>脱敏日志</b> —— 经过脱敏处理的近期日志</li>
+        <li><b>DB schema / migration 状态</b> —— 数据库结构与迁移记录</li>
+        <li><b>配置摘要</b> —— 非敏感配置项</li>
+        <li><b>近期错误</b> —— 错误码与堆栈（脱敏）</li>
+        <li><b>校验结果</b> —— 审计链完整性校验结果</li>
+      </ul>
+    </div>
+
+    <h3>默认排除</h3>
+    <div class="card" style="border-color:rgba(255,122,122,.3)">
+      <ul style="margin:0">
+        <li><b>Key</b> —— 所有密钥与凭据</li>
+        <li><b>prompt</b> —— 完整提示词</li>
+        <li><b>源码</b> —— 项目源代码</li>
+        <li><b>附件</b> —— 上传文件正文</li>
+        <li><b>记忆正文</b> —— Memory 存储内容</li>
+      </ul>
+    </div>
+    <div class="callout"><b>导出前展示内容清单。</b>诊断包在生成后、分享前，系统向用户展示完整的文件列表与字段摘要。用户确认后才能导出或分享，杜绝"静默泄露"。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 11: 错误语义 ═══ -->
+<section id="ch11">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 11</div>
+        <h2>错误语义</h2>
+      </div>
+      <span class="tag">统一 AppError</span>
+    </div>
+    <p class="lead">所有错误使用统一结构体，按前缀分类。用户消息必须可操作且脱敏；内部 cause 只进入安全日志。</p>
+
+    <h3>AppError 结构体</h3>
+    <pre><span class="kw">type</span> <span class="ty">AppError</span> <span class="kw">struct</span> {
+    Code          <span class="ty">string</span>
+    Message       <span class="ty">string</span>
+    Retryable     <span class="ty">bool</span>
+    Category      <span class="ty">string</span>
+    CorrelationID <span class="ty">string</span>
+    Details       <span class="ty">map</span>[<span class="ty">string</span>]<span class="ty">any</span> <span class="cm">// sanitized</span>
+    Cause         <span class="ty">error</span>            <span class="cm">// internal only</span>
+}</pre>
+
+    <h3>错误前缀分类</h3>
+    <table>
+      <thead>
+        <tr><th>前缀</th><th>类别</th><th>示例</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>BRIDGE_*</b></td><td>Bridge</td><td>INVALID_ORIGIN, SCHEMA_INVALID, METHOD_DENIED</td></tr>
+        <tr><td><b>ENGINE_*</b></td><td>引擎</td><td>NOT_READY, CIRCUIT_OPEN, SHUTTING_DOWN</td></tr>
+        <tr><td><b>PROVIDER_*</b></td><td>模型</td><td>AUTH_INVALID, MODEL_NOT_FOUND, RATE_LIMITED, PROTOCOL_ERROR</td></tr>
+        <tr><td><b>NETWORK_*</b></td><td>网络</td><td>DNS_FAILED, TLS_FAILED, TIMEOUT, SSRF_BLOCKED</td></tr>
+        <tr><td><b>DATA_*</b></td><td>数据</td><td>CONFLICT, INTEGRITY_FAILED, MIGRATION_REQUIRED</td></tr>
+        <tr><td><b>PLAN_*</b></td><td>计划</td><td>CYCLE, BUDGET_EXCEEDED, DEPENDENCY_BLOCKED</td></tr>
+        <tr><td><b>POLICY_*</b></td><td>治理</td><td>DENIED, REVIEW_REQUIRED, APPROVAL_STALE</td></tr>
+        <tr><td><b>SKILL_*</b></td><td>技能</td><td>UNTRUSTED, PERMISSION_DENIED, DEPENDENCY_MISSING</td></tr>
+        <tr><td><b>TOOL_*</b></td><td>工具</td><td>PATH_DENIED, COMMAND_DENIED, OUTPUT_TOO_LARGE</td></tr>
+        <tr><td><b>UPDATE_*</b></td><td>更新</td><td>SIGNATURE_INVALID, DOWNGRADE_BLOCKED, RECOVERY_REQUIRED</td></tr>
+      </tbody>
+    </table>
+    <div class="callout"><b>用户消息必须可操作且脱敏。</b>面向用户的 Message 只描述"发生了什么"和"用户可以做什么"，绝不暴露内部路径、凭据片段或完整堆栈。内部 cause 只进入安全日志，不返回前端。</div>
+  </div>
+</section>
+
+<!-- ═══ Chapter 12: 治理审批 UI 原型 ═══ -->
+<section id="ch12">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 12</div>
+        <h2>治理审批 UI 原型</h2>
+      </div>
+      <span class="tag">审批中心</span>
+    </div>
+    <p class="lead">审批中心集中展示所有 pending Review。每项卡片展示操作类型、风险等级、参数摘要、过期时间与绑定哈希，支持批准 / 拒绝 / 请求变更。</p>
+
+    <div class="stage" data-label="APPROVAL CENTER · MOCKUP">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <div class="moon-logo sm"></div>
+        <span style="font-family:var(--serif);font-size:16px">审批中心</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto">3 pending · 2 high risk</span>
+      </div>
+
+      <!-- Review Item 1 -->
+      <div class="review-item">
+        <div class="ri-head">
+          <span class="ri-type">git.push → production</span>
+          <span class="ri-risk high">HIGH RISK</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-left:auto">expires in 42m</span>
+        </div>
+        <div class="ri-row">
+          <span>项目: <b>lunitide-core</b></span>
+          <span>分支: <b>release/s9</b></span>
+          <span>发起者: <b>Engine</b></span>
+        </div>
+        <div class="ri-row">
+          <span>参数摘要: <b>push origin release/s9 --force-with-lease</b></span>
+        </div>
+        <div class="ri-hash">params_hash: sha256:a3f9...c7e1 · resource_version: v12 · plan_version: v3 · policy_version: v8</div>
+        <div class="ri-actions">
+          <button class="ri-btn approve">批准</button>
+          <button class="ri-btn reject">拒绝</button>
+          <button class="ri-btn">请求变更</button>
+          <button class="ri-btn">查看详情</button>
+        </div>
+      </div>
+
+      <!-- Review Item 2 -->
+      <div class="review-item">
+        <div class="ri-head">
+          <span class="ri-type">db.execute · DROP TABLE</span>
+          <span class="ri-risk high">HIGH RISK</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-left:auto">expires in 1h 12m</span>
+        </div>
+        <div class="ri-row">
+          <span>项目: <b>data-pipeline</b></span>
+          <span>数据库: <b>prod_metrics</b></span>
+          <span>发起者: <b>Skill / db-admin</b></span>
+        </div>
+        <div class="ri-row">
+          <span>参数摘要: <b>DROP TABLE staging_logs_old</b></span>
+        </div>
+        <div class="ri-hash">params_hash: sha256:7b2c...4f9a · resource_version: v5 · plan_version: v2 · policy_version: v8</div>
+        <div class="ri-actions">
+          <button class="ri-btn approve">批准</button>
+          <button class="ri-btn reject">拒绝</button>
+          <button class="ri-btn">请求变更</button>
+          <button class="ri-btn">查看详情</button>
+        </div>
+      </div>
+
+      <!-- Review Item 3 -->
+      <div class="review-item">
+        <div class="ri-head">
+          <span class="ri-type">skill.install</span>
+          <span class="ri-risk med">MEDIUM RISK</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-left:auto">expires in 3h 05m</span>
+        </div>
+        <div class="ri-row">
+          <span>项目: <b>lunitide-core</b></span>
+          <span>技能: <b>pdf-extractor@1.2.0</b></span>
+          <span>发起者: <b>user@mujun</b></span>
+        </div>
+        <div class="ri-row">
+          <span>权限清单: <b>read:files/*.pdf, write:files/extracted/</b></span>
+        </div>
+        <div class="ri-hash">params_hash: sha256:e1d4...9a2b · resource_version: v1 · plan_version: v3 · policy_version: v8</div>
+        <div class="ri-actions">
+          <button class="ri-btn approve">批准</button>
+          <button class="ri-btn reject">拒绝</button>
+          <button class="ri-btn">请求变更</button>
+          <button class="ri-btn">查看详情</button>
+        </div>
+      </div>
+
+      <p style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:18px">
+        批准后执行前将重新校验 params_hash / resource_version / plan_version / policy_version
+      </p>
+    </div>
+
+    <div class="callout" style="margin-top:20px"><b>每项审批卡片均展示完整绑定摘要。</b>用户在批准前可看到操作类型、风险等级、参数摘要和四个绑定版本的哈希值。这确保用户审批的是"精确快照"而非"模糊意图"，从 UI 层面支持 TOCTOU 防护。</div>
+  </div>
+</section>
+
+<!-- ═══ Collaboration & Release Governance Addendum ═══ -->
+<section id="ch13">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="num">NORMATIVE ADDENDUM</div><h2>协作冲突与发布治理裁决</h2></div><span class="tag">MUST</span></div>
+    <div class="warn"><b>并发模型：</b>禁止长期悲观代码锁与 last-write-wins。编辑阶段显示 Presence 和对象/路径/符号/迁移重叠预警；保存与提交必须携带 base_hash + base_version，通过 CAS 与 Git 三方合并解决，冲突返回 stale/merge_required，不得静默覆盖。</div>
+    <table><thead><tr><th>治理对象</th><th>状态 / 约束</th><th>审计要求</th></tr></thead><tbody>
+      <tr><td>ChangeTask</td><td>draft → active → submitted → merged；冲突 merge_required；取消 cancelled</td><td>记录参与者、base/current/merged hash、冲突和解决人</td></tr>
+      <tr><td>CRRevision</td><td>assembling → submitted → approved → frozen；漂移 changed_after_approval 并新建修订</td><td>记录 manifest、审批 hash、证据与决策</td></tr>
+      <tr><td>ReleasePackage</td><td>不可变；绑定代码、DatabaseContract、MigrationPackage、IntegrationVersion、证据、回退方案</td><td>记录 digest、冻结短租约及每次校验</td></tr>
+      <tr><td>Promotion</td><td>pending → gated → preflight → importing → verifying → succeeded；可转 blocked / failed / rollback_required / outcome_unknown</td><td>同 digest 按 development→test（可选）→production；记录门禁和实际结果</td></tr>
+      <tr><td>Lease</td><td>active → expired / released / revoked；仅 package_freeze / target_environment_import，TTL + fencing token</td><td>记录获取、续租、过期、拒绝和 token 摘要</td></tr>
+      <tr><td>ReleaseRun</td><td>preflight → restore_point → migrating → post_scan → deploying → verifying → succeeded</td><td>逐阶段记录输入/输出 digest、错误、补偿与操作者</td></tr>
+    </tbody></table>
+    <p>固定 transport 为 <b>ChangeTask → CR Revision → ReleasePackage → Promotion</b>。开发本地生效不算传输；development + production 为 1 次晋级，development + test + production 为 2 次晋级。仅 <b>ReleasePackage 冻结</b>和<b>目标环境导入</b>可使用 TTL 短租约；不得扩展到代码编辑或人工等待。</p>
+    <div class="callout"><b>环境门禁：</b>development 验证成功才可晋级；配置 test 时不得跳过，须测试、契约与证据通过后进入 production；生产还要求职责分离、有效生产批准、维护窗和恢复点能力。每次晋级重验同一 package digest 与审批摘要。</div>
+    <h3>代码 + 数据库同包执行门禁</h3>
+    <p>固定编排为：<b>preflight 只读契约检查 → 恢复点 → 执行已批准 MigrationPackage（external / project_tool / controlled MigrationAdapter）→ 迁移后重扫 → 部署代码 → 健康 + 契约复核</b>。数据库与代码不得无序同时并行；失败即停止，未知结果进入 outcome_unknown，先对账再重试。</p>
+    <div class="warn"><b>Expand–Migrate–Contract：</b>Expand 建立兼容结构，Migrate 回填并部署兼容代码，破坏性 Contract 必须在后续独立 ReleasePackage 执行，不得与 Expand 同次自动执行。无 MigrationAdapter 时 DB 变更是 external prerequisite，须以外部证据、实际 schema digest 和 post-check 放行。</div>
+    <p><b>审批摘要：</b>覆盖 revision manifest、package/code digest、DatabaseContract、MigrationPackage、IntegrationVersion、证据、回退方案、目标环境、promotion path、破坏性标记与 policy version；UI 展示风险、职责分离、迁移步骤和恢复策略，冻结及每次晋级前重算。</p>
+    <p><b>失败与审计：</b>迁移成功而代码失败时数据库不默认逆迁移；复核失败将环境标记 degraded 并阻断晋级。冲突、三方合并、Presence/重叠预警、状态迁移、租约、审批摘要、门禁、迁移输出、部署、失败、补偿和回退均写 append-only AuditEvent。</p>
+  </div>
+</section>
+
+<!-- ═══ Footer ═══ -->
+<footer>
+  <div class="moon-logo"></div>
+  <p>LUNITIDE 月汐 · S9 治理与审批 PRD</p>
+  <p>乐观并发与三方合并 · 不可变 ReleasePackage · 同 digest 晋级 · 代码/数据库顺序门禁</p>
+  <p class="ver">v1.0 · SPEC FROZEN · GOVERNANCE · RELEASE ADDENDUM MERGED</p>
+</footer>
+
+<script>
+(function(){
+  var s=document.querySelector('.stars');
+  if(!s) return;
+  for(var i=0;i<80;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';
+    st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+
+</body>
+</html>

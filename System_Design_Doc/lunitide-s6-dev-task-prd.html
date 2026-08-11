@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 · S6 开发任务管理 PRD</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;
+  --bg2:#0a1424;
+  --bg3:#0e1c30;
+  --ink:#eaf3ff;
+  --muted:#8fa3bf;
+  --rule:rgba(143,163,191,.16);
+  --line:rgba(143,163,191,.25);
+  --moon:#f4f6ff;
+  --moon2:#cfe0ff;
+  --glow:#7fb4ff;
+  --glow2:#4f8bff;
+  --tide1:#3bd6ff;
+  --tide2:#7f5bff;
+  --tide3:#2fd6b5;
+  --ok:#3bd6a0;
+  --warn:#ffc46b;
+  --err:#ff7a7a;
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.7;overflow-x:hidden}
+
+/* ── Atmospheric Background ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Moon LOGO ── */
+.moon-logo{
+  width:46px;height:46px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 36%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 26px rgba(207,224,255,.35), 0 0 50px rgba(127,180,255,.15);
+}
+.moon-logo::after{content:"";position:absolute;inset:5px;border-radius:50%;
+  border:1px solid rgba(150,170,205,.5);opacity:.5}
+.moon-logo.sm{width:26px;height:26px;box-shadow:0 0 14px rgba(207,224,255,.35)}
+.moon-logo.sm::after{inset:3px}
+
+/* ── Tide Ring ── */
+.tide-ring{position:fixed;left:50%;bottom:-160px;transform:translateX(-50%);width:1400px;height:500px;z-index:-1;pointer-events:none}
+.tide-ring path{stroke-width:1;fill:none;stroke-linecap:round}
+.tide-ring .r1{stroke:rgba(63,214,255,.16);animation:sweep 11s ease-in-out infinite}
+.tide-ring .r2{stroke:rgba(127,91,255,.13);animation:sweep 15s ease-in-out infinite reverse}
+.tide-ring .r3{stroke:rgba(47,214,181,.10);animation:sweep 19s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.narrow{max-width:860px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h1{font-size:clamp(38px,6vw,60px);line-height:1.05}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+h4{font-size:15.5px;margin:18px 0 8px;font-weight:600;color:var(--tide1)}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+p b,li b{color:var(--ink);font-weight:600}
+p em{color:var(--tide1);font-style:normal}
+ul,ol{margin:10px 0 10px 22px;color:var(--muted)}
+li{margin:5px 0}
+
+/* ── Gradient Text ── */
+.accent-grad,.accent{background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* ── Top Nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(4,7,15,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule)}
+nav .inner{max-width:1180px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+nav .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em;font-size:16px}
+nav .logo .zh{color:var(--glow);margin-left:2px}
+nav .links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav .links a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:6px 11px;border-radius:8px;transition:.15s}
+nav .links a:hover{color:var(--ink);background:rgba(127,180,255,.08)}
+nav .tag{font-family:var(--mono);font-size:10.5px;color:var(--tide1);border:1px solid rgba(63,214,255,.3);padding:2px 9px;border-radius:999px}
+
+/* ── Cards ── */
+.card{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;transition:.2s}
+.card:hover{border-color:var(--glow);box-shadow:0 10px 30px -14px rgba(63,134,255,.3)}
+
+/* ── Callouts ── */
+.callout{border-left:3px solid var(--tide1);background:rgba(63,214,255,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.callout b{color:var(--ink)}
+.note{border-left:3px solid var(--warn);background:rgba(255,196,107,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.warn{border-left:3px solid var(--err);background:rgba(255,122,122,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.note b,.warn b{color:var(--ink)}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--glow);text-transform:uppercase}
+td b{color:var(--ink)}
+td .col{color:var(--tide1);font-family:var(--mono);font-size:12.5px}
+
+/* ── Tags / Pills ── */
+.tag{font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--muted);border:1px solid var(--rule);border-radius:999px;padding:7px 15px;background:rgba(14,28,48,.5);backdrop-filter:blur(4px)}
+.tag b{color:var(--tide1);font-weight:600}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+
+/* ── TOC ── */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:34px 0 10px}
+.toc a{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-decoration:none;color:var(--ink);transition:.18s;display:block}
+.toc a:hover{transform:translateY(-2px);border-color:var(--glow);box-shadow:0 10px 24px -12px rgba(63,134,255,.4)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--glow);letter-spacing:.14em}
+.toc .t{font-size:14px;font-weight:600;margin-top:4px}
+
+/* ═══════════════════════════════════════════════════════════
+   S6 PRD — 专属组件样式
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Hero ── */
+.hero{padding:88px 0 30px;position:relative}
+.hero .meta{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 8px}
+.hero .meta .tag{font-size:11.5px}
+
+/* ── State Machine ── */
+.sm-wrap{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:14px;padding:28px 20px;margin:18px 0;overflow-x:auto}
+.sm-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;margin:8px 0}
+.sm-node{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;
+  padding:9px 14px;border-radius:10px;border:1px solid var(--line);
+  background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:96px;
+  transition:.2s;cursor:default;
+}
+.sm-node .lbl{font-size:9.5px;color:var(--muted);display:block;margin-top:2px;letter-spacing:.1em}
+.sm-node.todo{border-color:var(--muted);color:var(--muted)}
+.sm-node.run{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.10)}
+.sm-node.review{border-color:var(--glow);color:var(--glow);box-shadow:0 0 0 3px rgba(127,180,255,.10)}
+.sm-node.changes{border-color:var(--warn);color:var(--warn)}
+.sm-node.blocked{border-color:var(--err);color:var(--err);box-shadow:0 0 0 3px rgba(255,122,122,.10)}
+.sm-node.test{border-color:var(--tide2);color:var(--tide2)}
+.sm-node.done{border-color:var(--tide3);color:var(--tide3);background:rgba(47,214,181,.08)}
+.sm-node.cancel{border-color:var(--muted);color:var(--muted);text-decoration:line-through;opacity:.6}
+.sm-arrow{color:var(--rule);font-size:18px;user-select:none}
+.sm-arrow.back{color:var(--warn)}
+.sm-arrow.err{color:var(--err)}
+.sm-branch{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;width:100%;text-align:center;margin:6px 0}
+
+/* ── Severity / Priority / Risk Badges ── */
+.badge{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;padding:3px 9px;border-radius:999px;border:1px solid;display:inline-block}
+.b-p0{color:var(--err);border-color:rgba(255,122,122,.4);background:rgba(255,122,122,.08)}
+.b-p1{color:var(--warn);border-color:rgba(255,196,107,.4);background:rgba(255,196,107,.08)}
+.b-p2{color:var(--tide1);border-color:rgba(63,214,255,.4);background:rgba(63,214,255,.08)}
+.b-p3{color:var(--tide3);border-color:rgba(47,214,181,.4);background:rgba(47,214,181,.08)}
+.b-risk-high{color:var(--err);border-color:rgba(255,122,122,.4);background:rgba(255,122,122,.08)}
+.b-risk-med{color:var(--warn);border-color:rgba(255,196,107,.4);background:rgba(255,196,107,.08)}
+.b-risk-low{color:var(--tide3);border-color:rgba(47,214,181,.4);background:rgba(47,214,181,.08)}
+.b-sev-crit{color:#ff5a5a;border-color:rgba(255,90,90,.5);background:rgba(255,90,90,.12)}
+.b-sev-high{color:var(--err);border-color:rgba(255,122,122,.4);background:rgba(255,122,122,.08)}
+.b-sev-med{color:var(--warn);border-color:rgba(255,196,107,.4);background:rgba(255,196,107,.08)}
+.b-sev-low{color:var(--tide1);border-color:rgba(63,214,255,.4);background:rgba(63,214,255,.08)}
+
+/* ── Kanban Board ── */
+.board{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:8px 0}
+@media(max-width:1100px){.board{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:680px){.board{grid-template-columns:repeat(2,1fr)}}
+.col{background:linear-gradient(180deg,rgba(14,28,48,.5),rgba(10,20,32,.4));border:1px solid var(--rule);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:340px}
+.col .ch{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.col .ch .cnt{margin-left:auto;background:rgba(127,180,255,.10);color:var(--glow);font-size:10px;padding:1px 7px;border-radius:999px}
+.col.c-todo .ch .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.col.c-run .ch .dot{width:8px;height:8px;border-radius:50%;background:var(--tide1);box-shadow:0 0 7px var(--tide1)}
+.col.c-rev .ch .dot{width:8px;height:8px;border-radius:50%;background:var(--glow)}
+.col.c-blk .ch .dot{width:8px;height:8px;border-radius:50%;background:var(--err);box-shadow:0 0 7px var(--err)}
+.col.c-test .ch .dot{width:8px;height:8px;border-radius:50%;background:var(--tide2)}
+.col.c-done .ch .dot{width:8px;height:8px;border-radius:50%;background:var(--tide3);box-shadow:0 0 7px var(--tide3)}
+.kcard{background:linear-gradient(160deg,#0e1c30,#0a1420);border:1px solid var(--line);border-radius:9px;padding:11px 12px;cursor:grab;transition:.18s}
+.kcard:hover{border-color:var(--glow);transform:translateY(-2px);box-shadow:0 8px 20px -10px rgba(63,134,255,.4)}
+.kcard .kt{font-size:12.5px;color:var(--ink);font-weight:600;line-height:1.4;margin-bottom:8px}
+.kcard .kb{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+.kcard .kf{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.04em}
+.kcard .kf .who{display:flex;align-items:center;gap:5px}
+.kcard .kf .av{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--tide1),var(--tide2));display:grid;place-items:center;font-size:9px;color:#04121f;font-weight:700}
+
+/* ── Gate List ── */
+.gate-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+@media(max-width:760px){.gate-grid{grid-template-columns:1fr}}
+.gate{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.gate h4{margin-top:0}
+.gate ul{margin:8px 0 0 18px;font-size:13px}
+.gate li{margin:6px 0}
+.gate.merge{border-top:3px solid var(--tide1)}
+.gate.release{border-top:3px solid var(--tide2)}
+
+/* ── Trace Chain ── */
+.trace-chain{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;padding:24px 16px;margin:14px 0;background:linear-gradient(160deg,rgba(14,28,48,.5),rgba(10,20,32,.4));border:1px solid var(--line);border-radius:12px}
+.tc-node{font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:rgba(14,28,48,.7);color:var(--ink);text-align:center;min-width:88px}
+.tc-node .sub{font-size:9.5px;color:var(--muted);display:block;margin-top:3px;letter-spacing:.08em}
+.tc-node.n-req{border-color:var(--tide1);color:var(--tide1)}
+.tc-node.n-des{border-color:var(--glow);color:var(--glow)}
+.tc-node.n-task{border-color:var(--tide2);color:var(--tide2)}
+.tc-node.n-code{border-color:var(--tide3);color:var(--tide3)}
+.tc-node.n-test{border-color:var(--ok);color:var(--ok)}
+.tc-arrow{color:var(--rule);font-size:18px}
+.tc-arrow.dn{color:var(--tide1)}
+.tc-arrow.up{color:var(--ok)}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--rule);padding:46px 0 60px;margin-top:40px;background:rgba(4,7,15,.6)}
+footer .inner{max-width:1180px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em}
+footer .logo .zh{color:var(--glow)}
+footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto;letter-spacing:.05em}
+
+/* ── Misc ── */
+.code-block{font-family:var(--mono);font-size:12px;background:#07101d;border:1px solid var(--rule);border-radius:9px;padding:13px 16px;margin:14px 0;color:#cfe0ff;overflow-x:auto;white-space:pre;line-height:1.6}
+.field-table th:nth-child(1){width:24%}
+.field-table th:nth-child(2){width:18%}
+.field-table th:nth-child(3){width:58%}
+.small{font-size:12px;color:var(--muted)}
+.subtle{color:var(--muted);font-size:13px}
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--rule),transparent);margin:40px 0}
+</style>
+</head>
+<body>
+
+<!-- ── Atmospheric Layers ── -->
+<div class="sky"></div>
+<div class="stars"></div>
+<div class="moon-glow"></div>
+<div class="moon"></div>
+<svg class="tide-ring" viewBox="0 0 1400 500" preserveAspectRatio="none">
+  <path class="r1" d="M0,260 Q350,140 700,260 T1400,260"/>
+  <path class="r2" d="M0,300 Q350,180 700,300 T1400,300"/>
+  <path class="r3" d="M0,340 Q350,220 700,340 T1400,340"/>
+</svg>
+
+<!-- ── Nav ── -->
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE <span class="zh">月汐</span></span>
+    </div>
+    <div class="links">
+      <a href="#ch1">任务模型</a>
+      <a href="#ch2">状态机</a>
+      <a href="#ch3">生成规则</a>
+      <a href="#ch4">安全扫描</a>
+      <a href="#ch5">测试关联</a>
+      <a href="#ch6">追踪矩阵</a>
+      <a href="#ch7">测试策略</a>
+      <a href="#ch8">质量门禁</a>
+      <a href="#ch9">看板原型</a>
+    </div>
+    <span class="tag">S6 · DEV TASK</span>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">Stage 6 / Development Task Management</div>
+    <h1><span class="accent-grad">S6 · 开发任务管理 PRD</span></h1>
+    <div class="meta">
+      <span class="tag"><b>阶段六</b> · 开发任务与实现</span>
+      <span class="tag">DevTask · TaskSourceLink · ScanRun</span>
+      <span class="tag">双向可追踪 · 不可变证据</span>
+    </div>
+    <p class="lead" style="margin-top:18px">
+      开发管理专家基于需求、方案、UI、DB、接口产物生成任务。阶段六同时提供对话优先的轻量开发工作台：关联本地目录与 VS Code，按需调用文件、代码、终端、浏览器和变更工具。每个任务绑定代码变更、命令运行、验证证据与扫描结果，形成从需求到测试的<b>双向可追踪</b>闭环。
+    </p>
+  </div>
+</header>
+
+<!-- ── TOC ── -->
+<section style="padding:30px 0 20px">
+  <div class="wrap">
+    <div class="toc">
+      <a href="#ch1"><div class="n">CH 01</div><div class="t">开发任务模型</div></a>
+      <a href="#ch2"><div class="n">CH 02</div><div class="t">任务状态机</div></a>
+      <a href="#ch3"><div class="n">CH 03</div><div class="t">任务生成规则</div></a>
+      <a href="#ch4"><div class="n">CH 04</div><div class="t">安全扫描</div></a>
+      <a href="#ch5"><div class="n">CH 05</div><div class="t">测试关联</div></a>
+      <a href="#ch6"><div class="n">CH 06</div><div class="t">双向追踪矩阵</div></a>
+      <a href="#ch7"><div class="n">CH 07</div><div class="t">测试策略</div></a>
+      <a href="#ch8"><div class="n">CH 08</div><div class="t">质量门禁</div></a>
+      <a href="#ch9"><div class="n">CH 09</div><div class="t">任务看板 UI</div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 1: DevTask 实体模型 ═══════════════ -->
+<section id="ch1">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 01</div>
+        <h2>开发任务模型</h2>
+      </div>
+      <span class="tag">DevTask · TaskSourceLink · TaskDependency · Assignment · CodeChange</span>
+    </div>
+
+    <p class="lead">阶段六的开发实体由五张主表组成：<b>DevTask</b> 为核心任务实体，<b>TaskSourceLink</b> 建立任务与上游产物的双向链接，<b>TaskDependency</b> 构成依赖 DAG，<b>Assignment</b> 记录负责逻辑角色，<b>CodeChange</b> 绑定代码变更。</p>
+
+    <h3>1.1 DevTask 实体</h3>
+    <table class="field-table">
+      <thead>
+        <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="col">id</span></td><td>ULID</td><td>任务主键，全局唯一</td></tr>
+        <tr><td><span class="col">project_id</span></td><td>ULID FK</td><td>所属项目，关联 Project 实体</td></tr>
+        <tr><td><span class="col">title</span></td><td>string</td><td>任务标题，简洁可检索</td></tr>
+        <tr><td><span class="col">description</span></td><td>text</td><td>任务描述，含实现要点与上下文</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>任务状态，见 <a href="#ch2">第2章 状态机</a></td></tr>
+        <tr><td><span class="col">priority</span></td><td>enum</td><td>P0 / P1 / P2 / P3，影响调度顺序</td></tr>
+        <tr><td><span class="col">risk</span></td><td>enum</td><td>low / medium / high，影响门禁强度</td></tr>
+        <tr><td><span class="col">source_links</span></td><td>TaskSourceLink[]</td><td>来源链接集合，指向需求/设计/UI/DB/接口产物</td></tr>
+        <tr><td><span class="col">dependencies</span></td><td>TaskDependency[]</td><td>依赖 DAG，定义任务前后置关系</td></tr>
+        <tr><td><span class="col">assignment</span></td><td>Assignment</td><td>负责逻辑角色与执行者类型</td></tr>
+        <tr><td><span class="col">code_changes</span></td><td>CodeChange[]</td><td>绑定的代码变更记录</td></tr>
+        <tr><td><span class="col">scan_results</span></td><td>ScanRun[]</td><td>关联的安全扫描运行与发现</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.2 TaskSourceLink — 来源链接</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">from_type</span></td><td>enum</td><td>来源实体类型：requirement / design / ui_mock / db_schema / api_spec</td></tr>
+        <tr><td><span class="col">from_id</span></td><td>ULID</td><td>来源实体 ID</td></tr>
+        <tr><td><span class="col">to_type</span></td><td>enum</td><td>目标实体类型：dev_task / code_change / test_case</td></tr>
+        <tr><td><span class="col">to_id</span></td><td>ULID</td><td>目标实体 ID</td></tr>
+        <tr><td><span class="col">relation</span></td><td>enum</td><td>关系：implements / verifies / traces_to / derived_from</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 TaskDependency — 依赖 DAG</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">task_id</span></td><td>ULID FK</td><td>当前任务 ID</td></tr>
+        <tr><td><span class="col">depends_on_task_id</span></td><td>ULID FK</td><td>依赖的任务 ID（前驱）</td></tr>
+        <tr><td><span class="col">condition</span></td><td>enum</td><td>触发条件：must_complete / must_pass_test / must_merge / optional</td></tr>
+      </tbody>
+    </table>
+    <p class="small">依赖图必须为<b>有向无环图（DAG）</b>，系统在写入时检测环并拒绝。条件为 <code>optional</code> 的依赖仅作提示，不阻断调度。</p>
+
+    <h3>1.4 Assignment — 负责角色</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">task_id</span></td><td>ULID FK</td><td>关联任务</td></tr>
+        <tr><td><span class="col">role</span></td><td>enum</td><td>逻辑角色：frontend / backend / db / integration / security / qa / devops</td></tr>
+        <tr><td><span class="col">actor_type</span></td><td>enum</td><td>执行者类型：agent / human / mixed</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.5 CodeChange — 代码变更</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">task_id</span></td><td>ULID FK</td><td>关联任务</td></tr>
+        <tr><td><span class="col">commit_sha</span></td><td>string</td><td>提交 SHA，不可变</td></tr>
+        <tr><td><span class="col">file_path</span></td><td>string</td><td>变更文件相对路径</td></tr>
+        <tr><td><span class="col">change_type</span></td><td>enum</td><td>added / modified / deleted / renamed</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.6 开发工作区运行实体</h3>
+    <p>以下运行实体把 DevTask 连接到真实开发过程；它们记录执行事实，但不替代磁盘内容和 Git 版本事实。</p>
+    <table class="field-table"><thead><tr><th>实体</th><th>核心字段</th><th>职责</th></tr></thead><tbody>
+      <tr><td><span class="col">WorkspaceBinding</span></td><td>project_id, root_ref, root_identity, trust_state, ignore_revision</td><td>项目与本地受信目录的绑定</td></tr>
+      <tr><td><span class="col">DevSession</span></td><td>task_id, workspace_id, conversation_id, plan_version, checkpoint_id</td><td>串联任务、对话、工作区、计划与恢复点</td></tr>
+      <tr><td><span class="col">ChangeSet</span></td><td>base_revision, patch_ref, status, files_count, additions, deletions</td><td>原子变更集合，支持逐文件接受、撤销和冲突检测</td></tr>
+      <tr><td><span class="col">ToolRun</span></td><td>tool_type, command_hash, cwd_ref, policy_decision_id, status, exit_code</td><td>文件、CLI、终端、浏览器等工具运行记录</td></tr>
+      <tr><td><span class="col">DevServerSession</span></td><td>tool_run_id, origin, port_lease, health, started_at, stopped_at</td><td>受管本地预览服务</td></tr>
+      <tr><td><span class="col">EditorLink</span></td><td>workspace_id, adapter, executable_ref, last_opened_at</td><td>外部编辑器关联；v1 首选 VS Code</td></tr>
+    </tbody></table>
+    <div class="callout"><b>ChangeSet 状态：</b><code>proposed → applied → committed</code>；<code>rejected / reverted / conflicted</code> 为终止或分支状态。应用到工作区不等于 Git commit，commit 不等于 push。</div>
+
+    <h3>1.7 对话驱动开发闭环</h3>
+    <div class="card"><ol>
+      <li><b>绑定：</b>用户选择工作区；检查信任、Git dirty、忽略规则和敏感文件。</li>
+      <li><b>理解：</b>只加载任务来源、相关文件和必要记忆，不默认发送整个仓库。</li>
+      <li><b>计划：</b>列出拟读取、拟修改文件和拟执行命令；Policy 为每个调用判级。</li>
+      <li><b>实现：</b>写入前 checkpoint；patch 校验 base hash 后原子应用。</li>
+      <li><b>验证：</b>运行 lint/test/build，必要时启动隔离浏览器预览。</li>
+      <li><b>审查：</b>逐文件展示 diff、来源任务、增删行和诊断。</li>
+      <li><b>交付：</b>CodeChange、TestRun、ScanRun、Evidence 与 TraceLink 齐全后进入 waiting_review。</li>
+    </ol></div>
+
+    <h3>1.8 工具权限矩阵</h3>
+    <table class="field-table"><thead><tr><th>能力</th><th>风险</th><th>默认行为</th><th>审计要点</th></tr></thead><tbody>
+      <tr><td>工作区内读取/搜索/Git status</td><td>低</td><td>自动放行</td><td>scope、文件数、敏感规则</td></tr>
+      <tr><td>工作区内可回退写入</td><td>中</td><td>项目策略决定；必须 checkpoint</td><td>base hash、patch hash、ChangeSet</td></tr>
+      <tr><td>lint/test/build 与 dev server</td><td>中</td><td>CommandSpec + 时限和资源限制</td><td>exe/args/cwd、exit code</td></tr>
+      <tr><td>安装依赖、联网、工作区外访问、删除</td><td>高</td><td>必须审批</td><td>影响、回退、参数哈希</td></tr>
+      <tr><td>commit</td><td>中</td><td>显式动作</td><td>ChangeSet、author、message、SHA</td></tr>
+      <tr><td>push / 发布 / 部署</td><td>高</td><td>强确认，不继承 commit 批准</td><td>remote/ref/environment、制品摘要</td></tr>
+    </tbody></table>
+
+    <div class="callout">
+      <b>追踪铁律：</b>需求 → 设计 → 任务 → 代码 → 测试 <b>MUST 双向可追踪</b>。任意链节缺失即视为流程缺陷，任务不得进入 ready_for_test。TaskSourceLink 是这条链的物理载体，CodeChange 与 TestCase 均须回指所属 DevTask。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 2: 状态机 ═══════════════ -->
+<section id="ch2">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 02</div>
+        <h2>任务状态机</h2>
+      </div>
+      <span class="tag">8 状态 · 11 转换</span>
+    </div>
+
+    <p class="lead">DevTask 的生命周期由 8 个状态构成。所有状态转换必须显式记录，<b>security_blocked</b> 与 <b>changes_requested</b> 是两条强制回退路径。</p>
+
+    <h3>2.1 状态节点与转换图</h3>
+    <div class="sm-wrap">
+      <div class="sm-row">
+        <div class="sm-node todo">todo<span class="lbl">待办</span></div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-node run">in_progress<span class="lbl">进行中</span></div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-node review">waiting_review<span class="lbl">待审查</span></div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-node test">ready_for_test<span class="lbl">待测试</span></div>
+        <span class="sm-arrow">→</span>
+        <div class="sm-node done">completed<span class="lbl">已完成</span></div>
+      </div>
+      <div class="sm-branch">— 回退与异常分支 —</div>
+      <div class="sm-row">
+        <div class="sm-node review">waiting_review</div>
+        <span class="sm-arrow back">⇢</span>
+        <div class="sm-node changes">changes_requested<span class="lbl">需修改</span></div>
+        <span class="sm-arrow back">⇢</span>
+        <div class="sm-node run">in_progress</div>
+      </div>
+      <div class="sm-row">
+        <div class="sm-node review">waiting_review</div>
+        <span class="sm-arrow err">⇢</span>
+        <div class="sm-node blocked">security_blocked<span class="lbl">安全阻塞</span></div>
+        <span class="sm-arrow back">⇢</span>
+        <div class="sm-node changes">changes_requested</div>
+      </div>
+      <div class="sm-row">
+        <div class="sm-node todo">todo</div>
+        <span class="sm-arrow">⇢</span>
+        <div class="sm-node cancel">cancelled<span class="lbl">已取消</span></div>
+        <span class="small" style="margin-left:14px">· 任意非终态可取消</span>
+      </div>
+    </div>
+
+    <h3>2.2 状态转换规则</h3>
+    <table>
+      <thead><tr><th>当前状态</th><th>目标状态</th><th>触发条件</th></tr></thead>
+      <tbody>
+        <tr><td><b>todo</b></td><td>in_progress</td><td>依赖 DAG 全部满足 <code>must_complete</code> 条件</td></tr>
+        <tr><td><b>in_progress</b></td><td>waiting_review</td><td>代码变更已提交、自检通过、提交审查请求</td></tr>
+        <tr><td><b>waiting_review</b></td><td>changes_requested</td><td>审查发现需修改（非安全类）</td></tr>
+        <tr><td><b>waiting_review</b></td><td>security_blocked</td><td>SAST/SCA/secret scan 命中 Critical/High 未豁免</td></tr>
+        <tr><td><b>changes_requested</b></td><td>in_progress</td><td>开发者接回任务进行修复</td></tr>
+        <tr><td><b>security_blocked</b></td><td>changes_requested</td><td>高危发现已修复或经 Owner 显式豁免</td></tr>
+        <tr><td><b>waiting_review</b></td><td>ready_for_test</td><td>审查通过、扫描无未豁免高危</td></tr>
+        <tr><td><b>ready_for_test</b></td><td>completed</td><td>关联 TestCase 全部 pass，证据已归档</td></tr>
+        <tr><td><b>ready_for_test</b></td><td>changes_requested</td><td>测试失败，回退修复</td></tr>
+        <tr><td><b>todo / in_progress</b></td><td>cancelled</td><td>用户显式取消或需求废弃</td></tr>
+        <tr><td><b>completed</b></td><td>—</td><td>终态，不可回退（仅可通过新 CR 重开）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <b>保护规则：</b>重生成任务时<em>必须保护人工状态和已提交结果</em>。Agent 重新生成任务清单不得覆盖 <code>in_progress</code>、<code>waiting_review</code>、<code>ready_for_test</code>、<code>completed</code> 状态的任务，也不得清除已绑定的 CodeChange、ScanRun、TestRun 证据。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 3: 任务生成规则 ═══════════════ -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 03</div>
+        <h2>任务生成规则</h2>
+      </div>
+      <span class="tag">开发管理专家 · DAG · 影响范围</span>
+    </div>
+
+    <p class="lead">开发管理专家（Dev Manager Agent）消费阶段一至五的产物：<b>需求</b>、<b>方案</b>、<b>UI</b>、<b>DB Schema</b>、<b>接口规范</b>，自动生成可执行的 DevTask 集合。</p>
+
+    <h3>3.1 每个任务 MUST 满足</h3>
+    <div class="card">
+      <ol>
+        <li><b>有来源链接和验收条件</b> — 通过 TaskSourceLink 指向至少一个上游产物，并在 description 中写明可验证的验收条件。</li>
+        <li><b>有依赖 DAG、影响范围和风险级别</b> — 写入 TaskDependency，标注影响模块与 blast radius，risk 取值 low/medium/high。</li>
+        <li><b>有负责逻辑角色</b> — Assignment.role 必须非空，actor_type 默认 agent，高风险任务默认 mixed。</li>
+        <li><b>绑定代码变更、测试与扫描结果</b> — 任务进入 waiting_review 前 CodeChange、TestCase、ScanRun 必须挂载齐全。</li>
+      </ol>
+    </div>
+
+    <h3>3.2 生成流程</h3>
+    <div class="code-block">[需求] [方案] [UI Mock] [DB Schema] [API Spec]
+        │           │          │            │           │
+        └───────────┴──────────┴────────────┴───────────┘
+                              ▼
+                   开发管理专家 (Dev Manager Agent)
+                              ▼
+        ┌─ 任务拆分 (按模块/层/职责)
+        ├─ 依赖 DAG 构建 (拓扑排序 + 环检测)
+        ├─ 影响范围与风险评级
+        ├─ 逻辑角色分配
+        └─ 来源链接回填 (TaskSourceLink)
+                              ▼
+                      DevTask[] (写入 DB)
+                              ▼
+        保留人工状态与已提交结果 ── 仅新增/更新 todo 项</div>
+
+    <div class="warn">
+      <b>禁止行为：</b>任务不得因调整"开发人数标签"而<em>重新分配进行中或已完成项</em>，除非用户显式确认。开发人数标签仅影响新建任务的 actor_type 默认值与调度建议，不触发存量任务的状态回滚或 Assignment 重写。
+    </div>
+
+    <h3>3.3 风险评级标准</h3>
+    <table>
+      <thead><tr><th>风险级别</th><th>判定依据</th><th>门禁强度</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge b-risk-high">HIGH</span></td><td>涉及密钥、鉴权、数据迁移、供应链依赖、Prompt 边界</td><td>全门禁 + 独立安全批准或外部签名离线风险接受制品；否则阻断生产签发</td></tr>
+        <tr><td><span class="badge b-risk-med">MEDIUM</span></td><td>涉及核心业务逻辑、跨模块接口、外部集成</td><td>合并门禁 + 审查</td></tr>
+        <tr><td><span class="badge b-risk-low">LOW</span></td><td>纯 UI 调整、文案、样式、文档</td><td>基础 lint + unit</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 4: 安全扫描 ═══════════════ -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 04</div>
+        <h2>安全扫描</h2>
+      </div>
+      <span class="tag">ScanRun · ScanFinding · 不可变证据</span>
+    </div>
+
+    <p class="lead">每次代码提交触发扫描运行，产出不可变证据。<b>高危发现不得由 Agent 自行豁免</b>，必须由 Owner 附安全理由与到期时间显式豁免。</p>
+
+    <h3>4.1 ScanRun 实体</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">task_id</span></td><td>ULID FK</td><td>关联 DevTask</td></tr>
+        <tr><td><span class="col">scan_type</span></td><td>enum</td><td>sast / sca / secret_scan / self_check</td></tr>
+        <tr><td><span class="col">sast</span></td><td>json</td><td>静态分析结果摘要（规则集版本 + 计数）</td></tr>
+        <tr><td><span class="col">sca</span></td><td>json</td><td>依赖与许可证分析结果</td></tr>
+        <tr><td><span class="col">secret_scan</span></td><td>json</td><td>密钥/令牌泄露扫描结果</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>running / passed / failed / error</td></tr>
+        <tr><td><span class="col">started_at</span></td><td>timestamp</td><td>扫描开始时间</td></tr>
+        <tr><td><span class="col">completed_at</span></td><td>timestamp</td><td>扫描完成时间</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.2 ScanFinding 实体</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">scan_run_id</span></td><td>ULID FK</td><td>关联扫描运行</td></tr>
+        <tr><td><span class="col">severity</span></td><td>enum</td><td>critical / high / medium / low / info</td></tr>
+        <tr><td><span class="col">category</span></td><td>string</td><td>漏洞类别（如 SQLi / XSS / hard-coded-secret）</td></tr>
+        <tr><td><span class="col">rule</span></td><td>string</td><td>触发规则 ID 与版本</td></tr>
+        <tr><td><span class="col">file_path</span></td><td>string</td><td>命中文件相对路径</td></tr>
+        <tr><td><span class="col">line</span></td><td>int</td><td>命中行号</td></tr>
+        <tr><td><span class="col">description</span></td><td>text</td><td>发现描述与修复建议</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>open / fixed / waived / false_positive</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <b>不可变证据规则：</b>ScanRun 与 ScanFinding 一旦写入<em>不可修改</em>，仅可通过追加新记录更新状态（如 fixed、waived）。扫描报告必须绑定代码提交 SHA、依赖锁版本与规则版本，确保结果可复现。
+    </div>
+
+    <h3>4.3 扫描类型</h3>
+    <table>
+      <thead><tr><th>类型</th><th>目的</th><th>阻断阈值</th></tr></thead>
+      <tbody>
+        <tr><td><b>SAST</b></td><td>静态应用安全测试：源码级漏洞（注入、路径穿越、命令执行）</td><td><span class="badge b-sev-high">Critical/High 阻断</span></td></tr>
+        <tr><td><b>SCA</b></td><td>软件组成分析：依赖已知 CVE、许可证合规、供应链风险</td><td><span class="badge b-sev-high">Critical/High 阻断</span></td></tr>
+        <tr><td><b>Secret Scan</b></td><td>密钥/令牌泄露扫描：硬编码 AK/SK、私钥、Bearer Token</td><td><span class="badge b-sev-crit">任意命中阻断</span></td></tr>
+        <tr><td><b>自检</b></td><td>任务自检清单：验收条件、依赖、来源链接完整性</td><td><span class="badge b-sev-med">缺项阻断</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="warn">
+      <b>豁免红线：</b>高危发现<em>不得由 Agent 自行豁免</em>。豁免必须满足三个条件同时成立：(1) Owner 显式批准；(2) 附安全理由与缓解措施；(3) 设置到期时间。到期后豁免自动失效，发现重新进入 open 状态并阻断。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 5: 测试关联 ═══════════════ -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 05</div>
+        <h2>测试关联</h2>
+      </div>
+      <span class="tag">TestCase · TestRun · TestEvidence</span>
+    </div>
+
+    <p class="lead">每个 DevTask 在进入 <code>ready_for_test</code> 前必须挂载测试用例、测试运行与证据三元组，构成可追溯的测试证据链。</p>
+
+    <h3>5.1 TestCase 实体</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">task_id</span></td><td>ULID FK</td><td>关联 DevTask</td></tr>
+        <tr><td><span class="col">title</span></td><td>string</td><td>用例标题</td></tr>
+        <tr><td><span class="col">type</span></td><td>enum</td><td>unit / component / integration / security / migration / performance / recovery</td></tr>
+        <tr><td><span class="col">precondition</span></td><td>text</td><td>前置条件</td></tr>
+        <tr><td><span class="col">steps</span></td><td>json</td><td>执行步骤数组</td></tr>
+        <tr><td><span class="col">expected</span></td><td>text</td><td>预期结果</td></tr>
+        <tr><td><span class="col">actual</span></td><td>text</td><td>实际结果（运行后回填）</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>pending / pass / fail / blocked / skipped</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 TestRun 实体</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">test_case_id</span></td><td>ULID FK</td><td>关联用例</td></tr>
+        <tr><td><span class="col">run_id</span></td><td>ULID</td><td>本次运行唯一 ID</td></tr>
+        <tr><td><span class="col">status</span></td><td>enum</td><td>pass / fail / error / timeout</td></tr>
+        <tr><td><span class="col">duration</span></td><td>int</td><td>运行耗时（毫秒）</td></tr>
+        <tr><td><span class="col">runner</span></td><td>enum</td><td>agent / human / ci</td></tr>
+        <tr><td><span class="col">evidence_ref</span></td><td>ULID FK</td><td>指向 TestEvidence</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.3 TestEvidence 实体</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">test_run_id</span></td><td>ULID FK</td><td>关联测试运行</td></tr>
+        <tr><td><span class="col">type</span></td><td>enum</td><td>screenshot / log / video / heap_dump / trace / report</td></tr>
+        <tr><td><span class="col">file_ref</span></td><td>string</td><td>证据文件存储路径</td></tr>
+        <tr><td><span class="col">sha256</span></td><td>string</td><td>证据文件哈希，防篡改</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.4 测试类型矩阵</h3>
+    <table>
+      <thead><tr><th>类型</th><th>覆盖目标</th><th>典型场景</th></tr></thead>
+      <tbody>
+        <tr><td><b>单元 Unit</b></td><td>Domain 规则、状态转换、策略</td><td>状态机转换、预算计算、依赖解析</td></tr>
+        <tr><td><b>组件 Component</b></td><td>模块内协作</td><td>Bridge + Renderer、Worker + Queue</td></tr>
+        <tr><td><b>集成 Integration</b></td><td>真实或录制供应商</td><td>Provider 401/429/5xx、DPAPI、Worker</td></tr>
+        <tr><td><b>安全 Security</b></td><td>攻击面验证</td><td>XSS、SSRF、路径、命令、Prompt Injection</td></tr>
+        <tr><td><b>迁移 Migration</b></td><td>DB Schema 演进</td><td>SQLite 约束、并发、回滚、恢复</td></tr>
+        <tr><td><b>性能 Performance</b></td><td>吞吐与延迟</td><td>1 万消息无错配、Bridge 压测</td></tr>
+        <tr><td><b>恢复 Recovery</b></td><td>故障与断点续作</td><td>断网、崩溃、断电、坏包</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 6: 双向追踪矩阵 ═══════════════ -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 06</div>
+        <h2>双向追踪矩阵</h2>
+      </div>
+      <span class="tag">TraceLink · 覆盖率目标</span>
+    </div>
+
+    <p class="lead">追踪链贯穿五类实体：需求 → 设计 → 任务 → 代码 → 测试。每一段关系由 <b>TraceLink</b> 记录，支持正向追溯（需求到测试）与反向追溯（测试到需求）。</p>
+
+    <h3>6.1 追踪链</h3>
+    <div class="trace-chain">
+      <div class="tc-node n-req">Requirement<span class="sub">需求</span></div>
+      <span class="tc-arrow dn">⇄</span>
+      <div class="tc-node n-des">Design<span class="sub">设计</span></div>
+      <span class="tc-arrow dn">⇄</span>
+      <div class="tc-node n-task">DevTask<span class="sub">任务</span></div>
+      <span class="tc-arrow dn">⇄</span>
+      <div class="tc-node n-code">CodeChange<span class="sub">代码</span></div>
+      <span class="tc-arrow dn">⇄</span>
+      <div class="tc-node n-test">TestCase<span class="sub">测试</span></div>
+    </div>
+    <p class="small" style="text-align:center">双向箭头表示任意节点均可正向与反向追溯，<b>不可单向</b>。</p>
+
+    <h3>6.2 TraceLink 实体</h3>
+    <table class="field-table">
+      <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="col">from_type</span></td><td>enum</td><td>requirement / design / dev_task / code_change / test_case</td></tr>
+        <tr><td><span class="col">from_id</span></td><td>ULID</td><td>源实体 ID</td></tr>
+        <tr><td><span class="col">to_type</span></td><td>enum</td><td>目标实体类型（同上枚举）</td></tr>
+        <tr><td><span class="col">to_id</span></td><td>ULID</td><td>目标实体 ID</td></tr>
+        <tr><td><span class="col">relation</span></td><td>enum</td><td>traces_to / implements / verifies / derived_from</td></tr>
+        <tr><td><span class="col">created_by</span></td><td>enum</td><td>agent / human</td></tr>
+        <tr><td><span class="col">created_at</span></td><td>timestamp</td><td>链接建立时间</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.3 覆盖率目标</h3>
+    <table>
+      <thead><tr><th>链节</th><th>正向覆盖率</th><th>反向覆盖率</th><th>缺口处置</th></tr></thead>
+      <tbody>
+        <tr><td>需求 → 设计</td><td>100%</td><td>100%</td><td>缺设计的需求不得进入任务生成</td></tr>
+        <tr><td>设计 → 任务</td><td>100%</td><td>100%</td><td>不实施项须创建带原因、审批和追踪链接的 deferred 终止节点</td></tr>
+        <tr><td>任务 → 代码</td><td>100%</td><td>100%</td><td>无 CodeChange 的任务阻塞 ready_for_test</td></tr>
+        <tr><td>任务 → 测试</td><td>100%</td><td>100%</td><td>不可测试项须创建带原因、审批和证据的终止节点，不得留空</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <b>追踪覆盖率目标：</b>所有 DevTask 的<em>需求→设计→任务→代码→测试双向追踪覆盖率 MUST 为 100%</em>。deferred / not_applicable 也必须建模为有原因、有审批、有证据的可追踪终止节点，不能以缺少链接代替。每周生成追踪缺口报告，缺口任务自动降级为 <code>changes_requested</code>。
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 7: 测试策略 ═══════════════ -->
+<section id="ch7">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 07</div>
+        <h2>测试策略</h2>
+      </div>
+      <span class="tag">8 层次 · 核心验收矩阵</span>
+    </div>
+
+    <p class="lead">系统测试覆盖 8 个层次，从 Domain 单元到 Release 演练。<b>High/Critical 扫描发现未关闭时 MUST 阻断</b>，测试报告 MUST 绑定代码提交、依赖锁和规则版本。</p>
+
+    <h3>7.1 测试层次</h3>
+    <div class="card">
+      <ol>
+        <li><b>Domain 单元测试</b> — 状态转换、规则、策略</li>
+        <li><b>Contract</b> — Bridge JSON Schema、RPC、模型协议、MCP/OData</li>
+        <li><b>Repository / Migration</b> — SQLite、约束、并发、恢复</li>
+        <li><b>Integration</b> — 真实或录制供应商、Worker、DPAPI</li>
+        <li><b>UI E2E</b> — WebView2 页面与 Bridge</li>
+        <li><b>Security</b> — XSS、SSRF、路径、命令、Prompt Injection、供应链</li>
+        <li><b>Fault injection</b> — 断网、429、磁盘满、崩溃、断电、坏包</li>
+        <li><b>Release</b> — 干净 Win10/11、升级、卸载、恢复</li>
+      </ol>
+    </div>
+
+    <h3>7.2 核心验收矩阵</h3>
+    <table>
+      <thead><tr><th>领域</th><th>必测项</th></tr></thead>
+      <tbody>
+        <tr><td><b>Bridge</b></td><td>非法 origin/frame/method/schema 100% 拒绝；1 万消息无错配</td></tr>
+        <tr><td><b>Provider</b></td><td>两协议族；401/403/404/429/5xx/DNS/TLS/超时/取消</td></tr>
+        <tr><td><b>Key</b></td><td>除主动输入窗口外，已保存 Key 不返回 Renderer；配置/DB/log/diagnostic/crash dump 及提交后稳定内存扫描 0 明文；正式接口无 reveal-key</td></tr>
+        <tr><td><b>Plan</b></td><td>循环拒绝、依赖、预算、重试、恢复、幂等、补偿</td></tr>
+        <tr><td><b>Review</b></td><td>参数变化重审、过期、防重放、并发 CAS</td></tr>
+        <tr><td><b>Memory</b></td><td>标注集 Recall@5/Precision@5 阈值在 POC 冻结；跨项目 0 泄漏</td></tr>
+        <tr><td><b>Skill</b></td><td>匹配精确率/召回率、误触发、未签名、权限扩张、超时</td></tr>
+        <tr><td><b>Ontology</b></td><td>增量正确率、来源追溯、失败隔离、删除传播</td></tr>
+        <tr><td><b>Template</b></td><td>7 类、默认唯一、兜底、引用删除拦截</td></tr>
+        <tr><td><b>Base</b></td><td>锁版、overlay 隔离、breaking 确认、历史重现</td></tr>
+        <tr><td><b>ETL</b></td><td>重试 0 重复、水位、迟到、删除、部分失败</td></tr>
+        <tr><td><b>CR</b></td><td>未审批/未测/变更/依赖缺失/摘要不一致 100% 拦截</td></tr>
+        <tr><td><b>Update</b></td><td>断网、坏签名、磁盘不足、迁移失败不损数据</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 8: 质量门禁 ═══════════════ -->
+<section id="ch8">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 08</div>
+        <h2>质量门禁</h2>
+      </div>
+      <span class="tag">合并门禁 · 发布门禁 · 豁免规则</span>
+    </div>
+
+    <p class="lead">门禁分两层：<b>合并门禁</b>在 PR 合并时强制，<b>发布门禁</b>在发布包签发时强制。Critical 默认不可豁免；High 必须满足下述风险接受规则，否则阻断流转。</p>
+
+    <div class="gate-grid">
+      <div class="gate merge">
+        <h4>合并门禁 Merge Gate</h4>
+        <p class="subtle">每次 PR 合并到主分支前必须全部通过：</p>
+        <ul>
+          <li><b>格式</b> — 代码格式化检查（prettier / gofmt）</li>
+          <li><b>lint</b> — 静态 lint 规则零警告</li>
+          <li><b>unit</b> — 单元测试 100% 通过</li>
+          <li><b>contract</b> — Bridge / RPC / MCP / OData 契约测试通过</li>
+          <li><b>race</b> — 竞态检测（-race）无报告</li>
+          <li><b>SAST</b> — 静态安全扫描无未豁免高危</li>
+          <li><b>secret scan</b> — 密钥扫描零命中</li>
+        </ul>
+      </div>
+      <div class="gate release">
+        <h4>发布门禁 Release Gate</h4>
+        <p class="subtle">发布包签发前必须全部通过：</p>
+        <ul>
+          <li><b>全套 E2E</b> — UI E2E + Integration 全绿</li>
+          <li><b>安全</b> — Security + SCA 全套，供应链核查</li>
+          <li><b>迁移</b> — DB 迁移正向 + 回滚演练</li>
+          <li><b>SBOM</b> — 软件物料清单生成并归档</li>
+          <li><b>签名</b> — 包体与摘要签名验证</li>
+          <li><b>干净机恢复</b> — 干净 Win10/11 安装/升级/卸载/恢复演练</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="warn">
+      <b>阻断红线：</b><em>Critical 一律阻断</em>；High 在没有合格独立安全角色或离线风险接受制品时 MUST 阻断生产签发。Agent 不得自动跳过、自动标记 false_positive 或自动 waive。
+    </div>
+
+    <h3>8.1 豁免规则</h3>
+    <table>
+      <thead><tr><th>要素</th><th>要求</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td><b>批准主体</b></td><td>High 必须由独立安全角色批准，且不得是提交者、Agent、包签发者；v1 单用户无法形成职责分离时，生产签发继续阻断，或导入外部签名的离线风险接受制品。Owner 自批不能冒充独立审批</td><td>security_approval_ref: signed-artifact</td></tr>
+        <tr><td><b>安全理由</b></td><td>附技术理由与缓解措施，不得为空</td><td>"仅在本地 dev scope，无外网暴露，加 IP 白名单"</td></tr>
+        <tr><td><b>到期时间</b></td><td>必须设置到期时间，到期后豁免自动失效</td><td>expires_at: 2026-09-09</td></tr>
+        <tr><td><b>绑定与审计</b></td><td>绑定 finding digest、commit、规则版本、范围、补偿控制和到期时间；任一变化或到期即失效，并写入审计链</td><td>waiver_digest + expires_at</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ CH 9: 看板 UI 原型 ═══════════════ -->
+<section id="ch9">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 09</div>
+        <h2>任务看板 UI 原型</h2>
+      </div>
+      <span class="tag">6 列 · 卡片 mockup</span>
+    </div>
+
+    <p class="lead">看板按状态分 6 列展示 DevTask。卡片含标题、优先级、风险级别、负责人与依赖提示，支持拖拽流转（拖拽即触发状态机转换并记录证据）。</p>
+
+    <div class="stage" data-label="KANBAN · DevTask Board">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div class="board">
+        <!-- Col 1: todo -->
+        <div class="col c-todo">
+          <div class="ch"><span class="dot"></span> 待办 <span class="cnt">3</span></div>
+          <div class="kcard">
+            <div class="kt">DB 迁移：增加 ontology_source 表索引</div>
+            <div class="kb">
+              <span class="badge b-p1">P1</span>
+              <span class="badge b-risk-high">HIGH</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">D</span> db</span><span>#T-204</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">Bridge：新增 OData entitySet 契约</div>
+            <div class="kb">
+              <span class="badge b-p2">P2</span>
+              <span class="badge b-risk-med">MED</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">B</span> backend</span><span>#T-205</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">UI：技能匹配结果列表空态</div>
+            <div class="kb">
+              <span class="badge b-p3">P3</span>
+              <span class="badge b-risk-low">LOW</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">F</span> frontend</span><span>#T-206</span></div>
+          </div>
+        </div>
+
+        <!-- Col 2: in_progress -->
+        <div class="col c-run">
+          <div class="ch"><span class="dot"></span> 进行中 <span class="cnt">2</span></div>
+          <div class="kcard">
+            <div class="kt">密钥保险柜：DPAPI 加密路径重构</div>
+            <div class="kb">
+              <span class="badge b-p0">P0</span>
+              <span class="badge b-risk-high">HIGH</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">S</span> security</span><span>#T-198</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">Worker：ETL 重试幂等补偿</div>
+            <div class="kb">
+              <span class="badge b-p1">P1</span>
+              <span class="badge b-risk-med">MED</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">B</span> backend</span><span>#T-201</span></div>
+          </div>
+        </div>
+
+        <!-- Col 3: waiting_review -->
+        <div class="col c-rev">
+          <div class="ch"><span class="dot"></span> 待审查 <span class="cnt">2</span></div>
+          <div class="kcard">
+            <div class="kt">Plan：循环依赖检测与拒绝</div>
+            <div class="kb">
+              <span class="badge b-p1">P1</span>
+              <span class="badge b-risk-med">MED</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">B</span> backend</span><span>#T-195</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">Review：参数变化重审 CAS</div>
+            <div class="kb">
+              <span class="badge b-p2">P2</span>
+              <span class="badge b-risk-med">MED</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">B</span> backend</span><span>#T-197</span></div>
+          </div>
+        </div>
+
+        <!-- Col 4: security_blocked -->
+        <div class="col c-blk">
+          <div class="ch"><span class="dot"></span> 安全阻塞 <span class="cnt">2</span></div>
+          <div class="kcard">
+            <div class="kt">集成：第三方 OData 供应商 SSRF 修复</div>
+            <div class="kb">
+              <span class="badge b-p0">P0</span>
+              <span class="badge b-risk-high">HIGH</span>
+              <span class="badge b-sev-crit">CRIT</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">S</span> security</span><span>#T-188</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">依赖：log4shell 类 CVE 升级</div>
+            <div class="kb">
+              <span class="badge b-p0">P0</span>
+              <span class="badge b-risk-high">HIGH</span>
+              <span class="badge b-sev-high">HIGH</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">D</span> devops</span><span>#T-190</span></div>
+          </div>
+        </div>
+
+        <!-- Col 5: ready_for_test -->
+        <div class="col c-test">
+          <div class="ch"><span class="dot"></span> 待测试 <span class="cnt">2</span></div>
+          <div class="kcard">
+            <div class="kt">Memory：跨项目隔离 0 泄漏验证</div>
+            <div class="kb">
+              <span class="badge b-p1">P1</span>
+              <span class="badge b-risk-high">HIGH</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">Q</span> qa</span><span>#T-180</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">Template：7 类默认唯一兜底</div>
+            <div class="kb">
+              <span class="badge b-p2">P2</span>
+              <span class="badge b-risk-med">MED</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">Q</span> qa</span><span>#T-183</span></div>
+          </div>
+        </div>
+
+        <!-- Col 6: completed -->
+        <div class="col c-done">
+          <div class="ch"><span class="dot"></span> 已完成 <span class="cnt">3</span></div>
+          <div class="kcard">
+            <div class="kt">Bridge：非法 origin 100% 拒绝</div>
+            <div class="kb">
+              <span class="badge b-p1">P1</span>
+              <span class="badge b-risk-high">HIGH</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">B</span> backend</span><span>#T-172</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">UI：WebView2 页面路由</div>
+            <div class="kb">
+              <span class="badge b-p2">P2</span>
+              <span class="badge b-risk-low">LOW</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">F</span> frontend</span><span>#T-175</span></div>
+          </div>
+          <div class="kcard">
+            <div class="kt">Ontology：增量正确率验证</div>
+            <div class="kb">
+              <span class="badge b-p2">P2</span>
+              <span class="badge b-risk-med">MED</span>
+            </div>
+            <div class="kf"><span class="who"><span class="av">B</span> backend</span><span>#T-178</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>看板交互约束：</b>拖拽跨列即触发状态机转换，系统自动校验 DAG 依赖与门禁条件；不满足时拖拽回弹并提示原因。安全阻塞列的卡片<em>不可拖向待测试</em>；Critical 必须修复，High 必须修复或满足独立安全批准/外部签名离线风险接受规则后转为 changes_requested，Owner 自批无效。
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE <span class="zh">月汐</span></span>
+    </div>
+    <span class="tag">S6 · DEV TASK PRD</span>
+    <span class="copy">Lunitide 全链路统一产品与系统设计 v1.0 · 阶段六开发任务管理</span>
+  </div>
+</footer>
+
+<!-- ── Star Generator ── -->
+<script>
+(function(){
+  var s=document.querySelector('.stars');if(!s)return;
+  for(var i=0;i<80;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 · 工作台 UI 原型</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;          /* deepest black-navy */
+  --bg2:#0a1424;         /* card background */
+  --bg3:#0e1c30;         /* elevated surface */
+  --ink:#eaf3ff;         /* primary text */
+  --muted:#8fa3bf;       /* secondary text */
+  --rule:rgba(143,163,191,.16);  /* subtle border */
+  --line:rgba(143,163,191,.25);  /* visible border */
+  --moon:#f4f6ff;        /* moon white */
+  --moon2:#cfe0ff;       /* moon glow */
+  --glow:#7fb4ff;        /* blue glow */
+  --glow2:#4f8bff;       /* deeper blue */
+  --tide1:#3bd6ff;       /* cyan accent */
+  --tide2:#7f5bff;       /* purple accent */
+  --tide3:#2fd6b5;       /* teal accent */
+  --ok:#3bd6a0;          /* success */
+  --warn:#ffc46b;        /* warning */
+  --err:#ff7a7a;         /* error */
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+
+/* ── Atmospheric Background: Black Starry Sky ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+
+/* ── Stars ── */
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon (LOGO & Ambient) ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;opacity:.42;transform-origin:top right;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Moon LOGO (small, inline) ── */
+.moon-logo{
+  width:46px;height:46px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 36%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 26px rgba(207,224,255,.35), 0 0 50px rgba(127,180,255,.15);
+}
+.moon-logo::after{content:"";position:absolute;inset:5px;border-radius:50%;
+  border:1px solid rgba(150,170,205,.5);opacity:.5}
+.moon-logo.sm{width:26px;height:26px;box-shadow:0 0 14px rgba(207,224,255,.35)}
+.moon-logo.sm::after{inset:3px}
+
+/* ── Tide Ring (ambient wave) ── */
+.tide-ring{position:fixed;left:50%;bottom:-160px;transform:translateX(-50%);width:1400px;height:500px;z-index:-1;pointer-events:none}
+.tide-ring path{stroke-width:1;fill:none;stroke-linecap:round}
+.tide-ring .r1{stroke:rgba(63,214,255,.16);animation:sweep 11s ease-in-out infinite}
+.tide-ring .r2{stroke:rgba(127,91,255,.13);animation:sweep 15s ease-in-out infinite reverse}
+.tide-ring .r3{stroke:rgba(47,214,181,.10);animation:sweep 19s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.narrow{max-width:860px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{
+  font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;
+  text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h1{font-size:clamp(38px,6vw,60px);line-height:1.05}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+h4{font-size:15.5px;margin:18px 0 8px;font-weight:600;color:var(--tide1)}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+p b,li b{color:var(--ink);font-weight:600}
+p em{color:var(--tide1);font-style:normal}
+ul,ol{margin:10px 0 10px 22px;color:var(--muted)}
+li{margin:5px 0}
+
+/* ── Gradient Text ── */
+.accent-grad,.accent{
+  background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+/* ── Top Nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(4,7,15,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule)}
+nav .inner{max-width:1180px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+nav .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em;font-size:16px}
+nav .logo .zh{color:var(--glow);margin-left:2px}
+nav .links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav .links a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:6px 11px;border-radius:8px;transition:.15s}
+nav .links a:hover{color:var(--ink);background:rgba(127,180,255,.08)}
+nav .tag{font-family:var(--mono);font-size:10.5px;color:var(--tide1);border:1px solid rgba(63,214,255,.3);padding:2px 9px;border-radius:999px}
+
+/* ── Cards ── */
+.card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));
+  border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;
+  transition:.2s;
+}
+.card:hover{border-color:var(--glow);box-shadow:0 10px 30px -14px rgba(63,134,255,.3)}
+
+/* ── Callouts ── */
+.callout{border-left:3px solid var(--tide1);background:rgba(63,214,255,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.callout b{color:var(--ink)}
+.note{border-left:3px solid var(--warn);background:rgba(255,196,107,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.warn{border-left:3px solid var(--err);background:rgba(255,122,122,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--glow);text-transform:uppercase}
+td b{color:var(--ink)}
+td .col{color:var(--tide1)}
+
+/* ── Tags / Pills ── */
+.tag{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--muted);
+  border:1px solid var(--rule);border-radius:999px;padding:7px 15px;background:rgba(14,28,48,.5);
+  backdrop-filter:blur(4px);
+}
+.tag b{color:var(--tide1);font-weight:600}
+
+/* ── App Shell (for mockup frames) ── */
+.stage{
+  position:relative;border-radius:18px;padding:26px;
+  background:linear-gradient(160deg,#0b1626,#081020);
+  border:1px solid var(--line);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.stage::before{
+  content:attr(data-label);position:absolute;top:-12px;left:26px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--glow);
+  background:#0b1729;padding:2px 12px;border:1px solid var(--rule);border-radius:999px;
+}
+.browser-dots{display:flex;gap:7px;margin-bottom:18px}
+.browser-dots i{width:11px;height:11px;border-radius:50%;background:#29405f}
+.browser-dots i:nth-child(1){background:#ff7a7a}
+.browser-dots i:nth-child(2){background:#ffc46b}
+.browser-dots i:nth-child(3){background:#3bd6a0}
+
+/* ── App Grid ── */
+.app{display:grid;grid-template-columns:200px 1fr 290px;border-radius:12px;overflow:hidden;border:1px solid var(--rule);background:#0a1420;min-height:560px;font-size:13.5px}
+.app .mono{font-family:var(--mono)}
+
+/* ── Sidebar ── */
+.side{background:linear-gradient(180deg,#0c1828,#0a1420);border-right:1px solid var(--rule);padding:16px 12px;display:flex;flex-direction:column;gap:18px}
+.side .s-logo{display:flex;align-items:center;gap:9px;padding:4px 6px}
+.side .s-logo b{font-family:var(--serif);font-size:15px;letter-spacing:.04em}
+.side .s-logo span{font-family:var(--serif);margin-left:auto;font-size:13px;color:var(--muted)}
+.side .s-title{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--muted);padding:0 6px;text-transform:uppercase}
+.s-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);cursor:pointer;transition:.18s}
+.s-item:hover{background:rgba(127,180,255,.07);color:var(--ink)}
+.s-item.on{background:linear-gradient(90deg,rgba(63,214,255,.16),rgba(127,91,255,.10));color:var(--ink);border-left:2px solid var(--tide1)}
+.s-item .ic{width:14px;text-align:center;flex:none}
+.s-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--tide3);background:rgba(47,214,181,.12);padding:1px 7px;border-radius:999px}
+
+/* ── Main Area ── */
+.main{display:flex;flex-direction:column;min-width:0}
+.topbar{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--rule);background:rgba(10,20,32,.6)}
+.tbp{display:flex;align-items:center;gap:7px;font-weight:600;font-size:13px}
+.tbp .dot{width:7px;height:7px;border-radius:50%;background:var(--tide3);box-shadow:0 0 7px var(--tide3)}
+.tbs{width:1px;height:16px;background:var(--rule)}
+.tbmode{display:flex;background:#0d1a2b;border:1px solid var(--rule);border-radius:7px;padding:2px}
+.tbmode span{font-family:var(--mono);font-size:10.5px;padding:3px 10px;border-radius:5px;color:var(--muted);cursor:pointer}
+.tbmode span.on{background:linear-gradient(120deg,var(--tide1),var(--glow));color:#04121f;font-weight:700}
+.tbmodel{margin-left:auto;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--rule);padding:4px 10px;border-radius:7px}
+.tbmodel .p{width:6px;height:6px;border-radius:50%;background:var(--tide3);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── Pipeline (9-stage) ── */
+.pipeline{display:flex;gap:5px;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--rule);background:rgba(14,28,48,.5)}
+.pp{flex:1;text-align:center;position:relative;cursor:pointer}
+.pp .n{width:24px;height:24px;margin:0 auto 4px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);color:var(--muted);background:#0d1a2b}
+.pp .l{font-size:10.5px;color:var(--muted)}
+.pp.done .n{background:var(--tide3);border-color:var(--tide3);color:#04121f;font-weight:700}
+.pp.done .l{color:var(--tide3)}
+.pp.run .n{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 4px rgba(63,214,255,.12)}
+.pp.run .l{color:var(--tide1);font-weight:600}
+.pp.run .n::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid rgba(63,214,255,.4);animation:ripple 1.6s infinite}
+@keyframes ripple{0%{transform:scale(1);opacity:.8}100%{transform:scale(1.9);opacity:0}}
+
+/* ── Chat Area ── */
+.chat{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:14px;gap:12px;min-height:280px}
+.msg{display:flex;gap:11px;max-width:92%}
+.msg .av{width:28px;height:28px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:13px;color:#04121f;font-weight:700}
+.msg.me{flex-direction:row-reverse;margin-left:auto}
+.msg .bb{padding:10px 13px;border-radius:11px;font-size:12.5px;line-height:1.6}
+.msg.user .bb{background:linear-gradient(120deg,rgba(63,214,255,.14),rgba(127,91,255,.12));border:1px solid rgba(63,214,255,.22)}
+.msg.agent .bb{background:#0d1a2b;border:1px solid var(--rule)}
+.msg .who{font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-bottom:3px;letter-spacing:.05em}
+.msg .bb .code{font-family:var(--mono);font-size:11px;background:#07101d;border:1px solid var(--rule);border-radius:7px;padding:9px 11px;margin-top:7px;color:#cfe0ff;white-space:pre;overflow-x:auto}
+.msg .bb .opts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.opt{font-family:var(--mono);font-size:10.5px;padding:4px 11px;border-radius:6px;border:1px solid var(--line);color:var(--ink);cursor:pointer;transition:.15s}
+.opt:hover{background:rgba(63,214,255,.12);border-color:var(--tide1)}
+.opt.primary{background:linear-gradient(120deg,var(--tide1),var(--glow));color:#04121f;font-weight:700;border:none}
+
+/* ── Input Bar ── */
+.inputbar{display:flex;align-items:center;gap:9px;padding:11px 14px;border-top:1px solid var(--rule);background:rgba(10,20,32,.7)}
+.inputbar .in{flex:1;background:#0d1a2b;border:1px solid var(--rule);border-radius:9px;padding:9px 13px;color:var(--muted);font-size:12px}
+.send{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--tide1),var(--glow));display:grid;place-items:center;color:#04121f;font-size:15px;cursor:pointer}
+
+/* ── Conversation-first launch state ── */
+.launch-app{display:grid;grid-template-columns:220px 1fr;border-radius:12px;overflow:hidden;border:1px solid var(--rule);background:#080d16;min-height:610px}
+.launch-side{padding:16px 12px;border-right:1px solid var(--rule);background:rgba(12,18,29,.96);display:flex;flex-direction:column;gap:14px}
+.launch-new{width:100%;min-height:40px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.035);color:var(--ink);text-align:left;padding:0 12px;font:600 13px var(--sans);cursor:pointer}
+.launch-new:hover,.launch-new:focus-visible{border-color:var(--tide1);background:rgba(63,214,255,.08)}
+.recent-item{display:block;padding:8px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent-item:hover,.recent-item:focus-visible{background:rgba(255,255,255,.045);color:var(--ink)}
+.launch-foot{margin-top:auto;display:grid;gap:3px}
+.launch-main{position:relative;display:flex;align-items:center;justify-content:center;padding:54px 7%;overflow:hidden}
+.launch-main::before{content:"";position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(127,91,255,.09),transparent 65%);pointer-events:none}
+.launch-center{position:relative;width:min(720px,100%);text-align:center}
+.launch-center .moon-logo{margin:0 auto 20px}
+.launch-center h3{font-family:var(--sans);font-size:28px;margin:0 0 9px}
+.launch-center>p{color:var(--muted);margin:0 0 24px}
+.composer{border:1px solid var(--line);border-radius:16px;background:rgba(18,23,34,.94);padding:14px;box-shadow:0 22px 60px rgba(0,0,0,.35);text-align:left}
+.composer textarea{display:block;width:100%;min-height:88px;resize:vertical;border:0;outline:0;background:transparent;color:var(--ink);font:14px/1.6 var(--sans)}
+.composer textarea::placeholder{color:#788aa4}
+.composer-tools{display:flex;align-items:center;gap:7px;margin-top:8px;flex-wrap:wrap}
+.tool-btn,.send-btn{min-height:34px;border:1px solid var(--rule);border-radius:8px;background:transparent;color:var(--muted);padding:0 10px;font:11px var(--mono);cursor:pointer}
+.tool-btn:hover,.tool-btn:focus-visible{border-color:var(--glow);color:var(--ink)}
+.send-btn{margin-left:auto;width:38px;padding:0;background:linear-gradient(135deg,var(--tide1),var(--glow));border:0;color:#04121f;font-size:16px;font-weight:700}
+.launch-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px;text-align:left}
+.launch-card{border:1px solid var(--rule);border-radius:10px;background:rgba(255,255,255,.02);padding:11px 12px;color:var(--muted);font-size:11.5px;line-height:1.5}
+.launch-card b{display:block;color:var(--ink);margin-bottom:3px;font-size:12px}
+.design-rules{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.design-rule{padding:13px 15px;border:1px solid var(--rule);border-radius:10px;background:rgba(14,28,48,.35);font-size:12px;color:var(--muted)}
+.design-rule b{display:block;color:var(--ink);margin-bottom:4px}
+
+/* ── Activity Panel ── */
+.act{background:#0b1524;border-left:1px solid var(--rule);padding:13px;display:flex;flex-direction:column;gap:11px}
+.act .at{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+.ai{display:flex;gap:9px;align-items:flex-start;font-size:11.5px;color:var(--muted);line-height:1.5}
+.ai .ic{width:7px;height:7px;border-radius:50%;margin-top:5px;flex:none}
+.ai .ic.ok{background:var(--tide3);box-shadow:0 0 7px var(--tide3)}
+.ai .ic.run{background:var(--tide1);box-shadow:0 0 7px var(--tide1);animation:pulse 1.2s infinite}
+.ai .ic.warn{background:var(--warn)}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+
+/* ── TOC ── */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:34px 0 10px}
+.toc a{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-decoration:none;color:var(--ink);transition:.18s;display:block}
+.toc a:hover{transform:translateY(-2px);border-color:var(--glow);box-shadow:0 10px 24px -12px rgba(63,134,255,.4)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--glow);letter-spacing:.14em}
+.toc .t{font-size:14px;font-weight:600;margin-top:4px}
+
+/* ── DAG diagrams (CSS-based) ── */
+.dag{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;padding:20px}
+.dag .node{padding:8px 14px;border-radius:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--line);background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:80px}
+.dag .node.active{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.1)}
+.dag .node.done{border-color:var(--tide3);color:var(--tide3);background:rgba(47,214,181,.08)}
+.dag .arrow{color:var(--rule);font-size:14px}
+
+/* ═══════════════════════════════════════════════════════════
+   页面专用扩展样式
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Hero ── */
+.hero{padding:90px 0 50px;text-align:center;position:relative}
+.hero .brand{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:34px}
+.hero h1{margin-bottom:22px}
+.hero .lead{margin:0 auto 30px}
+.hero-tags{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+.doc-intro,.prototype-toc{display:none}
+
+/* ── Stage Sections ── */
+.stage-sec{padding:48px 0}
+.stage-sec h2{margin-bottom:8px}
+
+/* ── DAG view specific ── */
+.dag-wrap{padding:10px 0}
+.dag-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px 8px}
+.dag-node{border:1px solid var(--line);border-radius:12px;padding:14px;background:rgba(14,28,48,.55);font-size:12px;position:relative;transition:.2s}
+.dag-node:hover{border-color:var(--glow);transform:translateY(-2px)}
+.dag-node .dn-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dag-node .dn-num{font-family:var(--mono);font-size:11px;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:#0d1a2b;border:1px solid var(--line);color:var(--muted)}
+.dag-node .dn-title{font-weight:600;font-size:13px;color:var(--ink)}
+.dag-node .dn-status{margin-left:auto;font-family:var(--mono);font-size:9.5px;padding:2px 8px;border-radius:999px}
+.dag-node .dn-meta{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.7}
+.dag-node.done .dn-num{background:var(--tide3);border-color:var(--tide3);color:#04121f;font-weight:700}
+.dag-node.done .dn-status{color:var(--tide3);background:rgba(47,214,181,.12)}
+.dag-node.run{border-color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.1)}
+.dag-node.run .dn-num{border-color:var(--tide1);color:var(--tide1)}
+.dag-node.run .dn-status{color:var(--tide1);background:rgba(63,214,255,.12)}
+.dag-node.queued .dn-status{color:var(--muted);background:rgba(143,163,191,.1)}
+.dag-node.blocked{border-color:var(--warn);opacity:.85}
+.dag-node.blocked .dn-num{border-color:var(--warn);color:var(--warn)}
+.dag-node.blocked .dn-status{color:var(--warn);background:rgba(255,196,107,.12)}
+.dag-arrows{display:none}
+
+.budget-bar{display:flex;gap:20px;flex-wrap:wrap;padding:14px 18px;border-top:1px solid var(--rule);margin-top:14px}
+.budget-item{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.budget-item .bv{color:var(--tide1);font-weight:600}
+.budget-item .bv.warn{color:var(--warn)}
+
+/* ── Provider list ── */
+.prov-grid{display:grid;grid-template-columns:1fr;gap:10px;padding:6px 0}
+.prov-row{display:grid;grid-template-columns:1.4fr 1fr .8fr .7fr .8fr;gap:10px;align-items:center;padding:12px 16px;border:1px solid var(--rule);border-radius:10px;background:rgba(14,28,48,.4);font-size:12.5px;transition:.18s}
+.prov-row:hover{border-color:var(--glow)}
+.prov-row .pn{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--ink)}
+.prov-row .pn .pdot{width:9px;height:9px;border-radius:50%;flex:none}
+.prov-row .pstat{font-family:var(--mono);font-size:10.5px;padding:2px 9px;border-radius:999px}
+.prov-row .pstat.ok{color:var(--tide3);background:rgba(47,214,181,.12)}
+.prov-row .pstat.degraded{color:var(--warn);background:rgba(255,196,107,.12)}
+.prov-row .pstat.off{color:var(--muted);background:rgba(143,163,191,.1)}
+.prov-row .mono{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.prov-detail{border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-top:10px;background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.5))}
+.prov-detail .pd-title{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.prov-detail .pd-title b{font-size:15px;font-family:var(--serif)}
+.prov-detail .pd-title .pstat{margin-left:auto}
+.pd-row{display:grid;grid-template-columns:130px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:12.5px}
+.pd-row .lab{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.pd-row .val{color:var(--ink)}
+.pd-row .val .masked{font-family:var(--mono);color:var(--tide3);background:rgba(47,214,181,.08);padding:2px 8px;border-radius:6px;font-size:11px}
+.pd-models{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.pd-models .mchip{font-family:var(--mono);font-size:10.5px;padding:4px 10px;border:1px solid var(--rule);border-radius:6px;color:var(--muted);background:#0d1a2b}
+.pd-models .mchip.def{border-color:var(--tide1);color:var(--tide1);background:rgba(63,214,255,.08)}
+
+.btn-new{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12px;padding:8px 16px;border-radius:8px;background:linear-gradient(120deg,var(--tide1),var(--glow));color:#04121f;font-weight:700;border:none;cursor:pointer;margin-bottom:14px}
+
+/* ── Governance / Approval ── */
+.appr-list{display:flex;flex-direction:column;gap:10px;padding:6px 0}
+.appr-item{border:1px solid var(--rule);border-radius:12px;padding:16px 18px;background:rgba(14,28,48,.4);transition:.18s}
+.appr-item:hover{border-color:var(--glow)}
+.appr-item.high{border-left:3px solid var(--err)}
+.appr-item.med{border-left:3px solid var(--warn)}
+.appr-item.low{border-left:3px solid var(--tide3)}
+.appr-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+.appr-head .a-type{font-weight:600;font-size:14px;color:var(--ink)}
+.appr-head .a-risk{font-family:var(--mono);font-size:10px;padding:2px 10px;border-radius:999px}
+.appr-head .a-risk.high{color:var(--err);background:rgba(255,122,122,.12)}
+.appr-head .a-risk.med{color:var(--warn);background:rgba(255,196,107,.12)}
+.appr-head .a-risk.low{color:var(--tide3);background:rgba(47,214,181,.12)}
+.appr-head .a-expire{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.appr-body{font-size:12.5px;color:var(--muted);line-height:1.7}
+.appr-body .kv{font-family:var(--mono);font-size:11px;color:var(--tide1)}
+.appr-actions{display:flex;gap:8px;margin-top:12px}
+.appr-actions .opt{padding:6px 14px;font-size:11px}
+.appr-actions .opt.approve{background:linear-gradient(120deg,var(--tide3),var(--tide1));color:#04121f;font-weight:700;border:none}
+.appr-actions .opt.reject{border-color:var(--err);color:var(--err)}
+.appr-actions .opt.reject:hover{background:rgba(255,122,122,.12)}
+
+/* ── Memory Center ── */
+.mem-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:6px 0}
+.mem-layer{border:1px solid var(--rule);border-radius:12px;padding:16px 18px;background:rgba(14,28,48,.4)}
+.mem-layer .ml-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--rule)}
+.mem-layer .ml-head .ml-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:700;color:#04121f}
+.mem-layer .ml-head .ml-name{font-weight:600;font-size:14px}
+.mem-layer .ml-head .ml-tag{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+.mem-entry{padding:9px 0;border-bottom:1px solid var(--rule);font-size:11.5px}
+.mem-entry:last-child{border-bottom:none}
+.mem-entry .me-content{color:var(--ink);margin-bottom:4px}
+.mem-entry .me-meta{display:flex;gap:14px;font-family:var(--mono);font-size:9.5px;color:var(--muted);flex-wrap:wrap}
+.mem-entry .me-meta .conf{color:var(--tide3)}
+.mem-entry .me-meta .imp{color:var(--tide1)}
+
+.mem-search{display:flex;gap:10px;align-items:center;padding:12px 0;margin-bottom:6px;flex-wrap:wrap}
+.mem-search .ms-in{flex:1;min-width:200px;background:#0d1a2b;border:1px solid var(--rule);border-radius:9px;padding:9px 14px;color:var(--muted);font-size:12px}
+.mem-search .ms-filter{font-family:var(--mono);font-size:10.5px;padding:6px 12px;border:1px solid var(--rule);border-radius:7px;color:var(--muted);cursor:pointer}
+.mem-search .ms-filter.on{border-color:var(--tide1);color:var(--tide1);background:rgba(63,214,255,.08)}
+
+/* ── Skill Center ── */
+.skill-layout{display:grid;grid-template-columns:1fr 320px;gap:14px;padding:6px 0}
+.skill-list{display:flex;flex-direction:column;gap:8px}
+.skill-row{display:grid;grid-template-columns:1.5fr .7fr .7fr 1fr;gap:10px;align-items:center;padding:12px 16px;border:1px solid var(--rule);border-radius:10px;background:rgba(14,28,48,.4);font-size:12.5px;cursor:pointer;transition:.18s}
+.skill-row:hover{border-color:var(--glow)}
+.skill-row.on{border-color:var(--tide1);background:rgba(63,214,255,.06)}
+.skill-row .sn{font-weight:600;color:var(--ink)}
+.skill-row .sn .desc{font-weight:400;font-size:10.5px;color:var(--muted);display:block;margin-top:2px}
+.skill-row .mono{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.skill-row .s-stat{font-family:var(--mono);font-size:10px;padding:2px 9px;border-radius:999px}
+.skill-row .s-stat.on{color:var(--tide3);background:rgba(47,214,181,.12)}
+.skill-row .s-stat.off{color:var(--muted);background:rgba(143,163,191,.1)}
+.skill-row .s-stat.quar{color:var(--warn);background:rgba(255,196,107,.12)}
+.skill-detail{border:1px solid var(--line);border-radius:12px;padding:18px 20px;background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.5));height:fit-content}
+.skill-detail .sd-title{font-family:var(--serif);font-size:16px;margin-bottom:4px}
+.skill-detail .sd-ver{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:14px}
+.skill-detail .sd-sec{margin-top:14px}
+.skill-detail .sd-sec h4{margin:0 0 8px}
+.skill-detail .sd-perm{display:flex;flex-wrap:wrap;gap:6px}
+.skill-detail .sd-perm .perm{font-family:var(--mono);font-size:9.5px;padding:3px 9px;border:1px solid var(--rule);border-radius:5px;color:var(--muted)}
+.skill-detail .sd-perm .perm.danger{border-color:var(--err);color:var(--err)}
+.skill-detail .sd-dep{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.8}
+.skill-detail .sd-sig{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;margin-top:14px;padding:9px 12px;border-radius:8px;background:rgba(47,214,181,.08);border:1px solid rgba(47,214,181,.2);color:var(--tide3)}
+
+/* ── Unified application surfaces · follows launch screen ── */
+.stage{border-radius:12px;background:#080d16;border-color:var(--rule);box-shadow:0 30px 80px -30px rgba(0,0,0,.72)}
+.stage::before{background:#0a1220;color:var(--glow);border-color:rgba(127,180,255,.22)}
+.app{background:#080d16;border-color:var(--rule)}
+.side,.act{background:rgba(12,18,29,.96)}
+.topbar,.pipeline,.inputbar{background:rgba(12,18,29,.78)}
+.dag-node,.prov-row,.appr-item,.mem-layer,.skill-row,.skill-detail,.prov-detail{background:rgba(15,21,32,.88);border-color:var(--rule);box-shadow:none}
+.dag-node:hover,.prov-row:hover,.appr-item:hover,.skill-row:hover{transform:none;border-color:var(--line);background:rgba(19,26,39,.95)}
+.project-app{grid-template-columns:200px 1fr}
+.project-app .act{display:none}
+.view-head{display:flex;align-items:center;gap:12px;padding:4px 2px 16px;flex-wrap:wrap}
+.view-title{font-size:14px;font-weight:650;color:var(--ink)}
+.view-meta{font:11px var(--mono);color:var(--muted)}
+.view-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ui-btn{min-height:34px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--ink);font:12px var(--sans);cursor:pointer}
+.ui-btn:hover,.ui-btn:focus-visible{background:rgba(255,255,255,.045);border-color:var(--glow)}
+.ui-btn.primary{background:linear-gradient(135deg,var(--tide1),var(--glow));border:0;color:#04121f;font-weight:700}
+.ui-btn.danger{color:var(--err);border-color:rgba(255,122,122,.4)}
+.ui-btn.ghost{color:var(--muted);border-color:transparent}
+.ui-link{color:var(--glow);font-size:12px;text-decoration:none;cursor:pointer}
+.status-badge{font:10px var(--mono);padding:3px 8px;border-radius:999px;border:1px solid var(--rule);color:var(--muted)}
+.status-badge.ok{color:var(--ok);background:rgba(59,214,160,.07)}
+.status-badge.warn{color:var(--warn);background:rgba(255,196,107,.07)}
+.column-head{display:grid;gap:10px;padding:7px 16px;color:var(--muted);font:10px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.provider-head{grid-template-columns:1.4fr 1fr .8fr .7fr .8fr}
+.skill-head{grid-template-columns:1.5fr .7fr .7fr 1fr}
+.plan-summary{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;margin-bottom:14px}
+.summary-card{padding:13px 15px;border:1px solid var(--rule);border-radius:10px;background:rgba(15,21,32,.78)}
+.summary-card b{display:block;font-size:12px;margin-bottom:3px}.summary-card span{font:10.5px var(--mono);color:var(--muted)}
+.section-caption{display:flex;align-items:center;justify-content:space-between;margin:12px 2px 4px;color:var(--muted);font-size:12px}
+.section-caption b{color:var(--ink);font-size:13px}
+.memory-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.memory-toolbar input,.settings-search,.setting-control{min-height:38px;border:1px solid var(--rule);border-radius:8px;background:rgba(18,23,34,.94);color:var(--ink);padding:0 12px;font:12px var(--sans)}
+.memory-toolbar input{flex:1;min-width:240px}
+.memory-tabs{display:flex;gap:4px;padding:3px;border:1px solid var(--rule);border-radius:9px;background:rgba(12,18,29,.8)}
+.memory-tab{border:0;background:transparent;color:var(--muted);padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer}
+.memory-tab.on{color:var(--ink);background:rgba(255,255,255,.07)}
+.skill-actions{display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--rule)}
+
+/* ── Lightweight development workspace ── */
+.dev-shell{display:grid;grid-template-columns:176px minmax(300px,.85fr) minmax(430px,1.15fr);min-height:690px;background:#080d16}
+.dev-nav{padding:16px 11px;border-right:1px solid var(--rule);background:rgba(12,18,29,.96);display:flex;flex-direction:column;gap:18px}.dev-nav .s-item{padding:8px 9px}.dev-nav-foot{margin-top:auto}
+.dev-chat{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--rule)}.dev-top{min-height:56px;padding:0 15px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:8px;background:rgba(12,18,29,.78)}.dev-title{font-size:13px;font-weight:700}.dev-stage{font:10px var(--mono);color:var(--muted);padding:4px 8px;border:1px solid var(--rule);border-radius:999px}
+.dev-chat-stream{padding:20px 18px;display:flex;flex-direction:column;gap:16px;overflow:hidden;flex:1}.dev-chat .msg{grid-template-columns:28px 1fr;gap:9px}.dev-chat .msg .av{width:28px;height:28px;font-size:11px}.dev-chat .bb{font-size:12px;padding:13px 14px}
+.tool-run{margin-top:10px;border:1px solid var(--rule);border-radius:9px;background:#0a111d;overflow:hidden}.tool-run-head{padding:9px 11px;display:flex;align-items:center;gap:8px;font:10.5px var(--mono);border-bottom:1px solid var(--rule)}.tool-run-out{padding:9px 11px;font:10px/1.65 var(--mono);color:var(--muted)}
+.dev-composer{margin:0 16px 16px;border:1px solid var(--line);border-radius:12px;background:rgba(15,21,32,.96);padding:10px}.context-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.context-chip{font:9.5px var(--mono);color:var(--glow);border:1px solid rgba(127,180,255,.2);border-radius:5px;padding:3px 6px;background:rgba(127,180,255,.06)}.dev-input-row{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}.dev-input-row span:first-child{flex:1}
+.work-panel{min-width:0;display:flex;flex-direction:column;background:#090f19}.work-panel-head{min-height:56px;padding:0 13px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:8px}.work-tabs{display:flex;gap:2px;align-self:stretch}.work-tab{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);padding:0 9px;font:11px var(--sans);cursor:pointer}.work-tab.on{color:var(--ink);border-color:var(--glow)}.work-panel-actions{margin-left:auto;display:flex;gap:6px}.work-panel-actions .ui-btn{min-height:30px;font-size:10.5px;padding:0 9px}
+.code-workspace{display:grid;grid-template-columns:148px 1fr;min-height:0;flex:1}.file-rail{border-right:1px solid var(--rule);padding:11px 8px;background:rgba(12,18,29,.72);font:10px/1.8 var(--mono);color:var(--muted)}.file-rail-title{font:9px var(--sans);letter-spacing:.1em;color:var(--muted);padding:2px 6px 7px;text-transform:uppercase}.file-row{padding:2px 6px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.file-row.on{color:var(--ink);background:rgba(127,180,255,.09)}.file-row.mod::after{content:"M";float:right;color:var(--warn)}.file-row.add::after{content:"A";float:right;color:var(--ok)}
+.editor-pane{min-width:0;display:flex;flex-direction:column}.editor-bar{height:38px;padding:0 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:8px;font:10px var(--mono);color:var(--muted)}.editor-code{margin:0;flex:1;border:0;border-radius:0;background:#080d16;padding:14px 16px;font:10.5px/1.72 var(--mono);overflow:hidden;color:#c7d6eb}.ln{display:inline-block;width:24px;color:#526174;user-select:none}.code-add{display:block;background:rgba(59,214,160,.07);color:#c9f5e7}.code-edit{display:block;background:rgba(127,180,255,.07)}.editor-status{height:32px;padding:0 11px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:12px;font:9.5px var(--mono);color:var(--muted)}
+.panel-tray{border-top:1px solid var(--rule);display:grid;grid-template-columns:1fr 1fr 1fr;background:rgba(12,18,29,.9)}.tray-item{padding:9px 11px;border-right:1px solid var(--rule);font:9.5px var(--mono);color:var(--muted)}.tray-item:last-child{border-right:0}.tray-item b{display:block;color:var(--ink);font:11px var(--sans);margin-bottom:2px}
+
+/* ── Project data center & release promotion boards ── */
+.ops-shell{display:grid;grid-template-columns:188px minmax(0,1fr);min-height:720px;background:#080d16;border:1px solid var(--rule);border-radius:11px;overflow:hidden}
+.ops-side{padding:15px 11px;background:rgba(12,18,29,.98);border-right:1px solid var(--rule)}
+.ops-project{padding:0 9px 14px;border-bottom:1px solid var(--rule);margin-bottom:12px}.ops-project b{display:block;font-size:12px}.ops-project span{font:9.5px var(--mono);color:var(--muted)}
+.ops-menu{display:grid;gap:3px}.ops-menu a{display:flex;gap:8px;align-items:center;padding:8px 9px;border-radius:7px;color:var(--muted);text-decoration:none;font-size:11.5px}.ops-menu a.on{color:var(--ink);background:rgba(127,180,255,.1);box-shadow:inset 2px 0 var(--glow)}.ops-menu small{margin-left:auto;font:9px var(--mono);color:var(--muted)}
+.ops-main{min-width:0;padding:16px 18px 20px}.ops-top{display:flex;align-items:center;gap:10px;padding-bottom:13px;border-bottom:1px solid var(--rule);margin-bottom:13px}.ops-top h3{font:700 16px var(--sans);margin:0}.ops-top .ui-btn:first-of-type{margin-left:auto}
+.ops-tabs{display:flex;gap:3px;overflow:auto;padding-bottom:1px;margin-bottom:12px}.ops-tab{white-space:nowrap;padding:7px 10px;color:var(--muted);font-size:10.5px;border-bottom:2px solid transparent}.ops-tab.on{color:var(--ink);border-color:var(--glow)}
+.route{display:flex;align-items:center;gap:7px;margin:10px 0 13px;flex-wrap:wrap}.route-step{padding:6px 10px;border:1px solid var(--rule);border-radius:999px;font:10px var(--mono);color:var(--muted);background:#0d1521}.route-step.on{color:var(--ink);border-color:rgba(127,180,255,.35)}.route-arrow{color:#53657d}
+.notice-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.mini-notice{padding:9px 11px;border:1px solid rgba(127,180,255,.2);border-left:2px solid var(--glow);border-radius:7px;background:rgba(127,180,255,.045);font-size:10.5px;color:var(--muted)}.mini-notice.warn{border-color:rgba(255,196,107,.2);border-left-color:var(--warn);background:rgba(255,196,107,.045)}
+.ops-grid{display:grid;grid-template-columns:minmax(0,.92fr) minmax(300px,1.08fr);gap:12px}.ops-card{min-width:0;border:1px solid var(--rule);border-radius:9px;background:rgba(15,21,32,.88);overflow:hidden}.ops-card-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--rule);font-size:11.5px}.ops-card-head b{font-size:12px}.ops-card-head span:last-child{margin-left:auto}
+.db-row,.api-row{padding:10px 12px;border-bottom:1px solid var(--rule);font-size:10.5px}.db-row:last-child,.api-row:last-child{border-bottom:0}.db-row-top,.api-row{display:flex;align-items:center;gap:8px}.db-row b,.api-row b{font-size:11.5px}.db-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.micro-btn{border:1px solid var(--rule);border-radius:5px;padding:4px 7px;color:var(--muted);font:9px var(--mono);background:transparent}.api-row.on{background:rgba(127,180,255,.07);box-shadow:inset 2px 0 var(--glow)}.api-kind{width:72px;color:var(--glow);font:9px var(--mono)}.api-dir{color:var(--muted);font-size:9.5px}.api-test{margin-left:auto;text-align:right;color:var(--muted);font:9px var(--mono)}
+.detail-body{padding:12px}.kv-grid{display:grid;grid-template-columns:92px 1fr;gap:0;font-size:10.5px}.kv-grid>*{padding:6px 7px;border-bottom:1px solid var(--rule)}.kv-grid .key{color:var(--muted);font:9px var(--mono)}.field-map{display:grid;grid-template-columns:1fr 18px 1fr;gap:5px;align-items:center;padding:7px 0;font:9.5px var(--mono);color:var(--muted)}.field-map code{padding:5px 7px;border:1px solid var(--rule);border-radius:5px;color:#c7d6eb;overflow-wrap:anywhere}.mode-bar{display:flex;gap:4px;margin:10px 0 7px}.mode-bar span{padding:4px 8px;border:1px solid var(--rule);border-radius:5px;color:var(--muted);font-size:9.5px}.mode-bar .on{color:var(--ink);background:rgba(255,255,255,.06)}.json-hint{padding:8px 9px;background:#090f19;border:1px dashed var(--line);border-radius:6px;color:var(--muted);font:9px/1.6 var(--mono);overflow-wrap:anywhere}.log-line{display:grid;grid-template-columns:60px 1fr auto;gap:7px;padding:7px 0;border-top:1px solid var(--rule);font:9px var(--mono);color:var(--muted)}
+.contract-note{margin-top:12px;padding:11px 13px;border:1px solid rgba(127,180,255,.22);border-radius:8px;background:linear-gradient(90deg,rgba(127,180,255,.07),transparent);font-size:10.5px;color:var(--muted)}.contract-note b{color:var(--moon)}
+.release-shell{padding:16px 18px 20px;min-height:720px;background:#080d16;border:1px solid var(--rule);border-radius:11px}.release-head{display:flex;gap:10px;align-items:center;padding-bottom:13px;border-bottom:1px solid var(--rule);flex-wrap:wrap}.release-head h3{font:700 16px var(--sans);margin:0}.rev{font:10px var(--mono);color:var(--glow);padding:4px 8px;border:1px solid rgba(127,180,255,.25);border-radius:999px}.release-head .ui-btn{margin-left:auto}
+.overlap{margin:12px 0;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,196,107,.22);background:rgba(255,196,107,.045);display:flex;gap:10px;align-items:center;font-size:10.5px;color:var(--muted)}.overlap b{color:var(--warn)}.avatars{display:flex}.avatars i{width:23px;height:23px;margin-left:-5px;border:2px solid #101826;border-radius:50%;display:grid;place-items:center;background:#263b5b;color:var(--moon);font:8px var(--mono)}
+.package-row{display:grid;grid-template-columns:1.25fr repeat(3,1fr);gap:8px;margin:12px 0}.package-item{padding:10px 11px;border:1px solid var(--rule);border-radius:8px;background:rgba(15,21,32,.88)}.package-item b{display:block;font-size:10.5px}.package-item span{font:9px var(--mono);color:var(--muted)}.package-item.locked{border-color:rgba(127,180,255,.3);background:rgba(127,180,255,.055)}
+.promotion{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.env-card{border:1px solid var(--rule);border-radius:9px;background:rgba(15,21,32,.88);overflow:hidden}.env-head{padding:10px 11px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:7px;font-size:12px}.env-body{padding:10px 11px}.gate{display:grid;grid-template-columns:14px 1fr auto;gap:6px;padding:6px 0;border-bottom:1px solid var(--rule);font-size:9.5px;color:var(--muted)}.gate:last-child{border-bottom:0}.gate .ok{color:var(--ok)}.gate .wait{color:var(--warn)}.gate .stop{color:var(--err)}.gate em{font:8.5px var(--mono);font-style:normal}.env-foot{padding:9px 11px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:6px;font:9px var(--mono);color:var(--muted)}
+.release-lower{display:grid;grid-template-columns:1.1fr .9fr;gap:10px;margin-top:10px}.audit-list{padding:9px 11px}.audit-item{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--rule);font-size:9.5px;color:var(--muted)}.audit-item b{color:var(--ink);min-width:62px}.rollback{padding:11px}.rollback p{font-size:10px;margin:5px 0}.danger-strip{padding:8px;border-radius:6px;background:rgba(255,122,122,.05);border:1px solid rgba(255,122,122,.2);font-size:9.5px;color:var(--muted)}
+
+/* ── Settings screen ── */
+.settings-shell{display:grid;grid-template-columns:220px 1fr;min-height:680px;border:1px solid var(--rule);border-radius:12px;overflow:hidden;background:#080d16}
+.settings-nav{background:rgba(12,18,29,.96);border-right:1px solid var(--rule);padding:16px 12px;display:flex;flex-direction:column}
+.settings-back{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:8px 9px;margin-bottom:12px;text-decoration:none}
+.settings-nav-title{font-size:18px;font-weight:700;padding:5px 10px 14px}
+.settings-search{width:100%;margin-bottom:12px}
+.settings-menu{display:grid;gap:3px}
+.settings-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;color:var(--muted);font-size:12px;text-decoration:none}
+.settings-item:hover{background:rgba(255,255,255,.04);color:var(--ink)}
+.settings-item.on{background:rgba(127,180,255,.10);color:var(--ink)}
+.settings-content{display:flex;flex-direction:column;min-width:0}
+.settings-top{display:flex;align-items:center;gap:12px;padding:16px 22px;border-bottom:1px solid var(--rule)}
+.settings-top h3{font-family:var(--sans);font-size:20px;margin:0}
+.scope-switch{margin-left:auto;display:flex;padding:3px;border:1px solid var(--rule);border-radius:9px;background:rgba(12,18,29,.8)}
+.scope-switch span{padding:5px 10px;border-radius:6px;font-size:11px;color:var(--muted)}
+.scope-switch .on{background:rgba(255,255,255,.07);color:var(--ink)}
+.settings-body{padding:22px;max-width:790px;width:100%}
+.setting-group{border:1px solid var(--rule);border-radius:10px;background:rgba(15,21,32,.78);margin-bottom:14px;overflow:hidden}
+.setting-group-title{padding:14px 16px 9px;font-size:13px;font-weight:700;color:var(--ink)}
+.setting-row{display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:center;padding:13px 16px;border-top:1px solid var(--rule)}
+.setting-name{font-size:12.5px;color:var(--ink)}
+.setting-help{font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.5}
+.setting-control{width:100%}
+.toggle{justify-self:end;width:38px;height:22px;border-radius:999px;background:#263246;border:1px solid var(--line);padding:2px;display:flex;cursor:pointer}
+.toggle::after{content:"";width:16px;height:16px;border-radius:50%;background:#d7e4f8;transition:.15s}
+.toggle.on{background:var(--glow2);justify-content:flex-end}.toggle.on::after{background:white}
+.settings-save{margin-top:auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 22px;border-top:1px solid var(--rule);background:rgba(12,18,29,.96);position:sticky;bottom:0}
+.save-state{margin-right:auto;font-size:11px;color:var(--muted)}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--rule);padding:40px 0 60px;text-align:center;margin-top:40px}
+footer .f-logo{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;font-family:var(--serif);font-size:16px;letter-spacing:.04em}
+footer .f-tech{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em}
+footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:8px;opacity:.6}
+
+/* ── Responsive ── */
+@media(max-width:960px){
+  .app{grid-template-columns:1fr;min-height:auto}
+  .side{display:none}
+  .act{display:none}
+  .dag-grid{grid-template-columns:repeat(2,1fr)}
+  .mem-grid{grid-template-columns:1fr}
+  .skill-layout{grid-template-columns:1fr}
+  .prov-row{grid-template-columns:1fr;gap:6px}
+  .skill-row{grid-template-columns:1fr;gap:6px}
+  .launch-app{grid-template-columns:1fr}
+  .launch-side{display:none}
+  .launch-main{padding:46px 20px}
+  .settings-shell{grid-template-columns:1fr}.settings-nav{display:none}
+  .setting-row{grid-template-columns:1fr}.toggle{justify-self:start}
+  .dev-shell{grid-template-columns:1fr}.dev-nav{display:none}.dev-chat{border-right:0}.work-panel{min-height:620px;border-top:1px solid var(--rule)}
+  .ops-shell{grid-template-columns:1fr}.ops-side{display:none}.ops-grid,.release-lower{grid-template-columns:1fr}.promotion{grid-template-columns:1fr}.package-row{grid-template-columns:1fr 1fr}
+}
+@media(max-width:640px){
+  .launch-actions,.design-rules{grid-template-columns:1fr}
+  .composer-tools .tool-btn:nth-of-type(2){display:none}
+  .notice-grid,.package-row{grid-template-columns:1fr}.ops-main,.release-shell{padding:14px 10px}.ops-top{align-items:flex-start;flex-wrap:wrap}.ops-top .ui-btn:first-of-type{margin-left:0}.api-row{align-items:flex-start;flex-wrap:wrap}.api-test{margin-left:0;width:100%;text-align:left}
+}
+:where(button,a,input,textarea,select,[role="button"],[role="tab"],[tabindex]):focus-visible{outline:2px solid var(--tide1);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Atmospheric layers ── -->
+<div class="sky" aria-hidden="true"></div>
+<div class="stars" aria-hidden="true"></div>
+<div class="moon-glow" aria-hidden="true"></div>
+<div class="moon" aria-hidden="true"></div>
+<svg class="tide-ring" viewBox="0 0 1400 500" aria-hidden="true">
+  <path class="r1" d="M0,260 Q350,160 700,260 T1400,260"/>
+  <path class="r2" d="M0,290 Q350,200 700,290 T1400,290"/>
+  <path class="r3" d="M0,320 Q350,240 700,320 T1400,320"/>
+</svg>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TOP NAV
+     ═══════════════════════════════════════════════════════════ -->
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE</span><span class="zh">月汐</span>
+    </div>
+    <span class="tag">v1.0 PROTOTYPE</span>
+    <div class="links">
+      <a href="#workbench">工作台</a>
+      <a href="#development-workbench">开发</a>
+      <a href="#data-interface-center">数据与接口</a>
+      <a href="#cr-promotion">CR 晋级</a>
+      <a href="#dag">计划DAG</a>
+      <a href="#providers">模型供应商</a>
+      <a href="#governance">治理审批</a>
+      <a href="#memory">记忆中心</a>
+      <a href="#skills">技能中心</a>
+      <a href="#settings">设置</a>
+      <a href="#top">↑ 返回顶部</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HERO
+     ═══════════════════════════════════════════════════════════ -->
+<section class="hero doc-intro" id="top">
+  <div class="wrap">
+    <div class="brand">
+      <div class="moon-logo"></div>
+      <div style="text-align:left">
+        <div style="font-family:var(--serif);font-size:26px;letter-spacing:.06em">LUNITIDE</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--glow);letter-spacing:.2em">月 · 汐</div>
+      </div>
+    </div>
+    <h1>从<span class="accent-grad">"界面"</span>到<span class="accent-grad">"大脑"</span></h1>
+    <p class="lead">Lunitide 月汐是一个本地优先、BYOK 的 AI 软件生命周期工作台。它不只是一个"更好的界面"，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。</p>
+    <div class="hero-tags">
+      <span class="tag"><b>Ontology</b> 本体</span>
+      <span class="tag"><b>Memory</b> 记忆</span>
+      <span class="tag"><b>Skills</b> 技能</span>
+      <span class="tag"><b>Planning</b> 规划</span>
+      <span class="tag"><b>Governance</b> 治理</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TOC
+     ═══════════════════════════════════════════════════════════ -->
+<section class="prototype-toc" style="padding:20px 0 40px">
+  <div class="wrap">
+    <div class="toc">
+      <a href="#workbench"><div class="n">01</div><div class="t">主工作台</div></a>
+      <a href="#development-workbench"><div class="n">01B</div><div class="t">轻量开发工作台</div></a>
+      <a href="#data-interface-center"><div class="n">01C</div><div class="t">数据与接口中心</div></a>
+      <a href="#cr-promotion"><div class="n">01D</div><div class="t">CR 与环境晋级</div></a>
+      <a href="#dag"><div class="n">02</div><div class="t">计划 DAG 视图</div></a>
+      <a href="#providers"><div class="n">03</div><div class="t">模型供应商管理</div></a>
+      <a href="#governance"><div class="n">04</div><div class="t">治理与审批</div></a>
+      <a href="#memory"><div class="n">05</div><div class="t">记忆中心</div></a>
+      <a href="#skills"><div class="n">06</div><div class="t">技能中心</div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     01 · 主工作台原型
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="workbench">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">01 / PROTOTYPE</span>
+        <h2>对话优先工作台</h2>
+        <p class="lead">默认启动页参考 ZCODE 的低干扰、对话优先和渐进展开方式；保留 Lunitide 的黑色星空与月亮品牌。进入项目后才展开九阶段、计划和活动上下文。</p>
+      </div>
+    </div>
+
+    <h3>启动首页 · 默认状态</h3>
+    <div class="stage" data-label="lunitide://home · default launch">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div class="launch-app">
+        <aside class="launch-side" aria-label="主导航">
+          <div class="s-logo"><div class="moon-logo sm" aria-hidden="true"></div><b>LUNITIDE</b><span>月汐</span></div>
+          <button class="launch-new" type="button">＋ 新对话 <span style="float:right;color:var(--muted)">Ctrl N</span></button>
+          <div>
+            <div class="s-title">最近会话</div>
+            <a class="recent-item" href="#workbench">商城商品详情页设计</a>
+            <a class="recent-item" href="#workbench">接口鉴权方案评审</a>
+            <a class="recent-item" href="#workbench">新项目需求梳理</a>
+          </div>
+          <div>
+            <div class="s-title">项目</div>
+            <a class="recent-item" href="#workbench">◇ 在线商城系统 v2.0</a>
+            <a class="recent-item" href="#workbench">◇ Lunitide 月汐</a>
+          </div>
+          <div class="launch-foot">
+            <a class="recent-item" href="#workbench">⌕ 搜索 / 命令</a>
+            <a class="recent-item" href="#settings">⚙ 设置</a>
+          </div>
+        </aside>
+        <main class="launch-main">
+          <div class="launch-center">
+            <div class="moon-logo" aria-hidden="true"></div>
+            <h3>今天想完成什么？</h3>
+            <p>先说目标。需要时再选择项目、文件和工作模式。</p>
+            <form class="composer" onsubmit="return false">
+              <label for="launch-prompt" style="position:absolute;left:-9999px">输入任务</label>
+              <textarea id="launch-prompt" autofocus placeholder="向月汐提问，或描述你想完成的任务…"></textarea>
+              <div class="composer-tools">
+                <button class="tool-btn" type="button">＋ 附件</button>
+                <button class="tool-btn" type="button">◇ 选择项目</button>
+                <button class="tool-btn" type="button">自动模式</button>
+                <button class="tool-btn" type="button">DeepSeek Chat⌄</button>
+                <button class="send-btn" type="submit" aria-label="发送">↑</button>
+              </div>
+            </form>
+            <div class="launch-actions">
+              <div class="launch-card"><b>打开项目</b>选择文件夹并继续最近上下文</div>
+              <div class="launch-card"><b>从想法开始</b>通过对话澄清需求并创建项目</div>
+              <div class="launch-card"><b>恢复会话</b>回到最近一次已保存的工作</div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <div class="design-rules" id="settings-map">
+      <div class="design-rule"><b>左栏只放高频入口</b>新对话、最近会话、项目、搜索和设置；工作区能力进入项目后渐进展开。</div>
+      <div class="design-rule"><b>右栏默认收起</b>活动、上下文和审批以徽标/抽屉出现，不永久抢占对话宽度。</div>
+      <div class="design-rule"><b>设置统一收口</b>常规、外观、模型、项目、连接、安全、数据、快捷键、诊断更新；星闪可关闭。</div>
+    </div>
+
+    <h3 style="margin-top:36px">项目内展开态</h3>
+
+    <div class="stage" data-label="lunitide://workbench">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="app project-app">
+        <!-- ── Sidebar ── -->
+        <aside class="side">
+          <div class="s-logo">
+            <div class="moon-logo sm"></div>
+            <b>LUNITIDE</b>
+            <span>月汐</span>
+          </div>
+
+          <div>
+            <div class="s-title">当前项目</div>
+            <div class="s-item"><span class="ic">✉</span>对话<span class="badge">3</span></div>
+            <div class="s-item on"><span class="ic">◈</span>工作区<span class="badge">4 / 9</span></div>
+            <div class="s-item"><span class="ic">▤</span>产物</div>
+            <div class="s-item"><span class="ic">▤</span>项目概览</div>
+          </div>
+
+          <div>
+            <div class="s-title">自动化</div>
+            <div class="s-item"><span class="ic">⚡</span>审批<span class="badge" style="color:var(--warn);background:rgba(255,196,107,.12)">2</span></div>
+          </div>
+
+          <div>
+            <div class="s-title">更多</div>
+            <div class="s-item"><span class="ic">❖</span>上下文</div>
+            <div class="s-item"><span class="ic">⚙</span>设置</div>
+          </div>
+        </aside>
+
+        <!-- ── Main Area ── -->
+        <div class="main">
+          <!-- Topbar -->
+          <div class="topbar">
+            <div class="tbp"><span class="dot"></span>在线商城系统 v2.0</div>
+            <div class="tbs"></div>
+            <div class="tbmode"><span class="on">协作</span><span>代码</span></div>
+            <div class="tbs"></div>
+            <span class="mono" style="font-size:11px;color:var(--muted)">阶段 4 · UI/交互设计</span>
+            <div class="tbmodel">
+              <span class="p"></span>
+              DeepSeek Chat · 已连接
+            </div>
+            <button class="ui-btn" type="button">查看计划</button>
+            <button class="ui-btn" type="button">活动 · 1</button>
+          </div>
+
+          <!-- 9-Stage Pipeline -->
+          <div class="pipeline">
+            <div class="pp done"><div class="n">1</div><div class="l">需求调研</div></div>
+            <div class="pp done"><div class="n">2</div><div class="l">架构</div></div>
+            <div class="pp done"><div class="n">3</div><div class="l">方案</div></div>
+            <div class="pp run"><div class="n">4</div><div class="l">UI</div></div>
+            <div class="pp"><div class="n">5</div><div class="l">数据库接口</div></div>
+            <div class="pp"><div class="n">6</div><div class="l">开发</div></div>
+            <div class="pp"><div class="n">7</div><div class="l">测试</div></div>
+            <div class="pp"><div class="n">8</div><div class="l">集成</div></div>
+            <div class="pp"><div class="n">9</div><div class="l">CR发布</div></div>
+          </div>
+
+          <!-- Chat Area -->
+          <div class="chat">
+            <div class="msg user me">
+              <div class="av" style="background:linear-gradient(135deg,var(--tide2),var(--glow))">U</div>
+              <div>
+                <div class="who">USER · 14:32</div>
+                <div class="bb">为在线商城设计商品详情页的 UI 界面，需要包含商品图片轮播、价格区、规格选择、库存状态、加入购物车和立即购买按钮。参考已批准的模块方案 MOD-014。</div>
+              </div>
+            </div>
+
+            <div class="msg agent">
+              <div class="av" style="background:linear-gradient(135deg,var(--tide3),var(--tide1))">A</div>
+              <div>
+                <div class="who">AGENT · UI 设计专家 · 14:32</div>
+                <div class="bb">
+                  已加载模块方案 <b>MOD-014</b>（已批准 v3）和 UI 底座 <b>base-ui-react-v2.1.0</b>。基于需求生成商品详情页布局，包含以下区域：
+                  <br><br>
+                  1. <b>图片轮播区</b> — 主图 + 缩略图导航，支持键盘左右切换<br>
+                  2. <b>商品信息区</b> — 标题、副标题、评分、价格（原价划线 + 促销价）<br>
+                  3. <b>规格选择区</b> — SKU 矩阵联动，库存实时回显<br>
+                  4. <b>操作区</b> — 加入购物车（次要）+ 立即购买（主要）<br>
+                  5. <b>空 / 错 / 加载态</b> — 已包含全部异常状态契约
+                  <div class="code">┌─ src/pages/ProductDetail/
+├─ ProductDetail.tsx        // 页面容器
+├─ ImageCarousel.tsx        // 图片轮播组件
+├─ PriceBlock.tsx           // 价格展示
+├─ SkuSelector.tsx          // 规格选择
+├─ ActionButtons.tsx        // 操作按钮
+└─ __states__/              // 空/错/加载态
+│   ├─ EmptyState.tsx
+│   ├─ ErrorState.tsx
+│   └─ LoadingSkeleton.tsx</div>
+                  <div class="opts">
+                    <button class="ui-btn primary" type="button">生成代码</button>
+                    <button class="ui-btn" type="button">预览</button>
+                    <button class="ui-btn ghost" type="button">调整要求</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg agent">
+              <div class="av" style="background:linear-gradient(135deg,var(--warn),var(--tide2))">P</div>
+              <div>
+                <div class="who">POLICY ENGINE · 14:33</div>
+                <div class="bb" style="background:rgba(255,196,107,.06);border-color:rgba(255,196,107,.2)">
+                  检测到操作涉及 <b>生成新文件到项目目录</b>（中等风险）。已自动放行文件创建，但 <b>导出设计 Token</b> 涉及跨域数据发送，需创建 Review 等待确认。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input Bar -->
+          <div class="inputbar">
+            <div class="in">输入消息，或使用 / 触发技能，@ 引用产物...</div>
+            <span class="mono" style="font-size:10px;color:var(--muted);padding:0 4px">⏎ 发送 · ⇧⏎ 换行</span>
+            <div class="send">↑</div>
+          </div>
+        </div>
+
+        <!-- ── Activity Panel ── -->
+        <aside class="act">
+          <div class="at">实时活动</div>
+
+          <div class="ai"><span class="ic run"></span><div><b style="color:var(--ink)">执行中</b> · 生成 ProductDetail 布局<br><span class="mono" style="font-size:10px">node#prd-04-run2 · attempt 1</span></div></div>
+
+          <div class="ai"><span class="ic ok"></span><div><b style="color:var(--ink)">技能匹配</b> · ui-layout-gen v1.3<br><span class="mono" style="font-size:10px">score 0.92 · 显式触发</span></div></div>
+
+          <div class="ai"><span class="ic ok"></span><div><b style="color:var(--ink)">上下文加载</b> · MOD-014 v3<br><span class="mono" style="font-size:10px">来源: 阶段3 已批准产物</span></div></div>
+
+          <div class="ai"><span class="ic ok"></span><div><b style="color:var(--ink)">记忆注入</b> · 3 条 long_term<br><span class="mono" style="font-size:10px">用户偏好: 卡片式布局, 16px 基准</span></div></div>
+
+          <div class="ai"><span class="ic ok"></span><div><b style="color:var(--ink)">底座锁定</b> · base-ui-react<br><span class="mono" style="font-size:10px">v2.1.0 · overlay 已分离</span></div></div>
+
+          <div class="ai"><span class="ic warn"></span><div><b style="color:var(--ink)">Policy 检查</b> · 中风险<br><span class="mono" style="font-size:10px">文件创建放行 · Token 导出待审</span></div></div>
+
+          <div class="ai"><span class="ic ok"></span><div><b style="color:var(--ink)">预算</b> · 12,400 / 50,000 tokens<br><span class="mono" style="font-size:10px">¥0.18 / ¥0.80 · 3m 20s</span></div></div>
+
+          <div class="at" style="margin-top:4px">上下文追溯</div>
+          <div class="ai"><span class="ic ok"></span><div class="mono" style="font-size:10px">REQ-014 → MOD-014 → UI-014 → (run)</div></div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     01B · 轻量开发工作台
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="development-workbench"><div class="wrap">
+  <div class="sec-head"><div><span class="num">01B / PROTOTYPE</span><h2>轻量开发工作台</h2><p class="lead">阶段六进入开发时仍以对话为主，只展开一个统一工作面板。文件、代码、终端、浏览器与变更在同一区域切换；月汐提供查看、轻编辑、执行和审查，复杂编码一键在 VS Code 定位。</p></div></div>
+  <div class="stage" data-label="lunitide://workbench/develop · panel peek"><div class="browser-dots"><i></i><i></i><i></i></div><div class="dev-shell">
+    <aside class="dev-nav" aria-label="开发工作台导航"><div class="s-logo"><div class="moon-logo sm"></div><b>LUNITIDE</b><span>月汐</span></div><div><div class="s-title">当前项目</div><div class="s-item on"><span class="ic">✉</span>开发对话</div><div class="s-item"><span class="ic">◇</span>任务<span class="badge">S6</span></div><div class="s-item"><span class="ic">▤</span>产物</div></div><div><div class="s-title">状态</div><div class="s-item"><span class="ic">◌</span>运行<span class="badge">1</span></div><div class="s-item"><span class="ic">±</span>变更<span class="badge">5</span></div><div class="s-item"><span class="ic">⚡</span>审批<span class="badge" style="color:var(--warn)">1</span></div></div><div class="dev-nav-foot"><div class="s-item"><span class="ic">⚙</span>项目设置</div></div></aside>
+    <main class="dev-chat"><header class="dev-top"><div><div class="dev-title">实现商品详情页</div><div class="view-meta">DEV-042 · 在线商城系统 v2.0</div></div><span class="dev-stage">阶段 6 / 9 · 开发</span><button class="ui-btn ghost" style="margin-left:auto" type="button">计划</button></header><div class="dev-chat-stream">
+      <div class="msg user me"><div class="av" style="background:var(--glow)">U</div><div><div class="who">USER · 18:41</div><div class="bb">按已批准的 UI-014 开始实现。先完成页面骨架和价格区，运行测试后让我看变更。</div></div></div>
+      <div class="msg agent"><div class="av" style="background:var(--tide1)">A</div><div><div class="who">AGENT · CODE · 18:42</div><div class="bb">已关联工作区 <b>online-store</b>，读取任务相关文件并创建 checkpoint。现在修改 2 个文件，不触碰锁文件和工作区外目录。<div class="tool-run"><div class="tool-run-head"><span style="color:var(--ok)">●</span> pnpm test ProductDetail <span style="margin-left:auto;color:var(--ok)">通过 · 4.8s</span></div><div class="tool-run-out">8 tests passed · 0 failed<br>下一步：打开本地预览并验证价格区响应式布局</div></div><div class="opts"><button class="ui-btn primary" type="button">查看变更</button><button class="ui-btn" type="button">打开预览</button><button class="ui-btn ghost" type="button">解释实现</button></div></div></div></div>
+    </div><div class="dev-composer"><div class="context-chips"><span class="context-chip">@ProductDetail.tsx</span><span class="context-chip">@UI-014</span><span class="context-chip">终端: test#18</span></div><div class="dev-input-row"><textarea rows="2" aria-label="继续开发对话" placeholder="继续修改、解释代码，或输入 /test、/browser…"></textarea><button class="ui-btn ghost" type="button">＋ 上下文</button><button class="ui-btn primary" type="button" aria-label="发送开发消息">↑</button></div></div></main>
+    <section class="work-panel" aria-label="统一开发工作面板"><header class="work-panel-head"><nav class="work-tabs" role="tablist" aria-label="工作视图"><button class="work-tab" role="tab" aria-selected="false" tabindex="-1" type="button">文件</button><button class="work-tab on" role="tab" aria-selected="true" tabindex="0" type="button">代码</button><button class="work-tab" role="tab" aria-selected="false" tabindex="-1" type="button">终端 · 1</button><button class="work-tab" role="tab" aria-selected="false" tabindex="-1" type="button">浏览器</button><button class="work-tab" role="tab" aria-selected="false" tabindex="-1" type="button">变更 · 5</button></nav><div class="work-panel-actions"><button class="ui-btn" type="button">在 VS Code 中打开</button><button class="ui-btn ghost" type="button" aria-label="收起工作面板">×</button></div></header><div class="code-workspace" role="tabpanel" aria-label="代码视图">
+      <aside class="file-rail"><div class="file-rail-title">任务相关文件</div><div class="file-row">⌄ src/pages</div><div class="file-row">&nbsp;⌄ ProductDetail</div><div class="file-row on mod">&nbsp;&nbsp;ProductDetail.tsx</div><div class="file-row add">&nbsp;&nbsp;PriceBlock.tsx</div><div class="file-row">&nbsp;&nbsp;SkuSelector.tsx</div><div class="file-row">&nbsp;&nbsp;ActionButtons.tsx</div><div class="file-row">&nbsp;⌄ __tests__</div><div class="file-row mod">&nbsp;&nbsp;ProductDetail.test.tsx</div><div class="file-rail-title" style="margin-top:14px">最近打开</div><div class="file-row">UI-014.md</div><div class="file-row">package.json</div></aside>
+      <div class="editor-pane"><div class="editor-bar"><span style="color:var(--glow)">TSX</span> src / pages / ProductDetail / <b style="color:var(--ink)">ProductDetail.tsx</b><span style="margin-left:auto">UTF-8 · TypeScript React</span></div><pre class="editor-code"><span class="ln">1</span>import { PriceBlock } from './PriceBlock'
+<span class="ln">2</span>import { SkuSelector } from './SkuSelector'
+<span class="ln">3</span>
+<span class="ln">4</span>export function ProductDetail({ product }: Props) {
+<span class="code-edit"><span class="ln">5</span>  const [sku, setSku] = useState(product.defaultSku)</span>
+<span class="ln">6</span>
+<span class="ln">7</span>  return (
+<span class="ln">8</span>    &lt;main className="product-detail"&gt;
+<span class="ln">9</span>      &lt;ImageCarousel images={product.images} /&gt;
+<span class="code-add"><span class="ln">10</span>      &lt;section aria-labelledby="product-title"&gt;</span>
+<span class="code-add"><span class="ln">11</span>        &lt;h1 id="product-title"&gt;{product.title}&lt;/h1&gt;</span>
+<span class="code-add"><span class="ln">12</span>        &lt;PriceBlock price={sku.price} /&gt;</span>
+<span class="code-add"><span class="ln">13</span>        &lt;SkuSelector value={sku} onChange={setSku} /&gt;</span>
+<span class="code-add"><span class="ln">14</span>      &lt;/section&gt;</span>
+<span class="ln">15</span>    &lt;/main&gt;
+<span class="ln">16</span>  )
+<span class="ln">17</span>}</pre><div class="editor-status"><span style="color:var(--ok)">✓ 0 问题</span><span>Ln 12, Col 28</span><span style="margin-left:auto">Agent 变更 · 尚未提交</span></div></div>
+    </div><div class="panel-tray"><div class="tray-item"><b>终端</b>test#18 已通过 · exit 0</div><div class="tray-item"><b>浏览器</b>localhost:5173 · 等待打开</div><div class="tray-item"><b>变更</b>5 个文件 · +86 −12 · 可逐文件撤销</div></div></section>
+  </div></div>
+  <div class="design-rules"><div class="design-rule"><b>一个面板，五种视图</b>文件、代码、终端、浏览器和变更互斥切换，不形成重型 IDE 的常驻多栏。</div><div class="design-rule"><b>月汐轻编辑，VS Code 深编辑</b>内置查看、Diff、小改和定位；重构、调试、插件能力交给关联编辑器。</div><div class="design-rule"><b>所有执行可解释、可回退</b>命令、文件写入、联网和 Git 操作都绑定任务、策略、checkpoint 与审计证据。</div></div>
+</div></section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     01C · 数据与接口中心
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="data-interface-center"><div class="wrap">
+  <div class="sec-head"><div><span class="num">01C / PROTOTYPE</span><h2>数据与接口中心</h2><p class="lead">项目级连接、数据库契约与异构接口的统一入口。以环境为边界验证连接和字段映射，所有数据库变更只生成契约与迁移，不从工作台直接改表。</p></div></div>
+  <div class="stage" data-label="lunitide://online-store/data-hub"><div class="browser-dots"><i></i><i></i><i></i></div>
+    <div class="ops-shell">
+      <aside class="ops-side" aria-label="项目数据导航"><div class="ops-project"><b>在线商城系统</b><span>online-store · PROJECT</span></div><div class="ops-menu"><a href="#data-interface-center">⌁ 环境连接 <small>3</small></a><a href="#data-interface-center">▦ 数据库契约 <small>v18</small></a><a class="on" href="#data-interface-center">⇄ 接口清单 <small>12</small></a><a href="#data-interface-center">◷ 调用日志 <small>98</small></a><a href="#cr-promotion">◇ 发布关联 <small>CR-128</small></a></div></aside>
+      <main class="ops-main"><header class="ops-top"><div><h3>数据与接口中心</h3><div class="view-meta">项目作用域 · online-store / release-2.4</div></div><button class="ui-btn" type="button">导入契约</button><button class="ui-btn primary" type="button">＋ 新建连接</button></header>
+        <div class="ops-tabs" aria-label="数据中心标签"><span class="ops-tab">环境连接</span><span class="ops-tab">数据库契约</span><span class="ops-tab on">接口清单</span><span class="ops-tab">调用日志</span><span class="ops-tab">发布关联</span></div>
+        <div class="route" aria-label="环境路线"><span class="view-meta">环境路线</span><span class="route-step on">开发 · 已连接</span><span class="route-arrow">→</span><span class="route-step">测试 · 待晋级</span><span class="route-arrow">→</span><span class="route-step">生产 · 受保护</span></div>
+        <div class="notice-grid"><div class="mini-notice"><b>契约漂移检查通过</b><br>开发库结构与 DB Contract v18 一致，检查于 10:42。</div><div class="mini-notice warn"><b>生产凭据仅可测试连通性</b><br>结构读取为只读；写入必须通过已审批迁移包。</div></div>
+        <div class="ops-grid">
+          <div><section class="ops-card"><div class="ops-card-head"><b>数据库连接</b><span class="status-badge ok">2 正常</span><span class="status-badge warn">1 待验证</span></div><div class="db-row"><div class="db-row-top"><span class="status-badge ok">● 正常</span><b>orders-dev</b><span class="view-meta">PostgreSQL 16 · 开发</span></div><div class="db-actions"><button class="micro-btn" type="button">连接测试 ✓ 38ms</button><button class="micro-btn" type="button">只读结构检查</button><button class="micro-btn" type="button">迁移模式：仓库迁移包</button></div></div><div class="db-row"><div class="db-row-top"><span class="status-badge ok">● 正常</span><b>orders-test</b><span class="view-meta">PostgreSQL 16 · 测试</span></div><div class="db-actions"><button class="micro-btn" type="button">连接测试</button><button class="micro-btn" type="button">只读结构检查 ✓</button><button class="micro-btn" type="button">迁移模式：门禁执行</button></div></div><div class="db-row"><div class="db-row-top"><span class="status-badge warn">● 待验证</span><b>SAP-PRD</b><span class="view-meta">HANA · 生产</span></div><div class="db-actions"><button class="micro-btn" type="button">连接测试</button><button class="micro-btn" type="button">只读结构检查</button><button class="micro-btn" type="button">迁移模式：审批后执行</button></div></div></section>
+            <section class="ops-card" style="margin-top:12px"><div class="ops-card-head"><b>接口清单</b><span class="view-meta">方向 / 状态 / 最后测试</span></div><div class="api-row on"><span class="api-kind">API · REST</span><div><b>查询库存</b><div class="api-dir">我调用</div></div><div class="api-test"><span style="color:var(--ok)">● 正常</span><br>今天 10:36</div></div><div class="api-row"><span class="api-kind">MCP</span><div><b>product-tools</b><div class="api-dir">我提供</div></div><div class="api-test"><span style="color:var(--ok)">● 正常</span><br>昨天 18:20</div></div><div class="api-row"><span class="api-kind">FAST 自定义</span><div><b>会员权益计算</b><div class="api-dir">我调用</div></div><div class="api-test"><span style="color:var(--warn)">● 需复测</span><br>3 天前</div></div><div class="api-row"><span class="api-kind">SAP RFC</span><div><b>BAPI_SALESORDER</b><div class="api-dir">我调用</div></div><div class="api-test"><span style="color:var(--ok)">● 正常</span><br>今天 09:12</div></div><div class="api-row"><span class="api-kind">数据库直连</span><div><b>BI 订单只读视图</b><div class="api-dir">我提供</div></div><div class="api-test"><span style="color:var(--err)">● 失败</span><br>今天 08:51</div></div></section>
+          </div>
+          <section class="ops-card"><div class="ops-card-head"><b>查询库存</b><span class="status-badge ok">已验证</span><span class="view-meta">API-007</span></div><div class="detail-body"><div class="section-caption"><b>基本配置</b><span>开发环境</span></div><div class="kv-grid"><span class="key">METHOD</span><span>POST /v2/inventory/query</span><span class="key">AUTH</span><span>Service Account · inventory-reader</span><span class="key">TIMEOUT</span><span>3,000 ms · 重试 1 次</span></div><div class="section-caption"><b>传入字段映射</b><span>3 fields</span></div><div class="field-map"><code>商品.SKU</code><span>→</span><code>body.sku_id · string *</code><code>门店.ID</code><span>→</span><code>body.store_code · string *</code><code>请求数量</code><span>→</span><code>body.quantity · integer</code></div><div class="section-caption"><b>传出字段映射</b><span>2 fields</span></div><div class="field-map"><code>data.available</code><span>→</span><code>库存.可售数量</code><code>data.updated_at</code><span>→</span><code>库存.更新时间</code></div><div class="mode-bar"><span class="on">简单表单</span><span>JSON 高级模式</span></div><div class="json-hint">高级模式可编辑完整 JSON、Header 与嵌套数组；切换不会丢失当前字段映射。示例：{ "sku_id": "SKU-2048", "store_code": "SH-01" }</div><div class="db-actions" style="justify-content:flex-end"><button class="ui-btn" type="button">校验映射</button><button class="ui-btn primary" type="button">▶ 测试调用</button></div><div class="section-caption"><b>最近调用日志</b><span>查看全部 98</span></div><div class="log-line"><span>10:36:22</span><span>dev · SKU-2048 / SH-01</span><span style="color:var(--ok)">200 · 142ms</span></div><div class="log-line"><span>10:31:08</span><span>dev · SKU-1092 / BJ-03</span><span style="color:var(--ok)">200 · 168ms</span></div><div class="log-line"><span>09:58:41</span><span>test · 凭据已脱敏</span><span style="color:var(--warn)">429 · 3.0s</span></div></div></section>
+        </div>
+        <div class="contract-note"><b>数据库契约摘要 · DB Contract v18</b>　新增 <code>inventory_reservations</code> 与索引 <code>idx_sku_store</code>；变更以声明式契约、迁移包和恢复 / 前滚补偿方案交付。<b>月汐不会直接修改任何环境中的表结构。</b></div>
+      </main>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     01D · CR 与环境晋级
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="cr-promotion"><div class="wrap">
+  <div class="sec-head"><div><span class="num">01D / PROTOTYPE</span><h2>CR 与环境晋级</h2><p class="lead">ChangeTask 聚合代码、数据库契约与迁移包，由 CR Revision 固化为不可变发布证据；开发本地生效后，分别向测试与生产晋级，每次重新经过环境门禁。</p></div></div>
+  <div class="stage" data-label="lunitide://change/CR-128/revision-07"><div class="browser-dots"><i></i><i></i><i></i></div>
+    <div class="release-shell"><header class="release-head"><div><h3>CR-128 · 库存预占与订单校验</h3><div class="view-meta">ChangeTask CT-042 · owner 林澈 · release/2.4</div></div><span class="rev">CR REVISION 07</span><span class="status-badge warn">待晋级测试</span><button class="ui-btn" type="button">查看 Revision 差异</button><button class="ui-btn primary" type="button">发起测试晋级</button></header>
+      <div class="overlap"><div class="avatars"><i>林</i><i>周</i><i>AI</i></div><div><b>检测到 3 人在重叠范围工作，但不锁代码。</b><br><code>inventory.ts</code> 与 DB Contract 的 reservation 字段可能同时变化；合并前持续重算影响面。</div><span class="status-badge warn" style="margin-left:auto">协作提示</span></div>
+      <div class="package-row"><div class="package-item locked"><b>◇ 不可变发布包 · pkg-07</b><span>SHA256 8fa2…c91d · 已签名</span></div><div class="package-item"><b>代码</b><span>commit a81f09 · 14 files</span></div><div class="package-item"><b>DB 契约</b><span>v18 · schema diff +2</span></div><div class="package-item"><b>迁移包</b><span>manifest + 恢复策略 · checksum ✓</span></div></div>
+      <div class="promotion">
+        <section class="env-card"><div class="env-head"><span style="color:var(--ok)">●</span><b>开发 · 本地</b><span class="status-badge ok" style="margin-left:auto">已生效</span></div><div class="env-body"><div class="gate"><span class="ok">✓</span><span>代码测试 128/128</span><em>通过</em></div><div class="gate"><span class="ok">✓</span><span>DB 迁移前检查</span><em>无阻断</em></div><div class="gate"><span class="ok">✓</span><span>迁移执行 + 后检查</span><em>一致</em></div><div class="gate"><span class="ok">✓</span><span>契约 / 接口回归</span><em>通过</em></div></div><div class="env-foot">本地 checkpoint dev-118 · 可回退</div></section>
+        <section class="env-card"><div class="env-head"><span style="color:var(--warn)">●</span><b>测试</b><span class="status-badge warn" style="margin-left:auto">第 1 次晋级</span></div><div class="env-body"><div class="gate"><span class="ok">✓</span><span>Revision 完整性</span><em>通过</em></div><div class="gate"><span class="wait">○</span><span>数据库迁移前检查</span><em>待执行</em></div><div class="gate"><span class="wait">○</span><span>短时环境锁（最长 8m）</span><em>未申请</em></div><div class="gate"><span class="wait">○</span><span>QA / 数据负责人审批</span><em>1 / 2</em></div></div><div class="env-foot"><button class="micro-btn" type="button">申请短时锁并晋级</button></div></section>
+        <section class="env-card"><div class="env-head"><span style="color:var(--muted)">●</span><b>生产</b><span class="status-badge" style="margin-left:auto">第 2 次晋级</span></div><div class="env-body"><div class="gate"><span>○</span><span>测试验收证据</span><em>等待</em></div><div class="gate"><span>○</span><span>生产 DB 前后检查</span><em>等待</em></div><div class="gate"><span>○</span><span>变更窗口 + 短时锁</span><em>21:00</em></div><div class="gate"><span>○</span><span>双人审批与回退演练</span><em>0 / 2</em></div></div><div class="env-foot">测试完成后独立发起，不自动连跳</div></section>
+      </div>
+      <div class="release-lower"><section class="ops-card"><div class="ops-card-head"><b>门禁与审计时间线</b><span class="view-meta">环境证据永久关联 Revision 07</span></div><div class="audit-list"><div class="audit-item"><b>10:48 · AI</b><span>校验仓库迁移包，manifest checksum 已固定。</span></div><div class="audit-item"><b>10:53 · 林澈</b><span>开发本地执行，DB 前后结构检查一致。</span></div><div class="audit-item"><b>11:06 · 系统</b><span style="color:var(--err)">冲突阻断：周琪的 Revision 06 修改同一字段；已合并并重建为 Revision 07。</span></div><div class="audit-item"><b>11:18 · 周琪</b><span>批准测试晋级；仍待数据负责人审批。</span></div></div></section><section class="ops-card"><div class="ops-card-head"><b>恢复与补偿方案</b><span class="status-badge ok">已验证</span></div><div class="rollback"><p><b>代码：</b>部署上一不可变包 pkg-06。</p><p><b>数据库：</b>默认保留向前兼容结构并执行已审查的前滚补偿；仅在迁移工具证明可逆且数据预检通过时使用逆迁移。</p><p><b>恢复目标：</b>RTO ≤ 8 分钟；恢复后再次执行结构、数据与兼容性检查。</p><div class="danger-strip"><b style="color:var(--err)">冲突会阻断晋级，而不是锁住代码。</b> 环境锁只覆盖迁移执行的短窗口，超时自动释放；审批人可在执行前拒绝或要求新 Revision。</div></div></section></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     02 · 计划 DAG 视图
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="dag">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">02 / PROTOTYPE</span>
+        <h2>计划 DAG 视图</h2>
+        <p class="lead">Planner 输出版本化 DAG 及 graph hash。Orchestrator 只调度依赖满足、策略允许、预算充足的节点。每个副作用节点有幂等键、风险等级和可验证完成条件。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://plan/prd-04-dag">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">商品详情页 UI 计划</div><div class="view-meta">版本 3 · 执行中 · 已完成 4 / 12</div></div>
+        <div class="view-actions"><button class="ui-btn" type="button">运行详情</button><button class="ui-btn" type="button">重新规划</button><button class="ui-btn primary" type="button">暂停计划</button></div>
+      </div>
+
+      <div class="plan-summary">
+        <div class="summary-card"><b>准备上下文 · 4/4</b><span>方案、底座、记忆和技能已就绪</span></div>
+        <div class="summary-card"><b>生成与验证 · 1/4</b><span>正在生成布局 · 1 项等待审批</span></div>
+        <div class="summary-card"><b>保存运行结果 · 0/4</b><span>将在验证通过后自动执行</span></div>
+      </div>
+      <div class="section-caption"><b>完整节点</b><span>默认仅突出异常与当前节点</span></div>
+
+      <!-- DAG Layer 1 -->
+      <div class="dag-grid">
+        <div class="dag-node done">
+          <div class="dn-head">
+            <div class="dn-num">1</div>
+            <div class="dn-title">加载 MOD-014</div>
+            <span class="dn-status">已完成</span>
+          </div>
+          <div class="dn-meta">type: context_load<br>idempotency: ctx-014<br>耗时: 0.8s</div>
+        </div>
+        <div class="dag-node done">
+          <div class="dn-head">
+            <div class="dn-num">2</div>
+            <div class="dn-title">底座版本锁定</div>
+            <span class="dn-status">已完成</span>
+          </div>
+          <div class="dn-meta">type: base_lock<br>base-ui-react v2.1.0<br>耗时: 0.3s</div>
+        </div>
+        <div class="dag-node done">
+          <div class="dn-head">
+            <div class="dn-num">3</div>
+            <div class="dn-title">记忆召回</div>
+            <span class="dn-status">已完成</span>
+          </div>
+          <div class="dn-meta">type: recall<br>3 条 long_term<br>Recall@5: 0.87</div>
+        </div>
+        <div class="dag-node done">
+          <div class="dn-head">
+            <div class="dn-num">4</div>
+            <div class="dn-title">技能匹配</div>
+            <span class="dn-status">已完成</span>
+          </div>
+          <div class="dn-meta">ui-layout-gen v1.3<br>score 0.92<br>显式触发</div>
+        </div>
+      </div>
+
+      <div class="dag-arrows">↓ &nbsp;&nbsp; ↓ &nbsp;&nbsp; ↓ &nbsp;&nbsp; ↓</div>
+
+      <!-- DAG Layer 2 -->
+      <div class="dag-grid">
+        <div class="dag-node run">
+          <div class="dn-head">
+            <div class="dn-num">5</div>
+            <div class="dn-title">生成布局结构</div>
+            <span class="dn-status">执行中</span>
+          </div>
+          <div class="dn-meta">type: model_call<br>attempt 1 / 3<br>risk: low · auto</div>
+        </div>
+        <div class="dag-node queued">
+          <div class="dn-head">
+            <div class="dn-num">6</div>
+            <div class="dn-title">生成组件代码</div>
+            <span class="dn-status">等待中</span>
+          </div>
+          <div class="dn-meta">dep: node#5<br>risk: low · auto<br>预算: 8k tokens</div>
+        </div>
+        <div class="dag-node queued">
+          <div class="dn-head">
+            <div class="dn-num">7</div>
+            <div class="dn-title">生成状态契约</div>
+            <span class="dn-status">等待中</span>
+          </div>
+          <div class="dn-meta">dep: node#5<br>空/错/加载态<br>risk: low</div>
+        </div>
+        <div class="dag-node blocked">
+          <div class="dn-head">
+            <div class="dn-num">8</div>
+            <div class="dn-title">导出设计 Token</div>
+            <span class="dn-status">等待审批</span>
+          </div>
+          <div class="dn-meta">依赖: 组件代码、状态契约<br><b style="color:var(--warn)">跨域发送需确认</b><br><a class="ui-link" href="#governance">打开审批 →</a></div>
+        </div>
+      </div>
+
+      <div class="dag-arrows">↓ &nbsp;&nbsp; ↓ &nbsp;&nbsp; ↓ &nbsp;&nbsp; ↓</div>
+
+      <!-- DAG Layer 3 -->
+      <div class="dag-grid">
+        <div class="dag-node queued">
+          <div class="dn-head">
+            <div class="dn-num">9</div>
+            <div class="dn-title">Review Agent 验证</div>
+            <span class="dn-status">等待中</span>
+          </div>
+          <div class="dn-meta">dep: node#5,6,7<br>验证产物完整性<br>不拥有最终批准权</div>
+        </div>
+        <div class="dag-node queued">
+          <div class="dn-head">
+            <div class="dn-num">10</div>
+            <div class="dn-title">写入本体</div>
+            <span class="dn-status">等待中</span>
+          </div>
+          <div class="dn-meta">dep: node#9<br>ontology_node 注册<br>revision +1</div>
+        </div>
+        <div class="dag-node queued">
+          <div class="dn-head">
+            <div class="dn-num">11</div>
+            <div class="dn-title">生成长期记忆候选</div>
+            <span class="dn-status">等待中</span>
+          </div>
+          <div class="dn-meta">dep: node#9<br>先写 short_term 候选<br>用户确认后方可升 long_term</div>
+        </div>
+        <div class="dag-node queued">
+          <div class="dn-head">
+            <div class="dn-num">12</div>
+            <div class="dn-title">事务持久化</div>
+            <span class="dn-status">等待中</span>
+          </div>
+          <div class="dn-meta">dep: node#10,11<br>checkpoint 保存<br>graph_hash 锁定</div>
+        </div>
+      </div>
+
+      <!-- Budget Bar -->
+      <div class="budget-bar">
+        <div class="budget-item">预算 tokens: <span class="bv">12,400</span> / 50,000</div>
+        <div class="budget-item">已耗费用: <span class="bv">¥0.18</span> / ¥0.80</div>
+        <div class="budget-item">墙钟时间: <span class="bv">3m 20s</span> / 15m</div>
+        <div class="budget-item">模型调用: <span class="bv">4</span> / 20</div>
+        <div class="budget-item">工具调用: <span class="bv">2</span> / 10</div>
+        <div class="budget-item">并行数: <span class="bv">1</span> / 3</div>
+        <div class="budget-item">反思次数: <span class="bv warn">2</span> / 3</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="stage-sec" id="ui-contract">
+  <div class="wrap">
+    <div class="sec-head"><div><span class="num">IMPLEMENTATION CONTRACT</span><h2>UI 实施与验收合同</h2><p class="lead">本文件中的画板是视觉与信息架构意图，不代表功能已经公开或静态按钮已经可运行。正式实现必须满足下列合同；静态 Mockup 自身不算阶段四完成。</p></div></div>
+    <div class="card"><h4>Capability 与权威状态</h4><ul><li>Renderer 启动后从 Engine 获取版本化 capability manifest；每个动作必须映射到 Bridge schema、生成 SDK、Engine handler、Policy、状态机和测试。没有公开 RPC 的功能只显示“概念预览/规划中”，主操作禁用，禁止硬编码伪能力。</li><li>突变 DTO 返回 status/version/capabilities/reason/updatedAt；请求携带 expectedVersion 和 idempotencyKey。前端 optimistic state 不得放行副作用，事件到达后重新读取权威聚合。</li><li>首期 UI 只展示本机 Owner 与逻辑 Agent；多人头像、QA/数据负责人、双人审批和远端 Presence 仅在 ADR-011 capability 启用后出现。</li></ul></div>
+    <div class="card"><h4>统一状态合同</h4><p>首页、项目、五视图、接口、DAG、审批、CR、记忆、技能、设置均 MUST 设计并实现 <code>initial / loading / refreshing / empty / error / partial / stale / offline / permission-denied</code>；流式任务还必须覆盖 cancelling、interrupted、reconnecting、retry-exhausted 和 outcome-unknown。每态定义保留旧数据策略、可用动作、重试、错误码/traceId 与 aria-live。</p></div>
+    <div class="card"><h4>键盘、焦点与组件语义</h4><ul><li>使用原生 button/link/input/textarea/select；tabs 遵循 WAI-ARIA tablist/tab/tabpanel 和 roving tabindex，支持方向键/Home/End；文件树使用 tree/treeitem 或等价语义列表。</li><li>初始焦点仅在无迁移/恢复/错误对话框时进入新对话 textarea；dialog/drawer 使用焦点陷阱、Esc 关闭并把焦点返回触发器。发送处理 Enter/Shift+Enter/Ctrl+Enter 与 IME composition，发送中显示停止而非重复发送。</li><li>switch 优先使用 checkbox + label；危险确认必须有可访问名称、影响/证据/回退、当前身份、过期与不可逆提示，不仅靠颜色表达状态。</li></ul></div>
+    <div class="card"><h4>响应式与溢出</h4><ul><li>≤960px 隐藏侧栏时必须提供同构 menu/drawer、当前项目/分类标题与返回路径，不能让导航消失；平板工作面板使用可调 bottom sheet，手机使用全屏 route，支持关闭/轻览/聚焦三态。</li><li>禁止用 body/global <code>overflow-x:hidden</code> 掩盖问题；表格、代码、终端和 tab strip 局部滚动，聊天/代码区域 <code>min-height:0; overflow:auto</code>。在 320px、Windows 200% scaling、400% zoom、键盘-only 和 forced-colors 下不得丢失功能。</li></ul></div>
+    <div class="card"><h4>高风险交互不变量</h4><ul><li>Review 的“批准摘要”与“开始执行”分离；批准后 Engine 重算参数、资源、计划和策略，成功才执行。拒绝与要求修改为两个动作，理由必填；changed_after_approval 显示具体 digest diff 并禁用旧批准。</li><li>模型生成内容只能形成 short_term 记忆候选；用户确认内容、来源、作用域后才可升级 long_term。删除提交墓碑后 UI 立即移出可召回结果，并显示 pending/propagating/failed；失败时内容仍不可读。</li><li>五视图必须各有默认/加载/空/错/运行/不可用稿；文件、终端、浏览器、变更不能只以“代码”画板代替。设置作用域显示继承/覆盖/恢复继承，并统一即时保存或草稿保存语义。</li></ul></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     03 · 模型供应商管理
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="providers">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">03 / PROTOTYPE</span>
+        <h2>模型供应商管理</h2>
+        <p class="lead">首期支持 OpenAI-compatible 与 Anthropic 两协议族。API Key 编辑时默认显示掩码，不回传明文到 Renderer。BaseURL 的协议或 origin 改变时，旧 credential 不自动复用。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://system/providers">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">模型与供应商</div><div class="view-meta">设置 · 4 个供应商 · 11 个模型</div></div>
+        <div class="view-actions"><button class="ui-btn primary" type="button">＋ 添加供应商</button></div>
+      </div>
+
+      <!-- Provider List -->
+      <div class="prov-grid">
+        <div class="column-head provider-head"><span>供应商</span><span>协议</span><span>状态</span><span>模型</span><span>延迟</span></div>
+        <div class="prov-row">
+          <div class="pn"><span class="pdot" style="background:var(--tide3);box-shadow:0 0 7px var(--tide3)"></span>DeepSeek</div>
+          <span class="mono">OpenAI-compatible</span>
+          <span class="pstat ok">正常</span>
+          <span class="mono">3 models</span>
+          <span class="mono">240ms</span>
+        </div>
+        <div class="prov-row">
+          <div class="pn"><span class="pdot" style="background:var(--tide3);box-shadow:0 0 7px var(--tide3)"></span>OpenAI</div>
+          <span class="mono">OpenAI-compatible</span>
+          <span class="pstat ok">正常</span>
+          <span class="mono">4 models</span>
+          <span class="mono">180ms</span>
+        </div>
+        <div class="prov-row">
+          <div class="pn"><span class="pdot" style="background:var(--warn);box-shadow:0 0 7px var(--warn)"></span>Anthropic</div>
+          <span class="mono">Anthropic</span>
+          <span class="pstat degraded">响应较慢</span>
+          <span class="mono">2 models</span>
+          <span class="mono">820ms</span>
+        </div>
+        <div class="prov-row">
+          <div class="pn"><span class="pdot" style="background:var(--tide3);box-shadow:0 0 7px var(--tide3)"></span>本地 Ollama</div>
+          <span class="mono">OpenAI-compatible</span>
+          <span class="pstat ok">正常</span>
+          <span class="mono">2 models</span>
+          <span class="mono">12ms</span>
+        </div>
+      </div>
+
+      <!-- Expanded Detail: DeepSeek -->
+      <div class="prov-detail" style="margin-top:18px">
+        <div class="pd-title">
+          <span class="pdot" style="width:10px;height:10px;border-radius:50%;background:var(--tide3);box-shadow:0 0 7px var(--tide3);display:inline-block"></span>
+          <b>DeepSeek</b>
+          <span class="pstat ok">正常</span>
+        </div>
+
+        <div class="pd-row">
+          <span class="lab">协议</span>
+          <span class="val mono">OpenAI-compatible</span>
+        </div>
+        <div class="pd-row">
+          <span class="lab">Base URL</span>
+          <span class="val mono">https://api.deepseek.com/v1</span>
+        </div>
+        <div class="pd-row">
+          <span class="lab">API Key</span>
+          <span class="val">
+            <span class="masked">sk-••••••••••••••••••••3a9f</span>
+            <span class="mono" style="font-size:10px;color:var(--muted);margin-left:8px">已配置 · 不回显明文</span>
+            <button class="ui-btn" type="button" style="margin-left:8px">更新密钥</button>
+          </span>
+        </div>
+        <div class="pd-row">
+          <span class="lab">Origin 指纹</span>
+          <span class="val mono" style="font-size:11px;color:var(--muted)">sha256:7b2e...c4f1 · 绑定 credential</span>
+        </div>
+        <div class="pd-row">
+          <span class="lab">默认模型</span>
+          <span class="val">deepseek-chat</span>
+        </div>
+        <div class="pd-row">
+          <span class="lab">模型列表</span>
+          <span class="val">
+            <div class="pd-models">
+              <span class="mchip def">deepseek-chat · default</span>
+              <span class="mchip">deepseek-reasoner</span>
+              <span class="mchip">deepseek-coder</span>
+            </div>
+          </span>
+        </div>
+        <div class="pd-row" style="border-bottom:none">
+          <span class="lab">最近测试</span>
+          <span class="val mono" style="font-size:11px;color:var(--muted)">2026-08-10 14:28 · 240ms · 200 OK · 健康窗口 30/30</span>
+        </div>
+        <div class="view-actions" style="margin-top:14px"><button class="ui-btn" type="button">测试连接</button><button class="ui-btn" type="button">编辑配置</button><button class="ui-btn ghost" type="button">更多</button></div>
+      </div>
+
+      <div class="callout" style="margin-top:14px">
+        <b>安全规则</b>：保存新 Key 时 Renderer 将输入通过一次性受保护 Bridge 提交 Host，Host 立即 DPAPI / Credential Manager 保存并清空前端字段。不得存入 Zustand、localStorage 或日志。BaseURL origin 变化时旧 credential 不自动复用。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     04 · 治理与审批
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="governance">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">04 / PROTOTYPE</span>
+        <h2>治理与审批</h2>
+        <p class="lead">Review 绑定操作类型、规范化参数哈希、目标资源、计划版本、策略版本、风险、过期时间。参数变化后旧批准失效。超时默认保持暂停或拒绝，绝不自动执行。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://governance/reviews">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">审批中心</div><div class="view-meta">待我审批 2 · 1 项即将过期</div></div>
+        <div class="memory-tabs" style="margin-left:auto"><button class="memory-tab on">待我审批</button><button class="memory-tab">已处理</button><button class="memory-tab">自动决策</button><button class="memory-tab">策略</button></div>
+      </div>
+
+      <div class="appr-list">
+        <!-- High risk -->
+        <div class="appr-item high">
+          <div class="appr-head">
+            <span class="a-type">发布到生产环境</span>
+            <span class="a-risk high">HIGH RISK</span>
+            <span class="mono" style="font-size:10.5px;color:var(--muted)">CR-014</span>
+            <span class="a-expire">⏰ 12 分钟后过期</span>
+          </div>
+          <div class="appr-body"><b style="color:var(--ink)">将发生什么</b>：把在线商城系统 v2.0.0 部署到生产环境<br><b style="color:var(--ink)">验证证据</b>：47 项测试通过 · 3 个依赖 CR 已批准 · 制品摘要已锁定<br><b style="color:var(--ink)">失败如何恢复</b>：健康检查失败时自动回退上一稳定版本<br><a class="ui-link">查看影响详情与技术参数 →</a></div>
+          <div class="appr-actions"><button class="ui-btn danger" type="button">要求修改</button><button class="ui-btn primary" type="button">批准此操作摘要</button></div>
+          <div class="subtle" style="margin-top:8px">批准不会绕过执行前重验；摘要、环境或策略漂移时批准立即失效。重验通过后，部署在独立步骤开始。</div>
+        </div>
+
+        <!-- Medium risk -->
+        <div class="appr-item med">
+          <div class="appr-head">
+            <span class="a-type">导出设计 Token（跨域发送）</span>
+            <span class="a-risk med">MEDIUM RISK</span>
+            <span class="mono" style="font-size:10.5px;color:var(--muted)">RV-031</span>
+            <span class="a-expire">⏰ 2 小时后过期</span>
+          </div>
+          <div class="appr-body">
+            操作类型: <span class="kv">cross_domain_send</span><br>
+            目标资源: <span class="kv">设计 Token JSON → https://design-tokens.example.com/import</span><br>
+            参数摘要: 数据分类 <span class="kv">internal</span> · 文件大小 <span class="kv">14.2 KB</span> · 包含 <span class="kv">12 个 token, 3 个品牌色</span><br>
+            计划版本: <span class="kv">plan v3</span> · 策略版本: <span class="kv">policy v2.4</span> · params_hash: <span class="kv">7c2e...9a3f</span>
+          </div>
+          <div class="appr-actions"><button class="ui-btn danger" type="button">退回</button><button class="ui-btn primary" type="button">批准本次发送</button></div>
+        </div>
+
+      </div>
+
+      <div class="callout" style="margin-top:14px"><b>审批原则</b>：超时默认暂停；操作参数发生变化后原批准自动失效。自动放行记录请在“自动决策”中查看。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     05 · 记忆中心
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="memory">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">05 / PROTOTYPE</span>
+        <h2>记忆中心</h2>
+        <p class="lead">四层记忆：working / short_term / long_term / semantic。每条记忆有来源、作用域、可信度、重要度和修订记录。模型推断不能自动升级成"已确认事实"。跨项目泄漏率必须为 0。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://memory/center">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">记忆中心</div><div class="view-meta">在线商城系统 v2.0 · 🔒 仅当前项目</div></div>
+        <div class="view-actions"><button class="ui-btn" type="button">筛选</button><button class="ui-btn primary" type="button">＋ 添加记忆</button></div>
+      </div>
+
+      <!-- Search & Filter -->
+      <div class="memory-toolbar">
+        <input type="search" aria-label="搜索记忆" placeholder="搜索记忆内容、来源或标签…">
+        <div class="memory-tabs"><button class="memory-tab on">全部</button><button class="memory-tab">当前任务</button><button class="memory-tab">会话记忆</button><button class="memory-tab">长期记忆</button><button class="memory-tab">项目知识</button></div>
+      </div>
+
+      <!-- Four Layers -->
+      <div class="mem-grid">
+        <!-- Working Memory -->
+        <div class="mem-layer">
+          <div class="ml-head">
+            <div class="ml-ic" style="background:linear-gradient(135deg,var(--tide1),var(--glow))">W</div>
+            <div class="ml-name">当前任务</div>
+            <span class="ml-tag">当前 run 临时状态 · 2 条</span>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">当前任务: 生成商品详情页 UI，引用 MOD-014 v3</div>
+            <div class="me-meta"><span>来源: run#prd-04</span><span class="conf">conf 1.00</span><span class="imp">imp 0.95</span><span>TTL: run 结束</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">选中的模型: deepseek-chat · 底座: base-ui-react v2.1.0</div>
+            <div class="me-meta"><span>来源: 用户选择</span><span class="conf">conf 1.00</span><span class="imp">imp 0.80</span><span>TTL: run 结束</span></div>
+          </div>
+        </div>
+
+        <!-- Short Term Memory -->
+        <div class="mem-layer">
+          <div class="ml-head">
+            <div class="ml-ic" style="background:linear-gradient(135deg,var(--glow),var(--tide2))">S</div>
+            <div class="ml-name">会话记忆</div>
+            <span class="ml-tag">会话摘要 · 3 条</span>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">用户在阶段 3 确认了 5 个核心模块的拆分方案，MOD-014 是商品域</div>
+            <div class="me-meta"><span>来源: session#s014</span><span class="conf">conf 0.95</span><span class="imp">imp 0.85</span><span>TTL: 7d</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">用户偏好使用 TypeScript + React 函数组件 + Tailwind CSS</div>
+            <div class="me-meta"><span>来源: session#s012</span><span class="conf">conf 0.90</span><span class="imp">imp 0.75</span><span>TTL: 7d</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">阶段 2 架构决策: 前后端分离 + BFF 层 + PostgreSQL</div>
+            <div class="me-meta"><span>来源: project:demo/ADR-007</span><span class="conf">conf 1.00</span><span class="imp">imp 0.90</span><span>TTL: 7d</span></div>
+          </div>
+        </div>
+
+        <!-- Long Term Memory -->
+        <div class="mem-layer">
+          <div class="ml-head">
+            <div class="ml-ic" style="background:linear-gradient(135deg,var(--tide3),var(--tide1))">L</div>
+            <div class="ml-name">长期记忆</div>
+            <span class="ml-tag">已确认事实 · 4 条</span>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">用户设计偏好: 卡片式布局，16px 基准字号，主色 #3bd6ff</div>
+            <div class="me-meta"><span>来源: 用户显式确认</span><span class="conf">conf 1.00</span><span class="imp">imp 0.90</span><span>revision 3</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">项目部署目标: 生产环境使用 Docker + Nginx 反代</div>
+            <div class="me-meta"><span>来源: ADR-009</span><span class="conf">conf 1.00</span><span class="imp">imp 0.95</span><span>revision 2</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">用户习惯: 每天上午进行需求评审，下午进行开发任务</div>
+            <div class="me-meta"><span>来源: 用户显式确认</span><span class="conf">conf 0.95</span><span class="imp">imp 0.60</span><span>revision 1</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">数据库命名规范: snake_case，表名复数，时间字段以 _at 结尾</div>
+            <div class="me-meta"><span>来源: MOD-008 约定</span><span class="conf">conf 1.00</span><span class="imp">imp 0.85</span><span>revision 1</span></div>
+          </div>
+        </div>
+
+        <!-- Semantic Memory -->
+        <div class="mem-layer">
+          <div class="ml-head">
+            <div class="ml-ic" style="background:linear-gradient(135deg,var(--tide2),var(--glow2))">Σ</div>
+            <div class="ml-name">项目知识</div>
+            <span class="ml-tag">结构化知识 · 3 条</span>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">商品域实体关系: Product →(has)→ Sku →(has)→ Inventory；Product →(belongs_to)→ Category</div>
+            <div class="me-meta"><span>来源: ontology_node</span><span class="conf">conf 1.00</span><span class="imp">imp 0.95</span><span>revision 4</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">订单状态机: created → paid → shipped → delivered → completed；异常: cancelled / refunded</div>
+            <div class="me-meta"><span>来源: MOD-015 状态图</span><span class="conf">conf 1.00</span><span class="imp">imp 0.95</span><span>revision 2</span></div>
+          </div>
+          <div class="mem-entry">
+            <div class="me-content">支付网关集成: 微信支付 + 支付宝，统一通过 PaymentService 抽象层</div>
+            <div class="me-meta"><span>来源: ADR-012</span><span class="conf">conf 1.00</span><span class="imp">imp 0.85</span><span>revision 1</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout" style="margin-top:14px"><b>管理方式</b>：选择记忆后可查看来源、修订、标记错误或删除；“为什么召回这条？”会解释相关度与作用域。召回策略可在设置中调整。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     06 · 技能中心
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="skills">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">06 / PROTOTYPE</span>
+        <h2>技能中心</h2>
+        <p class="lead">Skill 带清单、版本、权限和执行入口。自动匹配采用显式触发优先、语义评分其次。匹配不授予权限。安装需哈希、签名、依赖锁、权限差异和撤销机制。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://skills/center">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">技能中心</div><div class="view-meta">5 个已安装 · 2 个可更新 · 1 个已隔离</div></div>
+        <div class="memory-tabs"><button class="memory-tab on">已安装</button><button class="memory-tab">可更新 · 2</button><button class="memory-tab">已隔离 · 1</button></div>
+        <div class="view-actions"><button class="ui-btn primary" type="button">＋ 添加技能</button></div>
+      </div>
+
+      <div class="skill-layout">
+        <!-- Skill List -->
+        <div class="skill-list">
+          <div class="column-head skill-head"><span>技能</span><span>版本</span><span>状态</span><span>触发方式</span></div>
+          <div class="skill-row on">
+            <div class="sn">ui-layout-gen<span class="desc">UI 布局生成器 — 根据模块方案生成 React 组件布局</span></div>
+            <span class="mono">v1.3.0</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">命令 /ui</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">code-review-pro<span class="desc">代码审查专家 — SAST + 最佳实践 + 安全扫描</span></div>
+            <span class="mono">v2.1.0</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">命令 /review</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">db-schema-designer<span class="desc">数据库 Schema 设计 — ERD + DDL + 迁移脚本</span></div>
+            <span class="mono">v1.0.2</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">自动匹配</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">test-case-gen<span class="desc">测试用例生成 — 单元/集成/E2E 覆盖</span></div>
+            <span class="mono">v0.9.1</span>
+            <span class="s-stat off">已停用</span>
+            <span class="mono">/test</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">api-contract-import<span class="desc">API 契约导入 — OpenAPI 3.0/3.1 解析</span></div>
+            <span class="mono">v1.2.0</span>
+            <span class="s-stat quar">已隔离</span>
+            <span class="mono">查看隔离原因</span>
+          </div>
+        </div>
+
+        <!-- Skill Detail -->
+        <div class="skill-detail">
+          <div class="sd-title">ui-layout-gen</div>
+          <div class="sd-ver">v1.3.0 · publisher: lunitide-core · semver locked</div>
+
+          <div class="sd-sec">
+            <h4>权限清单</h4>
+            <div class="sd-perm">
+              <span class="perm">model.call</span>
+              <span class="perm">file.read:src/**</span>
+              <span class="perm">file.write:src/pages/**</span>
+              <span class="perm">ontology.read</span>
+              <span class="perm">memory.read:long_term</span>
+              <span class="perm danger">file.write:outside-src · 未授予</span>
+            </div>
+          </div>
+
+          <div class="sd-sec">
+            <h4>依赖</h4>
+            <div class="sd-dep">
+              base-ui-react ≥ v2.0.0<br>
+              deepseek-chat (default model)<br>
+              ontology-parser ≥ v1.1.0
+            </div>
+          </div>
+
+          <div class="sd-sec">
+            <h4>触发器</h4>
+            <div class="sd-dep">
+              显式: /ui, /layout<br>
+              语义: "设计界面", "生成页面", "UI 布局" (score ≥ 0.85)<br>
+              回退: 低于阈值回退普通对话
+            </div>
+          </div>
+
+          <div class="sd-sig">
+            <span>✓</span>
+            <div>
+              <div style="color:var(--tide3);font-weight:600">签名验证通过</div>
+              <div style="color:var(--muted);font-size:10px">package_hash: 8f3a...2c1d · signature: valid · publisher: trusted</div>
+            </div>
+          </div>
+          <div class="skill-actions"><button class="ui-btn" type="button">运行测试</button><button class="ui-btn" type="button">停用</button><button class="ui-btn ghost" type="button">更多</button></div>
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:14px"><b>安全规则</b>：新增危险权限必须重新审批；已隔离技能不能直接启用。添加技能时可选择技能市场、本地包或 URL，并先展示签名、发布者和权限变化。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     07 · 设置
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="settings">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">07 / PROTOTYPE</span>
+        <h2>设置中心</h2>
+        <p class="lead">设置采用“低频能力统一收口、作用域明确、危险操作显式保存”的原则。常规偏好可即时生效；密钥、安全策略和数据删除必须明确确认。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://settings/general">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div class="settings-shell">
+        <aside class="settings-nav" aria-label="设置分类">
+          <a class="settings-back" href="#workbench">← 返回工作台</a>
+          <div class="settings-nav-title">设置</div>
+          <input class="settings-search" type="search" aria-label="搜索设置" placeholder="搜索设置…">
+          <div class="settings-menu">
+            <a class="settings-item on" href="#settings">◌ 常规</a>
+            <a class="settings-item" href="#settings">◐ 外观</a>
+            <a class="settings-item" href="#providers">◈ 模型与供应商</a>
+            <a class="settings-item" href="#settings">◇ 项目默认值</a>
+            <a class="settings-item" href="#settings">⇄ 连接与代理</a>
+            <a class="settings-item" href="#settings">⛨ 安全与治理</a>
+            <a class="settings-item" href="#memory">❖ 数据与记忆</a>
+            <a class="settings-item" href="#skills">✦ 技能</a>
+            <a class="settings-item" href="#settings">⌨ 快捷键</a>
+            <a class="settings-item" href="#settings">◉ 诊断与更新</a>
+            <a class="settings-item" href="#settings">ⓘ 关于</a>
+          </div>
+        </aside>
+
+        <div class="settings-content">
+          <div class="settings-top">
+            <div><h3>常规</h3><div class="view-meta">启动、语言与对话体验</div></div>
+            <div class="scope-switch" aria-label="设置作用域"><span class="on">应用默认</span><span>当前项目</span></div>
+          </div>
+          <div class="settings-body">
+            <div class="setting-group">
+              <div class="setting-group-title">启动</div>
+              <div class="setting-row"><div><div class="setting-name">启动时打开</div><div class="setting-help">建议保持“新对话”，减少每次启动的决策负担。</div></div><select class="setting-control"><option>新对话</option><option>上次会话</option><option>项目选择</option></select></div>
+              <div class="setting-row"><div><div class="setting-name">恢复未完成运行</div><div class="setting-help">启动后询问是否从最近 checkpoint 继续，不会自动执行副作用。</div></div><div class="toggle on" role="switch" aria-checked="true"></div></div>
+              <div class="setting-row"><div><div class="setting-name">最近项目数量</div><div class="setting-help">控制首页左栏展示的最近项目数量。</div></div><select class="setting-control"><option>5 个</option><option>8 个</option><option>10 个</option></select></div>
+            </div>
+
+            <div class="setting-group">
+              <div class="setting-group-title">语言与区域</div>
+              <div class="setting-row"><div><div class="setting-name">界面语言</div><div class="setting-help">重启 Renderer 后完整生效。</div></div><select class="setting-control"><option>简体中文</option><option>English</option></select></div>
+              <div class="setting-row"><div><div class="setting-name">时区</div><div class="setting-help">用于会话、审计、计划和发布记录。</div></div><select class="setting-control"><option>系统默认 · Asia/Shanghai</option></select></div>
+            </div>
+
+            <div class="setting-group">
+              <div class="setting-group-title">对话</div>
+              <div class="setting-row"><div><div class="setting-name">Enter 发送消息</div><div class="setting-help">关闭后使用 Ctrl + Enter 发送，Enter 仅换行。</div></div><div class="toggle on" role="switch" aria-checked="true"></div></div>
+              <div class="setting-row"><div><div class="setting-name">自动生成会话标题</div><div class="setting-help">根据首轮目标生成，可随时手动修改。</div></div><div class="toggle on" role="switch" aria-checked="true"></div></div>
+              <div class="setting-row"><div><div class="setting-name">默认工作模式</div><div class="setting-help">自动模式会根据任务选择协作或代码工具。</div></div><select class="setting-control"><option>自动模式</option><option>协作</option><option>代码</option></select></div>
+            </div>
+
+            <div class="callout"><b>其他分类已纳入设计</b>：外观包含星闪、月光、密度和减少动态效果；模型包含 Provider、密钥和调用策略；安全包含审批边界与审计；数据包含记忆、备份、隐私和删除；诊断包含更新、运行检查和脱敏诊断包。</div>
+          </div>
+          <div class="settings-save"><span class="save-state">有 2 项未保存更改</span><button class="ui-btn" type="button">取消</button><button class="ui-btn primary" type="button">保存更改</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════ -->
+<footer>
+  <div class="wrap">
+    <div class="f-logo">
+      <div class="moon-logo sm"></div>
+      LUNITIDE <span style="color:var(--glow)">月汐</span>
+    </div>
+    <div class="f-tech">Go Core Engine + WebView2 Host + React/TypeScript Renderer</div>
+    <div class="f-copy">Lunitide 月汐 · 全链路统一产品与系统设计 v1.0</div>
+  </div>
+</footer>
+
+<!-- ── Star generator ── -->
+<script>
+(function(){
+  var s=document.querySelector('.stars');
+  if(!s) return;
+  for(var i=0;i<32;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';
+    st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+
+</body>
+</html>

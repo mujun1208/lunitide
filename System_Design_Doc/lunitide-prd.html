@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunitide 月汐 — 产品需求文档 PRD v1.0</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ── */
+:root{
+  --bg:#04070f;
+  --bg2:#0a1424;
+  --bg3:#0e1c30;
+  --ink:#eaf3ff;
+  --muted:#8fa3bf;
+  --rule:rgba(143,163,191,.16);
+  --line:rgba(143,163,191,.25);
+  --moon:#f4f6ff;
+  --moon2:#cfe0ff;
+  --glow:#7fb4ff;
+  --glow2:#4f8bff;
+  --tide1:#3bd6ff;
+  --tide2:#7f5bff;
+  --tide3:#2fd6b5;
+  --ok:#3bd6a0;
+  --warn:#ffc46b;
+  --err:#ff7a7a;
+  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Georgia","Times New Roman","Songti SC",serif;
+}
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+
+/* ── Atmospheric Background: Black Starry Sky ── */
+.sky{
+  position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(63,134,255,.14), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(63,214,255,.09), transparent 55%),
+    linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);
+}
+
+/* ── Stars ── */
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
+.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+
+/* ── Moon (Ambient) ── */
+.moon-glow{
+  position:fixed;top:-120px;right:-80px;width:520px;height:520px;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle, rgba(244,246,255,.16) 0%, rgba(207,224,255,.07) 34%, transparent 62%);
+  filter:blur(2px);
+}
+.moon{
+  position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle at 40% 38%, #ffffff, #dce8ff 55%, #b9cdf2);
+  box-shadow:0 0 60px 26px rgba(207,224,255,.20), 0 0 140px 60px rgba(127,180,255,.10);
+  animation:moonFloat 9s ease-in-out infinite;
+}
+.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(150,170,205,.28), transparent 60%);filter:blur(2px)}
+.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
+  background:radial-gradient(circle at 60% 40%, rgba(150,170,205,.22), transparent 70%)}
+@keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── Moon LOGO (small, inline) ── */
+.moon-logo{
+  width:46px;height:46px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 36%, #fff, #cfe0ff 55%, #9db8e8);
+  box-shadow:0 0 26px rgba(207,224,255,.35), 0 0 50px rgba(127,180,255,.15);
+}
+.moon-logo::after{content:"";position:absolute;inset:5px;border-radius:50%;
+  border:1px solid rgba(150,170,205,.5);opacity:.5}
+.moon-logo.sm{width:26px;height:26px;box-shadow:0 0 14px rgba(207,224,255,.35)}
+.moon-logo.sm::after{inset:3px}
+
+/* ── Tide Ring ── */
+.tide-ring{position:fixed;left:50%;bottom:-160px;transform:translateX(-50%);width:1400px;height:500px;z-index:-1;pointer-events:none}
+.tide-ring path{stroke-width:1;fill:none;stroke-linecap:round}
+.tide-ring .r1{stroke:rgba(63,214,255,.16);animation:sweep 11s ease-in-out infinite}
+.tide-ring .r2{stroke:rgba(127,91,255,.13);animation:sweep 15s ease-in-out infinite reverse}
+.tide-ring .r3{stroke:rgba(47,214,181,.10);animation:sweep 19s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.narrow{max-width:860px;margin:0 auto;padding:0 28px}
+section{padding:64px 0;position:relative}
+
+/* ── Typography ── */
+.kicker{
+  font-family:var(--mono);color:var(--glow);letter-spacing:.22em;font-size:12px;
+  text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.kicker::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--glow),transparent)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+h1{font-size:clamp(38px,6vw,60px);line-height:1.05}
+h2{font-size:30px;margin-bottom:10px}
+h3{font-size:20px;margin:26px 0 10px}
+h4{font-size:15.5px;margin:18px 0 8px;font-weight:600;color:var(--tide1)}
+.lead{color:var(--muted);max-width:640px;font-size:17px}
+p{color:var(--muted);margin:10px 0}
+p b,li b{color:var(--ink);font-weight:600}
+p em{color:var(--tide1);font-style:normal}
+ul,ol{margin:10px 0 10px 22px;color:var(--muted)}
+li{margin:5px 0}
+
+/* ── Gradient Text ── */
+.accent-grad,.accent{
+  background:linear-gradient(100deg,var(--tide1) 0%,var(--glow) 45%,var(--tide2) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+
+/* ── Top Nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(4,7,15,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule)}
+nav .inner{max-width:1180px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+nav .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);letter-spacing:.05em;font-size:16px}
+nav .logo .zh{color:var(--glow);margin-left:2px}
+nav .links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav .links a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:6px 11px;border-radius:8px;transition:.15s}
+nav .links a:hover{color:var(--ink);background:rgba(127,180,255,.08)}
+nav .tag{font-family:var(--mono);font-size:10.5px;color:var(--tide1);border:1px solid rgba(63,214,255,.3);padding:2px 9px;border-radius:999px}
+
+/* ── Cards ── */
+.card{
+  background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));
+  border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;
+  transition:.2s;
+}
+.card:hover{border-color:var(--glow);box-shadow:0 10px 30px -14px rgba(63,134,255,.3)}
+
+/* ── Callouts ── */
+.callout{border-left:3px solid var(--tide1);background:rgba(63,214,255,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.callout b{color:var(--ink)}
+.note{border-left:3px solid var(--warn);background:rgba(255,196,107,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.note b{color:var(--ink)}
+.warn{border-left:3px solid var(--err);background:rgba(255,122,122,.06);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:14px;color:var(--muted)}
+.warn b{color:var(--ink)}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--glow);text-transform:uppercase}
+td b{color:var(--ink)}
+td .col{color:var(--tide1)}
+
+/* ── Tags / Pills ── */
+.tag{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--muted);
+  border:1px solid var(--rule);border-radius:999px;padding:7px 15px;background:rgba(14,28,48,.5);
+  backdrop-filter:blur(4px);
+}
+.tag b{color:var(--tide1);font-weight:600}
+
+/* ── Section Headers ── */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:34px}
+.sec-head .num{font-family:var(--mono);color:var(--glow);font-size:14px;letter-spacing:.1em}
+
+/* ── TOC ── */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:34px 0 10px}
+.toc a{background:linear-gradient(160deg,rgba(14,28,48,.6),rgba(10,20,32,.55));border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-decoration:none;color:var(--ink);transition:.18s;display:block}
+.toc a:hover{transform:translateY(-2px);border-color:var(--glow);box-shadow:0 10px 24px -12px rgba(63,134,255,.4)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--glow);letter-spacing:.14em}
+.toc .t{font-size:14px;font-weight:600;margin-top:4px}
+
+/* ── Mermaid-like diagrams (CSS-based) ── */
+.dag{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;padding:24px 8px}
+.dag .node{padding:9px 14px;border-radius:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--line);background:rgba(14,28,48,.6);color:var(--muted);text-align:center;min-width:84px}
+.dag .node.active{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 3px rgba(63,214,255,.1)}
+.dag .node.done{border-color:var(--tide3);color:var(--tide3);background:rgba(47,214,181,.08)}
+.dag .node.purple{border-color:var(--tide2);color:var(--tide2);background:rgba(127,91,255,.08)}
+.dag .arrow{color:var(--rule);font-size:15px}
+
+/* ── Pipeline (9-stage) ── */
+.pipeline{display:flex;gap:5px;justify-content:space-between;padding:14px;border-radius:12px;background:rgba(14,28,48,.5);border:1px solid var(--rule);margin:16px 0;flex-wrap:wrap}
+.pp{flex:1;text-align:center;position:relative;cursor:pointer;min-width:80px}
+.pp .n{width:26px;height:26px;margin:0 auto 5px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);color:var(--muted);background:#0d1a2b}
+.pp .l{font-size:10.5px;color:var(--muted)}
+.pp.done .n{background:var(--tide3);border-color:var(--tide3);color:#04121f;font-weight:700}
+.pp.done .l{color:var(--tide3)}
+.pp.run .n{border-color:var(--tide1);color:var(--tide1);box-shadow:0 0 0 4px rgba(63,214,255,.12)}
+.pp.run .l{color:var(--tide1);font-weight:600}
+
+/* ── Hero meta ── */
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 18px}
+.hero-meta .tag{font-size:12px;padding:7px 14px}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--rule);padding:40px 0;margin-top:40px}
+footer .inner{max-width:1180px;margin:0 auto;padding:0 28px;display:flex;flex-wrap:wrap;align-items:center;gap:16px;justify-content:space-between}
+footer p{font-size:13px;color:var(--muted);margin:0}
+footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:15px}
+
+/* ── Value grid ── */
+.value-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:18px 0}
+.value-grid .card h4{margin-top:0}
+
+/* ── Stage block ── */
+.stage-block{margin:18px 0}
+
+/* ── Nav tree ── */
+.tree{font-family:var(--mono);font-size:13px;line-height:1.9;color:var(--muted);background:rgba(10,20,36,.5);border:1px solid var(--rule);border-radius:12px;padding:18px 22px;white-space:pre-wrap}
+.tree b{color:var(--tide1);font-weight:600}
+.tree .root{color:var(--glow);font-weight:600}
+
+/* ── small responsive ── */
+@media(max-width:680px){
+  nav .links{margin-left:0}
+  .moon{width:80px;height:80px;right:30px;top:70px}
+  .dag .node{min-width:64px;font-size:10.5px;padding:7px 8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Atmospheric Background ═══ -->
+<div class="sky"></div>
+<div class="stars" id="stars"></div>
+<div class="moon-glow"></div>
+<div class="moon"></div>
+<svg class="tide-ring" viewBox="0 0 1400 500" preserveAspectRatio="none">
+  <path class="r1" d="M0,260 Q350,180 700,260 T1400,260"/>
+  <path class="r2" d="M0,300 Q350,220 700,300 T1400,300"/>
+  <path class="r3" d="M0,340 Q350,260 700,340 T1400,340"/>
+</svg>
+
+<!-- ═══ Top Nav ═══ -->
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE</span><span class="zh">月汐</span>
+    </div>
+    <div class="links">
+      <a href="#hero">PRD</a>
+      <a href="#ch1">概念设计</a>
+      <a href="#ch3">架构</a>
+      <a href="#ch5">模块详设</a>
+      <a href="#ch5-list">S5-S9</a>
+      <a href="#matrix">追踪矩阵</a>
+    </div>
+    <span class="tag">v1.0</span>
+  </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section id="hero" style="padding-top:90px;padding-bottom:30px">
+  <div class="wrap">
+    <div class="kicker">Lunitide · Product Requirements Document</div>
+    <h1 class="accent-grad">产品需求文档 PRD</h1>
+    <div class="hero-meta">
+      <span class="tag"><b>版本</b> v1.0</span>
+      <span class="tag"><b>状态</b> M0/M1 开发基线</span>
+      <span class="tag"><b>更新</b> 2026-08-09</span>
+      <span class="tag"><b>平台</b> Windows 10/11 x64</span>
+      <span class="tag"><b>架构</b> Go + WebView2 + React/TS</span>
+    </div>
+    <p class="lead">
+      Lunitide 是<b>个人本地优先、BYOK 的 AI 软件生命周期工作台</b>。用户把
+      "想法 → 需求 → 架构 → 设计 → 开发 → 测试 → 部署" 持续交给一个理解项目语义、
+      记得历史、可扩展、能规划且有治理边界的 AI 开发伙伴。
+    </p>
+    <div class="callout">
+      <b>本地优先含义：</b>配置、项目、会话和密钥默认本机持有；使用云模型时，提示词、选定上下文和附件会发送给所选供应商。系统 MUST 在发送前展示数据边界，<b>不承诺"数据完全不出本机"</b>。
+    </div>
+  </div>
+</section>
+
+<!-- ═══ TOC ═══ -->
+<section style="padding-top:20px;padding-bottom:30px">
+  <div class="wrap">
+    <h2 style="font-size:22px">目录</h2>
+    <div class="toc">
+      <a href="#ch1"><div class="n">CH 01</div><div class="t">产品愿景、目标与边界</div></a>
+      <a href="#ch2"><div class="n">CH 02</div><div class="t">统一术语与三轴模型</div></a>
+      <a href="#ch3"><div class="n">CH 03</div><div class="t">信息架构</div></a>
+      <a href="#ch4"><div class="n">CH 04</div><div class="t">端到端主流程</div></a>
+      <a href="#ch5"><div class="n">CH 05</div><div class="t">九阶段详细设计</div></a>
+      <a href="#ch6"><div class="n">CH 06</div><div class="t">横向业务模块规则</div></a>
+      <a href="#matrix"><div class="n">CH 07</div><div class="t">需求追踪矩阵</div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CH1 ═══ -->
+<section id="ch1">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 01</div>
+        <h2>产品愿景、目标与边界</h2>
+      </div>
+    </div>
+
+    <h3>1.1 愿景</h3>
+    <p class="lead">
+      让用户把"<em>想法 → 需求 → 架构 → 设计 → 开发 → 测试 → 部署</em>"持续交给一个
+      <b>理解项目语义、记得历史、可扩展、能规划且有治理边界</b>的 AI 开发伙伴。
+    </p>
+    <div class="note"><b>规范词：</b><b>MUST / 必须</b>为编码与验收不可省略项；<b>MUST NOT / 禁止</b>违反即阻断合并或发布；<b>SHOULD / 应当</b>原则上实现，任何偏离必须提交 ADR；<b>MAY / 可以</b>按里程碑选择。Open / Deferred ADR 未批准前不得由实现者自行固化或扩展范围。</div>
+
+    <h3>1.2 核心价值</h3>
+    <div class="value-grid">
+      <div class="card">
+        <h4>连续理解</h4>
+        <p>跨会话记住已确认事实、决策和偏好，不因重启或断线丢失上下文。</p>
+      </div>
+      <div class="card">
+        <h4>语义一致</h4>
+        <p>所有专家共享项目本体和版本化产物，避免口径分裂。</p>
+      </div>
+      <div class="card">
+        <h4>计划执行</h4>
+        <p>复杂任务转为可恢复 DAG，不靠单轮提示词硬跑。</p>
+      </div>
+      <div class="card">
+        <h4>可控自动化</h4>
+        <p>低风险自动，高风险强制确认并留痕，运行模式仅影响中低风险程度。</p>
+      </div>
+      <div class="card">
+        <h4>资产复用</h4>
+        <p>模板、底座、技能和接口配置可版本化复用，引用锁定不可静默变更。</p>
+      </div>
+      <div class="card">
+        <h4>本地控制</h4>
+        <p>用户掌握密钥、项目存储、外发范围和删除权。</p>
+      </div>
+    </div>
+
+    <h3>1.3 首期产品边界</h3>
+    <div class="card">
+      <h4>首期 MUST 承诺</h4>
+      <ul>
+        <li>单用户 Windows 本地工作台</li>
+        <li>多供应商、多模型 BYOK</li>
+        <li>项目、会话、九阶段、产物与版本基础模型</li>
+        <li>受限 Planning / Governance</li>
+        <li>模板和底座最小闭环</li>
+        <li>诊断、审计、备份和签名升级</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>首期不承诺</h4>
+      <ul>
+        <li>真正多人实时协作</li>
+        <li>无边界全自动生产部署</li>
+        <li>所有编程语言的完整 AST 本体</li>
+        <li>任意第三方技能无审核安装</li>
+        <li>云模型离线可用</li>
+        <li>任意数据库迁移可自动逆向回退</li>
+      </ul>
+    </div>
+
+    <h3>1.4 用户与角色</h3>
+    <p>产品基线是<b>单一自然人用户</b>。系统中的"专家、开发者、审核者"首期为逻辑执行角色，不等同多个登录账户。</p>
+    <table>
+      <thead>
+        <tr><th>角色</th><th>首期形态</th><th>主要职责</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Owner</b></td><td>本机唯一用户</td><td>项目、密钥、策略、审批和发布最终控制</td></tr>
+        <tr><td>Product Expert</td><td>Agent Definition</td><td>需求澄清、PRD、验收标准</td></tr>
+        <tr><td>Architect</td><td>Agent Definition</td><td>架构、接口、NFR、ADR</td></tr>
+        <tr><td>Solution / UI / DB Expert</td><td>Agent Definition</td><td>详细设计产物</td></tr>
+        <tr><td>Development Manager</td><td>Agent Definition</td><td>任务拆解、依赖、分配标签</td></tr>
+        <tr><td>Code / Business Expert</td><td>Agent Definition</td><td>代码与业务逻辑协同</td></tr>
+        <tr><td>Test Expert</td><td>Agent Definition</td><td>测试设计、执行和报告</td></tr>
+        <tr><td>Review Agent</td><td>Agent Definition</td><td>质量审核，<b>不拥有</b>最终高风险批准权</td></tr>
+        <tr><td>Policy Engine</td><td>系统服务</td><td>独立风险判断和强制门禁</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <b>未来协作版 MAY</b> 引入 User、Group、Role、ProjectMembership；授权 MUST 在 Go 后端执行，不能只由前端隐藏数据。
+    </div>
+
+    <h3>1.5 成功指标</h3>
+    <table>
+      <thead>
+        <tr><th>维度</th><th>v1 验收目标</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>安装启动</b></td><td>Win10/11 干净机各 20 次启动，P95 可交互 ≤ 5 秒，0 孤儿进程</td></tr>
+        <tr><td><b>模型连接</b></td><td>OpenAI-compatible、Anthropic 两协议族真实契约测试通过</td></tr>
+        <tr><td><b>密钥安全</b></td><td>除用户正在输入且尚未提交的受控窗口外，已保存 Key 不得返回 Renderer；配置、DB、日志、诊断包、崩溃转储及提交后的稳定内存扫描 0 明文 Key</td></tr>
+        <tr><td><b>阶段追踪</b></td><td>需求 → 产物 → 任务双向追踪覆盖率 100%</td></tr>
+        <tr><td><b>治理</b></td><td>高风险副作用 100% 创建不可绕过 Review</td></tr>
+        <tr><td><b>恢复</b></td><td>崩溃后已提交消息和 checkpoint 不丢；外部副作用不重复执行</td></tr>
+        <tr><td><b>长会话连续性</b></td><td>单会话 MUST 支持按产品固定、版本化 canonical tokenizer 计量的至少 1,000,000 tokens 逻辑上下文；在不同模型窗口下通过可追溯压缩和按需召回连续工作，压缩不得删除原始消息</td></tr>
+        <tr><td><b>模板/底座</b></td><td>引用锁版；被引用删除 100% 拦截；breaking 升级未确认不生效</td></tr>
+        <tr><td><b>安全</b></td><td>SSRF、路径逃逸、命令注入和越权测试集 100% 拦截</td></tr>
+        <tr><td><b>性能</b></td><td>冷启动可交互 P95 ≤5秒、P99 ≤10秒；Engine ready ≤15秒；Bridge 普通本机请求 P95 ≤50ms；正常网络模型首事件 P95 ≤3秒；取消到上游终止 P95 ≤2秒</td></tr>
+        <tr><td><b>规模与稳定性</b></td><td>项目列表 10,000 项虚拟化，普通查询 P95 ≤200ms；24 小时 Agent 压测无无限增长；SQLite integrity/foreign key、备份恢复演练成功率 100%</td></tr>
+        <tr><td><b>可维护性</b></td><td>Domain 关键规则单元测试覆盖率 ≥80%；Bridge、RPC、事件、存储迁移全部版本化；CI 固定 Go/Node 工具链、依赖锁和 SBOM</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ CH2 ═══ -->
+<section id="ch2">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 02</div>
+        <h2>统一术语与三轴模型</h2>
+      </div>
+    </div>
+
+    <h3>2.1 核心术语表</h3>
+    <table>
+      <thead>
+        <tr><th>术语</th><th>统一定义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Workspace</b></td><td>本机用户的数据与策略边界，首期只有一个</td></tr>
+        <tr><td><b>Project</b></td><td>会话、阶段、产物、本体、计划和发布的顶层业务容器</td></tr>
+        <tr><td><b>Stage</b></td><td>九阶段中的一个阶段实例</td></tr>
+        <tr><td><b>Artifact</b></td><td>阶段生成的版本化报告、设计、代码包或测试报告</td></tr>
+        <tr><td><b>Ontology</b></td><td>项目对象与关系组成的可查询语义图，不承诺 O(1) 查询</td></tr>
+        <tr><td><b>Memory</b></td><td>有来源、作用域、可信度、生命周期的可检索记忆</td></tr>
+        <tr><td><b>Logical Context</b></td><td>单会话全部原始消息、摘要版本、工具/文件引用和任务状态组成的可重建上下文；不等于单次模型请求窗口</td></tr>
+        <tr><td><b>Context Handoff</b></td><td>从当前会话生成并导入下一会话的版本化交接包，保留目标、决策、约束、未完成任务、文件符号和来源范围</td></tr>
+        <tr><td><b>Skill</b></td><td>带清单、版本、权限和执行入口的可插拔能力</td></tr>
+        <tr><td><b>Plan</b></td><td>版本化 DAG；节点包含依赖、预算、策略和验收</td></tr>
+        <tr><td><b>Review</b></td><td>对不可变操作摘要的审批记录，不是普通文本确认框</td></tr>
+        <tr><td><b>Template</b></td><td>规定报告样式和章节结构的版本化资产</td></tr>
+        <tr><td><b>Base Asset</b></td><td>UI、DB 或公共代码的版本化基础资产</td></tr>
+        <tr><td><b>Integration</b></td><td>API、MCP、ETL、OData 等外部连接配置</td></tr>
+        <tr><td><b>CR</b></td><td>绑定提交、测试证据和制品摘要的变更请求</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 三轴关系</h3>
+    <p>Lunitide 由三条正交轴构成，它们协同支撑九阶段业务主链产出版本化产物。</p>
+    <div class="card">
+      <h4>轴一 · 五大智能内核</h4>
+      <p>Ontology（语义骨架）、Memory（时间连续性）、Skills（能力库）、Planning（认知循环）、Governance（控制层）。<b>五大内核不是五个阶段</b>。</p>
+    </div>
+    <div class="card">
+      <h4>轴二 · 九阶段业务主链</h4>
+      <p>需求调研 → 架构 → 方案 → UI → 数据库/接口 → 开发 → 测试 → 集成 → CR 发布部署。流程非机械全局串行，依赖产物批准且版本锁定时可并行。</p>
+    </div>
+    <div class="card">
+      <h4>轴三 · 横向平台能力</h4>
+      <p>模型网关、模板、底座、接口、开发任务、测试、CR/部署、审计、诊断。</p>
+    </div>
+
+    <div class="dag">
+      <div class="node purple">五大内核</div>
+      <div class="arrow">→</div>
+      <div class="node active">九阶段主链</div>
+      <div class="arrow">→</div>
+      <div class="node done">版本化产物</div>
+      <div class="arrow">→</div>
+      <div class="node purple">Ontology / Memory</div>
+    </div>
+    <div class="dag">
+      <div class="node">横向平台能力</div>
+      <div class="arrow">↘</div>
+      <div class="node active">九阶段主链</div>
+      <div class="arrow">↙</div>
+      <div class="node">用户目标</div>
+    </div>
+
+    <div class="callout">
+      <b>关键区分：</b>S5–S9 不是简单等同九阶段编号。专项 PRD 是横向或后半程平台模块，九阶段是项目业务流程。
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CH3 ═══ -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 03</div>
+        <h2>信息架构</h2>
+      </div>
+    </div>
+
+    <h3>3.1 启动层与渐进式导航</h3>
+    <div class="card">
+      <p><b>默认启动页 MUST 为新对话</b>，借鉴 ZCODE 的低干扰、对话优先和渐进展开方式，但不复制其品牌与组件外观。默认焦点进入多行输入框；最近会话/项目作为次级内容。</p>
+      <div class="tree"><span class="root">默认侧栏</span>
+├─ 新对话
+├─ 最近会话
+├─ 项目
+├─ 工作区（阶段 / 计划 / 审批）
+├─ 产物（文档 / 代码 / 发布）
+├─ 资源（记忆 / 技能工具 / 模板底座）
+└─ 设置</div>
+      <p>九阶段进度、活动流与上下文详情只在进入项目或任务执行后按需展开；右侧栏默认收起。模型采用已配置默认值，未配置时才显示轻量引导。</p>
+    </div>
+
+    <h3>3.2 完整功能地图（非默认平铺菜单）</h3>
+    <div class="tree"><span class="root">项目</span>
+├─ 项目总览
+├─ 九阶段工作区
+├─ 计划 DAG
+├─ 会话
+├─ 文档与产物
+└─ CR 与发布
+
+<span class="root">能力中心</span>
+├─ <b>项目本体</b>
+├─ <b>记忆中心</b>
+├─ <b>技能中心</b>
+├─ 工具 / MCP
+└─ 治理与待审批
+
+<span class="root">资产中心</span>
+├─ 模板管理
+└─ 底座资产
+
+<span class="root">系统</span>
+├─ 模型供应商与模型
+├─ 接口连接
+├─ 安全与策略
+├─ 日志与诊断
+├─ 备份与恢复
+└─ 更新</div>
+
+    <h3>3.3 对话优先的轻量开发工作台</h3>
+    <div class="card">
+      <p>Lunitide MUST 集成完整的代码开发闭环，但<b>不得复制一套重型 IDE</b>。默认主画布始终是对话；进入开发任务或点击文件、命令、预览、变更对象时，按需展开一个统一工作面板。</p>
+      <ul>
+        <li><b>对话主画布</b>：目标澄清、实现说明、工具结果摘要、审批卡片和下一步动作。</li>
+        <li><b>统一工作面板</b>：文件、代码、终端、浏览器、变更五种互斥视图，支持关闭、轻览和聚焦三种状态。</li>
+        <li><b>按需抽屉</b>：计划、活动、上下文、审批详情；默认收起且不永久压缩对话。</li>
+      </ul>
+    </div>
+    <h4>长上下文、压缩与跨窗口续接</h4>
+    <div class="card">
+      <ul>
+        <li><b>百万 token 是逻辑容量，不是每轮直塞</b>：单会话以固定版本的 canonical tokenizer 计量累计可重建内容，至少支持 1M tokens；每次请求另用当前模型 tokenizer 估算，由 Context Builder 按真实窗口、输出预留、工具预算和任务相关性动态装配。</li>
+        <li><b>自动 + 手动压缩</b>：接近窗口预算时后台生成新摘要版本；用户也可执行“压缩上下文”，预览压缩范围、摘要差异和保留项。压缩失败不得破坏当前可用上下文。</li>
+        <li><b>类 Codex 续接</b>：当前会话可“续接到新对话”，生成 Context Handoff；新对话展示来源、生成时间、覆盖消息范围和待办后再导入，且可返回原会话查证。</li>
+        <li><b>保真与追溯</b>：摘要和 Handoff MUST 结构化保存目标、关键决策及理由、硬约束、未完成任务、文件/符号/版本引用、工具与验证结果、风险和建议下一步；每个事实/状态/决策/约束/任务/证据 claim 均关联叶级来源，建议与推断须显式标型并保存推导来源。</li>
+        <li><b>原文保留</b>：压缩只新增派生版本，MUST NOT 改写或删除源 Message。只有用户显式发起的数据删除/保留期策略才可删除，并使所有摘要、索引和 Handoff 失效或重建。</li>
+      </ul>
+    </div>
+    <p><b>请求预算利用率</b>统一按 <code>requiredTokens / effectiveWindow</code> 计算：<code>effectiveWindow = min(provider context window, input/output limit) - tokenizer safety margin</code>；<code>requiredTokens</code> 包含 system、tool schema、选定上下文、当前输入、最大输出预留和工具续接预留。能力未知时必须采用保守默认值。</p>
+    <table><thead><tr><th>请求预算利用率</th><th>默认动作</th><th>用户感知</th></tr></thead><tbody>
+      <tr><td><b>请求预算 &lt; 70%</b></td><td>近期消息 + 相关历史 + 引用按预算装配</td><td>显示剩余上下文，不打扰</td></tr>
+      <tr><td><b>70%–85%</b></td><td>预生成增量摘要、外置大工具输出、保留输出预算</td><td>轻量提示“正在整理上下文”</td></tr>
+      <tr><td><b>85%–95%</b></td><td>启用已校验摘要替换较老片段；可手动预览/重做</td><td>显示压缩版本与可追溯入口</td></tr>
+      <tr><td><b>≥ 95%</b></td><td>完成压缩并重新预算后再调用；仍超预算则返回 CONTEXT_BUDGET_EXCEEDED 并建议续接新对话</td><td>不得用静默截断或越窗请求冒充成功</td></tr>
+    </tbody></table>
+    <div class="callout"><b>容量与分页解耦：</b>消息列表单次 RPC/API 的 pageSize、payload 字节上限仅保护传输和渲染，不得实现成单会话消息数或 token 总上限；历史使用稳定 cursor 按 message.sequence 分页。</div>
+    <table><thead><tr><th>视图</th><th>内置能力</th><th>明确边界</th></tr></thead><tbody>
+      <tr><td><b>文件</b></td><td>任务相关文件、轻量目录树、搜索、加入上下文</td><td>不默认递归展开整个仓库</td></tr>
+      <tr><td><b>代码</b></td><td>语法高亮、单文件轻编辑、选区解释/修改、诊断、inline diff</td><td>不自建完整 LSP、调试器和插件生态</td></tr>
+      <tr><td><b>终端</b></td><td>Agent 命令与用户终端、流式输出、停止、重跑、解释错误</td><td>任意 shell 不直接暴露给 Renderer</td></tr>
+      <tr><td><b>浏览器</b></td><td>本地预览、导航、视口、截图、控制台/请求错误摘要</td><td>不复制完整 DevTools</td></tr>
+      <tr><td><b>变更</b></td><td>逐文件 diff、接受/撤销、增删行统计、任务与来源追踪</td><td>提交、push、发布是独立风险动作</td></tr>
+    </tbody></table>
+    <div class="callout"><b>外部编辑器协作：</b>首期支持将项目、文件、行列和 Diff 定位到 Visual Studio Code；后续通过 EditorAdapter 扩展其他编辑器。月汐保有任务、策略、工具运行和变更证据的权威状态。</div>
+    <div class="warn"><b>模式语义：</b>“协作 / 代码”不是两个割裂产品。切换只改变默认工具集、上下文预算和面板建议，不丢失会话、任务、计划或审批状态。</div>
+
+    <h3>3.4 开发交互与权限分级</h3>
+    <div class="card"><ol>
+      <li>用户从对话描述任务，系统绑定项目、阶段、DevTask、来源产物与工作区根目录。</li>
+      <li>Agent 先读取相关文件并提出计划；文件写入前创建 checkpoint，变更进入 ChangeSet。</li>
+      <li>命令、测试和浏览器验证以流式卡片回到对话，完整输出留在工作面板。</li>
+      <li>用户逐文件审查；应用到工作区不等于 commit，commit 不等于 push。</li>
+      <li>结果绑定 CodeChange、TestRun、ScanRun 和 TraceLink，满足门禁后进入 review/test。</li>
+    </ol></div>
+    <table><thead><tr><th>能力</th><th>默认策略</th><th>示例</th></tr></thead><tbody>
+      <tr><td>只读</td><td>工作区内自动放行并审计</td><td>列目录、读文件、搜索、Git status</td></tr>
+      <tr><td>可回退写入</td><td>限定工作区 + checkpoint；按项目策略自动或确认</td><td>新增/修改源码、格式化</td></tr>
+      <tr><td>本地执行</td><td>命令规格/参数白名单；资源和时限约束</td><td>lint、test、build、dev server</td></tr>
+      <tr><td>敏感副作用</td><td>必须审批</td><td>工作区外写入、安装依赖、联网命令、删除、Git push</td></tr>
+      <tr><td>高风险外部动作</td><td>强确认 + 参数哈希 + 过期</td><td>发布、部署、凭据使用、生产数据操作</td></tr>
+    </tbody></table>
+
+    <h3>3.5 基础设置</h3>
+    <div class="card">
+      <p>低频系统能力不得常驻侧栏，统一收进设置：</p>
+      <ul>
+        <li><b>常规</b>：启动页（默认新对话）、语言、自动保存、最近项目数量</li>
+        <li><b>外观</b>：黑色星空主题、界面密度、字号/代码字体、星闪与减少动态效果</li>
+        <li><b>对话与模型</b>：默认 Provider/模型、上下文策略、流式输出、自动/Work/Code</li>
+        <li><b>项目</b>：默认目录、索引忽略、文件监视与 Git 行为</li>
+        <li><b>连接</b>：Provider、接口、MCP 与代理；凭据采用独立安全对话框覆盖式更新</li>
+        <li><b>安全与审批</b>：外发边界、风险策略、通知和数据保留</li>
+        <li><b>数据</b>：记忆、导入导出、备份恢复与缓存</li>
+        <li><b>快捷键 / 通知 / 诊断与更新 / 关于</b></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CH4 ═══ -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 04</div>
+        <h2>端到端主流程</h2>
+      </div>
+    </div>
+
+    <h3>4.1 九阶段业务主链</h3>
+    <div class="stage">
+      <div class="dag">
+        <div class="node done">1 需求调研</div>
+        <div class="arrow">→</div>
+        <div class="node active">2 架构</div>
+        <div class="arrow">→</div>
+        <div class="node active">3 方案</div>
+        <div class="arrow">→</div>
+        <div class="node">4 UI</div>
+        <div class="arrow">→</div>
+        <div class="node">5 DB/接口</div>
+        <div class="arrow">→</div>
+        <div class="node">6 开发</div>
+      </div>
+      <div class="dag">
+        <div class="node">6 开发</div>
+        <div class="arrow">→</div>
+        <div class="node">7 系统测试</div>
+        <div class="arrow">→</div>
+        <div class="node">8 集成验收</div>
+        <div class="arrow">→</div>
+        <div class="node purple">9 CR 发布部署</div>
+      </div>
+      <div class="dag" style="gap:18px;margin-top:8px">
+        <div class="node purple">底座设计</div>
+        <div class="arrow">↘ 架构批准后并行释放 ↙</div>
+        <div class="node">S4 / S5 / S6</div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>并行与依赖：</b>每个阶段输入固定为 <code>StageInputSnapshot</code>；当依赖产物批准且版本锁定时节点可并行。上游已批准产物发生修订时，影响分析 MUST 将下游相关项标记为 <code>stale</code>，<b>禁止静默替换输入</b>。
+    </div>
+
+    <h3>4.2 单次智能任务循环</h3>
+    <div class="stage">
+      <div class="dag">
+        <div class="node">用户任务</div>
+        <div class="arrow">→</div>
+        <div class="node">加载作用域上下文</div>
+        <div class="arrow">→</div>
+        <div class="node active">Skill 匹配</div>
+        <div class="arrow">→</div>
+        <div class="node active">Planner 生成 DAG</div>
+      </div>
+      <div class="dag">
+        <div class="node active">Orchestrator 选 Ready 节点</div>
+        <div class="arrow">→</div>
+        <div class="node purple">Policy 风险评估</div>
+      </div>
+      <div class="dag">
+        <div class="node purple">Policy</div>
+        <div class="arrow">低风险 →</div>
+        <div class="node done">执行模型/工具</div>
+      </div>
+      <div class="dag">
+        <div class="node purple">Policy</div>
+        <div class="arrow">高风险 →</div>
+        <div class="node">Review 等待用户</div>
+        <div class="arrow">批准且摘要未变 →</div>
+        <div class="node done">执行</div>
+      </div>
+      <div class="dag">
+        <div class="node done">执行</div>
+        <div class="arrow">→</div>
+        <div class="node active">Review Agent 验证</div>
+        <div class="arrow">通过 →</div>
+        <div class="node done">事务持久化</div>
+        <div class="arrow">→</div>
+        <div class="node purple">写入记忆与本体</div>
+      </div>
+    </div>
+
+    <div class="warn">
+      <b>技能命中 ≠ 自动执行：</b>"技能命中"只表示选择候选技能，<b>绝不等于</b>绕过 Policy 自动执行。Review 被拒绝或过期时进入暂停或取消。
+    </div>
+
+    <h3>4.3 阶段状态说明</h3>
+    <div class="card">
+      <p><b>主状态机：</b></p>
+      <div class="dag">
+        <div class="node">not_started</div>
+        <div class="arrow">→</div>
+        <div class="node active">in_progress</div>
+        <div class="arrow">→</div>
+        <div class="node">waiting_review</div>
+        <div class="arrow">→</div>
+        <div class="node done">approved</div>
+        <div class="arrow">→</div>
+        <div class="node done">completed</div>
+      </div>
+      <p><b>异常状态：</b><code>rejected</code>、<code>stale</code>、<code>paused</code>、<code>blocked</code>、<code>cancelled</code>。</p>
+      <ul>
+        <li><b>approved</b>：产物经复核可供下游固定引用</li>
+        <li><b>completed</b>：阶段所有必需产物和退出条件完成</li>
+        <li>上游版本变化可令下游从 approved/completed 转为 <code>stale</code>，但<b>不得删除旧快照</b></li>
+        <li><b>blocked</b> 恢复后回到原执行状态</li>
+        <li><b>cancelled</b> 不可直接恢复，需创建新 StageRun</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CH5 ═══ -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 05</div>
+        <h2 id="ch5-list">九阶段详细设计</h2>
+      </div>
+    </div>
+
+    <div class="pipeline">
+      <div class="pp done"><div class="n">1</div><div class="l">需求</div></div>
+      <div class="pp done"><div class="n">2</div><div class="l">架构</div></div>
+      <div class="pp run"><div class="n">3</div><div class="l">方案</div></div>
+      <div class="pp"><div class="n">4</div><div class="l">UI</div></div>
+      <div class="pp"><div class="n">5</div><div class="l">DB/接口</div></div>
+      <div class="pp"><div class="n">6</div><div class="l">开发</div></div>
+      <div class="pp"><div class="n">7</div><div class="l">测试</div></div>
+      <div class="pp"><div class="n">8</div><div class="l">集成</div></div>
+      <div class="pp"><div class="n">9</div><div class="l">发布</div></div>
+    </div>
+
+    <h3>5.2 阶段一：需求调研与产品定义</h3>
+    <table>
+      <thead><tr><th>项</th><th>定义</th></tr></thead>
+      <tbody>
+        <tr><td><b>输入</b></td><td>用户描述、上传资料、现状系统证据、约束</td></tr>
+        <tr><td><b>角色</b></td><td>行业专家、产品设计专家</td></tr>
+        <tr><td><b>活动</b></td><td>需求澄清、用户旅程、范围、术语、风险、验收</td></tr>
+        <tr><td><b>必需产物</b></td><td>调研评估报告、PRD、需求清单、验收基线</td></tr>
+        <tr><td><b>准出</b></td><td>需求项有唯一 ID、优先级、验收方法和来源</td></tr>
+        <tr><td><b>异常</b></td><td>信息不足时 <code>blocked</code>，不得编造业务事实</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.3 阶段二：系统架构</h3>
+    <table>
+      <thead><tr><th>项</th><th>定义</th></tr></thead>
+      <tbody>
+        <tr><td><b>输入</b></td><td>阶段一批准版本</td></tr>
+        <tr><td><b>角色</b></td><td>系统架构师、安全架构角色</td></tr>
+        <tr><td><b>活动</b></td><td>分层、边界、NFR、数据、部署、ADR、威胁建模</td></tr>
+        <tr><td><b>必需产物</b></td><td>架构设计、ADR、组件图、数据域、安全基线</td></tr>
+        <tr><td><b>并行释放</b></td><td>批准后可启动模板/底座设计</td></tr>
+        <tr><td><b>准出</b></td><td>所有重大技术决策明确或列入阻断 ADR</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.4 阶段三：方案详细设计</h3>
+    <table>
+      <thead><tr><th>项</th><th>定义</th></tr></thead>
+      <tbody>
+        <tr><td><b>输入</b></td><td>PRD、架构、底座候选版本</td></tr>
+        <tr><td><b>角色</b></td><td>方案设计专家</td></tr>
+        <tr><td><b>活动</b></td><td>按业务场景拆模块、接口、规则、状态和异常</td></tr>
+        <tr><td><b>产物</b></td><td>模块方案、场景清单、接口需求、追踪矩阵</td></tr>
+        <tr><td><b>准出</b></td><td>每份方案文档独立复核；批准后按文档粒度释放下游</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.5 阶段四：UI / 交互设计</h3>
+    <div class="card">
+      <p><b>输入：</b>批准的模块方案与 UI 底座锁定版本。</p>
+      <p><b>产物 MUST 包括：</b>导航、页面状态、空/错/加载态、键盘与可访问性、组件契约及设计 Token。</p>
+      <div class="warn"><b>仅有静态 Mockup 不算完成。</b></div>
+    </div>
+
+    <h3>5.6 阶段五：数据库与系统接口设计</h3>
+    <div class="card">
+      <p><b>输入：</b>批准的方案和架构。</p>
+      <p><b>统一交付单元：</b><code>连接配置 + DatabaseContract（数据库结构契约）+ MigrationPackage（迁移包）</code>。月汐负责连接、结构只读检查、映射、测试与迁移编排，<b>不建设完整 DB IDE</b>，不提供通用 SQL 工作台、数据编辑器或数据库管理控制台。</p>
+      <p><b>连接器范围：</b>API、MCP、FAST 自定义接口、SAP RFC、Database Connector 与 OData。连接器由 <b>Connector Registry</b> 注册并提供动态 schema/UI；接口清单及详情必须展示输入/输出方向、字段映射、脱敏后的连接测试与调用日志。</p>
+      <ul>
+        <li>每个项目至少绑定 <b>development + production</b> 两套环境，test 环境可选；凭据只保存引用，环境间不得复用明文。</li>
+        <li><code>DatabaseContract</code> 只读采集并比对表、字段、类型、主键、索引与约束；结构变更只能进入受审查的迁移包执行。</li>
+        <li>产物包括 ERD、数据字典、接口契约、方向/字段映射、DatabaseContract 与 MigrationPackage。</li>
+      </ul>
+      <div class="note">
+        <b>修正：</b>OData 是基于 HTTP 的标准数据服务协议。若需要数据库直连，应独立命名为 <b>Database Connector</b>；不得将连接串直连错误称为 OData。
+      </div>
+    </div>
+
+    <h3>5.7 阶段六：开发任务与实现</h3>
+    <div class="card">
+      <p>开发管理专家基于需求、方案、UI、DB、接口产物生成任务。每个任务 MUST：</p>
+      <ul>
+        <li>有来源链接和验收条件</li>
+        <li>有依赖 DAG、影响范围和风险级别</li>
+        <li>有负责逻辑角色</li>
+        <li>绑定代码变更、测试与扫描结果</li>
+        <li>重生成任务时保护人工状态和已提交结果</li>
+      </ul>
+      <div class="warn">
+        <b>禁止：</b>任务不得因调整"开发人数标签"而重新分配进行中或已完成项，除非用户显式确认。
+      </div>
+    </div>
+
+    <h3>5.8 阶段七：系统测试</h3>
+    <div class="card">
+      <p>覆盖<b>单元、组件、集成、安全、迁移、性能和恢复测试</b>。</p>
+      <ul>
+        <li>High/Critical 扫描发现未关闭时 MUST 阻断</li>
+        <li>测试报告 MUST 绑定代码提交、依赖锁和规则版本</li>
+      </ul>
+    </div>
+
+    <h3>5.9 阶段八：业务集成与验收</h3>
+    <div class="card">
+      <p>按阶段三业务场景逐一验收端到端流程。</p>
+      <p><b>进入阶段九的前置条件：</b></p>
+      <ul>
+        <li>所有必需场景通过</li>
+        <li>遗留问题有批准的风险接受</li>
+        <li>追踪矩阵无孤儿项</li>
+      </ul>
+    </div>
+
+    <h3>5.10 阶段九：CR、发布与部署</h3>
+    <div class="card">
+      <p><b>CR MUST 绑定：</b></p>
+      <ul>
+        <li>Git commit</li>
+        <li>依赖 CR DAG</li>
+        <li>测试证据</li>
+        <li>制品 SHA-256</li>
+        <li>版本、目标环境和回退策略</li>
+      </ul>
+      <p><b>环境晋级与不可变包：</b>同一个 <code>ReleasePackage</code> 同时包含代码制品与 <code>MigrationPackage</code>，按 development → test（可选）→ production 晋级；各环境使用同一 package digest，禁止按环境重打包。</p>
+      <p><b>发布编排：</b><code>PromotionOrchestrator</code> 固化门禁快照，按“只读契约预检 → 恢复点 → 向前兼容迁移 → 迁移后重扫 → 代码部署 → 健康与契约复核”顺序执行；这是一项代码与数据库绑定的发布事务，不是两者无序并行。数据库演进默认采用 <b>Expand → Migrate → Contract</b>，Contract 仅在旧版本已退出且兼容门禁通过后独立执行。</p>
+      <p><b>并发安全：</b>v1 仅处理本机 Owner、Agent、VS Code 与文件监视器之间的编辑来源提示；所有修改携带 base hash/version，冲突采用三方合并，禁止长锁与 last-write-wins。短租约仅用于发布包冻结和环境导入，必须有 holder、TTL、续租与过期恢复。远端多人 Presence、身份与职责分离属于 ADR-011 Deferred。</p>
+      <div class="warn">
+        <b>变更失效：</b>审批后任一绑定内容改变，CR 自动进入 <code>changed_after_approval</code> 并重新审批。
+      </div>
+      <div class="note">
+        <b>双领域隔离：</b>"Lunitide 自身更新"和"Lunitide 管理的用户项目部署"是两个独立领域，<b>不共用</b>含糊的版本/回滚承诺。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CH6 ═══ -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 06</div>
+        <h2>横向业务模块规则</h2>
+      </div>
+    </div>
+
+    <h3>6.1 模板管理</h3>
+    <div class="card">
+      <h4>状态机</h4>
+      <div class="dag">
+        <div class="node">draft</div>
+        <div class="arrow">→</div>
+        <div class="node active">enabled</div>
+        <div class="arrow">→</div>
+        <div class="node">disabled</div>
+        <div class="arrow">→</div>
+        <div class="node purple">void</div>
+      </div>
+      <p><b>模板版本独立状态：</b><code>draft → published → deprecated</code>。</p>
+      <h4>规则</h4>
+      <ul>
+        <li>上传默认保存草稿，<b>不"上传即启用"</b></li>
+        <li>同一 report_type 同一 scope 最多一个默认模板</li>
+        <li>未配置、未选择或解析失败时 MUST 使用内建默认模板生成</li>
+        <li>产物记录确切 <code>template_version_id</code></li>
+        <li>已被引用的模板/版本<b>禁止物理删除</b></li>
+        <li>void 后禁止新引用，但历史引用可重现</li>
+      </ul>
+    </div>
+
+    <h3>6.2 底座复用</h3>
+    <div class="card">
+      <h4>底座种类</h4>
+      <div class="dag">
+        <div class="node">UI</div>
+        <div class="node">Database</div>
+        <div class="node">Common Code</div>
+      </div>
+      <ul>
+        <li>项目通过 <code>BaseRef</code> 锁定具体版本</li>
+        <li>业务 overlay 与底座内容分离</li>
+        <li>上游发布新版本<b>不得静默影响项目</b></li>
+        <li>breaking 升级 MUST 展示差异和兼容性报告并显式确认</li>
+      </ul>
+    </div>
+
+    <h3>6.3 接口统一管理</h3>
+    <table>
+      <thead><tr><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><b>API</b></td><td>HTTP 请求、认证、OpenAPI 导入、响应映射</td></tr>
+        <tr><td><b>MCP</b></td><td>stdio、Streamable HTTP/SSE（按支持版本）</td></tr>
+        <tr><td><b>ETL</b></td><td>源、目标、水位、映射、批次、重试、删除捕获</td></tr>
+        <tr><td><b>OData</b></td><td>OData v4 HTTP service endpoint、entity set、query options</td></tr>
+        <tr><td><b>Database Connector</b></td><td>若确有数据库直连需求，独立类型，<b>默认只读</b></td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <b>凭据：</b>仅存引用，不存明文。健康状态不得只依赖最后一次结果，应由滑动窗口计算 <code>unknown / healthy / degraded / unhealthy / paused</code>。
+    </div>
+
+    <h3>6.4 开发任务</h3>
+    <div class="card">
+      <h4>任务状态</h4>
+      <div class="dag" style="gap:8px">
+        <div class="node">todo</div>
+        <div class="arrow">→</div>
+        <div class="node active">in_progress</div>
+        <div class="arrow">→</div>
+        <div class="node">waiting_review</div>
+      </div>
+      <div class="dag" style="gap:8px">
+        <div class="node">changes_requested</div>
+        <div class="node">security_blocked</div>
+        <div class="node">ready_for_test</div>
+        <div class="node done">completed</div>
+        <div class="node purple">cancelled</div>
+      </div>
+      <ul>
+        <li>需求 → 设计 → 任务 → 代码 → 测试 MUST <b>双向可追踪</b></li>
+        <li>自检、SAST、SCA、secret scan 输出<b>不可变证据</b></li>
+        <li>高危发现<b>不得由 Agent 自行豁免</b></li>
+      </ul>
+    </div>
+
+    <h3>6.5 Review 与全托管</h3>
+    <div class="callout">
+      运行模式只影响<b>低/中风险</b>自动化程度。以下操作即使全托管也 MUST 确认：
+    </div>
+    <table>
+      <thead><tr><th>强制确认操作</th><th>风险类别</th></tr></thead>
+      <tbody>
+        <tr><td>push、发布、生产部署</td><td>外部副作用</td></tr>
+        <tr><td>破坏性数据库或文件操作</td><td>数据不可逆</td></tr>
+        <tr><td>凭据导出、跨域发送敏感数据</td><td>密钥泄露</td></tr>
+        <tr><td>执行未信任代码或扩大技能权限</td><td>权限提升</td></tr>
+        <tr><td>修改安全策略、审计或更新信任根</td><td>治理绕过</td></tr>
+      </tbody>
+    </table>
+    <div class="card">
+      <h4>Review 绑定内容</h4>
+      <p>操作类型、规范化参数哈希、目标资源、计划版本、策略版本、风险、过期时间。</p>
+      <ul>
+        <li>参数变化后<b>旧批准失效</b></li>
+        <li>超时默认<b>保持暂停或拒绝</b>，绝不自动执行</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CH7 ═══ -->
+<section id="matrix">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <div class="num">CHAPTER 07</div>
+        <h2>需求追踪矩阵</h2>
+      </div>
+    </div>
+    <p class="lead">下表建立核心需求项 → 阶段 → 横向模块 → 验收指标的端到端追踪关系，确保无孤儿项。</p>
+    <table>
+      <thead>
+        <tr>
+          <th>需求 ID</th>
+          <th>需求项</th>
+          <th>所属阶段</th>
+          <th>横向模块</th>
+          <th>验收指标</th>
+          <th>优先级</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><b>R-01</b></td><td>多供应商 BYOK 模型连接</td><td>S2 架构</td><td>模型网关</td><td>两协议族契约测试通过</td><td>P0</td></tr>
+        <tr><td><b>R-02</b></td><td>密钥不出 Renderer</td><td>S2 架构</td><td>安全与策略</td><td>0 明文 Key 扫描</td><td>P0</td></tr>
+        <tr><td><b>R-03</b></td><td>需求唯一 ID 与验收</td><td>S1 需求</td><td>—</td><td>需求项追踪 100%</td><td>P0</td></tr>
+        <tr><td><b>R-04</b></td><td>架构 ADR 阻断清单</td><td>S2 架构</td><td>—</td><td>重大决策 100% 明确</td><td>P0</td></tr>
+        <tr><td><b>R-05</b></td><td>方案文档粒度释放</td><td>S3 方案</td><td>—</td><td>每文档独立复核</td><td>P1</td></tr>
+        <tr><td><b>R-06</b></td><td>UI 空错加载态</td><td>S4 UI</td><td>底座 UI</td><td>静态 Mockup 不算完成</td><td>P1</td></tr>
+        <tr><td><b>R-07</b></td><td>ERD/DDL/迁移/数据字典</td><td>S5 DB/接口</td><td>底座 DB</td><td>契约完整</td><td>P1</td></tr>
+        <tr><td><b>R-08</b></td><td>OData 与 DB Connector 分离</td><td>S5 DB/接口</td><td>接口统一管理</td><td>命名规范校验</td><td>P1</td></tr>
+        <tr><td><b>R-09</b></td><td>任务依赖 DAG 与来源</td><td>S6 开发</td><td>开发任务</td><td>双向追踪 100%</td><td>P0</td></tr>
+        <tr><td><b>R-10</b></td><td>扫描证据不可变</td><td>S6 开发</td><td>开发任务</td><td>High/Critical 阻断</td><td>P0</td></tr>
+        <tr><td><b>R-11</b></td><td>系统测试全覆盖</td><td>S7 测试</td><td>测试</td><td>报告绑定提交/锁/规则</td><td>P1</td></tr>
+        <tr><td><b>R-12</b></td><td>业务场景端到端验收</td><td>S8 集成</td><td>—</td><td>无孤儿追踪项</td><td>P1</td></tr>
+        <tr><td><b>R-13</b></td><td>CR 绑定完整性</td><td>S9 发布</td><td>CR/部署</td><td>变更自动重审</td><td>P0</td></tr>
+        <tr><td><b>R-14</b></td><td>模板引用锁版</td><td>横向</td><td>模板管理</td><td>被引用删除 100% 拦截</td><td>P1</td></tr>
+        <tr><td><b>R-15</b></td><td>底座 breaking 升级确认</td><td>横向</td><td>底座复用</td><td>未确认不生效</td><td>P1</td></tr>
+        <tr><td><b>R-16</b></td><td>接口健康滑动窗口</td><td>横向</td><td>接口统一管理</td><td>不依赖单次结果</td><td>P1</td></tr>
+        <tr><td><b>R-17</b></td><td>高风险强制 Review</td><td>横向</td><td>Review/治理</td><td>100% 不可绕过</td><td>P0</td></tr>
+        <tr><td><b>R-18</b></td><td>崩溃恢复不丢消息</td><td>横向</td><td>诊断/备份</td><td>外部副作用不重复</td><td>P0</td></tr>
+        <tr><td><b>R-19</b></td><td>SSRF/路径逃逸/注入拦截</td><td>横向</td><td>安全与策略</td><td>测试集 100% 拦截</td><td>P0</td></tr>
+        <tr><td><b>R-20</b></td><td>安装启动性能</td><td>横向</td><td>系统</td><td>P95 ≤ 5s，0 孤儿</td><td>P0</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ Footer ═══ -->
+<section id="delivery-baseline">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="num">DELIVERY BASELINE</div><h2>实施里程碑与开发准入</h2></div><span class="tag">M0–M6 · 权威范围</span></div>
+    <div class="warn"><b>命名裁决：</b>产品实施阶段统一称 <b>Milestone M0–M6</b>；DevTask 的紧急度继续使用 <b>priority P0–P3</b>。文档中的旧“P0/P1 开发基线”解释为 M0/M1，不得与任务优先级混用。</div>
+    <table><thead><tr><th>里程碑</th><th>参考工期</th><th>纵向交付范围</th><th>退出门禁</th></tr></thead><tbody>
+      <tr><td><b>M0 架构与 POC</b></td><td>2–3周</td><td>Go WebView2 Host、React 受信 origin、Named Pipe、DPAPI、SQLite migration、签名安装/更新 POC</td><td>关键风险有可运行 POC、基准和 ADR</td></tr>
+      <tr><td><b>M1 Go 模型底座迁移</b></td><td>3–5周</td><td>Provider/Model/BYOK、两协议族、流式 Chat、取消、诊断、原型配置与密钥安全迁移</td><td>第一条 Provider→Secret→真实调用→流式 UI→审计纵向切片通过</td></tr>
+      <tr><td><b>M2 项目与会话</b></td><td>4–6周</td><td>Project/Session/Message、1M 逻辑上下文、分页、压缩/Handoff、基础备份恢复</td><td>长会话 corpus、重启恢复、删除传播通过</td></tr>
+      <tr><td><b>M3 九阶段与产物</b></td><td>5–8周</td><td>StageDefinition、StageRun、Artifact、版本快照、stale 传播、需求追踪</td><td>九阶段最小闭环及双向追踪 100%</td></tr>
+      <tr><td><b>M4 智能内核与受控工具</b></td><td>8–12周</td><td>Planning/Governance、签名内建工具、Memory/Skill 最小闭环；向量/语言解析受 ADR-005/006</td><td>Policy/Review/幂等/恢复/安全 POC 通过</td></tr>
+      <tr><td><b>M5 数据、接口与开发工作台</b></td><td>8–12周</td><td>五视图、HTTP/OpenAPI consumer 子集、数据库只读契约、版本迁移包；高成本 Connector 按 ADR 后置</td><td>工作区→变更集→测试证据→审批闭环</td></tr>
+      <tr><td><b>M6 CR、部署与发行</b></td><td>8–12周</td><td>CRRevision、ReleasePackage、Promotion、应用签名升级；用户项目执行器受 ADR-010</td><td>干净机、恢复、签名、同 digest 晋级门禁</td></tr>
+      <tr><td><b>未来协作版</b></td><td>独立立项</td><td>User/Group/Role、Presence 传输、实时协作、N-of-M 与职责分离</td><td>ADR-011 从 Deferred 转 Accepted</td></tr>
+    </tbody></table>
+    <h3>Definition of Ready · 进入实现前全部满足</h3>
+    <ul><li>需求有唯一 ID、价值、范围、优先级、验收方法和来源；明确 in/out of scope。</li><li>影响的实体、接口、状态机、事件、失败场景、数据分类与外发边界已定义；依赖 schema/ADR 已批准。</li><li>上游 Artifact/StageInputSnapshot 已批准并锁版；测试数据、迁移、恢复与安全用例已准备。</li><li>功能已分配唯一 Milestone；Open ADR 或未通过 POC 的能力不得进入当前实现。</li></ul>
+    <h3>Definition of Done · 完成时全部满足</h3>
+    <ul><li>代码、测试、文档、schema 和迁移同时提交；生成 Go/TypeScript SDK，无手写重复 DTO。</li><li>状态机、错误码、审计事件、幂等/并发、可观测性、诊断、回退/恢复均实现并测试。</li><li>格式、lint、unit、contract、race、SAST/SCA、secret scan、E2E、故障注入和追踪矩阵通过。</li><li>任何偏离 SHOULD 的项有 ADR；无 TODO/TBD；所有 UI 操作可追溯到 capability、RPC、Engine handler、Policy 和验收。</li></ul>
+    <h3>M0/M1 Coding 启动清单 · 项目级一次性门禁</h3>
+    <ul class="checklist"><li>ADR-001/002/003/004/007/008 已批准并确认当前基线；Open/Deferred ADR 的阻断范围已登记。</li><li>Go monorepo 与 CI 已建立；固定 Go/Node 工具链、依赖锁、格式/lint/unit/contract/race/SAST/SCA/secret scan、SBOM。</li><li>WebView2 Host、受信 virtual origin、Host↔Engine 认证 Named Pipe、DPAPI、SQLite migration 和签名安装/更新 POC 已通过。</li><li>Bridge v1 JSON Schema、Provider/Model/Secret 数据模型、迁移 registry、审计 registry、错误码 registry 与威胁模型/安全回归 corpus 已冻结并进入代码库。</li><li>已采集 Electron/Python 原型的安装体积、冷/热启动、稳态/峰值内存和孤儿进程基线，供 Go/WebView2 POC 对比；不得用估计值代替测量。</li></ul>
+    <h3>M1 第一条纵向切片 · 固定验收序列</h3>
+    <ol><li>Renderer 通过生成 SDK 调用 <code>provider.list</code>。</li><li>Host 校验 CoreWebView2/source/frame/document nonce/schema/deadline 后，经认证 Named Pipe 转发。</li><li>Engine 从 SQLite 查询脱敏 Provider，并返回生成的类型化响应。</li><li>新增/覆盖 Key 只经一次性 Bridge 输入窗口进入 Host SecretService，以 DPAPI 保存；已保存 Key 不回 Renderer。</li><li>Go ModelGateway 对目标 Provider 执行真实连接测试与可取消流式调用。</li><li>UI 展示 <code>status / stage / httpStatus / latencyMs / errorCode / sanitizedMessage / correlationId</code>，不得展示 Key 或未脱敏上游正文。</li><li>全链路产生 trace、append-only 审计与脱敏结构化日志，并通过非法 origin/schema、SSRF、Key canary 和取消测试。</li><li>unit、contract、UI E2E、integration、security 与故障测试全部通过。</li><li>使用 M1 迁移契约从 0.2.1 原型迁移一个 DeepSeek Provider 配置与模型列表；Key 成功迁移或明确进入 <code>requires_reentry</code>，随后真实测试通过。</li></ol>
+    <div class="warn"><b>禁止开工方式：</b>禁止先复制 Python 业务到 Go 而不定义领域端口；禁止保留 Electron 作为正式壳；禁止 React 直连 SQLite/模型/密钥；禁止先做全量九阶段 UI 再补状态和数据；禁止把 Open ADR 隐式固化；禁止用单一 happy path 演示代替故障、安全和恢复验收。</div>
+  </div>
+</section>
+
+<footer>
+  <div class="inner">
+    <div class="logo">
+      <div class="moon-logo sm"></div>
+      <span>LUNITIDE</span><span class="zh" style="color:var(--glow);margin-left:2px;font-family:var(--serif)">月汐</span>
+    </div>
+    <p>产品需求文档 PRD · v1.0 · M0/M1 开发基线 · 更新 2026-08-09</p>
+    <p>Go Core + WebView2 Host + React/TypeScript · Windows 10/11 x64</p>
+  </div>
+</footer>
+
+<!-- ═══ Stars generator ═══ -->
+<script>
+(function(){
+  var s=document.getElementById('stars');if(!s)return;
+  for(var i=0;i<80;i++){
+    var st=document.createElement('i');
+    st.style.left=Math.random()*100+'%';
+    st.style.top=Math.random()*100+'%';
+    var sz=Math.random()*2+0.5;
+    st.style.width=sz+'px';st.style.height=sz+'px';
+    st.style.animationDelay=Math.random()*4+'s';
+    s.appendChild(st);
+  }
+})();
+</script>
+
+</body>
+</html>
