@@ -4,7 +4,7 @@
   "title": "migration.inspect payload",
   "x-method": "migration.inspect",
   "x-owner": "engine",
-  "x-enabled": false,
+  "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

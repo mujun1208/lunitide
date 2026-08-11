@@ -4,7 +4,7 @@
   "title": "migration.status payload",
   "x-method": "migration.status",
   "x-owner": "engine",
-  "x-enabled": false,
+  "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

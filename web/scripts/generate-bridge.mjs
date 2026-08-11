@@ -52,6 +52,7 @@ const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 &
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
 assert(JSON.stringify(enabled) === JSON.stringify([
   'chat.start',
+  'diagnostics.export',
   'memory.create',
   'memory.delete',
   'memory.get',
@@ -60,6 +61,9 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'memory.update',
   'message.append',
   'message.list',
+  'migration.inspect',
+  'migration.run',
+  'migration.status',
   'node.complete',
   'node.create',
   'node.fail',

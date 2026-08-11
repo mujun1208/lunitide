@@ -4,7 +4,7 @@
   "title": "migration.run payload",
   "x-method": "migration.run",
   "x-owner": "engine",
-  "x-enabled": false,
+  "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {
