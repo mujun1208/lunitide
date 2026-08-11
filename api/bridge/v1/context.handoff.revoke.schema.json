@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/context.handoff.revoke.schema.json",
+  "title": "context.handoff.revoke payload",
+  "x-method": "context.handoff.revoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "capsuleId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["capsuleId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "capsuleId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["revoked"]
+      },
+      "revoked": {
+        "type": "boolean"
+      }
+    },
+    "required": ["capsuleId", "status", "revoked"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "capsuleId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

@@ -122,6 +122,31 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		}
 
+		// Handoff capsules: provenance-linked summaries from other sessions,
+		// imported as untrusted prior context (ADR-005 §5). Each active
+		// capsule's source checkpoint summary is injected at checkpoint
+		// authority but tagged with handoff provenance. Capsules whose source
+		// checkpoint was deleted (deletion propagation) are skipped
+		// fail-closed: their stale summary is never injected.
+		capsuleContexts, _ := e.ListImportedHandoffCapsuleContexts(ctx, p.SessionID)
+		for _, cc := range capsuleContexts {
+			if cc.Checkpoint == nil {
+				// Source checkpoint deleted: fail-closed, skip.
+				continue
+			}
+			summaryContent := cc.Checkpoint.HumanSummary
+			if summaryContent == "" {
+				summaryContent = cc.Checkpoint.SummaryJSON
+			}
+			envelope.HandoffCapsules = append(envelope.HandoffCapsules, contextapp.ContextSource{
+				Type:       contextapp.SourceHandoffCapsule,
+				ID:         cc.Capsule.ID,
+				Authority:  contextapp.AuthorityCheckpoint,
+				Content:    summaryContent,
+				Provenance: "handoff:capsule:" + cc.Capsule.ID + ":source-session:" + cc.Capsule.SourceSessionID,
+			})
+		}
+
 		// Assemble the context envelope with full priority ordering and
 		// selection trace (ADR-005 §3).
 		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, p.SessionID, envelope)

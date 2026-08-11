@@ -144,6 +144,89 @@ func (s *Store) ExpireCapsule(ctx context.Context, id string) error {
 	return mapWriteError(err)
 }
 
+// RecordImport records that a capsule was imported into a target session as
+// provenance-linked untrusted prior context (ADR-005 §5). The
+// (capsule_id, target_session_id) UNIQUE constraint makes repeat imports
+// idempotent: re-importing the same capsule into the same session is a no-op
+// that returns the existing imported_at timestamp with isNew=false.
+//
+// The target_session_id FK to sessions(id) ON DELETE CASCADE ensures import
+// records are cleaned up when the target session is deleted.
+func (s *Store) RecordImport(ctx context.Context, capsuleID, targetSessionID string) (importID string, importedAt time.Time, isNew bool, err error) {
+	now := time.Now().UTC()
+	importID, idErr := s.newULID(now)
+	if idErr != nil {
+		return "", time.Time{}, false, idErr
+	}
+	importedAt = now
+	res, execErr := s.db.ExecContext(ctx,
+		`INSERT INTO handoff_imports(id, capsule_id, target_session_id, imported_at)
+		 VALUES(?,?,?,?)
+		 ON CONFLICT(capsule_id, target_session_id) DO NOTHING`,
+		importID, capsuleID, targetSessionID, formatTime(importedAt))
+	if execErr != nil {
+		return "", time.Time{}, false, mapWriteError(execErr)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		// Idempotent re-import: load the existing imported_at.
+		var existingAt string
+		scanErr := s.db.QueryRowContext(ctx,
+			`SELECT imported_at FROM handoff_imports WHERE capsule_id=? AND target_session_id=?`,
+			capsuleID, targetSessionID).Scan(&existingAt)
+		if scanErr != nil {
+			return "", time.Time{}, false, scanErr
+		}
+		importedAt, err = time.Parse(time.RFC3339Nano, existingAt)
+		if err != nil {
+			return "", time.Time{}, false, err
+		}
+		return "", importedAt, false, nil
+	}
+	return importID, importedAt, true, nil
+}
+
+// GetImport returns the imported_at timestamp for a capsule imported into a
+// target session. Returns ok=false when no import record exists.
+func (s *Store) GetImport(ctx context.Context, capsuleID, targetSessionID string) (importedAt time.Time, ok bool, err error) {
+	var existingAt string
+	scanErr := s.db.QueryRowContext(ctx,
+		`SELECT imported_at FROM handoff_imports WHERE capsule_id=? AND target_session_id=?`,
+		capsuleID, targetSessionID).Scan(&existingAt)
+	if scanErr == sql.ErrNoRows {
+		return time.Time{}, false, nil
+	}
+	if scanErr != nil {
+		return time.Time{}, false, scanErr
+	}
+	importedAt, err = time.Parse(time.RFC3339Nano, existingAt)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return importedAt, true, nil
+}
+
+// ListImportedCapsules returns all capsules imported into the target session,
+// ordered by imported_at descending. Only non-deleted, valid capsules are
+// returned; capsules whose source has been revoked or expired are still
+// returned so the caller can surface import history, but the chat send path
+// must re-validate readability before injecting the summary.
+func (s *Store) ListImportedCapsules(ctx context.Context, targetSessionID string) ([]handoff.Capsule, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT c.id, c.source_session_id, c.dest_session_id, c.checkpoint_id,
+		 c.active_tasks_json, c.recent_message_ids, c.digest, c.status,
+		 c.created_at, c.activated_at, c.expires_at
+		 FROM handoff_imports i
+		 JOIN handoff_capsules c ON c.id = i.capsule_id
+		 WHERE i.target_session_id=?
+		 ORDER BY i.imported_at DESC`, targetSessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanCapsules(rows)
+}
+
 func scanCapsules(rows *sql.Rows) ([]handoff.Capsule, error) {
 	var result []handoff.Capsule
 	for rows.Next() {

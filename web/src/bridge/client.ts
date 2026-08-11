@@ -33,6 +33,16 @@ import {
   type SkillDeprecatePayload, type SkillDeprecateResult, type SkillDisablePayload, type SkillDisableResult,
   type SkillCreatePayload, type SkillCreateResult, type SkillUpdatePayload, type SkillUpdateResult,
   type SkillDeletePayload, type SkillDeleteResult,
+  type ContextStatusPayload, type ContextStatusResult,
+  type ContextCompactPreviewPayload, type ContextCompactPreviewResult,
+  type ContextCompactCommitPayload, type ContextCompactCommitResult,
+  type ContextCompactCancelPayload, type ContextCompactCancelResult,
+  type ContextHandoffCreatePayload, type ContextHandoffCreateResult,
+  type ContextHandoffImportPayload, type ContextHandoffImportResult,
+  type ContextHandoffInspectPayload, type ContextHandoffInspectResult,
+  type ContextHandoffListPayload, type ContextHandoffListResult,
+  type ContextHandoffListImportsPayload, type ContextHandoffListImportsResult,
+  type ContextHandoffRevokePayload, type ContextHandoffRevokeResult,
   type PlanDTO, type PlanNodeDTO, type ReviewDTO, type MemoryDTO, type OntologyNodeDTO, type OntologyEdgeDTO, type SkillDTO, type SkillMatchDTO,
   type PlanStatus, type NodeStatus, type RiskLevel, type ReviewStatus, type MemoryLayer, type MemoryScope,
   type OntologyNodeType, type OntologyEdgeType, type SkillStatus, type SkillPermission,
@@ -327,4 +337,47 @@ export function createChatBridge(transport:WebViewTransport,deadlineMs=30_000):C
  const request=<T>(method:BridgeMethod,payload:object)=>new Promise<T>((resolve,reject)=>{if(disposed){reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer'));return}const id=ulid(),traceId=ulid(),ms=Math.min(30_000,Math.max(1,deadlineMs)),timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},ms+250);pending.set(id,{resolve,reject,timer});try{transport.postMessage({v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload,deadlineMs:ms})}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})
  const cancelLocal=(id:string)=>{if(!active.has(id)&&!early.has(id))return;failStream(id);try{void request<StreamCancelResult>('stream.cancel',{streamId:id}).catch(()=>{})}catch{/* best effort */}}
  return {async start(payload,onEvent){const result=await request<ChatStartResult>('chat.start',payload);if(!isObj(result)||!exact(result,['streamId'])||!isULID(result.streamId))throw new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,'renderer');if(disposed){try{void request('stream.cancel',{streamId:result.streamId})}catch{}throw new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer')}const state:Active={listener:onEvent,next:1,terminal:false};active.set(result.streamId,state);if(tombstones.has(result.streamId)){failActive(result.streamId,state,'BRIDGE_EARLY_EVENT_INVALID','流在建立前收到无效事件，已安全终止')}else{const buffered=early.get(result.streamId)??[];early.delete(result.streamId);for(const event of buffered){if(!active.has(result.streamId))break;deliver(state,event)}}return{streamId:result.streamId,cancel:async()=>{if(!active.has(result.streamId))return false;const r=await request<StreamCancelResult>('stream.cancel',{streamId:result.streamId});return isObj(r)&&exact(r,['cancelled'])&&r.cancelled===true},dispose:()=>cancelLocal(result.streamId)}},dispose(){if(disposed)return;for(const id of [...active.keys()])cancelLocal(id);disposed=true;early.clear();for(const [id,p]of pending){clearTimeout(p.timer);p.reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,id))}pending.clear();transport.removeEventListener('message',route)}}
+}
+
+export interface ContextBridge {
+  status(payload: ContextStatusPayload): Promise<ContextStatusResult>
+  compactPreview(payload: ContextCompactPreviewPayload): Promise<ContextCompactPreviewResult>
+  compactCommit(payload: ContextCompactCommitPayload): Promise<ContextCompactCommitResult>
+  compactCancel(payload: ContextCompactCancelPayload): Promise<ContextCompactCancelResult>
+  handoffCreate(payload: ContextHandoffCreatePayload): Promise<ContextHandoffCreateResult>
+  handoffImport(payload: ContextHandoffImportPayload): Promise<ContextHandoffImportResult>
+  handoffInspect(payload: ContextHandoffInspectPayload): Promise<ContextHandoffInspectResult>
+  handoffList(payload: ContextHandoffListPayload): Promise<ContextHandoffListResult>
+  handoffListImports(payload: ContextHandoffListImportsPayload): Promise<ContextHandoffListImportsResult>
+  handoffRevoke(payload: ContextHandoffRevokePayload): Promise<ContextHandoffRevokeResult>
+}
+export function createContextBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): ContextBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  const longDeadline = 60_000 // compaction/handoff may invoke provider summarization
+  return {
+    status: p => core.request('context.status', p),
+    compactPreview: p => core.request('context.compact.preview', p, longDeadline),
+    compactCommit: p => core.request('context.compact.commit', p),
+    compactCancel: p => core.request('context.compact.cancel', p),
+    handoffCreate: p => core.request('context.handoff.create', p),
+    handoffImport: p => core.request('context.handoff.import', p),
+    handoffInspect: p => core.request('context.handoff.inspect', p),
+    handoffList: p => core.request('context.handoff.list', p),
+    handoffListImports: p => core.request('context.handoff.list-imports', p),
+    handoffRevoke: p => core.request('context.handoff.revoke', p),
+  }
+}
+let contextSingleton: ContextBridge | undefined
+export function getContextBridge(): ContextBridge { return contextSingleton ??= createContextBridge(webview()) }
+export const contextBridge: ContextBridge = {
+  status: p => getContextBridge().status(p),
+  compactPreview: p => getContextBridge().compactPreview(p),
+  compactCommit: p => getContextBridge().compactCommit(p),
+  compactCancel: p => getContextBridge().compactCancel(p),
+  handoffCreate: p => getContextBridge().handoffCreate(p),
+  handoffImport: p => getContextBridge().handoffImport(p),
+  handoffInspect: p => getContextBridge().handoffInspect(p),
+  handoffList: p => getContextBridge().handoffList(p),
+  handoffListImports: p => getContextBridge().handoffListImports(p),
+  handoffRevoke: p => getContextBridge().handoffRevoke(p),
 }
