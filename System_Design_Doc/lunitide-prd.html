@@ -1060,7 +1060,7 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
     </tbody></table>
     <h3>M2 首个可安装 Alpha · 固定演示脚本</h3>
     <ol><li>在 Win10/11 干净机运行签名安装器并启动应用。</li><li>进入现有对话优先首页；未配置模型时显示轻量引导，不提前展开九阶段。</li><li>打开设置中心，在对话与模型/连接中创建 OpenAI-compatible 或 Anthropic Provider。</li><li>在一次性安全输入窗口提交 BYOK；保存后只显示“已配置”，不回显旧值。</li><li>真实连接测试展示 stage、HTTP status、latency、脱敏错误和 correlationId。</li><li>选择默认模型，回首页发送消息并接收 start/delta/done 流式回复。</li><li>执行停止/重试，取消必须传播到 Go context 和上游 HTTP。</li><li>重启后非敏感配置仍在，诊断包、DB、日志、dump 和稳定内存扫描无明文 Key。</li></ol>
-    <div class="note"><b>里程碑依赖：</b>M0→M1→M2→M3→M4→M5→M6→M7 为主链。M3 开工前冻结 canonical tokenizer；M5 对应能力受 ADR-005/006/009；M4/M7 模板格式受 ADR-012；M7 用户项目执行器受 ADR-010；ADR-011 始终不阻断 v1。</div>
+    <div class="note"><b>里程碑依赖：</b>M0→M1→M2→M3→M4→M5→M6→M7 为主链。M3 开工前冻结 canonical tokenizer；M5 对应能力受 ADR-013/006/009；M4/M7 模板格式受 ADR-012；M7 用户项目执行器受 ADR-010；ADR-011 始终不阻断 v1。</div>
     <h3>全模块实现规格关闭矩阵</h3>
     <p>功能在原型、PRD 或实体地图中出现不代表已经可编码。每个模块在进入所属 Milestone 前，MUST 关闭九项合同：<b>产品行为、聚合/不变量、状态机/guard、Command/Query/RPC、Domain/Wire/Audit 事件、DDL/索引/迁移、权限/数据分类、幂等/失败恢复/可观测性、可执行验收/故障注入</b>。</p>
     <table><thead><tr><th>模块族</th><th>当前详细度</th><th>所属 Milestone</th><th>开工前必须补齐/冻结</th></tr></thead><tbody>
@@ -1072,7 +1072,7 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
       <tr><td>Template / Base / Overlay</td><td>DDL 较完整，服务层不足</td><td>M4</td><td>生命周期 RPC/事件、引用阻断、升级冲突/恢复、ADR-012 支持矩阵</td></tr>
       <tr><td>Agent Kernel / Planning / ToolRuntime</td><td>共享架构已补，领域 registry 待实现</td><td>M5</td><td>Run/Turn/Step 状态、预算、Tool descriptor、EffectJournal、恢复与 golden trace</td></tr>
       <tr><td>Governance / Review / Audit</td><td>接近实现级</td><td>M0 基线；M5 完整</td><td>完整 RPC/event/error registry、执行前重验、一次性 token、审计外置 checkpoint</td></tr>
-      <tr><td>Ontology</td><td>实体与原则清楚，后端受 ADR 阻断</td><td>M5</td><td>parser registry、parse/index/query RPC、原子索引切换、ADR-005/006</td></tr>
+      <tr><td>Ontology</td><td>实体与原则清楚，后端受 ADR 阻断</td><td>M5</td><td>parser registry、parse/index/query RPC、原子索引切换、ADR-013/006</td></tr>
       <tr><td>Memory</td><td>安全与验收强，服务/存储不足</td><td>M5</td><td>candidate/confirm/recall/delete RPC、事件、TTL worker、向量一致性协议</td></tr>
       <tr><td>Skill / Tool Grant</td><td>状态与安全清楚，执行协议不足</td><td>M5</td><td>安装 journal、生命周期 RPC/事件、撤销传播、ADR-009/隔离门禁</td></tr>
       <tr><td>Integration / OpenAPI / MCP / DB Contract</td><td>首批子集接近实现级</td><td>M6</td><td>各 adapter schema、调用/恢复契约、SSRF corpus、保留期和只读 DB 权限</td></tr>
