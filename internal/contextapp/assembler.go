@@ -23,19 +23,25 @@ type ProviderInfo struct {
 	SafetyCeiling int64
 	// ReservedOutput is the token budget reserved for model output.
 	ReservedOutput int64
-	// SystemTokens is the estimated token cost of system/developer instructions.
+	// SystemTokens is the estimated token cost of system/developer instructions
+	// (ADR-005 §3 priority 1: authoritative system/security/product instructions).
 	SystemTokens int64
+	// ToolSchemaTokens is the estimated token cost of tool/function schemas
+	// injected into the prompt. These are reserved before message selection.
+	ToolSchemaTokens int64
 	// SafetyMargin is additional headroom to avoid edge cases.
 	SafetyMargin int64
 }
 
 // EffectiveInputBudget returns the number of tokens available for message input.
+// It subtracts reserved output, system instructions, tool schemas, and safety
+// margin from the effective ceiling (min of context window and safety ceiling).
 func (p ProviderInfo) EffectiveInputBudget() int64 {
 	ceiling := p.ContextWindow
 	if p.SafetyCeiling > 0 && p.SafetyCeiling < ceiling {
 		ceiling = p.SafetyCeiling
 	}
-	budget := ceiling - p.ReservedOutput - p.SystemTokens - p.SafetyMargin
+	budget := ceiling - p.ReservedOutput - p.SystemTokens - p.ToolSchemaTokens - p.SafetyMargin
 	if budget < 0 {
 		return 0
 	}
@@ -44,11 +50,11 @@ func (p ProviderInfo) EffectiveInputBudget() int64 {
 
 // Message represents a message to be included in the assembled context.
 type Message struct {
-	ID          string
-	Role        string
-	Content     string
-	Sequence    int64
-	TokenCount  int64
+	ID           string
+	Role         string
+	Content      string
+	Sequence     int64
+	TokenCount   int64
 	IsCheckpoint bool
 }
 
@@ -65,12 +71,19 @@ type Reader interface {
 
 // Assemble selects messages from the durable session history to fit within the
 // provider's effective input budget. It follows the priority order defined in
-// ADR-005 and preserves message ordering.
+// ADR-005 §3 and preserves complete turn boundaries.
 //
-// Priority order:
-// 1. Latest user turn (always included, reserved budget)
-// 2. Recent messages in reverse chronological order (most recent first)
-// 3. Older messages only if budget allows
+// Priority order (ADR-005 §3):
+// 1. Authoritative system/security instructions (reserved via SystemTokens)
+// 2. Tool schemas (reserved via ToolSchemaTokens)
+// 3. Latest accepted compaction checkpoint (injected as PriorSummary preamble)
+// 4. Recent original messages (reverse chronological, turn-boundary protected)
+// 5. Latest user turn (protected by dedicated reserve)
+//
+// Turn boundary protection: an assistant response and the user message it
+// replies to form an atomic turn. Assemble never includes an assistant
+// message without its corresponding user message (ADR-005 §3: "never splits
+// an assistant tool call from its tool result").
 func Assemble(ctx context.Context, reader Reader, sessionID string, info ProviderInfo, opts AssembleOptions) ([]Message, error) {
 	if opts.MaxMessages <= 0 {
 		opts.MaxMessages = 256
@@ -94,16 +107,28 @@ func Assemble(ctx context.Context, reader Reader, sessionID string, info Provide
 	}
 
 	// Calculate token counts for each message. If the reader doesn't provide
-	// token counts, estimate conservatively.
+	// token counts, estimate conservatively using the canonical tokenizer.
 	for i := range allMessages {
 		if allMessages[i].TokenCount <= 0 {
 			allMessages[i].TokenCount = token.EstimateTokens(allMessages[i].Content)
 		}
 	}
 
-	// Phase 1: Reserve the latest user turn.
-	// The latest message is at index 0 (backward order).
-	latestUser := allMessages[0]
+	// Phase 1: Find and reserve the latest user turn.
+	// In backward order, the first user message is the latest user turn.
+	latestUserIdx := -1
+	for i, msg := range allMessages {
+		if msg.Role == "user" {
+			latestUserIdx = i
+			break
+		}
+	}
+	if latestUserIdx < 0 {
+		// No user message at all — return whatever is available.
+		return nil, ErrNoMessages
+	}
+
+	latestUser := allMessages[latestUserIdx]
 	userReserve := opts.RecentUserReserve
 	if latestUser.TokenCount > userReserve {
 		userReserve = latestUser.TokenCount + opts.SafetyMargin
@@ -116,28 +141,85 @@ func Assemble(ctx context.Context, reader Reader, sessionID string, info Provide
 		return []Message{latestUser}, nil
 	}
 
-	// Phase 2: Fill remaining budget with recent messages (excluding the latest user).
+	// Phase 2: Fill remaining budget with recent messages.
+	// Turn boundary protection: when encountering an assistant message in
+	// backward order, the next message (older) should be the user message
+	// it replies to. They must be included together or skipped together.
 	selected := []Message{latestUser}
 	usedTokens := latestUser.TokenCount
+	_ = usedTokens
 
-	for i := 1; i < len(allMessages) && remaining > 0; i++ {
+	// Build a set of already-selected indices to avoid double-counting the
+	// latest user message when iterating.
+	selectedSet := map[int]bool{latestUserIdx: true}
+
+	for i := 0; i < len(allMessages); i++ {
+		if selectedSet[i] {
+			continue
+		}
+		if remaining <= 0 {
+			break
+		}
+
 		msg := allMessages[i]
+
+		// If this is an assistant message, check turn boundary: the user
+		// message it replies to is at i+1 in backward order (the preceding
+		// user turn). They must be included together.
+		if msg.Role == "assistant" {
+			// Find the corresponding user message (next in backward order).
+			pairIdx := -1
+			if i+1 < len(allMessages) && allMessages[i+1].Role == "user" && !selectedSet[i+1] {
+				pairIdx = i + 1
+			}
+
+			if pairIdx >= 0 {
+				pairMsg := allMessages[pairIdx]
+				pairCost := msg.TokenCount + pairMsg.TokenCount
+				if pairCost > remaining {
+					// Turn doesn't fit; skip both (turn boundary protection).
+					selectedSet[i] = true
+					selectedSet[pairIdx] = true
+					continue
+				}
+				// Both fit; include the turn.
+				selected = append(selected, msg, pairMsg)
+				remaining -= pairCost
+				selectedSet[i] = true
+				selectedSet[pairIdx] = true
+				continue
+			}
+			// No matching user message found (orphan assistant). Include
+			// only if it fits alone.
+			if msg.TokenCount > remaining {
+				selectedSet[i] = true
+				continue
+			}
+			selected = append(selected, msg)
+			remaining -= msg.TokenCount
+			selectedSet[i] = true
+			continue
+		}
+
+		// User message not paired with a following assistant (in backward
+		// order, this user has no newer assistant reply). Include if it fits.
 		if msg.TokenCount > remaining {
-			// This message doesn't fit; skip it but continue checking older ones.
+			selectedSet[i] = true
 			continue
 		}
 		selected = append(selected, msg)
-		usedTokens += msg.TokenCount
 		remaining -= msg.TokenCount
+		selectedSet[i] = true
 	}
 
 	// Reverse to forward chronological order for the model.
 	reverseMessages(selected)
 
-	// Inject prior compaction summary as a system-level preamble (ADR-005 §3).
-	// The summary provides compressed context from earlier in the conversation,
-	// allowing the model to reference prior decisions without consuming the
-	// full token budget of the original messages.
+	// Inject prior compaction summary as a system-level preamble (ADR-005 §3
+	// priority 3: latest accepted compaction checkpoint). The summary provides
+	// compressed context from earlier in the conversation, allowing the model
+	// to reference prior decisions without consuming the full token budget of
+	// the original messages.
 	if opts.PriorSummary != "" {
 		summaryTokens := token.EstimateTokens(opts.PriorSummary)
 		summaryMsg := Message{
