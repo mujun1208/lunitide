@@ -155,6 +155,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0016_skill.sql", "3c1b38188bc150f201a94daa5993626738154af2e6811edd66ccd56121455e58"},
 	{"0017_stage.sql", "d2112f8276a176f84eab1c10bcb51cbbd3099fe1f5b4238873b1059b7af0d8ed"},
 	{"0018_extended_entities.sql", "dc9b65b15dbb554f3750fcf721a37abd6540d7601ab4b0606b75ef3feb70a71d"},
+	{"0019_durable_chat.sql", "4dd945a0e2c44c80a92a76079a0d0148470884f9fe036d02d66448d864d32a5a"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -171,11 +172,20 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 		return err
 	}
 	defer conn.Close()
+	// foreign_keys is OFF during migration to allow table rebuilds that modify
+	// CHECK constraints on tables referenced by foreign keys. It is re-enabled
+	// and integrity-checked after migration completes.
+	defer func() {
+		if resultErr != nil {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+		_, _ = conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
+	}()
 	for _, p := range []struct {
 		set, query string
 		want       any
 	}{
-		{"PRAGMA foreign_keys=ON", "PRAGMA foreign_keys", int64(1)},
+		{"PRAGMA foreign_keys=OFF", "PRAGMA foreign_keys", int64(0)},
 		{"PRAGMA busy_timeout=5000", "PRAGMA busy_timeout", int64(5000)},
 		{"PRAGMA trusted_schema=OFF", "PRAGMA trusted_schema", int64(0)},
 	} {
@@ -195,11 +205,6 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 	if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
 		return fmt.Errorf("begin exclusive migration validation: %w", err)
 	}
-	defer func() {
-		if resultErr != nil {
-			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
-		}
-	}()
 	if err := ensureMigrationJournal(ctx, conn); err != nil {
 		return err
 	}
@@ -291,6 +296,16 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return err
 	}
+	// Verify foreign key integrity after migration, then re-enable enforcement.
+	fkRows, err := conn.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign key integrity check: %w", err)
+	}
+	if fkRows.Next() {
+		fkRows.Close()
+		return fmt.Errorf("foreign key integrity check failed after migration")
+	}
+	fkRows.Close()
 	return nil
 }
 
@@ -786,9 +801,9 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_token_ledger_message":                               "CREATE INDEX ix_token_ledger_message ON token_ledger(message_id)",
 	"index:ix_token_ledger_computed":                              "CREATE INDEX ix_token_ledger_computed ON token_ledger(computed_at)",
 	"table:token_ledger":                                          "CREATE TABLE token_ledger (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,\n    provider TEXT NOT NULL DEFAULT '' CHECK (length(provider) <= 128),\n    model TEXT NOT NULL DEFAULT '' CHECK (length(model) <= 128),\n    tokenizer_revision TEXT NOT NULL DEFAULT '' CHECK (length(tokenizer_revision) <= 64),\n    token_count INTEGER NOT NULL CHECK (token_count >= 0),\n    estimation_method TEXT NOT NULL CHECK (estimation_method IN ('char-ratio', 'tiktoken', 'provider-reported', 'manual')),\n    utf8_bytes INTEGER NOT NULL CHECK (utf8_bytes >= 0),\n    computed_at TEXT NOT NULL,\n    UNIQUE (message_id, provider, model, tokenizer_revision)\n)",
-	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created', 'message.appended', 'stage.created', 'stage.updated')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
+	"table:audit_events":                                          "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created', 'message.appended', 'stage.created', 'stage.updated', 'message.assistant.appended')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL\n)",
 	"table:credential_adoptions":                                  "CREATE TABLE credential_adoptions (\n    credential_ref TEXT PRIMARY KEY CHECK (length(credential_ref) BETWEEN 1 AND 256),\n    provider_id TEXT NOT NULL REFERENCES providers(id),\n    origin TEXT NOT NULL CHECK (length(origin) BETWEEN 1 AND 2048),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    receipt_id TEXT NOT NULL UNIQUE CHECK (length(receipt_id) BETWEEN 1 AND 64),\n    adopted_at TEXT NOT NULL\n)",
-	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create', 'message.append', 'stage.create')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
+	"table:idempotency_records":                                   "CREATE TABLE idempotency_records (\n    operation TEXT NOT NULL CHECK (operation IN ('provider.create', 'provider.update', 'provider.model.sync', 'provider.delete', 'project.create', 'session.create', 'message.append', 'stage.create', 'message.append-assistant')),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    response_json TEXT NOT NULL CHECK (length(response_json) BETWEEN 2 AND 65536),\n    created_at TEXT NOT NULL,\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:idempotency_claims":                                    "CREATE TABLE idempotency_claims (\n    operation TEXT NOT NULL CHECK (operation = 'provider.model.sync'),\n    idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest NOT GLOB '*[^0-9a-f]*'),\n    owner TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),\n    expires_at TEXT NOT NULL,\n    PRIMARY KEY (operation, idempotency_key)\n)",
 	"table:outbox_events":                                         "CREATE TABLE outbox_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    topic TEXT NOT NULL CHECK (length(topic) BETWEEN 1 AND 128),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 2 AND 65536),\n    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed', 'completed', 'failed', 'dead_letter')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 1000),\n    available_at TEXT NOT NULL,\n    lease_owner TEXT CHECK (lease_owner IS NULL OR length(lease_owner) BETWEEN 1 AND 128),\n    lease_until TEXT,\n    last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 2000),\n    created_at TEXT NOT NULL,\n    completed_at TEXT,\n    CHECK ((status = 'claimed') = (lease_owner IS NOT NULL AND lease_until IS NOT NULL)),\n    CHECK ((status IN ('completed', 'failed', 'dead_letter')) = (completed_at IS NOT NULL))\n)",
 	"table:provider_tests":                                        "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
@@ -798,8 +813,8 @@ var expectedSchemaSQL = map[string]string{
 	"table:providers":                                             "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
 	"table:projects":                                              "CREATE TABLE projects (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200 AND name = trim(name)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
 	"table:sessions":                                              "CREATE TABLE sessions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200 AND title = trim(title)),\n    status TEXT NOT NULL DEFAULT 'active' CHECK (status = 'active'),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version = 1)\n)",
-	"table:messages":                                              "CREATE TABLE messages (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,\n    role TEXT NOT NULL DEFAULT 'user' CHECK (role = 'user'),\n    status TEXT NOT NULL DEFAULT 'completed' CHECK (status = 'completed'),\n    sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 9007199254740991),\n    created_at TEXT NOT NULL,\n    UNIQUE (session_id, sequence)\n)",
-	"table:message_parts":                                         "CREATE TABLE message_parts (\n    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,\n    ordinal INTEGER NOT NULL CHECK (ordinal = 1),\n    type TEXT NOT NULL DEFAULT 'text' CHECK (type = 'text'),\n    text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 2048 AND length(CAST(text AS BLOB)) <= 8192),\n    PRIMARY KEY (message_id, ordinal)\n)",
+	"table:messages":                                              "CREATE TABLE \"messages\" (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,\n    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'assistant')),\n    status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'failed')),\n    sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 9007199254740991),\n    created_at TEXT NOT NULL,\n    UNIQUE (session_id, sequence)\n)",
+	"table:message_parts":                                         "CREATE TABLE \"message_parts\" (\n    message_id TEXT NOT NULL REFERENCES \"messages\"(id) ON DELETE CASCADE,\n    ordinal INTEGER NOT NULL CHECK (ordinal = 1),\n    type TEXT NOT NULL DEFAULT 'text' CHECK (type = 'text'),\n    text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 16384 AND length(CAST(text AS BLOB)) <= 65536),\n    PRIMARY KEY (message_id, ordinal)\n)",
 	"table:message_session_state":                                 "CREATE TABLE message_session_state (\n    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE RESTRICT,\n    last_sequence INTEGER NOT NULL CHECK (last_sequence BETWEEN 0 AND 9007199254740991),\n    message_count INTEGER NOT NULL CHECK (message_count BETWEEN 0 AND 9007199254740991),\n    text_bytes INTEGER NOT NULL CHECK (text_bytes BETWEEN 0 AND 268435456),\n    CHECK (last_sequence = message_count)\n)",
 	"table:message_project_usage":                                 "CREATE TABLE message_project_usage (\n    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE RESTRICT,\n    text_bytes INTEGER NOT NULL CHECK (text_bytes BETWEEN 0 AND 67108864)\n)",
 	"table:message_workspace_usage":                               "CREATE TABLE message_workspace_usage (\n    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n    text_bytes INTEGER NOT NULL CHECK (text_bytes BETWEEN 0 AND 268435456)\n)",
