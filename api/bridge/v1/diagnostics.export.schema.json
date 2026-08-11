@@ -4,7 +4,7 @@
   "title": "diagnostics.export payload",
   "x-method": "diagnostics.export",
   "x-owner": "host",
-  "x-enabled": false,
+  "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

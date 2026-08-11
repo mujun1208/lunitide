@@ -78,7 +78,7 @@ type MethodMetadata struct {
 
 var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodChatStart:                {Owner: "engine", Enabled: true},
-	MethodDiagnosticsExport:        {Owner: "host", Enabled: false},
+	MethodDiagnosticsExport:        {Owner: "host", Enabled: true},
 	MethodMemoryCreate:             {Owner: "engine", Enabled: true},
 	MethodMemoryDelete:             {Owner: "engine", Enabled: true},
 	MethodMemoryGet:                {Owner: "engine", Enabled: true},
@@ -87,9 +87,9 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodMemoryUpdate:             {Owner: "engine", Enabled: true},
 	MethodMessageAppend:            {Owner: "engine", Enabled: true},
 	MethodMessageList:              {Owner: "engine", Enabled: true},
-	MethodMigrationInspect:         {Owner: "engine", Enabled: false},
-	MethodMigrationRun:             {Owner: "engine", Enabled: false},
-	MethodMigrationStatus:          {Owner: "engine", Enabled: false},
+	MethodMigrationInspect:         {Owner: "engine", Enabled: true},
+	MethodMigrationRun:             {Owner: "engine", Enabled: true},
+	MethodMigrationStatus:          {Owner: "engine", Enabled: true},
 	MethodNodeComplete:             {Owner: "engine", Enabled: true},
 	MethodNodeCreate:               {Owner: "engine", Enabled: true},
 	MethodNodeFail:                 {Owner: "engine", Enabled: true},
