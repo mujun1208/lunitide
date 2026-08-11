@@ -134,6 +134,20 @@ func Assemble(ctx context.Context, reader Reader, sessionID string, info Provide
 	// Reverse to forward chronological order for the model.
 	reverseMessages(selected)
 
+	// Inject prior compaction summary as a system-level preamble (ADR-005 §3).
+	// The summary provides compressed context from earlier in the conversation,
+	// allowing the model to reference prior decisions without consuming the
+	// full token budget of the original messages.
+	if opts.PriorSummary != "" {
+		summaryTokens := token.EstimateTokens(opts.PriorSummary)
+		summaryMsg := Message{
+			Role:       "system",
+			Content:    "[Prior Context Summary]\n" + opts.PriorSummary,
+			TokenCount: summaryTokens,
+		}
+		selected = append([]Message{summaryMsg}, selected...)
+	}
+
 	return selected, nil
 }
 
@@ -146,6 +160,10 @@ type AssembleOptions struct {
 	RecentUserReserve int64
 	// SafetyMargin is additional headroom for token estimation inaccuracies.
 	SafetyMargin int64
+	// PriorSummary is the latest succeeded compaction checkpoint summary.
+	// When non-empty, it is injected as a system-level preamble at the
+	// beginning of the assembled context (ADR-005 §3).
+	PriorSummary string
 }
 
 func reverseMessages(msgs []Message) {

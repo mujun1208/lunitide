@@ -9,10 +9,11 @@ import (
 )
 
 type mockExecutorStore struct {
-	checkpoint *compaction.Checkpoint
-	getErr     error
-	updates    []mockUpdate
-	updateErr  error
+	checkpoint     *compaction.Checkpoint
+	prevCheckpoint *compaction.Checkpoint
+	getErr         error
+	updates        []mockUpdate
+	updateErr      error
 }
 
 type mockUpdate struct {
@@ -27,10 +28,13 @@ func (m *mockExecutorStore) GetCheckpoint(_ context.Context, id string) (*compac
 	if m.getErr != nil {
 		return nil, m.getErr
 	}
-	if m.checkpoint == nil || m.checkpoint.ID != id {
-		return nil, nil
+	if m.checkpoint != nil && m.checkpoint.ID == id {
+		return m.checkpoint, nil
 	}
-	return m.checkpoint, nil
+	if m.prevCheckpoint != nil && m.prevCheckpoint.ID == id {
+		return m.prevCheckpoint, nil
+	}
+	return nil, nil
 }
 func (m *mockExecutorStore) UpdateCheckpointStatus(_ context.Context, id string, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error {
 	if m.updateErr != nil {
@@ -54,10 +58,12 @@ type mockSummarizer struct {
 	humanSummary string
 	err          error
 	called       bool
+	priorSummary string
 }
 
-func (m *mockSummarizer) Summarize(_ context.Context, _ string, _, _ int64, _ []SummaryMessage) (string, string, error) {
+func (m *mockSummarizer) Summarize(_ context.Context, _, _, _ string, _, _ int64, _ []SummaryMessage, priorSummary string) (string, string, error) {
 	m.called = true
+	m.priorSummary = priorSummary
 	return m.summaryJSON, m.humanSummary, m.err
 }
 
@@ -180,5 +186,66 @@ func TestExecute_SourceReadFails(t *testing.T) {
 	}
 	if store.updates[1].failureCode == nil || *store.updates[1].failureCode != "SOURCE_READ_FAILED" {
 		t.Fatalf("expected failure code SOURCE_READ_FAILED")
+	}
+}
+
+func TestExecute_RollingSummary_PassesPriorSummary(t *testing.T) {
+	// Setup: current pending checkpoint links to a previous succeeded checkpoint.
+	cp := makePendingCheckpoint()
+	cp.Version = 2
+	prevID := "01ARZ3NDEKTSV4RRFFQ69G5FA9"
+	cp.PrevCheckpointID = &prevID
+
+	prevCp := &compaction.Checkpoint{
+		ID:          prevID,
+		SessionID:   cp.SessionID,
+		Version:     1,
+		Status:      compaction.StatusSucceeded,
+		SummaryJSON: `{"summary":"prior context","keyPoints":["old decision"]}`,
+	}
+
+	store := &mockExecutorStore{
+		checkpoint:     cp,
+		prevCheckpoint: prevCp,
+	}
+	reader := &mockSourceReader{messages: []SummaryMessage{
+		{ID: "m1", Role: "user", Content: "new topic", Sequence: 11},
+	}}
+	summarizer := &mockSummarizer{
+		summaryJSON:  `{"summary":"updated"}`,
+		humanSummary: "updated summary",
+	}
+
+	exec := NewExecutor(store, reader, summarizer)
+	result, err := exec.Execute(context.Background(), cp.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != compaction.StatusSucceeded {
+		t.Fatalf("expected succeeded, got %s", result.Status)
+	}
+	if !summarizer.called {
+		t.Fatal("summarizer not called")
+	}
+	if summarizer.priorSummary != prevCp.SummaryJSON {
+		t.Fatalf("expected priorSummary %q, got %q", prevCp.SummaryJSON, summarizer.priorSummary)
+	}
+}
+
+func TestExecute_RollingSummary_NoPrevCheckpoint(t *testing.T) {
+	// First compaction: no PrevCheckpointID, priorSummary should be empty.
+	store := &mockExecutorStore{checkpoint: makePendingCheckpoint()}
+	reader := &mockSourceReader{messages: []SummaryMessage{
+		{ID: "m1", Role: "user", Content: "hello", Sequence: 1},
+	}}
+	summarizer := &mockSummarizer{summaryJSON: `{"summary":"first"}`, humanSummary: "首次"}
+
+	exec := NewExecutor(store, reader, summarizer)
+	_, err := exec.Execute(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FA0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summarizer.priorSummary != "" {
+		t.Fatalf("expected empty priorSummary for first compaction, got %q", summarizer.priorSummary)
 	}
 }

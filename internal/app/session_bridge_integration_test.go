@@ -76,6 +76,9 @@ func (*nilSessions) Create(context.Context, string, string, any, session.Session
 func (*nilSessions) List(context.Context, session.Filter) ([]session.Session, error) {
 	panic("typed nil called")
 }
+func (*nilSessions) Delete(context.Context, string) error {
+	panic("typed nil called")
+}
 func TestSessionBridgeMissingTypedNilAndProjectNotFound(t *testing.T) {
 	var nilService *nilSessions
 	e := NewEngineWithSessions(nil, nil, nilService, "test", nil)

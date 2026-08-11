@@ -163,8 +163,11 @@ func (e *Engine) withProviderLease(ctx context.Context, p provider.Provider, ope
 		return err
 	}
 	ttl := secretlease.MaxTTL
-	if operation == secretlease.OperationChat {
+	switch operation {
+	case secretlease.OperationChat:
 		ttl = secretlease.ChatMaxTTL
+	case secretlease.OperationProviderTest, secretlease.OperationModelDiscover:
+		ttl = secretlease.TestMaxTTL
 	}
 	deadline := time.Now().Add(ttl)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {

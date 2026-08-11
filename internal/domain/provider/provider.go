@@ -54,9 +54,10 @@ var (
 )
 
 type Model struct {
-	ModelID     string `json:"modelId"`
-	DisplayName string `json:"displayName"`
-	IsDefault   bool   `json:"isDefault"`
+	ModelID       string `json:"modelId"`
+	DisplayName   string `json:"displayName"`
+	IsDefault     bool   `json:"isDefault"`
+	ContextWindow int64  `json:"contextWindow,omitempty"`
 }
 
 type Provider struct {

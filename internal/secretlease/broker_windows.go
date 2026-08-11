@@ -24,6 +24,7 @@ import (
 const (
 	MaxFrame             = 64 << 10
 	MaxTTL               = 5 * time.Second
+	TestMaxTTL           = 30 * time.Second
 	ChatMaxTTL           = 10 * time.Minute
 	MaxActiveConnections = 32
 	MaxNonceCacheEntries = 4096
@@ -44,10 +45,14 @@ func (o Operation) valid() bool {
 }
 
 func (o Operation) maxTTL() time.Duration {
-	if o == OperationChat {
+	switch o {
+	case OperationChat:
 		return ChatMaxTTL
+	case OperationProviderTest, OperationModelDiscover:
+		return TestMaxTTL
+	default:
+		return MaxTTL
 	}
-	return MaxTTL
 }
 
 type Request struct {
