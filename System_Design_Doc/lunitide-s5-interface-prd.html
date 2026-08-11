@@ -346,7 +346,7 @@ code.inl{font-family:var(--mono);font-size:12.5px;color:var(--tide3);background:
         <li><b>config / mapping / status</b> — 连接器配置、字段映射及 draft / enabled / disabled</li>
       </ul>
     </div>
-    <p>Connector Registry 通过版本化 adapter schema 提供配置表单、连接测试、契约测试、调用与日志脱敏钩子；新增类型不修改 Integration 根表。下表是目标类型目录，不等于 M0/M1 全部内置：</p>
+    <p>Connector Registry 通过版本化 adapter schema 提供配置表单、连接测试、契约测试、调用与日志脱敏钩子；新增类型不修改 Integration 根表。下表是目标类型目录，不等于 M0–M2 全部内置：</p>
     <table>
       <thead>
         <tr><th>类型</th><th>协议</th><th>典型场景</th><th>默认权限</th></tr>
@@ -361,7 +361,7 @@ code.inl{font-family:var(--mono);font-size:12.5px;color:var(--tide3);background:
         <tr><td><b>Database Connector</b></td><td class="col">数据库直连（JDBC/ODBC/native）</td><td>直接数据查询、报表取数</td><td>默认只读</td></tr>
       </tbody>
     </table>
-    <div class="note"><b>里程碑边界：</b>M1 仅交付 ModelGateway 的 OpenAI-compatible / Anthropic；M5 首批交付通用 HTTP API 与 OpenAPI 3.0 consumer 子集、远程 MCP 和数据库只读 metadata/contract。第三方 stdio、OpenAPI provider/webhooks、ETL、OData、SAP RFC、FAST/custom、native DB 执行器必须分别通过安全/运行时 ADR、依赖与供应链评审后进入后续切片，不属于 M0/M1 承诺。</div>
+    <div class="note"><b>里程碑边界：</b>M1 冻结 ModelGateway 的 OpenAI-compatible / Anthropic 契约，M2 交付其可安装用户切片；M6 首批交付通用 HTTP API 与 OpenAPI 3.0 consumer 子集、远程 MCP 和数据库只读 metadata/contract。第三方 stdio、OpenAPI provider/webhooks、ETL、OData、SAP RFC、FAST/custom、native DB 执行器必须分别通过安全/运行时 ADR、依赖与供应链评审后进入后续切片，不属于 M0–M2 承诺。</div>
     <div class="warn"><b>命名边界：</b>FAST 是业务侧连接器标识，<b>不等同于 FastAPI</b>，也不推断其 HTTP 框架。FAST / 自定义能力一律通过 Connector Registry adapter 接入。</div>
 
     <h3>1.2 配置交互与字段映射</h3>
@@ -425,7 +425,7 @@ code.inl{font-family:var(--mono);font-size:12.5px;color:var(--tide3);background:
     <div class="card">
       <h4>支持的规范版本</h4>
       <ul>
-        <li><b>OpenAPI 3.0 consumer 子集</b>：M5 支持 servers、paths、parameters、requestBody、responses、components/schema、API Key/Bearer/Basic；回调、links、复杂 discriminator 明确报 unsupported</li>
+        <li><b>OpenAPI 3.0 consumer 子集</b>：M6 支持 servers、paths、parameters、requestBody、responses、components/schema、API Key/Bearer/Basic；回调、links、复杂 discriminator 明确报 unsupported</li>
         <li><b>OpenAPI 3.1</b>：后续里程碑；需冻结 JSON Schema 2020-12 vocabulary、dynamicRef/webhooks 支持矩阵和兼容 corpus 后启用</li>
         <li><b>Swagger 2.0</b>：后续兼容导入；转换必须输出差异/丢失项，禁止静默声称完整等价</li>
       </ul>

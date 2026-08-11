@@ -263,7 +263,7 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
     <h1 class="accent-grad">产品需求文档 PRD</h1>
     <div class="hero-meta">
       <span class="tag"><b>版本</b> v1.0</span>
-      <span class="tag"><b>状态</b> M0/M1 开发基线</span>
+      <span class="tag"><b>状态</b> M0–M7 实施基线</span>
       <span class="tag"><b>更新</b> 2026-08-09</span>
       <span class="tag"><b>平台</b> Windows 10/11 x64</span>
       <span class="tag"><b>架构</b> Go + WebView2 + React/TS</span>
@@ -592,14 +592,38 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
       <ul>
         <li><b>常规</b>：启动页（默认新对话）、语言、自动保存、最近项目数量</li>
         <li><b>外观</b>：黑色星空主题、界面密度、字号/代码字体、星闪与减少动态效果</li>
-        <li><b>对话与模型</b>：默认 Provider/模型、上下文策略、流式输出、自动/Work/Code</li>
-        <li><b>项目</b>：默认目录、索引忽略、文件监视与 Git 行为</li>
-        <li><b>连接</b>：Provider、接口、MCP 与代理；凭据采用独立安全对话框覆盖式更新</li>
-        <li><b>安全与审批</b>：外发边界、风险策略、通知和数据保留</li>
-        <li><b>数据</b>：记忆、导入导出、备份恢复与缓存</li>
-        <li><b>快捷键 / 通知 / 诊断与更新 / 关于</b></li>
+        <li><b>模型与供应商</b>：默认 Provider/模型、上下文策略、流式输出，以及既有自动/协作/代码工作模式</li>
+        <li><b>项目默认值</b>：默认目录、索引忽略、文件监视与 Git 行为</li>
+        <li><b>连接与代理</b>：接口、MCP 与代理；凭据采用独立安全对话框覆盖式更新</li>
+        <li><b>安全与治理</b>：外发边界、风险策略、审批通知和数据保留</li>
+        <li><b>数据与记忆</b>：记忆、导入导出、备份恢复与缓存</li>
+        <li><b>技能 / 快捷键 / 诊断与更新 / 关于</b></li>
       </ul>
     </div>
+
+    <h3 id="settings-contract">3.5.1 设置中心实施合同</h3>
+    <div class="note"><b>参考声明：</b>设置中心仅借鉴 VS Code / JetBrains 的分层配置与工作区覆盖、Windows 的无障碍与更新机制、浏览器扩展的权限差异、系统凭据库的秘密不回显等成熟机制；<b>不复制任何品牌、视觉、布局、图标或文案</b>。月汐现有设置原型、星空主题、分类、作用域切换和保存条保持不变。</div>
+    <table><thead><tr><th>分类</th><th>保持不变的功能</th><th>Scope / 默认与生效</th><th>实现边界</th></tr></thead><tbody>
+      <tr><td><b>常规</b></td><td>启动页、恢复未完成运行、语言/时区、自动保存、最近项目、Enter 发送、自动标题</td><td>application；默认新对话、询问恢复、zh-CN、system timezone、最近 5 项</td><td>恢复 checkpoint 只恢复状态，绝不自动重放副作用；语言可要求 Renderer reload</td></tr>
+      <tr><td><b>外观</b></td><td>既有黑色星空、月亮 Logo、密度、字号/代码字体、星闪、减少动态效果</td><td>application；允许可撤销即时预览，保存后持久化</td><td>遵从 OS reduced-motion/forced-colors；预览取消、离页或超时恢复最后已保存值</td></tr>
+      <tr><td><b>模型与供应商</b></td><td>默认 Provider/模型、上下文策略、流式，以及原型既有自动/协作/代码工作模式</td><td>application default + project override；默认 workMode=auto、streaming=true</td><td>工作模式只改变默认工具集、上下文预算和面板建议，不是 M5 Agent Profile；模型切换必须重建 ContextEnvelope</td></tr>
+      <tr><td><b>项目默认值</b></td><td>默认目录、索引忽略、文件监视、Git、外部编辑器</td><td>application default + project override</td><td>项目缺值表示继承；恢复继承删除 override，不复制当前父值</td></tr>
+      <tr><td><b>连接与代理</b></td><td>接口、MCP、代理、环境绑定和连接测试</td><td>workspace/application；项目只选择引用，不复制秘密</td><td>凭据使用专用 RPC；保存后只返回 configured 状态，origin 变化触发重授权</td></tr>
+      <tr><td><b>安全与治理</b></td><td>外发边界、风险策略、审批通知、工具授权和数据保留</td><td>policy + workspace + project；冲突取更严格者</td><td>工作模式、M5 Agent Profile、项目设置和 Full-Managed 均不能放宽 Mandatory Policy</td></tr>
+      <tr><td><b>数据与记忆</b></td><td>召回、候选确认、备份恢复、导入导出、缓存、删除</td><td>workspace/project；记忆强 project scope</td><td>删除/恢复/导出是专用 command，不是普通 boolean；默认每日备份、7 个日备份 + 3 个升级前备份</td></tr>
+      <tr><td><b>技能</b></td><td>安装源、启停、匹配阈值、权限差异与撤销</td><td>workspace/project/session grant</td><td>匹配不授予权限；ADR/隔离未通过时第三方执行保持 quarantined</td></tr>
+      <tr><td><b>快捷键</b></td><td>命令绑定、冲突检测和恢复默认</td><td>application</td><td>系统保留键不可重绑；键盘与 IME 必须可用</td></tr>
+      <tr><td><b>诊断与更新</b></td><td>健康、日志级别、诊断预览、审批/完成/失败通知、更新通道</td><td>application；stable、自动检查、不静默安装</td><td>诊断排除敏感正文；系统通知需 OS 授权；更新不可绕过签名、防降级和安全版本下限</td></tr>
+      <tr><td><b>关于</b></td><td>版本、协议版本、许可证、SBOM 摘要和更新状态</td><td>只读权威值</td><td>不提供修改安全根或版本信息的通用设置</td></tr>
+    </tbody></table>
+    <div class="card"><h4 style="margin-top:0">作用域、保存与权威值</h4><ul>
+      <li>Engine 按 <code>built-in default → application/workspace → project → Mandatory Policy</code> 计算 <code>effectiveValue</code>；每项返回 source、inherited、overridden、managed/locked、version 和 applyMode。</li>
+      <li>普通字段在 Renderer 内存形成 draft，调用 <code>settings.validate</code> 后由 <code>settings.patch(expectedVersion,idempotencyKey,digest)</code> 原子保存；禁止 localStorage 保存业务设置。</li>
+      <li>外观可以临时预览；普通设置在一次保存成功后即时 apply；语言/运行时项准确显示 <code>renderer_reload / app_restart</code>，不得虚称已完全生效。</li>
+      <li>Key、删除、恢复、导出、更新和安全策略不进入通用 patch，继续使用专用安全对话框、Command RPC、Policy、影响摘要和执行前重验。</li>
+      <li>断线导致结果不明时进入 <code>outcome_unknown</code>，UI 必须按 idempotency key 查询状态，禁止直接重复保存或执行。</li>
+    </ul></div>
+    <div class="callout"><b>设置中心完成门禁：</b>每个公开设置必须有稳定 key、类型/schema、默认值、允许 scope、敏感级别、存储位置、merge/继承策略、applyMode、Policy 约束、RPC、事件、错误码、迁移和 E2E；仅在原型出现菜单或静态控件不算实现完成。</div>
   </div>
 </section>
 
@@ -1021,25 +1045,49 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
 <!-- ═══ Footer ═══ -->
 <section id="delivery-baseline">
   <div class="wrap">
-    <div class="sec-head"><div><div class="num">DELIVERY BASELINE</div><h2>实施里程碑与开发准入</h2></div><span class="tag">M0–M6 · 权威范围</span></div>
-    <div class="warn"><b>命名裁决：</b>产品实施阶段统一称 <b>Milestone M0–M6</b>；DevTask 的紧急度继续使用 <b>priority P0–P3</b>。文档中的旧“P0/P1 开发基线”解释为 M0/M1，不得与任务优先级混用。</div>
+    <div class="sec-head"><div><div class="num">DELIVERY BASELINE</div><h2>实施里程碑与开发准入</h2></div><span class="tag">M0–M7 · 权威范围</span></div>
+    <div class="warn"><b>命名裁决：</b>产品实施阶段统一称 <b>Milestone M0–M7</b>；DevTask 紧急度继续使用 <b>priority P0–P3</b>。M0 是风险 POC，M1 是契约底座，<b>M2 才是首个可安装对话 Alpha</b>；不得把 POC 或静态原型宣传为可用产品。</div>
     <table><thead><tr><th>里程碑</th><th>参考工期</th><th>纵向交付范围</th><th>退出门禁</th></tr></thead><tbody>
-      <tr><td><b>M0 架构与 POC</b></td><td>2–3周</td><td>Go WebView2 Host、React 受信 origin、Named Pipe、DPAPI、SQLite migration、签名安装/更新 POC</td><td>关键风险有可运行 POC、基准和 ADR</td></tr>
-      <tr><td><b>M1 Go 模型底座迁移</b></td><td>3–5周</td><td>Provider/Model/BYOK、两协议族、流式 Chat、取消、诊断、原型配置与密钥安全迁移</td><td>第一条 Provider→Secret→真实调用→流式 UI→审计纵向切片通过</td></tr>
-      <tr><td><b>M2 项目与会话</b></td><td>4–6周</td><td>Project/Session/Message、1M 逻辑上下文、分页、压缩/Handoff、基础备份恢复</td><td>长会话 corpus、重启恢复、删除传播通过</td></tr>
-      <tr><td><b>M3 九阶段与产物</b></td><td>5–8周</td><td>StageDefinition、StageRun、Artifact、版本快照、stale 传播、需求追踪</td><td>九阶段最小闭环及双向追踪 100%</td></tr>
-      <tr><td><b>M4 智能内核与受控工具</b></td><td>8–12周</td><td>Planning/Governance、签名内建工具、Memory/Skill 最小闭环；向量/语言解析受 ADR-005/006</td><td>Policy/Review/幂等/恢复/安全 POC 通过</td></tr>
-      <tr><td><b>M5 数据、接口与开发工作台</b></td><td>8–12周</td><td>五视图、HTTP/OpenAPI consumer 子集、数据库只读契约、版本迁移包；高成本 Connector 按 ADR 后置</td><td>工作区→变更集→测试证据→审批闭环</td></tr>
-      <tr><td><b>M6 CR、部署与发行</b></td><td>8–12周</td><td>CRRevision、ReleasePackage、Promotion、应用签名升级；用户项目执行器受 ADR-010</td><td>干净机、恢复、签名、同 digest 晋级门禁</td></tr>
+      <tr><td><b>M0 架构风险归零</b></td><td>2–3周</td><td>Go Host/Engine、受信 origin、Named Pipe、SQLite、DPAPI、NSIS/Updater POC；仅展示组件健康</td><td>Win10/11 可重复 POC；非法 Bridge 拒绝、无明文 Secret、坏升级可恢复、无孤儿进程</td></tr>
+      <tr><td><b>M1 产品底座与契约冻结</b></td><td>2–3周</td><td>Provider/Model/Secret 领域端口，Bridge/RPC/Event schema，生成 Go/TS SDK，两协议 adapter 骨架，取消/错误/审计/迁移 registry；录制响应诊断壳</td><td>无手写重复 DTO；契约、错误矩阵、Provider v1/v2 迁移 golden corpus 通过</td></tr>
+      <tr><td><b>M2 可安装对话 Alpha</b></td><td>3–5周</td><td>签名 per-user 安装包、基础导航与设置中心、Provider/BYOK、模型选择、两协议真实测试、简单单会话流式对话、停止/重试和诊断</td><td>干净机完成“安装→设置→Provider/Key→测试→选择模型→流式对话”；Key 全路径 0 明文，安装/重装不损配置，基础 UI/E2E 通过</td></tr>
+      <tr><td><b>M3 项目、会话与长上下文</b></td><td>4–6周</td><td>Workspace/Project/Session/Message、分页、附件引用、1M 逻辑上下文、压缩/Handoff、备份恢复与删除传播</td><td>1M corpus、32K/128K/200K 窗口矩阵、摘要保真、重启恢复、Handoff 和删除传播通过</td></tr>
+      <tr><td><b>M4 九阶段与版本化产物</b></td><td>5–8周</td><td>StageDefinition/Run、StageInputSnapshot、Artifact/Version/Review、stale 传播、模板和需求追踪</td><td>九阶段最小闭环；输入不静默替换；需求→产物→任务双向追踪 100%</td></tr>
+      <tr><td><b>M5 智能内核与受控工具</b></td><td>8–12周</td><td>Go Agent Kernel、Planning DAG、Profile/Automation/Stage 三轴、Policy/Review、checkpoint、签名内建工具、Ontology/Memory/Skill 最小闭环</td><td>预算/幂等/恢复、Review TOCTOU、安全 POC 和跨项目 0 泄漏通过；Open ADR 能力保持禁用</td></tr>
+      <tr><td><b>M6 数据、接口与开发工作台</b></td><td>8–12周</td><td>五视图、HTTP/OpenAPI 3.0 consumer、远程 MCP、数据库只读契约、MigrationPackage、ChangeSet、lint/test/build、预览与 VS Code 定位</td><td>工作区→checkpoint→patch/CAS→测试证据→Review 闭环；路径、命令、SSRF 与数据库契约测试通过</td></tr>
+      <tr><td><b>M7 CR、部署与生产发行</b></td><td>8–12周</td><td><b>用户项目轨：</b>CRRevision、不可变 ReleasePackage、代码+迁移同 digest、Promotion、恢复/前滚；<b>月汐更新轨：</b>独立 Update 状态机、签名安装升级、SBOM/provenance</td><td>两轨不得复用实体/回滚承诺；同 digest 晋级与干净机签名/防降级分别通过。ADR-010 只阻断用户项目具体执行器，不阻断月汐自身更新</td></tr>
       <tr><td><b>未来协作版</b></td><td>独立立项</td><td>User/Group/Role、Presence 传输、实时协作、N-of-M 与职责分离</td><td>ADR-011 从 Deferred 转 Accepted</td></tr>
     </tbody></table>
+    <h3>M2 首个可安装 Alpha · 固定演示脚本</h3>
+    <ol><li>在 Win10/11 干净机运行签名安装器并启动应用。</li><li>进入现有对话优先首页；未配置模型时显示轻量引导，不提前展开九阶段。</li><li>打开设置中心，在对话与模型/连接中创建 OpenAI-compatible 或 Anthropic Provider。</li><li>在一次性安全输入窗口提交 BYOK；保存后只显示“已配置”，不回显旧值。</li><li>真实连接测试展示 stage、HTTP status、latency、脱敏错误和 correlationId。</li><li>选择默认模型，回首页发送消息并接收 start/delta/done 流式回复。</li><li>执行停止/重试，取消必须传播到 Go context 和上游 HTTP。</li><li>重启后非敏感配置仍在，诊断包、DB、日志、dump 和稳定内存扫描无明文 Key。</li></ol>
+    <div class="note"><b>里程碑依赖：</b>M0→M1→M2→M3→M4→M5→M6→M7 为主链。M3 开工前冻结 canonical tokenizer；M5 对应能力受 ADR-005/006/009；M4/M7 模板格式受 ADR-012；M7 用户项目执行器受 ADR-010；ADR-011 始终不阻断 v1。</div>
+    <h3>全模块实现规格关闭矩阵</h3>
+    <p>功能在原型、PRD 或实体地图中出现不代表已经可编码。每个模块在进入所属 Milestone 前，MUST 关闭九项合同：<b>产品行为、聚合/不变量、状态机/guard、Command/Query/RPC、Domain/Wire/Audit 事件、DDL/索引/迁移、权限/数据分类、幂等/失败恢复/可观测性、可执行验收/故障注入</b>。</p>
+    <table><thead><tr><th>模块族</th><th>当前详细度</th><th>所属 Milestone</th><th>开工前必须补齐/冻结</th></tr></thead><tbody>
+      <tr><td>Host / IPC / Secret / Installer</td><td>接近实现级</td><td>M0</td><td>Windows POC、协议/签名 corpus、崩溃和无孤儿进程门禁</td></tr>
+      <tr><td>Provider / ModelGateway / BYOK</td><td>实现级基线</td><td>M1–M2</td><td>生成 SDK、真实两协议契约、原型迁移与 Key 全路径 canary</td></tr>
+      <tr><td>设置中心</td><td>本次已补实现合同</td><td>M2 基础；后续随能力扩展</td><td>逐 key Registry、scope/default/applyMode、专用危险命令、迁移和设置 E2E</td></tr>
+      <tr><td>Session / Context / Compact / Handoff</td><td>接近实现级</td><td>M3</td><td>canonical tokenizer artifact、DDL/索引、1M corpus、保真与删除传播</td></tr>
+      <tr><td>Stage / Artifact / Trace</td><td>产品与实体清楚，服务合同不足</td><td>M4</td><td>逐动作 RPC、领域事件、StageRun/Artifact DDL、stale 恢复和逐阶段验收</td></tr>
+      <tr><td>Template / Base / Overlay</td><td>DDL 较完整，服务层不足</td><td>M4</td><td>生命周期 RPC/事件、引用阻断、升级冲突/恢复、ADR-012 支持矩阵</td></tr>
+      <tr><td>Agent Kernel / Planning / ToolRuntime</td><td>共享架构已补，领域 registry 待实现</td><td>M5</td><td>Run/Turn/Step 状态、预算、Tool descriptor、EffectJournal、恢复与 golden trace</td></tr>
+      <tr><td>Governance / Review / Audit</td><td>接近实现级</td><td>M0 基线；M5 完整</td><td>完整 RPC/event/error registry、执行前重验、一次性 token、审计外置 checkpoint</td></tr>
+      <tr><td>Ontology</td><td>实体与原则清楚，后端受 ADR 阻断</td><td>M5</td><td>parser registry、parse/index/query RPC、原子索引切换、ADR-005/006</td></tr>
+      <tr><td>Memory</td><td>安全与验收强，服务/存储不足</td><td>M5</td><td>candidate/confirm/recall/delete RPC、事件、TTL worker、向量一致性协议</td></tr>
+      <tr><td>Skill / Tool Grant</td><td>状态与安全清楚，执行协议不足</td><td>M5</td><td>安装 journal、生命周期 RPC/事件、撤销传播、ADR-009/隔离门禁</td></tr>
+      <tr><td>Integration / OpenAPI / MCP / DB Contract</td><td>首批子集接近实现级</td><td>M6</td><td>各 adapter schema、调用/恢复契约、SSRF corpus、保留期和只读 DB 权限</td></tr>
+      <tr><td>DevTask / Scan / Test / Workbench</td><td>测试规则强，服务/仓储不足</td><td>M6</td><td>任务/扫描/测试 RPC 与事件、DDL、Worker 崩溃一致性、队列与告警指标</td></tr>
+      <tr><td>CR / Promotion / Deployment</td><td>接近实现级</td><td>M7</td><td>目标执行器 ADR-010、外部 receipt/对账、恢复演练和同 digest 证据</td></tr>
+      <tr><td>Lunitide Update / Recovery</td><td>接近实现级</td><td>M0 POC；M2 Alpha；M7 生产</td><td>与用户项目发布保持实体/状态机隔离，签名、防降级、备份迁移和干净机矩阵</td></tr>
+    </tbody></table>
+    <div class="warn"><b>拆分规则：</b>不再新增顶层设计文档。共享架构、配置、事件和恢复写入 Architecture；横向实体/RPC/DDL 写入 Module Detail；产品范围与 Milestone 写入本 PRD；S5–S9 分别深化其专项领域。某模块若单章超过可维护范围，优先在对应现有 HTML 内增设实施附录和稳定锚点，而不是再创建新文件。</div>
     <h3>Definition of Ready · 进入实现前全部满足</h3>
     <ul><li>需求有唯一 ID、价值、范围、优先级、验收方法和来源；明确 in/out of scope。</li><li>影响的实体、接口、状态机、事件、失败场景、数据分类与外发边界已定义；依赖 schema/ADR 已批准。</li><li>上游 Artifact/StageInputSnapshot 已批准并锁版；测试数据、迁移、恢复与安全用例已准备。</li><li>功能已分配唯一 Milestone；Open ADR 或未通过 POC 的能力不得进入当前实现。</li></ul>
     <h3>Definition of Done · 完成时全部满足</h3>
     <ul><li>代码、测试、文档、schema 和迁移同时提交；生成 Go/TypeScript SDK，无手写重复 DTO。</li><li>状态机、错误码、审计事件、幂等/并发、可观测性、诊断、回退/恢复均实现并测试。</li><li>格式、lint、unit、contract、race、SAST/SCA、secret scan、E2E、故障注入和追踪矩阵通过。</li><li>任何偏离 SHOULD 的项有 ADR；无 TODO/TBD；所有 UI 操作可追溯到 capability、RPC、Engine handler、Policy 和验收。</li></ul>
-    <h3>M0/M1 Coding 启动清单 · 项目级一次性门禁</h3>
+    <h3>M0–M2 早期交付启动清单 · 项目级一次性门禁</h3>
     <ul class="checklist"><li>ADR-001/002/003/004/007/008 已批准并确认当前基线；Open/Deferred ADR 的阻断范围已登记。</li><li>Go monorepo 与 CI 已建立；固定 Go/Node 工具链、依赖锁、格式/lint/unit/contract/race/SAST/SCA/secret scan、SBOM。</li><li>WebView2 Host、受信 virtual origin、Host↔Engine 认证 Named Pipe、DPAPI、SQLite migration 和签名安装/更新 POC 已通过。</li><li>Bridge v1 JSON Schema、Provider/Model/Secret 数据模型、迁移 registry、审计 registry、错误码 registry 与威胁模型/安全回归 corpus 已冻结并进入代码库。</li><li>已采集 Electron/Python 原型的安装体积、冷/热启动、稳态/峰值内存和孤儿进程基线，供 Go/WebView2 POC 对比；不得用估计值代替测量。</li></ul>
-    <h3>M1 第一条纵向切片 · 固定验收序列</h3>
+    <h3>M2 Provider→Secret→真实对话纵向切片 · 固定验收序列</h3>
     <ol><li>Renderer 通过生成 SDK 调用 <code>provider.list</code>。</li><li>Host 校验 CoreWebView2/source/frame/document nonce/schema/deadline 后，经认证 Named Pipe 转发。</li><li>Engine 从 SQLite 查询脱敏 Provider，并返回生成的类型化响应。</li><li>新增/覆盖 Key 只经一次性 Bridge 输入窗口进入 Host SecretService，以 DPAPI 保存；已保存 Key 不回 Renderer。</li><li>Go ModelGateway 对目标 Provider 执行真实连接测试与可取消流式调用。</li><li>UI 展示 <code>status / stage / httpStatus / latencyMs / errorCode / sanitizedMessage / correlationId</code>，不得展示 Key 或未脱敏上游正文。</li><li>全链路产生 trace、append-only 审计与脱敏结构化日志，并通过非法 origin/schema、SSRF、Key canary 和取消测试。</li><li>unit、contract、UI E2E、integration、security 与故障测试全部通过。</li><li>使用 M1 迁移契约从 0.2.1 原型迁移一个 DeepSeek Provider 配置与模型列表；Key 成功迁移或明确进入 <code>requires_reentry</code>，随后真实测试通过。</li></ol>
     <div class="warn"><b>禁止开工方式：</b>禁止先复制 Python 业务到 Go 而不定义领域端口；禁止保留 Electron 作为正式壳；禁止 React 直连 SQLite/模型/密钥；禁止先做全量九阶段 UI 再补状态和数据；禁止把 Open ADR 隐式固化；禁止用单一 happy path 演示代替故障、安全和恢复验收。</div>
   </div>
@@ -1051,7 +1099,7 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
       <div class="moon-logo sm"></div>
       <span>LUNITIDE</span><span class="zh" style="color:var(--glow);margin-left:2px;font-family:var(--serif)">月汐</span>
     </div>
-    <p>产品需求文档 PRD · v1.0 · M0/M1 开发基线 · 更新 2026-08-09</p>
+    <p>产品需求文档 PRD · v1.0 · M0–M7 实施基线 · 更新 2026-08-11</p>
     <p>Go Core + WebView2 Host + React/TypeScript · Windows 10/11 x64</p>
   </div>
 </footer>
