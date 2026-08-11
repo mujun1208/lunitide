@@ -63,6 +63,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// Dynamic context window: read from provider model config, fallback to 128000.
 		contextWindow := int64(128000)
 		safetyCeiling := int64(120000)
+		var tokenizerRevision string
 		for _, m := range item.Models {
 			if m.ModelID == p.ModelID && m.ContextWindow > 0 {
 				contextWindow = m.ContextWindow
@@ -80,20 +81,21 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		}
 		providerInfo := contextapp.ProviderInfo{
-			Provider:       string(item.Protocol),
-			Model:          p.ModelID,
-			ContextWindow:  contextWindow,
-			SafetyCeiling:  safetyCeiling,
-			ReservedOutput: 4096,
-			SystemTokens:   systemTokens,
-			SafetyMargin:   1024,
+			Provider:          string(item.Protocol),
+			Model:             p.ModelID,
+			ContextWindow:     contextWindow,
+			SafetyCeiling:     safetyCeiling,
+			ReservedOutput:    4096,
+			SystemTokens:      systemTokens,
+			SafetyMargin:      1024,
+			TokenizerRevision: tokenizerRevision,
 		}
 
 		// ADR-005 §2: Check token usage and trigger automatic compaction
 		// when the high watermark is exceeded. Compaction runs asynchronously
 		// to avoid blocking the current chat turn.
 		if e.compactionTrigger != nil {
-			if triggerResult, trErr := e.compactionTrigger.CheckAndTrigger(ctx, p.SessionID, string(item.Protocol), p.ModelID, "", providerInfo.ContextWindow); trErr == nil && triggerResult.Triggered && e.compactionExecutor != nil {
+			if triggerResult, trErr := e.compactionTrigger.CheckAndTrigger(ctx, p.SessionID, string(item.Protocol), p.ModelID, tokenizerRevision, providerInfo.ContextWindow); trErr == nil && triggerResult.Triggered && e.compactionExecutor != nil {
 				checkpointID := triggerResult.CheckpointID
 				go func() {
 					_, _ = e.compactionExecutor.Execute(context.Background(), checkpointID)
@@ -101,19 +103,34 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		}
 
-		// Inject the latest succeeded compaction summary as a system-level
-		// preamble, if available (ADR-005 §3).
-		var priorSummary string
-		if e.summaryReader != nil {
-			priorSummary, _ = e.summaryReader.GetLatestCompactionSummary(ctx, p.SessionID)
+		// Build the ContextEnvelope (ADR-005 §3 seven-level priority).
+		envelope := contextapp.ContextEnvelope{
+			Provider:          providerInfo,
+			MaxMessages:       256,
+			RecentUserReserve: 0, // Use default: max(512, budget/10)
+			SafetyMargin:      1024,
 		}
 
-		assembled, assembleErr := contextapp.Assemble(ctx, e.messageReader, p.SessionID, providerInfo, contextapp.AssembleOptions{
-			PriorSummary: priorSummary,
-		})
+		// Priority 3: Latest accepted compaction checkpoint summary.
+		if e.summaryReader != nil {
+			if priorSummary, _ := e.summaryReader.GetLatestCompactionSummary(ctx, p.SessionID); priorSummary != "" {
+				envelope.AcceptedCheckpoint = &contextapp.ContextSource{
+					Type:       contextapp.SourceCompactionSummary,
+					ID:         "latest",
+					Authority:  contextapp.AuthorityCheckpoint,
+					Content:    priorSummary,
+					Provenance: "session:" + p.SessionID + ":checkpoint:latest",
+				}
+			}
+		}
+
+		// Assemble the context envelope with full priority ordering and
+		// selection trace (ADR-005 §3).
+		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, p.SessionID, envelope)
 		if assembleErr != nil {
 			return bridge.Failure(request.ID, request.TraceID, "CONTEXT_ASSEMBLY_FAILED", "上下文装配失败: "+assembleErr.Error(), true)
 		}
+		assembled := result.Messages
 		// Validate the assembled message sequence (ADR-005 §3: "never emits
 		// an invalid provider message sequence").
 		if seqErr := contextapp.ValidateProviderSequence(assembled); seqErr != nil {
