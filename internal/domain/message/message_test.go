@@ -96,3 +96,31 @@ func TestMessageValidateAssistantRole(t *testing.T) {
 		t.Fatal("accepted unknown role")
 	}
 }
+
+func TestMessageValidateToolRole(t *testing.T) {
+	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	now := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	// Valid tool message (tool results can be JSON, using assistant text limits).
+	valid := Message{ID: id, SessionID: id, Role: RoleTool, Status: StatusCompleted, Sequence: 1, Text: `{"result":"ok"}`, CreatedAt: now}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid tool message rejected: %v", err)
+	}
+	// Tool with failed status rejected.
+	failed := valid
+	failed.Status = StatusFailed
+	if err := failed.Validate(); err == nil {
+		t.Fatal("accepted tool message with failed status")
+	}
+	// Tool text exceeding assistant limit rejected.
+	oversized := valid
+	oversized.Text = strings.Repeat("a", MaxRunesAssistant+1)
+	if err := oversized.Validate(); err == nil {
+		t.Fatal("accepted tool message with oversized text")
+	}
+	// Tool text within assistant limit but exceeding user limit accepted.
+	wideText := valid
+	wideText.Text = strings.Repeat("a", MaxRunes+1)
+	if err := wideText.Validate(); err != nil {
+		t.Fatalf("tool text within assistant limit but exceeding user limit rejected: %v", err)
+	}
+}

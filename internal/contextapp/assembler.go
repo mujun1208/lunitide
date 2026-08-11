@@ -3,6 +3,7 @@ package contextapp
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/lunitide/lunitide/internal/domain/token"
 )
@@ -74,11 +75,13 @@ type Reader interface {
 // ADR-005 §3 and preserves complete turn boundaries.
 //
 // Priority order (ADR-005 §3):
-// 1. Authoritative system/security instructions (reserved via SystemTokens)
-// 2. Tool schemas (reserved via ToolSchemaTokens)
+// 1. Authoritative system/security/product instructions (reserved via SystemTokens)
+// 2. Current workspace/world state and active task state (reserved via ToolSchemaTokens)
 // 3. Latest accepted compaction checkpoint (injected as PriorSummary preamble)
-// 4. Recent original messages (reverse chronological, turn-boundary protected)
-// 5. Latest user turn (protected by dedicated reserve)
+// 4. Relevant pinned facts/decisions with provenance (injected as PinnedFacts preamble)
+// 5. Recent original messages, keeping complete turn/tool-call boundaries
+// 6. Latest user turn, protected by a dedicated reserve
+// 7. Retrieved older evidence, injected only when relevant and within budget
 //
 // Turn boundary protection: an assistant response and the user message it
 // replies to form an atomic turn. Assemble never includes an assistant
@@ -163,6 +166,42 @@ func Assemble(ctx context.Context, reader Reader, sessionID string, info Provide
 
 		msg := allMessages[i]
 
+		// Tool result: must be paired atomically with the assistant tool_call
+		// that produced it (ADR-005 §3: "never splits an assistant tool call
+		// from its tool result"). In backward order, the tool result at index
+		// i is newer than the assistant tool_call at i+1 (older). They must be
+		// included together or skipped together.
+		if msg.Role == "tool" {
+			pairIdx := -1
+			if i+1 < len(allMessages) && allMessages[i+1].Role == "assistant" && !selectedSet[i+1] {
+				pairIdx = i + 1
+			}
+			if pairIdx >= 0 {
+				pairMsg := allMessages[pairIdx]
+				pairCost := msg.TokenCount + pairMsg.TokenCount
+				if pairCost > remaining {
+					// Atomic pair doesn't fit; skip both.
+					selectedSet[i] = true
+					selectedSet[pairIdx] = true
+					continue
+				}
+				selected = append(selected, msg, pairMsg)
+				remaining -= pairCost
+				selectedSet[i] = true
+				selectedSet[pairIdx] = true
+				continue
+			}
+			// Orphan tool result (no preceding assistant); include if fits.
+			if msg.TokenCount > remaining {
+				selectedSet[i] = true
+				continue
+			}
+			selected = append(selected, msg)
+			remaining -= msg.TokenCount
+			selectedSet[i] = true
+			continue
+		}
+
 		// If this is an assistant message, check turn boundary: the user
 		// message it replies to is at i+1 in backward order (the preceding
 		// user turn). They must be included together.
@@ -215,19 +254,41 @@ func Assemble(ctx context.Context, reader Reader, sessionID string, info Provide
 	// Reverse to forward chronological order for the model.
 	reverseMessages(selected)
 
-	// Inject prior compaction summary as a system-level preamble (ADR-005 §3
-	// priority 3: latest accepted compaction checkpoint). The summary provides
-	// compressed context from earlier in the conversation, allowing the model
-	// to reference prior decisions without consuming the full token budget of
-	// the original messages.
+	// Inject system-level preambles in ADR-005 §3 priority order:
+	//   priority 3: PriorSummary (latest accepted compaction checkpoint)
+	//   priority 4: PinnedFacts (relevant pinned facts/decisions with provenance)
+	// Both are prepended to the selected message body, with PriorSummary first.
+	var preambles []Message
 	if opts.PriorSummary != "" {
-		summaryTokens := token.EstimateTokens(opts.PriorSummary)
-		summaryMsg := Message{
+		preambles = append(preambles, Message{
 			Role:       "system",
 			Content:    "[Prior Context Summary]\n" + opts.PriorSummary,
-			TokenCount: summaryTokens,
+			TokenCount: token.EstimateTokens(opts.PriorSummary),
+		})
+	}
+	if opts.PinnedFacts != "" {
+		preambles = append(preambles, Message{
+			Role:       "system",
+			Content:    "[Pinned Facts]\n" + opts.PinnedFacts,
+			TokenCount: token.EstimateTokens(opts.PinnedFacts),
+		})
+	}
+	if len(preambles) > 0 {
+		selected = append(preambles, selected...)
+	}
+
+	// Inject retrieved older evidence at the end (ADR-005 §3 priority 7:
+	// retrieved older evidence only when relevant and within budget).
+	if opts.RetrievedEvidence != "" {
+		evidenceTokens := token.EstimateTokens(opts.RetrievedEvidence)
+		if evidenceTokens <= remaining {
+			evidenceMsg := Message{
+				Role:       "system",
+				Content:    "[Retrieved Evidence]\n" + opts.RetrievedEvidence,
+				TokenCount: evidenceTokens,
+			}
+			selected = append(selected, evidenceMsg)
 		}
-		selected = append([]Message{summaryMsg}, selected...)
 	}
 
 	return selected, nil
@@ -244,8 +305,15 @@ type AssembleOptions struct {
 	SafetyMargin int64
 	// PriorSummary is the latest succeeded compaction checkpoint summary.
 	// When non-empty, it is injected as a system-level preamble at the
-	// beginning of the assembled context (ADR-005 §3).
+	// beginning of the assembled context (ADR-005 §3 priority 3).
 	PriorSummary string
+	// PinnedFacts contains pinned facts/decisions with provenance to inject
+	// as a system-level preamble (ADR-005 §3 priority 4).
+	PinnedFacts string
+	// RetrievedEvidence contains older evidence retrieved from memory to
+	// inject at the end of the assembled context, only when within budget
+	// (ADR-005 §3 priority 7).
+	RetrievedEvidence string
 }
 
 func reverseMessages(msgs []Message) {
@@ -259,4 +327,46 @@ func maxInt64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// ValidateProviderSequence checks that the assembled message sequence conforms
+// to provider-neutral validity rules (ADR-005 §3: "never emits an invalid
+// provider message sequence"). It enforces:
+//   - The sequence is non-empty.
+//   - System messages may only appear at the start (before any non-system message).
+//   - No two consecutive assistant messages without an intervening user or tool message.
+//   - Tool messages must follow an assistant message or another tool message
+//     (a single assistant turn may emit multiple tool calls, each with its own
+//     tool result).
+//   - At least one user message is present.
+func ValidateProviderSequence(messages []Message) error {
+	if len(messages) == 0 {
+		return errors.New("empty message sequence")
+	}
+	seenNonSystem := false
+	hasUser := false
+	var prevNonSystemRole string
+	for i, m := range messages {
+		if m.Role == "system" {
+			if seenNonSystem {
+				return fmt.Errorf("system message at position %d must precede all non-system messages", i)
+			}
+			continue
+		}
+		seenNonSystem = true
+		if m.Role == "user" {
+			hasUser = true
+		}
+		if m.Role == "assistant" && prevNonSystemRole == "assistant" {
+			return fmt.Errorf("consecutive assistant messages at position %d without intervening user or tool message", i)
+		}
+		if m.Role == "tool" && prevNonSystemRole != "assistant" && prevNonSystemRole != "tool" {
+			return fmt.Errorf("tool message at position %d must follow an assistant or tool message", i)
+		}
+		prevNonSystemRole = m.Role
+	}
+	if !hasUser {
+		return errors.New("message sequence must contain at least one user message")
+	}
+	return nil
 }

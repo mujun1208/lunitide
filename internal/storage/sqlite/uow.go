@@ -208,10 +208,10 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 	if sequence < 1 || sequence > message.MaxSafeSequence {
 		return v, messageapp.ErrDataInvariantViolation
 	}
-	// Validate text based on role: assistant messages allow wider limits.
+	// Validate text based on role: assistant and tool messages allow wider limits.
 	var text string
 	var err error
-	if v.Role == message.RoleAssistant {
+	if v.Role == message.RoleAssistant || v.Role == message.RoleTool {
 		text, err = message.NormalizeAssistantText(v.Text)
 	} else {
 		text, err = message.NormalizeText(v.Text)
@@ -308,9 +308,9 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 		}
 		tokenEstimate := token.EstimateTokens(v.Text)
 		if _, err = t.q.ExecContext(ctx,
-			`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
-			 VALUES(?,?,?,?,?,?,?,?,?)`,
-			tokenID, v.ID, "", "", token.CanonicalTokenizerRevision, tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC())); err != nil {
+			`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at, subject_type, subject_id, tokenizer_id)
+			 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, 'lunitide-canonical-v1')`,
+			tokenID, v.ID, "", "", token.CanonicalTokenizerRevision, tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC()), v.ID); err != nil {
 			return v, mapWriteError(err)
 		}
 	}
@@ -504,10 +504,10 @@ func (t *txAdapter) PutTokenLedgerEntry(ctx context.Context, entry token.LedgerE
 		return err
 	}
 	_, err := t.q.ExecContext(ctx,
-		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at)
-		 VALUES(?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at, subject_type, subject_id, tokenizer_id)
+		 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, 'lunitide-canonical-v1')`,
 		entry.ID, entry.MessageID, entry.Provider, entry.Model, entry.TokenizerRevision,
-		entry.TokenCount, string(entry.EstimationMethod), entry.UTF8Bytes, formatTime(entry.ComputedAt))
+		entry.TokenCount, string(entry.EstimationMethod), entry.UTF8Bytes, formatTime(entry.ComputedAt), entry.MessageID)
 	return mapWriteError(err)
 }
 func (t *txAdapter) PutOutbox(ctx context.Context, e providerapp.Event) error {
