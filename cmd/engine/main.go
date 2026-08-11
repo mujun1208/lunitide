@@ -104,6 +104,18 @@ func main() {
 	engine.SetMigrationService(app.NewMigrationAdapter(store))
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
 	engine.SetupHandoffService(store)
+	// Reconcile orphaned compaction checkpoints left in pending or running
+	// state by a previous process crash (ADR-005 §5: "restart recovery must be
+	// called once at engine startup before serving traffic"). Best-effort: log
+	// results but never abort startup on recovery failure.
+	recoveryResults, recoveryErr := engine.RecoverCompaction(ctx)
+	if recoveryErr != nil {
+		log.Printf("compaction restart recovery failed: %v", recoveryErr)
+	}
+	for _, r := range recoveryResults {
+		log.Printf("compaction recovery: checkpoint=%s session=%s version=%d action=%s status=%s err=%v",
+			r.CheckpointID, r.SessionID, r.Version, r.Action, r.Status, r.Err)
+	}
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()

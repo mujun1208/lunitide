@@ -424,23 +424,108 @@ func TestArtifactDescriptor(t *testing.T) {
 }
 
 // TestEstimateTokens_NFCStability verifies that NFC-equivalent inputs produce
-// similar token counts (e.g., precomposed vs decomposed forms). Since we don't
-// have full NFC normalization, this test documents the current behavior and
-// ensures the difference is bounded. Full NFC composition would reduce the
-// difference to 0; without it, the conservative estimator may differ by up to 2
-// tokens for short strings with combining characters.
+// identical token counts (e.g., precomposed vs decomposed forms). With the
+// real NFC implementation (golang.org/x/text/unicode/norm.NFC.String), the
+// difference MUST be 0 — canonically equivalent strings normalize to identical
+// byte sequences before estimation. If this test fails, NFC normalization has
+// regressed and the canonical tokenizer freeze (ADR-005 §2) is broken.
 func TestEstimateTokens_NFCStability(t *testing.T) {
-	// Precomposed é (U+00E9) vs decomposed e + combining acute (U+0065 U+0301)
+	// Precomposed é (U+00E9) vs decomposed e + combining acute (U+0065 U+0301).
 	precomposed := "café"
 	decomposed := "cafe\u0301"
 	preTokens := EstimateTokens(precomposed)
 	decompTokens := EstimateTokens(decomposed)
-	// The difference should be small (at most 2 tokens without full NFC).
-	diff := preTokens - decompTokens
-	if diff < 0 {
-		diff = -diff
+	if preTokens != decompTokens {
+		t.Errorf("NFC stability: precomposed=%d, decomposed=%d, want equal (NFC must canonicalize both to the same form)", preTokens, decompTokens)
 	}
-	if diff > 2 {
-		t.Errorf("NFC stability: precomposed=%d, decomposed=%d, diff=%d (should be ≤2)", preTokens, decompTokens, diff)
+	// Verify the normalized text itself is byte-identical.
+	if NormalizeText(precomposed) != NormalizeText(decomposed) {
+		t.Errorf("NFC stability: normalized forms differ\n  precomposed: %q\n  decomposed: %q", NormalizeText(precomposed), NormalizeText(decomposed))
+	}
+}
+
+// TestNormalizeText_NFCEquivalence verifies that canonically equivalent
+// strings in different Unicode normalization forms (NFC, NFD, NFKC, NFKD) all
+// normalize to the same NFC form. This is the core guarantee of the canonical
+// tokenizer freeze (ADR-005 §2).
+func TestNormalizeText_NFCEquivalence(t *testing.T) {
+	// Test cases: each group contains strings that are canonically equivalent
+	// (same abstract characters) but use different normalization forms.
+	groups := []struct {
+		name    string
+		variants []string
+	}{
+		{
+			name: "latin-acute-accent",
+			// "café" — precomposed (NFC) vs decomposed (NFD)
+			variants: []string{"café", "cafe\u0301"},
+		},
+		{
+			name: "german-umlaut",
+			// "über" — precomposed ü (U+00FC) vs u + combining diaeresis (U+0075 U+0308)
+			variants: []string{"über", "u\u0308ber"},
+		},
+		{
+			name: "greek-tonos",
+			// "ά" — precomposed (U+03AC) vs alpha + combining tonos (U+03B1 U+0301)
+			variants: []string{"ά", "\u03B1\u0301"},
+		},
+		{
+			name: "cjk-compatibility",
+			// CJK compatibility ideograph U+F900 (豈) vs CJK unified U+8C48
+			// NFC composes the compatibility form to the unified form.
+			variants: []string{"\u8C48", "\uF900"},
+		},
+		{
+			name: "hangul-syllable",
+			// Korean 한 — precomposed syllable (U+D55C) vs Jamo decomposition
+			variants: []string{"한", "\u1112\u1161\u11AB"},
+		},
+		{
+			name: "multiple-combining-marks",
+			// "ṑ" — precomposed U+1E11 (o + combining macron below... no).
+			// Use a verified NFC pair: U+1E0D "ḍ" (d + dot below) vs d + U+0323.
+			// Then add combining macron U+0304 to both sides — NFC must produce
+			// the same fully-composed form for the same abstract character sequence.
+			variants: []string{"\u1E0D\u0304", "d\u0323\u0304"},
+		},
+	}
+	for _, g := range groups {
+		t.Run(g.name, func(t *testing.T) {
+			if len(g.variants) < 2 {
+				t.Fatalf("test group %q needs at least 2 variants", g.name)
+			}
+			reference := NormalizeText(g.variants[0])
+			referenceTokens := EstimateTokens(g.variants[0])
+			for i, v := range g.variants[1:] {
+				got := NormalizeText(v)
+				if got != reference {
+					t.Errorf("group %q variant %d: NormalizeText(%q) = %q, want %q (reference)", g.name, i+1, v, got, reference)
+				}
+				gotTokens := EstimateTokens(v)
+				if gotTokens != referenceTokens {
+					t.Errorf("group %q variant %d: EstimateTokens(%q) = %d, want %d (reference)", g.name, i+1, v, gotTokens, referenceTokens)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeText_NFCNotNFKC verifies that the canonical form is NFC, not
+// NFKC. NFKC would fold compatibility characters (e.g. fullwidth "Ａ" → "A"),
+// which we do NOT want — the canonical tokenizer should preserve visual
+// identity of compatibility characters, only composing combining sequences.
+func TestNormalizeText_NFCNotNFKC(t *testing.T) {
+	// Fullwidth Latin A (U+FF21) must NOT be folded to ASCII A (U+0041) under NFC.
+	fullwidth := "Ａ"
+	ascii := "A"
+	if NormalizeText(fullwidth) == NormalizeText(ascii) {
+		t.Errorf("NFC folded fullwidth Ａ to ASCII A — canonical form must be NFC, not NFKC")
+	}
+	// Ligature ﬁ (U+FB01) must NOT be decomposed to "fi" under NFC.
+	ligature := "ﬁ"
+	decomposed := "fi"
+	if NormalizeText(ligature) == NormalizeText(decomposed) {
+		t.Errorf("NFC decomposed ligature ﬁ to fi — canonical form must be NFC, not NFKC")
 	}
 }

@@ -29,6 +29,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Canonical tokenizer identity (frozen for M3).
@@ -163,12 +164,18 @@ func computeArtifactSHA256() string {
 // CRLF/CR → LF conversion. No trimming is performed (consistent with message
 // storage rules: CRLF/CR normalized to LF without trimming).
 //
-// NFC normalization is declared as the canonical form. The implementation
-// performs CRLF/CR → LF conversion and validates UTF-8 correctness. Full NFC
-// composition (combining character precomposition) requires golang.org/x/text;
-// when that dependency is available, replace this with norm.NFC.String(text).
-// For token estimation purposes, the difference between NFD and NFC inputs is
-// bounded and absorbed by the conservative safety margin.
+// NFC normalization is declared as the canonical form and is implemented via
+// golang.org/x/text/unicode/norm.NFC.String. NFC precomposes combining
+// character sequences so that canonically equivalent inputs (e.g. U+00E9 "é"
+// vs U+0065 U+0301 "e\u0301") produce identical normalized output and thus
+// identical canonical token counts.
+//
+// The order is: (1) validate UTF-8 and replace invalid bytes with U+FFFD;
+// (2) NFC composition; (3) CRLF/CR → LF. NFC runs before line-ending
+// normalization so that any combining characters produced by NFC on CR/LF
+// (none in practice) are handled. The result is deterministic for any given
+// input regardless of its original Unicode normalization form (NFC, NFD, NFKC,
+// NFKD).
 func NormalizeText(text string) string {
 	if text == "" {
 		return ""
@@ -179,7 +186,12 @@ func NormalizeText(text string) string {
 		// Force valid UTF-8 by replacing invalid bytes with U+FFFD.
 		text = strings.ToValidUTF8(text, "\uFFFD")
 	}
-	// Step 2: Line ending normalization (CRLF → LF, CR → LF).
+	// Step 2: Unicode NFC composition (ADR-005 §2 canonical tokenizer freeze).
+	// norm.NFC.String returns the NFC-normalized form of the input. For inputs
+	// already in NFC this is a no-op; for NFD/other forms it precomposes
+	// combining sequences so canonically equivalent strings become byte-identical.
+	text = norm.NFC.String(text)
+	// Step 3: Line ending normalization (CRLF → LF, CR → LF).
 	// This matches the message storage rule: CRLF/CR normalized to LF without trimming.
 	normalized := strings.ReplaceAll(text, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
