@@ -30,7 +30,8 @@ function Atmosphere():React.JSX.Element{
 export function App({projects=projectBridge,providers=providerBridge,sessions=sessionBridge,messages=messageBridge,stages=stageBridge,chat}:{projects?:ProjectBridge;providers?:ProviderBridge;sessions?:SessionBridge;messages?:MessageBridge;stages?:StageBridge;chat?:ChatBridge}):React.JSX.Element{
 const[page,setPage]=useState<'projects'|'providers'|'plans'|'reviews'|'memory'|'ontology'|'skills'|'settings'>('projects'),[selected,setSelected]=useState<ProjectDTO>()
 const chatBridge=chat??createChatBridge(window.chrome?.webview??{postMessage:()=>{},addEventListener:()=>{},removeEventListener:()=>{}})
-useEffect(()=>{initAppearance()},[])
+useEffect(()=>{initAppearance();try{const lastId=localStorage.getItem('lunitide:lastProject');if(lastId){projects.list().then(r=>{const found=r.items.find(p=>p.id===lastId);if(found)setSelected(found)}).catch(()=>{})}}catch{}},[])
+useEffect(()=>{try{if(selected)localStorage.setItem('lunitide:lastProject',selected.id);else localStorage.removeItem('lunitide:lastProject')}catch{}},[selected])
 
 const sidebar=<aside className="sidebar" aria-label="侧边导航">
 <div className="s-logo"><img src="/favicon.svg" alt="Lunitide" className="g" /><b>Lunitide</b><span>月汐</span></div>

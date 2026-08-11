@@ -10,7 +10,7 @@ const P = '01ARZ3NDEKTSV4RRFFQ69G5FAV', S1 = '01ARZ3NDEKTSV4RRFFQ69G5FAA', S2 = 
 const project: ProjectDTO = { id: P, name: 'Messages', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
 const sessions: SessionDTO[] = [S1, S2].map((id, i) => ({ id, projectId: P, title: `Session ${i + 1}`, status: 'active', createdAt: `2025-01-01T00:00:0${i}Z`, updatedAt: `2025-01-01T00:00:0${i}Z`, version: 1 }))
 const message = (sequence: number, overrides: Partial<MessageDTO> = {}): MessageDTO => ({ id: sequence === 1 ? '01ARZ3NDEKTSV4RRFFQ69G5FAC' : sequence === 2 ? '01ARZ3NDEKTSV4RRFFQ69G5FAD' : '01ARZ3NDEKTSV4RRFFQ69G5FAE', sessionId: S1, role: 'user', status: 'completed', sequence, text: `message-${sequence}`, createdAt: `2025-01-01T00:00:0${sequence}Z`, ...overrides })
-const sessionBridge: SessionBridge = { list: vi.fn().mockResolvedValue({ items: sessions }), create: vi.fn() }
+const sessionBridge: SessionBridge = { list: vi.fn().mockResolvedValue({ items: sessions }), create: vi.fn(), delete: vi.fn() }
 const page = (items: MessageDTO[] = [], nextCursor: string | null = null) => ({ items, hasMore: nextCursor !== null, nextCursor, snapshotSequence: items.reduce((n, x) => Math.max(n, x.sequence), 0) })
 const messages = (part: Partial<MessageBridge> = {}): MessageBridge => ({ list: vi.fn().mockResolvedValue(page()), append: vi.fn().mockResolvedValue(message(1)), ...part })
 async function open(bridge: MessageBridge, title = 'Session 1') { const user = userEvent.setup(); render(<SessionPage project={project} bridge={sessionBridge} messages={bridge} onBack={vi.fn()} />); await user.click(await screen.findByText(title)); return user }
