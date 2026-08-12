@@ -134,6 +134,42 @@ func TestTransportSecurityDefaults(t *testing.T) {
 	}
 }
 
+func TestOverallTimeoutCanBeExplicitlyDisabled(t *testing.T) {
+	c, err := New(context.Background(), "https://example.test", "v1", Options{
+		Resolver:              publicResolver(),
+		DisableOverallTimeout: true,
+		IdleReadTimeout:       90 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Client.Timeout != 0 {
+		t.Fatalf("client timeout=%v, want no total response deadline", c.Client.Timeout)
+	}
+}
+
+func TestIdleReadConnRefreshesDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	conn := &idleReadConn{Conn: client, timeout: 200 * time.Millisecond}
+	go func() {
+		_, _ = server.Write([]byte("a"))
+		time.Sleep(250 * time.Millisecond)
+		_, _ = server.Write([]byte("b"))
+	}()
+
+	buf := make([]byte, 1)
+	if _, err := conn.Read(buf); err != nil || string(buf) != "a" {
+		t.Fatalf("first read=%q err=%v", buf, err)
+	}
+	time.Sleep(120 * time.Millisecond)
+	if _, err := conn.Read(buf); err != nil || string(buf) != "b" {
+		t.Fatalf("second read=%q err=%v", buf, err)
+	}
+}
+
 func TestBodyLimitAfterDecompression(t *testing.T) {
 	var compressed strings.Builder
 	zw := gzip.NewWriter(&compressed)
@@ -294,7 +330,7 @@ func TestPinnedDialRequiresExpectedAuthority(t *testing.T) {
 	defer listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
 	authority := net.JoinHostPort("example.test", strconv.Itoa(port))
-	dial := pinnedDial(&net.Dialer{Timeout: time.Second}, []netip.Addr{netip.MustParseAddr("127.0.0.1")}, authority)
+	dial := pinnedDial(&net.Dialer{Timeout: time.Second}, []netip.Addr{netip.MustParseAddr("127.0.0.1")}, authority, 0)
 	if conn, dialErr := dial(context.Background(), "tcp", net.JoinHostPort("evil.test", strconv.Itoa(port))); conn != nil || ErrorCode(dialErr) != CodeSSRFBlocked {
 		t.Fatalf("unexpected authority: conn=%v code=%q err=%v", conn, ErrorCode(dialErr), dialErr)
 	}
@@ -328,6 +364,12 @@ func TestNewRequestStaysBelowBasePath(t *testing.T) {
 	}
 	if got := req.URL.String(); got != "https://example.test:443/root/v1/chat/completions" {
 		t.Fatalf("URL=%q", got)
+	}
+	if req.Host != "" {
+		t.Fatalf("safe request retained redundant Host override %q", req.Host)
+	}
+	if err := c.validateRequest(req); err != nil {
+		t.Fatalf("connector rejected its own request: %v", err)
 	}
 	for _, unsafe := range []string{"../admin", "%2e%2e/admin", "//evil.test/x", "https://evil.test/x", "x?redirect=evil"} {
 		if _, err := c.NewRequest(context.Background(), http.MethodGet, unsafe, nil); ErrorCode(err) != CodeSSRFBlocked {

@@ -69,7 +69,11 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 		if adapterErr != nil {
 			return adapterErr
 		}
-		_, adapterErr = adapter.Complete(opCtx, secret, gateway.Request{Model: modelID, Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "ping"}}, MaxTokens: 1, MaxAttempts: 1})
+		testRequest := gateway.Request{Model: modelID, Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "ping"}}, MaxTokens: 1, MaxAttempts: 1}
+		if tester, ok := adapter.(gateway.ConnectionTester); ok {
+			return tester.TestConnection(opCtx, secret, testRequest)
+		}
+		_, adapterErr = adapter.Complete(opCtx, secret, testRequest)
 		return adapterErr
 	})
 	dto := diagnosticResult(err, time.Since(started), testedAt)
@@ -267,6 +271,19 @@ func diagnosticResult(err error, latency time.Duration, testedAt time.Time) diag
 		d.Retryable = ge.HTTPStatus == 429 || ge.HTTPStatus >= 500
 		return d
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		d.Stage = "connect"
+		d.ErrorCode = "TIMEOUT"
+		d.Retryable = true
+		d.SanitizedMessage = "供应商连接测试超时"
+		return d
+	}
+	if errors.Is(err, context.Canceled) {
+		d.Stage = "connect"
+		d.ErrorCode = "CANCELLED"
+		d.SanitizedMessage = "供应商连接测试已取消"
+		return d
+	}
 	code := networkpolicy.ErrorCode(err)
 	if code != "" {
 		d.ErrorCode = string(code)
@@ -274,12 +291,8 @@ func diagnosticResult(err error, latency time.Duration, testedAt time.Time) diag
 		d.Retryable = code == networkpolicy.CodeTimeout || code == networkpolicy.CodeConnectionRefused || code == networkpolicy.CodeDNSError
 	} else {
 		d.Stage = "resolve"
-		msg := err.Error()
-		// Truncate to avoid leaking stack traces or long messages.
-		if len(msg) > 200 {
-			msg = msg[:200]
-		}
-		d.SanitizedMessage = "内部错误: " + msg
+		d.ErrorCode = "INTERNAL_ERROR"
+		d.SanitizedMessage = "连接诊断暂时不可用"
 	}
 	return d
 }

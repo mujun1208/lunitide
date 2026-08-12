@@ -45,12 +45,14 @@ type mockCapsuleStore struct {
 	revoked   []string
 	expired   []string
 	imports   map[string]time.Time // key: capsuleID+":"+targetSessionID
+	projects  map[string]string    // session ID -> project ID; absent means default project
 }
 
 func newMockCapsuleStore() *mockCapsuleStore {
 	return &mockCapsuleStore{
 		capsules: make(map[string]*handoff.Capsule),
 		imports:  make(map[string]time.Time),
+		projects: make(map[string]string),
 	}
 }
 
@@ -106,13 +108,20 @@ func (m *mockCapsuleStore) ListActiveCapsules(_ context.Context, sessionID strin
 	return result, nil
 }
 
-func (m *mockCapsuleStore) ActivateCapsule(_ context.Context, id, destSessionID string) error {
+func (m *mockCapsuleStore) ActivateCapsule(_ context.Context, id, destSessionID string, now time.Time) error {
 	c, ok := m.capsules[id]
 	if !ok || c.Status != handoff.StatusActive {
-		return errors.New("not active")
+		return ErrCapsuleNotActive
+	}
+	if c.ExpiresAt != nil && !now.Before(*c.ExpiresAt) {
+		return ErrCapsuleExpired
+	}
+	if sourceProject, ok := m.projects[c.SourceSessionID]; ok {
+		if destProject, ok := m.projects[destSessionID]; ok && sourceProject != destProject {
+			return ErrCrossProjectImport
+		}
 	}
 	c.Status = handoff.StatusActivated
-	now := time.Now().UTC()
 	c.ActivatedAt = &now
 	dest := destSessionID
 	c.DestSessionID = &dest
@@ -140,14 +149,28 @@ func (m *mockCapsuleStore) ExpireCapsule(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockCapsuleStore) RecordImport(_ context.Context, capsuleID, targetSessionID string) (importID string, importedAt time.Time, isNew bool, err error) {
+func (m *mockCapsuleStore) ValidateAndRecordImport(_ context.Context, capsuleID, targetSessionID string, now time.Time) (importedAt time.Time, isNew bool, err error) {
+	c, ok := m.capsules[capsuleID]
+	if !ok {
+		return time.Time{}, false, ErrCapsuleNotFound
+	}
+	if c.Status != handoff.StatusActive {
+		return time.Time{}, false, ErrCapsuleNotActive
+	}
+	if c.ExpiresAt != nil && now.After(*c.ExpiresAt) {
+		return time.Time{}, false, ErrCapsuleExpired
+	}
+	sourceProject, sourceSet := m.projects[c.SourceSessionID]
+	targetProject, targetSet := m.projects[targetSessionID]
+	if sourceSet && targetSet && sourceProject != targetProject {
+		return time.Time{}, false, ErrCrossProjectImport
+	}
 	key := capsuleID + ":" + targetSessionID
 	if existingAt, ok := m.imports[key]; ok {
-		return "", existingAt, false, nil
+		return existingAt, false, nil
 	}
-	now := time.Now().UTC()
 	m.imports[key] = now
-	return ulid.Make().String(), now, true, nil
+	return now, true, nil
 }
 
 func (m *mockCapsuleStore) GetImport(_ context.Context, capsuleID, targetSessionID string) (importedAt time.Time, ok bool, err error) {
@@ -225,10 +248,10 @@ func TestService_CreateCapsule_Success(t *testing.T) {
 	svc, store, _ := newTestService(&cp, nil)
 
 	capsule, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
-		SourceSessionID:   sessionID,
-		CheckpointID:      cp.ID,
-		RecentMessageIDs:  []string{mustULID(), mustULID()},
-		ActiveTasksJSON:   `[{"task":"T1"}]`,
+		SourceSessionID:  sessionID,
+		CheckpointID:     cp.ID,
+		RecentMessageIDs: []string{mustULID(), mustULID()},
+		ActiveTasksJSON:  `[{"task":"T1"}]`,
 	})
 	if err != nil {
 		t.Fatalf("CreateCapsule failed: %v", err)
@@ -771,6 +794,29 @@ func TestService_ImportCapsule_DifferentTargets(t *testing.T) {
 	// Two distinct import records.
 	if len(store.imports) != 2 {
 		t.Errorf("imports count = %d, want 2 (multi-session import)", len(store.imports))
+	}
+}
+
+func TestService_ImportCapsule_CrossProjectRejected(t *testing.T) {
+	sourceSession := mustULID()
+	cp := validCheckpoint(sourceSession)
+	svc, store, _ := newTestService(&cp, nil)
+	created, err := svc.CreateCapsule(context.Background(), CreateCapsuleRequest{
+		SourceSessionID: sourceSession,
+		CheckpointID:    cp.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetSession := mustULID()
+	store.projects[sourceSession] = mustULID()
+	store.projects[targetSession] = mustULID()
+	_, err = svc.ImportCapsule(context.Background(), created.ID, targetSession)
+	if !errors.Is(err, ErrCrossProjectImport) {
+		t.Fatalf("err = %v, want ErrCrossProjectImport", err)
+	}
+	if len(store.imports) != 0 {
+		t.Fatal("cross-project import was persisted")
 	}
 }
 

@@ -12,7 +12,8 @@ const api = (o: Partial<PlanBridge> = {}): PlanBridge => ({
   get: vi.fn(), list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn().mockResolvedValue({ plan }),
   activate: vi.fn(), complete: vi.fn(), pause: vi.fn(), resume: vi.fn(),
   listNodes: vi.fn().mockResolvedValue({ items: [] }), createNode: vi.fn().mockResolvedValue({ node }),
-  startNode: vi.fn(), completeNode: vi.fn(), failNode: vi.fn(), ...o,
+  startNode: vi.fn(), completeNode: vi.fn(), failNode: vi.fn(), createTodo: vi.fn(), startRun: vi.fn(),
+  runTree: vi.fn(), spawnRun: vi.fn(), joinRun: vi.fn(), cancelRun: vi.fn(), ...o,
 })
 
 it('renders empty state and loads plans for the project', async () => {

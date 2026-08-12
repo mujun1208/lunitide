@@ -1,0 +1,115 @@
+package sqlite
+
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v26-token-ledger.db")
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Recreate the exact pre-0027 table shape and migration boundary. This is
+	// deliberately test-only; historical migration bytes remain untouched.
+	db := openRaw(t, path)
+	if _, err = db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+ALTER TABLE token_ledger RENAME TO token_ledger_current;
+CREATE TABLE token_ledger (
+    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL DEFAULT '' CHECK (length(provider) <= 128),
+    model TEXT NOT NULL DEFAULT '' CHECK (length(model) <= 128),
+    tokenizer_revision TEXT NOT NULL DEFAULT '' CHECK (length(tokenizer_revision) <= 64),
+    token_count INTEGER NOT NULL CHECK (token_count >= 0),
+    estimation_method TEXT NOT NULL CHECK (estimation_method IN ('char-ratio', 'tiktoken', 'provider-reported', 'manual')),
+    utf8_bytes INTEGER NOT NULL CHECK (utf8_bytes >= 0),
+    computed_at TEXT NOT NULL,
+    subject_type TEXT NOT NULL DEFAULT 'message' CHECK (subject_type IN ('message', 'message_part', 'tool_result', 'summary', 'injected_instruction')),
+    subject_id TEXT NOT NULL DEFAULT '',
+    tokenizer_id TEXT NOT NULL DEFAULT 'lunitide-canonical-v1' CHECK (length(tokenizer_id) > 0 AND length(tokenizer_id) <= 128),
+    invalidated_at TEXT,
+    UNIQUE (message_id, provider, model, tokenizer_revision)
+);
+DROP TABLE token_ledger_current;
+CREATE INDEX ix_token_ledger_message ON token_ledger(message_id);
+CREATE INDEX ix_token_ledger_computed ON token_ledger(computed_at);
+CREATE INDEX ix_token_ledger_identity ON token_ledger(subject_type, subject_id, tokenizer_id, provider, model);
+CREATE INDEX ix_token_ledger_invalidation ON token_ledger(tokenizer_id, invalidated_at);
+CREATE UNIQUE INDEX ux_token_ledger_subject_identity_revision
+    ON token_ledger(subject_type, subject_id, tokenizer_id, provider, model, tokenizer_revision);
+DROP TABLE agent_plan_run_events;
+DROP TABLE agent_plan_runs;
+ALTER TABLE sessions DROP COLUMN pinned;
+ALTER TABLE sessions DROP COLUMN revision;
+DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
+INSERT INTO projects(id,name,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
+INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1','01ARZ3NDEKTSV4RRFFQ69G5FA0','session','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
+INSERT INTO messages(id,session_id,role,sequence,created_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA2','01ARZ3NDEKTSV4RRFFQ69G5FA1','assistant',1,'2026-01-01T00:00:00Z');
+INSERT INTO message_parts(message_id,ordinal,type,text) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA2',1,'text','hello');
+INSERT INTO message_session_state(session_id,last_sequence,message_count,text_bytes) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1',1,1,5);
+INSERT INTO message_project_usage(project_id,text_bytes) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0',5);
+UPDATE message_workspace_usage SET text_bytes=5 WHERE singleton=1;
+INSERT INTO token_ledger(id,message_id,provider,model,tokenizer_revision,token_count,estimation_method,utf8_bytes,computed_at,subject_type,subject_id,tokenizer_id,invalidated_at)
+VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA3','01ARZ3NDEKTSV4RRFFQ69G5FA2','provider','model','revision',11,'manual',22,'2026-01-01T00:00:00Z','message','01ARZ3NDEKTSV4RRFFQ69G5FA2','tokenizer-a','2026-01-02');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	var count, bytes int
+	var tokenizerID, invalidatedAt string
+	if err = store.db.QueryRow(`SELECT token_count,utf8_bytes,tokenizer_id,invalidated_at FROM token_ledger WHERE id='01ARZ3NDEKTSV4RRFFQ69G5FA3'`).Scan(&count, &bytes, &tokenizerID, &invalidatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if count != 11 || bytes != 22 || tokenizerID != "tokenizer-a" || invalidatedAt != "2026-01-02" {
+		t.Fatalf("ledger data changed: count=%d bytes=%d tokenizer=%q invalidated=%q", count, bytes, tokenizerID, invalidatedAt)
+	}
+
+	// These rows differ only by id and tokenizer_id. V26 rejected the second
+	// row through its legacy message/provider/model/revision table constraint.
+	_, err = store.db.Exec(`INSERT INTO token_ledger(id,message_id,provider,model,tokenizer_revision,token_count,estimation_method,utf8_bytes,computed_at,subject_type,subject_id,tokenizer_id,invalidated_at)
+VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA4','01ARZ3NDEKTSV4RRFFQ69G5FA2','provider','model','revision',11,'manual',22,'2026-01-01T00:00:00Z','message','01ARZ3NDEKTSV4RRFFQ69G5FA2','tokenizer-b','2026-01-02')`)
+	if err != nil {
+		t.Fatalf("tokenizer-specific identity still blocked: %v", err)
+	}
+
+	var tableSQL string
+	if err = store.db.QueryRow(`SELECT sql FROM sqlite_schema WHERE type='table' AND name='token_ledger'`).Scan(&tableSQL); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(tableSQL, "UNIQUE") {
+		t.Fatalf("legacy table UNIQUE survived rebuild: %s", tableSQL)
+	}
+	var indexSQL string
+	if err = store.db.QueryRow(`SELECT sql FROM sqlite_schema WHERE type='index' AND name='ux_token_ledger_subject_identity_revision'`).Scan(&indexSQL); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"subject_type", "subject_id", "tokenizer_id", "provider", "model", "tokenizer_revision"} {
+		if !strings.Contains(indexSQL, column) {
+			t.Fatalf("complete identity index missing %s: %s", column, indexSQL)
+		}
+	}
+	if _, err = store.db.Exec(`INSERT INTO token_ledger(id,message_id,token_count,estimation_method,utf8_bytes,computed_at,subject_id,tokenizer_id) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA5','01ARZ3NDEKTSV4RRFFQ69G5FA9',1,'manual',1,'2026-01-01T00:00:00Z','missing','tokenizer-c')`); err == nil {
+		t.Fatal("rebuilt token_ledger foreign key is not enforced")
+	}
+}

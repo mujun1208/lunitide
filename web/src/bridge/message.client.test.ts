@@ -46,20 +46,30 @@ it('message bridge sends exact typed list/append payloads, applies list defaults
 it.each([
   ['ULID', { id: 'bad' }],
   ['session parent', { sessionId: OTHER }],
-  ['role', { role: 'assistant' }],
+  ['role', { role: 'system' }],
   ['status', { status: 'pending' }],
   ['zero sequence', { sequence: 0 }],
   ['unsafe sequence', { sequence: Number.MAX_SAFE_INTEGER + 1 }],
-  ['NUL text', { text: 'a\0b' }],
   ['empty text', { text: '' }],
-  ['rune overflow', { text: '界'.repeat(2049) }],
-  ['UTF-8 byte overflow', { text: '😀'.repeat(2048) + 'a' }],
+  ['DTO text overflow', { text: 'a'.repeat(65537) }],
   ['invalid time', { createdAt: '2025-02-30T00:00:00Z' }],
   ['time without zone', { createdAt: '2025-01-01T00:00:00' }]
 ])('message bridge rejects malformed MessageDTO: %s', async (_name, mutation) => {
   const h = controlled(), promise = h.bridge.append({ sessionId: SESSION, text: 'hello' })
   h.reply(h.sent[0], { ...dto(), ...mutation })
   await expect(promise).rejects.toMatchObject({ code: 'INVALID_BRIDGE_RESULT' })
+})
+
+it.each(['assistant', 'tool'] as const)('message bridge accepts persisted %s history', async role => {
+  const h = controlled(), promise = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
+  h.reply(h.sent[0], page([dto({ role })]))
+  await expect(promise).resolves.toMatchObject({ items: [{ role }] })
+})
+
+it('message bridge accepts model output above the user input limit', async () => {
+  const h = controlled(), text = 'a'.repeat(4096), promise = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
+  h.reply(h.sent[0], page([dto({ role: 'assistant', text })]))
+  await expect(promise).resolves.toMatchObject({ items: [{ text }] })
 })
 
 it.each([

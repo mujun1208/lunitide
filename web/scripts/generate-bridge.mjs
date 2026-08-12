@@ -55,7 +55,14 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'attachment.get',
   'attachment.ingest',
   'attachment.list',
+  'attachment.upload.abort',
+  'attachment.upload.begin',
+  'attachment.upload.chunk',
+  'attachment.upload.commit',
+  'browser.close',
+  'browser.open',
   'chat.start',
+  'chat.tool.approve',
   'context.compact.cancel',
   'context.compact.commit',
   'context.compact.preview',
@@ -100,10 +107,17 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'plan.list',
   'plan.pause',
   'plan.resume',
+  'plan.run.cancel',
+  'plan.run.join',
+  'plan.run.spawn',
+  'plan.run.start',
+  'plan.run.tree',
+  'plan.todo.create',
   'project.create',
   'project.delete',
   'project.list',
   'provider.create',
+  'provider.credential.reveal',
   'provider.credential.submit',
   'provider.delete',
   'provider.get',
@@ -117,11 +131,14 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'session.create',
   'session.delete',
   'session.list',
+  'session.update',
   'skill.create',
   'skill.delete',
   'skill.deprecate',
   'skill.disable',
+  'skill.execute',
   'skill.get',
+  'skill.invoke',
   'skill.list',
   'skill.match',
   'skill.publish',
@@ -129,7 +146,16 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'stage.create',
   'stage.list',
   'stream.cancel',
-  'system.health'
+  'system.health',
+  'terminal.close',
+  'terminal.input',
+  'terminal.resize',
+  'terminal.start',
+  'ui.theme.set',
+  'workspace.list',
+  'workspace.read',
+  'workspace.root.get',
+  'workspace.root.select'
 ]), 'enabled method set drift')
 for (const method of ['session.create', 'session.list']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
 assert(required(methodSchema('session.create')).has('title') && refEndsWith(methodSchema('session.create')['x-result'], '#/$defs/SessionDTO'), 'session.create contract drift')
@@ -137,7 +163,7 @@ assert(required(methodSchema('session.list')).has('projectId') && methodSchema('
 for (const method of ['stage.create', 'stage.list']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
 assert(required(methodSchema('stage.create')).has('phase') && required(methodSchema('stage.create')).has('title') && refEndsWith(methodSchema('stage.create')['x-result'], '#/$defs/StageDTO'), 'stage.create contract drift')
 assert(required(methodSchema('stage.list')).has('projectId') && methodSchema('stage.list')['x-result']?.properties?.items?.maxItems === 9, 'stage.list contract drift')
-assert(methodSchemas.every(schema => schema['x-owner'] === (['provider.credential.submit', 'diagnostics.export'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
+assert(methodSchemas.every(schema => schema['x-owner'] === (['browser.close', 'browser.open', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'ui.theme.set', 'workspace.list', 'workspace.read', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
 assert(refEndsWith(props(providerList).protocol, '#/$defs/ProviderProtocol'), 'provider.list protocol must explicitly reference ProviderProtocol')
 assert(props(methodSchema('system.health')['x-result']).protocol?.const === bridgeVersion, 'system.health result protocol must be the Bridge version')
 for (const method of ['provider.create', 'provider.update']) {
@@ -151,11 +177,13 @@ assert(['name', 'protocol', 'baseUrl', 'models'].every(name => required(methodSc
 assert(required(methodSchema('provider.update')).has('expectedVersion'), 'provider.update requires expectedVersion')
 for (const method of ['provider.get', 'provider.delete']) assert(ulidRef(props(methodSchema(method)).id), `${method}.id must be a ULID`)
 const credentialSubmit = methodSchema('provider.credential.submit'), credentialFields = props(credentialSubmit), credentialResult = props(credentialSubmit['x-result'])
+const credentialReveal = methodSchema('provider.credential.reveal'), revealResult = props(credentialReveal['x-result'])
 const submissionScopes = credentialFields.scope?.oneOf ?? []
 assert(submissionScopes.length === 2 && ulidRef(props(submissionScopes[0]).providerId) && props(submissionScopes[1]).draftFingerprint, 'credential.submit needs provider or draft scope')
 assert(credentialFields.credential?.maxLength === 61440, 'credential maximum must be 60 KiB')
 assert(ulidRef(credentialResult.credentialSubmissionId) && credentialResult.expiresAt && credentialResult.expiresInSeconds?.maximum <= 300, 'credential.submit must return a short-TTL one-time submission')
 assert(!('credentialState' in credentialResult) && !('credentialRef' in credentialResult), 'credential.submit result must not expose state or ref')
+assert(ulidRef(props(credentialReveal).providerId) && revealResult.credential?.maxLength === 61440 && required(credentialReveal['x-result']).has('credential'), 'credential.reveal must expose only a bounded credential')
 const syncResult = props(methodSchema('provider.model.sync')['x-result'])
 assert(syncResult.models && syncResult.warnings && syncResult.version && props(methodSchema('provider.model.sync')).expectedVersion, 'model.sync requires models, warnings and CAS version data')
 const testSchema = methodSchema('provider.test'), testResult = props(testSchema['x-result'])
@@ -171,17 +199,19 @@ const scanSensitive = (schema, location, allowCredential = false) => {
 }
 for (const [name, schema] of Object.entries(publicSchema?.$defs ?? {})) scanSensitive(schema, `public DTO.${name}`)
 for (const schema of methodSchemas) {
-  scanSensitive(schema['x-result'], `${schema['x-method']} result`)
+  scanSensitive(schema['x-result'], `${schema['x-method']} result`, schema === credentialReveal && schema['x-owner'] === 'host')
   scanSensitive(schema, `${schema['x-method']} payload`, schema === credentialSubmit && schema['x-owner'] === 'host')
 }
 
 const json = JSON.stringify
 const pascal = value => value.split(/[^a-zA-Z0-9]+/).map(part => part[0]?.toUpperCase() + part.slice(1)).join('')
-const refName = ref => pascal(ref.split('/').at(-1).replace(/\.schema\.json$/, '').replace(/^#\/$defs\//, ''))
+const refName = ref => ref.endsWith('#/x-result')
+  ? `${pascal(ref.split('/').at(-1).split('#')[0].replace(/\.schema\.json$/, ''))}Result`
+  : pascal(ref.split('/').at(-1).replace(/\.schema\.json$/, '').replace(/^#\/$defs\//, ''))
 const tsType = (schema, name = '') => {
   if (!schema) return 'unknown'
   if (Array.isArray(schema.type)) return schema.type.map(type => type === 'null' ? 'null' : tsType({ ...schema, type })).join(' | ')
-  if (schema.$ref) return schema.$ref.includes('#/$defs/') ? pascal(schema.$ref.split('/').at(-1)) : refName(schema.$ref)
+  if (schema.$ref) return schema.$ref.includes('#/$defs/') ? pascal(schema.$ref.split('/').at(-1)) : schema.$ref.includes('/x-result') ? 'AttachmentIngestResult' : refName(schema.$ref)
   if ('const' in schema) return json(schema.const)
   if (name === 'method') return 'BridgeMethod'
   if (schema.enum) return schema.enum.map(json).join(' | ')

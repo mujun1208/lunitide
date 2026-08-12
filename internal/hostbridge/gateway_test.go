@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,23 @@ func TestGatewayMapsEngineFailureWithoutLeakingDetails(t *testing.T) {
 	response, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "system.health")})
 	if !handled || response.OK || response.Error == nil || response.Error.Code != "ENGINE_UNAVAILABLE" || response.Error.Message != "核心引擎暂时不可用" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestGatewayReturnsExplicitFailureForOversizedTrustedMessage(t *testing.T) {
+	caller := &callerStub{}
+	gateway, _ := New("https://app.lunitide.local", caller)
+	request := bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: "attachment.ingest", SentAt: time.Now().UTC(), Payload: json.RawMessage(`{"contentBase64":"` + strings.Repeat("A", MaxMessageBytes) + `"}`), DeadlineMS: 30000}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: raw})
+	if !handled || response.OK || response.Error == nil || response.Error.Code != "BRIDGE_REQUEST_TOO_LARGE" {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	if caller.calls != 0 {
+		t.Fatalf("oversized request reached engine RPC: %d calls", caller.calls)
 	}
 }
 

@@ -26,8 +26,20 @@ func marshalBounded(v any, max int) (*bytes.Reader, error) {
 }
 
 func strictJSON(r io.Reader, dst any) error {
+	return decodeJSON(r, dst, true)
+}
+
+// compatibleJSON preserves JSON framing validation while allowing additive
+// fields returned by OpenAI-compatible providers.
+func compatibleJSON(r io.Reader, dst any) error {
+	return decodeJSON(r, dst, false)
+}
+
+func decodeJSON(r io.Reader, dst any, disallowUnknown bool) error {
 	d := json.NewDecoder(r)
-	d.DisallowUnknownFields()
+	if disallowUnknown {
+		d.DisallowUnknownFields()
+	}
 	if err := d.Decode(dst); err != nil {
 		if code := networkpolicy.ErrorCode(err); code != "" {
 			return classify(err)

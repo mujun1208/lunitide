@@ -3,6 +3,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"time"
@@ -18,8 +19,28 @@ const (
 )
 
 type Message struct {
-	Role    Role   `json:"role"`
-	Content string `json:"content"`
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	ToolCallID string     `json:"toolCallId,omitempty"`
+	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
+}
+
+type ToolDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Schema      json.RawMessage `json:"schema"`
+}
+
+type ToolCall struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+// Image is trusted binary input assembled from a session-scoped attachment.
+type Image struct {
+	MIME string
+	Data []byte
 }
 
 type Usage struct {
@@ -31,19 +52,24 @@ type Usage struct {
 type Request struct {
 	Model          string
 	Messages       []Message
+	Images         []Image
 	MaxTokens      int
 	MaxAttempts    int
 	IdempotencyKey string
+	Tools          []ToolDefinition
 }
 
 type Response struct {
-	Message Message `json:"message"`
-	Usage   Usage   `json:"usage"`
+	Message   Message `json:"message"`
+	Usage     Usage   `json:"usage"`
+	Reasoning string  `json:"reasoning,omitempty"`
 }
 
 type Delta struct {
-	Text  string `json:"text,omitempty"`
-	Usage *Usage `json:"usage,omitempty"`
+	Text      string    `json:"text,omitempty"`
+	Reasoning string    `json:"reasoning,omitempty"`
+	Usage     *Usage    `json:"usage,omitempty"`
+	ToolCall  *ToolCall `json:"toolCall,omitempty"`
 }
 
 type Model struct {
@@ -94,6 +120,12 @@ type Adapter interface {
 	Complete(context.Context, []byte, Request) (Response, error)
 	Stream(context.Context, []byte, Request, func(Delta) error) (Response, error)
 	Discover(context.Context, []byte) (Discovery, error)
+}
+
+// ConnectionTester verifies that the provider accepts an authenticated
+// request without requiring a full chat-completion response body.
+type ConnectionTester interface {
+	TestConnection(context.Context, []byte, Request) error
 }
 
 type Options struct {

@@ -23,6 +23,8 @@ type Options struct {
 	ConnectTimeout        time.Duration
 	ResponseHeaderTimeout time.Duration
 	OverallTimeout        time.Duration
+	DisableOverallTimeout bool
+	IdleReadTimeout       time.Duration
 	MaxResponseBytes      int64
 	MaxSSELineBytes       int
 	MaxSSEEventBytes      int
@@ -76,7 +78,7 @@ func New(ctx context.Context, rawBase, apiPath string, o Options) (*Connector, e
 	if o.ResponseHeaderTimeout <= 0 {
 		o.ResponseHeaderTimeout = 20 * time.Second
 	}
-	if o.OverallTimeout <= 0 {
+	if o.OverallTimeout <= 0 && !o.DisableOverallTimeout {
 		o.OverallTimeout = 60 * time.Second
 	}
 	if o.MaxResponseBytes <= 0 {
@@ -93,7 +95,7 @@ func New(ctx context.Context, rawBase, apiPath string, o Options) (*Connector, e
 		Proxy:                 nil,
 		TLSClientConfig:       tlsConfig,
 		ResponseHeaderTimeout: o.ResponseHeaderTimeout,
-		DialContext:           pinnedDial(dialer, ips, authority),
+		DialContext:           pinnedDial(dialer, ips, authority, o.IdleReadTimeout),
 	}
 	c := &Connector{BaseURL: u.String(), scheme: scheme, host: host, port: port, authority: authority, maxBody: o.MaxResponseBytes, maxLine: o.MaxSSELineBytes, maxEvent: o.MaxSSEEventBytes, basePath: u.EscapedPath()}
 	c.Client = &http.Client{Transport: tr, Timeout: o.OverallTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -144,7 +146,7 @@ func effectivePort(scheme, explicit string) (string, error) {
 	return strconv.Itoa(n), nil
 }
 
-func pinnedDial(d *net.Dialer, ips []netip.Addr, authority string) func(context.Context, string, string) (net.Conn, error) {
+func pinnedDial(d *net.Dialer, ips []netip.Addr, authority string, idleReadTimeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if addr != authority {
 			return nil, &Error{Code: CodeSSRFBlocked, Op: "dial authority"}
@@ -157,12 +159,30 @@ func pinnedDial(d *net.Dialer, ips []netip.Addr, authority string) func(context.
 		for _, ip := range ips {
 			conn, err := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 			if err == nil {
+				if idleReadTimeout > 0 {
+					return &idleReadConn{Conn: conn, timeout: idleReadTimeout}, nil
+				}
 				return conn, nil
 			}
 			last = err
 		}
 		return nil, last
 	}
+}
+
+// idleReadConn refreshes the read deadline before every network read. Long-lived
+// streams may run indefinitely while data keeps arriving, but a stalled upstream
+// is still released after timeout without imposing a total response deadline.
+type idleReadConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleReadConn) Read(p []byte) (int, error) {
+	if err := c.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
 }
 
 func (c *Connector) Do(req *http.Request) (*http.Response, error) {
@@ -218,7 +238,15 @@ func (c *Connector) NewRequest(ctx context.Context, method, relativePath string,
 	}
 	u.Path = path.Join("/", u.Path, cleaned)
 	u.RawPath = ""
-	return http.NewRequestWithContext(ctx, method, u.String(), body)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	// NewRequest copies URL.Host into Request.Host. The URL already carries the
+	// pinned authority, so clear this redundant override. Any later caller
+	// mutation remains non-empty and is rejected by validateRequest.
+	req.Host = ""
+	return req, nil
 }
 
 type limitedBody struct {

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/browser.close.schema.json",
+  "title": "browser.close payload",
+  "x-method": "browser.close",
+  "x-owner": "host",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "status": { "const": "closed" } },
+    "required": ["status"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "url": "https://example.com/" }]
+  }
+}

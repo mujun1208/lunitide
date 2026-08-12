@@ -1,0 +1,6 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/workspace.root.select.schema.json","title":"workspace.root.select payload","x-method":"workspace.root.select","x-owner":"host","x-enabled":true,
+  "type":"object","additionalProperties":false,"properties":{},
+  "x-result":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"path":{"type":"string"}},"required":["name","path"]},
+  "x-examples":{"positive":[{}],"negative":[{"path":"C:\\arbitrary"}]}
+}

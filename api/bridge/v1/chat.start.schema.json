@@ -19,6 +19,20 @@
     "sessionId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     },
+    "executionMode": {
+      "enum": ["approval", "auto-edit", "plan", "full-access"]
+    },
+    "contextRefs": {
+      "type": "array", "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "type": { "enum": ["attachment", "skillResult"] },
+          "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+        },
+        "required": ["type", "id"]
+      }
+    },
     "messages": {
       "type": "array",
       "minItems": 1,
@@ -29,7 +43,6 @@
         "properties": {
           "role": {
             "enum": [
-              "system",
               "user",
               "assistant"
             ]
@@ -71,7 +84,7 @@
         "modelId": "x",
         "messages": [
           {
-            "role": "system",
+            "role": "user",
             "content": "x"
           }
         ]
@@ -79,7 +92,8 @@
       {
         "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "modelId": "x",
-        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "executionMode": "plan"
       }
     ],
     "negative": [
@@ -89,6 +103,17 @@
       {
         "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "modelId": "x"
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "messages": [{"role": "system", "content": "renderer authority escalation"}]
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "executionMode": "unrestricted"
       }
     ]
   }

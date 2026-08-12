@@ -1,0 +1,6 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/workspace.list.schema.json","title":"workspace.list payload","x-method":"workspace.list","x-owner":"host","x-enabled":true,
+  "type":"object","additionalProperties":false,"properties":{"path":{"type":"string","maxLength":1024,"pattern":"^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*$"}},
+  "x-result":{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"path":{"type":"string"},"directory":{"type":"boolean"}},"required":["name","path","directory"]}},"truncated":{"type":"boolean"}},"required":["items","truncated"]},
+  "x-examples":{"positive":[{}, {"path":"src"}],"negative":[{"path":"../secret"},{"path":"x","extra":true}]}
+}

@@ -17,6 +17,7 @@ type Session struct {
 	ID        string    `json:"id"`
 	ProjectID string    `json:"projectId"`
 	Title     string    `json:"title"`
+	Pinned    bool      `json:"pinned"`
 	Status    Status    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -46,7 +47,7 @@ func (s Session) Validate() error {
 	if s.Status != StatusActive {
 		return errors.New("session status is invalid")
 	}
-	if s.CreatedAt.IsZero() || !s.CreatedAt.Equal(s.UpdatedAt) || s.Version != 1 {
+	if s.CreatedAt.IsZero() || s.UpdatedAt.Before(s.CreatedAt) || s.Version < 1 {
 		return errors.New("session lifecycle metadata is invalid")
 	}
 	return nil

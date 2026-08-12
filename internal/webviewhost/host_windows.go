@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	windowClass = "LunitideWebView2Host"
-	uiMessage   = win32.WM_APP + 1
+	windowClass     = "LunitideWebView2Host"
+	uiMessage       = win32.WM_APP + 1
+	hostWindowStyle = win32.WS_OVERLAPPEDWINDOW
 )
 
 type Host struct {
@@ -77,6 +78,24 @@ type frameRegistration struct {
 }
 
 var hosts sync.Map
+
+var dwmSetWindowAttribute = syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
+
+func setDarkTitleBar(hwnd win32.HWND, dark bool) bool {
+	enabled := int32(0)
+	if dark {
+		enabled = 1
+	}
+	// DWMWA_USE_IMMERSIVE_DARK_MODE is 20 on current Windows 10/11 and 19 on
+	// older Windows 10 builds. Failure is harmless, so try the legacy value too.
+	for _, attribute := range []uintptr{20, 19} {
+		result, _, _ := dwmSetWindowAttribute.Call(uintptr(hwnd), attribute, uintptr(unsafe.Pointer(&enabled)), unsafe.Sizeof(enabled))
+		if win32.HRESULT(result) >= 0 {
+			return true
+		}
+	}
+	return false
+}
 
 // DefaultRendererFolder resolves the production renderer beside the executable.
 func DefaultRendererFolder() (string, error) {
@@ -165,10 +184,11 @@ func (h *Host) Run(ctx context.Context) error {
 	if atom, _ := win32.RegisterClassEx(&wc); atom == 0 {
 		return errors.New("RegisterClassEx failed")
 	}
-	h.hwnd, _ = win32.CreateWindowEx(0, wc.LpszClassName, win32.StrToPwstr("Lunitide 月汐"), win32.WS_OVERLAPPEDWINDOW, win32.CW_USEDEFAULT, win32.CW_USEDEFAULT, 1280, 800, 0, 0, instance, nil)
+	h.hwnd, _ = win32.CreateWindowEx(0, wc.LpszClassName, win32.StrToPwstr("Lunitide 月汐"), hostWindowStyle, win32.CW_USEDEFAULT, win32.CW_USEDEFAULT, 1280, 800, 0, 0, instance, nil)
 	if h.hwnd == 0 {
 		return errors.New("CreateWindowEx failed")
 	}
+	setDarkTitleBar(h.hwnd, false)
 	if hIcon := wc.HIcon; hIcon != 0 {
 		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_BIG), win32.LPARAM(hIcon))
 		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_SMALL), win32.LPARAM(hIcon))
@@ -419,6 +439,12 @@ func (h *Host) registerCoreEvents() error {
 	}
 	h.newWindowHandler = wv2.NewICoreWebView2NewWindowRequestedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2NewWindowRequestedEventArgs) com.Error {
 		args.SetHandled(win32.TRUE)
+		raw, err := argumentString(args.GetUri)
+		if err == nil {
+			if url, normalizeErr := NormalizeBrowserURL(raw); normalizeErr == nil {
+				_ = openSystemBrowser(url)
+			}
+		}
 		return com.Error(win32.S_OK)
 	}, false)
 	if r := h.core.Add_NewWindowRequested(h.newWindowHandler, &h.newWindowToken); failed(win32.HRESULT(r)) {
@@ -578,6 +604,17 @@ func (h *Host) dispatchAndWait(fn func() bool) bool {
 		return false
 	}
 }
+
+// SetTheme updates only DWM's native title-bar appearance on the STA thread.
+func (h *Host) SetTheme(dark bool) bool {
+	return h.dispatchAndWait(func() bool {
+		if h.hwnd == 0 {
+			return false
+		}
+		return setDarkTitleBar(h.hwnd, dark)
+	})
+}
+
 func (h *Host) post(message uint32) (bool, win32.WIN32_ERROR) {
 	if h.postMessage == nil {
 		return false, win32.ERROR_INVALID_FUNCTION

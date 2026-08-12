@@ -262,9 +262,9 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
     <div class="kicker">Lunitide · Product Requirements Document</div>
     <h1 class="accent-grad">产品需求文档 PRD</h1>
     <div class="hero-meta">
-      <span class="tag"><b>版本</b> v1.0</span>
-      <span class="tag"><b>状态</b> M0–M7 实施基线</span>
-      <span class="tag"><b>更新</b> 2026-08-09</span>
+      <span class="tag"><b>版本</b> v1.1</span>
+      <span class="tag"><b>状态</b> M0–M7 实施基线 · M0–M3 阶段快照</span>
+      <span class="tag"><b>更新</b> 2026-08-13</span>
       <span class="tag"><b>平台</b> Windows 10/11 x64</span>
       <span class="tag"><b>架构</b> Go + WebView2 + React/TS</span>
     </div>
@@ -1058,16 +1058,26 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
       <tr><td><b>M7 CR、部署与生产发行</b></td><td>8–12周</td><td><b>用户项目轨：</b>CRRevision、不可变 ReleasePackage、代码+迁移同 digest、Promotion、恢复/前滚；<b>月汐更新轨：</b>独立 Update 状态机、签名安装升级、SBOM/provenance</td><td>两轨不得复用实体/回滚承诺；同 digest 晋级与干净机签名/防降级分别通过。ADR-010 只阻断用户项目具体执行器，不阻断月汐自身更新</td></tr>
       <tr><td><b>未来协作版</b></td><td>独立立项</td><td>User/Group/Role、Presence 传输、实时协作、N-of-M 与职责分离</td><td>ADR-011 从 Deferred 转 Accepted</td></tr>
     </tbody></table>
+    <div id="implementation-status"></div>
+    <h3>M0–M3 当前实现快照 · 2026-08-13</h3>
+    <div class="note"><b>状态口径：</b><b>切片已实现</b>表示 schema、handler、存储/迁移、UI 或测试形成可运行纵向链路；<b>代码门禁</b>表示当前阶段源码通过可复验的本地自动化检查；<b>阶段完成</b>必须满足上表全部退出门禁；<b>正式发布</b>还必须把签名、可信时间戳、Win10/11 干净机、CI、tag 与产物摘要绑定到同一提交。不得用“已有代码”替代阶段或发布完成声明。</div>
+    <table><thead><tr><th>里程碑</th><th>当前同步状态</th><th>已落地能力与证据范围</th><th>尚未关闭的阶段门禁</th></tr></thead><tbody>
+      <tr><td><b>M0 架构风险归零</b></td><td><span class="tag">核心实现 / 本地门禁</span></td><td>独立 Go WebView2 Host 与 Go Engine、受信 virtual origin、认证 Named Pipe 与重放防护、SQLite migration/invariant、Host-only DPAPI/lease、原生 NSIS staging/安装恢复脚本均已进入生产代码和安全测试。</td><td>最终阶段提交对应的 Windows CGO race 远程证据、Win10/11 + WebView2 Runtime present/absent 干净机生命周期、正式 Authenticode/可信时间戳、坏升级实机恢复及正式 tag 尚未绑定，故不宣称正式发布完成。</td></tr>
+      <tr><td><b>M1 产品底座与契约冻结</b></td><td><span class="tag">代码级闭环</span></td><td>Provider/Model/Secret 领域服务、Bridge v1 JSON Schema 与生成 Go/TS 类型、runtime allowlist、<code>openai_compatible | anthropic</code> adapter、取消/错误/诊断、审计与旧 Provider 迁移均已实现并有契约/集成测试。</td><td>继续以生成 schema 为线协议事实；真实外部旧数据迁移与发布环境证据属于 M0/M2 外部门禁，不因代码级闭环而自动关闭。</td></tr>
+      <tr><td><b>M2 可安装对话 Alpha</b></td><td><span class="tag">纵向切片已实现</span></td><td>对话优先首页、设置内 Provider/BYOK、模型选择、真实网关协议、start/delta/thinking/usage/terminal 流、停止传播、first-terminal-wins、assistant 最终消息与 usage 持久化、诊断及未签名开发测试包已形成闭环。</td><td>签名 per-user Alpha、Win10/11 干净机固定演示、当前阶段真实两协议凭据 E2E、安装/升级/重装保配置及明文 Key canary 报告仍须形成并与同一提交绑定。</td></tr>
+      <tr><td><b>M3 项目、会话与长上下文</b></td><td><span class="tag">主干已实现 / 门禁待补</span></td><td>普通对话与项目隔离；Project/Session/Message CRUD、稳定 cursor 分页、附件上传与显式上下文引用、canonical tokenizer/ledger、确定性 ContextEnvelope、32K/128K/200K 预算矩阵、自动/手动 checkpoint、显式 activation CAS、Handoff、重启恢复核心与删除墓碑传播均已有实现和测试。</td><td>真实 1,000,000-token corpus 的持久化/分页/重建/压缩性能与保真报告、完整备份/恢复能力、压缩/Handoff 全 UI 验收、跨窗口全链路故障注入及阶段 E2E 报告尚未关闭，故准确状态不是“全部退出门禁完成”。</td></tr>
+    </tbody></table>
+    <div class="warn"><b>后续切片边界：</b>当前树已出现 Stage、Planning、Review、Memory、Ontology、Skill、Terminal、Browser 等 M4–M6 的早期切片；它们用于受控验证，不改变 M0→M7 的完整门禁顺序，也不得据此宣布 M4–M6 完成。M3 未关闭项仍是进入下一阶段完整验收前的优先收口事项。</div>
     <h3>M2 首个可安装 Alpha · 固定演示脚本</h3>
-    <ol><li>在 Win10/11 干净机运行签名安装器并启动应用。</li><li>进入现有对话优先首页；未配置模型时显示轻量引导，不提前展开九阶段。</li><li>打开设置中心，在对话与模型/连接中创建 OpenAI-compatible 或 Anthropic Provider。</li><li>在一次性安全输入窗口提交 BYOK；保存后只显示“已配置”，不回显旧值。</li><li>真实连接测试展示 stage、HTTP status、latency、脱敏错误和 correlationId。</li><li>选择默认模型，回首页发送消息并接收 start/delta/done 流式回复。</li><li>执行停止/重试，取消必须传播到 Go context 和上游 HTTP。</li><li>重启后非敏感配置仍在，诊断包、DB、日志、dump 和稳定内存扫描无明文 Key。</li></ol>
+    <ol><li>在 Win10/11 干净机运行签名安装器并启动应用。</li><li>进入现有对话优先首页；未配置模型时显示轻量引导，不提前展开九阶段。</li><li>打开设置中心，在对话与模型/连接中创建 OpenAI-compatible 或 Anthropic Provider。</li><li>在一次性安全输入窗口提交 BYOK；保存后默认按密码态显示。用户进入编辑页时可查看已保存值并可再次隐藏，但必须由可信顶层页面中的明确用户操作触发，不得自动 reveal。</li><li>真实连接测试展示 stage、HTTP status、latency、脱敏错误和 correlationId。</li><li>选择默认模型，回首页发送消息并接收 start/delta/thinking/usage/terminal 流式回复。</li><li>执行停止/重试，取消必须传播到 Go context 和上游 HTTP。</li><li>重启后非敏感配置仍在；凭据明文不得写入 SQLite、日志、诊断包、dump、剪贴板或长期前端状态，临时展示/编辑缓冲在离开编辑态或提交后立即清空。</li></ol>
     <div class="note"><b>里程碑依赖：</b>M0→M1→M2→M3→M4→M5→M6→M7 为主链。M3 开工前冻结 canonical tokenizer；M5 对应能力受 ADR-005/006/009；M4/M7 模板格式受 ADR-012；M7 用户项目执行器受 ADR-010；ADR-011 始终不阻断 v1。</div>
     <h3>全模块实现规格关闭矩阵</h3>
     <p>功能在原型、PRD 或实体地图中出现不代表已经可编码。每个模块在进入所属 Milestone 前，MUST 关闭九项合同：<b>产品行为、聚合/不变量、状态机/guard、Command/Query/RPC、Domain/Wire/Audit 事件、DDL/索引/迁移、权限/数据分类、幂等/失败恢复/可观测性、可执行验收/故障注入</b>。</p>
     <table><thead><tr><th>模块族</th><th>当前详细度</th><th>所属 Milestone</th><th>开工前必须补齐/冻结</th></tr></thead><tbody>
-      <tr><td>Host / IPC / Secret / Installer</td><td>接近实现级</td><td>M0</td><td>Windows POC、协议/签名 corpus、崩溃和无孤儿进程门禁</td></tr>
-      <tr><td>Provider / ModelGateway / BYOK</td><td>实现级基线</td><td>M1–M2</td><td>生成 SDK、真实两协议契约、原型迁移与 Key 全路径 canary</td></tr>
-      <tr><td>设置中心</td><td>本次已补实现合同</td><td>M2 基础；后续随能力扩展</td><td>逐 key Registry、scope/default/applyMode、专用危险命令、迁移和设置 E2E</td></tr>
-      <tr><td>Session / Context / Compact / Handoff</td><td>接近实现级</td><td>M3</td><td>canonical tokenizer artifact、DDL/索引、1M corpus、保真与删除传播</td></tr>
+      <tr><td>Host / IPC / Secret / Installer</td><td>原生实现与本地安全门禁已落地</td><td>M0</td><td>最终提交 race、签名/时间戳、Win10/11 干净机、Runtime 有/无、坏升级和无孤儿进程实机证据</td></tr>
+      <tr><td>Provider / ModelGateway / BYOK</td><td>代码级纵向基线已闭环</td><td>M1–M2</td><td>当前阶段真实两协议 E2E、外部原型迁移与凭据明文全路径 canary</td></tr>
+      <tr><td>设置中心</td><td>M2 Provider/模型基础 UI 已实现</td><td>M2 基础；后续随能力扩展</td><td>逐 key Registry、scope/default/applyMode、专用危险命令、迁移和设置 E2E</td></tr>
+      <tr><td>Session / Context / Compact / Handoff</td><td>主干 schema/DDL/服务/UI 切片与测试已落地</td><td>M3</td><td>真实 1M corpus、备份恢复、完整保真 benchmark、全 UI/E2E 与性能/故障报告</td></tr>
       <tr><td>Stage / Artifact / Trace</td><td>产品与实体清楚，服务合同不足</td><td>M4</td><td>逐动作 RPC、领域事件、StageRun/Artifact DDL、stale 恢复和逐阶段验收</td></tr>
       <tr><td>Template / Base / Overlay</td><td>DDL 较完整，服务层不足</td><td>M4</td><td>生命周期 RPC/事件、引用阻断、升级冲突/恢复、ADR-012 支持矩阵</td></tr>
       <tr><td>Agent Kernel / Planning / ToolRuntime</td><td>共享架构已补，领域 registry 待实现</td><td>M5</td><td>Run/Turn/Step 状态、预算、Tool descriptor、EffectJournal、恢复与 golden trace</td></tr>
@@ -1088,7 +1098,7 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
     <h3>M0–M2 早期交付启动清单 · 项目级一次性门禁</h3>
     <ul class="checklist"><li>ADR-001/002/003/004/007/008 已批准并确认当前基线；Open/Deferred ADR 的阻断范围已登记。</li><li>Go monorepo 与 CI 已建立；固定 Go/Node 工具链、依赖锁、格式/lint/unit/contract/race/SAST/SCA/secret scan、SBOM。</li><li>WebView2 Host、受信 virtual origin、Host↔Engine 认证 Named Pipe、DPAPI、SQLite migration 和签名安装/更新 POC 已通过。</li><li>Bridge v1 JSON Schema、Provider/Model/Secret 数据模型、迁移 registry、审计 registry、错误码 registry 与威胁模型/安全回归 corpus 已冻结并进入代码库。</li><li>已采集 Electron/Python 原型的安装体积、冷/热启动、稳态/峰值内存和孤儿进程基线，供 Go/WebView2 POC 对比；不得用估计值代替测量。</li></ul>
     <h3>M2 Provider→Secret→真实对话纵向切片 · 固定验收序列</h3>
-    <ol><li>Renderer 通过生成 SDK 调用 <code>provider.list</code>。</li><li>Host 校验 CoreWebView2/source/frame/document nonce/schema/deadline 后，经认证 Named Pipe 转发。</li><li>Engine 从 SQLite 查询脱敏 Provider，并返回生成的类型化响应。</li><li>新增/覆盖 Key 只经一次性 Bridge 输入窗口进入 Host SecretService，以 DPAPI 保存；已保存 Key 不回 Renderer。</li><li>Go ModelGateway 对目标 Provider 执行真实连接测试与可取消流式调用。</li><li>UI 展示 <code>status / stage / httpStatus / latencyMs / errorCode / sanitizedMessage / correlationId</code>，不得展示 Key 或未脱敏上游正文。</li><li>全链路产生 trace、append-only 审计与脱敏结构化日志，并通过非法 origin/schema、SSRF、Key canary 和取消测试。</li><li>unit、contract、UI E2E、integration、security 与故障测试全部通过。</li><li>使用 M1 迁移契约从 0.2.1 原型迁移一个 DeepSeek Provider 配置与模型列表；Key 成功迁移或明确进入 <code>requires_reentry</code>，随后真实测试通过。</li></ol>
+    <ol><li>Renderer 通过生成 SDK 调用 <code>provider.list</code>。</li><li>Host 校验 CoreWebView2/source/frame/document nonce/schema/deadline 后，经认证 Named Pipe 转发。</li><li>Engine 从 SQLite 查询脱敏 Provider，并返回生成的类型化响应。</li><li>新增/覆盖 Key 只经 Host-owned 凭据能力进入 SecretService，以 DPAPI 保存；常规 Provider DTO 永不包含 Key。<code>provider.credential.reveal</code> 只允许可信顶层 Renderer 在用户明确点击后临时取回用于编辑/显示；每次解密前必须完成 Host 原生确认，拒绝或非 Windows 平台均 fail-closed 且不读取 secret。默认密码态，不自动调用、不持久化、不记录日志/诊断/审计正文，离开编辑态后清空。</li><li>Go ModelGateway 对目标 Provider 执行真实连接测试与可取消流式调用。</li><li>UI 展示 <code>status / stage / httpStatus / latencyMs / errorCode / sanitizedMessage / correlationId</code>；除上述显式临时查看外，不得展示 Key 或未脱敏上游正文。</li><li>全链路产生 trace、append-only 审计与脱敏结构化日志，并通过非法 origin/schema、SSRF、Key canary、reveal 生命周期和取消测试。</li><li>unit、contract、UI E2E、integration、security 与故障测试全部通过。</li><li>使用 M1 迁移契约从 0.2.1 原型迁移一个 DeepSeek Provider 配置与模型列表；Key 成功迁移或明确进入 <code>requires_reentry</code>，随后真实测试通过。</li></ol>
     <div class="warn"><b>禁止开工方式：</b>禁止先复制 Python 业务到 Go 而不定义领域端口；禁止保留 Electron 作为正式壳；禁止 React 直连 SQLite/模型/密钥；禁止先做全量九阶段 UI 再补状态和数据；禁止把 Open ADR 隐式固化；禁止用单一 happy path 演示代替故障、安全和恢复验收。</div>
   </div>
 </section>
@@ -1099,7 +1109,7 @@ footer .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);f
       <div class="moon-logo sm"></div>
       <span>LUNITIDE</span><span class="zh" style="color:var(--glow);margin-left:2px;font-family:var(--serif)">月汐</span>
     </div>
-    <p>产品需求文档 PRD · v1.0 · M0–M7 实施基线 · 更新 2026-08-11</p>
+    <p>产品需求文档 PRD · v1.1 · M0–M7 实施基线 · M0–M3 阶段快照 · 更新 2026-08-13</p>
     <p>Go Core + WebView2 Host + React/TypeScript · Windows 10/11 x64</p>
   </div>
 </footer>

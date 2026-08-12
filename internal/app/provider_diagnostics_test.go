@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,8 +56,16 @@ func TestDiagnosticResultIsStableAndContainsNoUpstreamText(t *testing.T) {
 		t.Fatalf("unsafe diagnostic: %#v", d)
 	}
 	d = diagnosticResult(errors.New(canary), 0, time.Unix(1, 0).UTC())
-	if d.SanitizedMessage == canary || d.Stage != "resolve" {
+	if strings.Contains(d.SanitizedMessage, canary) || d.Stage != "resolve" || d.ErrorCode != "INTERNAL_ERROR" {
 		t.Fatalf("unsafe generic diagnostic: %#v", d)
+	}
+	d = diagnosticResult(context.DeadlineExceeded, 0, time.Unix(1, 0).UTC())
+	if d.Stage != "connect" || d.ErrorCode != "TIMEOUT" || !d.Retryable {
+		t.Fatalf("timeout diagnostic: %#v", d)
+	}
+	d = diagnosticResult(context.Canceled, 0, time.Unix(1, 0).UTC())
+	if d.Stage != "connect" || d.ErrorCode != "CANCELLED" || d.Retryable {
+		t.Fatalf("cancelled diagnostic: %#v", d)
 	}
 }
 

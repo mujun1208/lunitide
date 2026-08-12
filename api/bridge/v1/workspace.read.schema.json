@@ -1,0 +1,6 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/workspace.read.schema.json","title":"workspace.read payload","x-method":"workspace.read","x-owner":"host","x-enabled":true,
+  "type":"object","additionalProperties":false,"properties":{"path":{"type":"string","minLength":1,"maxLength":1024,"pattern":"^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*$"}},"required":["path"],
+  "x-result":{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string"},"content":{"type":"string"},"size":{"type":"integer","minimum":0}},"required":["path","content","size"]},
+  "x-examples":{"positive":[{"path":"README.md"}],"negative":[{}, {"path":"../secret"}]}
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/skill"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/skillapp"
 )
 
@@ -22,6 +23,41 @@ type SkillService interface {
 	Publish(context.Context, string) error
 	Deprecate(context.Context, string) error
 	Disable(context.Context, string) error
+	Invoke(context.Context, string, string, string, string) (skillapp.Invocation, error)
+	Execute(context.Context, string, string, bool) (skillapp.Execution, error)
+}
+
+func handleSkillInvoke(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct{ SkillID, SessionID, Input, ExecutionMode string }
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SkillID) || !validCanonicalULID(p.SessionID) || strings.TrimSpace(p.Input) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.invoke 参数无效", false)
+	}
+	inv, err := e.skills.Invoke(ctx, p.SkillID, p.SessionID, p.Input, p.ExecutionMode)
+	if err != nil {
+		return skillFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"invocationId": inv.ID, "skillId": inv.SkillID, "skillVersion": inv.SkillVersion, "inputDigest": inv.InputDigest, "manifestDigest": inv.ManifestDigest, "risk": inv.Risk, "requiresApproval": inv.RequiresApproval, "status": "invoked", "expiresAt": inv.ExpiresAt})
+}
+
+func handleSkillExecute(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		InvocationID string `json:"invocationId"`
+		SessionID    string `json:"sessionId"`
+		Approved     bool   `json:"approved"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InvocationID) || !validCanonicalULID(p.SessionID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.execute 参数无效", false)
+	}
+	result, err := e.skills.Execute(ctx, p.InvocationID, p.SessionID, p.Approved)
+	if err != nil {
+		return skillFailure(r, err)
+	}
+	if e.messages != nil {
+		if _, appendErr := e.messages.AppendAssistant(ctx, result.AuditID, "skill.execute", p.SessionID, "[技能结果 audit:"+result.AuditID+"]\n"+result.Output, messageapp.AssistantUsage{}); appendErr != nil {
+			return internalBridgeFailure(r, "SKILL_RESULT_WRITE_FAILED", "技能结果无法持久化", true, appendErr)
+		}
+	}
+	return bridge.Success(r.ID, map[string]any{"invocationId": result.InvocationID, "auditId": result.AuditID, "status": "succeeded", "output": result.Output})
 }
 
 type skillDTO struct {
@@ -274,6 +310,20 @@ func handleSkillDisable(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 func skillFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, skillapp.ErrInvocationNotFound):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_NOT_FOUND", "技能调用不存在或不属于当前会话", false)
+	case errors.Is(err, skillapp.ErrInvocationConsumed):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_CONSUMED", "技能调用已消费", false)
+	case errors.Is(err, skillapp.ErrInvocationExpired):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_EXPIRED", "技能调用已过期", false)
+	case errors.Is(err, skillapp.ErrInvocationChanged):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_CHANGED", "技能在调用后已变化", false)
+	case errors.Is(err, skillapp.ErrApprovalRequired):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_APPROVAL_REQUIRED", "技能执行需要批准", false)
+	case errors.Is(err, skillapp.ErrExecutionForbidden):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_EXECUTION_FORBIDDEN", "当前执行模式禁止技能执行", false)
+	case errors.Is(err, skillapp.ErrUnknownEntryPoint):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_ENTRY_POINT_DENIED", "技能入口不在 Engine builtin allowlist", false)
 	case errors.Is(err, skillapp.ErrSkillNotFound):
 		return bridge.Failure(r.ID, r.TraceID, "SKILL_NOT_FOUND", "技能不存在", false)
 	case errors.Is(err, skillapp.ErrInvalidTransition):

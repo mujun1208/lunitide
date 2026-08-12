@@ -9,8 +9,12 @@
       "type": "string",
       "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
       "x-examples": {
-        "positive": ["01ARZ3NDEKTSV4RRFFQ69G5FAV"],
-        "negative": ["81ARZ3NDEKTSV4RRFFQ69G5FAV"]
+        "positive": [
+          "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        ],
+        "negative": [
+          "81ARZ3NDEKTSV4RRFFQ69G5FAV"
+        ]
       }
     },
     "ProviderProtocol": {
@@ -123,42 +127,142 @@
       ]
     },
     "ProjectStatus": {
-      "enum": ["active", "archived"]
+      "enum": [
+        "active",
+        "archived"
+      ]
     },
     "ProjectDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "status": { "$ref": "#/$defs/ProjectStatus" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "version": { "type": "integer", "minimum": 1 }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "status": {
+          "$ref": "#/$defs/ProjectStatus"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
       },
-      "required": ["id", "name", "status", "createdAt", "updatedAt", "version"]
+      "required": [
+        "id",
+        "name",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ]
     },
-    "SessionStatus": { "enum": ["active"] },
+    "SessionStatus": {
+      "enum": [
+        "active"
+      ]
+    },
     "SessionDTO": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" }, "projectId": { "$ref": "#/$defs/ULID" },
-        "title": { "type": "string", "minLength": 1, "maxLength": 200 }, "status": { "$ref": "#/$defs/SessionStatus" },
-        "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" },
-        "version": { "type": "integer", "const": 1 }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "projectId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/SessionStatus"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
       },
-      "required": ["id", "projectId", "title", "status", "createdAt", "updatedAt", "version"]
+      "required": [
+        "id",
+        "projectId",
+        "title",
+        "pinned",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ]
     },
     "MessageDTO": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" }, "sessionId": { "$ref": "#/$defs/ULID" },
-        "role": { "const": "user" }, "status": { "const": "completed" },
-        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "text": { "type": "string", "minLength": 1, "maxLength": 2048 },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant",
+            "tool"
+          ]
+        },
+        "status": {
+          "const": "completed"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "sessionId", "role", "status", "sequence", "text", "createdAt"]
+      "required": [
+        "id",
+        "sessionId",
+        "role",
+        "status",
+        "sequence",
+        "text",
+        "createdAt"
+      ]
     },
     "StageStatus": {
       "enum": [
@@ -178,16 +282,48 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "projectId": { "$ref": "#/$defs/ULID" },
-        "phase": { "type": "integer", "minimum": 1, "maximum": 9 },
-        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "status": { "$ref": "#/$defs/StageStatus" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "version": { "type": "integer", "const": 1 }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "projectId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "phase": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "status": {
+          "$ref": "#/$defs/StageStatus"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        }
       },
-      "required": ["id", "projectId", "phase", "title", "status", "createdAt", "updatedAt", "version"]
+      "required": [
+        "id",
+        "projectId",
+        "phase",
+        "title",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ]
     },
     "MigrationStatusDTO": {
       "type": "object",
@@ -217,179 +353,684 @@
       ]
     },
     "PlanStatus": {
-      "enum": ["draft", "active", "paused", "completed", "cancelled", "failed"]
+      "enum": [
+        "draft",
+        "active",
+        "paused",
+        "completed",
+        "cancelled",
+        "failed"
+      ]
     },
     "PlanDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "projectId": { "$ref": "#/$defs/ULID" },
-        "stageId": { "$ref": "#/$defs/ULID" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "description": { "type": "string", "maxLength": 4096 },
-        "version": { "type": "integer", "minimum": 1 },
-        "status": { "$ref": "#/$defs/PlanStatus" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "projectId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "stageId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "$ref": "#/$defs/PlanStatus"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "projectId", "name", "description", "version", "status", "createdAt", "updatedAt"]
+      "required": [
+        "id",
+        "projectId",
+        "name",
+        "description",
+        "version",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "NodeStatus": {
-      "enum": ["pending", "ready", "running", "paused", "completed", "failed", "cancelled", "blocked"]
+      "enum": [
+        "pending",
+        "ready",
+        "running",
+        "paused",
+        "completed",
+        "failed",
+        "cancelled",
+        "blocked"
+      ]
     },
     "RiskLevel": {
-      "enum": ["low", "medium", "high", "critical"]
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
     },
     "PlanNodeDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "planId": { "$ref": "#/$defs/ULID" },
-        "parentNodeId": { "$ref": "#/$defs/ULID" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "description": { "type": "string", "maxLength": 4096 },
-        "status": { "$ref": "#/$defs/NodeStatus" },
-        "riskLevel": { "$ref": "#/$defs/RiskLevel" },
-        "budgetTokens": { "type": "integer", "minimum": 1 },
-        "estimateTokens": { "type": "integer", "minimum": 0 },
-        "workerRole": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "sequence": { "type": "integer", "minimum": 1 },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "planId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "parentNodeId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus"
+        },
+        "riskLevel": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "budgetTokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimateTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workerRole": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "planId", "name", "description", "status", "riskLevel", "workerRole", "sequence", "createdAt", "updatedAt"]
+      "required": [
+        "id",
+        "planId",
+        "name",
+        "description",
+        "status",
+        "riskLevel",
+        "workerRole",
+        "sequence",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "ReviewStatus": {
-      "enum": ["pending", "approved", "rejected", "expired", "changed_after_approval"]
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "expired",
+        "changed_after_approval"
+      ]
     },
     "ReviewDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "planId": { "$ref": "#/$defs/ULID" },
-        "nodeId": { "$ref": "#/$defs/ULID" },
-        "actionType": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "actionDigest": { "type": "string", "minLength": 64, "maxLength": 64 },
-        "inputDigest": { "type": "string", "minLength": 64, "maxLength": 64 },
-        "stateDigest": { "type": "string", "minLength": 64, "maxLength": 64 },
-        "policyVersion": { "type": "integer", "minimum": 1 },
-        "riskLevel": { "$ref": "#/$defs/RiskLevel" },
-        "status": { "$ref": "#/$defs/ReviewStatus" },
-        "reviewerNote": { "type": "string", "maxLength": 4096 },
-        "expiresAt": { "type": "string", "format": "date-time" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "reviewedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "planId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "actionType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "actionDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "inputDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "stateDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "policyVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "riskLevel": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "status": {
+          "$ref": "#/$defs/ReviewStatus"
+        },
+        "reviewerNote": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reviewedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "actionType", "actionDigest", "inputDigest", "stateDigest", "policyVersion", "riskLevel", "status", "reviewerNote", "createdAt"]
+      "required": [
+        "id",
+        "actionType",
+        "actionDigest",
+        "inputDigest",
+        "stateDigest",
+        "policyVersion",
+        "riskLevel",
+        "status",
+        "reviewerNote",
+        "createdAt"
+      ]
     },
     "MemoryLayer": {
-      "enum": ["working", "episodic", "semantic", "procedural"]
+      "enum": [
+        "working",
+        "episodic",
+        "semantic",
+        "procedural"
+      ]
     },
     "MemoryScope": {
-      "enum": ["workspace", "project", "session"]
+      "enum": [
+        "workspace",
+        "project",
+        "session"
+      ]
     },
     "MemoryDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "projectId": { "$ref": "#/$defs/ULID" },
-        "layer": { "$ref": "#/$defs/MemoryLayer" },
-        "scope": { "$ref": "#/$defs/MemoryScope" },
-        "key": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "content": { "type": "string", "minLength": 1, "maxLength": 65536 },
-        "embeddingId": { "$ref": "#/$defs/ULID" },
-        "sourceId": { "$ref": "#/$defs/ULID" },
-        "sourceType": { "type": "string", "maxLength": 64 },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "accessCount": { "type": "integer", "minimum": 0 },
-        "lastAccessed": { "type": "string", "format": "date-time" },
-        "expiresAt": { "type": "string", "format": "date-time" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "projectId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "layer": {
+          "$ref": "#/$defs/MemoryLayer"
+        },
+        "scope": {
+          "$ref": "#/$defs/MemoryScope"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "embeddingId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "sourceId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "sourceType": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "accessCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastAccessed": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "projectId", "layer", "scope", "key", "content", "confidence", "accessCount", "createdAt", "updatedAt"]
+      "required": [
+        "id",
+        "projectId",
+        "layer",
+        "scope",
+        "key",
+        "content",
+        "confidence",
+        "accessCount",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "OntologyNodeType": {
-      "enum": ["class", "interface", "function", "module", "table", "file", "requirement", "artifact", "component", "endpoint", "test"]
+      "enum": [
+        "class",
+        "interface",
+        "function",
+        "module",
+        "table",
+        "file",
+        "requirement",
+        "artifact",
+        "component",
+        "endpoint",
+        "test"
+      ]
     },
     "OntologyNodeDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "projectId": { "$ref": "#/$defs/ULID" },
-        "type": { "$ref": "#/$defs/OntologyNodeType" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "fullPath": { "type": "string", "maxLength": 1024 },
-        "description": { "type": "string", "maxLength": 4096 },
-        "metadataJson": { "type": "string", "maxLength": 65536 },
-        "version": { "type": "integer", "minimum": 1 },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "projectId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "type": {
+          "$ref": "#/$defs/OntologyNodeType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "fullPath": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "metadataJson": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "projectId", "type", "name", "fullPath", "description", "metadataJson", "version", "createdAt", "updatedAt"]
+      "required": [
+        "id",
+        "projectId",
+        "type",
+        "name",
+        "fullPath",
+        "description",
+        "metadataJson",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "OntologyEdgeType": {
-      "enum": ["implements", "extends", "depends_on", "references", "contains", "tests", "imports", "satisfies", "traces", "generates", "configures", "authenticates", "authorizes"]
+      "enum": [
+        "implements",
+        "extends",
+        "depends_on",
+        "references",
+        "contains",
+        "tests",
+        "imports",
+        "satisfies",
+        "traces",
+        "generates",
+        "configures",
+        "authenticates",
+        "authorizes"
+      ]
     },
     "OntologyEdgeDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "sourceNodeId": { "$ref": "#/$defs/ULID" },
-        "targetNodeId": { "$ref": "#/$defs/ULID" },
-        "type": { "$ref": "#/$defs/OntologyEdgeType" },
-        "label": { "type": "string", "maxLength": 256 },
-        "propertiesJson": { "type": "string", "maxLength": 65536 },
-        "weight": { "type": "number", "minimum": 0, "maximum": 1 },
-        "version": { "type": "integer", "minimum": 1 },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "sourceNodeId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "targetNodeId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "type": {
+          "$ref": "#/$defs/OntologyEdgeType"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "propertiesJson": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "sourceNodeId", "targetNodeId", "type", "label", "propertiesJson", "weight", "version", "createdAt", "updatedAt"]
+      "required": [
+        "id",
+        "sourceNodeId",
+        "targetNodeId",
+        "type",
+        "label",
+        "propertiesJson",
+        "weight",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "SkillStatus": {
-      "enum": ["draft", "published", "deprecated", "disabled"]
+      "enum": [
+        "draft",
+        "published",
+        "deprecated",
+        "disabled"
+      ]
     },
     "SkillPermission": {
-      "enum": ["read_only", "read_write", "network", "file_system", "shell", "admin"]
+      "enum": [
+        "read_only",
+        "read_write",
+        "network",
+        "file_system",
+        "shell",
+        "admin"
+      ]
     },
     "SkillDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/ULID" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "description": { "type": "string", "maxLength": 4096 },
-        "version": { "type": "string", "minLength": 1, "maxLength": 32 },
-        "status": { "$ref": "#/$defs/SkillStatus" },
-        "permissions": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/SkillPermission" } },
-        "entryPoint": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "manifestJson": { "type": "string", "minLength": 2, "maxLength": 65536 },
-        "signature": { "type": "string", "maxLength": 1024 },
-        "publisherId": { "$ref": "#/$defs/ULID" },
-        "minEngineVersion": { "type": "string", "maxLength": 32 },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "status": {
+          "$ref": "#/$defs/SkillStatus"
+        },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/SkillPermission"
+          }
+        },
+        "entryPoint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "manifestJson": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 65536
+        },
+        "signature": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "publisherId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "minEngineVersion": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["id", "name", "displayName", "description", "version", "status", "permissions", "entryPoint", "manifestJson", "createdAt", "updatedAt"]
+      "required": [
+        "id",
+        "name",
+        "displayName",
+        "description",
+        "version",
+        "status",
+        "permissions",
+        "entryPoint",
+        "manifestJson",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "SkillMatchDTO": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "skill": { "$ref": "#/$defs/SkillDTO" },
-        "score": { "type": "number", "minimum": 0, "maximum": 1 },
-        "reason": { "type": "string", "maxLength": 256 },
-        "matchId": { "$ref": "#/$defs/ULID" }
+        "skill": {
+          "$ref": "#/$defs/SkillDTO"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "matchId": {
+          "$ref": "#/$defs/ULID"
+        }
       },
-      "required": ["skill", "score", "reason", "matchId"]
+      "required": [
+        "skill",
+        "score",
+        "reason",
+        "matchId"
+      ]
+    },
+    "PlanRunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "joining",
+        "succeeded",
+        "failed",
+        "cancel_requested",
+        "cancelled",
+        "timed_out"
+      ]
+    },
+    "PlanTodoDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description"
+      ]
+    },
+    "PlanRunDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "parentRunId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "planId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "todo": {
+          "$ref": "#/$defs/PlanTodoDTO"
+        },
+        "status": {
+          "$ref": "#/$defs/PlanRunStatus"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "planId",
+        "nodeId",
+        "role",
+        "todo",
+        "status",
+        "depth",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ]
     }
   },
   "x-examples": {

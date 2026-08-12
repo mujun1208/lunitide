@@ -143,7 +143,7 @@ func TestAppendAssistantSuccess(t *testing.T) {
 	tx := newAssistantTx(now)
 	s := newAssistantService(t, tx)
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	usage := AssistantUsage{Provider: "openai_compatible", Model: "gpt-4", TotalTokens: 42}
+	usage := AssistantUsage{Provider: "openai_compatible", Model: "gpt-4", OutputTokens: 42}
 
 	msg, err := s.AppendAssistant(context.Background(), "stream-001", "engine", sessionID, "Hello!\r\nWorld.", usage)
 	if err != nil {
@@ -172,10 +172,19 @@ func TestAppendAssistantSuccess(t *testing.T) {
 	providerFound := false
 	for _, e := range tx.ledgerEntries {
 		if e.TokenizerRevision == token.CanonicalTokenizerRevision && e.Provider == "" && e.EstimationMethod == token.CharRatio {
+			if e.TokenizerID != token.CanonicalTokenizerID {
+				t.Fatalf("canonical tokenizer ID = %q", e.TokenizerID)
+			}
 			canonicalFound = true
 		}
 		if e.Provider == "openai_compatible" && e.Model == "gpt-4" && e.EstimationMethod == token.ProviderReport {
 			providerFound = true
+			if e.TokenizerID != token.ProviderReportTokenizerID || e.TokenizerRevision != token.ProviderReportTokenizerRevision {
+				t.Fatalf("provider report identity = %q/%q", e.TokenizerID, e.TokenizerRevision)
+			}
+			if e.TokenCount != 42 {
+				t.Fatalf("provider entry attributed %d tokens, want assistant output 42", e.TokenCount)
+			}
 		}
 	}
 	if !canonicalFound {
@@ -197,7 +206,7 @@ func TestAppendAssistantIdempotentReplay(t *testing.T) {
 	tx := newAssistantTx(now)
 	s := newAssistantService(t, tx)
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	usage := AssistantUsage{Provider: "openai_compatible", Model: "gpt-4", TotalTokens: 10}
+	usage := AssistantUsage{Provider: "openai_compatible", Model: "gpt-4", OutputTokens: 10}
 
 	// First call persists.
 	first, err := s.AppendAssistant(context.Background(), "stream-replay", "engine", sessionID, "Answer.", usage)
@@ -264,9 +273,9 @@ func TestAppendAssistantCanonicalAlwaysWrittenEvenWithZeroUsage(t *testing.T) {
 	tx := newAssistantTx(time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC))
 	s := newAssistantService(t, tx)
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	// TotalTokens = 0 → no provider-reported entry, but canonical entry is
+	// OutputTokens = 0 → no provider-reported entry, but canonical entry is
 	// always written (architecture doc §12.1.1: persist tokenizer ID/version).
-	if _, err := s.AppendAssistant(context.Background(), "stream-zero", "engine", sessionID, "text", AssistantUsage{TotalTokens: 0}); err != nil {
+	if _, err := s.AppendAssistant(context.Background(), "stream-zero", "engine", sessionID, "text", AssistantUsage{OutputTokens: 0}); err != nil {
 		t.Fatalf("AppendAssistant failed: %v", err)
 	}
 	if tx.tokenLedgerCalls != 1 {
@@ -294,7 +303,7 @@ func TestAppendAssistantReplayDetectsCorruptedIdempotencyResponse(t *testing.T) 
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	streamID := "stream-corrupt"
 	text := "original"
-	usage := AssistantUsage{Provider: "p", Model: "m", TotalTokens: 5}
+	usage := AssistantUsage{Provider: "p", Model: "m", OutputTokens: 5}
 	// Manually compute the digest that AppendAssistant would use.
 	request := assistantRequest{SessionID: sessionID, Text: text, Usage: usage}
 	body, _ := json.Marshal(request)

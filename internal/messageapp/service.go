@@ -20,14 +20,14 @@ import (
 )
 
 var (
-	ErrIdempotencyKeyRequired       = errors.New("idempotency key is required")
-	ErrIdempotencyConflict          = errors.New("idempotency key reused with different request")
-	ErrSessionNotFound              = errors.New("session not found")
-	ErrMessageStorageQuotaReached   = errors.New("message storage quota reached")
-	ErrDataInvariantViolation       = errors.New("message data invariant violation")
-	ErrCursorInvalid                = errors.New("message cursor invalid")
-	ErrPageBudgetTooSmall           = errors.New("message page byte budget too small")
-	ErrAssistantResponseTooLarge    = errors.New("assistant response too large")
+	ErrIdempotencyKeyRequired     = errors.New("idempotency key is required")
+	ErrIdempotencyConflict        = errors.New("idempotency key reused with different request")
+	ErrSessionNotFound            = errors.New("session not found")
+	ErrMessageStorageQuotaReached = errors.New("message storage quota reached")
+	ErrDataInvariantViolation     = errors.New("message data invariant violation")
+	ErrCursorInvalid              = errors.New("message cursor invalid")
+	ErrPageBudgetTooSmall         = errors.New("message page byte budget too small")
+	ErrAssistantResponseTooLarge  = errors.New("assistant response too large")
 )
 
 type Tx interface {
@@ -276,9 +276,9 @@ func (s *Service) Append(ctx context.Context, key, actor string, request any, va
 
 // AssistantUsage carries provider-reported token usage for an assistant message.
 type AssistantUsage struct {
-	Provider    string `json:"provider"`
-	Model       string `json:"model"`
-	TotalTokens int64  `json:"totalTokens"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	OutputTokens int64  `json:"outputTokens"`
 }
 
 // assistantRequest is the idempotency digest input for AppendAssistant.
@@ -357,6 +357,7 @@ func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionI
 			MessageID:         result.ID,
 			Provider:          "",
 			Model:             "",
+			TokenizerID:       token.CanonicalTokenizerID,
 			TokenizerRevision: token.CanonicalTokenizerRevision,
 			TokenCount:        token.EstimateTokens(normalized),
 			EstimationMethod:  token.CharRatio,
@@ -366,18 +367,18 @@ func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionI
 		if e = tx.PutTokenLedgerEntry(ctx, canonicalEntry); e != nil {
 			return e
 		}
-		// Write provider-reported token ledger entry when the gateway
-		// reports non-zero usage. This is a separate cache entry from the
-		// canonical estimate — it records the actual tokens consumed by
-		// the provider's tokenizer for this model.
-		if usage.TotalTokens > 0 {
+		// Write provider-reported assistant output tokens when the gateway
+		// reports them. Request totals include input/history and therefore must
+		// never be attributed to this single assistant message.
+		if usage.OutputTokens > 0 {
 			providerEntry := token.LedgerEntry{
 				ID:                ulid.Make().String(),
 				MessageID:         result.ID,
 				Provider:          usage.Provider,
 				Model:             usage.Model,
-				TokenizerRevision: "unknown",
-				TokenCount:        usage.TotalTokens,
+				TokenizerID:       token.ProviderReportTokenizerID,
+				TokenizerRevision: token.ProviderReportTokenizerRevision,
+				TokenCount:        usage.OutputTokens,
 				EstimationMethod:  token.ProviderReport,
 				UTF8Bytes:         int64(len(normalized)),
 				ComputedAt:        now,

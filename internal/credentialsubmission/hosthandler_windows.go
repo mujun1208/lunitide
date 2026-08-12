@@ -26,6 +26,7 @@ type HostHandler struct {
 	Coordinator *Coordinator
 	Engine      EngineCaller
 	Secrets     secret.Service
+	Confirmer   RevealConfirmer
 	cleanupOnce sync.Once
 	cleanupWake chan struct{}
 }
@@ -44,6 +45,9 @@ type submitPayload struct {
 func (h *HostHandler) HandleHost(ctx context.Context, r bridge.Request) bridge.Response {
 	if h.Coordinator == nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false)
+	}
+	if r.Method == "provider.credential.reveal" {
+		return h.revealCredential(ctx, r)
 	}
 	if r.Method == "provider.create" || r.Method == "provider.update" {
 		var payload map[string]json.RawMessage
@@ -109,6 +113,43 @@ func (h *HostHandler) HandleHost(ctx context.Context, r bridge.Request) bridge.R
 		return bridge.Failure(r.ID, r.TraceID, "CREDENTIAL_SUBMISSION_REJECTED", "凭据提交失败", false)
 	}
 	return bridge.Success(r.ID, map[string]any{"credentialSubmissionId": sub.SubmissionID, "providerId": sub.ProviderID, "expiresAt": sub.ExpiresAt, "expiresInSeconds": max(1, int(time.Until(sub.ExpiresAt).Seconds()))})
+}
+
+func (h *HostHandler) revealCredential(ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ProviderID string `json:"providerId"`
+	}
+	if h.Engine == nil || h.Secrets == nil || decodeStrictLocal(r.Payload, &p) != nil || p.ProviderID == "" {
+		return bridge.Failure(r.ID, r.TraceID, "CREDENTIAL_REVEAL_FAILED", "无法读取已保存的凭据", false)
+	}
+	ref, configured, err := (RPCResolver{Engine: h.Engine}).resolveBinding(ctx, p.ProviderID)
+	if err != nil || !configured || ref.ProviderID != p.ProviderID {
+		return bridge.Failure(r.ID, r.TraceID, "CREDENTIAL_REVEAL_FAILED", "无法读取已保存的凭据", false)
+	}
+	ref, err = ref.Validate()
+	if err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "CREDENTIAL_REVEAL_FAILED", "无法读取已保存的凭据", false)
+	}
+	confirmer := h.Confirmer
+	if confirmer == nil {
+		confirmer = nativeRevealConfirmer{}
+	}
+	confirmed, err := confirmer.ConfirmCredentialReveal(ctx, RevealTarget{ProviderID: ref.ProviderID, Protocol: ref.Protocol, Origin: ref.Origin})
+	if err != nil || !confirmed {
+		return bridge.Failure(r.ID, r.TraceID, "CREDENTIAL_REVEAL_DENIED", "未确认显示已保存的凭据", false)
+	}
+	var credential string
+	err = h.Secrets.WithSecret(ctx, ref, func(value []byte) error {
+		if len(value) == 0 || len(value) > 61440 {
+			return errors.New("invalid credential")
+		}
+		credential = string(value)
+		return nil
+	})
+	if err != nil || credential == "" {
+		return bridge.Failure(r.ID, r.TraceID, "CREDENTIAL_REVEAL_FAILED", "无法读取已保存的凭据", false)
+	}
+	return bridge.Success(r.ID, map[string]string{"credential": credential})
 }
 
 func (h *HostHandler) updateTarget(ctx context.Context, providerID string, request []byte) (provider.Protocol, string, error) {

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/lunitide/lunitide/internal/compactionapp"
@@ -83,11 +84,14 @@ func (s *Store) ListMessagesByRange(ctx context.Context, sessionID string, start
 func (s *Store) GetLatestCompactionSummary(ctx context.Context, sessionID string) (string, error) {
 	var summary string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT human_summary FROM compaction_checkpoints
-		 WHERE session_id=? AND status='succeeded'
-		 ORDER BY version DESC LIMIT 1`, sessionID).Scan(&summary)
+		`SELECT c.human_summary FROM compaction_activations a
+		 JOIN compaction_checkpoints c ON c.id=a.checkpoint_id
+		 WHERE a.session_id=? AND c.status='succeeded'`, sessionID).Scan(&summary)
 	if err != nil {
-		return "", nil //nolint:nilerr // 没有摘要不是错误
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("get latest compaction summary: %w", err)
 	}
 	return summary, nil
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
+	"github.com/lunitide/lunitide/internal/domain/token"
 )
 
 // Summarizer generates a structured summary from a range of session messages.
@@ -22,10 +23,10 @@ type Summarizer interface {
 
 // SummaryMessage is a minimal message representation passed to the Summarizer.
 type SummaryMessage struct {
-	ID       string
-	Role     string
-	Content  string
-	Sequence int64
+	ID       string `json:"id"`
+	Role     string `json:"role"`
+	Content  string `json:"content"`
+	Sequence int64  `json:"sequence"`
 }
 
 // ErrCheckpointNotPending is returned when attempting to execute a checkpoint that is not in pending state.
@@ -57,6 +58,7 @@ type ExecutorStore interface {
 	// storage does not match expectedStatus, the update affects 0 rows and the
 	// implementation returns ErrConcurrentModification (ADR-005 §4.2).
 	UpdateCheckpointStatus(ctx context.Context, id string, expectedStatus, status compaction.Status, summaryJSON, humanSummary string, failureCode *string) error
+	ActivateCheckpoint(ctx context.Context, id string, baseVersion int64) error
 	// ListCheckpointsByStatus returns checkpoints matching the given status,
 	// ordered by created_at ascending. Used by restart recovery to find
 	// orphaned pending/running checkpoints (ADR-005 §5).
@@ -114,13 +116,13 @@ func (e *Executor) SetTrigger(t *Trigger) { e.trigger = t }
 
 // ExecuteResult describes the outcome of executing a checkpoint.
 type ExecuteResult struct {
-	CheckpointID  string
-	Version       int64
-	Status        compaction.Status
-	SummaryJSON   string
-	HumanSummary  string
-	FailureCode   *string
-	DurationMs    int64
+	CheckpointID string
+	Version      int64
+	Status       compaction.Status
+	SummaryJSON  string
+	HumanSummary string
+	FailureCode  *string
+	DurationMs   int64
 	// LowWatermarkVerified is true when the post-compaction reusable context
 	// was verified to be below the low watermark (ADR-005 §5). False when
 	// verification was not performed (e.g., context window unknown).
@@ -158,21 +160,31 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 	// 3. Fetch source messages.
 	messages, err := e.sourceReader.ListMessagesByRange(execCtx, cp.SessionID, cp.SourceStartSeq, cp.SourceEndSeq)
 	if err != nil {
-		e.markFailed(execCtx, checkpointID, "SOURCE_READ_FAILED", err)
+		if cleanupErr := e.markFailed(execCtx, checkpointID, "SOURCE_READ_FAILED", err); cleanupErr != nil {
+			return result, fmt.Errorf("source read failed (%v); persist failed status: %w", err, cleanupErr)
+		}
 		result.Status = compaction.StatusFailed
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result, nil
 	}
 	if len(messages) == 0 {
-		e.markFailed(execCtx, checkpointID, "EMPTY_SOURCE_RANGE", ErrNoMessagesToSummarize)
+		if cleanupErr := e.markFailed(execCtx, checkpointID, "EMPTY_SOURCE_RANGE", ErrNoMessagesToSummarize); cleanupErr != nil {
+			return result, fmt.Errorf("empty source range; persist failed status: %w", cleanupErr)
+		}
 		result.Status = compaction.StatusFailed
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result, nil
 	}
 
-	// Limit messages to bound cost.
+	// Reject oversized source ranges rather than summarizing only a prefix while
+	// recording the full checkpoint range as covered.
 	if len(messages) > e.maxMessages {
-		messages = messages[:e.maxMessages]
+		if cleanupErr := e.markFailed(execCtx, checkpointID, "SOURCE_RANGE_TOO_LARGE", nil); cleanupErr != nil {
+			return result, fmt.Errorf("source range exceeds maximum of %d messages; persist failed status: %w", e.maxMessages, cleanupErr)
+		}
+		result.Status = compaction.StatusFailed
+		result.DurationMs = time.Since(start).Milliseconds()
+		return result, nil
 	}
 
 	// Load the previous succeeded checkpoint's summary for rolling/incremental
@@ -190,7 +202,9 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 	// 4. Generate summary.
 	summaryJSON, humanSummary, err := e.summarizer.Summarize(execCtx, cp.SessionID, cp.Provider, cp.Model, cp.SourceStartSeq, cp.SourceEndSeq, messages, priorSummary)
 	if err != nil {
-		e.markFailed(execCtx, checkpointID, "SUMMARY_FAILED", err)
+		if cleanupErr := e.markFailed(execCtx, checkpointID, "SUMMARY_FAILED", err); cleanupErr != nil {
+			return result, fmt.Errorf("summary failed (%v); persist failed status: %w", err, cleanupErr)
+		}
 		result.Status = compaction.StatusFailed
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result, nil
@@ -200,7 +214,9 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 	// identifiers, values, and quotations from the source range (ADR-005 §4).
 	facts := ExtractProtectedFacts(messages)
 	if err := ValidateProtectedFacts(summaryJSON, facts); err != nil {
-		e.markFailed(execCtx, checkpointID, "PROTECTED_FACTS_VIOLATION", err)
+		if cleanupErr := e.markFailed(execCtx, checkpointID, "PROTECTED_FACTS_VIOLATION", err); cleanupErr != nil {
+			return result, fmt.Errorf("protected facts validation failed (%v); persist failed status: %w", err, cleanupErr)
+		}
 		result.Status = compaction.StatusFailed
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result, nil
@@ -221,10 +237,13 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 
 // markFailed transitions a checkpoint to failed status with a failure code.
 // CAS: expectedStatus=running (markFailed is only called after pending→running).
-func (e *Executor) markFailed(ctx context.Context, checkpointID, code string, cause error) {
+func (e *Executor) markFailed(ctx context.Context, checkpointID, code string, cause error) error {
 	failureCode := code
-	_ = e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusRunning, compaction.StatusFailed, "{}", "", &failureCode)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	err := e.store.UpdateCheckpointStatus(cleanupCtx, checkpointID, compaction.StatusRunning, compaction.StatusFailed, "{}", "", &failureCode)
 	_ = cause // cause is logged via failure code; full error not stored to avoid leaking details
+	return err
 }
 
 // SetMaxMessages adjusts the maximum messages passed to the summarizer.
@@ -422,14 +441,9 @@ func (e *Executor) Commit(ctx context.Context, checkpointID string, baseVersion 
 		return nil, fmt.Errorf("%w: expected %d, got %d", ErrVersionConflict, baseVersion, cp.Version)
 	}
 
-	// Mark all previous succeeded checkpoints for this session as superseded.
-	// This ensures GetLatestCompactionSummary returns only the newly committed
-	// checkpoint (ADR-005 §4.2: "commit activates the new checkpoint").
-	superseded, err := e.store.MarkPreviousSucceededAsSuperseded(ctx, cp.SessionID, checkpointID)
-	if err != nil {
-		return nil, fmt.Errorf("mark previous succeeded as superseded: %w", err)
+	if err := e.store.ActivateCheckpoint(ctx, checkpointID, baseVersion); err != nil {
+		return nil, fmt.Errorf("activate checkpoint: %w", err)
 	}
-	_ = superseded // count of superseded checkpoints (for diagnostics)
 
 	return &CommitResult{
 		CheckpointID: cp.ID,
@@ -542,7 +556,7 @@ func (e *Executor) VerifyLowWatermark(ctx context.Context, checkpointID string, 
 	}
 
 	// Sum tokens for messages after the compaction range (remaining context).
-	remaining, err := e.store.SumTokenLedgerAfterSeq(ctx, cp.SessionID, cp.Provider, cp.Model, "", cp.SourceEndSeq)
+	remaining, err := e.store.SumTokenLedgerAfterSeq(ctx, cp.SessionID, cp.Provider, cp.Model, token.CanonicalTokenizerRevision, cp.SourceEndSeq)
 	if err != nil {
 		return false, 0, fmt.Errorf("sum remaining tokens: %w", err)
 	}
@@ -564,4 +578,8 @@ func (e *Executor) VerifyLowWatermark(ctx context.Context, checkpointID string, 
 // number of checkpoints superseded.
 func (e *Executor) MarkPreviousSucceededSuperseded(ctx context.Context, sessionID, currentCheckpointID string) (int64, error) {
 	return e.store.MarkPreviousSucceededAsSuperseded(ctx, sessionID, currentCheckpointID)
+}
+
+func (e *Executor) ActivateAutomatic(ctx context.Context, checkpointID string, version int64) error {
+	return e.store.ActivateCheckpoint(ctx, checkpointID, version)
 }

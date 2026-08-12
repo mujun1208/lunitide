@@ -45,7 +45,7 @@ func handleContextCompactPreview(e *Engine, ctx context.Context, r bridge.Reques
 
 	result, err := e.CompactPreview(ctx, p.SessionID, providerID, modelID, "", contextWindow)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_PREVIEW_FAILED", err.Error(), false)
+		return compactionFailure(r, "COMPACTION_PREVIEW_FAILED", "压缩预览暂时不可用", err)
 	}
 	return bridge.Success(r.ID, map[string]any{
 		"checkpointId":   result.CheckpointID,
@@ -80,7 +80,7 @@ func handleContextCompactCommit(e *Engine, ctx context.Context, r bridge.Request
 		if errors.Is(err, compactionapp.ErrCheckpointNotSucceeded) {
 			return bridge.Failure(r.ID, r.TraceID, "COMPACTION_CHECKPOINT_NOT_SUCCEEDED", "检查点不在 succeeded 状态", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_COMMIT_FAILED", err.Error(), false)
+		return compactionFailure(r, "COMPACTION_COMMIT_FAILED", "压缩提交暂时不可用", err)
 	}
 	return bridge.Success(r.ID, map[string]any{
 		"checkpointId": result.CheckpointID,
@@ -107,13 +107,30 @@ func handleContextCompactCancel(e *Engine, ctx context.Context, r bridge.Request
 		if errors.Is(err, compactionapp.ErrCheckpointNotPending) {
 			return bridge.Failure(r.ID, r.TraceID, "COMPACTION_CHECKPOINT_NOT_PENDING", "只能取消 pending 状态的检查点", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_CANCEL_FAILED", err.Error(), false)
+		return compactionFailure(r, "COMPACTION_CANCEL_FAILED", "压缩取消暂时不可用", err)
 	}
 	return bridge.Success(r.ID, map[string]any{
 		"checkpointId": result.CheckpointID,
 		"status":       result.Status,
 		"cancelled":    result.Cancelled,
 	})
+}
+
+func compactionFailure(r bridge.Request, defaultCode, defaultMessage string, err error) bridge.Response {
+	switch {
+	case errors.Is(err, compactionapp.ErrCheckpointNotFound):
+		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_CHECKPOINT_NOT_FOUND", "检查点不存在", false)
+	case errors.Is(err, compactionapp.ErrCheckpointNotPending):
+		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_CHECKPOINT_NOT_PENDING", "检查点不在 pending 状态", false)
+	case errors.Is(err, compactionapp.ErrCheckpointNotSucceeded):
+		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_CHECKPOINT_NOT_SUCCEEDED", "检查点不在 succeeded 状态", false)
+	case errors.Is(err, compactionapp.ErrVersionConflict), errors.Is(err, compactionapp.ErrConcurrentModification):
+		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_VERSION_CONFLICT", "检查点已被修改，请刷新后重试", false)
+	case errors.Is(err, compactionapp.ErrNoMessagesToSummarize):
+		return bridge.Failure(r.ID, r.TraceID, "COMPACTION_SOURCE_EMPTY", "没有可压缩的消息", false)
+	default:
+		return internalBridgeFailure(r, defaultCode, defaultMessage, true, err)
+	}
 }
 
 // deriveCompactionContext determines the provider, model, and context window
@@ -134,7 +151,7 @@ func deriveCompactionContext(e *Engine, ctx context.Context, sessionID string) (
 		providers, err := e.providers.List(ctx, provider.Filter{})
 		if err == nil {
 			for _, p := range providers {
-				if string(p.Protocol) == providerID {
+				if p.ID == providerID {
 					for _, m := range p.Models {
 						if m.ModelID == modelID && m.ContextWindow > 0 {
 							contextWindow = m.ContextWindow
@@ -154,10 +171,10 @@ func deriveCompactionContext(e *Engine, ctx context.Context, sessionID string) (
 			if err == nil && len(providers) > 0 {
 				p := providers[0]
 				if providerID == "" {
-					providerID = string(p.Protocol)
+					providerID = p.ID
 				}
 				for _, m := range p.Models {
-					if providerID == string(p.Protocol) && (modelID == "" || m.ModelID == modelID) {
+					if providerID == p.ID && (modelID == "" || m.ModelID == modelID) {
 						if m.ContextWindow > 0 {
 							if modelID == "" {
 								modelID = m.ModelID

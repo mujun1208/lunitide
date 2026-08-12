@@ -49,6 +49,7 @@ func (e RoutedEvent) Acknowledge(delivered bool) {
 type streamOwner struct {
 	generation uint64
 	sequence   uint64
+	terminal   bool
 	// admitted remains true until this stream's terminal has been handed to
 	// the consumer. Thus buffered terminals continue to consume stream capacity.
 	admitted       bool
@@ -151,12 +152,19 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(genCtx, cancel)
 	defer func() { stop(); cancel() }()
-	if !message.TopFrame || len(message.JSON) == 0 || len(message.JSON) > MaxMessageBytes {
+	if !message.TopFrame || len(message.JSON) == 0 {
 		return bridge.Response{}, false
 	}
 	origin, err := canonicalOrigin(message.SourceURL)
 	if err != nil || origin != g.trustedOrigin {
 		return bridge.Response{}, false
+	}
+	if len(message.JSON) > MaxMessageBytes {
+		var request bridge.Request
+		if json.Unmarshal(message.JSON, &request) != nil {
+			return bridge.Response{}, false
+		}
+		return failureFor(request, "BRIDGE_REQUEST_TOO_LARGE", "请求内容超过 Bridge 限制；附件请使用分块上传", false), true
 	}
 	var request bridge.Request
 	if err := decodeStrict(message.JSON, &request); err != nil {
@@ -193,7 +201,20 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 			return failureFor(request, "STREAM_NOT_OWNED", "流不属于当前会话", false), true
 		}
 	}
-	isStart := bridge.Method(request.Method) == bridge.MethodChatStart
+	if method := bridge.Method(request.Method); method == bridge.MethodTerminalInput || method == bridge.MethodTerminalResize || method == bridge.MethodTerminalClose {
+		var payload struct {
+			TerminalID string `json:"terminalId"`
+		}
+		_ = json.Unmarshal(request.Payload, &payload)
+		g.streamsMu.Lock()
+		owner, owned := g.streams[payload.TerminalID]
+		owned = owned && owner.terminal && owner.generation == generation
+		g.streamsMu.Unlock()
+		if !owned {
+			return failureFor(request, "TERMINAL_NOT_OWNED", "终端不属于当前页面", false), true
+		}
+	}
+	isStart := bridge.Method(request.Method) == bridge.MethodChatStart || bridge.Method(request.Method) == bridge.MethodTerminalStart
 	if isStart {
 		g.streamsMu.Lock()
 		if g.eventSourceClosed || g.consumerStopped {
@@ -227,15 +248,19 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 	if isStart {
 		raw, _ := json.Marshal(response.Payload)
 		var result struct {
-			StreamID string `json:"streamId"`
+			StreamID   string `json:"streamId"`
+			TerminalID string `json:"terminalId"`
 		}
 		_ = json.Unmarshal(raw, &result)
+		if result.StreamID == "" {
+			result.StreamID = result.TerminalID
+		}
 		g.streamsMu.Lock()
 		g.startsInFlight--
 		_, duplicate := g.streams[result.StreamID]
 		current := response.OK && result.StreamID != "" && !duplicate && !g.eventSourceClosed && generation == g.generation && genCtx.Err() == nil
 		if current {
-			g.streams[result.StreamID] = &streamOwner{generation: generation, admitted: true, active: make(chan struct{})}
+			g.streams[result.StreamID] = &streamOwner{generation: generation, admitted: true, active: make(chan struct{}), terminal: bridge.Method(request.Method) == bridge.MethodTerminalStart}
 		} else {
 			g.outstanding--
 			g.reservations--
@@ -275,7 +300,7 @@ func (g *Gateway) ActivateStream(generation uint64, streamID string) bool {
 }
 
 func terminalEvent(t bridge.EventType) bool {
-	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed
+	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed || t == bridge.EventTerminalExit
 }
 
 func (g *Gateway) forwardEvents(source <-chan bridge.Event) {
@@ -432,7 +457,11 @@ func (g *Gateway) CancelStreams(ctx context.Context) {
 func (g *Gateway) snapshotAndClearStreamsLocked() []string {
 	ids := make([]string, 0, len(g.streams))
 	for id, owner := range g.streams {
-		ids = append(ids, id)
+		if owner.terminal {
+			ids = append(ids, "terminal:"+id)
+		} else {
+			ids = append(ids, id)
+		}
 		if owner.admitted {
 			g.outstanding--
 			owner.admitted = false
@@ -465,7 +494,11 @@ func (g *Gateway) cancelIDs(ctx context.Context, ids []string) {
 			case <-all.Done():
 				return
 			}
-			request := bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: string(bridge.MethodStreamCancel), SentAt: time.Now().UTC(), Payload: json.RawMessage(`{"streamId":"` + id + `"}`), DeadlineMS: 1000}
+			method, field := bridge.MethodStreamCancel, "streamId"
+			if strings.HasPrefix(id, "terminal:") {
+				method, field, id = bridge.MethodTerminalClose, "terminalId", strings.TrimPrefix(id, "terminal:")
+			}
+			request := bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: string(method), SentAt: time.Now().UTC(), Payload: json.RawMessage(`{"` + field + `":"` + id + `"}`), DeadlineMS: 1000}
 			_, _ = g.caller.Call(all, request)
 		}()
 	}

@@ -15,13 +15,13 @@ import (
 // exposed to the Renderer; only summary-bearing fields needed for display
 // and provenance are included.
 type handoffCapsuleDTO struct {
-	CapsuleID      string     `json:"capsuleId"`
-	SourceSessionID string    `json:"sourceSessionId"`
-	CheckpointID   string     `json:"checkpointId"`
-	Status         string     `json:"status"`
-	Digest         string     `json:"digest"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
+	CapsuleID       string     `json:"capsuleId"`
+	SourceSessionID string     `json:"sourceSessionId"`
+	CheckpointID    string     `json:"checkpointId"`
+	Status          string     `json:"status"`
+	Digest          string     `json:"digest"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
 }
 
 func newHandoffCapsuleDTO(c handoff.Capsule) handoffCapsuleDTO {
@@ -42,10 +42,10 @@ func newHandoffCapsuleDTO(c handoff.Capsule) handoffCapsuleDTO {
 // continuation.
 func handleContextHandoffCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SourceSessionID  string   `json:"sourceSessionId"`
-		CheckpointID     string   `json:"checkpointId"`
-		RecentMessageIDs []string `json:"recentMessageIds"`
-		ActiveTasksJSON  string   `json:"activeTasksJson"`
+		SourceSessionID  string     `json:"sourceSessionId"`
+		CheckpointID     string     `json:"checkpointId"`
+		RecentMessageIDs []string   `json:"recentMessageIds"`
+		ActiveTasksJSON  string     `json:"activeTasksJson"`
 		ExpiresAt        *time.Time `json:"expiresAt"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SourceSessionID) || !validCanonicalULID(p.CheckpointID) {
@@ -63,13 +63,13 @@ func handleContextHandoffCreate(e *Engine, ctx context.Context, r bridge.Request
 	}
 	dto := newHandoffCapsuleDTO(capsule)
 	return bridge.Success(r.ID, map[string]any{
-		"capsuleId":      dto.CapsuleID,
+		"capsuleId":       dto.CapsuleID,
 		"sourceSessionId": dto.SourceSessionID,
-		"checkpointId":   dto.CheckpointID,
-		"status":         dto.Status,
-		"digest":         dto.Digest,
-		"createdAt":      dto.CreatedAt,
-		"expiresAt":      dto.ExpiresAt,
+		"checkpointId":    dto.CheckpointID,
+		"status":          dto.Status,
+		"digest":          dto.Digest,
+		"createdAt":       dto.CreatedAt,
+		"expiresAt":       dto.ExpiresAt,
 	})
 }
 
@@ -112,7 +112,7 @@ func handleContextHandoffInspect(e *Engine, ctx context.Context, r bridge.Reques
 // same capsule into the same session is idempotent.
 func handleContextHandoffImport(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		CapsuleID      string `json:"capsuleId"`
+		CapsuleID       string `json:"capsuleId"`
 		TargetSessionID string `json:"targetSessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CapsuleID) || !validCanonicalULID(p.TargetSessionID) {
@@ -209,6 +209,8 @@ func handoffFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CAPSULE_NOT_ACTIVE", "胶囊不在 active 状态", false)
 	case errors.Is(err, handoffapp.ErrCapsuleExpired):
 		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CAPSULE_EXPIRED", "胶囊已过期", false)
+	case errors.Is(err, handoffapp.ErrCrossProjectImport):
+		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CROSS_PROJECT_FORBIDDEN", "禁止跨项目导入胶囊", false)
 	case errors.Is(err, handoffapp.ErrCheckpointNotFound):
 		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CHECKPOINT_NOT_FOUND", "源检查点不存在", false)
 	case errors.Is(err, handoffapp.ErrCheckpointNotSucceeded):
@@ -217,7 +219,9 @@ func handoffFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_SOURCE_DELETED", "胶囊源已被删除", false)
 	case errors.Is(err, handoffapp.ErrDigestMismatch):
 		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_DIGEST_MISMATCH", "胶囊摘要校验失败", false)
+	case errors.Is(err, handoffapp.ErrDestinationSessionNotFound):
+		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_DESTINATION_SESSION_NOT_FOUND", "目标会话不存在", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_OPERATION_FAILED", err.Error(), true)
+		return internalBridgeFailure(r, "HANDOFF_OPERATION_FAILED", "交接操作暂时不可用", true, err)
 	}
 }

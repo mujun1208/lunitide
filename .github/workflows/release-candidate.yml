@@ -111,7 +111,10 @@ jobs:
           $line=Get-Content release/out/SHA256SUMS.txt | Where-Object {$_ -match "  $([regex]::Escape($installer))$"}
           if(@($line).Count -ne 1 -or $line -notmatch '^([0-9a-f]{64})  '){throw 'Trusted release manifest does not contain exactly one installer hash'}
           $unsignedArgs=if($env:GITHUB_REF_TYPE -eq 'tag'){@()}else{@('-AllowUnsignedDevelopment')}
-          ./release/Test-Install.ps1 -Installer "release/out/$installer" -ExpectedVersion $version -ExpectedInstallerHash $Matches[1] -TestRoot "$env:RUNNER_TEMP\lunitide-acceptance" -ExpectedSignerThumbprint $signer @unsignedArgs
+          $fixedDrive=Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 3 | Sort-Object DeviceID | Select-Object -Last 1
+          if(-not $fixedDrive){throw 'No local fixed drive is available for selected-directory acceptance'}
+          $selected=Join-Path ($fixedDrive.DeviceID+'\') 'Lunitide-Acceptance\Lunitide'
+          ./release/Test-Install.ps1 -Installer "release/out/$installer" -ExpectedVersion $version -ExpectedInstallerHash $Matches[1] -InstallDirectory $selected -TestRoot "$env:RUNNER_TEMP\lunitide-acceptance" -ExpectedSignerThumbprint $signer @unsignedArgs
         env:
           LUNITIDE_SIGNER_THUMBPRINT: ${{ secrets.LUNITIDE_SIGNER_THUMBPRINT }}
       - name: Reverify staged artifact before upload

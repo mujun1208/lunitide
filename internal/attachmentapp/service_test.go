@@ -2,7 +2,10 @@ package attachmentapp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,16 +14,71 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+func TestChunkUploadBoundariesOrderingDigestAndIdempotency(t *testing.T) {
+	s := NewService(newMockStore(), NewDirFileStorage(t.TempDir()))
+	s.uploadDir = t.TempDir()
+	seq := 0
+	s.idFactory = func() string {
+		seq++
+		if seq == 1 {
+			return "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+		}
+		return ulid.Make().String()
+	}
+	data := []byte("chunked attachment")
+	sum := sha256.Sum256(data)
+	req := BeginUploadRequest{ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", SessionID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", OriginalName: "safe.txt", MIME: "text/plain", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
+	id, _, err := s.BeginUpload(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.UploadChunk(context.Background(), id, 1, data); !errors.Is(err, ErrUploadOffset) {
+		t.Fatalf("out of order: %v", err)
+	}
+	if _, err = s.UploadChunk(context.Background(), id, 0, data); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+	if err != nil || again.ID != a.ID {
+		t.Fatalf("commit not idempotent: %v", err)
+	}
+	bad := req
+	bad.SHA256 = strings.Repeat("0", 64)
+	id, _, _ = s.BeginUpload(context.Background(), bad)
+	_, _ = s.UploadChunk(context.Background(), id, 0, data)
+	if _, err = s.CommitUpload(context.Background(), id, bad.ProjectID, bad.SessionID); !errors.Is(err, ErrUploadDigest) {
+		t.Fatalf("digest: %v", err)
+	}
+	tooLarge := req
+	tooLarge.Size = MaxFileSize + 1
+	if _, _, err = s.BeginUpload(context.Background(), tooLarge); !errors.Is(err, ErrInvalidContent) {
+		t.Fatalf("10MiB+1: %v", err)
+	}
+	unsafe := req
+	unsafe.OriginalName = "../evil.txt"
+	if _, _, err = s.BeginUpload(context.Background(), unsafe); !errors.Is(err, ErrInvalidContent) {
+		t.Fatalf("unsafe name: %v", err)
+	}
+}
+
 // --- Mocks ---
 
 type mockStore struct {
-	mu          sync.Mutex
-	attachments map[string]*attachment.Attachment
-	createErr   error
-	getErr      error
-	deleteErr   error
-	updateErr   error
-	listErr     error
+	mu             sync.Mutex
+	attachments    map[string]*attachment.Attachment
+	createErr      error
+	getErr         error
+	deleteErr      error
+	updateErr      error
+	listErr        error
+	pendingCleanup []string
+	completeErr    map[string]error
+	completed      []string
+	listCalls      int
 }
 
 func newMockStore() *mockStore {
@@ -58,6 +116,10 @@ func (m *mockStore) GetAttachment(_ context.Context, id string) (*attachment.Att
 		return &cp, nil
 	}
 	return nil, nil
+}
+
+func (m *mockStore) GetAttachmentForDeletion(ctx context.Context, id string) (*attachment.Attachment, error) {
+	return m.GetAttachment(ctx, id)
 }
 
 func (m *mockStore) ListAttachmentsByProject(_ context.Context, projectID string, limit int) ([]attachment.Attachment, error) {
@@ -128,11 +190,30 @@ func (m *mockStore) DeleteAttachment(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockStore) ListPendingAttachmentFileCleanup(_ context.Context, _ int) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listCalls++
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return append([]string(nil), m.pendingCleanup...), nil
+}
+func (m *mockStore) CompleteAttachmentFileCleanup(_ context.Context, ref string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.completeErr[ref]; err != nil {
+		return err
+	}
+	m.completed = append(m.completed, ref)
+	return nil
+}
+
 type mockFileStorage struct {
-	mu       sync.Mutex
-	files    map[string][]byte
-	writeErr error
-	readErr  error
+	mu        sync.Mutex
+	files     map[string][]byte
+	writeErr  error
+	readErr   error
 	deleteErr error
 }
 
@@ -501,13 +582,15 @@ func TestService_DeleteAttachment_Success(t *testing.T) {
 	if _, ok := fs.files[created.ID]; ok {
 		t.Error("file was not deleted from storage")
 	}
-	// Attachment should be soft-deleted.
-	got, _ := svc.GetAttachment(context.Background(), created.ID)
-	if got.DeletedAt == nil {
-		t.Error("attachment DeletedAt should be set")
+	// Public reads must hide the soft-deleted attachment.
+	got, err := svc.GetAttachment(context.Background(), created.ID)
+	if !errors.Is(err, ErrAttachmentNotFound) || got != nil {
+		t.Fatalf("GetAttachment after delete = %#v, %v; want nil, ErrAttachmentNotFound", got, err)
 	}
-	if got.IsReadable() {
-		t.Error("deleted attachment should not be readable")
+	// The store retains the tombstoned metadata.
+	stored, _ := store.GetAttachment(context.Background(), created.ID)
+	if stored.DeletedAt == nil || stored.IsReadable() {
+		t.Error("stored deleted attachment must be tombstoned and unreadable")
 	}
 }
 
@@ -543,6 +626,43 @@ func TestService_DeleteAttachment_Idempotent(t *testing.T) {
 	}
 }
 
+func TestService_DeleteAttachment_LostResponseRetry(t *testing.T) {
+	store := newMockStore()
+	store.completeErr = map[string]error{}
+	fs := newMockFileStorage()
+	svc := newTestService(store, fs)
+	created, _ := svc.IngestFile(context.Background(), IngestFileRequest{
+		ProjectID: mustULID(), OriginalName: "notes.txt", MIME: "text/plain", Content: []byte("Hello"),
+	})
+	store.completeErr[created.FileRef] = errors.New("response lost")
+	if err := svc.DeleteAttachment(context.Background(), created.ID); err == nil {
+		t.Fatal("first delete should report the lost completion response")
+	}
+	delete(store.completeErr, created.FileRef)
+	if err := svc.DeleteAttachment(context.Background(), created.ID); err != nil {
+		t.Fatalf("retry after soft-delete failed: %v", err)
+	}
+}
+
+func TestService_ReconcileFileCleanup_FirstFailureDoesNotStarveLaterSuccess(t *testing.T) {
+	store := newMockStore()
+	store.pendingCleanup = []string{"first", "later"}
+	store.completeErr = map[string]error{"first": errors.New("database busy")}
+	fs := newMockFileStorage()
+	fs.files["first"] = []byte("a")
+	fs.files["later"] = []byte("b")
+	err := NewService(store, fs).ReconcileFileCleanup(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "first") {
+		t.Fatalf("ReconcileFileCleanup error = %v; want aggregated first failure", err)
+	}
+	if len(store.completed) != 1 || store.completed[0] != "later" {
+		t.Fatalf("completed = %v; want later ref completed", store.completed)
+	}
+	if store.listCalls != 1 {
+		t.Fatalf("list calls = %d; want one bounded batch", store.listCalls)
+	}
+}
+
 // --- Parsed Text Truncation Test ---
 
 func TestService_IngestFile_TruncatesLargeParsedText(t *testing.T) {
@@ -571,4 +691,196 @@ func TestService_IngestFile_TruncatesLargeParsedText(t *testing.T) {
 	if att.ParsedTextBytes > MaxParsedTextBytes {
 		t.Errorf("parsed text bytes = %d, want <= %d", att.ParsedTextBytes, MaxParsedTextBytes)
 	}
+}
+
+func TestService_GetVisionImageByID(t *testing.T) {
+	store := newMockStore()
+	fs := newMockFileStorage()
+	svc := newTestService(store, fs)
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	digest := sha256.Sum256(data)
+	att := attachment.Attachment{ID: mustULID(), ProjectID: mustULID(), SessionID: mustULID(), FileRef: "image-ref", OriginalName: "image.png", MIME: "image/png", Size: int64(len(data)), SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed, CreatedAt: time.Now().UTC()}
+	store.attachments[att.ID] = &att
+	fs.files[att.FileRef] = data
+	got, err := svc.GetVisionImage(context.Background(), att.ID, att.SessionID)
+	if err != nil || got.AttachmentID != att.ID || string(got.Data) != string(data) {
+		t.Fatalf("GetVisionImage = %#v, %v", got, err)
+	}
+	if _, err := svc.GetVisionImage(context.Background(), att.ID, mustULID()); !errors.Is(err, ErrScopeMismatch) {
+		t.Fatalf("cross-session error = %v, want ErrScopeMismatch", err)
+	}
+	if _, err := svc.GetVisionImage(context.Background(), mustULID(), att.SessionID); !errors.Is(err, ErrAttachmentNotFound) {
+		t.Fatalf("missing error = %v, want ErrAttachmentNotFound", err)
+	}
+}
+
+func TestCommitUploadConcurrentCallersShareOneAttachment(t *testing.T) {
+	store := newBlockingCreateStore()
+	s := NewService(store, NewDirFileStorage(t.TempDir()))
+	s.uploadDir = t.TempDir()
+	data := []byte("one concurrent attachment")
+	id, req := prepareConcurrentUpload(t, s, data)
+
+	const callers = 12
+	type result struct {
+		a   attachment.Attachment
+		err error
+	}
+	results := make(chan result, callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			a, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+			results <- result{a: a, err: err}
+		}()
+	}
+	<-store.started
+	close(store.release)
+
+	var attachmentID string
+	for i := 0; i < callers; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Fatalf("commit %d: %v", i, r.err)
+		}
+		if attachmentID == "" {
+			attachmentID = r.a.ID
+		} else if r.a.ID != attachmentID {
+			t.Fatalf("commit IDs differ: got %q, want %q", r.a.ID, attachmentID)
+		}
+	}
+	if got := store.createCount(); got != 1 {
+		t.Fatalf("attachment persisted %d times, want 1", got)
+	}
+}
+
+func TestCommitUploadFailedAttemptCanBeRetried(t *testing.T) {
+	store := newBlockingCreateStore()
+	store.createErr = errors.New("temporary create failure")
+	s := NewService(store, NewDirFileStorage(t.TempDir()))
+	s.uploadDir = t.TempDir()
+	id, req := prepareConcurrentUpload(t, s, []byte("retry attachment"))
+
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+			results <- err
+		}()
+	}
+	<-store.started
+	deadline := time.Now().Add(time.Second)
+	for {
+		s.uploadMu.Lock()
+		waiters := s.uploads[id].committing.waiters
+		s.uploadMu.Unlock()
+		if waiters == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("second commit did not join in-flight attempt")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(store.release)
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil || !strings.Contains(err.Error(), "temporary create failure") {
+			t.Fatalf("concurrent failed commit %d: %v", i, err)
+		}
+	}
+	if got := store.createCount(); got != 1 {
+		t.Fatalf("failed attempt persisted %d times, want 1", got)
+	}
+	store.setCreateErr(nil)
+	a, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+	if err != nil || a.ID == "" {
+		t.Fatalf("retry: attachment=%+v err=%v", a, err)
+	}
+	if got := store.createCount(); got != 2 {
+		t.Fatalf("create attempts = %d, want 2", got)
+	}
+}
+
+func TestAbortUploadWaitsForCommitAndPreservesSuccessfulResult(t *testing.T) {
+	store := newBlockingCreateStore()
+	s := NewService(store, NewDirFileStorage(t.TempDir()))
+	s.uploadDir = t.TempDir()
+	id, req := prepareConcurrentUpload(t, s, []byte("commit wins abort race"))
+	commitResult := make(chan attachment.Attachment, 1)
+	commitErr := make(chan error, 1)
+	go func() {
+		a, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+		commitResult <- a
+		commitErr <- err
+	}()
+	<-store.started
+	abortDone := make(chan error, 1)
+	go func() { abortDone <- s.AbortUpload(context.Background(), id, req.ProjectID, req.SessionID) }()
+	select {
+	case err := <-abortDone:
+		t.Fatalf("abort returned while commit was in progress: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(store.release)
+	a := <-commitResult
+	if err := <-commitErr; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-abortDone; err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.CommitUpload(context.Background(), id, req.ProjectID, req.SessionID)
+	if err != nil || again.ID != a.ID {
+		t.Fatalf("commit result lost after abort race: got=%+v err=%v want ID=%q", again, err, a.ID)
+	}
+	if got := store.createCount(); got != 1 {
+		t.Fatalf("attachment persisted %d times, want 1", got)
+	}
+}
+
+func prepareConcurrentUpload(t *testing.T, s *Service, data []byte) (string, BeginUploadRequest) {
+	t.Helper()
+	sum := sha256.Sum256(data)
+	req := BeginUploadRequest{ProjectID: ulid.Make().String(), SessionID: ulid.Make().String(), OriginalName: "concurrent.txt", MIME: "text/plain", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
+	id, _, err := s.BeginUpload(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UploadChunk(context.Background(), id, 0, data); err != nil {
+		t.Fatal(err)
+	}
+	return id, req
+}
+
+type blockingCreateStore struct {
+	*mockStore
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+	countMu sync.Mutex
+	count   int
+}
+
+func newBlockingCreateStore() *blockingCreateStore {
+	return &blockingCreateStore{mockStore: newMockStore(), started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (m *blockingCreateStore) CreateAttachment(ctx context.Context, a attachment.Attachment) error {
+	m.countMu.Lock()
+	m.count++
+	m.countMu.Unlock()
+	m.once.Do(func() { close(m.started) })
+	<-m.release
+	return m.mockStore.CreateAttachment(ctx, a)
+}
+
+func (m *blockingCreateStore) createCount() int {
+	m.countMu.Lock()
+	defer m.countMu.Unlock()
+	return m.count
+}
+
+func (m *blockingCreateStore) setCreateErr(err error) {
+	m.mockStore.mu.Lock()
+	m.mockStore.createErr = err
+	m.mockStore.mu.Unlock()
 }

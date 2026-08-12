@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -17,20 +19,63 @@ type Anthropic struct {
 func NewAnthropic(c Connector, o Options) *Anthropic { return &Anthropic{c: c, o: defaults(o)} }
 
 type anthropicRequest struct {
-	Model     string    `json:"model"`
-	System    string    `json:"system,omitempty"`
-	Messages  []Message `json:"messages"`
-	MaxTokens int       `json:"max_tokens"`
-	Stream    bool      `json:"stream,omitempty"`
+	Model     string             `json:"model"`
+	System    string             `json:"system,omitempty"`
+	Messages  []anthropicMessage `json:"messages"`
+	MaxTokens int                `json:"max_tokens"`
+	Stream    bool               `json:"stream,omitempty"`
+	Tools     []anthropicTool    `json:"tools,omitempty"`
+}
+type anthropicTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+type anthropicMessage struct {
+	Role    Role `json:"role"`
+	Content any  `json:"content"`
+}
+type anthropicBlock struct {
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	Thinking  string                `json:"thinking,omitempty"`
+	Source    *anthropicImageSource `json:"source,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Input     json.RawMessage       `json:"input,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	Content   string                `json:"content,omitempty"`
+}
+type anthropicImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 type anthropicResponse struct {
+	Index        int `json:"index"`
+	ContentBlock struct {
+		Type      string          `json:"type"`
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Input     json.RawMessage `json:"input"`
+		Thinking  string          `json:"thinking"`
+		Signature string          `json:"signature"`
+	} `json:"content_block"`
 	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
+		Signature string          `json:"signature"`
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Input     json.RawMessage `json:"input"`
 	} `json:"content"`
 	Delta struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type        string `json:"type"`
+		Text        string `json:"text"`
+		Thinking    string `json:"thinking"`
+		Signature   string `json:"signature"`
+		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
 	Usage struct {
 		Input  int `json:"input_tokens"`
@@ -40,16 +85,47 @@ type anthropicResponse struct {
 
 func anthropicPayload(in Request, stream bool) anthropicRequest {
 	p := anthropicRequest{Model: in.Model, MaxTokens: in.MaxTokens, Stream: stream}
+	for _, t := range in.Tools {
+		p.Tools = append(p.Tools, anthropicTool{Name: t.Name, Description: t.Description, InputSchema: t.Schema})
+	}
 	if p.MaxTokens <= 0 {
 		p.MaxTokens = 1
 	}
 	var sys []string
+	lastUser := -1
 	for _, m := range in.Messages {
 		if m.Role == RoleSystem {
 			sys = append(sys, m.Content)
 		} else {
-			p.Messages = append(p.Messages, m)
+			role := m.Role
+			var content any = m.Content
+			if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+				blocks := []anthropicBlock{}
+				if m.Content != "" {
+					blocks = append(blocks, anthropicBlock{Type: "text", Text: m.Content})
+				}
+				for _, tc := range m.ToolCalls {
+					blocks = append(blocks, anthropicBlock{Type: "tool_use", ID: tc.ID, Name: tc.Name, Input: tc.Arguments})
+				}
+				content = blocks
+			}
+			if m.Role == RoleTool {
+				role = RoleUser
+				content = []anthropicBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content}}
+			}
+			p.Messages = append(p.Messages, anthropicMessage{Role: role, Content: content})
+			if m.Role == RoleUser {
+				lastUser = len(p.Messages) - 1
+			}
 		}
+	}
+	if lastUser >= 0 && len(in.Images) > 0 {
+		blocks := make([]anthropicBlock, 0, len(in.Images)+1)
+		for _, image := range in.Images {
+			blocks = append(blocks, anthropicBlock{Type: "image", Source: &anthropicImageSource{Type: "base64", MediaType: image.MIME, Data: base64.StdEncoding.EncodeToString(image.Data)}})
+		}
+		blocks = append(blocks, anthropicBlock{Type: "text", Text: p.Messages[lastUser].Content.(string)})
+		p.Messages[lastUser].Content = blocks
 	}
 	p.System = strings.Join(sys, "\n\n")
 	return p
@@ -113,19 +189,31 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 		if !validUsage(x.Usage.Input, x.Usage.Output, x.Usage.Input+x.Usage.Output) {
 			return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream returned invalid fields")
 		}
-		var text strings.Builder
+		var text, reasoning strings.Builder
+		var calls []ToolCall
 		for _, c := range x.Content {
 			if c.Type == "text" {
 				text.WriteString(c.Text)
 			}
+			if c.Type == "thinking" {
+				reasoning.WriteString(c.Thinking)
+			}
+			if c.Type == "tool_use" && c.ID != "" && c.Name != "" && json.Valid(c.Input) {
+				calls = append(calls, ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Input})
+			}
 		}
-		return Response{Message: Message{Role: RoleAssistant, Content: text.String()}, Usage: normalizeUsage(x.Usage.Input, x.Usage.Output, 0)}, nil
+		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: normalizeUsage(x.Usage.Input, x.Usage.Output, 0), Reasoning: reasoning.String()}, nil
 	}
 	return Response{}, safeError("RETRY_EXHAUSTED", StageConnect, 0, "upstream unavailable")
 }
 func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error) (Response, error) {
 	defer body.Close()
 	out := Response{Message: Message{Role: RoleAssistant}}
+	type partialCall struct {
+		id, name string
+		args     strings.Builder
+	}
+	partials := map[int]*partialCall{}
 	for {
 		ev, eof, e := a.c.ReadSSE(body)
 		if e != nil {
@@ -150,6 +238,50 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error) (Resp
 				}
 			}
 		}
+		if typ == "content_block_delta" && x.Delta.Type == "thinking_delta" && x.Delta.Thinking != "" {
+			out.Reasoning += x.Delta.Thinking
+			if emit != nil {
+				if e := emit(Delta{Reasoning: x.Delta.Thinking}); e != nil {
+					return out, e
+				}
+			}
+		}
+		if typ == "content_block_start" && x.ContentBlock.Type == "tool_use" {
+			if x.ContentBlock.ID == "" || x.ContentBlock.Name == "" {
+				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool_use omitted identity")
+			}
+			p := &partialCall{id: x.ContentBlock.ID, name: x.ContentBlock.Name}
+			if len(x.ContentBlock.Input) > 0 && string(x.ContentBlock.Input) != "{}" {
+				p.args.Write(x.ContentBlock.Input)
+			}
+			partials[x.Index] = p
+		}
+		if typ == "content_block_delta" && x.Delta.Type == "input_json_delta" {
+			p := partials[x.Index]
+			if p == nil {
+				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool fragment omitted start")
+			}
+			p.args.WriteString(x.Delta.PartialJSON)
+		}
+		if typ == "content_block_stop" {
+			if p := partials[x.Index]; p != nil {
+				raw := json.RawMessage(p.args.String())
+				if len(raw) == 0 {
+					raw = json.RawMessage(`{}`)
+				}
+				if !json.Valid(raw) {
+					return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool arguments are invalid JSON")
+				}
+				call := ToolCall{ID: p.id, Name: p.name, Arguments: raw}
+				out.Message.ToolCalls = append(out.Message.ToolCalls, call)
+				if emit != nil {
+					if e := emit(Delta{ToolCall: &call}); e != nil {
+						return out, e
+					}
+				}
+				delete(partials, x.Index)
+			}
+		}
 		if typ == "message_start" || typ == "message_delta" {
 			u := normalizeUsage(x.Usage.Input, x.Usage.Output, 0)
 			if x.Usage.Input > 0 {
@@ -165,6 +297,9 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error) (Resp
 				}
 			}
 		}
+	}
+	if len(partials) != 0 {
+		return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "unterminated tool_use block")
 	}
 	return out, nil
 }

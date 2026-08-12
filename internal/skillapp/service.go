@@ -3,25 +3,37 @@ package skillapp
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/skill"
+	"github.com/oklog/ulid/v2"
 )
 
 var (
-	ErrSkillNotFound       = errors.New("skill not found")
-	ErrSkillAlreadyExists  = errors.New("skill with same name and version already exists")
-	ErrInvalidStatus       = errors.New("invalid skill status")
-	ErrInvalidTransition   = errors.New("invalid skill status transition")
-	ErrPermissionDenied    = errors.New("permission denied by skill policy")
-	ErrSkillNotPublished   = errors.New("skill is not published")
-	ErrSkillDeprecated     = errors.New("skill is deprecated")
-	ErrSkillDisabled       = errors.New("skill is disabled")
-	ErrNoMatchingSkill     = errors.New("no matching skill found")
-	ErrInvalidPermission   = errors.New("invalid permission level")
+	ErrSkillNotFound      = errors.New("skill not found")
+	ErrSkillAlreadyExists = errors.New("skill with same name and version already exists")
+	ErrInvalidStatus      = errors.New("invalid skill status")
+	ErrInvalidTransition  = errors.New("invalid skill status transition")
+	ErrPermissionDenied   = errors.New("permission denied by skill policy")
+	ErrSkillNotPublished  = errors.New("skill is not published")
+	ErrSkillDeprecated    = errors.New("skill is deprecated")
+	ErrSkillDisabled      = errors.New("skill is disabled")
+	ErrNoMatchingSkill    = errors.New("no matching skill found")
+	ErrInvalidPermission  = errors.New("invalid permission level")
+	ErrInvocationNotFound = errors.New("skill invocation not found")
+	ErrInvocationConsumed = errors.New("skill invocation already consumed")
+	ErrInvocationExpired  = errors.New("skill invocation expired")
+	ErrInvocationChanged  = errors.New("skill changed after invocation")
+	ErrApprovalRequired   = errors.New("skill invocation approval required")
+	ErrExecutionForbidden = errors.New("skill execution forbidden by mode")
+	ErrUnknownEntryPoint  = errors.New("skill entry point is not allowlisted")
 )
 
 // SkillReader reads skills from storage.
@@ -48,14 +60,116 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 // Service coordinates skill lifecycle, invocation gating, and matching.
 type Service struct {
-	read  SkillReader
-	write SkillWriter
-	clock Clock
+	read        SkillReader
+	write       SkillWriter
+	clock       Clock
+	invMu       sync.Mutex
+	invocations map[string]*Invocation
 }
+
+type Invocation struct {
+	ID, SkillID, SkillVersion, SessionID, Input, InputDigest, ManifestDigest, Risk, Mode string
+	RequiresApproval, Consumed                                                           bool
+	ExpiresAt                                                                            time.Time
+}
+
+type Execution struct{ InvocationID, AuditID, Output string }
 
 // New creates a skill service with the given dependencies.
 func New(r SkillReader, w SkillWriter) *Service {
-	return &Service{read: r, write: w, clock: systemClock{}}
+	return &Service{read: r, write: w, clock: systemClock{}, invocations: make(map[string]*Invocation)}
+}
+
+func digest(value string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(value))) }
+func manifestDigest(sk skill.Skill) string {
+	b, _ := json.Marshal(sk.Permissions)
+	return digest(sk.Version + "\n" + sk.EntryPoint + "\n" + sk.ManifestJSON + "\n" + string(b))
+}
+
+// Invoke freezes an immutable, short-lived execution proposal. It never runs code.
+func (s *Service) Invoke(ctx context.Context, skillID, sessionID, input, mode string) (Invocation, error) {
+	sk, err := s.Get(ctx, skillID)
+	if err != nil {
+		return Invocation{}, err
+	}
+	if sk.Status != skill.SkillStatusPublished {
+		return Invocation{}, ErrSkillNotPublished
+	}
+	if sk.EntryPoint != "builtin:summarize-input" && sk.EntryPoint != "builtin:list-context" {
+		return Invocation{}, ErrUnknownEntryPoint
+	}
+	risk := sk.MaxRiskLevel()
+	if risk == "critical" {
+		risk = "high"
+	}
+	requires := mode == "approval" || risk != "low"
+	now := s.clock.Now()
+	inv := Invocation{ID: newULID(now), SkillID: sk.ID, SkillVersion: sk.Version, SessionID: sessionID, Input: input, InputDigest: digest(input), ManifestDigest: manifestDigest(*sk), Risk: risk, Mode: mode, RequiresApproval: requires, ExpiresAt: now.Add(5 * time.Minute)}
+	s.invMu.Lock()
+	s.invocations[inv.ID] = &inv
+	s.invMu.Unlock()
+	return inv, nil
+}
+
+// Execute atomically consumes one invocation after revalidating its frozen skill.
+func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, approved bool) (Execution, error) {
+	s.invMu.Lock()
+	inv := s.invocations[invocationID]
+	if inv == nil {
+		s.invMu.Unlock()
+		return Execution{}, ErrInvocationNotFound
+	}
+	if inv.Consumed {
+		s.invMu.Unlock()
+		return Execution{}, ErrInvocationConsumed
+	}
+	if inv.SessionID != sessionID {
+		s.invMu.Unlock()
+		return Execution{}, ErrInvocationNotFound
+	}
+	if !s.clock.Now().Before(inv.ExpiresAt) {
+		s.invMu.Unlock()
+		return Execution{}, ErrInvocationExpired
+	}
+	if inv.Mode == "plan" {
+		s.invMu.Unlock()
+		return Execution{}, ErrExecutionForbidden
+	}
+	if inv.RequiresApproval && !approved {
+		s.invMu.Unlock()
+		return Execution{}, ErrApprovalRequired
+	}
+	inv.Consumed = true // CAS winner; failures remain consumed fail-closed.
+	s.invMu.Unlock()
+	sk, err := s.Get(ctx, inv.SkillID)
+	if err != nil {
+		return Execution{}, err
+	}
+	if sk.Status != skill.SkillStatusPublished {
+		return Execution{}, ErrSkillNotPublished
+	}
+	if sk.Version != inv.SkillVersion || manifestDigest(*sk) != inv.ManifestDigest {
+		return Execution{}, ErrInvocationChanged
+	}
+	var output string
+	switch sk.EntryPoint {
+	case "builtin:summarize-input":
+		trimmed := strings.Join(strings.Fields(inv.Input), " ")
+		r := []rune(trimmed)
+		if len(r) > 240 {
+			trimmed = string(r[:240]) + "…"
+		}
+		output = "输入摘要（只读 builtin）：" + trimmed
+	case "builtin:list-context":
+		output = "上下文清单（只读 builtin）：session=" + sessionID + "；inputSha256=" + inv.InputDigest
+	default:
+		return Execution{}, ErrUnknownEntryPoint
+	}
+	return Execution{InvocationID: inv.ID, AuditID: newULID(s.clock.Now()), Output: output}, nil
+}
+
+func newULID(t time.Time) string {
+	return ulid.MustNew(ulid.Timestamp(t), ulid.Monotonic(rand.Reader, 0)).String()
 }
 
 // Get returns a skill by ID.
