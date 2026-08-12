@@ -28,27 +28,24 @@ it('renders empty state initially', async () => {
 it('renders skill items from bridge.list', async () => {
   const bridge = api({ list: vi.fn().mockResolvedValue({ items: [skill] }) })
   render(<SkillPage bridge={bridge} />)
-  expect(await screen.findByText('代码审查')).toBeInTheDocument()
+  expect((await screen.findAllByText('代码审查')).length).toBeGreaterThanOrEqual(1)
 })
 
-it('creates a skill via the create form', async () => {
-  const create = vi.fn().mockResolvedValue(skill), bridge = api({ create })
-  render(<SkillPage bridge={bridge} />)
+it('starts skill creation through chat instead of an inline form', async () => {
+  const onCreateInChat = vi.fn()
+  render(<SkillPage bridge={api()} onCreateInChat={onCreateInChat} />)
   await screen.findByText('暂无技能')
-  fireEvent.click(screen.getByText('新建技能'))
-  fireEvent.change(screen.getByLabelText('技能名称'), { target: { value: 'new-skill' } })
-  fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: '新技能' } })
-  fireEvent.change(screen.getByLabelText('入口'), { target: { value: 'skills/new/index.js' } })
-  fireEvent.click(screen.getByRole('button', { name: '创建技能' }))
-  await waitFor(() => expect(create).toHaveBeenCalledOnce())
-  expect(create.mock.calls[0][0]).toMatchObject({ name: 'new-skill', displayName: '新技能', entryPoint: 'skills/new/index.js' })
+  fireEvent.click(screen.getByRole('button', { name: '通过对话创建技能' }))
+  expect(onCreateInChat).toHaveBeenCalledOnce()
+  expect(screen.queryByLabelText('技能名称')).not.toBeInTheDocument()
 })
 
 it('deletes a skill from the list', async () => {
   const del = vi.fn().mockResolvedValue({ deleted: true })
   const bridge = api({ list: vi.fn().mockResolvedValue({ items: [skill] }), delete: del })
   render(<SkillPage bridge={bridge} />)
-  await screen.findByText('代码审查')
+  await screen.findAllByText('代码审查')
+  vi.spyOn(window,'confirm').mockReturnValue(true)
   fireEvent.click(screen.getByRole('button', { name: '删除' }))
   await waitFor(() => expect(del).toHaveBeenCalledOnce())
   expect(del.mock.calls[0][0]).toEqual({ id: skill.id, expectedVersion: 1 })

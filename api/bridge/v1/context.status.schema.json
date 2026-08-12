@@ -21,9 +21,13 @@
         "type": "integer",
         "minimum": 0
       },
-      "estimatedRequestTokens": {
-        "type": "integer",
-        "minimum": 0
+      "canonicalTokenizerId": {
+        "type": "string",
+        "const": "lunitide-canonical-v1"
+      },
+      "canonicalTokenizerRevision": {
+        "type": "string",
+        "const": "v1.0.0"
       },
       "modelContextWindow": {
         "type": "integer",
@@ -44,7 +48,8 @@
     },
     "required": [
       "canonicalLogicalTokens",
-      "estimatedRequestTokens",
+      "canonicalTokenizerId",
+      "canonicalTokenizerRevision",
       "modelContextWindow",
       "activeCheckpointVersion",
       "budgetUsage",

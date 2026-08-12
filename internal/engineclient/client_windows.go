@@ -5,6 +5,7 @@ package engineclient
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -290,29 +291,75 @@ func (c *Client) acceptEvent(event bridge.Event) error {
 }
 
 func terminalEventType(t bridge.EventType) bool {
-	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed
+	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed || t == bridge.EventTerminalExit
 }
 
 func validateEvent(e bridge.Event) error {
 	if e.Version != bridge.Version || e.Kind != "event" || !ulidValid(e.ID) || !ulidValid(e.StreamID) || e.Sequence < 1 {
 		return errors.New("event envelope mismatch")
 	}
+	if e.Type != bridge.EventThinking && e.Thinking != nil {
+		return errors.New("thinking payload on non-thinking event")
+	}
+	if e.Type != bridge.EventToolStarted && e.Type != bridge.EventToolCompleted && e.Type != bridge.EventApprovalRequired && e.Tool != nil {
+		return errors.New("tool payload on non-tool event")
+	}
 	const maxText = 16 * 1024
 	switch e.Type {
+	case bridge.EventTerminalOutput:
+		if e.Terminal == nil || e.Terminal.Data == "" || len(e.Terminal.Data) > maxText || e.Delta != nil || e.Usage != nil || e.Error != nil {
+			return errors.New("invalid terminal output event")
+		}
+	case bridge.EventTerminalExit:
+		if e.Terminal == nil || e.Terminal.Data != "" || e.Delta != nil || e.Usage != nil || e.Error != nil {
+			return errors.New("invalid terminal exit event")
+		}
 	case bridge.EventDelta:
-		if e.Delta == nil || e.Usage != nil || e.Error != nil || len(e.Delta.Text) == 0 || len(e.Delta.Text) > maxText {
+		if e.Delta == nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil || len(e.Delta.Text) == 0 || len(e.Delta.Text) > maxText {
 			return errors.New("invalid delta event")
 		}
+	case bridge.EventThinking:
+		if e.Thinking == nil || e.Delta != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil || len(e.Thinking.Text) == 0 || len(e.Thinking.Text) > maxText {
+			return errors.New("invalid thinking event")
+		}
 	case bridge.EventUsage:
-		if e.Delta != nil || e.Usage == nil || e.Error != nil || e.Usage.InputTokens < 0 || e.Usage.OutputTokens < 0 || e.Usage.TotalTokens < 0 || e.Usage.TotalTokens != e.Usage.InputTokens+e.Usage.OutputTokens {
+		if e.Delta != nil || e.Thinking != nil || e.Usage == nil || e.Error != nil || e.Usage.InputTokens < 0 || e.Usage.OutputTokens < 0 || e.Usage.TotalTokens < 0 || e.Usage.TotalTokens != e.Usage.InputTokens+e.Usage.OutputTokens {
 			return errors.New("invalid usage event")
 		}
+	case bridge.EventToolStarted, bridge.EventToolCompleted, bridge.EventApprovalRequired:
+		if e.Tool == nil || e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Terminal != nil {
+			return errors.New("invalid tool event payload")
+		}
+		tool := e.Tool
+		if len(tool.CallID) == 0 || len(tool.CallID) > 128 || len(tool.Name) == 0 || len(tool.Name) > 128 || len(tool.ArgsDigest) != 64 {
+			return errors.New("invalid tool event fields")
+		}
+		if _, err := hex.DecodeString(tool.ArgsDigest); err != nil {
+			return errors.New("invalid tool arguments digest")
+		}
+		if len(tool.Summary) > 4096 {
+			return errors.New("tool summary too large")
+		}
+		switch e.Type {
+		case bridge.EventToolStarted:
+			if tool.Summary != "" || tool.Artifact != nil {
+				return errors.New("invalid tool started event")
+			}
+		case bridge.EventApprovalRequired:
+			if tool.Summary == "" || tool.Artifact != nil {
+				return errors.New("invalid approval event")
+			}
+		case bridge.EventToolCompleted:
+			if tool.Artifact != nil && (tool.Artifact.Kind != "html" || len(tool.Artifact.Path) == 0 || len(tool.Artifact.Path) > 4096 || len(tool.Artifact.Content) > 180<<10) {
+				return errors.New("invalid tool artifact")
+			}
+		}
 	case bridge.EventCompleted, bridge.EventCancelled:
-		if e.Delta != nil || e.Usage != nil || e.Error != nil {
+		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Error != nil {
 			return errors.New("invalid terminal event")
 		}
 	case bridge.EventFailed:
-		if e.Delta != nil || e.Usage != nil || e.Error == nil || len(e.Error.Code) == 0 || len(e.Error.Code) > 128 || len(e.Error.Message) == 0 || len(e.Error.Message) > maxText {
+		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Error == nil || len(e.Error.Code) == 0 || len(e.Error.Code) > 128 || len(e.Error.Message) == 0 || len(e.Error.Message) > maxText {
 			return errors.New("invalid failed event")
 		}
 	default:

@@ -18,10 +18,13 @@ var (
 	ErrIdempotencyConflict    = errors.New("idempotency key reused with different request")
 	ErrProjectNotFound        = errors.New("project not found")
 	ErrSessionCapacityReached = errors.New("session capacity reached")
+	ErrSessionNotFound        = errors.New("session not found")
+	ErrSessionVersionConflict = errors.New("session version conflict")
 )
 
 type Tx interface {
 	CreateSession(context.Context, session.Session) (session.Session, error)
+	UpdateSession(context.Context, string, int64, string, bool, time.Time) (session.Session, error)
 	Idempotency(context.Context, string, string, time.Time) (providerapp.Record, bool, error)
 	PutIdempotency(context.Context, providerapp.Record) error
 	PutAudit(context.Context, providerapp.Audit) error
@@ -32,6 +35,7 @@ type UnitOfWork interface {
 type Reader interface {
 	ListSessions(context.Context, session.Filter) ([]session.Session, error)
 }
+
 // Deleter removes a session and all its dependent records.
 type Deleter interface {
 	DeleteSession(context.Context, string) error
@@ -49,7 +53,7 @@ type Service struct {
 }
 
 func New(r Reader, u UnitOfWork) *Service { return &Service{read: r, uow: u, clock: systemClock{}} }
-func (s *Service) SetDeleter(d Deleter) { s.deleter = d }
+func (s *Service) SetDeleter(d Deleter)   { s.deleter = d }
 func (s *Service) Delete(ctx context.Context, id string) error {
 	if s == nil || s.deleter == nil {
 		return errors.New("session deleter unavailable")
@@ -104,6 +108,52 @@ func (s *Service) Create(ctx context.Context, key, actor string, request any, va
 			return e
 		}
 		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "session.create", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+	})
+	return result, err
+}
+
+func (s *Service) Update(ctx context.Context, key, actor string, request any, id string, version int64, title string, pinned bool) (session.Session, error) {
+	if !providerapp.ValidIdempotencyKey(key) {
+		return session.Session{}, ErrIdempotencyKeyRequired
+	}
+	if s == nil || s.uow == nil {
+		return session.Session{}, errors.New("session unit of work unavailable")
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return session.Session{}, err
+	}
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	var result session.Session
+	err = s.uow.DoSession(ctx, func(tx Tx) error {
+		now := s.clock.Now().UTC()
+		record, found, e := tx.Idempotency(ctx, "session.update", key, now)
+		if e != nil {
+			return e
+		}
+		if found {
+			if record.Digest != digest {
+				return ErrIdempotencyConflict
+			}
+			return json.Unmarshal(record.Response, &result)
+		}
+		result, e = tx.UpdateSession(ctx, id, version, title, pinned, now)
+		if e != nil {
+			return e
+		}
+		response, e := json.Marshal(result)
+		if e != nil {
+			return e
+		}
+		meta, _ := json.Marshal(map[string]any{"version": result.Version, "pinned": result.Pinned})
+		eventSum := sha256.Sum256([]byte("session-update-audit\x00" + digest + "\x00" + result.ID))
+		var event ulid.ULID
+		copy(event[:], eventSum[:16])
+		if e = tx.PutAudit(ctx, providerapp.Audit{ID: event.String(), Action: "session.updated", AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); e != nil {
+			return e
+		}
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "session.update", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
 	})
 	return result, err
 }

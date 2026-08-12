@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory)][string]$Path,
-  [string[]]$RequiredExports = @()
+  [string[]]$RequiredExports = @(),
+  [switch]$RequireWindowsGUI
 )
 $ErrorActionPreference = 'Stop'
 $bytes = [IO.File]::ReadAllBytes((Resolve-Path $Path))
@@ -12,6 +13,7 @@ if ($pe -gt ($bytes.Length-256) -or (U32 $pe) -ne 0x4550) { throw "$Path has an 
 if ((U16 ($pe+4)) -ne 0x8664) { throw "$Path is not AMD64 (PE machine 0x8664)" }
 $sections = U16 ($pe+6); $optionalSize = U16 ($pe+20); $optional = $pe+24
 if ((U16 $optional) -ne 0x20b) { throw "$Path is not PE32+" }
+if ($RequireWindowsGUI -and (U16 ($optional+68)) -ne 2) { throw "$Path is not a Windows GUI subsystem executable" }
 $exportRva = U32 ($optional+112)
 $sectionTable = $optional+$optionalSize
 function RvaToOffset([uint32]$rva) {

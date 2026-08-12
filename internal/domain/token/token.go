@@ -37,6 +37,11 @@ const (
 	CanonicalTokenizerID       = "lunitide-canonical-v1"
 	CanonicalTokenizerVersion  = "v1.0.0"
 	CanonicalTokenizerRevision = "v1.0.0" // alias used in token_ledger.tokenizer_revision
+	// ProviderReportTokenizerID identifies counts supplied by a provider usage
+	// response. It is deliberately distinct from the canonical tokenizer: a
+	// provider report is an observation, not a canonical tokenization.
+	ProviderReportTokenizerID       = "provider-report"
+	ProviderReportTokenizerRevision = "v1"
 )
 
 // ArtifactSHA256 returns the SHA-256 of the canonical tokenizer artifact
@@ -64,6 +69,7 @@ type LedgerEntry struct {
 	MessageID         string           `json:"messageId"`
 	Provider          string           `json:"provider"`
 	Model             string           `json:"model"`
+	TokenizerID       string           `json:"tokenizerId"`
 	TokenizerRevision string           `json:"tokenizerRevision"`
 	TokenCount        int64            `json:"tokenCount"`
 	EstimationMethod  EstimationMethod `json:"estimationMethod"`
@@ -76,8 +82,15 @@ func (e LedgerEntry) Validate() error {
 	if !canonicalULID(e.ID) || !canonicalULID(e.MessageID) {
 		return errors.New("token ledger entry id or message_id is not a canonical ULID")
 	}
-	if len(e.Provider) > 128 || len(e.Model) > 128 || len(e.TokenizerRevision) > 64 {
+	if e.TokenizerID == "" || e.TokenizerRevision == "" || len(e.TokenizerID) > 128 || len(e.Provider) > 128 || len(e.Model) > 128 || len(e.TokenizerRevision) > 64 {
 		return errors.New("token ledger provider/model/revision exceed limits")
+	}
+	if e.EstimationMethod == ProviderReport {
+		if e.TokenizerID != ProviderReportTokenizerID || e.TokenizerRevision != ProviderReportTokenizerRevision || e.Provider == "" || e.Model == "" {
+			return errors.New("provider-reported token ledger identity/provider/model invalid")
+		}
+	} else if e.TokenizerID == CanonicalTokenizerID && (e.TokenizerRevision != CanonicalTokenizerRevision || e.Provider != "" || e.Model != "") {
+		return errors.New("canonical token ledger identity/revision/provider/model invalid")
 	}
 	if e.TokenCount < 0 || e.UTF8Bytes < 0 {
 		return errors.New("token ledger count/bytes must be non-negative")
@@ -130,12 +143,12 @@ func computeArtifactSHA256() string {
 	d := ArtifactDescriptor()
 	// Canonical JSON: sort keys, no indent.
 	m := map[string]string{
-		"id":                d.ID,
-		"version":           d.Version,
-		"normalization":     d.Normalization,
-		"lineEnding":        d.LineEnding,
-		"serialization":     d.Serialization,
-		"estimation":        d.Estimation,
+		"id":                 d.ID,
+		"version":            d.Version,
+		"normalization":      d.Normalization,
+		"lineEnding":         d.LineEnding,
+		"serialization":      d.Serialization,
+		"estimation":         d.Estimation,
 		"attachmentMetering": d.Attachment,
 	}
 	keys := make([]string, 0, len(m))

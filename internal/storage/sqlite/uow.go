@@ -147,6 +147,46 @@ func (t *txAdapter) CreateSession(ctx context.Context, v session.Session) (sessi
 	return v, mapWriteError(err)
 }
 
+func (t *txAdapter) UpdateSession(ctx context.Context, id string, version int64, title string, pinned bool, now time.Time) (session.Session, error) {
+	title, err := session.NormalizeTitle(title)
+	if err != nil {
+		return session.Session{}, err
+	}
+	result, err := t.q.ExecContext(ctx, `UPDATE sessions SET title=?,pinned=?,updated_at=?,revision=revision+1 WHERE id=? AND revision=?`, title, pinned, formatTime(now), id, version)
+	if err != nil {
+		return session.Session{}, mapWriteError(err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return session.Session{}, err
+	}
+	if n == 0 {
+		var exists int
+		if e := t.q.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id=?`, id).Scan(&exists); e != nil {
+			return session.Session{}, e
+		}
+		if exists == 0 {
+			return session.Session{}, sessionapp.ErrSessionNotFound
+		}
+		return session.Session{}, sessionapp.ErrSessionVersionConflict
+	}
+	var v session.Session
+	var created, updated string
+	err = t.q.QueryRowContext(ctx, `SELECT id,project_id,title,pinned,status,created_at,updated_at,revision FROM sessions WHERE id=?`, id).Scan(&v.ID, &v.ProjectID, &v.Title, &v.Pinned, &v.Status, &created, &updated, &v.Version)
+	if err != nil {
+		return v, err
+	}
+	v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return v, err
+	}
+	v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+	if err != nil {
+		return v, err
+	}
+	return v, v.Validate()
+}
+
 func (t *txAdapter) CreateStage(ctx context.Context, v stage.Stage) (stage.Stage, error) {
 	var exists int
 	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id=?`, v.ProjectID).Scan(&exists); err != nil {
@@ -309,8 +349,8 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 		tokenEstimate := token.EstimateTokens(v.Text)
 		if _, err = t.q.ExecContext(ctx,
 			`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at, subject_type, subject_id, tokenizer_id)
-			 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, 'lunitide-canonical-v1')`,
-			tokenID, v.ID, "", "", token.CanonicalTokenizerRevision, tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC()), v.ID); err != nil {
+			 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, ?)`,
+			tokenID, v.ID, "", "", token.CanonicalTokenizerRevision, tokenEstimate, string(token.CharRatio), int64(len(v.Text)), formatTime(time.Now().UTC()), v.ID, token.CanonicalTokenizerID); err != nil {
 			return v, mapWriteError(err)
 		}
 	}
@@ -505,9 +545,9 @@ func (t *txAdapter) PutTokenLedgerEntry(ctx context.Context, entry token.LedgerE
 	}
 	_, err := t.q.ExecContext(ctx,
 		`INSERT INTO token_ledger(id, message_id, provider, model, tokenizer_revision, token_count, estimation_method, utf8_bytes, computed_at, subject_type, subject_id, tokenizer_id)
-		 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, 'lunitide-canonical-v1')`,
+		 VALUES(?,?,?,?,?,?,?,?,?, 'message', ?, ?)`,
 		entry.ID, entry.MessageID, entry.Provider, entry.Model, entry.TokenizerRevision,
-		entry.TokenCount, string(entry.EstimationMethod), entry.UTF8Bytes, formatTime(entry.ComputedAt), entry.MessageID)
+		entry.TokenCount, string(entry.EstimationMethod), entry.UTF8Bytes, formatTime(entry.ComputedAt), entry.MessageID, entry.TokenizerID)
 	return mapWriteError(err)
 }
 func (t *txAdapter) PutOutbox(ctx context.Context, e providerapp.Event) error {

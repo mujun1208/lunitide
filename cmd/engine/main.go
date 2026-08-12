@@ -10,9 +10,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/app"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
+	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/ipc"
@@ -28,6 +30,8 @@ import (
 	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/stageapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+	"github.com/lunitide/lunitide/internal/terminalruntime"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 func main() {
@@ -82,19 +86,16 @@ func main() {
 	for _, status := range statuses {
 		log.Printf("Electron provider metadata migration: state=%s processed=%d imported=%d duplicates=%d conflicts=%d", status.State, status.Processed, status.Imported, status.Duplicates, status.Conflicts)
 	}
-	listener, err := ipc.ListenCurrentUser(*pipe)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer listener.Close()
-	go func() { <-ctx.Done(); listener.Close() }()
-	fmt.Println("lunitide-engine ready")
 	providerService := providerapp.New(store, store)
 	projectService := projectapp.New(store, store)
 	sessionService := sessionapp.New(store, store)
+	projectService.SetDeleter(store)
+	sessionService.SetDeleter(store)
 	messageService, err := messageapp.New(store, store, cursorKey)
 	secret.Zero(cursorKey)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 	stageService := stageapp.New(store, store)
 	governanceService := governanceapp.New(store, store)
 	planningService := planningapp.New(store, store, governanceService)
@@ -102,9 +103,39 @@ func main() {
 	ontologyService := ontologyapp.New(store, store, store, store)
 	skillService := skillapp.New(store, store)
 	engine := app.NewEngineWithP3P4(providerService, projectService, sessionService, messageService, stageService, planningService, governanceService, memoryService, ontologyService, skillService, store.ContextReader(), store, buildinfo.Version, leaseClient)
+	coordinator, err := agentorchestration.New(store.AgentOrchestrationRepository(), agentorchestration.Limits{MaxDepth: 8, MaxConcurrency: 64}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err = coordinator.ReconcileRestart(ctx); err != nil {
+		log.Fatalf("agent coordination restart recovery failed; engine not ready: %v", err)
+	}
+	engine.SetAgentCoordinator(coordinator)
 	engine.SetMigrationService(app.NewMigrationAdapter(store))
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
 	engine.SetupHandoffService(store)
+	toolRoot, err := dataRoot.PrepareSubdirectory("tool-workspaces")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer toolRoot.Close()
+	tools, err := toolruntime.Open(toolRoot.Path())
+	if err != nil {
+		log.Fatal(err)
+	}
+	engine.SetToolRuntime(tools)
+	defer tools.Close()
+	terminalRoot, err := toolRoot.PrepareSubdirectory("terminals")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer terminalRoot.Close()
+	terminals, err := terminalruntime.New(terminalruntime.Config{Workspace: terminalRoot.Path(), AuditPath: terminalRoot.Path() + string(os.PathSeparator) + "audit.jsonl", MaxSessions: 4})
+	if err != nil {
+		log.Fatal(err)
+	}
+	engine.SetTerminalRuntime(terminals)
+	defer terminals.Shutdown()
 	// Attachment service: prepare a DACL-protected subdirectory for file
 	// content, then wire the service into the engine (ADR-005 §7). File
 	// content lives outside SQLite; only metadata and parsed text are stored
@@ -115,18 +146,30 @@ func main() {
 	}
 	defer attachmentRoot.Close()
 	engine.SetupAttachmentService(store, attachmentapp.NewDirFileStorage(attachmentRoot.Path()))
+	if err := engine.ReconcileAttachmentFileCleanup(ctx); err != nil {
+		log.Fatalf("attachment file cleanup reconciliation failed; engine not ready: %v", err)
+	}
 	// Reconcile orphaned compaction checkpoints left in pending or running
 	// state by a previous process crash (ADR-005 §5: "restart recovery must be
-	// called once at engine startup before serving traffic"). Best-effort: log
-	// results but never abort startup on recovery failure.
+	// called once at engine startup before serving traffic"). Any error means
+	// state may still contain an unreconciled orphan, so startup fails closed.
 	recoveryResults, recoveryErr := engine.RecoverCompaction(ctx)
-	if recoveryErr != nil {
-		log.Printf("compaction restart recovery failed: %v", recoveryErr)
-	}
 	for _, r := range recoveryResults {
 		log.Printf("compaction recovery: checkpoint=%s session=%s version=%d action=%s status=%s err=%v",
 			r.CheckpointID, r.SessionID, r.Version, r.Action, r.Status, r.Err)
 	}
+	if err := compactionRecoveryError(recoveryResults, recoveryErr); err != nil {
+		log.Fatalf("compaction restart recovery failed; engine not ready: %v", err)
+	}
+	// The externally reachable pipe and readiness marker come only after all
+	// mandatory startup reconciliation has completed successfully.
+	listener, err := ipc.ListenCurrentUser(*pipe)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer listener.Close()
+	go func() { <-ctx.Done(); listener.Close() }()
+	fmt.Println("lunitide-engine ready")
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()
@@ -156,6 +199,18 @@ func main() {
 			}
 		}()
 	}
+}
+
+func compactionRecoveryError(results []compactionapp.RecoveryResult, recoveryErr error) error {
+	if recoveryErr != nil {
+		return recoveryErr
+	}
+	for _, result := range results {
+		if result.Err != nil {
+			return fmt.Errorf("checkpoint %s reconciliation incomplete: %w", result.CheckpointID, result.Err)
+		}
+	}
+	return nil
 }
 
 func shutdownAfterSession(err error, cancel context.CancelFunc) {

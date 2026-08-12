@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
-
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'project' | 'connection' | 'security' | 'data' | 'skills' | 'shortcuts' | 'diagnostics' | 'about'
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'project' | 'connection' | 'security' | 'data' | 'shortcuts' | 'diagnostics' | 'about'
 
 const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'general', icon: '◌', label: '常规' },
@@ -10,7 +9,6 @@ const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'connection', icon: '⇄', label: '连接与代理' },
   { id: 'security', icon: '⛨', label: '安全与治理' },
   { id: 'data', icon: '❖', label: '数据与记忆' },
-  { id: 'skills', icon: '✦', label: '技能' },
   { id: 'shortcuts', icon: '⌨', label: '快捷键' },
   { id: 'diagnostics', icon: '◉', label: '诊断与更新' },
   { id: 'about', icon: 'ⓘ', label: '关于' },
@@ -64,8 +62,8 @@ function saveSettings<T>(key: string, value: T): void {
   try { localStorage.setItem(`lunitide:${key}`, JSON.stringify(value)) } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateProviders }: { onNavigateProviders?: () => void }): React.JSX.Element {
-  const [category, setCategory] = useState<SettingsCategory>('general')
+export function SettingsPage({ onNavigateProviders, onBack, initialCategory = 'general' }: { onNavigateProviders?: () => void; onBack?: () => void; initialCategory?: SettingsCategory }): React.JSX.Element {
+  const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [general, setGeneral] = useState<GeneralSettings>(() => loadSettings('general', DEFAULT_GENERAL))
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadSettings('appearance', DEFAULT_APPEARANCE))
   const [saved, setSaved] = useState(false)
@@ -92,6 +90,7 @@ export function SettingsPage({ onNavigateProviders }: { onNavigateProviders?: ()
   return (
     <div className="settings-shell">
       <nav className="settings-nav" aria-label="设置导航">
+        <button className="settings-back" onClick={onBack}>← 返回主页</button>
         <div className="settings-search" role="search">
           <input type="search" placeholder="搜索设置…" aria-label="搜索设置" />
         </div>
@@ -121,7 +120,7 @@ export function SettingsPage({ onNavigateProviders }: { onNavigateProviders?: ()
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
           {category === 'about' && <AboutPanel />}
-          {(['project', 'connection', 'security', 'data', 'skills', 'shortcuts', 'diagnostics'].includes(category)) && <PlaceholderPanel category={category} />}
+          {(['project', 'connection', 'security', 'data', 'shortcuts', 'diagnostics'].includes(category)) && <PlaceholderPanel category={category} />}
         </div>
       </div>
     </div>
@@ -303,12 +302,12 @@ function ProvidersPanel({ onNavigate }: { onNavigate?: () => void }): React.JSX.
         <div>
           <div className="setting-label">供应商管理</div>
           <div className="setting-desc">
-            首期支持 OpenAI-compatible 与 Anthropic 两协议族。API Key 编辑时默认显示掩码，不回传明文到 Renderer。BaseURL 的协议或 origin 改变时，旧 credential 不自动复用。
+            首期支持 OpenAI-compatible 与 Anthropic 两协议族。API Key 默认由 Host 托管；仅在用户进入供应商编辑查看时短暂回填到受信页面，且不持久化。BaseURL 的协议或 origin 改变时，旧 credential 不自动复用。
           </div>
         </div>
       </div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <button className="primary" onClick={onNavigate} style={{ alignSelf: 'flex-start' }}>
+        <button className="primary" onClick={onNavigate} style={{ alignSelf: 'flex-start' }} aria-label="打开供应商管理">
           打开供应商管理 →
         </button>
       </div>
@@ -349,7 +348,6 @@ function PlaceholderPanel({ category }: { category: SettingsCategory }): React.J
     connection: '网络代理配置：HTTP/HTTPS 代理、SSL 证书策略、连接超时与重试、SSRF 防护白名单。待 M5 数据接口工作台阶段启用。',
     security: '安全与治理：审批边界配置、审计日志策略、高风险操作清单、凭据访问策略、信任根管理。待 M4 智能内核阶段启用。',
     data: '数据与记忆：记忆生命周期、备份恢复策略、隐私脱敏规则、数据删除与保留。待 M2 基础备份恢复与 M4 记忆中心完成后启用。',
-    skills: '技能管理：已安装技能列表、权限配置、签名验证、自定义技能注册。待 M4 技能中心完成后启用。',
     shortcuts: '键盘快捷键：全局与上下文快捷键自定义、冲突检测、预设方案。即将推出。',
     diagnostics: '诊断与更新：应用更新通道、运行健康检查、脱敏诊断包导出、日志级别配置。待 M6 CR 部署发行阶段启用。',
   }

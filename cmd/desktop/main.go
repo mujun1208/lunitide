@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/browserapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/credentialsubmission"
 	"github.com/lunitide/lunitide/internal/datadir"
@@ -23,7 +24,9 @@ import (
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/uitheme"
 	"github.com/lunitide/lunitide/internal/webviewhost"
+	"github.com/lunitide/lunitide/internal/workspaceapp"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -77,6 +80,7 @@ func run() error {
 	command := exec.Command(*enginePath, "--pipe", *pipe, "--host-pid", fmt.Sprint(os.Getpid()))
 	command.Stdin = bootstrapReader
 	command.Stdout, command.Stderr = os.Stdout, os.Stderr
+	configureEngineProcess(command)
 	if err := command.Start(); err != nil {
 		return err
 	}
@@ -100,6 +104,22 @@ func run() error {
 		return err
 	}
 	defer webViewDataRoot.Close()
+	browserWebViewDataRoot, err := dataRoot.PrepareSubdirectory("BrowserWebView2")
+	if err != nil {
+		return err
+	}
+	defer browserWebViewDataRoot.Close()
+	browserManager, err := browserapp.New(browserWebViewDataRoot.Path(), webViewDataRoot.Path(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := browserManager.Shutdown(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "isolated browser shutdown:", err)
+		}
+	}()
 	secretService, err := secret.NewDPAPIService(dataRoot)
 	if err != nil {
 		return err
@@ -160,12 +180,26 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	themeHandler := &uitheme.Handler{}
+	workspaceConfig, err := dataRoot.FilePath("workspace-root.json")
+	if err != nil {
+		return err
+	}
+	workspaceHandler := workspaceapp.New(workspaceConfig)
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
+		bridge.MethodBrowserOpen:              browserManager,
+		bridge.MethodBrowserClose:             browserManager,
+		bridge.MethodProviderCredentialReveal: credentialHandler,
 		bridge.MethodProviderCredentialSubmit: credentialHandler,
 		bridge.MethodProviderCreate:           credentialHandler,
 		bridge.MethodProviderUpdate:           credentialHandler,
 		bridge.MethodProviderDelete:           credentialHandler,
 		bridge.MethodDiagnosticsExport:        &diagnosticapp.HostHandler{},
+		bridge.MethodUiThemeSet:               themeHandler,
+		bridge.MethodWorkspaceRootSelect:      workspaceHandler,
+		bridge.MethodWorkspaceRootGet:         workspaceHandler,
+		bridge.MethodWorkspaceList:            workspaceHandler,
+		bridge.MethodWorkspaceRead:            workspaceHandler,
 	})
 	if err != nil {
 		return err
@@ -174,6 +208,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	themeHandler.Bind(host.SetTheme)
 	fmt.Printf("Lunitide %s: Engine health check passed; starting WebView2 host\n", buildinfo.Version)
 	hostCtx, stopHost := context.WithCancel(context.Background())
 	defer stopHost()

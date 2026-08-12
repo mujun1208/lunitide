@@ -22,7 +22,7 @@ foreach($item in $files){
     throw "Legacy Electron/Python/Node runtime contamination rejected: $rel"
   }
 }
-& (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'Lunitide.exe')
+& (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'Lunitide.exe') -RequireWindowsGUI
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'lunitide-engine.exe')
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'purge-user-data.exe')
 if($VerifyManifest){

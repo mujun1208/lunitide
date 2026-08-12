@@ -93,13 +93,13 @@ func (s *ContextSource) TokenCost() int64 {
 //
 // The envelope is assembled in strict priority order:
 //
-//	1. AuthoritativeInstructions (reserved, never dropped)
-//	2. WorkspaceState + TaskState (reserved, never dropped)
-//	3. AcceptedCheckpoint (injected as system preamble, participates in budget)
-//	4. PinnedFacts (injected as system preamble, participates in budget)
-//	5. RecentTurns (selected within remaining budget, turn-boundary protected)
-//	6. LatestUserTurn (protected by dedicated reserve)
-//	7. RelatedEvidence (injected only when within remaining budget)
+//  1. AuthoritativeInstructions (reserved, never dropped)
+//  2. WorkspaceState + TaskState (reserved, never dropped)
+//  3. AcceptedCheckpoint (injected as system preamble, participates in budget)
+//  4. PinnedFacts (injected as system preamble, participates in budget)
+//  5. RecentTurns (selected within remaining budget, turn-boundary protected)
+//  6. LatestUserTurn (protected by dedicated reserve)
+//  7. RelatedEvidence (injected only when within remaining budget)
 type ContextEnvelope struct {
 	// Provider describes the target model's context capabilities and budget.
 	Provider ProviderInfo
@@ -131,21 +131,22 @@ type ContextEnvelope struct {
 	// Priority 6: Latest user turn.
 	// Protected by a dedicated token reserve (RecentUserReserve).
 
-	// Priority 7: Retrieved older evidence.
-	// Injected only when within remaining budget.
+	// Priority 7: Retrieved older evidence. This is untrusted derived data and is
+	// JSON-quoted and appended to a user message only when its exact rendered
+	// form fits within the remaining budget; it never becomes a system message.
 	RelatedEvidence []ContextSource
 
 	// HandoffCapsules are provenance-linked summaries from other sessions.
-	// Treated as AuthorityCheckpoint level but tagged with handoff provenance.
-	// They are untrusted: never elevate authority, never fabricated as
-	// original messages.
+	// They are untrusted user-context data: assembly safely quotes and appends
+	// them to a user message, never a provider/system message, regardless of the
+	// Authority metadata supplied by a caller.
 	HandoffCapsules []ContextSource
 
 	// AttachmentExcerpts are parsed text from user-supplied files attached to
-	// the session. Treated as untrusted prior context at checkpoint authority
-	// (ADR-005 §7: attachment isolation). Each excerpt is injected as a system
-	// preamble and participates in the assembly budget. Only readable (non-deleted,
-	// succeeded) attachments are injected; the caller must filter fail-closed.
+	// the session. They are untrusted evidence and must never become system
+	// instructions. Assembly appends them as quoted data to the latest user turn.
+	// Only readable (non-deleted, succeeded) attachments are injected; the caller
+	// must filter fail-closed.
 	AttachmentExcerpts []ContextSource
 
 	// MaxMessages limits the number of messages fetched from the Reader.
@@ -164,13 +165,13 @@ type ContextEnvelope struct {
 // source during assembly. It is used for diagnostics without leaking
 // sensitive content (only metadata is recorded, not source content).
 type SelectionTraceEntry struct {
-	SourceType    SourceType
-	SourceID      string
-	Authority     SourceAuthority
-	TokenCost     int64
-	Selected      bool
-	RejectReason  string
-	Provenance    string
+	SourceType   SourceType
+	SourceID     string
+	Authority    SourceAuthority
+	TokenCost    int64
+	Selected     bool
+	RejectReason string
+	Provenance   string
 }
 
 // SelectionTrace is the diagnostic output of an assembly operation. It
@@ -183,7 +184,8 @@ type SelectionTrace struct {
 	// after all reserved components are subtracted.
 	EffectiveBudget int64
 
-	// UsedTokens is the total tokens consumed by selected sources.
+	// UsedTokens is exactly the sum of canonical estimates for final Messages.
+	// Non-message provider reservations are reported only in ReservedTokens.
 	UsedTokens int64
 
 	// RemainingTokens is the budget left after assembly.

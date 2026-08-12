@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/compactionapp"
@@ -30,6 +31,8 @@ import (
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/terminalruntime"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -47,6 +50,7 @@ type ProjectService interface {
 }
 type SessionService interface {
 	Create(context.Context, string, string, any, session.Session) (session.Session, error)
+	Update(context.Context, string, string, any, string, int64, string, bool) (session.Session, error)
 	List(context.Context, session.Filter) ([]session.Session, error)
 	Delete(context.Context, string) error
 }
@@ -80,32 +84,41 @@ type electronCredentialMigrationService interface {
 }
 
 type Engine struct {
-	providers      ProviderService
-	projects       ProjectService
-	sessions       SessionService
-	messages       MessageService
-	stages         StageService
-	planning       PlanningService
-	governance     GovernanceService
-	memories       MemoryService
-	ontology       OntologyService
-	skills         SkillService
-	migration      MigrationService
-	messageReader  contextapp.Reader
-	tokenRepo      token.Repository
-	compactionTrigger    *compactionapp.Trigger
-	compactionExecutor   *compactionapp.Executor
-	summaryReader        CompactionSummaryReader
-	handoffService       *handoffapp.Service
-	attachmentService    *attachmentapp.Service
-	version        string
-	leases         LeaseClient
-	network        networkpolicy.Options
-	gateway        gateway.Options
-	adapterFactory func(context.Context, provider.Provider) (gateway.Adapter, error)
-	streamsMu      sync.Mutex
-	streams        map[string]*streamState
-	maxStreams     int
+	providers          ProviderService
+	projects           ProjectService
+	sessions           SessionService
+	messages           MessageService
+	stages             StageService
+	planning           PlanningService
+	governance         GovernanceService
+	memories           MemoryService
+	ontology           OntologyService
+	skills             SkillService
+	migration          MigrationService
+	messageReader      contextapp.Reader
+	tokenRepo          token.Repository
+	compactionTrigger  *compactionapp.Trigger
+	compactionExecutor *compactionapp.Executor
+	summaryReader      CompactionSummaryReader
+	handoffService     *handoffapp.Service
+	attachmentService  *attachmentapp.Service
+	version            string
+	leases             LeaseClient
+	network            networkpolicy.Options
+	gateway            gateway.Options
+	adapterFactory     func(context.Context, provider.Provider) (gateway.Adapter, error)
+	streamsMu          sync.Mutex
+	streams            map[string]*streamState
+	maxStreams         int
+	tools              *toolruntime.Runtime
+	terminals          *terminalruntime.Runtime
+	terminalsMu        sync.Mutex
+	terminalOwners     map[string]*terminalOwner
+	coordinator        *agentorchestration.Coordinator
+}
+type terminalOwner struct {
+	emit     EventEmitter
+	sequence uint64
 }
 
 type streamState struct {
@@ -118,6 +131,9 @@ type streamLifecycle uint8
 const (
 	streamRunning streamLifecycle = iota
 	streamCancelling
+	// streamFinalizing means successful upstream completion claimed the right
+	// to perform any durable assistant write and choose the terminal event.
+	streamFinalizing
 	streamTerminal
 )
 
@@ -130,83 +146,101 @@ type runtimeHandler func(*Engine, context.Context, bridge.Request) bridge.Respon
 // RuntimeHandlers is both the runtime allow-list and the dispatch table.
 // Contract tests compare its non-nil handlers with the public schema.
 var RuntimeHandlers = map[bridge.Method]runtimeHandler{
-	bridge.MethodAttachmentDelete:   handleAttachmentDelete,
-	bridge.MethodAttachmentGet:      handleAttachmentGet,
-	bridge.MethodAttachmentIngest:   handleAttachmentIngest,
-	bridge.MethodAttachmentList:     handleAttachmentList,
-	bridge.MethodChatStart:         handleChatStart,
-	bridge.MethodContextStatus:           handleContextStatus,
-	bridge.MethodContextCompactPreview:   handleContextCompactPreview,
-	bridge.MethodContextCompactCommit:    handleContextCompactCommit,
-	bridge.MethodContextCompactCancel:    handleContextCompactCancel,
-	bridge.MethodContextHandoffCreate:        handleContextHandoffCreate,
-	bridge.MethodContextHandoffImport:        handleContextHandoffImport,
-	bridge.MethodContextHandoffInspect:       handleContextHandoffInspect,
-	bridge.MethodContextHandoffList:          handleContextHandoffList,
-	bridge.MethodContextHandoffListImports:   handleContextHandoffListImports,
-	bridge.MethodContextHandoffRevoke:        handleContextHandoffRevoke,
-	bridge.MethodStreamCancel:      handleStreamCancel,
-	bridge.MethodSystemHealth:      handleSystemHealth,
-	bridge.MethodProviderCreate:    handleProviderCreate,
-	bridge.MethodProviderDelete:    handleProviderDelete,
-	bridge.MethodProviderGet:       handleProviderGet,
-	bridge.MethodProviderList:      handleProviderList,
-	bridge.MethodProviderModelSync: handleProviderModelSync,
-	bridge.MethodProviderTest:      handleProviderTest,
-	bridge.MethodProviderUpdate:    handleProviderUpdate,
-	bridge.MethodProjectCreate:     handleProjectCreate,
-	bridge.MethodProjectDelete:     handleProjectDelete,
-	bridge.MethodProjectList:       handleProjectList,
-	bridge.MethodSessionCreate:     handleSessionCreate,
-	bridge.MethodSessionDelete:     handleSessionDelete,
-	bridge.MethodSessionList:       handleSessionList,
-	bridge.MethodMessageAppend:     handleMessageAppend,
-	bridge.MethodMessageList:       handleMessageList,
-	bridge.MethodStageCreate:       handleStageCreate,
-	bridge.MethodStageList:         handleStageList,
-	bridge.MethodPlanGet:           handlePlanGet,
-	bridge.MethodPlanList:          handlePlanList,
-	bridge.MethodPlanCreate:        handlePlanCreate,
-	bridge.MethodPlanActivate:      handlePlanActivate,
-	bridge.MethodPlanComplete:      handlePlanComplete,
-	bridge.MethodPlanPause:         handlePlanPause,
-	bridge.MethodPlanResume:        handlePlanResume,
-	bridge.MethodNodeList:          handleNodeList,
-	bridge.MethodNodeCreate:        handleNodeCreate,
-	bridge.MethodNodeStart:         handleNodeStart,
-	bridge.MethodNodeComplete:      handleNodeComplete,
-	bridge.MethodNodeFail:          handleNodeFail,
-	bridge.MethodReviewList:        handleReviewList,
-	bridge.MethodReviewApprove:     handleReviewApprove,
-	bridge.MethodReviewReject:      handleReviewReject,
-	bridge.MethodMemoryGet:         handleMemoryGet,
-	bridge.MethodMemoryList:        handleMemoryList,
-	bridge.MethodMemorySearch:      handleMemorySearch,
-	bridge.MethodMemoryCreate:      handleMemoryCreate,
-	bridge.MethodMemoryUpdate:      handleMemoryUpdate,
-	bridge.MethodMemoryDelete:      handleMemoryDelete,
-	bridge.MethodOntologyNodeGet:    handleOntologyNodeGet,
-	bridge.MethodOntologyNodeList:   handleOntologyNodeList,
-	bridge.MethodOntologyNodeSearch: handleOntologyNodeSearch,
-	bridge.MethodOntologyNodeCreate: handleOntologyNodeCreate,
-	bridge.MethodOntologyNodeUpdate: handleOntologyNodeUpdate,
-	bridge.MethodOntologyNodeDelete: handleOntologyNodeDelete,
-	bridge.MethodOntologyEdgeList:   handleOntologyEdgeList,
-	bridge.MethodOntologyEdgeCreate: handleOntologyEdgeCreate,
-	bridge.MethodOntologyEdgeUpdate: handleOntologyEdgeUpdate,
-	bridge.MethodOntologyEdgeDelete: handleOntologyEdgeDelete,
-	bridge.MethodSkillGet:          handleSkillGet,
-	bridge.MethodSkillList:         handleSkillList,
-	bridge.MethodSkillMatch:        handleSkillMatch,
-	bridge.MethodSkillCreate:       handleSkillCreate,
-	bridge.MethodSkillUpdate:       handleSkillUpdate,
-	bridge.MethodSkillDelete:       handleSkillDelete,
-	bridge.MethodSkillPublish:      handleSkillPublish,
-	bridge.MethodSkillDeprecate:    handleSkillDeprecate,
-	bridge.MethodSkillDisable:      handleSkillDisable,
-	bridge.MethodMigrationInspect:  handleMigrationInspect,
-	bridge.MethodMigrationRun:      handleMigrationRun,
-	bridge.MethodMigrationStatus:   handleMigrationStatus,
+	bridge.MethodAttachmentDelete:          handleAttachmentDelete,
+	bridge.MethodAttachmentGet:             handleAttachmentGet,
+	bridge.MethodAttachmentIngest:          handleAttachmentIngest,
+	bridge.MethodAttachmentList:            handleAttachmentList,
+	bridge.MethodAttachmentUploadAbort:     handleAttachmentUploadAbort,
+	bridge.MethodAttachmentUploadBegin:     handleAttachmentUploadBegin,
+	bridge.MethodAttachmentUploadChunk:     handleAttachmentUploadChunk,
+	bridge.MethodAttachmentUploadCommit:    handleAttachmentUploadCommit,
+	bridge.MethodChatStart:                 handleChatStart,
+	bridge.MethodChatToolApprove:           handleChatToolApprove,
+	bridge.MethodContextStatus:             handleContextStatus,
+	bridge.MethodContextCompactPreview:     handleContextCompactPreview,
+	bridge.MethodContextCompactCommit:      handleContextCompactCommit,
+	bridge.MethodContextCompactCancel:      handleContextCompactCancel,
+	bridge.MethodContextHandoffCreate:      handleContextHandoffCreate,
+	bridge.MethodContextHandoffImport:      handleContextHandoffImport,
+	bridge.MethodContextHandoffInspect:     handleContextHandoffInspect,
+	bridge.MethodContextHandoffList:        handleContextHandoffList,
+	bridge.MethodContextHandoffListImports: handleContextHandoffListImports,
+	bridge.MethodContextHandoffRevoke:      handleContextHandoffRevoke,
+	bridge.MethodStreamCancel:              handleStreamCancel,
+	bridge.MethodSystemHealth:              handleSystemHealth,
+	bridge.MethodProviderCreate:            handleProviderCreate,
+	bridge.MethodProviderDelete:            handleProviderDelete,
+	bridge.MethodProviderGet:               handleProviderGet,
+	bridge.MethodProviderList:              handleProviderList,
+	bridge.MethodProviderModelSync:         handleProviderModelSync,
+	bridge.MethodProviderTest:              handleProviderTest,
+	bridge.MethodProviderUpdate:            handleProviderUpdate,
+	bridge.MethodProjectCreate:             handleProjectCreate,
+	bridge.MethodProjectDelete:             handleProjectDelete,
+	bridge.MethodProjectList:               handleProjectList,
+	bridge.MethodSessionCreate:             handleSessionCreate,
+	bridge.MethodSessionDelete:             handleSessionDelete,
+	bridge.MethodSessionList:               handleSessionList,
+	bridge.MethodSessionUpdate:             handleSessionUpdate,
+	bridge.MethodMessageAppend:             handleMessageAppend,
+	bridge.MethodMessageList:               handleMessageList,
+	bridge.MethodStageCreate:               handleStageCreate,
+	bridge.MethodStageList:                 handleStageList,
+	bridge.MethodPlanGet:                   handlePlanGet,
+	bridge.MethodPlanList:                  handlePlanList,
+	bridge.MethodPlanCreate:                handlePlanCreate,
+	bridge.MethodPlanActivate:              handlePlanActivate,
+	bridge.MethodPlanComplete:              handlePlanComplete,
+	bridge.MethodPlanPause:                 handlePlanPause,
+	bridge.MethodPlanResume:                handlePlanResume,
+	bridge.MethodPlanTodoCreate:            handlePlanTodoCreate,
+	bridge.MethodPlanRunStart:              handlePlanRunStart,
+	bridge.MethodPlanRunTree:               handlePlanRunTree,
+	bridge.MethodPlanRunSpawn:              handlePlanRunSpawn,
+	bridge.MethodPlanRunJoin:               handlePlanRunJoin,
+	bridge.MethodPlanRunCancel:             handlePlanRunCancel,
+	bridge.MethodNodeList:                  handleNodeList,
+	bridge.MethodNodeCreate:                handleNodeCreate,
+	bridge.MethodNodeStart:                 handleNodeStart,
+	bridge.MethodNodeComplete:              handleNodeComplete,
+	bridge.MethodNodeFail:                  handleNodeFail,
+	bridge.MethodReviewList:                handleReviewList,
+	bridge.MethodReviewApprove:             handleReviewApprove,
+	bridge.MethodReviewReject:              handleReviewReject,
+	bridge.MethodMemoryGet:                 handleMemoryGet,
+	bridge.MethodMemoryList:                handleMemoryList,
+	bridge.MethodMemorySearch:              handleMemorySearch,
+	bridge.MethodMemoryCreate:              handleMemoryCreate,
+	bridge.MethodMemoryUpdate:              handleMemoryUpdate,
+	bridge.MethodMemoryDelete:              handleMemoryDelete,
+	bridge.MethodOntologyNodeGet:           handleOntologyNodeGet,
+	bridge.MethodOntologyNodeList:          handleOntologyNodeList,
+	bridge.MethodOntologyNodeSearch:        handleOntologyNodeSearch,
+	bridge.MethodOntologyNodeCreate:        handleOntologyNodeCreate,
+	bridge.MethodOntologyNodeUpdate:        handleOntologyNodeUpdate,
+	bridge.MethodOntologyNodeDelete:        handleOntologyNodeDelete,
+	bridge.MethodOntologyEdgeList:          handleOntologyEdgeList,
+	bridge.MethodOntologyEdgeCreate:        handleOntologyEdgeCreate,
+	bridge.MethodOntologyEdgeUpdate:        handleOntologyEdgeUpdate,
+	bridge.MethodOntologyEdgeDelete:        handleOntologyEdgeDelete,
+	bridge.MethodSkillGet:                  handleSkillGet,
+	bridge.MethodSkillInvoke:               handleSkillInvoke,
+	bridge.MethodSkillExecute:              handleSkillExecute,
+	bridge.MethodSkillList:                 handleSkillList,
+	bridge.MethodSkillMatch:                handleSkillMatch,
+	bridge.MethodSkillCreate:               handleSkillCreate,
+	bridge.MethodSkillUpdate:               handleSkillUpdate,
+	bridge.MethodSkillDelete:               handleSkillDelete,
+	bridge.MethodSkillPublish:              handleSkillPublish,
+	bridge.MethodSkillDeprecate:            handleSkillDeprecate,
+	bridge.MethodSkillDisable:              handleSkillDisable,
+	bridge.MethodMigrationInspect:          handleMigrationInspect,
+	bridge.MethodMigrationRun:              handleMigrationRun,
+	bridge.MethodMigrationStatus:           handleMigrationStatus,
+	bridge.MethodTerminalStart:             handleTerminalStart,
+	bridge.MethodTerminalInput:             handleTerminalInput,
+	bridge.MethodTerminalResize:            handleTerminalResize,
+	bridge.MethodTerminalClose:             handleTerminalClose,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -291,6 +325,18 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 // SetMigrationService wires the migration service into the engine.
 func (e *Engine) SetMigrationService(m MigrationService) { e.migration = m }
 
+func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) { e.tools = r }
+
+func (e *Engine) SetTerminalRuntime(r *terminalruntime.Runtime) {
+	e.terminalsMu.Lock()
+	e.terminals = r
+	e.terminalOwners = make(map[string]*terminalOwner)
+	e.terminalsMu.Unlock()
+	if r != nil {
+		go e.forwardTerminalEvents(r.Events())
+	}
+}
+
 // SetCompactionServices wires the compaction trigger, executor, and summary reader
 // into the engine. When set, chat.start will check token usage and automatically
 // trigger compaction when the high watermark is exceeded. The assembler will also
@@ -352,12 +398,13 @@ func (e *Engine) RecoverCompaction(ctx context.Context) ([]compactionapp.Recover
 
 // ContextStatusResult describes the current context state for a session.
 type ContextStatusResult struct {
-	CanonicalLogicalTokens int64   `json:"canonicalLogicalTokens"`
-	EstimatedRequestTokens int64   `json:"estimatedRequestTokens"`
-	ModelContextWindow     int64   `json:"modelContextWindow"`
-	ActiveCheckpointVersion int64  `json:"activeCheckpointVersion"`
-	BudgetUsage            float64 `json:"budgetUsage"`
-	IsCompacting           bool    `json:"isCompacting"`
+	CanonicalLogicalTokens     int64   `json:"canonicalLogicalTokens"`
+	CanonicalTokenizerID       string  `json:"canonicalTokenizerId"`
+	CanonicalTokenizerRevision string  `json:"canonicalTokenizerRevision"`
+	ModelContextWindow         int64   `json:"modelContextWindow"`
+	ActiveCheckpointVersion    int64   `json:"activeCheckpointVersion"`
+	BudgetUsage                float64 `json:"budgetUsage"`
+	IsCompacting               bool    `json:"isCompacting"`
 }
 
 // ContextStatus returns the current context state for a session, including
@@ -387,16 +434,21 @@ func (e *Engine) ContextStatus(ctx context.Context, sessionID string) (ContextSt
 		result.IsCompacting = true
 	}
 
-	// Token usage and context window from the latest checkpoint's provider/model.
-	if latest != nil {
-		if e.tokenRepo != nil {
-			usage, err := e.tokenRepo.SumTokenLedgerBySession(ctx, sessionID, latest.Provider, latest.Model, "")
-			if err == nil {
-				result.CanonicalLogicalTokens = usage
-				result.EstimatedRequestTokens = usage
-			}
-		}
+	result.CanonicalTokenizerID = token.CanonicalTokenizerID
+	result.CanonicalTokenizerRevision = token.CanonicalTokenizerRevision
 
+	// Canonical logical usage is independent of the latest provider/model and is
+	// available even before the first compaction checkpoint exists.
+	if e.tokenRepo != nil {
+		usage, err := e.tokenRepo.SumTokenLedgerBySession(ctx, sessionID, "", "", token.CanonicalTokenizerRevision)
+		if err != nil {
+			return result, err
+		}
+		result.CanonicalLogicalTokens = usage
+	}
+
+	// Context window comes from the latest checkpoint's provider/model.
+	if latest != nil {
 		// Look up context window from provider model config.
 		if e.providers != nil {
 			providers, err := e.providers.List(ctx, provider.Filter{})
@@ -420,7 +472,7 @@ func (e *Engine) ContextStatus(ctx context.Context, sessionID string) (ContextSt
 	if result.ModelContextWindow > 0 {
 		budget := float64(result.ModelContextWindow) * 0.80
 		if budget > 0 {
-			result.BudgetUsage = float64(result.EstimatedRequestTokens) / budget
+			result.BudgetUsage = float64(result.CanonicalLogicalTokens) / budget
 			if result.BudgetUsage > 1 {
 				result.BudgetUsage = 1
 			}
@@ -474,6 +526,9 @@ func (e *Engine) CompactRetry(ctx context.Context, checkpointID string) (*compac
 // compaction. When Compacted is true, the current turn should re-assemble
 // context using the new summary.
 type PreTurnCompactionResult struct {
+	// Err is set when compaction evaluation or activation failed. A normal
+	// below-watermark result leaves Err nil and Compacted false.
+	Err error
 	// Compacted indicates whether compaction was triggered and completed.
 	Compacted bool
 	// CheckpointID is the ID of the new checkpoint, if compacted.
@@ -513,6 +568,7 @@ func (e *Engine) TriggerPreTurnCompaction(ctx context.Context, sessionID, provid
 	triggerResult, err := e.compactionTrigger.CheckAndTrigger(ctx, sessionID, provider, model, tokenizerRevision, contextWindow)
 	if err != nil || !triggerResult.Triggered {
 		if err != nil {
+			result.Err = err
 			result.Reason = fmt.Sprintf("trigger error: %v", err)
 		} else {
 			result.Reason = triggerResult.Reason
@@ -524,17 +580,20 @@ func (e *Engine) TriggerPreTurnCompaction(ctx context.Context, sessionID, provid
 	execResult, err := e.compactionExecutor.Execute(ctx, triggerResult.CheckpointID)
 	if err != nil || execResult.Status != compaction.StatusSucceeded {
 		if err != nil {
+			result.Err = err
 			result.Reason = fmt.Sprintf("execute error: %v", err)
 		} else {
+			result.Err = fmt.Errorf("compaction execution failed: status %s", execResult.Status)
 			result.Reason = fmt.Sprintf("execution failed: status %s", execResult.Status)
 		}
 		return result
 	}
 
-	// 3. Activate: mark previous succeeded checkpoints as superseded.
-	if _, err := e.compactionExecutor.MarkPreviousSucceededSuperseded(ctx, sessionID, triggerResult.CheckpointID); err != nil {
-		// Non-fatal: the new checkpoint is still the latest by version.
-		// GetLatestCompactionSummary will return it regardless.
+	// 3. Activate atomically; succeeded drafts remain invisible until this CAS.
+	if err := e.compactionExecutor.ActivateAutomatic(ctx, triggerResult.CheckpointID, execResult.Version); err != nil {
+		result.Err = err
+		result.Reason = fmt.Sprintf("compaction succeeded but activation failed: %v", err)
+		return result
 	}
 
 	// 4. Low-watermark verification (ADR-005 §5: "below 60%").
@@ -679,6 +738,44 @@ func (e *Engine) IngestAttachment(ctx context.Context, req attachmentapp.IngestF
 	}
 	return e.attachmentService.IngestFile(ctx, req)
 }
+func (e *Engine) BeginAttachmentUpload(ctx context.Context, req attachmentapp.BeginUploadRequest) (string, time.Time, error) {
+	if e.attachmentService == nil {
+		return "", time.Time{}, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.BeginUpload(ctx, req)
+}
+func (e *Engine) AppendAttachmentChunk(ctx context.Context, id string, offset int64, data []byte) (int64, error) {
+	if e.attachmentService == nil {
+		return 0, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.UploadChunk(ctx, id, offset, data)
+}
+func (e *Engine) CommitAttachmentUpload(ctx context.Context, id, projectID, sessionID string) (attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return attachment.Attachment{}, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.CommitUpload(ctx, id, projectID, sessionID)
+}
+func (e *Engine) AbortAttachmentUpload(ctx context.Context, id, projectID, sessionID string) error {
+	if e.attachmentService == nil {
+		return errors.New("attachment service not configured")
+	}
+	return e.attachmentService.AbortUpload(ctx, id, projectID, sessionID)
+}
+
+func (e *Engine) ListVisionImagesBySession(ctx context.Context, sessionID string) ([]attachmentapp.VisionImage, error) {
+	if e.attachmentService == nil {
+		return nil, nil
+	}
+	return e.attachmentService.ListVisionImagesBySession(ctx, sessionID)
+}
+
+func (e *Engine) GetVisionImage(ctx context.Context, id, sessionID string) (attachmentapp.VisionImage, error) {
+	if e.attachmentService == nil {
+		return attachmentapp.VisionImage{}, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.GetVisionImage(ctx, id, sessionID)
+}
 
 // GetAttachment returns an attachment by ID for inspection.
 func (e *Engine) GetAttachment(ctx context.Context, id string) (*attachment.Attachment, error) {
@@ -713,6 +810,13 @@ func (e *Engine) DeleteAttachment(ctx context.Context, id string) error {
 	return e.attachmentService.DeleteAttachment(ctx, id)
 }
 
+func (e *Engine) ReconcileAttachmentFileCleanup(ctx context.Context) error {
+	if e.attachmentService == nil {
+		return errors.New("attachment service not configured")
+	}
+	return e.attachmentService.ReconcileFileCleanup(ctx)
+}
+
 // ListReadableAttachmentsBySession returns succeeded, non-deleted attachments
 // for a session. This is the read path used by chat.start to populate
 // ContextEnvelope.AttachmentExcerpts (ADR-005 §7).
@@ -727,8 +831,8 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
 	return &Engine{providers: providers, version: version, leases: leases, streams: make(map[string]*streamState), maxStreams: 32,
-		network: networkpolicy.Options{ConnectTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, OverallTimeout: 15 * time.Second, MaxResponseBytes: 1 << 20},
-		gateway: gateway.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 64 << 10}}
+		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, DisableOverallTimeout: true, IdleReadTimeout: 90 * time.Second, MaxResponseBytes: 1 << 20},
+		gateway: gateway.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20}}
 }
 
 // CancelAllStreams terminates every stream owned by this authenticated session.
@@ -752,6 +856,19 @@ func (e *Engine) cancelStream(id string) bool {
 	}
 	stream.state = streamCancelling
 	stream.cancel()
+	return true
+}
+
+// claimStreamFinalization linearizes successful upstream completion against
+// cancellation. A false result means cancellation already won, so the caller
+// must skip durable persistence.
+func (e *Engine) claimStreamFinalization(state *streamState) bool {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	if state.state != streamRunning {
+		return false
+	}
+	state.state = streamFinalizing
 	return true
 }
 
@@ -780,6 +897,8 @@ func (e *Engine) finishTerminal(id string, state *streamState) {
 func (e *Engine) SetAdapterFactoryForTest(factory func(context.Context, provider.Provider) (gateway.Adapter, error)) {
 	e.adapterFactory = factory
 }
+
+func (e *Engine) SetAgentCoordinator(c *agentorchestration.Coordinator) { e.coordinator = c }
 
 func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Response {
 	if _, err := ulid.ParseStrict(request.ID); err != nil {

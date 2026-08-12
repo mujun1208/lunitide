@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 )
 
@@ -24,16 +25,22 @@ func (s *Store) CreateAttachment(ctx context.Context, a attachment.Attachment) e
 	if a.SessionID != "" {
 		sessionID = a.SessionID
 	}
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO attachments(id, project_id, session_id, file_ref, original_name,
 		  mime, size, sha256, parse_status, parse_error_code, parsed_text,
 		  parsed_text_bytes, created_at, deleted_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?
+		 WHERE EXISTS (SELECT 1 FROM projects WHERE id=?)
+		   AND (? IS NULL OR EXISTS (SELECT 1 FROM sessions WHERE id=? AND project_id=?))`,
 		a.ID, a.ProjectID, sessionID, a.FileRef, a.OriginalName,
 		a.MIME, a.Size, a.SHA256, string(a.ParseStatus), a.ParseErrorCode,
-		a.ParsedText, a.ParsedTextBytes, formatTime(a.CreatedAt), nil)
+		a.ParsedText, a.ParsedTextBytes, formatTime(a.CreatedAt), nil,
+		a.ProjectID, sessionID, sessionID, a.ProjectID)
 	if err != nil {
 		return fmt.Errorf("create attachment: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return attachmentapp.ErrScopeMismatch
 	}
 	return nil
 }
@@ -44,7 +51,7 @@ func (s *Store) GetAttachment(ctx context.Context, id string) (*attachment.Attac
 		`SELECT id, project_id, COALESCE(session_id,''), file_ref, original_name,
 		  mime, size, sha256, parse_status, parse_error_code, parsed_text,
 		  parsed_text_bytes, created_at, deleted_at
-		 FROM attachments WHERE id=?`, id)
+		 FROM attachments WHERE id=? AND deleted_at IS NULL`, id)
 	a, err := scanAttachment(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -53,6 +60,35 @@ func (s *Store) GetAttachment(ctx context.Context, id string) (*attachment.Attac
 		return nil, fmt.Errorf("get attachment: %w", err)
 	}
 	return &a, nil
+}
+
+// GetAttachmentForDeletion includes deleted rows for idempotent retry while
+// deliberately omitting parsed text from this administrative lookup.
+func (s *Store) GetAttachmentForDeletion(ctx context.Context, id string) (*attachment.Attachment, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, COALESCE(session_id,''), file_ref, original_name,
+		  mime, size, sha256, parse_status, parse_error_code, '',
+		  parsed_text_bytes, created_at, deleted_at FROM attachments WHERE id=?`, id)
+	a, err := scanAttachment(row)
+	if err == nil {
+		return &a, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("get attachment for deletion: %w", err)
+	}
+	var deletedAt string
+	err = s.db.QueryRowContext(ctx, `SELECT deleted_at FROM deletion_tombstones WHERE owner_type='attachment' AND owner_id=?`, id).Scan(&deletedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get attachment tombstone for deletion: %w", err)
+	}
+	t, err := time.Parse(time.RFC3339Nano, deletedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse attachment tombstone time: %w", err)
+	}
+	return &attachment.Attachment{ID: id, DeletedAt: &t}, nil
 }
 
 // ListAttachmentsByProject returns attachments for a project ordered by
@@ -111,8 +147,20 @@ func (s *Store) UpdateParseResult(ctx context.Context, id string, status attachm
 // recording a tombstone for fail-closed readability (ADR-005 §7). Idempotent:
 // deleting an already-deleted attachment is a no-op.
 func (s *Store) DeleteAttachment(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete attachment: %w", err)
+	}
+	defer tx.Rollback()
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	var fileRef string
+	if err := tx.QueryRowContext(ctx, `SELECT file_ref FROM attachments WHERE id=?`, id).Scan(&fileRef); err != nil {
+		if err == sql.ErrNoRows {
+			return tx.Commit()
+		}
+		return fmt.Errorf("find attachment for delete: %w", err)
+	}
+	res, err := tx.ExecContext(ctx,
 		`UPDATE attachments SET deleted_at=? WHERE id=? AND deleted_at IS NULL`,
 		formatTime(now), id)
 	if err != nil {
@@ -120,12 +168,41 @@ func (s *Store) DeleteAttachment(ctx context.Context, id string) error {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		// Already deleted (or never existed) — idempotent no-op.
-		return nil
+		return tx.Commit()
 	}
-	if err := s.RecordTombstone(ctx, "attachment", id); err != nil {
-		return err
+	stamp := formatTime(now)
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) VALUES('attachment',?,?,'pending')`, id, stamp); err != nil {
+		return fmt.Errorf("record attachment tombstone: %w", err)
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) VALUES('attachment_file',?,?,'pending')`, fileRef, stamp); err != nil {
+		return fmt.Errorf("schedule attachment file cleanup: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListPendingAttachmentFileCleanup(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT owner_id FROM deletion_tombstones WHERE owner_type='attachment_file' AND propagation_status='pending' ORDER BY deleted_at LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
+}
+
+func (s *Store) CompleteAttachmentFileCleanup(ctx context.Context, fileRef string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deletion_tombstones SET propagation_status='propagated' WHERE owner_type='attachment_file' AND owner_id=?`, fileRef)
+	return err
 }
 
 type attachmentScanner interface {

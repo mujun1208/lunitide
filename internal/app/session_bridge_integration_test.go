@@ -34,7 +34,9 @@ func sessionEngine(t *testing.T) (*Engine, string, string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	return NewEngineWithSessions(providerapp.New(store, store), projects, sessionapp.New(store, store), "test", nil), created.ID, path
+	sessions := sessionapp.New(store, store)
+	sessions.SetDeleter(store)
+	return NewEngineWithSessions(providerapp.New(store, store), projects, sessions, "test", nil), created.ID, path
 }
 func structToProject(name string) (p project.Project) { p.Name = name; return }
 
@@ -68,6 +70,30 @@ func TestSessionBridgeCreateListReplayConflictAndStrictPayloads(t *testing.T) {
 	}
 }
 
+func TestSessionBridgeDeletesSessionAndItsMessages(t *testing.T) {
+	e, parent, _ := sessionEngine(t)
+	create := validRequest("session.create", `{"projectId":"`+parent+`","title":"Delete me"}`)
+	create.IdempotencyKey = "create-for-delete"
+	created := e.Handle(context.Background(), create)
+	body, _ := json.Marshal(created.Payload)
+	var dto sessionDTO
+	if !created.OK || json.Unmarshal(body, &dto) != nil {
+		t.Fatalf("create: %#v", created)
+	}
+
+	remove := validRequest("session.delete", `{"id":"`+dto.ID+`"}`)
+	remove.IdempotencyKey = "delete-session"
+	deleted := e.Handle(context.Background(), remove)
+	if !deleted.OK {
+		t.Fatalf("delete: %#v", deleted)
+	}
+	listed := e.Handle(context.Background(), validRequest("session.list", `{"projectId":"`+parent+`"}`))
+	encoded, _ := json.Marshal(listed.Payload)
+	if !listed.OK || string(encoded) != `{"items":[]}` {
+		t.Fatalf("list after delete: %#v (%s)", listed, encoded)
+	}
+}
+
 type nilSessions struct{}
 
 func (*nilSessions) Create(context.Context, string, string, any, session.Session) (session.Session, error) {
@@ -77,6 +103,9 @@ func (*nilSessions) List(context.Context, session.Filter) ([]session.Session, er
 	panic("typed nil called")
 }
 func (*nilSessions) Delete(context.Context, string) error {
+	panic("typed nil called")
+}
+func (*nilSessions) Update(context.Context, string, string, any, string, int64, string, bool) (session.Session, error) {
 	panic("typed nil called")
 }
 func TestSessionBridgeMissingTypedNilAndProjectNotFound(t *testing.T) {
@@ -156,5 +185,32 @@ func TestSessionBridgeConcurrentSameKeyCreatesExactlyOneMutation(t *testing.T) {
 		if err = db.QueryRow(query).Scan(&got); err != nil || got != want {
 			t.Fatalf("query %q got=%d want=%d err=%v", query, got, want, err)
 		}
+	}
+}
+
+func TestSessionBridgeUpdateRenamePinReplayAndVersionConflict(t *testing.T) {
+	e, parent, _ := sessionEngine(t)
+	create := validRequest("session.create", `{"projectId":"`+parent+`","title":"Before"}`)
+	create.IdempotencyKey = "create-update"
+	created := e.Handle(context.Background(), create)
+	body, _ := json.Marshal(created.Payload)
+	var dto sessionDTO
+	if !created.OK || json.Unmarshal(body, &dto) != nil {
+		t.Fatalf("create %#v", created)
+	}
+	update := validRequest("session.update", fmt.Sprintf(`{"id":"%s","title":"  After  ","pinned":true,"version":1}`, dto.ID))
+	update.IdempotencyKey = "update-key"
+	first, replay := e.Handle(context.Background(), update), e.Handle(context.Background(), update)
+	if !first.OK || !replay.OK {
+		t.Fatalf("update %#v %#v", first, replay)
+	}
+	body, _ = json.Marshal(first.Payload)
+	if json.Unmarshal(body, &dto) != nil || dto.Title != "After" || !dto.Pinned || dto.Version != 2 {
+		t.Fatalf("dto %s", body)
+	}
+	stale := validRequest("session.update", fmt.Sprintf(`{"id":"%s","title":"Stale","pinned":false,"version":1}`, dto.ID))
+	stale.IdempotencyKey = "stale-key"
+	if x := e.Handle(context.Background(), stale); x.OK || x.Error.Code != "VERSION_CONFLICT" {
+		t.Fatalf("stale %#v", x)
 	}
 }

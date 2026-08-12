@@ -10,7 +10,14 @@ const (
 	MethodAttachmentGet             Method = "attachment.get"
 	MethodAttachmentIngest          Method = "attachment.ingest"
 	MethodAttachmentList            Method = "attachment.list"
+	MethodAttachmentUploadAbort     Method = "attachment.upload.abort"
+	MethodAttachmentUploadBegin     Method = "attachment.upload.begin"
+	MethodAttachmentUploadChunk     Method = "attachment.upload.chunk"
+	MethodAttachmentUploadCommit    Method = "attachment.upload.commit"
+	MethodBrowserClose              Method = "browser.close"
+	MethodBrowserOpen               Method = "browser.open"
 	MethodChatStart                 Method = "chat.start"
+	MethodChatToolApprove           Method = "chat.tool.approve"
 	MethodContextCompactCancel      Method = "context.compact.cancel"
 	MethodContextCompactCommit      Method = "context.compact.commit"
 	MethodContextCompactPreview     Method = "context.compact.preview"
@@ -55,10 +62,17 @@ const (
 	MethodPlanList                  Method = "plan.list"
 	MethodPlanPause                 Method = "plan.pause"
 	MethodPlanResume                Method = "plan.resume"
+	MethodPlanRunCancel             Method = "plan.run.cancel"
+	MethodPlanRunJoin               Method = "plan.run.join"
+	MethodPlanRunSpawn              Method = "plan.run.spawn"
+	MethodPlanRunStart              Method = "plan.run.start"
+	MethodPlanRunTree               Method = "plan.run.tree"
+	MethodPlanTodoCreate            Method = "plan.todo.create"
 	MethodProjectCreate             Method = "project.create"
 	MethodProjectDelete             Method = "project.delete"
 	MethodProjectList               Method = "project.list"
 	MethodProviderCreate            Method = "provider.create"
+	MethodProviderCredentialReveal  Method = "provider.credential.reveal"
 	MethodProviderCredentialSubmit  Method = "provider.credential.submit"
 	MethodProviderDelete            Method = "provider.delete"
 	MethodProviderGet               Method = "provider.get"
@@ -72,11 +86,14 @@ const (
 	MethodSessionCreate             Method = "session.create"
 	MethodSessionDelete             Method = "session.delete"
 	MethodSessionList               Method = "session.list"
+	MethodSessionUpdate             Method = "session.update"
 	MethodSkillCreate               Method = "skill.create"
 	MethodSkillDelete               Method = "skill.delete"
 	MethodSkillDeprecate            Method = "skill.deprecate"
 	MethodSkillDisable              Method = "skill.disable"
+	MethodSkillExecute              Method = "skill.execute"
 	MethodSkillGet                  Method = "skill.get"
+	MethodSkillInvoke               Method = "skill.invoke"
 	MethodSkillList                 Method = "skill.list"
 	MethodSkillMatch                Method = "skill.match"
 	MethodSkillPublish              Method = "skill.publish"
@@ -85,6 +102,15 @@ const (
 	MethodStageList                 Method = "stage.list"
 	MethodStreamCancel              Method = "stream.cancel"
 	MethodSystemHealth              Method = "system.health"
+	MethodTerminalClose             Method = "terminal.close"
+	MethodTerminalInput             Method = "terminal.input"
+	MethodTerminalResize            Method = "terminal.resize"
+	MethodTerminalStart             Method = "terminal.start"
+	MethodUiThemeSet                Method = "ui.theme.set"
+	MethodWorkspaceList             Method = "workspace.list"
+	MethodWorkspaceRead             Method = "workspace.read"
+	MethodWorkspaceRootGet          Method = "workspace.root.get"
+	MethodWorkspaceRootSelect       Method = "workspace.root.select"
 )
 
 type MethodMetadata struct {
@@ -97,7 +123,14 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodAttachmentGet:             {Owner: "engine", Enabled: true},
 	MethodAttachmentIngest:          {Owner: "engine", Enabled: true},
 	MethodAttachmentList:            {Owner: "engine", Enabled: true},
+	MethodAttachmentUploadAbort:     {Owner: "engine", Enabled: true},
+	MethodAttachmentUploadBegin:     {Owner: "engine", Enabled: true},
+	MethodAttachmentUploadChunk:     {Owner: "engine", Enabled: true},
+	MethodAttachmentUploadCommit:    {Owner: "engine", Enabled: true},
+	MethodBrowserClose:              {Owner: "host", Enabled: true},
+	MethodBrowserOpen:               {Owner: "host", Enabled: true},
 	MethodChatStart:                 {Owner: "engine", Enabled: true},
+	MethodChatToolApprove:           {Owner: "engine", Enabled: true},
 	MethodContextCompactCancel:      {Owner: "engine", Enabled: true},
 	MethodContextCompactCommit:      {Owner: "engine", Enabled: true},
 	MethodContextCompactPreview:     {Owner: "engine", Enabled: true},
@@ -142,10 +175,17 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodPlanList:                  {Owner: "engine", Enabled: true},
 	MethodPlanPause:                 {Owner: "engine", Enabled: true},
 	MethodPlanResume:                {Owner: "engine", Enabled: true},
+	MethodPlanRunCancel:             {Owner: "engine", Enabled: true},
+	MethodPlanRunJoin:               {Owner: "engine", Enabled: true},
+	MethodPlanRunSpawn:              {Owner: "engine", Enabled: true},
+	MethodPlanRunStart:              {Owner: "engine", Enabled: true},
+	MethodPlanRunTree:               {Owner: "engine", Enabled: true},
+	MethodPlanTodoCreate:            {Owner: "engine", Enabled: true},
 	MethodProjectCreate:             {Owner: "engine", Enabled: true},
 	MethodProjectDelete:             {Owner: "engine", Enabled: true},
 	MethodProjectList:               {Owner: "engine", Enabled: true},
 	MethodProviderCreate:            {Owner: "engine", Enabled: true},
+	MethodProviderCredentialReveal:  {Owner: "host", Enabled: true},
 	MethodProviderCredentialSubmit:  {Owner: "host", Enabled: true},
 	MethodProviderDelete:            {Owner: "engine", Enabled: true},
 	MethodProviderGet:               {Owner: "engine", Enabled: true},
@@ -159,11 +199,14 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodSessionCreate:             {Owner: "engine", Enabled: true},
 	MethodSessionDelete:             {Owner: "engine", Enabled: true},
 	MethodSessionList:               {Owner: "engine", Enabled: true},
+	MethodSessionUpdate:             {Owner: "engine", Enabled: true},
 	MethodSkillCreate:               {Owner: "engine", Enabled: true},
 	MethodSkillDelete:               {Owner: "engine", Enabled: true},
 	MethodSkillDeprecate:            {Owner: "engine", Enabled: true},
 	MethodSkillDisable:              {Owner: "engine", Enabled: true},
+	MethodSkillExecute:              {Owner: "engine", Enabled: true},
 	MethodSkillGet:                  {Owner: "engine", Enabled: true},
+	MethodSkillInvoke:               {Owner: "engine", Enabled: true},
 	MethodSkillList:                 {Owner: "engine", Enabled: true},
 	MethodSkillMatch:                {Owner: "engine", Enabled: true},
 	MethodSkillPublish:              {Owner: "engine", Enabled: true},
@@ -172,7 +215,16 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodStageList:                 {Owner: "engine", Enabled: true},
 	MethodStreamCancel:              {Owner: "engine", Enabled: true},
 	MethodSystemHealth:              {Owner: "engine", Enabled: true},
+	MethodTerminalClose:             {Owner: "engine", Enabled: true},
+	MethodTerminalInput:             {Owner: "engine", Enabled: true},
+	MethodTerminalResize:            {Owner: "engine", Enabled: true},
+	MethodTerminalStart:             {Owner: "engine", Enabled: true},
+	MethodUiThemeSet:                {Owner: "host", Enabled: true},
+	MethodWorkspaceList:             {Owner: "host", Enabled: true},
+	MethodWorkspaceRead:             {Owner: "host", Enabled: true},
+	MethodWorkspaceRootGet:          {Owner: "host", Enabled: true},
+	MethodWorkspaceRootSelect:       {Owner: "host", Enabled: true},
 }
-var Methods = [...]Method{MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodChatStart, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDiagnosticsExport, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillGet, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth}
+var Methods = [...]Method{MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodAttachmentUploadAbort, MethodAttachmentUploadBegin, MethodAttachmentUploadChunk, MethodAttachmentUploadCommit, MethodBrowserClose, MethodBrowserOpen, MethodChatStart, MethodChatToolApprove, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDiagnosticsExport, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodPlanRunCancel, MethodPlanRunJoin, MethodPlanRunSpawn, MethodPlanRunStart, MethodPlanRunTree, MethodPlanTodoCreate, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialReveal, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSessionUpdate, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillExecute, MethodSkillGet, MethodSkillInvoke, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth, MethodTerminalClose, MethodTerminalInput, MethodTerminalResize, MethodTerminalStart, MethodUiThemeSet, MethodWorkspaceList, MethodWorkspaceRead, MethodWorkspaceRootGet, MethodWorkspaceRootSelect}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

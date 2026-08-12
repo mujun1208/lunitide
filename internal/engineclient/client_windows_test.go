@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -334,6 +335,13 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 		valid  bool
 	}{
 		{"delta", func(e *bridge.Event) { e.Type = bridge.EventDelta; e.Delta = &bridge.DeltaEvent{Text: "x"} }, true},
+		{"thinking", func(e *bridge.Event) { e.Type = bridge.EventThinking; e.Thinking = &bridge.ThinkingEvent{Text: "x"} }, true},
+		{"empty thinking", func(e *bridge.Event) { e.Type = bridge.EventThinking; e.Thinking = &bridge.ThinkingEvent{} }, false},
+		{"thinking with delta", func(e *bridge.Event) {
+			e.Type = bridge.EventThinking
+			e.Thinking = &bridge.ThinkingEvent{Text: "x"}
+			e.Delta = &bridge.DeltaEvent{Text: "leak"}
+		}, false},
 		{"empty delta", func(e *bridge.Event) { e.Type = bridge.EventDelta; e.Delta = &bridge.DeltaEvent{} }, false},
 		{"delta extra body", func(e *bridge.Event) {
 			e.Type = bridge.EventDelta
@@ -347,6 +355,44 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 		{"usage sum", func(e *bridge.Event) {
 			e.Type = bridge.EventUsage
 			e.Usage = &bridge.UsageEvent{InputTokens: 2, OutputTokens: 3, TotalTokens: 4}
+		}, false},
+		{"tool started", func(e *bridge.Event) {
+			e.Type = bridge.EventToolStarted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}
+		}, true},
+		{"tool completed artifact", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.write", ArgsDigest: strings.Repeat("b", 64), Summary: "done", Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "site/index.html", Content: "<h1>ok</h1>"}}
+		}, true},
+		{"approval required", func(e *bridge.Event) {
+			e.Type = bridge.EventApprovalRequired
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("c", 64), Summary: "approval required"}
+		}, true},
+		{"tool with delta", func(e *bridge.Event) {
+			e.Type = bridge.EventToolStarted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}
+			e.Delta = &bridge.DeltaEvent{Text: "leak"}
+		}, false},
+		{"tool payload on delta", func(e *bridge.Event) {
+			e.Type = bridge.EventDelta
+			e.Delta = &bridge.DeltaEvent{Text: "x"}
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}
+		}, false},
+		{"tool bad digest", func(e *bridge.Event) {
+			e.Type = bridge.EventToolStarted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("z", 64)}
+		}, false},
+		{"tool started summary", func(e *bridge.Event) {
+			e.Type = bridge.EventToolStarted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64), Summary: "unexpected"}
+		}, false},
+		{"approval empty summary", func(e *bridge.Event) {
+			e.Type = bridge.EventApprovalRequired
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("c", 64)}
+		}, false},
+		{"completed oversized artifact", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.write", ArgsDigest: strings.Repeat("b", 64), Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "index.html", Content: strings.Repeat("x", (180<<10)+1)}}
 		}, false},
 		{"terminal body", func(e *bridge.Event) {
 			e.Type = bridge.EventCompleted

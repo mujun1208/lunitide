@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/plan.run.join.schema.json",
+  "title": "plan.run.join payload",
+  "x-method": "plan.run.join",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "mode": {
+      "enum": [
+        "all",
+        "any"
+      ]
+    }
+  },
+  "required": [
+    "runId",
+    "mode"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "run": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PlanRunDTO"
+      },
+      "executionStarted": {
+        "const": false
+      }
+    },
+    "required": [
+      "run",
+      "executionStarted"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "mode": "all"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

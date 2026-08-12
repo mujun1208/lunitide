@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/plan.todo.create.schema.json",
+  "title": "plan.todo.create payload",
+  "x-method": "plan.todo.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "planId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "nodeId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "planId",
+    "nodeId",
+    "role",
+    "title",
+    "description"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "run": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PlanRunDTO"
+      },
+      "executionStarted": {
+        "const": false
+      }
+    },
+    "required": [
+      "run",
+      "executionStarted"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "planId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "nodeId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "role": "planner",
+        "title": "Coordinate",
+        "description": ""
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

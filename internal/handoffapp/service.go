@@ -29,6 +29,15 @@ var ErrCapsuleNotActive = errors.New("capsule not active")
 // ErrCapsuleExpired is returned when the capsule has expired.
 var ErrCapsuleExpired = errors.New("capsule expired")
 
+// ErrCrossProjectImport is returned when source and target sessions belong to
+// different projects. Handoff import is project-scoped by default.
+var ErrCrossProjectImport = errors.New("cross-project capsule import forbidden")
+
+// ErrDestinationSessionNotFound is returned when the requested destination
+// session does not exist. It is kept distinct from ErrCapsuleNotFound so API
+// callers can report the invalid side of an activation accurately.
+var ErrDestinationSessionNotFound = errors.New("destination session not found")
+
 // ErrSourceDeleted is returned when the capsule's source checkpoint or session
 // has been deleted. Import fails closed: a deleted source can never be
 // imported as prior context (ADR-005 §5, §6 fail-closed deletion).
@@ -58,16 +67,14 @@ type CapsuleStore interface {
 	GetCapsule(ctx context.Context, id string) (*handoff.Capsule, error)
 	ListCapsulesBySourceSession(ctx context.Context, sessionID string, limit int) ([]handoff.Capsule, error)
 	ListActiveCapsules(ctx context.Context, sessionID string) ([]handoff.Capsule, error)
-	ActivateCapsule(ctx context.Context, id string, destSessionID string) error
+	// ActivateCapsule atomically validates active status, expiry, and source /
+	// destination project equality before binding the destination.
+	ActivateCapsule(ctx context.Context, id string, destSessionID string, now time.Time) error
 	RevokeCapsule(ctx context.Context, id string) error
 	ExpireCapsule(ctx context.Context, id string) error
-	// RecordImport records that a capsule was imported into a target session
-	// as provenance-linked untrusted prior context (ADR-005 §5). The
-	// (capsule_id, target_session_id) pair is unique: a repeat import of the
-	// same capsule into the same session is idempotent. Returns the import ID,
-	// the imported_at timestamp, and isNew=true when this was a new import
-	// (isNew=false on idempotent re-import).
-	RecordImport(ctx context.Context, capsuleID, targetSessionID string) (importID string, importedAt time.Time, isNew bool, err error)
+	// ValidateAndRecordImport validates active status, expiry, and same-project
+	// scope and records the import atomically in one writer transaction.
+	ValidateAndRecordImport(ctx context.Context, capsuleID, targetSessionID string, now time.Time) (importedAt time.Time, isNew bool, err error)
 	// GetImport returns the imported_at timestamp for a capsule imported into
 	// a target session. Returns ok=false when no import record exists.
 	GetImport(ctx context.Context, capsuleID, targetSessionID string) (importedAt time.Time, ok bool, err error)
@@ -265,10 +272,10 @@ func (s *Service) ListActiveCapsules(ctx context.Context, sessionID string) ([]h
 
 // ActivateCapsuleResult describes the outcome of capsule activation.
 type ActivateCapsuleResult struct {
-	Capsule       handoff.Capsule
-	Checkpoint    *compaction.Checkpoint
-	DigestValid   bool
-	ExpiredCheck  bool
+	Capsule      handoff.Capsule
+	Checkpoint   *compaction.Checkpoint
+	DigestValid  bool
+	ExpiredCheck bool
 }
 
 // ActivateCapsule binds a capsule to a destination session and activates it.
@@ -319,8 +326,10 @@ func (s *Service) ActivateCapsule(ctx context.Context, capsuleID, destSessionID 
 		return result, errors.New("capsule digest mismatch: checkpoint or carried state has been tampered with")
 	}
 
-	// 5. Activate the capsule.
-	if err := s.capsules.ActivateCapsule(ctx, capsuleID, destSessionID); err != nil {
+	// 5. Atomically revalidate status, expiry, and project scope while binding
+	// the destination. The earlier checks provide fast, detailed validation;
+	// this storage boundary closes races with revoke/expire and project changes.
+	if err := s.capsules.ActivateCapsule(ctx, capsuleID, destSessionID, s.now()); err != nil {
 		return result, fmt.Errorf("activate capsule: %w", err)
 	}
 
@@ -429,13 +438,11 @@ func (s *Service) ImportCapsule(ctx context.Context, capsuleID, targetSessionID 
 		return result, ErrDigestMismatch
 	}
 
-	// 5. Record the import. This is idempotent: a repeat import of the same
-	// capsule into the same session returns the existing record.
-	importID, importedAt, isNew, err := s.capsules.RecordImport(ctx, capsuleID, targetSessionID)
+	// 5. Revalidate mutable conditions and record in one writer transaction.
+	importedAt, isNew, err := s.capsules.ValidateAndRecordImport(ctx, capsuleID, targetSessionID, s.now())
 	if err != nil {
-		return result, fmt.Errorf("record import: %w", err)
+		return result, fmt.Errorf("validate and record import: %w", err)
 	}
-	_ = importID // import ID is recorded for audit; not returned to Renderer
 	result.ImportedAt = importedAt
 	result.AlreadyImported = !isNew
 

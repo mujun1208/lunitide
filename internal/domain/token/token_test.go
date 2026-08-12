@@ -41,7 +41,8 @@ func TestLedgerEntryValidate(t *testing.T) {
 		MessageID:         "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Provider:          "openai",
 		Model:             "gpt-4",
-		TokenizerRevision: "cl100k_base",
+		TokenizerID:       "cl100k_base",
+		TokenizerRevision: "2026-01",
 		TokenCount:        100,
 		EstimationMethod:  CharRatio,
 		UTF8Bytes:         400,
@@ -74,6 +75,16 @@ func TestLedgerEntryValidate(t *testing.T) {
 	invalid.ComputedAt = time.Time{}
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("zero computed_at accepted")
+	}
+	invalid = valid
+	invalid.TokenizerID = ""
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("empty tokenizer ID accepted")
+	}
+	invalid = valid
+	invalid.EstimationMethod = ProviderReport
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("provider report with non-report tokenizer identity accepted")
 	}
 }
 
@@ -452,7 +463,7 @@ func TestNormalizeText_NFCEquivalence(t *testing.T) {
 	// Test cases: each group contains strings that are canonically equivalent
 	// (same abstract characters) but use different normalization forms.
 	groups := []struct {
-		name    string
+		name     string
 		variants []string
 	}{
 		{

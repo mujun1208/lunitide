@@ -8,9 +8,9 @@ import { SessionPage } from './SessionPage'
 afterEach(cleanup)
 const P = '01ARZ3NDEKTSV4RRFFQ69G5FAV', S1 = '01ARZ3NDEKTSV4RRFFQ69G5FAA', S2 = '01ARZ3NDEKTSV4RRFFQ69G5FAB', NOW = '2025-01-01T00:00:00Z'
 const project: ProjectDTO = { id: P, name: 'Messages', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
-const sessions: SessionDTO[] = [S1, S2].map((id, i) => ({ id, projectId: P, title: `Session ${i + 1}`, status: 'active', createdAt: `2025-01-01T00:00:0${i}Z`, updatedAt: `2025-01-01T00:00:0${i}Z`, version: 1 }))
+const sessions: SessionDTO[] = [S1, S2].map((id, i) => ({ id, projectId: P, title: `Session ${i + 1}`, pinned: false, status: 'active', createdAt: `2025-01-01T00:00:0${i}Z`, updatedAt: `2025-01-01T00:00:0${i}Z`, version: 1 }))
 const message = (sequence: number, overrides: Partial<MessageDTO> = {}): MessageDTO => ({ id: sequence === 1 ? '01ARZ3NDEKTSV4RRFFQ69G5FAC' : sequence === 2 ? '01ARZ3NDEKTSV4RRFFQ69G5FAD' : '01ARZ3NDEKTSV4RRFFQ69G5FAE', sessionId: S1, role: 'user', status: 'completed', sequence, text: `message-${sequence}`, createdAt: `2025-01-01T00:00:0${sequence}Z`, ...overrides })
-const sessionBridge: SessionBridge = { list: vi.fn().mockResolvedValue({ items: sessions }), create: vi.fn(), delete: vi.fn() }
+const sessionBridge: SessionBridge = { list: vi.fn().mockResolvedValue({ items: sessions }), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
 const page = (items: MessageDTO[] = [], nextCursor: string | null = null) => ({ items, hasMore: nextCursor !== null, nextCursor, snapshotSequence: items.reduce((n, x) => Math.max(n, x.sequence), 0) })
 const messages = (part: Partial<MessageBridge> = {}): MessageBridge => ({ list: vi.fn().mockResolvedValue(page()), append: vi.fn().mockResolvedValue(message(1)), ...part })
 async function open(bridge: MessageBridge, title = 'Session 1') { const user = userEvent.setup(); render(<SessionPage project={project} bridge={sessionBridge} messages={bridge} onBack={vi.fn()} />); await user.click(await screen.findByText(title)); return user }
@@ -65,6 +65,14 @@ it('Message Renderer renders XSS payloads as inert text without element injectio
   expect(await screen.findByText(xss)).toBeInTheDocument(); expect(document.querySelector('.message-list img, .message-list script, .message-list svg')).toBeNull()
 })
 
+it('Message Renderer restores assistant messages with agent presentation', async () => {
+  await open(messages({ list: vi.fn().mockResolvedValue(page([message(1), message(2, { role: 'assistant', text: 'durable assistant' })])) }))
+  const assistant = await screen.findByText('durable assistant')
+  expect(assistant.closest('li')).toHaveClass('agent')
+  expect(assistant.closest('.bubble')).toHaveClass('message-body')
+  expect(assistant.closest('li')).toHaveTextContent('AGENT')
+})
+
 it('Message Renderer accepts exact flat Unicode boundaries and rejects rune/byte overflow and NUL', async () => {
   const append = vi.fn().mockResolvedValue(message(1)), user = await open(messages({ append }))
   await screen.findByText('还没有消息')
@@ -83,4 +91,12 @@ it('Message Renderer accepts exact flat Unicode boundaries and rejects rune/byte
     expect(await screen.findByRole('alert')).toHaveTextContent('消息需为')
   }
   expect(append).toHaveBeenCalledTimes(2)
+})
+
+it('linkifies HTTPS in stored chat messages without linkifying unsafe schemes',async()=>{
+ await open(messages({list:vi.fn().mockResolvedValue(page([message(1,{role:'assistant',text:'百度 https://www.baidu.com/，不安全 javascript:alert(1) http://plain.test'})]))}))
+ const link=await screen.findByRole('link',{name:'https://www.baidu.com/'})
+ expect(link).toHaveAttribute('target','_blank')
+ expect(screen.queryByRole('link',{name:/javascript|http:\/\/plain/})).toBeNull()
+ expect(screen.queryByLabelText('统一工作区')).toBeNull()
 })

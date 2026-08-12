@@ -531,7 +531,7 @@ footer .links a:hover{color:var(--tide1)}
       <tr><th>字段</th><th>说明</th><th>敏感性</th></tr>
       <tr><td><b>id</b></td><td class="col">Provider 主键</td><td>非秘密</td></tr>
       <tr><td><b>name</b></td><td class="col">展示名称</td><td>非秘密</td></tr>
-      <tr><td><b>protocol</b></td><td class="col">协议类型（openai-compatible / anthropic 等）</td><td>非秘密</td></tr>
+      <tr><td><b>protocol</b></td><td class="col">冻结枚举（<code>openai_compatible | anthropic</code>；UI 可展示 OpenAI-compatible）</td><td>非秘密</td></tr>
       <tr><td><b>base_url</b></td><td class="col">服务端点 URL</td><td>URL 敏感配置</td></tr>
       <tr><td><b>credential_ref</b></td><td class="col">凭据引用（仅存引用，不存明文）</td><td>引用非秘密；明文不落库</td></tr>
       <tr><td><b>status</b></td><td class="col">健康状态枚举</td><td>非秘密</td></tr>
@@ -602,7 +602,7 @@ footer .links a:hover{color:var(--tide1)}
     </div>
 
     <h3>3.7 Key 安全规则</h3>
-    <div class="warn"><b>API Key 永不回显。</b>凭据仅存引用（credential_ref），不存明文；任何接口返回、日志、审计事件中均不得出现密钥原文。ChatRequest 不得携带 API Key，密钥由网关在出口侧注入。</div>
+    <div class="warn"><b>API Key 默认隐藏，仅允许显式临时查看。</b>Provider/Model 常规 DTO 只返回 <code>credential_ref</code>/配置状态，不返回明文；SQLite、日志、诊断包、审计正文与 ChatRequest 均不得出现密钥原文，密钥由网关在出口侧注入。用户进入编辑页后可通过 Host-owned <code>provider.credential.reveal</code> 明确查看已保存值并再次隐藏：每次解密前必须完成 Host 原生确认，拒绝或非 Windows 平台均 fail-closed 且不得读取 SecretService；该能力只接受可信顶层 document 的显式操作，不得自动调用，不得进入持久 React store、剪贴板或遥测；输入默认保持 password 态，并在取消、离开编辑态或提交后清空临时缓冲。</div>
   </div>
 </section>
 
@@ -618,7 +618,7 @@ footer .links a:hover{color:var(--tide1)}
         <div class="num">CHAPTER 04</div>
         <h2>工作区、项目与会话</h2>
       </div>
-      <span class="tag"><b>实体</b> workspace / project / session / message / context_summary / context_handoff</span>
+      <span class="tag"><b>实体</b> workspace / project / session / message / compaction / handoff</span>
     </div>
     <p class="lead">这是系统的组织骨架：Workspace 隔离租户级边界，Project 承载工程上下文，Session 与 Message 构成交互流水。</p>
 
@@ -631,28 +631,31 @@ footer .links a:hover{color:var(--tide1)}
       <tr><td><b>session</b></td><td class="col">id, project_id, stage_run_id, title, status, model_profile_id</td><td>INDEX(project_id, updated_at)</td></tr>
       <tr><td><b>message</b></td><td class="col">id, session_id, role, status, content_ref, sequence, usage_json</td><td>UNIQUE(session_id, sequence)</td></tr>
       <tr><td><b>message_part</b></td><td class="col">id, message_id, type, text/file_ref/tool_call_id, ordinal</td><td>UNIQUE(message_id, ordinal)</td></tr>
-      <tr><td><b>attachment</b></td><td class="col">id, project_id, file_ref, mime, size, parse_status, sha256</td><td>sha256 索引；解析隔离</td></tr>
-      <tr><td><b>context_summary</b></td><td class="col">id, session_id, kind, version, source_seq_start/end, source_digest, parent_summary_ids, content_ref, token_count, fidelity_json, status</td><td>UNIQUE(session_id, kind, version)；源范围不可变</td></tr>
+      <tr><td><b>attachment</b></td><td class="col">id, project_id, session_id, storage_ref, mime, size, parse_status, sha256</td><td>受控数据目录；显式引用才进入本轮上下文；跨 Session fail-closed</td></tr>
+      <tr><td><b>compaction_checkpoint</b></td><td class="col">id, session_id, version, source_start/end_seq, source_digest, previous_checkpoint_id/digest, trigger, provider/model, structured_summary, human_summary, status, failure_code</td><td>UNIQUE(session_id, version)；源范围不可变；pending/running/succeeded/failed/superseded</td></tr>
+      <tr><td><b>compaction_activation</b></td><td class="col">session_id, checkpoint_id, revision, updated_at</td><td>每 Session 单一显式 active pointer；revision CAS；succeeded draft 不自动等于 active</td></tr>
       <tr><td><b>summary_claim_source</b></td><td class="col">summary_id, claim_id, claim_type, source_type/id, seq_start/end, quote_ref, artifact_revision, source_digest, verification_status</td><td>INDEX(summary_id, claim_id)；所有需溯源 claim 覆盖率 100%</td></tr>
-      <tr><td><b>context_handoff</b></td><td class="col">id, workspace_id, project_id, source/target_session_id, version, source_seq_start/end, source_digest, source_summary_version, schema_version, content_ref, status, invalid_reason, created/imported_at</td><td>CHECK(start≤end)；UNIQUE(source_session_id, version)</td></tr>
+      <tr><td><b>handoff_capsule</b></td><td class="col">id, project_id, source_session_id, source_checkpoint_id, source_seq_start/end, source_digest, capsule_digest, schema_version, content, status, expires_at</td><td>CHECK(start≤end)；不可变 digest；删除墓碑/过期立即 fail-closed</td></tr>
       <tr><td><b>handoff_import</b></td><td class="col">handoff_id, target_session_id, imported_at, status</td><td>UNIQUE(handoff_id, target_session_id)；同项目导入幂等</td></tr>
+      <tr><td><b>token_ledger</b></td><td class="col">session_id, message_id/source, canonical tokenizer id/version/revision/artifact hash, token counts, provider usage revision</td><td>容量与供应商 usage 分离；tokenizer 身份可追溯并支持重算修订</td></tr>
       <tr><td><b>context_build</b></td><td class="col">id, session_id, model_id, canonical_logical_tokens, canonical_tokenizer_version, estimated_request_tokens, effective_window, reserve_tokens, summary_version, manifest_ref</td><td>记录每轮实际装配清单，不保存秘密</td></tr>
     </table>
 
-    <h3>4.2 消息状态机</h3>
+    <h3>4.2 Wire Stream 与 Durable Message 状态机</h3>
+    <p><b>流状态和持久消息状态必须分离。</b>Wire Stream 用于描述一次模型调用；Message 是不可变会话事实。当前实现不在流式过程中写入 <code>streaming</code> Message，也不会为取消/失败伪造 assistant Message。</p>
     <div class="dag">
-      <div class="node active">accepted<br><small>已接受</small></div>
+      <div class="node active">starting<br><small>已接受</small></div>
       <div class="arrow">→</div>
       <div class="node done">streaming<br><small>流式中</small></div>
       <div class="arrow">→</div>
-      <div class="node done">completed<br><small>完成</small></div>
+      <div class="node done">completed<br><small>唯一成功终态</small></div>
     </div>
     <div class="dag" style="padding-top:0">
       <div class="node warn">cancelled<br><small>取消</small></div>
       <div class="node warn">interrupted<br><small>中断</small></div>
       <div class="node err">failed<br><small>失败</small></div>
     </div>
-    <p><code>streaming</code> 可正常转入 <code>completed</code>，也可因取消、引擎中断或上游失败转入对应异常终态。</p>
+    <p>Wire Stream 采用 first-terminal-wins：<code>streaming</code> 可转入 <code>completed | cancelled | interrupted | failed</code>，取消向 Go context 和上游 HTTP 传播。只有 Engine 抢占 finalization 权并原子持久化最终 assistant 文本与 usage 后，<code>completed</code> 事件才携带 durable <code>messageId</code>；失败或取消只保留流/审计证据。用户消息和成功的 assistant 消息以 <code>status=completed</code> 进入同一 Session sequence。</p>
 
     <h3>4.3 关键约束说明</h3>
     <div class="card">

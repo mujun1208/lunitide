@@ -104,19 +104,55 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 
-	// Idempotent: if session doesn't exist, return success.
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id=?`, id).Scan(&count); err != nil {
+	// Idempotent: if session doesn't exist, return success. Capture the owning
+	// project and the session's accounted bytes before deleting either row so
+	// the aggregate quota counters remain consistent.
+	var projectID string
+	var sessionTextBytes int64
+	err = tx.QueryRowContext(ctx, `SELECT s.project_id,st.text_bytes FROM sessions s JOIN message_session_state st ON st.session_id=s.id WHERE s.id=?`, id).Scan(&projectID, &sessionTextBytes)
+	if err == sql.ErrNoRows {
+		var count int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id=?`, id).Scan(&count); err != nil {
+			return fmt.Errorf("check session exists: %w", err)
+		}
+		if count != 0 {
+			return fmt.Errorf("delete session data invariant violation: missing message session state")
+		}
+		return tx.Commit() // no-op, idempotent
+	}
+	if err != nil {
 		return fmt.Errorf("check session exists: %w", err)
 	}
-	if count == 0 {
-		return tx.Commit() // no-op, idempotent
+	projectUsage, err := tx.ExecContext(ctx, `UPDATE message_project_usage SET text_bytes=text_bytes-? WHERE project_id=? AND text_bytes>=?`, sessionTextBytes, projectID, sessionTextBytes)
+	if err != nil {
+		return fmt.Errorf("decrement project message usage: %w", err)
+	}
+	projectRows, err := projectUsage.RowsAffected()
+	if err != nil || projectRows != 1 {
+		return fmt.Errorf("delete session project usage invariant violation")
+	}
+	workspaceUsage, err := tx.ExecContext(ctx, `UPDATE message_workspace_usage SET text_bytes=text_bytes-? WHERE singleton=1 AND text_bytes>=?`, sessionTextBytes, sessionTextBytes)
+	if err != nil {
+		return fmt.Errorf("decrement workspace message usage: %w", err)
+	}
+	workspaceRows, err := workspaceUsage.RowsAffected()
+	if err != nil || workspaceRows != 1 {
+		return fmt.Errorf("delete session workspace usage invariant violation")
 	}
 
 	// Record tombstones before physical deletion for fail-closed readability.
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := recordTombstonesForSessionTx(ctx, tx, now, id); err != nil {
 		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) SELECT 'attachment_file',file_ref,?,'pending' FROM attachments WHERE session_id=?`, now, id); err != nil {
+		return fmt.Errorf("schedule session attachment cleanup: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) SELECT 'attachment',id,?,'pending' FROM attachments WHERE session_id=?`, now, id); err != nil {
+		return fmt.Errorf("record session attachment tombstones: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE session_id=?`, id); err != nil {
+		return fmt.Errorf("delete session attachments: %w", err)
 	}
 
 	// Delete in FK-respecting order (child-first):
@@ -128,9 +164,18 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE source_session_id=? OR dest_session_id=?`, id, id); err != nil {
 		return fmt.Errorf("delete handoff_capsules: %w", err)
 	}
-	// 3. compaction_checkpoints (FK to sessions, messages; ON DELETE RESTRICT)
+	// 3. compaction_activations (FK to sessions and compaction_checkpoints)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_activations WHERE session_id=?`, id); err != nil {
+		return fmt.Errorf("delete compaction_activations: %w", err)
+	}
+	// 4. compaction_checkpoints (FK to sessions, messages; ON DELETE RESTRICT)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, id); err != nil {
 		return fmt.Errorf("delete compaction_checkpoints: %w", err)
+	}
+	// Message idempotency responses embed the session ID and must not outlive
+	// their authoritative messages, otherwise startup replay validation fails.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN ('message.append','message.append-assistant') AND json_extract(response_json,'$.sessionId')=?`, id); err != nil {
+		return fmt.Errorf("delete message idempotency records: %w", err)
 	}
 	// 4. message_parts (FK to messages)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, id); err != nil {
@@ -167,13 +212,34 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 
-	// Idempotent: if project doesn't exist, return success.
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id=?`, id).Scan(&count); err != nil {
+	// Idempotent: if project doesn't exist, return success. Capture the
+	// project's accounted bytes before deleting its usage row so the workspace
+	// aggregate can be decremented in this transaction.
+	var projectTextBytes int64
+	err = tx.QueryRowContext(ctx, `SELECT u.text_bytes FROM projects p JOIN message_project_usage u ON u.project_id=p.id WHERE p.id=?`, id).Scan(&projectTextBytes)
+	if err == sql.ErrNoRows {
+		var count int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id=?`, id).Scan(&count); err != nil {
+			return fmt.Errorf("check project exists: %w", err)
+		}
+		if count != 0 {
+			return fmt.Errorf("delete project data invariant violation: missing message project usage")
+		}
+		return tx.Commit() // no-op, idempotent
+	}
+	if err != nil {
 		return fmt.Errorf("check project exists: %w", err)
 	}
-	if count == 0 {
-		return tx.Commit() // no-op, idempotent
+	workspaceUsage, err := tx.ExecContext(ctx, `UPDATE message_workspace_usage SET text_bytes=text_bytes-? WHERE singleton=1 AND text_bytes>=?`, projectTextBytes, projectTextBytes)
+	if err != nil {
+		return fmt.Errorf("decrement workspace message usage: %w", err)
+	}
+	workspaceRows, err := workspaceUsage.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect workspace message usage decrement: %w", err)
+	}
+	if workspaceRows != 1 {
+		return fmt.Errorf("delete project workspace usage invariant violation")
 	}
 
 	// Get all session IDs for this project
@@ -197,7 +263,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 
 	// Record tombstones and delete all sessions and their dependencies
 	// in FK-respecting order (child-first): handoff_imports → handoff_capsules
-	// → compaction_checkpoints → message_parts → token_ledger → messages
+	// → compaction_activations → compaction_checkpoints → message_parts → token_ledger → messages
 	// → message_session_state. Sessions are deleted after the loop.
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, sid := range sessionIDs {
@@ -212,9 +278,16 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE source_session_id=? OR dest_session_id=?`, sid, sid); err != nil {
 			return fmt.Errorf("delete handoff_capsules for session %s: %w", sid, err)
 		}
-		// 3. compaction_checkpoints (FK to sessions, messages; ON DELETE RESTRICT)
+		// 3. compaction_activations (FK to sessions and compaction_checkpoints)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_activations WHERE session_id=?`, sid); err != nil {
+			return fmt.Errorf("delete compaction_activations for session %s: %w", sid, err)
+		}
+		// 4. compaction_checkpoints (FK to sessions, messages; ON DELETE RESTRICT)
 		if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, sid); err != nil {
 			return fmt.Errorf("delete compaction_checkpoints for session %s: %w", sid, err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN ('message.append','message.append-assistant') AND json_extract(response_json,'$.sessionId')=?`, sid); err != nil {
+			return fmt.Errorf("delete message idempotency records for session %s: %w", sid, err)
 		}
 		// 4. message_parts (FK to messages)
 		if _, err := tx.ExecContext(ctx, `DELETE FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, sid); err != nil {
@@ -258,18 +331,20 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	// Attachments: project_id has ON DELETE RESTRICT, so we must delete all
 	// attachments before deleting the project. Record tombstones for
 	// fail-closed readability (ADR-005 §7).
-	attRows, err := tx.QueryContext(ctx, `SELECT id FROM attachments WHERE project_id=?`, id)
+	attRows, err := tx.QueryContext(ctx, `SELECT id, file_ref FROM attachments WHERE project_id=?`, id)
 	if err != nil {
 		return fmt.Errorf("list attachments for project delete: %w", err)
 	}
 	var attachmentIDs []string
+	var attachmentFileRefs []string
 	for attRows.Next() {
-		var aid string
-		if err := attRows.Scan(&aid); err != nil {
+		var aid, fileRef string
+		if err := attRows.Scan(&aid, &fileRef); err != nil {
 			attRows.Close()
 			return fmt.Errorf("scan attachment id: %w", err)
 		}
 		attachmentIDs = append(attachmentIDs, aid)
+		attachmentFileRefs = append(attachmentFileRefs, fileRef)
 	}
 	attRows.Close()
 	if err := attRows.Err(); err != nil {
@@ -278,6 +353,11 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	for _, aid := range attachmentIDs {
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) VALUES('attachment',?,?,'pending')`, aid, now); err != nil {
 			return fmt.Errorf("record attachment tombstone: %w", err)
+		}
+	}
+	for _, fileRef := range attachmentFileRefs {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status) VALUES('attachment_file',?,?,'pending')`, fileRef, now); err != nil {
+			return fmt.Errorf("schedule project attachment cleanup: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE project_id=?`, id); err != nil {

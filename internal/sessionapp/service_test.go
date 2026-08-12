@@ -39,6 +39,9 @@ func (m *memory) CreateSession(_ context.Context, v session.Session) (session.Se
 	v.UpdatedAt = v.CreatedAt
 	return v, nil
 }
+func (m *memory) UpdateSession(_ context.Context, id string, expectedVersion int64, title string, pinned bool, now time.Time) (session.Session, error) {
+	return session.Session{ID: id, ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", Title: title, Pinned: pinned, Status: session.StatusActive, CreatedAt: now, UpdatedAt: now, Version: expectedVersion + 1}, nil
+}
 func (m *memory) Idempotency(_ context.Context, op, key string, _ time.Time) (providerapp.Record, bool, error) {
 	r, ok := m.records[op+"\x00"+key]
 	return r, ok, nil

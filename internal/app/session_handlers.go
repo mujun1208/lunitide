@@ -18,6 +18,7 @@ type sessionDTO struct {
 	ID        string         `json:"id"`
 	ProjectID string         `json:"projectId"`
 	Title     string         `json:"title"`
+	Pinned    bool           `json:"pinned"`
 	Status    session.Status `json:"status"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
@@ -25,7 +26,7 @@ type sessionDTO struct {
 }
 
 func newSessionDTO(v session.Session) sessionDTO {
-	return sessionDTO{v.ID, v.ProjectID, v.Title, v.Status, v.CreatedAt, v.UpdatedAt, v.Version}
+	return sessionDTO{v.ID, v.ProjectID, v.Title, v.Pinned, v.Status, v.CreatedAt, v.UpdatedAt, v.Version}
 }
 func sessionServiceAvailable(service SessionService) bool {
 	if service == nil {
@@ -85,7 +86,34 @@ func handleSessionList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		Items []sessionDTO `json:"items"`
 	}{dtos})
 }
+func handleSessionUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Pinned  bool   `json:"pinned"`
+		Version int64  `json:"version"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.Version < 1 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.update 参数无效", false)
+	}
+	if !sessionServiceAvailable(e.sessions) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+	}
+	if failure := requireIdempotency(r); failure != nil {
+		return *failure
+	}
+	title, err := session.NormalizeTitle(p.Title)
+	if err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.update 参数无效", false)
+	}
+	updated, err := e.sessions.Update(ctx, r.IdempotencyKey, sessionMutationActor, p, p.ID, p.Version, title, p.Pinned)
+	if err != nil {
+		return sessionFailure(r, err)
+	}
+	return bridge.Success(r.ID, newSessionDTO(updated))
+}
 func sessionFailure(r bridge.Request, err error) bridge.Response {
+
 	switch {
 	case errors.Is(err, sessionapp.ErrIdempotencyKeyRequired):
 		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
@@ -95,6 +123,10 @@ func sessionFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "PROJECT_NOT_FOUND", "项目不存在", false)
 	case errors.Is(err, sessionapp.ErrSessionCapacityReached):
 		return bridge.Failure(r.ID, r.TraceID, "SESSION_CAPACITY_REACHED", "项目会话数量已达到上限", false)
+	case errors.Is(err, sessionapp.ErrSessionNotFound):
+		return bridge.Failure(r.ID, r.TraceID, "SESSION_NOT_FOUND", "会话不存在", false)
+	case errors.Is(err, sessionapp.ErrSessionVersionConflict):
+		return bridge.Failure(r.ID, r.TraceID, "VERSION_CONFLICT", "会话版本冲突", false)
 	default:
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}

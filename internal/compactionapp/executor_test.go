@@ -17,7 +17,8 @@ type mockExecutorStore struct {
 	updates        []mockUpdate
 	updateErr      error
 	// byStatus simulates checkpoints stored by status for recovery tests.
-	byStatus map[compaction.Status][]compaction.Checkpoint
+	byStatus             map[compaction.Status][]compaction.Checkpoint
+	sumTokenizerRevision string
 }
 
 type mockUpdate struct {
@@ -89,6 +90,14 @@ func (m *mockExecutorStore) UpdateCheckpointStatus(_ context.Context, id string,
 	return nil
 }
 
+func (m *mockExecutorStore) ActivateCheckpoint(_ context.Context, id string, baseVersion int64) error {
+	if m.checkpoint == nil || m.checkpoint.ID != id || m.checkpoint.Version != baseVersion {
+		return ErrVersionConflict
+	}
+	_, _ = m.MarkPreviousSucceededAsSuperseded(context.Background(), m.checkpoint.SessionID, id)
+	return nil
+}
+
 // ListCheckpointsByStatus returns checkpoints matching the given status.
 func (m *mockExecutorStore) ListCheckpointsByStatus(_ context.Context, status compaction.Status, limit int) ([]compaction.Checkpoint, error) {
 	if limit <= 0 || limit > 1000 {
@@ -142,7 +151,8 @@ func (m *mockExecutorStore) GetLatestSucceededCheckpoint(_ context.Context, sess
 }
 
 // SumTokenLedgerAfterSeq returns a mock value for remaining tokens after a sequence.
-func (m *mockExecutorStore) SumTokenLedgerAfterSeq(_ context.Context, _, _, _, _ string, _ int64) (int64, error) {
+func (m *mockExecutorStore) SumTokenLedgerAfterSeq(_ context.Context, _, _, _, tokenizerRevision string, _ int64) (int64, error) {
+	m.sumTokenizerRevision = tokenizerRevision
 	return 0, nil
 }
 
@@ -160,30 +170,34 @@ type mockSummarizer struct {
 	humanSummary string
 	err          error
 	called       bool
+	providerID   string
+	modelID      string
 	priorSummary string
 }
 
-func (m *mockSummarizer) Summarize(_ context.Context, _, _, _ string, _, _ int64, _ []SummaryMessage, priorSummary string) (string, string, error) {
+func (m *mockSummarizer) Summarize(_ context.Context, _, providerID, modelID string, _, _ int64, _ []SummaryMessage, priorSummary string) (string, string, error) {
 	m.called = true
+	m.providerID = providerID
+	m.modelID = modelID
 	m.priorSummary = priorSummary
 	return m.summaryJSON, m.humanSummary, m.err
 }
 
 func makePendingCheckpoint() *compaction.Checkpoint {
 	return &compaction.Checkpoint{
-		ID:               "01ARZ3NDEKTSV4RRFFQ69G5FA0",
-		SessionID:        "01ARZ3NDEKTSV4RRFFQ69G5FA1",
-		Version:          1,
-		SourceStartID:    "01ARZ3NDEKTSV4RRFFQ69G5FA2",
-		SourceEndID:      "01ARZ3NDEKTSV4RRFFQ69G5FA3",
-		SourceStartSeq:   1,
-		SourceEndSeq:     10,
-		SourceDigest:     "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-		Status:           compaction.StatusPending,
-		SummaryJSON:      "{}",
+		ID:                   "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+		SessionID:            "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+		Version:              1,
+		SourceStartID:        "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+		SourceEndID:          "01ARZ3NDEKTSV4RRFFQ69G5FA3",
+		SourceStartSeq:       1,
+		SourceEndSeq:         10,
+		SourceDigest:         "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		Status:               compaction.StatusPending,
+		SummaryJSON:          "{}",
 		SummarySchemaVersion: "1.0",
-		Provider:         "test",
-		Model:            "test",
+		Provider:             "test",
+		Model:                "test",
 	}
 }
 
@@ -218,6 +232,38 @@ func TestExecute_Success(t *testing.T) {
 	}
 	if store.updates[1].status != compaction.StatusSucceeded {
 		t.Fatalf("expected second update to succeeded, got %s", store.updates[1].status)
+	}
+}
+
+func TestExecuteAutomaticCheckpointPassesProviderIDToSummarizer(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Trigger = compaction.TriggerAutomatic
+	cp.Provider = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	store := &mockExecutorStore{checkpoint: cp}
+	summarizer := &mockSummarizer{summaryJSON: `{}`, humanSummary: "summary"}
+	exec := NewExecutor(store, &mockSourceReader{messages: []SummaryMessage{{ID: "m1", Role: "user", Content: "hello", Sequence: 1}}}, summarizer)
+
+	if _, err := exec.Execute(context.Background(), cp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if summarizer.providerID != cp.Provider {
+		t.Fatalf("automatic summarizer provider = %q, want real provider ID %q", summarizer.providerID, cp.Provider)
+	}
+}
+
+func TestExecuteManualCheckpointPassesProviderIDToSummarizer(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.Trigger = compaction.TriggerManual
+	cp.Provider = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	store := &mockExecutorStore{checkpoint: cp}
+	summarizer := &mockSummarizer{summaryJSON: `{}`, humanSummary: "summary"}
+	exec := NewExecutor(store, &mockSourceReader{messages: []SummaryMessage{{ID: "m1", Role: "user", Content: "hello", Sequence: 1}}}, summarizer)
+
+	if _, err := exec.Execute(context.Background(), cp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if summarizer.providerID != cp.Provider {
+		t.Fatalf("manual summarizer provider = %q, want real provider ID %q", summarizer.providerID, cp.Provider)
 	}
 }
 
@@ -261,6 +307,32 @@ func TestExecute_EmptySourceRange(t *testing.T) {
 	}
 	if store.updates[1].failureCode == nil || *store.updates[1].failureCode != "EMPTY_SOURCE_RANGE" {
 		t.Fatalf("expected failure code EMPTY_SOURCE_RANGE")
+	}
+}
+
+func TestExecute_OversizedSourceRangeFailsClosed(t *testing.T) {
+	store := &mockExecutorStore{checkpoint: makePendingCheckpoint()}
+	reader := &mockSourceReader{messages: []SummaryMessage{
+		{ID: "m1", Sequence: 1},
+		{ID: "m2", Sequence: 2},
+		{ID: "m3", Sequence: 3},
+	}}
+	summarizer := &mockSummarizer{}
+	exec := NewExecutor(store, reader, summarizer)
+	exec.SetMaxMessages(2)
+
+	result, err := exec.Execute(context.Background(), store.checkpoint.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != compaction.StatusFailed {
+		t.Fatalf("expected failed, got %s", result.Status)
+	}
+	if summarizer.called {
+		t.Fatal("summarizer must not receive a truncated source range")
+	}
+	if len(store.updates) != 2 || store.updates[1].failureCode == nil || *store.updates[1].failureCode != "SOURCE_RANGE_TOO_LARGE" {
+		t.Fatalf("expected SOURCE_RANGE_TOO_LARGE failure update, got %#v", store.updates)
 	}
 }
 
@@ -402,9 +474,9 @@ func TestRecoverOrphanedCheckpoints_RunningMarkedFailed(t *testing.T) {
 // checkpoints are re-executed synchronously during recovery (ADR-005 §5).
 func TestRecoverOrphanedCheckpoints_PendingReexecuted(t *testing.T) {
 	pendingCP := compaction.Checkpoint{
-		ID:            "cp-pending-1",
-		SessionID:     "s1",
-		Version:       1,
+		ID:             "cp-pending-1",
+		SessionID:      "s1",
+		Version:        1,
 		SourceStartSeq: 1,
 		SourceEndSeq:   5,
 		Status:         compaction.StatusPending,
@@ -519,6 +591,14 @@ func (f *fakeCheckpointStore) UpdateCheckpointStatus(_ context.Context, id strin
 	cp.SummaryJSON = summaryJSON
 	cp.HumanSummary = humanSummary
 	cp.FailureCode = failureCode
+	return nil
+}
+
+func (f *fakeCheckpointStore) ActivateCheckpoint(_ context.Context, id string, baseVersion int64) error {
+	cp := f.checkpoints[id]
+	if cp == nil || cp.Version != baseVersion {
+		return ErrVersionConflict
+	}
 	return nil
 }
 
@@ -717,19 +797,19 @@ func TestCommitMarksPreviousSucceededAsSuperseded(t *testing.T) {
 
 	// Previous succeeded checkpoint (should be superseded).
 	prevCp := &compaction.Checkpoint{
-		ID:                  "01ARZ3NDEKTSV4RRFFQ69G5FAB",
-		SessionID:           cp.SessionID,
-		Version:             1,
-		SourceStartID:       "01ARZ3NDEKTSV4RRFFQ69G5FA2",
-		SourceEndID:         "01ARZ3NDEKTSV4RRFFQ69G5FA3",
-		SourceStartSeq:      1,
-		SourceEndSeq:        5,
-		SourceDigest:        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-		Status:              compaction.StatusSucceeded,
-		SummaryJSON:         "{}",
+		ID:                   "01ARZ3NDEKTSV4RRFFQ69G5FAB",
+		SessionID:            cp.SessionID,
+		Version:              1,
+		SourceStartID:        "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+		SourceEndID:          "01ARZ3NDEKTSV4RRFFQ69G5FA3",
+		SourceStartSeq:       1,
+		SourceEndSeq:         5,
+		SourceDigest:         "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		Status:               compaction.StatusSucceeded,
+		SummaryJSON:          "{}",
 		SummarySchemaVersion: "1.0",
-		Provider:            "test",
-		Model:               "test",
+		Provider:             "test",
+		Model:                "test",
 	}
 
 	store := &mockExecutorStore{
@@ -824,6 +904,9 @@ func TestVerifyLowWatermarkPasses(t *testing.T) {
 	}
 	if fraction > 0.60 {
 		t.Fatalf("expected fraction <= 0.60, got %f", fraction)
+	}
+	if store.sumTokenizerRevision != token.CanonicalTokenizerRevision {
+		t.Fatalf("tokenizer revision = %q, want canonical %q", store.sumTokenizerRevision, token.CanonicalTokenizerRevision)
 	}
 }
 

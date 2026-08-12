@@ -44,7 +44,12 @@ func (s *Store) CreateCheckpoint(ctx context.Context, cp compaction.Checkpoint) 
 	if cp.CompletedAt != nil {
 		completedAt = formatTime(*cp.CompletedAt)
 	}
-	_, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return cp, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO compaction_checkpoints(id, session_id, version, source_start_id, source_end_id,
 		 source_start_seq, source_end_seq, source_digest, prev_checkpoint_id, prev_checkpoint_digest,
 		 summary_schema_version, trigger, trigger_reason, status, provider, model,
@@ -54,7 +59,15 @@ func (s *Store) CreateCheckpoint(ctx context.Context, cp compaction.Checkpoint) 
 		cp.SourceStartSeq, cp.SourceEndSeq, cp.SourceDigest, prevCheckpointID, prevCheckpointDigest,
 		cp.SummarySchemaVersion, cp.Trigger, cp.TriggerReason, cp.Status, cp.Provider, cp.Model,
 		cp.SummaryJSON, cp.HumanSummary, failureCode, formatTime(cp.CreatedAt), completedAt)
-	return cp, mapWriteError(err)
+	if err != nil {
+		return cp, mapWriteError(err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO compaction_activation_bases(checkpoint_id,base_revision)
+		SELECT ?,COALESCE((SELECT revision FROM compaction_activations WHERE session_id=?),0)`, cp.ID, cp.SessionID)
+	if err != nil {
+		return cp, mapWriteError(err)
+	}
+	return cp, tx.Commit()
 }
 
 // GetCheckpoint returns a checkpoint by ID.
@@ -302,6 +315,54 @@ func (s *Store) MarkPreviousSucceededAsSuperseded(ctx context.Context, sessionID
 		return 0, err
 	}
 	return rows, nil
+}
+
+// ActivateCheckpoint atomically advances the session activation revision and
+// supersedes older succeeded checkpoints on one pinned SQLite transaction.
+func (s *Store) ActivateCheckpoint(ctx context.Context, id string, baseVersion int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var sessionID string
+	var version int64
+	var activationBase int64
+	var status compaction.Status
+	if err = tx.QueryRowContext(ctx, `SELECT session_id,version,status FROM compaction_checkpoints WHERE id=?`, id).Scan(&sessionID, &version, &status); err != nil {
+		if err == sql.ErrNoRows {
+			return compactionapp.ErrCheckpointNotFound
+		}
+		return err
+	}
+	if status != compaction.StatusSucceeded {
+		return compactionapp.ErrCheckpointNotSucceeded
+	}
+	if version != baseVersion {
+		return compactionapp.ErrVersionConflict
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT base_revision FROM compaction_activation_bases WHERE checkpoint_id=?`, id).Scan(&activationBase); err != nil {
+		return err
+	}
+	now := formatTime(time.Now().UTC())
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO compaction_activations(session_id,checkpoint_id,revision,updated_at) VALUES(?,NULL,0,?)`, sessionID, now); err != nil {
+		return mapWriteError(err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE compaction_activations SET checkpoint_id=?,revision=revision+1,updated_at=? WHERE session_id=? AND revision=?`, id, now, sessionID, activationBase)
+	if err != nil {
+		return mapWriteError(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return compactionapp.ErrVersionConflict
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE compaction_checkpoints SET status='superseded',completed_at=? WHERE session_id=? AND status='succeeded' AND id<>?`, now, sessionID, id); err != nil {
+		return mapWriteError(err)
+	}
+	return tx.Commit()
 }
 
 // GetLatestSucceededCheckpoint returns the latest succeeded checkpoint for the

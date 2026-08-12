@@ -75,14 +75,20 @@ func Dispatch(ctx context.Context, gateway *hostbridge.Gateway, generation uint6
 			var request struct {
 				Method string `json:"method"`
 			}
-			if json.Unmarshal(message.JSON, &request) != nil || request.Method != "chat.start" {
+			if json.Unmarshal(message.JSON, &request) != nil || (request.Method != "chat.start" && request.Method != "terminal.start") {
 				return
 			}
 			payload, _ := json.Marshal(response.Payload)
 			var result struct {
-				StreamID string `json:"streamId"`
+				StreamID   string `json:"streamId"`
+				TerminalID string `json:"terminalId"`
 			}
-			if json.Unmarshal(payload, &result) == nil && result.StreamID != "" {
+			if json.Unmarshal(payload, &result) == nil {
+				if result.StreamID == "" {
+					result.StreamID = result.TerminalID
+				}
+			}
+			if result.StreamID != "" {
 				gateway.ActivateStream(generation, result.StreamID)
 			}
 		}) {

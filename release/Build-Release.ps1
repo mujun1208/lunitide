@@ -39,7 +39,8 @@ Push-Location $root
 try {
   $env:CGO_ENABLED='0'; $env:GOOS='windows'; $env:GOARCH='amd64'
   $ld="-s -w -X github.com/lunitide/lunitide/internal/buildinfo.Version=$version"
-  & go build -trimpath -buildvcs=false -ldflags $ld -o (Join-Path $stage 'Lunitide.exe') ./cmd/desktop
+  $desktopLd="-H=windowsgui $ld"
+  & go build -trimpath -buildvcs=false -ldflags $desktopLd -o (Join-Path $stage 'Lunitide.exe') ./cmd/desktop
   if ($LASTEXITCODE) { throw 'desktop build failed' }
   & go build -trimpath -buildvcs=false -ldflags $ld -o (Join-Path $stage 'lunitide-engine.exe') ./cmd/engine
   if ($LASTEXITCODE) { throw 'engine build failed' }
@@ -124,8 +125,11 @@ if (-not $SkipInstaller) {
     if ($reparse) { throw "NSIS archive extracted a reparse point: $($reparse.FullName)" }
     $makeNsis=Join-Path $nsis "nsis-$nsisVersion\makensis.exe"
     if (-not (Test-Path $makeNsis -PathType Leaf)) { throw 'Fresh NSIS extraction is missing makensis.exe' }
+    $installerScript=Join-Path $PSScriptRoot 'installer.nsi'
+    $installerScriptBytes=[IO.File]::ReadAllBytes($installerScript)
+    if ($installerScriptBytes.Length -lt 3 -or $installerScriptBytes[0] -ne 0xEF -or $installerScriptBytes[1] -ne 0xBB -or $installerScriptBytes[2] -ne 0xBF) { throw 'installer.nsi must be UTF-8 with BOM so NSIS preserves non-ASCII product metadata' }
     $installer=Join-Path $out "Lunitide-Setup-$version-x64.exe"
-    & $makeNsis "/DVERSION=$version" "/DSTAGE=$stage" "/DOUTFILE=$installer" (Join-Path $PSScriptRoot 'installer.nsi')
+    & $makeNsis /WX "/DVERSION=$version" "/DSTAGE=$stage" "/DOUTFILE=$installer" $installerScript
     if ($LASTEXITCODE) { throw 'NSIS compilation failed' }
   } finally {
     Remove-Item $nsis -Recurse -Force -ErrorAction SilentlyContinue

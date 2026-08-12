@@ -1,10 +1,11 @@
 package compactionapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"io"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -69,6 +70,22 @@ type GatewaySummarizer struct {
 	timeout   time.Duration
 }
 
+type summarizerInput struct {
+	Kind           string           `json:"kind"`
+	SessionID      string           `json:"sessionId"`
+	SourceStartSeq int64            `json:"sourceStartSeq"`
+	SourceEndSeq   int64            `json:"sourceEndSeq"`
+	PriorSummary   *json.RawMessage `json:"priorSummary"`
+	Messages       []SummaryMessage `json:"messages"`
+}
+
+type structuredSummary struct {
+	Summary     string         `json:"summary"`
+	KeyPoints   []string       `json:"keyPoints"`
+	ActionItems []string       `json:"actionItems"`
+	Entities    map[string]any `json:"entities,omitempty"`
+}
+
 // NewGatewaySummarizer creates a new gateway-backed summarizer.
 func NewGatewaySummarizer(providers ProviderLookup, leases LeaseAcquirer, adapters AdapterFactory, config GatewaySummarizerConfig) *GatewaySummarizer {
 	return &GatewaySummarizer{
@@ -100,37 +117,10 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 		return "", "", fmt.Errorf("summarizer provider lookup: %w", err)
 	}
 
-	// Build gateway messages from the conversation segment.
-	gwMessages := make([]gateway.Message, 0, len(messages)+1)
-	gwMessages = append(gwMessages, gateway.Message{
-		Role:    gateway.RoleSystem,
-		Content: s.config.SystemPrompt,
-	})
-
-	var conversationBuilder strings.Builder
-	conversationBuilder.WriteString("Conversation segment to summarize (messages ")
-	conversationBuilder.WriteString(fmt.Sprintf("%d-%d):\n\n", sourceStartSeq, sourceEndSeq))
-
-	// Include prior summary for rolling/incremental compaction (ADR-005 §3).
-	if priorSummary != "" {
-		conversationBuilder.WriteString("=== PRIOR SUMMARY (from previous compaction) ===\n")
-		conversationBuilder.WriteString(priorSummary)
-		conversationBuilder.WriteString("\n=== END PRIOR SUMMARY ===\n\n")
-		conversationBuilder.WriteString("New messages to incorporate into the summary:\n\n")
+	gwMessages, err := buildSummarizerMessages(s.config.SystemPrompt, sessionID, sourceStartSeq, sourceEndSeq, messages, priorSummary)
+	if err != nil {
+		return "", "", err
 	}
-
-	for _, m := range messages {
-		role := "User"
-		if m.Role == "assistant" {
-			role = "Assistant"
-		}
-		conversationBuilder.WriteString(fmt.Sprintf("[%s]: %s\n\n", role, m.Content))
-	}
-
-	gwMessages = append(gwMessages, gateway.Message{
-		Role:    gateway.RoleUser,
-		Content: conversationBuilder.String(),
-	})
 
 	// Determine model: use provided modelID, or config model, or provider default.
 	model := modelID
@@ -188,26 +178,28 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 		}
 
 		content := resp.Message.Content
-		// Try to parse as JSON; if it fails, use raw content as humanSummary.
-		var structured map[string]any
-		if jsonErr := json.Unmarshal([]byte(content), &structured); jsonErr == nil {
-			summaryJSON = content
-			if summary, ok := structured["summary"].(string); ok {
-				humanSummary = summary
-			} else {
-				humanSummary = content
-			}
-		} else {
-			// LLM didn't return valid JSON; wrap it.
-			wrapped := map[string]any{
-				"summary":     content,
-				"keyPoints":   []string{},
-				"actionItems": []string{},
-			}
-			data, _ := json.Marshal(wrapped)
-			summaryJSON = string(data)
-			humanSummary = content
+		var structured structuredSummary
+		decoder := json.NewDecoder(bytes.NewBufferString(content))
+		decoder.DisallowUnknownFields()
+		jsonErr := decoder.Decode(&structured)
+		if jsonErr == nil {
+			jsonErr = decoder.Decode(&struct{}{})
 		}
+		if (jsonErr != nil && jsonErr != io.EOF) || structured.Summary == "" {
+			return fmt.Errorf("summarizer returned invalid structured JSON")
+		}
+		if structured.KeyPoints == nil {
+			structured.KeyPoints = []string{}
+		}
+		if structured.ActionItems == nil {
+			structured.ActionItems = []string{}
+		}
+		data, marshalErr := json.Marshal(structured)
+		if marshalErr != nil {
+			return fmt.Errorf("canonicalize summary: %w", marshalErr)
+		}
+		summaryJSON = string(data)
+		humanSummary = structured.Summary
 		return nil
 	})
 
@@ -216,4 +208,24 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 	}
 
 	return summaryJSON, humanSummary, nil
+}
+
+func buildSummarizerMessages(systemPrompt, sessionID string, sourceStartSeq, sourceEndSeq int64, messages []SummaryMessage, priorSummary string) ([]gateway.Message, error) {
+	// Engine-owned instructions retain system authority. Every model/user-made
+	// source is encoded as canonical JSON in a single user-role data message so
+	// fake delimiters and role labels cannot alter prompt structure.
+	input := summarizerInput{Kind: "untrusted_compaction_input", SessionID: sessionID, SourceStartSeq: sourceStartSeq, SourceEndSeq: sourceEndSeq, Messages: messages}
+	if priorSummary != "" {
+		raw := json.RawMessage(priorSummary)
+		if !json.Valid(raw) {
+			quoted, _ := json.Marshal(priorSummary)
+			raw = quoted
+		}
+		input.PriorSummary = &raw
+	}
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("encode summarizer input: %w", err)
+	}
+	return []gateway.Message{{Role: gateway.RoleSystem, Content: systemPrompt}, {Role: gateway.RoleUser, Content: string(inputJSON)}}, nil
 }

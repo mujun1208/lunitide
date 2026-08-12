@@ -1,0 +1,3 @@
+import React from'react'
+const HTTPS_URL=/https:\/\/[^\s<>"'，。！？；：、（）【】《》「」『』]+/gi
+export function SafeLinkedText({text}:{text:string}):React.JSX.Element{const parts:React.ReactNode[]=[];let cursor=0,match:RegExpExecArray|null,index=0;while((match=HTTPS_URL.exec(text))){const raw=match[0],trailing=/[),.!?;:]+$/.exec(raw)?.[0]??'',candidate=trailing?raw.slice(0,-trailing.length):raw;let safe=false;try{safe=new URL(candidate).protocol==='https:'}catch{}parts.push(text.slice(cursor,match.index));parts.push(safe?<a key={index++} href={candidate} target="_blank" rel="noreferrer noopener">{candidate}</a>:candidate);if(trailing)parts.push(trailing);cursor=match.index+raw.length}parts.push(text.slice(cursor));return <>{parts}</>}

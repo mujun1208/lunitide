@@ -3,9 +3,11 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/handoff"
+	"github.com/lunitide/lunitide/internal/handoffapp"
 )
 
 // CreateCapsule inserts a new handoff capsule.
@@ -121,27 +123,92 @@ func (s *Store) ListActiveCapsules(ctx context.Context, sessionID string) ([]han
 	return scanCapsules(rows)
 }
 
-// ActivateCapsule binds a capsule to a destination session and sets its status to activated.
-func (s *Store) ActivateCapsule(ctx context.Context, id string, destSessionID string) error {
-	now := formatTime(time.Now().UTC())
-	_, err := s.db.ExecContext(ctx,
+// ActivateCapsule atomically validates the capsule and destination before
+// binding it. BEGIN IMMEDIATE serializes activation with revoke/expire so only
+// one terminal transition can win.
+func (s *Store) ActivateCapsule(ctx context.Context, id string, destSessionID string, now time.Time) error {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return mapWriteError(err)
+	}
+	defer conn.ExecContext(context.Background(), `ROLLBACK`)
+
+	var status, sourceProject string
+	var expiresAt sql.NullString
+	err = conn.QueryRowContext(ctx, `SELECT c.status,c.expires_at,source.project_id
+		FROM handoff_capsules c JOIN sessions source ON source.id=c.source_session_id
+		WHERE c.id=?`, id).Scan(&status, &expiresAt, &sourceProject)
+	if errors.Is(err, sql.ErrNoRows) {
+		return handoffapp.ErrCapsuleNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var destProject string
+	err = conn.QueryRowContext(ctx, `SELECT project_id FROM sessions WHERE id=?`, destSessionID).Scan(&destProject)
+	if errors.Is(err, sql.ErrNoRows) {
+		return handoffapp.ErrDestinationSessionNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != string(handoff.StatusActive) {
+		return handoffapp.ErrCapsuleNotActive
+	}
+	if expiresAt.Valid {
+		expires, parseErr := time.Parse(time.RFC3339Nano, expiresAt.String)
+		if parseErr != nil {
+			return parseErr
+		}
+		if !now.Before(expires) {
+			return handoffapp.ErrCapsuleExpired
+		}
+	}
+	if sourceProject != destProject {
+		return handoffapp.ErrCrossProjectImport
+	}
+	res, err := conn.ExecContext(ctx,
 		`UPDATE handoff_capsules SET dest_session_id=?, status='activated', activated_at=? WHERE id=? AND status='active'`,
-		destSessionID, now, id)
-	return mapWriteError(err)
+		destSessionID, formatTime(now), id)
+	if err := handoffConditionalResult(res, err); err != nil {
+		return err
+	}
+	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return mapWriteError(err)
+	}
+	return nil
 }
 
 // RevokeCapsule sets a capsule's status to revoked.
 func (s *Store) RevokeCapsule(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE handoff_capsules SET status='revoked' WHERE id=? AND status='active'`, id)
-	return mapWriteError(err)
+	return handoffConditionalResult(res, err)
 }
 
 // ExpireCapsule sets a capsule's status to expired.
 func (s *Store) ExpireCapsule(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE handoff_capsules SET status='expired' WHERE id=? AND status='active'`, id)
-	return mapWriteError(err)
+	return handoffConditionalResult(res, err)
+}
+
+func handoffConditionalResult(res sql.Result, err error) error {
+	if err != nil {
+		return mapWriteError(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return handoffapp.ErrCapsuleNotActive
+	}
+	return nil
 }
 
 // RecordImport records that a capsule was imported into a target session as
@@ -152,38 +219,83 @@ func (s *Store) ExpireCapsule(ctx context.Context, id string) error {
 //
 // The target_session_id FK to sessions(id) ON DELETE CASCADE ensures import
 // records are cleaned up when the target session is deleted.
-func (s *Store) RecordImport(ctx context.Context, capsuleID, targetSessionID string) (importID string, importedAt time.Time, isNew bool, err error) {
-	now := time.Now().UTC()
+func (s *Store) ValidateAndRecordImport(ctx context.Context, capsuleID, targetSessionID string, now time.Time) (importedAt time.Time, isNew bool, err error) {
 	importID, idErr := s.newULID(now)
 	if idErr != nil {
-		return "", time.Time{}, false, idErr
+		return time.Time{}, false, idErr
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return time.Time{}, false, mapWriteError(err)
+	}
+	defer conn.ExecContext(context.Background(), `ROLLBACK`)
+	var status string
+	var expiresAt sql.NullString
+	var sourceProject, targetProject string
+	err = conn.QueryRowContext(ctx, `SELECT c.status,c.expires_at,source.project_id,target.project_id
+		FROM handoff_capsules c JOIN sessions source ON source.id=c.source_session_id
+		JOIN sessions target ON target.id=? WHERE c.id=?`, targetSessionID, capsuleID).
+		Scan(&status, &expiresAt, &sourceProject, &targetProject)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, handoffapp.ErrCapsuleNotFound
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if status != string(handoff.StatusActive) {
+		return time.Time{}, false, handoffapp.ErrCapsuleNotActive
+	}
+	if expiresAt.Valid {
+		expires, parseErr := time.Parse(time.RFC3339Nano, expiresAt.String)
+		if parseErr != nil {
+			return time.Time{}, false, parseErr
+		}
+		if now.After(expires) {
+			return time.Time{}, false, handoffapp.ErrCapsuleExpired
+		}
+	}
+	if sourceProject != targetProject {
+		return time.Time{}, false, handoffapp.ErrCrossProjectImport
 	}
 	importedAt = now
-	res, execErr := s.db.ExecContext(ctx,
+	res, execErr := conn.ExecContext(ctx,
 		`INSERT INTO handoff_imports(id, capsule_id, target_session_id, imported_at)
 		 VALUES(?,?,?,?)
 		 ON CONFLICT(capsule_id, target_session_id) DO NOTHING`,
 		importID, capsuleID, targetSessionID, formatTime(importedAt))
 	if execErr != nil {
-		return "", time.Time{}, false, mapWriteError(execErr)
+		return time.Time{}, false, mapWriteError(execErr)
 	}
-	affected, _ := res.RowsAffected()
+	affected, rowsErr := res.RowsAffected()
+	if rowsErr != nil {
+		return time.Time{}, false, rowsErr
+	}
 	if affected == 0 {
 		// Idempotent re-import: load the existing imported_at.
 		var existingAt string
-		scanErr := s.db.QueryRowContext(ctx,
+		scanErr := conn.QueryRowContext(ctx,
 			`SELECT imported_at FROM handoff_imports WHERE capsule_id=? AND target_session_id=?`,
 			capsuleID, targetSessionID).Scan(&existingAt)
 		if scanErr != nil {
-			return "", time.Time{}, false, scanErr
+			return time.Time{}, false, scanErr
 		}
 		importedAt, err = time.Parse(time.RFC3339Nano, existingAt)
 		if err != nil {
-			return "", time.Time{}, false, err
+			return time.Time{}, false, err
 		}
-		return "", importedAt, false, nil
+		if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
+			return time.Time{}, false, mapWriteError(err)
+		}
+		return importedAt, false, nil
 	}
-	return importID, importedAt, true, nil
+	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return time.Time{}, false, mapWriteError(err)
+	}
+	return importedAt, true, nil
 }
 
 // GetImport returns the imported_at timestamp for a capsule imported into a

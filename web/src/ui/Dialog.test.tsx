@@ -1,0 +1,7 @@
+import React,{createRef}from'react'
+import{cleanup,fireEvent,render,screen}from'@testing-library/react'
+import{afterEach,expect,it,vi}from'vitest'
+import{Dialog}from'./Dialog'
+afterEach(cleanup)
+it('falls back from disabled initial focus, traps escaped focus, and ignores callback identity rerenders',async()=>{const initial=createRef<HTMLButtonElement>(),outside=document.createElement('button');document.body.append(outside);outside.focus();const view=render(<Dialog open title="One" onClose={vi.fn()} initialFocus={initial}><button ref={initial} disabled>disabled</button><button>fallback</button></Dialog>);await new Promise(requestAnimationFrame);expect(screen.getByRole('button',{name:'fallback'})).toHaveFocus();outside.focus();fireEvent.keyDown(document,{key:'Tab'});expect(screen.getByRole('button',{name:'fallback'})).toHaveFocus();outside.focus();view.rerender(<Dialog open title="One" onClose={()=>{}} initialFocus={initial}><button ref={initial} disabled>disabled</button><button>fallback</button></Dialog>);await Promise.resolve();expect(outside).toHaveFocus();outside.remove()})
+it('uses unique accessible ids for simultaneous dialogs',()=>{render(<><Dialog open title="One" onClose={()=>{}}><button>one</button></Dialog><Dialog open title="Two" onClose={()=>{}}><button>two</button></Dialog></>);const dialogs=screen.getAllByRole('dialog');expect(dialogs[0].getAttribute('aria-labelledby')).not.toBe(dialogs[1].getAttribute('aria-labelledby'))})

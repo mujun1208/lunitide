@@ -40,11 +40,17 @@ type Response struct {
 type EventType string
 
 const (
-	EventDelta     EventType = "delta"
-	EventUsage     EventType = "usage"
-	EventCompleted EventType = "completed"
-	EventCancelled EventType = "cancelled"
-	EventFailed    EventType = "failed"
+	EventDelta            EventType = "delta"
+	EventThinking         EventType = "thinking"
+	EventUsage            EventType = "usage"
+	EventToolStarted      EventType = "tool_started"
+	EventToolCompleted    EventType = "tool_completed"
+	EventApprovalRequired EventType = "approval_required"
+	EventCompleted        EventType = "completed"
+	EventCancelled        EventType = "cancelled"
+	EventFailed           EventType = "failed"
+	EventTerminalOutput   EventType = "terminal_output"
+	EventTerminalExit     EventType = "terminal_exit"
 )
 
 type Event struct {
@@ -55,11 +61,21 @@ type Event struct {
 	Sequence  uint64          `json:"sequence"`
 	Type      EventType       `json:"type"`
 	Delta     *DeltaEvent     `json:"delta,omitempty"`
+	Thinking  *ThinkingEvent  `json:"thinking,omitempty"`
 	Usage     *UsageEvent     `json:"usage,omitempty"`
 	Completed *CompletedEvent `json:"completed,omitempty"`
 	Error     *StreamError    `json:"error,omitempty"`
+	Tool      *ToolEvent      `json:"tool,omitempty"`
+	Terminal  *TerminalEvent  `json:"terminal,omitempty"`
+}
+type TerminalEvent struct {
+	Data     string `json:"data,omitempty"`
+	ExitCode uint32 `json:"exitCode,omitempty"`
 }
 type DeltaEvent struct {
+	Text string `json:"text"`
+}
+type ThinkingEvent struct {
 	Text string `json:"text"`
 }
 type UsageEvent struct {
@@ -69,6 +85,19 @@ type UsageEvent struct {
 }
 type CompletedEvent struct {
 	MessageID string `json:"messageId,omitempty"`
+}
+type ToolEvent struct {
+	CallID     string         `json:"callId"`
+	Name       string         `json:"name"`
+	ArgsDigest string         `json:"argsDigest"`
+	Summary    string         `json:"summary,omitempty"`
+	Artifact   *ArtifactEvent `json:"artifact,omitempty"`
+}
+
+type ArtifactEvent struct {
+	Kind    string `json:"kind"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 type StreamError struct {
 	Code      string `json:"code"`

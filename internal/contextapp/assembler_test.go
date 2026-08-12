@@ -271,14 +271,11 @@ func TestAssemblePriorSummaryInjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) < 2 {
-		t.Fatalf("expected at least 2 messages (summary + user), got %d", len(msgs))
+	if len(msgs) != 1 || msgs[0].Role != "user" {
+		t.Fatalf("expected summary to remain user-context data, got %#v", msgs)
 	}
-	if msgs[0].Role != "system" {
-		t.Fatalf("expected first message to be system summary, got role %s", msgs[0].Role)
-	}
-	if !strings.Contains(msgs[0].Content, "[Prior Context Summary]") {
-		t.Fatalf("expected summary preamble, got %q", msgs[0].Content)
+	if !strings.Contains(msgs[0].Content, "BEGIN UNTRUSTED Prior Summary USER-CONTEXT DATA") {
+		t.Fatalf("expected quoted summary data, got %q", msgs[0].Content)
 	}
 }
 
@@ -441,20 +438,20 @@ func TestAssemblePinnedFactsWithPriorSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Expect: [PriorSummary] + [PinnedFacts] + [user message]
-	if len(msgs) < 3 {
-		t.Fatalf("expected at least 3 messages, got %d", len(msgs))
+	// Pinned facts remain trusted; prior model output is quoted into the user turn.
+	if len(msgs) != 2 {
+		t.Fatalf("expected pinned facts + user-context data, got %d", len(msgs))
 	}
-	if !strings.Contains(msgs[0].Content, "[Prior Context Summary]") {
-		t.Fatalf("expected first message to be prior summary, got %q", msgs[0].Content)
+	if !strings.Contains(msgs[0].Content, "[Pinned Facts]") {
+		t.Fatalf("expected first message to be pinned facts, got %q", msgs[0].Content)
 	}
-	if !strings.Contains(msgs[1].Content, "[Pinned Facts]") {
-		t.Fatalf("expected second message to be pinned facts, got %q", msgs[1].Content)
+	if msgs[1].Role != "user" || !strings.Contains(msgs[1].Content, "BEGIN UNTRUSTED Prior Summary USER-CONTEXT DATA") {
+		t.Fatalf("expected prior summary as user data, got %#v", msgs[1])
 	}
 }
 
 // TestAssembleRetrievedEvidenceWithinBudget verifies that RetrievedEvidence is
-// appended when within the remaining budget.
+// safely appended to user context when within the remaining budget.
 func TestAssembleRetrievedEvidenceWithinBudget(t *testing.T) {
 	reader := &mockReader{
 		messages: []Message{
@@ -469,13 +466,13 @@ func TestAssembleRetrievedEvidenceWithinBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Last message should be the retrieved evidence system message.
+	// Retrieved evidence remains quoted user-context data, never system data.
 	last := msgs[len(msgs)-1]
-	if last.Role != "system" {
-		t.Fatalf("expected last message to be system, got %s", last.Role)
+	if last.Role != "user" {
+		t.Fatalf("expected evidence to remain user context, got %s", last.Role)
 	}
-	if !strings.Contains(last.Content, "[Retrieved Evidence]") {
-		t.Fatalf("expected retrieved evidence preamble, got %q", last.Content)
+	if !strings.Contains(last.Content, "BEGIN UNTRUSTED Related Evidence USER-CONTEXT DATA") {
+		t.Fatalf("expected quoted retrieved evidence, got %q", last.Content)
 	}
 }
 
@@ -500,7 +497,7 @@ func TestAssembleRetrievedEvidenceExceedingBudget(t *testing.T) {
 	}
 	// Last message should NOT be retrieved evidence (exceeds budget).
 	last := msgs[len(msgs)-1]
-	if strings.Contains(last.Content, "[Retrieved Evidence]") {
+	if strings.Contains(last.Content, "BEGIN UNTRUSTED Related Evidence USER-CONTEXT DATA") {
 		t.Fatal("retrieved evidence should not be included when exceeding budget")
 	}
 }
