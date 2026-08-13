@@ -116,11 +116,76 @@ type fakeMessageReader struct {
 	messages []MessageInfo
 }
 
-func (f *fakeMessageReader) ListMessages(ctx context.Context, sessionID string, direction string, limit int) ([]MessageInfo, error) {
-	if limit > len(f.messages) {
-		limit = len(f.messages)
+func (f *fakeMessageReader) ListMessages(ctx context.Context, sessionID string, direction string, snapshot, boundary int64, limit int) ([]MessageInfo, int64, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, false, err
 	}
-	return f.messages[:limit], nil
+	if len(f.messages) == 0 {
+		return nil, 0, false, nil
+	}
+	stableSnapshot := snapshot
+	if stableSnapshot == 0 {
+		for _, msg := range f.messages {
+			if msg.Sequence > stableSnapshot {
+				stableSnapshot = msg.Sequence
+			}
+		}
+	}
+	view := make([]MessageInfo, 0, len(f.messages))
+	for _, msg := range f.messages {
+		if msg.Sequence <= stableSnapshot {
+			view = append(view, msg)
+		}
+	}
+	start := 0
+	if boundary != 0 {
+		for start < len(view) {
+			seq := view[start].Sequence
+			if (direction == "backward" && seq < boundary) || (direction != "backward" && seq > boundary) {
+				break
+			}
+			start++
+		}
+	}
+	end := start + limit
+	if end > len(view) {
+		end = len(view)
+	}
+	return view[start:end], stableSnapshot, end < len(view), nil
+}
+
+func TestLockSessionHonorsCancellation(t *testing.T) {
+	trigger := NewTrigger(DefaultWatermarkConfig(), newFakeTokenRepo(), newFakeCheckpointStore(), &fakeMessageReader{})
+	unlock, err := trigger.LockSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err = trigger.LockSession(ctx, "s1"); err != context.Canceled {
+		t.Fatalf("lock error = %v, want context.Canceled", err)
+	}
+}
+
+func TestTriggerScansBeyondSingleMessagePage(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 240000
+	messages := makeMessages(1200)
+	for i := range messages {
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{MessageID: messages[i].ID, TokenCount: 200}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, &fakeMessageReader{messages: messages})
+
+	result, err := trigger.CheckAndTrigger(context.Background(), "s1", "p1", "m1", "v1", 100000)
+	if err != nil || !result.Triggered {
+		t.Fatalf("long-session trigger = %#v, %v", result, err)
+	}
+	cp := checkpointStore.checkpoints[result.CheckpointID]
+	if cp == nil || cp.SourceStartSeq != 1 {
+		t.Fatalf("compaction did not reach oldest message: %#v", cp)
+	}
 }
 
 func TestTrigger_BelowHighWatermark(t *testing.T) {
@@ -493,6 +558,13 @@ func TestTriggerManualInvalidRange(t *testing.T) {
 	}
 }
 
+func TestTriggerManualRejectsMissingRequestedBoundary(t *testing.T) {
+	trigger := NewTrigger(DefaultWatermarkConfig(), newFakeTokenRepo(), newFakeCheckpointStore(), &fakeMessageReader{messages: makeForwardMessages(50)})
+	if _, err := trigger.TriggerManual(context.Background(), "s1", "p1", "m1", 1, 100); err == nil {
+		t.Fatal("expected exact-range error for missing end boundary")
+	}
+}
+
 func TestTriggerManualInsufficientMessages(t *testing.T) {
 	config := DefaultWatermarkConfig() // MinMessagesBeforeCompaction = 10
 	msgReader := &fakeMessageReader{messages: makeForwardMessages(5)}
@@ -565,4 +637,3 @@ func TestTriggerManualLinksToPrevSucceeded(t *testing.T) {
 		t.Fatalf("expected prev_checkpoint_digest, got %v", latest.PrevCheckpointDigest)
 	}
 }
-

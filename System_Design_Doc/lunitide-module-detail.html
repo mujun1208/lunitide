@@ -531,7 +531,7 @@ footer .links a:hover{color:var(--tide1)}
       <tr><th>字段</th><th>说明</th><th>敏感性</th></tr>
       <tr><td><b>id</b></td><td class="col">Provider 主键</td><td>非秘密</td></tr>
       <tr><td><b>name</b></td><td class="col">展示名称</td><td>非秘密</td></tr>
-      <tr><td><b>protocol</b></td><td class="col">冻结枚举（<code>openai_compatible | anthropic</code>；UI 可展示 OpenAI-compatible）</td><td>非秘密</td></tr>
+      <tr><td><b>protocol</b></td><td class="col">协议类型（openai-compatible / anthropic 等）</td><td>非秘密</td></tr>
       <tr><td><b>base_url</b></td><td class="col">服务端点 URL</td><td>URL 敏感配置</td></tr>
       <tr><td><b>credential_ref</b></td><td class="col">凭据引用（仅存引用，不存明文）</td><td>引用非秘密；明文不落库</td></tr>
       <tr><td><b>status</b></td><td class="col">健康状态枚举</td><td>非秘密</td></tr>
@@ -602,7 +602,7 @@ footer .links a:hover{color:var(--tide1)}
     </div>
 
     <h3>3.7 Key 安全规则</h3>
-    <div class="warn"><b>API Key 默认隐藏，仅允许显式临时查看。</b>Provider/Model 常规 DTO 只返回 <code>credential_ref</code>/配置状态，不返回明文；SQLite、日志、诊断包、审计正文与 ChatRequest 均不得出现密钥原文，密钥由网关在出口侧注入。用户进入编辑页后可通过 Host-owned <code>provider.credential.reveal</code> 明确查看已保存值并再次隐藏：每次解密前必须完成 Host 原生确认，拒绝或非 Windows 平台均 fail-closed 且不得读取 SecretService；该能力只接受可信顶层 document 的显式操作，不得自动调用，不得进入持久 React store、剪贴板或遥测；输入默认保持 password 态，并在取消、离开编辑态或提交后清空临时缓冲。</div>
+    <div class="warn"><b>API Key 默认不读取，显式揭示是受控例外。</b>稳定 Provider DTO 仅存 credential_ref/state，不含明文；列表、普通详情、ChatRequest、日志、审计、诊断与持久化均不得出现 Key。用户在编辑页主动请求并通过 Host 原生用户在场确认后，<code>provider.credential.reveal</code> 可把权威绑定对应的值短时返回当前编辑 generation；取消、离页、迟到响应或保存后必须清零，未修改不得重新提交。网关正常调用仍由 Host/Engine 在出口侧注入，不经过 Renderer。</div>
   </div>
 </section>
 
@@ -618,11 +618,12 @@ footer .links a:hover{color:var(--tide1)}
         <div class="num">CHAPTER 04</div>
         <h2>工作区、项目与会话</h2>
       </div>
-      <span class="tag"><b>实体</b> workspace / project / session / message / compaction / handoff</span>
+      <span class="tag"><b>实体</b> workspace / project / session / message / context_summary / context_handoff</span>
     </div>
     <p class="lead">这是系统的组织骨架：Workspace 隔离租户级边界，Project 承载工程上下文，Session 与 Message 构成交互流水。</p>
 
     <h3>4.1 实体字段</h3>
+    <div class="note"><b>逻辑模型与物理模型分栏：</b>下表描述稳定目标语义，不表示所有表名已经落库。M3 当前物理实现使用 <code>projects / sessions / messages / message_parts / attachments / token_ledger / compaction_checkpoints / compaction_activations / compaction_activation_bases / handoff_capsules / handoff_imports / deletion_tombstones</code>。Bridge 与迁移以仓库生成 Schema 和 SQLite migration 为当前事实。</div>
     <table>
       <tr><th>实体</th><th>关键字段</th><th>约束 / 索引</th></tr>
       <tr><td><b>workspace</b></td><td class="col">id, name, settings_json</td><td>首期仅一个 active workspace</td></tr>
@@ -631,31 +632,28 @@ footer .links a:hover{color:var(--tide1)}
       <tr><td><b>session</b></td><td class="col">id, project_id, stage_run_id, title, status, model_profile_id</td><td>INDEX(project_id, updated_at)</td></tr>
       <tr><td><b>message</b></td><td class="col">id, session_id, role, status, content_ref, sequence, usage_json</td><td>UNIQUE(session_id, sequence)</td></tr>
       <tr><td><b>message_part</b></td><td class="col">id, message_id, type, text/file_ref/tool_call_id, ordinal</td><td>UNIQUE(message_id, ordinal)</td></tr>
-      <tr><td><b>attachment</b></td><td class="col">id, project_id, session_id, storage_ref, mime, size, parse_status, sha256</td><td>受控数据目录；显式引用才进入本轮上下文；跨 Session fail-closed</td></tr>
-      <tr><td><b>compaction_checkpoint</b></td><td class="col">id, session_id, version, source_start/end_seq, source_digest, previous_checkpoint_id/digest, trigger, provider/model, structured_summary, human_summary, status, failure_code</td><td>UNIQUE(session_id, version)；源范围不可变；pending/running/succeeded/failed/superseded</td></tr>
-      <tr><td><b>compaction_activation</b></td><td class="col">session_id, checkpoint_id, revision, updated_at</td><td>每 Session 单一显式 active pointer；revision CAS；succeeded draft 不自动等于 active</td></tr>
+      <tr><td><b>attachment</b></td><td class="col">id, project_id, file_ref, mime, size, parse_status, sha256</td><td>sha256 索引；解析隔离</td></tr>
+      <tr><td><b>context_summary</b></td><td class="col">id, session_id, kind, version, source_seq_start/end, source_digest, parent_summary_ids, content_ref, token_count, fidelity_json, status</td><td>UNIQUE(session_id, kind, version)；源范围不可变</td></tr>
       <tr><td><b>summary_claim_source</b></td><td class="col">summary_id, claim_id, claim_type, source_type/id, seq_start/end, quote_ref, artifact_revision, source_digest, verification_status</td><td>INDEX(summary_id, claim_id)；所有需溯源 claim 覆盖率 100%</td></tr>
-      <tr><td><b>handoff_capsule</b></td><td class="col">id, project_id, source_session_id, source_checkpoint_id, source_seq_start/end, source_digest, capsule_digest, schema_version, content, status, expires_at</td><td>CHECK(start≤end)；不可变 digest；删除墓碑/过期立即 fail-closed</td></tr>
+      <tr><td><b>context_handoff</b></td><td class="col">id, workspace_id, project_id, source/target_session_id, version, source_seq_start/end, source_digest, source_summary_version, schema_version, content_ref, status, invalid_reason, created/imported_at</td><td>CHECK(start≤end)；UNIQUE(source_session_id, version)</td></tr>
       <tr><td><b>handoff_import</b></td><td class="col">handoff_id, target_session_id, imported_at, status</td><td>UNIQUE(handoff_id, target_session_id)；同项目导入幂等</td></tr>
-      <tr><td><b>token_ledger</b></td><td class="col">session_id, message_id/source, canonical tokenizer id/version/revision/artifact hash, token counts, provider usage revision</td><td>容量与供应商 usage 分离；tokenizer 身份可追溯并支持重算修订</td></tr>
       <tr><td><b>context_build</b></td><td class="col">id, session_id, model_id, canonical_logical_tokens, canonical_tokenizer_version, estimated_request_tokens, effective_window, reserve_tokens, summary_version, manifest_ref</td><td>记录每轮实际装配清单，不保存秘密</td></tr>
     </table>
 
-    <h3>4.2 Wire Stream 与 Durable Message 状态机</h3>
-    <p><b>流状态和持久消息状态必须分离。</b>Wire Stream 用于描述一次模型调用；Message 是不可变会话事实。当前实现不在流式过程中写入 <code>streaming</code> Message，也不会为取消/失败伪造 assistant Message。</p>
+    <h3>4.2 消息状态机</h3>
     <div class="dag">
-      <div class="node active">starting<br><small>已接受</small></div>
+      <div class="node active">accepted<br><small>已接受</small></div>
       <div class="arrow">→</div>
       <div class="node done">streaming<br><small>流式中</small></div>
       <div class="arrow">→</div>
-      <div class="node done">completed<br><small>唯一成功终态</small></div>
+      <div class="node done">completed<br><small>完成</small></div>
     </div>
     <div class="dag" style="padding-top:0">
       <div class="node warn">cancelled<br><small>取消</small></div>
       <div class="node warn">interrupted<br><small>中断</small></div>
       <div class="node err">failed<br><small>失败</small></div>
     </div>
-    <p>Wire Stream 采用 first-terminal-wins：<code>streaming</code> 可转入 <code>completed | cancelled | interrupted | failed</code>，取消向 Go context 和上游 HTTP 传播。只有 Engine 抢占 finalization 权并原子持久化最终 assistant 文本与 usage 后，<code>completed</code> 事件才携带 durable <code>messageId</code>；失败或取消只保留流/审计证据。用户消息和成功的 assistant 消息以 <code>status=completed</code> 进入同一 Session sequence。</p>
+    <p><code>streaming</code> 可正常转入 <code>completed</code>，也可因取消、引擎中断或上游失败转入对应异常终态。</p>
 
     <h3>4.3 关键约束说明</h3>
     <div class="card">
@@ -667,9 +665,20 @@ footer .links a:hover{color:var(--tide1)}
         <li><b>单会话逻辑上下文至少 1M tokens</b>——logical_tokens 是累计可重建容量，不受模型单次窗口或消息分页上限约束。</li>
         <li><b>消息原文与摘要分离</b>——压缩只追加 context_summary；不得 UPDATE/DELETE 源 message。显式数据删除是唯一例外，并通过墓碑使派生摘要和 Handoff 失效。</li>
         <li><b>摘要保真合同</b>——每个事实性、状态性、决策性、约束性、任务性和证据性 claim 必须关联叶级 Message/ToolResult/Artifact revision；建议/推断显式标型并保存 derivation sources，仅指向父摘要不算完成溯源。</li>
-        <li><b>分页不是容量限制</b>——消息 RPC 使用 sequence cursor 向前/向后分页；单页最大 200 条和 payload 上限不得写入 session 总量校验。</li>
+        <li><b>分页不是容量限制</b>——消息 RPC 使用 sequence cursor 向前/向后分页；单页最大 200 条和 payload 上限不得写入 session 总量校验。Engine 内部压缩 source-range 扫描也必须复用稳定 snapshot/boundary 分页到底，不得另设 1000/10000 条隐式总上限。</li>
       </ul>
     </div>
+
+    <h3 id="m3-m4-persistence-contract">4.4 M3 → M4 持久化继承合同</h3>
+    <table><thead><tr><th>M3 权威事实</th><th>M4 引用方式</th><th>禁止行为</th></tr></thead><tbody>
+      <tr><td>Session / Message sequence</td><td>Root Run 保存 session_id 与输入 sequence snapshot/range</td><td>不得把 Run 日志复制成新 Message 权威源；不得用分页上限截断历史</td></tr>
+      <tr><td>ContextEnvelope selection trace</td><td>保存 manifest ref/digest、tokenizer identity、模型窗口与预算</td><td>不得只保存最终 prompt 或不可追溯摘要</td></tr>
+      <tr><td>compaction activation revision</td><td>Run checkpoint 绑定 active checkpoint id + revision；恢复时 CAS/重建</td><td>不得读取“最新 succeeded”替代显式 active；不得让 preview 隐式激活</td></tr>
+      <tr><td>Handoff provenance / tombstone</td><td>保存 capsule/import refs；每次恢复前 fail-closed 校验来源</td><td>不得在源删除后继续注入缓存摘要</td></tr>
+      <tr><td>Workspace identity / file hash</td><td>M4 新增受控 WorkspaceBinding 与 ChangeSet base hash，不修改 M3 消息模型</td><td>不得信任 Renderer 绝对路径；不得静默覆盖外部编辑</td></tr>
+      <tr><td>副作用与审批</td><td>M4 新增 EffectJournal、receipt、Review digest 和恢复状态</td><td>不得把聊天“同意”当审批；不得对 outcome_unknown 自动重放</td></tr>
+    </tbody></table>
+    <div class="warn"><b>兼容要求：</b>M4 迁移只能新增表/列/索引或通过受验证的表重建升级；不得重写既有迁移，不得清理用户数据库。旧 M3 会话在没有 Run 引用时仍须完整可读；新增 Run 字段未知或缺失不得导致 Message、摘要或 Handoff 不可读。</div>
   </div>
 </section>
 
@@ -781,11 +790,33 @@ footer .links a:hover{color:var(--tide1)}
       </ul>
     </div>
 
+    <h4 id="agent-delegation-contract">全对话 ComplexityDecision 与 AgentRun / Delegation 合同（M6）</h4>
+    <table>
+      <tr><th>实体</th><th>关键字段</th><th>关键约束</th></tr>
+      <tr><td><b>agent_run</b></td><td class="col">id, session_id, root_run_id, parent_run_id?, invocation_profile_ref, delegation_id?, route_decision_id, status, config_snapshot_ref, policy_snapshot_ref, budget_allocated_json, budget_used_json, depth, terminal_version</td><td>Root 自指 root_run_id；Parent 必须同 Root；first-terminal-wins；AgentInvocation 与 Agent Profile 分离</td></tr>
+      <tr><td><b>complexity_decision</b></td><td class="col">id, session_id, root_run_id, turn_id, input_manifest_ref, input_digest, router_version, level, reason_codes, decided_at</td><td>append-only；level 为 simple/moderate/complex/high-risk；决定不授予权限</td></tr>
+      <tr><td><b>agent_delegation</b></td><td class="col">id, root_run_id, parent_run_id, child_run_id, envelope_version, objective, scope_ref, context_manifest_ref, output_schema_ref, acceptance_ref, budget_json, deadline, spawn_policy, idempotency_key, status</td><td>DelegationEnvelope 创建后不可变；Child 唯一；重复调度复用 idempotency key</td></tr>
+      <tr><td><b>agent_result</b></td><td class="col">delegation_id, child_run_id, status, output_ref, output_digest, evidence_manifest_ref, provenance_manifest_ref, usage_json, effect_receipt_refs, error_code, completed_at</td><td>必须通过 output schema 与 acceptance；迟到结果不能改写已终结 Root</td></tr>
+      <tr><td><b>join_barrier</b></td><td class="col">id, plan_node_id, required_delegation_ids, optional_delegation_ids, join_policy, status, conflict_ref, accepted_result_refs</td><td>安全/测试失败不可多数覆盖；required 未满足不得宣称成功</td></tr>
+      <tr><td><b>run_provenance_link</b></td><td class="col">run_id, source_type, source_id, source_revision, relation, digest, ordinal</td><td>最终来源必须可达 Message/ToolResult/Artifact revision，不得只指向父 Agent 摘要</td></tr>
+    </table>
+<pre>agent_delegation:
+proposed → accepted → running
+running → succeeded | failed | cancelled | interrupted | outcome_unknown
+interrupted → reconciling → running | failed | outcome_unknown</pre>
+    <div class="card"><ul>
+      <li>Supervisor 仅在依赖、Policy、Root 剩余预算与资源冲突检查均通过后创建 Child；默认最大递归深度为 1，扩大深度必须由策略显式允许。</li>
+      <li>Root cancel/deadline 递归传播；Child 只能获得父级有效权限的衰减子集，审批、Secret lease、临时 capability 不继承。</li>
+      <li>恢复先重建 run tree；已有 child_run_id/idempotency_key 时禁止重复 spawn。副作用复用 checkpoint/EffectJournal/receipt，对 <code>outcome_unknown</code> 先对账。</li>
+      <li>父级只在 required delegation 满足 schema、acceptance、证据、测试、Review 与全局验收后聚合；失败时按计划重试、降级或重新规划，不得伪造成功。</li>
+    </ul></div>
+    <div class="note"><b>M0–M5 向前兼容：</b>M4/M5 可写入 root_run_id、correlation_id、provenance_ref 与 schema_version，但 parent_run_id/delegation_id 必须为空，运行固定为可靠单 Root Agent。旧记录缺字段时按 <code>root_run_id=run_id, parent_run_id=null</code> 恢复，不合成虚假 Child；未知未来字段可忽略或隔离，不得使消息不可读。Complexity Router、Delegation、Child 并发与 Join 仅在 M6 实现。</div>
+
     <h3>6.2 治理实体</h3>
     <table>
       <tr><th>实体</th><th>关键字段</th></tr>
       <tr><td><b>policy</b></td><td class="col">id, scope, version, status, rules_ref</td></tr>
-      <tr><td><b>review</b></td><td class="col">id, resource_type, resource_id, operation, params_hash, policy_version, risk, status, expires_at</td></tr>
+      <tr><td><b>review</b></td><td class="col">id, root_run_id, run_id, delegation_id?, resource_type, resource_id, operation, params_hash, policy_version, risk, status, expires_at</td></tr>
       <tr><td><b>approval_decision</b></td><td class="col">id, review_id, decision, actor, reason, decided_at</td></tr>
       <tr><td><b>audit_event</b></td><td class="col">id, trace_id, actor, action, resource, before_hash, after_hash, result, prev_hash, event_hash, time</td></tr>
     </table>
@@ -793,7 +824,7 @@ footer .links a:hover{color:var(--tide1)}
     <h4>Policy 与 Review 规则</h4>
     <div class="card">
       <ul>
-        <li>Policy 输入：actor、project、operation、resource、normalized args、data classification、tool trust、environment、plan version。</li>
+        <li>Policy 输入：actor、project、root/parent run、delegation scope、inherited policy digest、operation、resource、normalized args、data classification、tool trust、environment、plan version。</li>
         <li>Policy 输出：<code>allow / deny / require_review</code> + reason + policy version。</li>
         <li>规则冲突取<b>更严格者</b>；模型和 Review Agent 不能修改系统强制策略。</li>
         <li>Review 绑定操作类型、规范化参数哈希、目标资源、计划版本、策略版本、风险、过期时间。<b>参数变化后旧批准失效</b>。</li>
@@ -1208,7 +1239,7 @@ setting_migration_journal(migration_id, from_version, to_version, step_id,
       <tr><td>普通设置</td><td>draft → validate → 原子 patch → event → component apply</td><td>保留 draft 与字段错误；版本冲突展示脱敏 diff</td></tr>
       <tr><td>外观</td><td>Renderer 内存预览；保存后持久化</td><td>取消、离页或预览超时恢复最后提交值</td></tr>
       <tr><td>语言/运行时</td><td>保存后标记 renderer_reload/app_restart</td><td>允许稍后重载，不得显示虚假完成</td></tr>
-      <tr><td>Provider/Key</td><td>Provider 专用 RPC；Key 走一次性输入 → Host SecretService</td><td>失败清零缓冲；只返回 configured/requires_reentry</td></tr>
+      <tr><td>Provider/Key</td><td>稳定 DTO 只返回 configured/requires_reentry；新值走一次性输入 → Host SecretService；显式揭示走 Host 原生确认 → 短时编辑 generation</td><td>拒绝、失败、取消、离页和迟到响应均清零；不缓存、不自动重试、不把未修改揭示值重新提交</td></tr>
       <tr><td>安全/保留策略</td><td>影响摘要 + 显式确认 + Policy/Review</td><td>策略变化使旧批准失效，不追溯自动执行</td></tr>
       <tr><td>删除/恢复/导出/更新</td><td>专用 Command RPC、参数摘要、状态查询和恢复</td><td>outcome_unknown 时先对账，禁止盲目重放</td></tr>
     </tbody></table>

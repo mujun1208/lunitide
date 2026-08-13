@@ -68,6 +68,22 @@ func ExtractProtectedFacts(messages []SummaryMessage) []ProtectedFact {
 	return facts
 }
 
+func mergeProtectedFacts(existing, additional []ProtectedFact) []ProtectedFact {
+	seen := make(map[string]bool, len(existing)+len(additional))
+	result := make([]ProtectedFact, 0, min(maxProtectedFacts, len(existing)+len(additional)))
+	for _, set := range [][]ProtectedFact{existing, additional} {
+		for _, fact := range set {
+			key := fact.Kind + "\x00" + fact.Value
+			if seen[key] || len(result) >= maxProtectedFacts {
+				continue
+			}
+			seen[key] = true
+			result = append(result, fact)
+		}
+	}
+	return result
+}
+
 // ValidateProtectedFacts checks that all protected facts appear as substrings
 // in at least one string value within the summary JSON. It returns
 // ErrProtectedFactsViolation listing the missing facts when validation fails.

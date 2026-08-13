@@ -3,6 +3,7 @@ package compactionapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -161,8 +162,17 @@ type mockSourceReader struct {
 	err      error
 }
 
-func (m *mockSourceReader) ListMessagesByRange(_ context.Context, _ string, _, _ int64) ([]SummaryMessage, error) {
-	return m.messages, m.err
+func (m *mockSourceReader) ListMessagesByRange(_ context.Context, _ string, start, end int64) ([]SummaryMessage, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	var result []SummaryMessage
+	for _, message := range m.messages {
+		if message.Sequence >= start && message.Sequence <= end {
+			result = append(result, message)
+		}
+	}
+	return result, nil
 }
 
 type mockSummarizer struct {
@@ -173,13 +183,24 @@ type mockSummarizer struct {
 	providerID   string
 	modelID      string
 	priorSummary string
+	calls        []summarizerCall
+	responses    []string
 }
 
-func (m *mockSummarizer) Summarize(_ context.Context, _, providerID, modelID string, _, _ int64, _ []SummaryMessage, priorSummary string) (string, string, error) {
+type summarizerCall struct {
+	start, end   int64
+	priorSummary string
+}
+
+func (m *mockSummarizer) Summarize(_ context.Context, _, providerID, modelID string, start, end int64, _ []SummaryMessage, priorSummary string) (string, string, error) {
 	m.called = true
 	m.providerID = providerID
 	m.modelID = modelID
 	m.priorSummary = priorSummary
+	m.calls = append(m.calls, summarizerCall{start: start, end: end, priorSummary: priorSummary})
+	if len(m.responses) >= len(m.calls) {
+		return m.responses[len(m.calls)-1], m.humanSummary, m.err
+	}
 	return m.summaryJSON, m.humanSummary, m.err
 }
 
@@ -191,7 +212,7 @@ func makePendingCheckpoint() *compaction.Checkpoint {
 		SourceStartID:        "01ARZ3NDEKTSV4RRFFQ69G5FA2",
 		SourceEndID:          "01ARZ3NDEKTSV4RRFFQ69G5FA3",
 		SourceStartSeq:       1,
-		SourceEndSeq:         10,
+		SourceEndSeq:         1,
 		SourceDigest:         "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		Status:               compaction.StatusPending,
 		SummaryJSON:          "{}",
@@ -202,7 +223,9 @@ func makePendingCheckpoint() *compaction.Checkpoint {
 }
 
 func TestExecute_Success(t *testing.T) {
-	store := &mockExecutorStore{checkpoint: makePendingCheckpoint()}
+	cp := makePendingCheckpoint()
+	cp.SourceEndSeq = 2
+	store := &mockExecutorStore{checkpoint: cp}
 	reader := &mockSourceReader{messages: []SummaryMessage{
 		{ID: "m1", Role: "user", Content: "hello", Sequence: 1},
 		{ID: "m2", Role: "assistant", Content: "hi there", Sequence: 2},
@@ -310,14 +333,16 @@ func TestExecute_EmptySourceRange(t *testing.T) {
 	}
 }
 
-func TestExecute_OversizedSourceRangeFailsClosed(t *testing.T) {
-	store := &mockExecutorStore{checkpoint: makePendingCheckpoint()}
+func TestExecute_LargeSourceRangeUsesRollingBatches(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.SourceEndSeq = 3
+	store := &mockExecutorStore{checkpoint: cp}
 	reader := &mockSourceReader{messages: []SummaryMessage{
 		{ID: "m1", Sequence: 1},
 		{ID: "m2", Sequence: 2},
 		{ID: "m3", Sequence: 3},
 	}}
-	summarizer := &mockSummarizer{}
+	summarizer := &mockSummarizer{summaryJSON: `{"summary":"batch"}`, humanSummary: "batch"}
 	exec := NewExecutor(store, reader, summarizer)
 	exec.SetMaxMessages(2)
 
@@ -325,14 +350,41 @@ func TestExecute_OversizedSourceRangeFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Status != compaction.StatusFailed {
-		t.Fatalf("expected failed, got %s", result.Status)
+	if result.Status != compaction.StatusSucceeded {
+		t.Fatalf("expected succeeded, got %s", result.Status)
 	}
-	if summarizer.called {
-		t.Fatal("summarizer must not receive a truncated source range")
+	if len(summarizer.calls) != 2 {
+		t.Fatalf("expected 2 bounded summarizer calls, got %#v", summarizer.calls)
 	}
-	if len(store.updates) != 2 || store.updates[1].failureCode == nil || *store.updates[1].failureCode != "SOURCE_RANGE_TOO_LARGE" {
-		t.Fatalf("expected SOURCE_RANGE_TOO_LARGE failure update, got %#v", store.updates)
+	if summarizer.calls[0].start != 1 || summarizer.calls[0].end != 2 || summarizer.calls[1].start != 3 || summarizer.calls[1].end != 3 {
+		t.Fatalf("unexpected batch ranges: %#v", summarizer.calls)
+	}
+	if summarizer.calls[1].priorSummary != `{"summary":"batch"}` {
+		t.Fatalf("second batch did not receive rolling summary: %#v", summarizer.calls[1])
+	}
+}
+
+func TestExecuteRollingBatchRejectsLossOfEarlierProtectedFact(t *testing.T) {
+	cp := makePendingCheckpoint()
+	cp.SourceEndSeq = 2
+	store := &mockExecutorStore{checkpoint: cp}
+	reader := &mockSourceReader{messages: []SummaryMessage{
+		{ID: "m1", Role: "user", Content: "keep `criticalSymbol`", Sequence: 1},
+		{ID: "m2", Role: "assistant", Content: "continue", Sequence: 2},
+	}}
+	summarizer := &mockSummarizer{responses: []string{
+		`{"summary":"criticalSymbol"}`,
+		`{"summary":"dropped prior fact"}`,
+	}}
+	exec := NewExecutor(store, reader, summarizer)
+	exec.SetMaxMessages(1)
+
+	result, err := exec.Execute(context.Background(), cp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != compaction.StatusFailed || len(store.updates) != 2 || store.updates[1].failureCode == nil || *store.updates[1].failureCode != "PROTECTED_FACTS_VIOLATION" {
+		t.Fatalf("earlier protected fact loss was accepted: result=%#v updates=%#v", result, store.updates)
 	}
 }
 
@@ -367,6 +419,8 @@ func TestExecute_RollingSummary_PassesPriorSummary(t *testing.T) {
 	// Setup: current pending checkpoint links to a previous succeeded checkpoint.
 	cp := makePendingCheckpoint()
 	cp.Version = 2
+	cp.SourceStartSeq = 11
+	cp.SourceEndSeq = 11
 	prevID := "01ARZ3NDEKTSV4RRFFQ69G5FA9"
 	cp.PrevCheckpointID = &prevID
 
@@ -478,7 +532,7 @@ func TestRecoverOrphanedCheckpoints_PendingReexecuted(t *testing.T) {
 		SessionID:      "s1",
 		Version:        1,
 		SourceStartSeq: 1,
-		SourceEndSeq:   5,
+		SourceEndSeq:   2,
 		Status:         compaction.StatusPending,
 	}
 	store := &mockExecutorStore{
@@ -526,6 +580,23 @@ func TestRecoverOrphanedCheckpoints_NoOrphans(t *testing.T) {
 	}
 }
 
+func TestRecoverOrphanedCheckpointsProcessesMoreThanOneBatch(t *testing.T) {
+	running := make([]compaction.Checkpoint, 1001)
+	for i := range running {
+		running[i] = compaction.Checkpoint{ID: fmt.Sprintf("cp-running-%04d", i), SessionID: "s", Version: 1, Status: compaction.StatusRunning}
+	}
+	store := &mockExecutorStore{byStatus: map[compaction.Status][]compaction.Checkpoint{compaction.StatusRunning: running}}
+	exec := NewExecutor(store, &mockSourceReader{}, &mockSummarizer{})
+
+	results, err := exec.RecoverOrphanedCheckpoints(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1001 || len(store.byStatus[compaction.StatusRunning]) != 0 {
+		t.Fatalf("recovered=%d remaining=%d", len(results), len(store.byStatus[compaction.StatusRunning]))
+	}
+}
+
 // TestRecoverOrphanedCheckpoints_Mixed verifies recovery handles both running
 // and pending orphans in a single pass.
 func TestRecoverOrphanedCheckpoints_Mixed(t *testing.T) {
@@ -540,7 +611,7 @@ func TestRecoverOrphanedCheckpoints_Mixed(t *testing.T) {
 		SessionID:      "s2",
 		Version:        1,
 		SourceStartSeq: 1,
-		SourceEndSeq:   3,
+		SourceEndSeq:   1,
 		Status:         compaction.StatusPending,
 	}
 	store := &mockExecutorStore{
@@ -651,10 +722,11 @@ func TestPreviewCreatesCheckpointAndReturnsSummary(t *testing.T) {
 
 	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, msgReader)
 
-	sourceReader := &mockSourceReader{messages: []SummaryMessage{
-		{ID: "msg-1", Role: "user", Content: "hello world", Sequence: 1},
-		{ID: "msg-2", Role: "assistant", Content: "hi there", Sequence: 2},
-	}}
+	summaryMessages := make([]SummaryMessage, 20)
+	for i := range summaryMessages {
+		summaryMessages[i] = SummaryMessage{ID: fmt.Sprintf("msg-%d", i+1), Role: "user", Content: fmt.Sprintf("message %d", i+1), Sequence: int64(i + 1)}
+	}
+	sourceReader := &mockSourceReader{messages: summaryMessages}
 	summarizer := &mockSummarizer{
 		summaryJSON:  `{"topics":["greeting"]}`,
 		humanSummary: "用户打招呼",

@@ -307,7 +307,7 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
       <span class="tag"><b>实施</b> M4 产物追踪 → M5 Policy/ToolRuntime → M6 完整工作台</span>
     </div>
     <p class="lead" style="margin-top:18px">
-      开发管理专家基于需求、方案、UI、DB、接口产物生成任务。阶段六同时提供对话优先的轻量开发工作台：关联本地目录与 VS Code，按需调用文件、代码、终端、浏览器和变更工具。每个任务绑定代码变更、命令运行、验证证据与扫描结果，形成从需求到测试的<b>双向可追踪</b>闭环。M4 提供批准且版本化的 Artifact/Trace，M5 提供 Agent Kernel、Policy/Review、checkpoint 与受控 ToolRuntime，M6 才关闭 DevTask→ChangeSet→Test/Scan Evidence→Review 的完整工作台门禁；M7 只复用不可变证据签发 ReleasePackage。
+      开发管理专家基于需求、方案、UI、DB、接口产物生成任务。阶段六同时提供对话优先的轻量开发工作台：关联本地目录与 VS Code，按需调用文件、代码、终端、浏览器和变更工具。每个任务绑定代码变更、命令运行、验证证据与扫描结果，形成从需求到测试的<b>双向可追踪</b>闭环。M4 提供可靠单 Agent、Policy/Review、checkpoint、真实 Workspace/ChangeSet 与受控 Command/Web；M5 提供批准且版本化的 Artifact/Trace；M6 才关闭扩展生态、多 Agent 与专业 DevTask→ChangeSet→Test/Scan Evidence→Review 工作台门禁；M7 只复用不可变证据签发 ReleasePackage。
     </p>
   </div>
 </header>
@@ -430,6 +430,17 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
       <li><b>交付：</b>CodeChange、TestRun、ScanRun、Evidence 与 TraceLink 齐全后进入 waiting_review。</li>
     </ol></div>
 
+    <h3 id="complex-code-multi-agent-loop">1.7A 复杂代码任务的多 Agent 消费闭环（M6）</h3>
+    <p>S6/M6 消费 M4 Durable Root Run 与 M6 Agent Kernel 产生的 <code>ComplexityDecision、PlanVersion、Parent/Child AgentRun、AgentResult</code>；复杂度分类、通用 DAG、子 Agent 生命周期、并发预算、取消/恢复和 JoinBarrier 均由 M6 权威实现，S6 禁止建立领域私有副本或更宽松策略。</p>
+    <table class="field-table"><thead><tr><th>M4/M6 通用输出</th><th>S6 消费实体</th><th>闭环要求</th></tr></thead><tbody>
+      <tr><td>ComplexityDecision / PlanVersion</td><td>DevSession / DevTask</td><td>记录为何直答、单 Agent 计划或多 Agent；绑定不可变计划版本</td></tr>
+      <tr><td>Parent/Child AgentRun</td><td>Assignment / ToolRun / 活动记录</td><td>可映射前端、后端、DB、安全、QA 等逻辑分支，但不重新定义通用运行状态</td></tr>
+      <tr><td>AgentResult / JoinBarrier</td><td>ChangeSet / CodeChange / Evidence</td><td>按 base hash/CAS 汇合；文件重叠先冲突处理，禁止子结果直接静默覆盖工作区</td></tr>
+      <tr><td>Tool / Test / Scan result</td><td>ToolRun / TestRun / ScanRun</td><td>形成不可变证据；required 测试、安全扫描或 Review 失败不得被其他分支成功覆盖</td></tr>
+      <tr><td>Checkpoint / Policy / Review</td><td>DevSession.checkpoint_id / policy_decision_id / waiting_review</td><td>写前恢复点和逐动作审批继续生效；Child 不继承审批 token、Secret lease 或临时 capability</td></tr>
+    </tbody></table>
+    <div class="callout"><b>完整完成条件：</b>节点终态、证据、测试、安全检查、Review 与任务级验收必须同时满足；部分失败按 Plan 执行重试、降级或重新规划，并保留冲突和失败事实，不得以“多数 Child 成功”关闭任务。</div>
+
     <h3>1.8 工具权限矩阵</h3>
     <table class="field-table"><thead><tr><th>能力</th><th>风险</th><th>默认行为</th><th>审计要点</th></tr></thead><tbody>
       <tr><td>工作区内读取/搜索/Git status</td><td>低</td><td>自动放行</td><td>scope、文件数、敏感规则</td></tr>
@@ -504,7 +515,7 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
         <tr><td><b>waiting_review</b></td><td>changes_requested</td><td>审查发现需修改（非安全类）</td></tr>
         <tr><td><b>waiting_review</b></td><td>security_blocked</td><td>SAST/SCA/secret scan 命中 Critical/High 未豁免</td></tr>
         <tr><td><b>changes_requested</b></td><td>in_progress</td><td>开发者接回任务进行修复</td></tr>
-        <tr><td><b>security_blocked</b></td><td>changes_requested</td><td>高危发现已修复或经 Owner 显式豁免</td></tr>
+        <tr><td><b>security_blocked</b></td><td>changes_requested</td><td>Critical/High 已修复；High 也可在独立安全批准或外部签名离线风险接受制品验证通过后转出。Owner 自批无效</td></tr>
         <tr><td><b>waiting_review</b></td><td>ready_for_test</td><td>审查通过、扫描无未豁免高危</td></tr>
         <tr><td><b>ready_for_test</b></td><td>completed</td><td>关联 TestCase 全部 pass，证据已归档</td></tr>
         <tr><td><b>ready_for_test</b></td><td>changes_requested</td><td>测试失败，回退修复</td></tr>
@@ -586,7 +597,7 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
       <span class="tag">ScanRun · ScanFinding · 不可变证据</span>
     </div>
 
-    <p class="lead">每次代码提交触发扫描运行，产出不可变证据。<b>高危发现不得由 Agent 自行豁免</b>，必须由 Owner 附安全理由与到期时间显式豁免。</p>
+    <p class="lead">每次代码提交触发扫描运行，产出不可变证据。<b>Critical 必须修复；High 必须修复或取得独立安全批准 / 外部签名离线风险接受制品</b>。Agent 与提交 Owner 均不得自批解除生产签发门禁。</p>
 
     <h3>4.1 ScanRun 实体</h3>
     <table class="field-table">
@@ -634,7 +645,7 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
     </table>
 
     <div class="warn">
-      <b>豁免红线：</b>高危发现<em>不得由 Agent 自行豁免</em>。豁免必须满足三个条件同时成立：(1) Owner 显式批准；(2) 附安全理由与缓解措施；(3) 设置到期时间。到期后豁免自动失效，发现重新进入 open 状态并阻断。
+      <b>豁免红线：</b>Critical 不可豁免。High 不得由 Agent、提交者或 Owner 自批；必须由独立安全角色批准，或导入外部签名离线风险接受制品，并同时绑定 finding/commit/rule digest、技术理由、缓解措施和到期时间。v1 单用户无法形成该独立批准时，生产签发继续阻断。Medium/Low 仅在策略明确允许时可由 Owner 接受；到期或任一绑定变化后自动失效并重新阻断。
     </div>
   </div>
 </section>

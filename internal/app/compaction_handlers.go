@@ -146,47 +146,55 @@ func deriveCompactionContext(e *Engine, ctx context.Context, sessionID string) (
 		}
 	}
 
-	// Look up context window from provider model config.
-	if providerID != "" && e.providers != nil {
-		providers, err := e.providers.List(ctx, provider.Filter{})
-		if err == nil {
-			for _, p := range providers {
-				if p.ID == providerID {
-					for _, m := range p.Models {
-						if m.ModelID == modelID && m.ContextWindow > 0 {
-							contextWindow = m.ContextWindow
-							return
-						}
+	if e.providers == nil {
+		return
+	}
+	providers, err := e.providers.List(ctx, provider.Filter{})
+	if err != nil || len(providers) == 0 {
+		return
+	}
+	// Resolve current IDs first, then legacy IDs, then old protocol values only
+	// when the provider/model combination is unambiguous.
+	var candidates []provider.Provider
+	for _, p := range providers {
+		if p.ID == providerID || (p.LegacyID != "" && p.LegacyID == providerID) {
+			candidates = []provider.Provider{p}
+			break
+		}
+	}
+	if len(candidates) == 0 && providerID != "" {
+		for _, p := range providers {
+			if string(p.Protocol) == providerID {
+				for _, m := range p.Models {
+					if modelID == "" || m.ModelID == modelID {
+						candidates = append(candidates, p)
+						break
 					}
-					break
 				}
 			}
 		}
 	}
-
-	// If no checkpoint or context window not found, try the first provider.
-	if providerID == "" || contextWindow == 0 {
-		if e.providers != nil {
-			providers, err := e.providers.List(ctx, provider.Filter{})
-			if err == nil && len(providers) > 0 {
-				p := providers[0]
-				if providerID == "" {
-					providerID = p.ID
-				}
-				for _, m := range p.Models {
-					if providerID == p.ID && (modelID == "" || m.ModelID == modelID) {
-						if m.ContextWindow > 0 {
-							if modelID == "" {
-								modelID = m.ModelID
-							}
-							if contextWindow == 0 {
-								contextWindow = m.ContextWindow
-							}
-							return
-						}
-					}
-				}
-			}
+	if len(candidates) != 1 {
+		// An unresolved or ambiguous historical identity must not poison the
+		// fallback. Prefer the first configured provider as documented.
+		candidates = []provider.Provider{providers[0]}
+	}
+	selected := candidates[0]
+	providerID = selected.ID
+	for _, m := range selected.Models {
+		if (modelID == "" || m.ModelID == modelID) && m.ContextWindow > 0 {
+			modelID = m.ModelID
+			contextWindow = m.ContextWindow
+			return
+		}
+	}
+	// The historical model no longer exists; fall back to the first usable
+	// model on the resolved provider rather than returning a half-resolved tuple.
+	for _, m := range selected.Models {
+		if m.ContextWindow > 0 {
+			modelID = m.ModelID
+			contextWindow = m.ContextWindow
+			return
 		}
 	}
 

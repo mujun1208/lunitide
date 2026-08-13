@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/domain/message"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/domain/token"
+	"github.com/lunitide/lunitide/internal/sessionapp"
 )
 
 func TestGetLatestCompactionSummaryNoActiveSummary(t *testing.T) {
@@ -86,5 +89,30 @@ func TestSumTokenLedgerAfterSeqUsesCanonicalIdentityAndRevision(t *testing.T) {
 	}
 	if total != 11 {
 		t.Fatalf("total = %d, want canonical identity/revision total 11", total)
+	}
+}
+
+func TestMessageSchemaRejectsUnsupportedMultipartMessage(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "multipart-compaction.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	projectID := createSessionProject(t, store, "multipart-project", "Multipart")
+	created, err := sessionapp.New(store, store).Create(ctx, "multipart-session", "test", struct{ ProjectID, Title string }{projectID, "Multipart"}, session.Session{ProjectID: projectID, Title: "Multipart"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := newMessageApp(t, store).Append(ctx, "multipart-message", "test", struct{ SessionID, Text string }{created.ID, "first"}, message.Message{SessionID: created.ID, Text: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.db.ExecContext(ctx, `INSERT INTO message_parts(message_id,ordinal,type,text) VALUES(?,2,'text','second')`, msg.ID); err == nil {
+		t.Fatal("schema accepted unsupported second message part")
+	}
+	items, err := store.ListMessagesByRange(ctx, created.ID, 1, 1)
+	if err != nil || len(items) != 1 || items[0].Content != "first" {
+		t.Fatalf("valid single-part message unreadable: items=%#v err=%v", items, err)
 	}
 }
