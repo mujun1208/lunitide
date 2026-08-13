@@ -765,6 +765,19 @@ footer .copyright{width:100%;margin-top:24px;padding-top:20px;border-top:1px sol
       </ul>
     </div>
 
+    <div class="reveal d3" id="conversation-complexity-routing">
+      <h3>全对话复杂度路由与受控委派（M6）</h3>
+      <p>Router 观察完整逻辑会话、当前目标、未完成承诺、上下文来源、风险和预算，而不是按当前一句的关键词触发。简单任务沿单 Agent loop；复杂且可分解任务形成可审查 Plan，并由 Orchestrator 以有界的 fan-out/fan-in 调度 Child AgentInvocation。</p>
+      <ul>
+        <li><b>三个概念必须分离：</b>Agent Profile 是角色配置，PlanNode 是待完成工作，AgentInvocation 才是一次父或子运行实例。</li>
+        <li><b>Child 不是第六内核：</b>它不创建独立用户会话或信任域，只是 Planning / Orchestrator 在同一 Root Run 下的受控执行单元。</li>
+        <li><b>最小委派：</b>每个 Child 只获得完成目标所需的上下文、资源、候选工具、预算切片和结构化验收合同；权限只能衰减。</li>
+        <li><b>可验证汇合：</b>父级保留冲突与失败，来源回链到 Child evidence；安全或测试失败不能被多数结果覆盖。</li>
+        <li><b>对用户透明：</b>展示目标、假设、计划、风险、进度和证据，不暴露模型私有思维链。</li>
+      </ul>
+      <p><b>交付边界：</b>M4 先交付可靠单 Root Agent，M5 交付九阶段生产系统；本节的复杂度路由与受控子 Agent 从 M6 启用。M0–M3 只提供 Session/Context provenance 与 schema 兼容，不实现子 Agent。</p>
+    </div>
+
     <div class="reveal d3">
       <h3>预算维度</h3>
       <p>预算不是单一阈值，而是六个维度的联合约束，任一维度触顶即熔断：</p>
@@ -776,13 +789,14 @@ footer .copyright{width:100%;margin-top:24px;padding-top:20px;border-top:1px sol
         <div class="b"><div class="bn">tool_calls</div><div class="bd">工具调用总次数</div></div>
         <div class="b"><div class="bn">parallelism</div><div class="bd">最大并行节点数</div></div>
       </div>
+      <p>Child 不生成额外预算池；所有预算切片之和受 Root 剩余上限约束。并行只改变调度，不扩大 token、费用、工具调用和墙钟时间总额。</p>
     </div>
 
     <div class="reveal d4">
       <h3>副作用节点约束</h3>
       <p>凡产生外部副作用的节点（写入文件、调用 API、执行命令等）必须满足三条硬性要求：</p>
       <ul>
-        <li><b>idempotency key</b>：携带幂等键，重试时不会重复生效。</li>
+        <li><b>恢复合同</b>：具有稳定 idempotency key，或定义可验证的确定补偿；结果不明时禁止直接重试。</li>
         <li><b>风险等级</b>：标注 risk 等级，决定是否触发 Review。</li>
         <li><b>可验证完成条件</b>：定义 acceptance 条件，Orchestrator 据此判定真正成功。</li>
       </ul>
@@ -829,14 +843,24 @@ footer .copyright{width:100%;margin-top:24px;padding-top:20px;border-top:1px sol
           <span class="fsm-node running">running</span>
           <span class="fsm-arr">→<span class="lbl">engine crash</span></span>
           <span class="fsm-node interrupted">interrupted</span>
-          <span class="fsm-arr">→<span class="lbl">safe resume</span></span>
+          <span class="fsm-arr">→<span class="lbl">reconcile receipt / status</span></span>
+          <span class="fsm-node retrying">reconciling</span>
+        </div>
+        <div class="fsm-row">
+          <span class="fsm-node retrying">reconciling</span>
+          <span class="fsm-arr">→<span class="lbl">idempotent or compensated</span></span>
           <span class="fsm-node queued">queued</span>
+          <span class="fsm-arr">　</span>
+          <span class="fsm-node retrying">reconciling</span>
+          <span class="fsm-arr">→<span class="lbl">cannot prove outcome</span></span>
+          <span class="fsm-node failed">outcome_unknown</span>
         </div>
         <div class="fsm-legend">
           <span><b>succeeded</b> 达成 acceptance</span>
           <span><b>failed</b> 不可重试失败</span>
           <span><b>retrying</b> 可重试失败后回到 running</span>
-          <span><b>interrupted</b> 引擎崩溃，仅幂等节点可恢复</span>
+          <span><b>interrupted</b> 引擎崩溃，必须先对账</span>
+          <span><b>outcome_unknown</b> 无法证明结果，阻断依赖并等待人工对账</span>
           <span><b>cancelled</b> 被策略拒绝或过期</span>
         </div>
       </div>

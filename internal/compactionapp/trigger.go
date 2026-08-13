@@ -55,14 +55,51 @@ type CheckpointStore interface {
 
 // MessageReader provides access to messages for source range computation.
 type MessageReader interface {
-	// ListMessages returns messages in a session ordered by sequence.
-	ListMessages(ctx context.Context, sessionID string, direction string, limit int) ([]MessageInfo, error)
+	// ListMessages returns one stable sequence page. snapshot and boundary are
+	// zero for the first page; subsequent pages reuse the returned snapshot and
+	// use the last message sequence as boundary. A page limit is never a session
+	// capacity limit.
+	ListMessages(ctx context.Context, sessionID string, direction string, snapshot, boundary int64, limit int) ([]MessageInfo, int64, bool, error)
 }
 
 // MessageInfo is a minimal message representation for the trigger.
 type MessageInfo struct {
 	ID       string
 	Sequence int64
+}
+
+const compactionMessagePageSize = 256
+
+var errStopMessageScan = fmt.Errorf("stop message scan")
+
+func scanMessagePages(ctx context.Context, reader MessageReader, sessionID, direction string, visit func(MessageInfo) error) error {
+	var snapshot, boundary int64
+	for {
+		page, stableSnapshot, hasMore, err := reader.ListMessages(ctx, sessionID, direction, snapshot, boundary, compactionMessagePageSize)
+		if err != nil {
+			return err
+		}
+		if snapshot == 0 {
+			snapshot = stableSnapshot
+		} else if stableSnapshot != snapshot {
+			return fmt.Errorf("message snapshot changed during compaction scan")
+		}
+		for _, message := range page {
+			if err := visit(message); err != nil {
+				if err == errStopMessageScan {
+					return nil
+				}
+				return err
+			}
+		}
+		if !hasMore {
+			return nil
+		}
+		if len(page) == 0 {
+			return fmt.Errorf("message reader returned empty non-terminal page")
+		}
+		boundary = page[len(page)-1].Sequence
+	}
 }
 
 // TriggerResult describes the outcome of a compaction trigger check.
@@ -124,18 +161,24 @@ func NewTrigger(config WatermarkConfig, tokenRepo token.Repository, checkpointSt
 // sessionLock returns the mutex for the given session, creating it if needed.
 // This mutex serializes all compaction operations (trigger + execute) for a
 // single session, preventing TOCTOU races and concurrent checkpoint creation.
-func (t *Trigger) sessionLock(sessionID string) *sync.Mutex {
-	v, _ := t.sessionLocks.LoadOrStore(sessionID, &sync.Mutex{})
-	return v.(*sync.Mutex)
+func (t *Trigger) sessionLock(sessionID string) chan struct{} {
+	candidate := make(chan struct{}, 1)
+	candidate <- struct{}{}
+	v, _ := t.sessionLocks.LoadOrStore(sessionID, candidate)
+	return v.(chan struct{})
 }
 
 // LockSession acquires the per-session compaction lock. The returned unlock
 // function must be called when done. This allows the Executor to coordinate
 // with the Trigger to prevent concurrent compactions on the same session.
-func (t *Trigger) LockSession(sessionID string) func() {
-	mu := t.sessionLock(sessionID)
-	mu.Lock()
-	return func() { mu.Unlock() }
+func (t *Trigger) LockSession(ctx context.Context, sessionID string) (func(), error) {
+	lock := t.sessionLock(sessionID)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-lock:
+		return func() { lock <- struct{}{} }, nil
+	}
 }
 
 // CheckAndTrigger evaluates whether automatic compaction should be triggered
@@ -155,7 +198,10 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	}
 
 	// Acquire per-session lock to serialize compaction operations.
-	unlock := t.LockSession(sessionID)
+	unlock, err := t.LockSession(ctx, sessionID)
+	if err != nil {
+		return result, err
+	}
 	defer unlock()
 
 	// Calculate effective budget using the high watermark.
@@ -200,7 +246,7 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 
 	// We need at least MinMessagesBeforeCompaction messages in the session.
 	// Use the message reader to check the actual message count.
-	messages, err := t.messageReader.ListMessages(ctx, sessionID, "backward", t.config.MinMessagesBeforeCompaction)
+	messages, _, _, err := t.messageReader.ListMessages(ctx, sessionID, "backward", 0, 0, t.config.MinMessagesBeforeCompaction)
 	if err != nil {
 		return result, fmt.Errorf("list messages: %w", err)
 	}
@@ -215,58 +261,42 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	// The low watermark defines how much context should remain after compaction.
 	lowWatermarkTokens := int64(float64(contextWindow) * t.config.LowWatermark)
 
-	// Find the cutoff point: messages from the end that fit within the low watermark.
-	// We need to find the source range [startSeq, endSeq] to compact.
-	// The endSeq is the point where remaining messages fit within the low watermark.
-	allMessages, err := t.messageReader.ListMessages(ctx, sessionID, "backward", 1000)
-	if err != nil {
-		return result, fmt.Errorf("list all messages: %w", err)
-	}
-
-	if len(allMessages) == 0 {
-		result.Reason = "no messages in session"
-		return result, nil
-	}
-
-	// Find the compaction boundary: compact all messages that are older than
-	// what fits within the low watermark.
+	// Scan the stable snapshot in backward pages. Retain only source boundaries
+	// and count so long sessions do not require a second full in-memory index.
 	var keepTokens int64
-	cutoffIdx := 0
-	for i, msg := range allMessages {
-		// allMessages is in backward order (newest first).
-		// We keep the newest messages that fit within the low watermark.
+	var sourceStart, sourceEnd MessageInfo
+	compactCount := 0
+	err = scanMessagePages(ctx, t.messageReader, sessionID, "backward", func(msg MessageInfo) error {
 		entry, err := t.tokenRepo.GetTokenLedger(ctx, msg.ID, provider, model, tokenizerRevision)
 		if err != nil {
-			return result, fmt.Errorf("get token ledger for message %s: %w", msg.ID, err)
+			return fmt.Errorf("get token ledger for message %s: %w", msg.ID, err)
 		}
 		msgTokens := int64(0)
 		if entry != nil {
 			msgTokens = entry.TokenCount
 		}
-		if keepTokens+msgTokens > lowWatermarkTokens {
-			cutoffIdx = i
-			break
+		if compactCount == 0 && keepTokens+msgTokens <= lowWatermarkTokens {
+			keepTokens += msgTokens
+			return nil
 		}
-		keepTokens += msgTokens
-		if i == len(allMessages)-1 {
-			// All messages fit within the low watermark; no compaction needed.
-			result.Reason = fmt.Sprintf("all messages (%d) fit within low watermark", len(allMessages))
-			return result, nil
+		if compactCount == 0 {
+			sourceEnd = msg
 		}
+		sourceStart = msg
+		compactCount++
+		return nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("scan messages: %w", err)
 	}
-
-	// Messages from cutoffIdx to end are the ones to compact.
-	// In backward order, these are the oldest messages.
-	compactMessages := allMessages[cutoffIdx:]
-	if len(compactMessages) < t.config.MinMessagesBeforeCompaction {
-		result.Reason = fmt.Sprintf("compaction range too small (%d < %d)", len(compactMessages), t.config.MinMessagesBeforeCompaction)
+	if compactCount == 0 {
+		result.Reason = "all messages fit within low watermark"
 		return result, nil
 	}
-
-	// The source range is the oldest compacted messages.
-	// In backward order, the last element is the oldest (sequence 1).
-	sourceStart := compactMessages[len(compactMessages)-1]
-	sourceEnd := compactMessages[0]
+	if compactCount < t.config.MinMessagesBeforeCompaction {
+		result.Reason = fmt.Sprintf("compaction range too small (%d < %d)", compactCount, t.config.MinMessagesBeforeCompaction)
+		return result, nil
+	}
 
 	// Compute source digest.
 	digestInput := fmt.Sprintf("%s:%d:%d:%s:%s", sessionID, sourceStart.Sequence, sourceEnd.Sequence, sourceStart.ID, sourceEnd.ID)
@@ -317,7 +347,7 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	result.Triggered = true
 	result.CheckpointID = created.ID
 	result.Reason = fmt.Sprintf("compaction triggered: checkpoint %s, compacting messages %d-%d (%d messages), usage %.1f%%",
-		created.ID, sourceStart.Sequence, sourceEnd.Sequence, len(compactMessages), result.UsageFraction*100)
+		created.ID, sourceStart.Sequence, sourceEnd.Sequence, compactCount, result.UsageFraction*100)
 	return result, nil
 }
 
@@ -367,7 +397,10 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 	}
 
 	// Acquire per-session lock to serialize compaction operations.
-	unlock := t.LockSession(sessionID)
+	unlock, err := t.LockSession(ctx, sessionID)
+	if err != nil {
+		return result, err
+	}
 	defer unlock()
 
 	// Check if a compaction is already in progress.
@@ -380,27 +413,33 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 		return result, nil
 	}
 
-	// Fetch all messages to find the ones in the source range.
-	allMessages, err := t.messageReader.ListMessages(ctx, sessionID, "forward", 10000)
-	if err != nil {
-		return result, fmt.Errorf("list messages: %w", err)
-	}
-
-	// Filter messages to the specified range.
-	var rangeMessages []MessageInfo
-	for _, msg := range allMessages {
-		if msg.Sequence >= startSeq && msg.Sequence <= endSeq {
-			rangeMessages = append(rangeMessages, msg)
+	// Scan the stable snapshot page by page and retain only selected boundaries.
+	var sourceStart, sourceEnd MessageInfo
+	messageCount := 0
+	err = scanMessagePages(ctx, t.messageReader, sessionID, "forward", func(msg MessageInfo) error {
+		if msg.Sequence < startSeq || msg.Sequence > endSeq {
+			return nil
 		}
+		if messageCount == 0 {
+			sourceStart = msg
+		}
+		sourceEnd = msg
+		messageCount++
+		if msg.Sequence == endSeq {
+			return errStopMessageScan
+		}
+		return nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("scan messages: %w", err)
 	}
-
-	if len(rangeMessages) < t.config.MinMessagesBeforeCompaction {
-		result.Reason = fmt.Sprintf("insufficient messages in range (%d < %d)", len(rangeMessages), t.config.MinMessagesBeforeCompaction)
+	if messageCount < t.config.MinMessagesBeforeCompaction {
+		result.Reason = fmt.Sprintf("insufficient messages in range (%d < %d)", messageCount, t.config.MinMessagesBeforeCompaction)
 		return result, nil
 	}
-
-	sourceStart := rangeMessages[0]
-	sourceEnd := rangeMessages[len(rangeMessages)-1]
+	if sourceStart.Sequence != startSeq || sourceEnd.Sequence != endSeq || int64(messageCount) != endSeq-startSeq+1 {
+		return result, fmt.Errorf("source range does not exist exactly: requested=%d-%d actual=%d-%d count=%d", startSeq, endSeq, sourceStart.Sequence, sourceEnd.Sequence, messageCount)
+	}
 
 	// Compute source digest (deterministic, covers the range boundaries).
 	digestInput := fmt.Sprintf("%s:%d:%d:%s:%s", sessionID, sourceStart.Sequence, sourceEnd.Sequence, sourceStart.ID, sourceEnd.ID)
@@ -448,8 +487,8 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 	result.CheckpointID = created.ID
 	result.SourceStartSeq = sourceStart.Sequence
 	result.SourceEndSeq = sourceEnd.Sequence
-	result.MessageCount = len(rangeMessages)
+	result.MessageCount = messageCount
 	result.Reason = fmt.Sprintf("manual checkpoint %s created for messages %d-%d (%d messages)",
-		created.ID, sourceStart.Sequence, sourceEnd.Sequence, len(rangeMessages))
+		created.ID, sourceStart.Sequence, sourceEnd.Sequence, messageCount)
 	return result, nil
 }

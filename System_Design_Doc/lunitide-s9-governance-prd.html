@@ -281,14 +281,14 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
     <div class="kicker">SPEC S9 · 治理与审批</div>
     <h1 class="accent-grad">S9 · 治理与审批 PRD</h1>
     <p class="lead" style="margin-top:20px">
-      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；协作采用 Presence + 乐观并发 + Git 三方合并，发布采用不可变包、同 digest 环境晋级与代码/数据库顺序门禁。M0 建立信任与审计基线，M2 保护 Provider/BYOK 与模型外发，M5 关闭完整 Agent ToolCall 治理门禁，M7 原样复用该内核处理发布，禁止另造更宽松审批。
+      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；v1 本机编辑来源采用乐观并发 + Git 三方合并，远端 Presence 与职责分离由 ADR-011 后续启用；发布采用不可变包、同 digest 环境晋级与代码/数据库顺序门禁。M0 建立信任与审计基线，M2 保护 Provider/BYOK 与模型外发，M4 关闭可靠单 Root Agent ToolCall 治理，M6 扩展委派治理，M7 原样复用该内核处理发布，禁止另造更宽松审批。
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
       <span class="tag"><b>v1.0</b> · 规范冻结</span>
       <span class="tag">状态机 · <b>9态</b></span>
       <span class="tag">威胁面 · <b>7类</b></span>
       <span class="tag">审计 · <b>append-only</b></span>
-      <span class="tag"><b>实施</b> M0 基线 · M2 Provider · M5 完整治理 · M7 发布</span>
+      <span class="tag"><b>实施</b> M0 基线 · M2 Provider · M4 单 Agent · M6 委派 · M7 发布</span>
     </div>
   </div>
 </section>
@@ -372,6 +372,22 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
       <h4>裁决可解释</h4>
       <p>每次裁决携带 <code>reason</code> 字段，用人类可读语言说明"为什么 allow / deny / require_review"。这不仅服务于审计，也直接驱动审批 UI 向用户展示风险理由。</p>
     </div>
+
+    <h3 id="multi-agent-governance">复杂度路由与父子 Agent 治理（M6）</h3>
+    <p>复杂度路由只决定采用单 Agent、请求澄清或受控委派，不授予任何权限。Root、Supervisor 与每个 Child AgentInvocation 都使用独立 run identity；所有 ToolCall 仍逐动作进入同一 Policy / Review / Audit 管线。</p>
+    <table>
+      <thead><tr><th>治理对象</th><th>强制控制</th></tr></thead>
+      <tbody>
+        <tr><td><b>ComplexityDecision</b></td><td>审计 input digest、router/rule version、level、reason codes 和最终路径；低置信或策略不允许时降级，不得隐式 fan-out</td></tr>
+        <tr><td><b>DelegationEnvelope</b></td><td>绑定 objective、最小上下文/资源、output schema、acceptance、budget、deadline、policy digest 与 spawn depth；创建后不可变</td></tr>
+        <tr><td><b>权限继承</b></td><td>Child 有效权限只能是 Root Mandatory Policy、父委派限制和资源策略的更严格交集；禁止权限并集扩大，审批 token、Secret lease、临时 capability 不继承</td></tr>
+        <tr><td><b>fan-out</b></td><td>限制并发、token、费用、时间、工具调用和递归深度；资源可能冲突的写分支不得并发，每个 Child ToolCall 单独裁决</td></tr>
+        <tr><td><b>JoinBarrier</b></td><td>保存每个结果的来源、状态、冲突、证据和失败；required 结果、测试或安全 Review 未通过时不得宣称完成，禁止多数结果覆盖安全失败</td></tr>
+        <tr><td><b>取消与恢复</b></td><td>Root 取消/期限向下传播；恢复使用幂等键、checkpoint、EffectJournal 和 receipt 对账，不重放已发生副作用</td></tr>
+        <tr><td><b>Review / Audit</b></td><td>Review 绑定 root/child run、delegation、plan、params、resource、policy version 与有效期；路由、派生、开始、完成、失败、取消、预算耗尽和 join 全部进入 append-only 审计</td></tr>
+      </tbody>
+    </table>
+    <div class="warn"><b>不反向扩项：</b>M0 仅建立信任与审计基线，M2 仅治理 Provider/BYOK、模型外发和简单对话，M3 仅提供 Session/Context/Handoff 连续性；M4 关闭可靠单 Root Run 与受控 ToolCall 治理，复杂度路由、父子 Run、fan-out/fan-in 和委派治理从 M6 才启用。</div>
 
     <div class="note"><b>设计原则：最小惊讶。</b>当 Policy Engine 无法判断时，默认返回 <code>require_review</code> 而非 <code>allow</code>。在安全系统中，不确定时选择更严格的路总是正确的。</div>
   </div>
@@ -704,7 +720,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
 
     <h3>审计链完整性</h3>
     <div class="callout"><b>append-only + tamper-evident hash chain。</b>每个 Workspace 使用一条明确 chain_id 的串行链；Engine 单写者在同一事务中分配单调 audit_seq，并以版本化 canonical encoding 计算 event_hash。唯一约束 (chain_id, audit_seq) 防止并发分叉。该本地链能检测部分损坏/非同步篡改，但不能声称抵御可重写整个 DB 的同用户攻击者。</div>
-    <div class="callout"><b>用户可验证完整性。</b>系统提供校验工具、genesis/epoch、链头与截断检测；发布和审计导出前强制验链。需要更强证据时，以 DPAPI/TPM 保护的签名密钥定期签链头，或锚定到独立位置。安全审计独立保留；业务内容删除后只保留最小、不可逆摘要和墓碑，不保留原文。</div>
+    <div class="callout"><b>用户可验证完整性 + 外置签名 checkpoint。</b>系统提供校验工具、genesis/epoch、链头与截断检测；发布和审计导出前强制验链。系统 MUST 以 DPAPI/TPM 保护的签名密钥周期性签发 <code>workspace_id、chain_id、epoch、last_sequence、head_hash、timestamp</code> checkpoint，并保存到业务 DB 与业务备份之外的受保护位置。恢复时必须与最高已知 checkpoint 比较；备份落后、epoch 异常或签名无法验证时进入 <code>audit_rollback_detected / recovery_required</code>，禁止宣称链完整并阻断高风险执行与发布。安全审计独立保留；业务内容删除后只保留最小、不可逆摘要和墓碑，不保留原文。</div>
 
     <h3>AuditEvent 实体字段</h3>
     <table>
@@ -975,7 +991,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
 <section id="ch13">
   <div class="wrap">
     <div class="sec-head"><div><div class="num">NORMATIVE ADDENDUM</div><h2>协作冲突与发布治理裁决</h2></div><span class="tag">MUST</span></div>
-    <div class="warn"><b>并发模型：</b>禁止长期悲观代码锁与 last-write-wins。编辑阶段显示 Presence 和对象/路径/符号/迁移重叠预警；保存与提交必须携带 base_hash + base_version，通过 CAS 与 Git 三方合并解决，冲突返回 stale/merge_required，不得静默覆盖。</div>
+    <div class="warn"><b>并发模型：</b>禁止长期悲观代码锁与 last-write-wins。v1 对本机 Owner、Agent、VS Code 与文件监视器显示编辑来源和对象/路径/符号/迁移重叠预警；保存与提交必须携带 base_hash + base_version，通过 CAS 与 Git 三方合并解决，冲突返回 stale/merge_required，不得静默覆盖。远端多人 Presence、独立身份与 N-of-M 属于 ADR-011 Deferred。</div>
     <table><thead><tr><th>治理对象</th><th>状态 / 约束</th><th>审计要求</th></tr></thead><tbody>
       <tr><td>ChangeTask</td><td>draft → active → submitted → merged；冲突 merge_required；取消 cancelled</td><td>记录参与者、base/current/merged hash、冲突和解决人</td></tr>
       <tr><td>CRRevision</td><td>assembling → submitted → approved → frozen；漂移 changed_after_approval 并新建修订</td><td>记录 manifest、审批 hash、证据与决策</td></tr>
@@ -985,12 +1001,12 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
       <tr><td>ReleaseRun</td><td>preflight → restore_point → migrating → post_scan → deploying → verifying → succeeded</td><td>逐阶段记录输入/输出 digest、错误、补偿与操作者</td></tr>
     </tbody></table>
     <p>固定 transport 为 <b>ChangeTask → CR Revision → ReleasePackage → Promotion</b>。开发本地生效不算传输；development + production 为 1 次晋级，development + test + production 为 2 次晋级。仅 <b>ReleasePackage 冻结</b>和<b>目标环境导入</b>可使用 TTL 短租约；不得扩展到代码编辑或人工等待。</p>
-    <div class="callout"><b>环境门禁：</b>development 验证成功才可晋级；配置 test 时不得跳过，须测试、契约与证据通过后进入 production；生产还要求职责分离、有效生产批准、维护窗和恢复点能力。每次晋级重验同一 package digest 与审批摘要。</div>
+    <div class="callout"><b>环境门禁：</b>development 验证成功才可晋级；配置 test 时不得跳过，须测试、契约与证据通过后进入 production。v1 单 Owner 的 production 必须进行独立于开发批准的生产重验与显式确认，并具备维护窗和恢复点能力；ADR-011 Accepted 且启用多人身份后，门禁升级为职责分离与 N-of-M。每次晋级重验同一 package digest 与审批摘要。</div>
     <h3>代码 + 数据库同包执行门禁</h3>
     <p>固定编排为：<b>preflight 只读契约检查 → 恢复点 → 执行已批准 MigrationPackage（external / project_tool / controlled MigrationAdapter）→ 迁移后重扫 → 部署代码 → 健康 + 契约复核</b>。数据库与代码不得无序同时并行；失败即停止，未知结果进入 outcome_unknown，先对账再重试。</p>
     <div class="warn"><b>Expand–Migrate–Contract：</b>Expand 建立兼容结构，Migrate 回填并部署兼容代码，破坏性 Contract 必须在后续独立 ReleasePackage 执行，不得与 Expand 同次自动执行。无 MigrationAdapter 时 DB 变更是 external prerequisite，须以外部证据、实际 schema digest 和 post-check 放行。</div>
-    <p><b>审批摘要：</b>覆盖 revision manifest、package/code digest、DatabaseContract、MigrationPackage、IntegrationVersion、证据、回退方案、目标环境、promotion path、破坏性标记与 policy version；UI 展示风险、职责分离、迁移步骤和恢复策略，冻结及每次晋级前重算。</p>
-    <p><b>失败与审计：</b>迁移成功而代码失败时数据库不默认逆迁移；复核失败将环境标记 degraded 并阻断晋级。冲突、三方合并、Presence/重叠预警、状态迁移、租约、审批摘要、门禁、迁移输出、部署、失败、补偿和回退均写 append-only AuditEvent。</p>
+    <p><b>审批摘要：</b>覆盖 revision manifest、package/code digest、DatabaseContract、MigrationPackage、IntegrationVersion、证据、回退方案、目标环境、promotion path、破坏性标记与 policy version；UI 展示风险、生产重验、迁移步骤和恢复策略，冻结及每次晋级前重算；启用 ADR-011 多人能力后再展示职责分离主体。</p>
+    <p><b>失败与审计：</b>迁移成功而代码失败时数据库不默认逆迁移；复核失败将环境标记 degraded 并阻断晋级。冲突、三方合并、编辑来源/重叠预警、状态迁移、租约、审批摘要、门禁、迁移输出、部署、失败、补偿和回退均写 append-only AuditEvent。</p>
   </div>
 </section>
 

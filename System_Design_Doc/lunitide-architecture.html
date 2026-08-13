@@ -738,6 +738,8 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <p><b>Agent Kernel 是 Go Engine 内部应用内核</b>，不是新进程、不是第六智能内核、不是新增 UI 功能，也不引入 Node/Python/Rust sidecar。它把 Session/Context、Planner、ModelGateway、ToolRuntime、Policy/Review 和 durable recovery 编排为可测试的执行循环。</p>
 <pre>User Message → AgentRun / Turn
   → ResolvedConfigSnapshot
+  → ComplexityDecision(simple | moderate | complex | high-risk)
+  → single path | Plan DAG → bounded Child AgentRun(s)
   → ContextBuilder → ModelGateway
   → ProposedToolCall → PolicyDecision
   → allow | deny | Review
@@ -755,12 +757,26 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <h4>三轴正交模型</h4>
     <ul><li><b>Agent Profile</b>只改变角色、Prompt、候选工具和上下文偏好；</li><li><b>Automation Level</b>为 Manual / Assisted / Full-Managed，只影响低中风险动作；</li><li><b>Business Stage</b>为既有九阶段，决定输入、产物和门禁；</li><li><b>Policy Engine</b>始终对规范化的具体动作最终裁决，高风险强制 Review 不因任何轴变化而降级。</li></ul>
 
+    <h4 id="multi-agent-runtime">全对话复杂度路由与多子 Agent 运行时合同（M6）</h4>
+    <p>所有对话入口共享轻量路由，但不强制所有任务进入计划或多 Agent。路由基于目标、完整逻辑会话、未完成承诺、ContextEnvelope manifest、风险、预算与工具需求，输出版本化 <code>ComplexityDecision{simple|moderate|complex|high-risk,inputDigest,routerVersion,reasonCodes}</code>。简单任务走单 Agent 快路径；复杂或高风险任务先向用户展示目标、假设、可审查计划、风险、进度与证据，不展示私有思维链。低置信、预算不足或 Policy 不允许时降级为单 Agent 或请求澄清，不得静默 fan-out。</p>
+    <div class="card"><table>
+      <tr><th>合同</th><th>强制字段 / 不变量</th></tr>
+      <tr><td><b>Root / Child Run</b></td><td>每次用户触发只有一个 Root Run；Child Run 保留同一 sessionId/rootRunId，以 parentRunId 关联直接父级。Agent Profile 是配置，AgentInvocation 是运行实例，两者不得混同；Child 不是新 Session、新信任域或新进程。</td></tr>
+      <tr><td><b>DelegationEnvelope</b></td><td>不可变绑定 objective、最小 context/provenance refs、allowed resources/tools、expected output schema、acceptance、budget slice、deadline、policy/config digest、depth 与 spawn policy；默认禁止递归派生。</td></tr>
+      <tr><td><b>AgentResult</b></td><td>结构化返回 terminal status、output/evidence/provenance refs、usage、error 与 effect receipts；自由文本或未验证摘要不得作为权威汇合输入。</td></tr>
+      <tr><td><b>fan-out / JoinBarrier</b></td><td>仅对依赖独立且资源不冲突的节点并发；汇合检查 required child、schema、acceptance、冲突、测试、安全 Review 与全局验收。安全或测试失败不得被多数结果覆盖。</td></tr>
+      <tr><td><b>传播与守恒</b></td><td>Child 有效权限是 Root Policy、父委派限制与资源策略的更严格交集；审批 token、Secret lease 和临时 capability 不继承。Child 预算总和不得超过 Root 剩余预算，Root cancel/deadline 向下传播，迟到结果不得反转 first-terminal-wins 的 Root 终态。</td></tr>
+      <tr><td><b>恢复</b></td><td>按 root tree、delegation idempotency key、checkpoint、EffectJournal 与 receipt 恢复；<code>outcome_unknown</code> 阻断依赖节点并先对账，不得因崩溃重复 spawn 或重放副作用。</td></tr>
+    </table></div>
+    <div class="warn"><b>里程碑边界：</b>M4 只交付可靠单 Root AgentRun；M5 在其上交付九阶段项目生产系统。上述复杂度路由、DelegationEnvelope、Child Run、fan-out/fan-in 与 JoinBarrier 在 M6 才启用。M0–M3 仅保证 Session/Context provenance 与 schema 扩展兼容；旧单 Run 读取为 <code>rootRunId=runId, parentRunId=null</code>，不得合成虚假 Child。</div>
+
     <h3>7.2 三类事件与恢复事实</h3>
     <table><thead><tr><th>类型</th><th>用途</th><th>可靠性</th></tr></thead><tbody>
       <tr><td><b>Domain Event</b></td><td>Run、Session、Plan、Tool、Setting、Artifact 等权威业务变化</td><td>与聚合状态同事务写 outbox；至少一次投递，按 eventId 去重</td></tr>
       <tr><td><b>Wire Event</b></td><td>Renderer 流式展示和状态投影</td><td>seq/ACK/背压；关键事件可重放，纯 token delta 可合并</td></tr>
       <tr><td><b>Audit Event</b></td><td>Policy、Review、Secret、工具和外部副作用追责</td><td>append-only + hash chain + 外置签名 checkpoint</td></tr>
     </tbody></table>
+    <p>Run 相关 Domain/Wire/Audit Event 统一携带 <code>sessionId、runId、rootRunId、parentRunId?、delegationId?、correlationId、causationId、schemaVersion、provenanceRef?</code>。M0–M5 中 parent/delegation 保持空值；M6 才产生非空父子关联。事件扩展必须向后兼容，未知的未来委派字段不得导致已提交消息不可读。</p>
     <div class="callout"><b>副作用恢复：</b>执行前写 <code>EffectJournal{operationDigest,state=prepared}</code>，执行后保存外部 receipt 并转 succeeded；崩溃恢复先向外部系统对账。只有具备稳定幂等键或确定补偿的操作可自动恢复；其他操作进入 <code>outcome_unknown</code> 并阻断后续依赖节点。</div>
   </div>
 </section>
@@ -1321,13 +1337,14 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <p><b>统一预算公式：</b><code>effectiveWindow = min(providerContextWindow, providerInputOutputLimit) - tokenizerSafetyMargin</code>；<code>requiredTokens = system + toolSchema + selectedContext + currentInput + maxOutputReserve + toolContinuationReserve</code>；<code>budgetUsage = requiredTokens / effectiveWindow</code>。70% 只生成 draft，校验通过为 validated；自动模式在 85% 可 CAS 激活；95% 必须压缩并重新预算。若仍超限，返回 <code>CONTEXT_BUDGET_EXCEEDED</code>，不得调用模型。切换到更小窗口模型时必须重新构建，而非截断尾部。</p>
     <div class="card"><table>
       <tr><th>RPC</th><th>输入 → 输出</th><th>约束</th></tr>
-      <tr><td><b class="col">message.list</b></td><td>sessionId, cursor, direction, pageSize, maxBytes → items, nextCursor, hasMore</td><td>cursor 绑定 session 与 message.sequence；pageSize≤200 和 envelope byte budget 只是单页上限，不是会话总上限</td></tr>
+      <tr><td><b class="col">message.list</b></td><td>sessionId, cursor, direction, pageSize, maxBytes → items, nextCursor, hasMore</td><td>cursor 绑定 session 与 message.sequence；单页限制不是会话总量限制；Engine 内部压缩同样按稳定 snapshot/boundary 分页到底</td></tr>
       <tr><td><b class="col">context.status</b></td><td>sessionId, modelId → canonicalLogicalTokens, canonicalTokenizerVersion/revision/artifactSha256, estimatedRequestTokens, budgetUsage, activeCheckpointId/version</td><td>区分稳定容量口径、本轮发送量与显式激活指针</td></tr>
-      <tr><td><b class="col">context.compact.preview</b></td><td>sessionId → checkpointId, version, sourceStartSeq/sourceEndSeq, sourceDigest, summaryPreview, humanSummary, status</td><td>自动选择稳定 source range；生成并校验 succeeded draft，但绝不改变 active activation pointer</td></tr>
-      <tr><td><b class="col">context.compact.commit</b></td><td>checkpointId, baseVersion → checkpointId, version, status, activated</td><td>以 <code>compaction_activations</code> revision 执行 CAS；失败保留旧 active 并重新预算</td></tr>
+      <tr><td><b class="col">context.compact.preview</b></td><td>sessionId → checkpointId, version, sourceStartSeq/sourceEndSeq, sourceDigest, summaryPreview, humanSummary, status</td><td>生成 succeeded draft，不改变 active activation pointer</td></tr>
+      <tr><td><b class="col">context.compact.commit</b></td><td>checkpointId, baseVersion → checkpointId, version, status, activated</td><td>以 <code>compaction_activations.revision</code> 执行 CAS；冲突保留旧 active</td></tr>
       <tr><td><b class="col">context.handoff.create/import</b></td><td>sourceSessionId, sourceRange/version → Handoff；handoffId → targetSessionId</td><td>校验 source digest、作用域和删除墓碑；重复导入幂等</td></tr>
     </table></div>
-    <div class="note"><b>M3 当前物理模型：</b><code>compaction_checkpoints</code> 保存不可变 source range/digest、摘要内容、验证状态与版本；<code>compaction_activations</code> 为每个 Session 保存当前 active checkpoint 与单调 revision。<code>succeeded</code> 只表示 draft 通过校验，不等于已激活；preview、自动触发和手动 commit 均不得通过“最新成功记录”隐式改变上下文。Bridge v1 的生成 JSON Schema 是当前线协议事实，本文字段与其保持一致。</div>
+    <div class="note"><b>M3 当前物理模型：</b><code>compaction_checkpoints</code> 保存不可变 source range/digest、摘要和版本；<code>compaction_activations</code> 保存每个 Session 的 active checkpoint 与单调 revision；<code>handoff_capsules / handoff_imports</code> 保存跨会话来源关系。<code>succeeded</code> 仅表示摘要 draft 生成成功，不等于激活。以上字段与生成 Bridge Schema、SQLite migration 和当前代码一致；未来逻辑名不得反向覆盖当前线协议事实。</div>
+    <div class="callout"><b>M3 → M4 运行边界：</b>M4 Root AgentRun 只保存对 M3 Session、Context selection manifest、active checkpoint revision、Handoff provenance 和消息 sequence range 的不可变引用。恢复时先重建 ContextEnvelope 并校验墓碑/版本，再继续无副作用步骤；任何来源失效、摘要 revision 漂移或外部副作用结果不明都必须暂停并对账，不得从自由文本摘要猜测状态。</div>
     <div class="warn"><b>保留与删除：</b>压缩、归档、切换模型和跨窗口续接均不得删除原始 Message。用户显式删除或合规保留期是唯一删除入口；墓碑与源对象变为不可读 MUST 在同一事务完成，所有读取/召回/装配/import 立即 fail-closed，再异步物理清除内容及递归派生物。传播失败也不得恢复可读。</div>
     <div class="note"><b>压缩错误码：</b><code>COMPACTION_GENERATION_FAILED</code>、<code>FIDELITY_REJECTED</code>、<code>BASE_VERSION_CONFLICT</code>、<code>SOURCE_DELETED</code>、<code>BUDGET_STILL_EXCEEDED</code>。任一失败后必须重跑 Context Builder；旧 active version 若仍超预算，不得继续发送。</div>
     <div class="callout"><b>1M 可用性门禁：</b>固定 corpus 必须覆盖消息、工具大输出、附件、摘要、Handoff 和删除墓碑；验收 append/page/query P95、重建/压缩耗时、内存峰值、磁盘放大、崩溃恢复与不同模型窗口矩阵。摘要先以 JSON Schema、claim type、source span、引用完整性和 deterministic verifier 为强制门禁；语义保真使用人工标注 benchmark，不以模型自评冒充 100% 正确。</div>
@@ -1352,16 +1369,17 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <div class="card">
       <table>
         <tr><th>#</th><th>规则</th></tr>
-        <tr><td><b class="col">1</b></td><td>API Key 编辑时默认显示掩码，不回传明文到 Renderer</td></tr>
-        <tr><td><b class="col">2</b></td><td>"眼睛"按钮不得直接取得已保存 Key；默认方案是只允许覆盖 Key</td></tr>
+        <tr><td><b class="col">1</b></td><td>Provider 列表与普通详情只显示 configured/requires_reentry，不自动读取 Key；进入编辑页仍默认空值/隐藏</td></tr>
+        <tr><td><b class="col">2</b></td><td>用户明确点击“显示已保存 API Key”后，Host 必须以平台原生对话框再次确认用户在场，并从 Engine 读取权威 providerId/protocol/origin/credentialRef 绑定；确认失败不得读取 Secret</td></tr>
         <tr><td><b class="col">3</b></td><td>保存新 Key 时 Renderer 通过一次性受保护 Bridge 提交 Host，Host 立即 DPAPI 保存并清空前端字段；不得存入 Zustand、localStorage 或日志</td></tr>
         <tr><td><b class="col">4</b></td><td>BaseURL 的协议或 origin 改变时，旧 credential 不自动复用；用户重新确认</td></tr>
         <tr><td><b class="col">5</b></td><td>模型同步最多 50 个，限制响应体、超时和重定向；不覆盖供应商名称、Key 或未保存编辑</td></tr>
-        <tr><td><b class="col">6</b></td><td>默认模型删除前必须先选择新默认</td></tr>
+        <tr><td><b class="col">6</b></td><td>揭示值只存在于当前编辑 generation 的受控内存；取消、离页、迟到响应和保存后立即清零，不进入 localStorage、日志、诊断或 DTO；未修改的揭示值不得重新提交</td></tr>
+        <tr><td><b class="col">7</b></td><td>默认模型删除前必须先选择新默认</td></tr>
       </table>
     </div>
     <div class="warn">
-      <b>ADR-007 Accepted：</b>已保存 Key 不向 Renderer 回显，只允许覆盖；输入窗口为唯一明文例外。优先安全于便利。
+      <b>ADR-007 Accepted（按当前产品合同修订）：</b>Provider Key 默认不读取；用户在编辑页显式请求并通过 Host 原生用户在场确认后可短时揭示。揭示不是稳定配置状态，不得缓存、自动重试或跨 generation 保留；Host/Engine 仍是凭据权威边界。
     </div>
 
     <h3>12.4 SecretService 接口</h3>
@@ -1417,7 +1435,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td><b class="col">ADR-004</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>DPAPI CurrentUser 为 v1 Secret backend；Credential Manager 后续可插拔</td></tr>
         <tr><td><b class="col">ADR-005</b></td><td><b style="color:var(--warn)">Open</b></td><td>SQLite 向量扩展 / 独立本地向量索引选型</td></tr>
         <tr><td><b class="col">ADR-006</b></td><td><b style="color:var(--warn)">Open</b></td><td>首期支持的代码语言解析器范围</td></tr>
-        <tr><td><b class="col">ADR-007</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>已保存 Key 不向 Renderer 回显，只允许覆盖；输入窗口为唯一明文例外</td></tr>
+        <tr><td><b class="col">ADR-007</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Provider Key 默认不读取；显式请求 + Host 原生确认后短时揭示，禁止持久化、自动重试和跨编辑 generation 保留</td></tr>
         <tr><td><b class="col">ADR-008</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>per-user NSIS 初装 + 独立签名 Go Updater；签名 manifest 与 staging 替换</td></tr>
         <tr><td><b class="col">ADR-009</b></td><td><b style="color:var(--warn)">Open</b></td><td>Skill 包签名信任根和仓库协议</td></tr>
         <tr><td><b class="col">ADR-010</b></td><td><b style="color:var(--warn)">Open</b></td><td>用户项目部署执行器的首批目标环境</td></tr>
@@ -1427,7 +1445,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     </div>
 
     <div class="note">
-      <b>阻断关系：</b>ADR-005/006/009 阻断 M5 对应向量、解析与第三方 Skill 能力；ADR-012 阻断 M4/M7 对应模板格式；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M3；未批准能力必须 disabled/quarantined，不得由实现者自行扩展。ADR-011 始终不阻断 v1。
+      <b>阻断关系：</b>ADR-005/006/009 阻断 M6 对应向量、解析与第三方 Skill 能力；ADR-012 阻断 M5/M7 对应模板格式；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M4 的可靠单 Agent 主链；未批准能力必须 disabled/quarantined，不得由实现者自行扩展。ADR-011 始终不阻断 v1。
     </div>
 
     <h3>13.1 关键冲突裁决</h3>
@@ -1440,7 +1458,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td>OData 数据库直连</td><td><b class="col">OData HTTP</b>；DB 直连独立 Connector</td></tr>
         <tr><td>技能命中即执行</td><td><b class="col">命中仅选择</b>，执行仍过 Policy</td></tr>
         <tr><td>本地数据不出机</td><td><b class="col">本地持久化</b>；云调用会外发所选数据</td></tr>
-        <tr><td>Key 编辑回显</td><td><b class="col">正式默认不回显</b>，覆盖式更新</td></tr>
+        <tr><td>Key 编辑回显</td><td><b class="col">默认不读取</b>；显式请求并通过 Host 原生确认后短时揭示，编辑结束即清零</td></tr>
       </table>
     </div>
   </div>

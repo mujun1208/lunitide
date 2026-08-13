@@ -49,8 +49,8 @@ func (*compactionCheckpointStore) ListCheckpointsByStatus(context.Context, compa
 
 type compactionMessageReader struct{}
 
-func (compactionMessageReader) ListMessages(context.Context, string, string, int) ([]compactionapp.MessageInfo, error) {
-	return nil, nil
+func (compactionMessageReader) ListMessages(context.Context, string, string, int64, int64, int) ([]compactionapp.MessageInfo, int64, bool, error) {
+	return nil, 0, false, nil
 }
 
 type compactionTokenLookup struct{ provider string }
@@ -97,5 +97,35 @@ func TestDeriveCompactionContextFallbackUsesProviderID(t *testing.T) {
 	providerID, modelID, contextWindow := deriveCompactionContext(e, context.Background(), "session")
 	if providerID != compactionProviderID || modelID != "model" || contextWindow != 128000 {
 		t.Fatalf("fallback context = (%q, %q, %d), want (%q, model, 128000)", providerID, modelID, contextWindow, compactionProviderID)
+	}
+}
+
+func TestDeriveCompactionContextResolvesHistoricalProtocol(t *testing.T) {
+	checkpointStore := &compactionCheckpointStore{latest: &compaction.Checkpoint{Provider: string(provider.ProtocolOpenAICompatible), Model: "model"}}
+	e := NewEngine(compactionProviderService{}, "test")
+	e.compactionTrigger = compactionapp.NewTrigger(compactionapp.DefaultWatermarkConfig(), &compactionTokenLookup{}, checkpointStore, compactionMessageReader{})
+
+	providerID, modelID, contextWindow := deriveCompactionContext(e, context.Background(), "session")
+	if providerID != compactionProviderID || modelID != "model" || contextWindow != 128000 {
+		t.Fatalf("historical protocol context = (%q, %q, %d)", providerID, modelID, contextWindow)
+	}
+}
+
+type legacyCompactionProviderService struct{ providerRepositoryStub }
+
+func (legacyCompactionProviderService) List(context.Context, provider.Filter) ([]provider.Provider, error) {
+	p := compactionTestProvider()
+	p.LegacyID = "legacy-provider"
+	return []provider.Provider{p}, nil
+}
+
+func TestDeriveCompactionContextResolvesLegacyProviderID(t *testing.T) {
+	checkpointStore := &compactionCheckpointStore{latest: &compaction.Checkpoint{Provider: "legacy-provider", Model: "model"}}
+	e := NewEngine(legacyCompactionProviderService{}, "test")
+	e.compactionTrigger = compactionapp.NewTrigger(compactionapp.DefaultWatermarkConfig(), &compactionTokenLookup{}, checkpointStore, compactionMessageReader{})
+
+	providerID, modelID, contextWindow := deriveCompactionContext(e, context.Background(), "session")
+	if providerID != compactionProviderID || modelID != "model" || contextWindow != 128000 {
+		t.Fatalf("legacy provider context = (%q, %q, %d)", providerID, modelID, contextWindow)
 	}
 }

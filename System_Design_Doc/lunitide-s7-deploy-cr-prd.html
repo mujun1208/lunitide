@@ -1009,7 +1009,7 @@ footer .bottom{max-width:1180px;margin:30px auto 0;padding:18px 28px 0;border-to
     <h3>9.1 核心验收清单</h3>
     <ul class="checklist">
       <li><span><b>正式包无运行时依赖：</b>正式包无 Electron / Node runtime / Python / FastAPI / PyInstaller；Go/WebView2 架构图、进程和安装产物一致。</span></li>
-      <li><span><b>Key 全路径扫描 0 明文：</b>除用户正在输入且尚未提交的受控窗口外，已保存 Key 不得返回 Renderer；配置、DB、日志、诊断包、崩溃转储及提交后的稳定内存扫描 0 明文 Key。</span></li>
+      <li><span><b>Key 全路径扫描 0 稳定明文：</b>配置、DB、日志、诊断包、崩溃转储及稳定内存扫描 0 明文 Key；Provider 揭示只允许在显式请求和 Host 原生确认后的当前编辑 generation 短时存在，取消/离页/保存后清零，不得持久化或自动重试。</span></li>
       <li><span><b>Bridge 无通用本机能力：</b>Bridge 不暴露通用本机执行能力，仅提供受控的窄接口。</span></li>
       <li><span><b>Provider 真实测试通过：</b>OpenAI-compatible、Anthropic 两协议族真实契约测试和错误矩阵通过。</span></li>
       <li><span><b>九阶段状态与 stale 传播：</b>九阶段状态、产物快照和 stale 传播通过；上游修订 MUST 将下游标记为 stale，禁止静默替换输入。</span></li>

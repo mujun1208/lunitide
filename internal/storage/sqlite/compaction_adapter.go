@@ -15,18 +15,20 @@ type compactionMessageReader struct {
 	store *Store
 }
 
-func (r *compactionMessageReader) ListMessages(ctx context.Context, sessionID string, direction string, limit int) ([]compactionapp.MessageInfo, error) {
+func (r *compactionMessageReader) ListMessages(ctx context.Context, sessionID string, direction string, snapshot, boundary int64, limit int) ([]compactionapp.MessageInfo, int64, bool, error) {
 	dir := messageapp.Forward
 	if direction == "backward" {
 		dir = messageapp.Backward
 	}
-	msgs, _, _, err := r.store.ListMessages(ctx, messageapp.PageQuery{
+	msgs, stableSnapshot, hasMore, err := r.store.ListMessages(ctx, messageapp.PageQuery{
 		SessionID: sessionID,
 		Direction: dir,
+		Snapshot:  snapshot,
+		Boundary:  boundary,
 		Limit:     limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	result := make([]compactionapp.MessageInfo, len(msgs))
 	for i, m := range msgs {
@@ -35,7 +37,7 @@ func (r *compactionMessageReader) ListMessages(ctx context.Context, sessionID st
 			Sequence: m.Sequence,
 		}
 	}
-	return result, nil
+	return result, stableSnapshot, hasMore, nil
 }
 
 // CompactionMessageReader returns a compactionapp.MessageReader backed by this store.
@@ -50,7 +52,8 @@ func (s *Store) CompactionMessageReader() compactionapp.MessageReader {
 func (s *Store) ListMessagesByRange(ctx context.Context, sessionID string, startSeq, endSeq int64) ([]compactionapp.SummaryMessage, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT m.id, m.role, m.sequence,
-			MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END)
+			MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END),
+			COUNT(p.message_id), COUNT(CASE WHEN p.ordinal=1 AND p.type='text' THEN 1 END)
 		 FROM messages m
 		 LEFT JOIN message_parts p ON p.message_id=m.id
 		 WHERE m.session_id=? AND m.sequence>=? AND m.sequence<=?
@@ -65,12 +68,14 @@ func (s *Store) ListMessagesByRange(ctx context.Context, sessionID string, start
 	for rows.Next() {
 		var m compactionapp.SummaryMessage
 		var text *string
-		if err := rows.Scan(&m.ID, &m.Role, &m.Sequence, &text); err != nil {
+		var parts, validParts int
+		if err := rows.Scan(&m.ID, &m.Role, &m.Sequence, &text, &parts, &validParts); err != nil {
 			return nil, fmt.Errorf("scan message by range: %w", err)
 		}
-		if text != nil {
-			m.Content = *text
+		if parts != 1 || validParts != 1 || text == nil {
+			return nil, messageapp.ErrDataInvariantViolation
 		}
+		m.Content = *text
 		items = append(items, m)
 	}
 	if err := rows.Err(); err != nil {

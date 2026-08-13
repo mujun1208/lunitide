@@ -93,9 +93,11 @@ type Executor struct {
 	// trigger is used by Preview to create checkpoints via the same watermark
 	// logic as automatic compaction. Optional; only needed for Preview.
 	trigger *Trigger
-	// maxMessages limits the number of messages passed to the summarizer to bound cost.
+	// maxMessages limits one summarizer call. It is a batch limit, never a
+	// checkpoint or session capacity limit.
 	maxMessages int
-	// timeout bounds the entire execution.
+	// timeout bounds each external summarizer call. The caller context may set
+	// an overall execution deadline independently.
 	timeout time.Duration
 }
 
@@ -137,11 +139,8 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 	start := time.Now()
 	result := ExecuteResult{CheckpointID: checkpointID}
 
-	execCtx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-
 	// 1. Load checkpoint.
-	cp, err := e.store.GetCheckpoint(execCtx, checkpointID)
+	cp, err := e.store.GetCheckpoint(ctx, checkpointID)
 	if err != nil {
 		return result, fmt.Errorf("get checkpoint: %w", err)
 	}
@@ -153,77 +152,93 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 	}
 
 	// 2. Transition pending → running (CAS: expectedStatus=pending).
-	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusPending, compaction.StatusRunning, "{}", "", nil); err != nil {
+	if err := e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusPending, compaction.StatusRunning, "{}", "", nil); err != nil {
 		return result, fmt.Errorf("transition to running: %w", err)
 	}
 
-	// 3. Fetch source messages.
-	messages, err := e.sourceReader.ListMessagesByRange(execCtx, cp.SessionID, cp.SourceStartSeq, cp.SourceEndSeq)
-	if err != nil {
-		if cleanupErr := e.markFailed(execCtx, checkpointID, "SOURCE_READ_FAILED", err); cleanupErr != nil {
-			return result, fmt.Errorf("source read failed (%v); persist failed status: %w", err, cleanupErr)
-		}
-		result.Status = compaction.StatusFailed
-		result.DurationMs = time.Since(start).Milliseconds()
-		return result, nil
-	}
-	if len(messages) == 0 {
-		if cleanupErr := e.markFailed(execCtx, checkpointID, "EMPTY_SOURCE_RANGE", ErrNoMessagesToSummarize); cleanupErr != nil {
-			return result, fmt.Errorf("empty source range; persist failed status: %w", cleanupErr)
-		}
-		result.Status = compaction.StatusFailed
-		result.DurationMs = time.Since(start).Milliseconds()
-		return result, nil
-	}
-
-	// Reject oversized source ranges rather than summarizing only a prefix while
-	// recording the full checkpoint range as covered.
-	if len(messages) > e.maxMessages {
-		if cleanupErr := e.markFailed(execCtx, checkpointID, "SOURCE_RANGE_TOO_LARGE", nil); cleanupErr != nil {
-			return result, fmt.Errorf("source range exceeds maximum of %d messages; persist failed status: %w", e.maxMessages, cleanupErr)
-		}
-		result.Status = compaction.StatusFailed
-		result.DurationMs = time.Since(start).Milliseconds()
-		return result, nil
-	}
-
-	// Load the previous succeeded checkpoint's summary for rolling/incremental
+	// 3. Load the previous succeeded checkpoint's summary for rolling/incremental
 	// compaction (ADR-005 §3). The checkpoint's PrevCheckpointID links to the
 	// prior version; if that checkpoint succeeded, its SummaryJSON becomes the
 	// priorSummary passed to the Summarizer.
 	var priorSummary string
 	if cp.PrevCheckpointID != nil {
-		prevCp, prevErr := e.store.GetCheckpoint(execCtx, *cp.PrevCheckpointID)
+		prevCp, prevErr := e.store.GetCheckpoint(ctx, *cp.PrevCheckpointID)
 		if prevErr == nil && prevCp != nil && prevCp.Status == compaction.StatusSucceeded && prevCp.SummaryJSON != "" && prevCp.SummaryJSON != "{}" {
 			priorSummary = prevCp.SummaryJSON
 		}
 	}
 
-	// 4. Generate summary.
-	summaryJSON, humanSummary, err := e.summarizer.Summarize(execCtx, cp.SessionID, cp.Provider, cp.Model, cp.SourceStartSeq, cp.SourceEndSeq, messages, priorSummary)
-	if err != nil {
-		if cleanupErr := e.markFailed(execCtx, checkpointID, "SUMMARY_FAILED", err); cleanupErr != nil {
-			return result, fmt.Errorf("summary failed (%v); persist failed status: %w", err, cleanupErr)
+	// 4. Read and summarize the complete range in bounded sequence batches.
+	// Each successful batch rolls its structured summary into the next call.
+	// The checkpoint is marked succeeded only after the final source sequence,
+	// so a page limit can never silently become a total range limit.
+	var summaryJSON, humanSummary string
+	var cumulativeFacts []ProtectedFact
+	batchStart := cp.SourceStartSeq
+	for batchStart <= cp.SourceEndSeq {
+		batchEnd := batchStart + int64(e.maxMessages) - 1
+		if batchEnd > cp.SourceEndSeq {
+			batchEnd = cp.SourceEndSeq
 		}
-		result.Status = compaction.StatusFailed
-		result.DurationMs = time.Since(start).Milliseconds()
-		return result, nil
-	}
+		messages, readErr := e.sourceReader.ListMessagesByRange(ctx, cp.SessionID, batchStart, batchEnd)
+		if readErr != nil {
+			if cleanupErr := e.markFailed(ctx, checkpointID, "SOURCE_READ_FAILED", readErr); cleanupErr != nil {
+				return result, fmt.Errorf("source read failed (%v); persist failed status: %w", readErr, cleanupErr)
+			}
+			result.Status = compaction.StatusFailed
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result, nil
+		}
+		if len(messages) == 0 || messages[0].Sequence != batchStart || messages[len(messages)-1].Sequence != batchEnd || len(messages) != int(batchEnd-batchStart+1) {
+			failureCode := "SOURCE_RANGE_INCOMPLETE"
+			if batchStart == cp.SourceStartSeq && len(messages) == 0 {
+				failureCode = "EMPTY_SOURCE_RANGE"
+			}
+			if cleanupErr := e.markFailed(ctx, checkpointID, failureCode, ErrNoMessagesToSummarize); cleanupErr != nil {
+				return result, fmt.Errorf("incomplete source range %d-%d; persist failed status: %w", batchStart, batchEnd, cleanupErr)
+			}
+			result.Status = compaction.StatusFailed
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result, nil
+		}
+		for i, message := range messages {
+			if message.Sequence != batchStart+int64(i) {
+				if cleanupErr := e.markFailed(ctx, checkpointID, "SOURCE_RANGE_INCOMPLETE", nil); cleanupErr != nil {
+					return result, fmt.Errorf("non-contiguous source range; persist failed status: %w", cleanupErr)
+				}
+				result.Status = compaction.StatusFailed
+				result.DurationMs = time.Since(start).Milliseconds()
+				return result, nil
+			}
+		}
 
-	// 4.5. Protected facts validation: verify the summary preserves exact
-	// identifiers, values, and quotations from the source range (ADR-005 §4).
-	facts := ExtractProtectedFacts(messages)
-	if err := ValidateProtectedFacts(summaryJSON, facts); err != nil {
-		if cleanupErr := e.markFailed(execCtx, checkpointID, "PROTECTED_FACTS_VIOLATION", err); cleanupErr != nil {
-			return result, fmt.Errorf("protected facts validation failed (%v); persist failed status: %w", err, cleanupErr)
+		cumulativeFacts = mergeProtectedFacts(cumulativeFacts, ExtractProtectedFacts(messages))
+		batchCtx, cancel := context.WithTimeout(ctx, e.timeout)
+		var summarizeErr error
+		summaryJSON, humanSummary, summarizeErr = e.summarizer.Summarize(batchCtx, cp.SessionID, cp.Provider, cp.Model, batchStart, batchEnd, messages, priorSummary)
+		cancel()
+		if summarizeErr != nil {
+			if cleanupErr := e.markFailed(ctx, checkpointID, "SUMMARY_FAILED", summarizeErr); cleanupErr != nil {
+				return result, fmt.Errorf("summary failed (%v); persist failed status: %w", summarizeErr, cleanupErr)
+			}
+			result.Status = compaction.StatusFailed
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result, nil
 		}
-		result.Status = compaction.StatusFailed
-		result.DurationMs = time.Since(start).Milliseconds()
-		return result, nil
+		if validationErr := ValidateProtectedFacts(summaryJSON, cumulativeFacts); validationErr != nil {
+			if cleanupErr := e.markFailed(ctx, checkpointID, "PROTECTED_FACTS_VIOLATION", validationErr); cleanupErr != nil {
+				return result, fmt.Errorf("protected facts validation failed (%v); persist failed status: %w", validationErr, cleanupErr)
+			}
+			result.Status = compaction.StatusFailed
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result, nil
+		}
+		priorSummary = summaryJSON
+		batchStart = batchEnd + 1
 	}
 
 	// 5. Transition running → succeeded (CAS: expectedStatus=running).
-	if err := e.store.UpdateCheckpointStatus(execCtx, checkpointID, compaction.StatusRunning, compaction.StatusSucceeded, summaryJSON, humanSummary, nil); err != nil {
+	if err := e.store.UpdateCheckpointStatus(ctx, checkpointID, compaction.StatusRunning, compaction.StatusSucceeded, summaryJSON, humanSummary, nil); err != nil {
 		return result, fmt.Errorf("transition to succeeded: %w", err)
 	}
 
@@ -246,7 +261,7 @@ func (e *Executor) markFailed(ctx context.Context, checkpointID, code string, ca
 	return err
 }
 
-// SetMaxMessages adjusts the maximum messages passed to the summarizer.
+// SetMaxMessages adjusts the maximum messages passed to one summarizer call.
 func (e *Executor) SetMaxMessages(n int) {
 	if n > 0 {
 		e.maxMessages = n
@@ -288,59 +303,44 @@ type RecoveryResult struct {
 // The method returns one RecoveryResult per orphaned checkpoint found.
 func (e *Executor) RecoverOrphanedCheckpoints(ctx context.Context) ([]RecoveryResult, error) {
 	var results []RecoveryResult
+	const recoveryBatchSize = 1000
 
 	// Phase 1: Find and mark running checkpoints as failed.
-	running, err := e.store.ListCheckpointsByStatus(ctx, compaction.StatusRunning, 1000)
-	if err != nil {
-		return nil, fmt.Errorf("list running checkpoints: %w", err)
-	}
-	for _, cp := range running {
-		failureCode := "INTERRUPTED_BY_RESTART"
-		if err := e.store.UpdateCheckpointStatus(ctx, cp.ID, compaction.StatusRunning, compaction.StatusFailed, "{}", "", &failureCode); err != nil {
-			results = append(results, RecoveryResult{
-				CheckpointID: cp.ID,
-				SessionID:    cp.SessionID,
-				Version:      cp.Version,
-				Action:       "marked_failed",
-				Status:       compaction.StatusFailed,
-				Err:          fmt.Errorf("update status: %w", err),
-			})
-			continue
+	for {
+		running, err := e.store.ListCheckpointsByStatus(ctx, compaction.StatusRunning, recoveryBatchSize)
+		if err != nil {
+			return results, fmt.Errorf("list running checkpoints: %w", err)
 		}
-		results = append(results, RecoveryResult{
-			CheckpointID: cp.ID,
-			SessionID:    cp.SessionID,
-			Version:      cp.Version,
-			Action:       "marked_failed",
-			Status:       compaction.StatusFailed,
-		})
+		if len(running) == 0 {
+			break
+		}
+		for _, cp := range running {
+			failureCode := "INTERRUPTED_BY_RESTART"
+			if err := e.store.UpdateCheckpointStatus(ctx, cp.ID, compaction.StatusRunning, compaction.StatusFailed, "{}", "", &failureCode); err != nil {
+				results = append(results, RecoveryResult{CheckpointID: cp.ID, SessionID: cp.SessionID, Version: cp.Version, Action: "marked_failed", Status: compaction.StatusFailed, Err: fmt.Errorf("update status: %w", err)})
+				return results, nil
+			}
+			results = append(results, RecoveryResult{CheckpointID: cp.ID, SessionID: cp.SessionID, Version: cp.Version, Action: "marked_failed", Status: compaction.StatusFailed})
+		}
 	}
 
 	// Phase 2: Find and re-execute pending checkpoints.
-	pending, err := e.store.ListCheckpointsByStatus(ctx, compaction.StatusPending, 1000)
-	if err != nil {
-		return results, fmt.Errorf("list pending checkpoints: %w", err)
-	}
-	for _, cp := range pending {
-		execResult, err := e.Execute(ctx, cp.ID)
+	for {
+		pending, err := e.store.ListCheckpointsByStatus(ctx, compaction.StatusPending, recoveryBatchSize)
 		if err != nil {
-			results = append(results, RecoveryResult{
-				CheckpointID: cp.ID,
-				SessionID:    cp.SessionID,
-				Version:      cp.Version,
-				Action:       "reexecuted",
-				Status:       compaction.StatusFailed,
-				Err:          err,
-			})
-			continue
+			return results, fmt.Errorf("list pending checkpoints: %w", err)
 		}
-		results = append(results, RecoveryResult{
-			CheckpointID: cp.ID,
-			SessionID:    cp.SessionID,
-			Version:      cp.Version,
-			Action:       "reexecuted",
-			Status:       execResult.Status,
-		})
+		if len(pending) == 0 {
+			break
+		}
+		for _, cp := range pending {
+			execResult, err := e.Execute(ctx, cp.ID)
+			if err != nil {
+				results = append(results, RecoveryResult{CheckpointID: cp.ID, SessionID: cp.SessionID, Version: cp.Version, Action: "reexecuted", Status: compaction.StatusFailed, Err: err})
+				return results, nil
+			}
+			results = append(results, RecoveryResult{CheckpointID: cp.ID, SessionID: cp.SessionID, Version: cp.Version, Action: "reexecuted", Status: execResult.Status})
+		}
 	}
 
 	return results, nil

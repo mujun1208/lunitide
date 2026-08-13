@@ -17,7 +17,7 @@ const ordered=(node:TreeNode):TreeNode=>({...node,children:node.children.map(ord
 export const buildDirectoryTree=(nodes:OntologyNodeDTO[],skills:SkillDTO[]):TreeNode[]=>{
  const project:TreeNode={name:'项目目录',path:'project',kind:'directory',children:[]},skillRoot:TreeNode={name:'技能目录',path:'skills',kind:'directory',children:[]}
  nodes.filter(node=>node.fullPath.trim()).forEach(node=>addPath(project,node.fullPath,node.type))
- skills.forEach(skill=>{const base=cleanPath(skill.entryPoint)||skill.name;addPath(skillRoot,base,`${skill.displayName} · ${skill.status}`);addPath(skillRoot,`${base.includes('/')?base.slice(0,base.lastIndexOf('/')):base}/SKILL.md`,`${skill.displayName} 清单`)})
+ skills.forEach(skill=>addPath(skillRoot,cleanPath(skill.entryPoint)||skill.name,`${skill.displayName} · ${skill.status}`))
  return[ordered(project),ordered(skillRoot)]
 }
 function TreeItem({node,depth=0}:{node:TreeNode;depth?:number}):React.JSX.Element{
@@ -26,7 +26,7 @@ function TreeItem({node,depth=0}:{node:TreeNode;depth?:number}):React.JSX.Elemen
 }
 export function FilesPanel({projectId,ontology=ontologyBridge,skills=skillBridge}:{projectId:string;ontology?:OntologyBridge;skills?:SkillBridge}):React.JSX.Element{
  const[nodes,setNodes]=useState<OntologyNodeDTO[]>([]),[skillItems,setSkillItems]=useState<SkillDTO[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('')
- useEffect(()=>{let active=true;setLoading(true);setError('');Promise.all([ontology.listNodes({projectId}),skills.list({})]).then(([projectResult,skillResult])=>{if(active){setNodes(projectResult.items);setSkillItems(skillResult.items)}}).catch(e=>{if(active)setError(e instanceof Error?e.message:'目录载入失败')}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[ontology,projectId,skills])
+ useEffect(()=>{let active=true;setLoading(true);setError('');Promise.all([Promise.resolve().then(()=>ontology.listNodes({projectId})),Promise.resolve().then(()=>skills.list({}))]).then(([projectResult,skillResult])=>{if(active){setNodes(projectResult.items);setSkillItems(skillResult.items)}}).catch(e=>{if(active)setError(e instanceof Error?e.message:'目录载入失败')}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[ontology,projectId,skills])
  const roots=useMemo(()=>buildDirectoryTree(nodes,skillItems),[nodes,skillItems])
  return <section className="files-panel" aria-label="项目与技能目录"><header><div><b>文件目录</b><small>项目索引与技能入口</small></div><span>{nodes.length} 个项目条目 · {skillItems.length} 个技能</span></header>{loading?<p role="status">正在载入目录…</p>:error?<p role="alert">{error}</p>:<ul className="file-tree">{roots.map(root=><TreeItem key={root.path} node={root}/>)}</ul>}<p className="files-panel-note">这里显示引擎已索引的项目路径和技能清单路径，不暴露应用外部的任意磁盘目录。</p></section>
 }
