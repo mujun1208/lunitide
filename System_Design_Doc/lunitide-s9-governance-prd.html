@@ -281,14 +281,14 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
     <div class="kicker">SPEC S9 · 治理与审批</div>
     <h1 class="accent-grad">S9 · 治理与审批 PRD</h1>
     <p class="lead" style="margin-top:20px">
-      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；v1 本机编辑来源采用乐观并发 + Git 三方合并，远端 Presence 与职责分离由 ADR-011 后续启用；发布采用不可变包、同 digest 环境晋级与代码/数据库顺序门禁。M0 建立信任与审计基线，M2 保护 Provider/BYOK 与模型外发，M4 关闭可靠单 Root Agent ToolCall 治理，M6 扩展委派治理，M7 原样复用该内核处理发布，禁止另造更宽松审批。
+      <b>五大内核之 Governance。</b>Policy 引擎独立风险判断，Review 绑定不可变操作摘要；M0/M2/M3 边界保持不变，M4 关闭完整单 Agent ToolCall 治理，M6 增加权限衰减/预算守恒/JoinBarrier 的父子治理，M7 叠加企业策略、审批链、allowlist、网络出口、驻留与成本治理。发布 MUST 复用同一内核，禁止另造更宽松审批；ADR-011 未批准时多人能力不作 v1 前置。
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
       <span class="tag"><b>v1.0</b> · 规范冻结</span>
       <span class="tag">状态机 · <b>9态</b></span>
       <span class="tag">威胁面 · <b>7类</b></span>
       <span class="tag">审计 · <b>append-only</b></span>
-      <span class="tag"><b>实施</b> M0 基线 · M2 Provider · M4 单 Agent · M6 委派 · M7 发布</span>
+      <span class="tag"><b>实施</b> M0/M2/M3 既有边界 · M4 单 Agent · M6 父子 · M7 企业</span>
     </div>
   </div>
 </section>
@@ -387,7 +387,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
         <tr><td><b>Review / Audit</b></td><td>Review 绑定 root/child run、delegation、plan、params、resource、policy version 与有效期；路由、派生、开始、完成、失败、取消、预算耗尽和 join 全部进入 append-only 审计</td></tr>
       </tbody>
     </table>
-    <div class="warn"><b>不反向扩项：</b>M0 仅建立信任与审计基线，M2 仅治理 Provider/BYOK、模型外发和简单对话，M3 仅提供 Session/Context/Handoff 连续性；M4 关闭可靠单 Root Run 与受控 ToolCall 治理，复杂度路由、父子 Run、fan-out/fan-in 和委派治理从 M6 才启用。</div>
+    <div class="warn"><b>不反向扩项：</b>M0 仅建立信任与审计基线，M2 仅治理 Provider/BYOK、模型外发和简单对话，M3 仅提供 Session/Context/Handoff；M4 完整治理单 Agent ToolCall 但禁止 Child/fan-out；父子 Run、fan-out/fan-in 从 M6 启用；M7 才叠加企业治理。</div>
 
     <div class="note"><b>设计原则：最小惊讶。</b>当 Policy Engine 无法判断时，默认返回 <code>require_review</code> 而非 <code>allow</code>。在安全系统中，不确定时选择更严格的路总是正确的。</div>
   </div>
@@ -588,7 +588,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
         <li><b>Renderer</b> —— 无 host object 通用反射、无文件 / shell / 网络 / secret API</li>
         <li><b>Host</b> —— 持有系统资源句柄，可调度 Engine 与 Worker</li>
         <li><b>Engine</b> —— 编排 Plan，调用模型与工具，受 Policy 约束</li>
-        <li><b>Worker</b> —— 沙箱执行，Job Object + AppContainer 限制进程树</li>
+        <li><b>Worker</b> —— 首期 Job Object 仅做生命周期/资源控制，<b>不是安全沙箱</b>；AppContainer/Restricted Token + ACL + 网络默认拒绝仅在 ADR Accepted 且 POC 全通过后作为 <code>local_isolated</code> capability 启用</li>
         <li><b>Skill</b> —— 权限清单驱动，权限扩张视为新授权</li>
         <li><b>Connector</b> —— Integration 凭据隔离，按项目限定访问域</li>
       </ul>
@@ -639,9 +639,14 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
 
     <h3>7.2 Prompt Injection</h3>
     <div class="card">
-      <p>上传文件、网页、模型输出、MCP / 接口数据必须标记 <code>untrusted_content</code>。模型文本只可提出 ToolCall，<b>Policy Engine 基于结构化参数独立授权</b>。来自内容的"忽略规则""自动批准"没有权限效果。</p>
+      <p>上传文件、网页、模型输出、MCP / 接口数据必须标记 <code>untrusted_content</code>。该 trust label 与 provenance MUST 贯穿 ContextPart、摘要、Handoff、Memory/Ontology 候选、Evidence 与 M6 DelegationEnvelope，不得在压缩、召回或父子 Agent 汇合时丢失。模型文本只可提出 ToolCall，<b>Policy Engine 基于结构化参数、输入来源、数据分类、目标 origin、声明目的和允许数据流独立授权</b>；来自内容的"忽略规则""自动批准"没有权限效果。</p>
+      <ul>
+        <li>由不可信内容派生的写入、外发、凭据使用和跨域 ToolCall 默认 require_review；即使工具已获准，也必须检查参数中的数据来源与目标是否符合 grant。</li>
+        <li>不可信内容 MUST NOT 自动晋升为长期 Memory、Skill 配置、Policy、Tool Grant 或系统指令；候选写入必须经过净化、来源展示与显式确认。</li>
+        <li>上下文构建与日志/证据输出必须执行最小披露和 secret/source-code 分类，防止通过已获准的 Web、MCP、Browser 或 Connector 间接外泄。</li>
+      </ul>
     </div>
-    <div class="callout"><b>关键控制：untrusted_content 标记 + Policy 独立授权。</b>模型永远不能直接执行副作用操作。Prompt Injection 的危害止步于"建议"，因为授权决定权在 Policy Engine 而非模型。</div>
+    <div class="callout"><b>关键控制：trust provenance + 信息流约束 + Policy 独立授权。</b>Policy 可阻止未授权副作用，但不能单独消除规划污染、持久化污染或 confused-deputy 风险。安全测试 MUST 覆盖跨工具间接泄露、已授权工具参数污染、Memory/Ontology 污染和多 Agent provenance laundering，任何一项不得仅凭模型声明判定安全。</div>
 
     <h3>7.3 工具、文件与 Worker 隔离</h3>
     <div class="card">
@@ -655,7 +660,7 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
       </ul>
       <p style="margin-top:10px">Worker 安全 POC 必须验证：读取 <code>%USERPROFILE%</code> 被拒、未授权局域网访问被拒、子进程逃逸失败、Named Pipe 探测失败、junction / ADS 逃逸失败。若任一项无法满足，v1 继续只允许签名内建工具。</p>
     </div>
-    <div class="callout"><b>关键控制：句柄级路径授权 + Job Object + 条件性 OS 隔离。</b>Job Object 仅限制生命周期和资源，绝不是完整安全沙箱；canonicalize 也不能单独消除 junction/reparse-point TOCTOU。M0–M2 不开放第三方执行；M5 仍只运行随产品发布、签名且 manifest 固定的内建工具，直到 AppContainer/低完整性 POC 全部通过并由独立 ADR 批准。即使未来开放，也不得承诺“被攻破后绝对无法逃逸”。文件读写必须逐级以句柄打开并校验最终 file identity、volume、祖先根和 reparse point，检查与 open/rename/delete 绑定同一父目录句柄。</div>
+    <div class="callout"><b>关键控制：句柄级路径授权 + Job Object + 条件性 OS/远程强隔离。</b>Job Object 仅限制生命周期和资源，绝不是完整安全沙箱；canonicalize 也不能单独消除 junction/reparse-point TOCTOU。M5 本地仍只运行随产品发布、签名且 manifest 固定的内建工具；第三方代码必须等到 M6 AppContainer POC 或经批准的远程 gVisor/microVM 等价隔离可用。即使未来开放，也不得承诺“被攻破后绝对无法逃逸”。文件读写必须逐级以句柄打开并校验最终 file identity、volume、祖先根和 reparse point，检查与 open/rename/delete 绑定同一父目录句柄。</div>
 
     <h3>7.4 Skill / MCP 供应链</h3>
     <div class="card">
@@ -663,17 +668,19 @@ footer .ver{font-family:var(--mono);font-size:11px;color:var(--glow);letter-spac
         <li>包、manifest、依赖锁必须 hash；生产源应签名</li>
         <li>安装展示权限清单；权限扩张视为新授权</li>
         <li>支持撤销列表、quarantine、回滚</li>
-        <li>M0–M2 第三方 stdio server 一律不可运行；可导入、校验并显示为 quarantined。M5 只有隔离 ADR/POC 批准后才可扩大 capability，未信任 server 仍不得启动</li>
+        <li>M0–M5 第三方 stdio server 一律不可运行；M5 只开放远程 HTTP MCP 受控子集。M6 也只有隔离 ADR/POC、签名与 allowlist 批准后才可扩大 capability，未信任 server 仍不得启动</li>
         <li>SBOM 和许可证记录必须保留</li>
       </ul>
     </div>
     <div class="callout"><b>关键控制：hash + 签名 + 权限清单 + quarantine。</b>第三方技能是供应链攻击的主要入口。每个技能的安装、升级、权限变更都必须经过显式审核与可验证的完整性校验。</div>
+    <h3 id="cloud-execution-consent-cost">7.4A 云执行同意与成本授权</h3>
+    <div class="card"><ul><li><b>双重同意：</b>模型输入外发与源码/文件上传到云沙箱是两个独立 ConsentSnapshot；批准其一不得推导另一个。</li><li><b>最小快照：</b>上传前展示路径范围、分类、总量、排除项、目标 provider/region、保留期和 egress policy；默认排除 Secret、用户目录、未授权 <code>.git</code> 与大型二进制。</li><li><b>成本授权：</b>冻结 PriceSnapshot、估算区间、免费额度归属、hard ceiling 和超限动作；动态价格无法取得时不得显示 0 元。</li><li><b>免费替代：</b>UI 可推荐本地内建、用户自建 gVisor/Firecracker/Kata 池或取消任务，但不得把 Job Object 伪装为等价强隔离。</li><li><b>对账：</b>模型 token、计算、存储、网络实际用量与 provider receipt 只追加；断连进入 outcome_unknown 并先 reconcile。</li></ul></div>
 
     <h3>7.5 文件解析攻击</h3>
     <div class="card">
       <p>检查 MIME 与魔数；限制大小、页数、压缩比、嵌套深度；防 zip bomb 和路径穿越；禁用 Office 宏；HTML 清洗主动内容；高风险解析器在 Worker 运行。</p>
     </div>
-    <div class="callout"><b>关键控制：MIME 魔数双校验 + 大小/压缩比限制 + Worker 隔离解析。</b>解析器是内存破坏漏洞的高发区。将高风险解析器放入 Worker 隔离执行，即使被攻破也无法影响宿主。</div>
+    <div class="callout"><b>关键控制：MIME 魔数双校验 + 大小/压缩比限制 + 与风险匹配的 SandboxProfile。</b>解析器是内存破坏漏洞的高发区。Job Object/普通 Worker 只能限制资源，不能保证攻破后不影响宿主；高风险解析器必须进入通过 POC 的 AppContainer、独立 VM、gVisor 或 microVM 等强隔离环境，否则禁用。</div>
 
     <h3>7.6 更新供应链</h3>
     <div class="card">

@@ -734,12 +734,12 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <b>依赖约束：</b>禁止 domain 引用 WebView2、SQLite 驱动或具体模型 SDK。领域包只依赖端口接口；connector 和 storage 实现端口。
     </div>
 
-    <h3>7.1 Go-native Agent Kernel</h3>
-    <p><b>Agent Kernel 是 Go Engine 内部应用内核</b>，不是新进程、不是第六智能内核、不是新增 UI 功能，也不引入 Node/Python/Rust sidecar。它把 Session/Context、Planner、ModelGateway、ToolRuntime、Policy/Review 和 durable recovery 编排为可测试的执行循环。</p>
+    <h3 id="m4-agent-kernel">7.1 Go-native Agent Kernel（M4 单 Agent 权威核心）</h3>
+    <p><b>Agent Kernel 是 Go Engine 内部应用内核</b>，不是新进程、不是第六智能内核、不是新增 UI 功能，也不引入 Node/Python/Rust sidecar。M4 只把 Session/Context、Planner、ModelGateway、ToolRuntime、Policy/Review 和 durable recovery 编排为可测试的<b>单 Agent</b>执行循环；MUST NOT 创建 Child Run 或 fan-out。</p>
 <pre>User Message → AgentRun / Turn
   → ResolvedConfigSnapshot
-  → ComplexityDecision(simple | moderate | complex | high-risk)
-  → single path | Plan DAG → bounded Child AgentRun(s)
+  → CapabilitySnapshot + BudgetEnvelope
+  → single-agent Plan/Todo（可选，不固定步数）
   → ContextBuilder → ModelGateway
   → ProposedToolCall → PolicyDecision
   → allow | deny | Review
@@ -768,7 +768,45 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <tr><td><b>传播与守恒</b></td><td>Child 有效权限是 Root Policy、父委派限制与资源策略的更严格交集；审批 token、Secret lease 和临时 capability 不继承。Child 预算总和不得超过 Root 剩余预算，Root cancel/deadline 向下传播，迟到结果不得反转 first-terminal-wins 的 Root 终态。</td></tr>
       <tr><td><b>恢复</b></td><td>按 root tree、delegation idempotency key、checkpoint、EffectJournal 与 receipt 恢复；<code>outcome_unknown</code> 阻断依赖节点并先对账，不得因崩溃重复 spawn 或重放副作用。</td></tr>
     </table></div>
-    <div class="warn"><b>里程碑边界：</b>M4 只交付可靠单 Root AgentRun；M5 在其上交付九阶段项目生产系统。上述复杂度路由、DelegationEnvelope、Child Run、fan-out/fan-in 与 JoinBarrier 在 M6 才启用。M0–M3 仅保证 Session/Context provenance 与 schema 扩展兼容；旧单 Run 读取为 <code>rootRunId=runId, parentRunId=null</code>，不得合成虚假 Child。</div>
+    <div class="warn"><b>里程碑边界：</b>上述 DelegationEnvelope、Child Run、fan-out/fan-in 与 JoinBarrier 在 M6 才启用；首版仅允许只读并行调查或隔离工作树，并由受控单写者汇总。M0–M3 保持既有事实，M4 只实现 durable 单 Agent，M5 将普通对话收敛到该 Run 并开放本地能力但 parent/delegation 仍为空；旧 Run 读取为 <code>rootRunId=runId, parentRunId=null</code>。</div>
+    <div class="callout"><b>M6 唯一工作区写者：</b>Child 对主工作区只读，只能在隔离 staging/worktree 返回带 <code>baseTreeDigest</code> 的 PatchProposal 与 Evidence；Root 的 WorkspaceMutationCoordinator 是唯一可调用 <code>changeset.apply</code> 的主体。它按 Plan 拓扑确定性串行重基/CAS/应用，以 mutation sequence/fencing token 防重放；任何应用都会使旧 tree digest 上的测试失效，Join 完成必须在最终合并树重跑 required test/scan。</div>
+
+    <h4 id="m4-runtime-architecture">M4 Workspace / Tool / ChangeSet / Command / Web / Recovery 架构</h4>
+    <pre>Renderer（不可信） → typed Bridge → Go Engine（唯一权威）
+  CapabilityManifest → ToolRegistry → Policy / Review
+  WorkspaceRegistry → Grant + canonical handle identity + lease
+  ReadTools(tree/stat/read/read_many/glob/grep)
+  ChangeSet(preview → approve → base-digest recheck → apply/revert)
+  CommandSpec(signed template) → Worker → Windows Job Object
+  WebFetch/Search → egress policy → SSRF guard → source/evidence store
+  RunStore + Outbox + EffectJournal + Checkpoint → RecoveryCoordinator</pre>
+    <table><tr><th>信任边界</th><th>MUST / MUST NOT</th></tr>
+      <tr><td>Renderer→Host→Engine</td><td>Host 校验 origin/frame/nonce/schema；Engine 重新鉴权。Renderer、模型、网页正文均不可信，MUST NOT 直接持有路径句柄、secret 或授权 token。</td></tr>
+      <tr><td>Workspace</td><td>registration/grant/identity/lease 由 Engine 权威管理；句柄级 canonical identity、祖先根和 reparse point 校验必须与 open/rename 绑定，字符串前缀校验不足。</td></tr>
+      <tr><td>执行</td><td>M4 不提供 shell 字符串；CommandSpec 仅引用产品签名模板和类型化参数。Job Object 是资源/生命周期控制而非沙箱；未签名第三方、stdio MCP 禁止运行。</td></tr>
+      <tr><td>Web</td><td>每次重定向重做 DNS/IP/端口策略，禁止 loopback、私网、link-local、云 metadata 与 rebinding；来源保存 URL/time/digest。禁止裸 <code>browser.evaluate</code>。</td></tr>
+    </table>
+    <div class="callout"><b>预算与恢复语义：</b><code>BudgetEnvelope</code> MUST 同时限制 model turns、tool calls、tokens、cost、wall-clock、output bytes、retries、no-progress 和 hard ceiling；不得用固定 20–30 步替代。任一 hard ceiling 到达即持久终止/暂停，不得继续产生 effect。Review 绑定规范化参数、资源、base digest、policy/config version，批准后重验。effect 前写 prepared，后写 receipt；崩溃时按 outbox/checkpoint/journal 对账，无法证明结果则 <code>outcome_unknown</code>，MUST NOT 自动重试。</div>
+
+    <h4 id="m5-m7-execution-plane">M5–M7 对话能力与统一执行平面</h4>
+    <pre>Ordinary Conversation | Project Conversation
+  → one Durable Root AgentRun (M4 kernel)
+  → CapabilityBroker → builtin | Skill | MCP | Connector | Browser
+  → ResourceBroker → AdHocWorkspace | LocalFolder | GitRepository | ArtifactStore
+  → ExecutionBroker → local_trusted | local_isolated | cloud_managed | private_pool
+  → WorkspaceSnapshot → Sandbox → PatchProposal / Artifact / Evidence / UsageReceipt
+  → Policy + Review → Root single writer → ChangeSet.apply
+  → optional explicit promotion to Project (M7 Stage/Artifact/Workflow)</pre>
+    <div class="card"><table><tr><th>组件</th><th>权威职责</th><th>边界</th></tr>
+      <tr><td><b>CapabilityBroker</b></td><td>统一 builtin/Skill/MCP/Connector descriptor、schema digest、风险、grant、版本与撤销</td><td>发现/匹配不授予权限；普通对话和项目不得拥有平行 ToolRuntime</td></tr>
+      <tr><td><b>ArtifactStore</b></td><td>内容寻址 blob、MIME、分类、lineage、版本、保留、预览/导出</td><td>HTML 流事件和文件路径不得继续充当稳定 Artifact identity</td></tr>
+      <tr><td><b>ExecutionBroker</b></td><td>按 ExecutionPolicy 选择 provider，冻结镜像、snapshot、argv、资源/网络/成本预算</td><td>执行位置不改变 Policy；云 Agent Job 不是生产 Deployment</td></tr>
+      <tr><td><b>SandboxProvider</b></td><td>Create/Resume/Run/Collect/Cancel/Destroy/Reconcile，返回 provider receipt</td><td>托管与自建实现可替换；结果未知先 reconcile，不盲重跑</td></tr>
+      <tr><td><b>BrowserBroker</b></td><td>隔离 profile/cookie/download、结构化动作、录制与来源</td><td>禁止裸 evaluate/CDP；页面、DOM、OCR、下载均是不可信输入</td></tr>
+      <tr><td><b>CostLedger</b></td><td>price snapshot、estimate、authorization、model/compute/storage/egress actual usage</td><td>价格来自版本化 provider metadata；免费额度只能是优惠，不是正确性依赖</td></tr>
+    </table></div>
+    <div class="warn"><b>隔离等级：</b><code>local_trusted</code> 仅运行产品签名内建 CommandSpec，Job Object 只提供资源/生命周期控制；<code>local_isolated</code> 必须通过 AppContainer/Restricted Token/ACL/网络/Named Pipe/junction/ADS 独立 POC；<code>cloud_managed/private_pool</code> 必须提供独立内核或经批准的 gVisor/microVM 等价边界。第三方 stdio MCP、解析器和不可信代码不得降级到 local_trusted。</div>
+    <div class="note"><b>阶段裁决：</b>M5 交付普通对话统一入口、AdHocWorkspace、Artifact、内建 Skill、远程 HTTP MCP 只读子集与本地后台任务；M6 交付第三方扩展、强隔离/云执行、Browser Worker、跨会话任务与 Parent/Child；M7 交付项目九阶段、正式部署和企业私有池。该节覆盖本文较早“仅 M5 关联 Stage/Artifact”的旧分配，不改变 M4 状态机。</div>
 
     <h3>7.2 三类事件与恢复事实</h3>
     <table><thead><tr><th>类型</th><th>用途</th><th>可靠性</th></tr></thead><tbody>
@@ -776,7 +814,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <tr><td><b>Wire Event</b></td><td>Renderer 流式展示和状态投影</td><td>seq/ACK/背压；关键事件可重放，纯 token delta 可合并</td></tr>
       <tr><td><b>Audit Event</b></td><td>Policy、Review、Secret、工具和外部副作用追责</td><td>append-only + hash chain + 外置签名 checkpoint</td></tr>
     </tbody></table>
-    <p>Run 相关 Domain/Wire/Audit Event 统一携带 <code>sessionId、runId、rootRunId、parentRunId?、delegationId?、correlationId、causationId、schemaVersion、provenanceRef?</code>。M0–M5 中 parent/delegation 保持空值；M6 才产生非空父子关联。事件扩展必须向后兼容，未知的未来委派字段不得导致已提交消息不可读。</p>
+    <p>Run 相关 Domain/Wire/Audit Event 统一携带 <code>sessionId、runId、rootRunId、parentRunId?、delegationId?、correlationId、causationId、schemaVersion、provenanceRef?</code>。M0–M5 中 parent/delegation 保持空值；M6 才产生非空父子关联。事件扩展必须向后兼容。</p>
     <div class="callout"><b>副作用恢复：</b>执行前写 <code>EffectJournal{operationDigest,state=prepared}</code>，执行后保存外部 receipt 并转 succeeded；崩溃恢复先向外部系统对账。只有具备稳定幂等键或确定补偿的操作可自动恢复；其他操作进入 <code>outcome_unknown</code> 并阻断后续依赖节点。</div>
   </div>
 </section>
@@ -853,7 +891,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td><b class="col">provider.test</b></td><td>providerId/modelId → TestResult</td><td>30s，可取消</td></tr>
         <tr><td><b class="col">chat.start</b></td><td>ChatRequest → streamId</td><td>idempotencyKey，默认120s</td></tr>
         <tr><td><b class="col">stream.cancel</b></td><td>streamId/reason → accepted</td><td>幂等，2s</td></tr>
-        <tr><td><b class="col">agent.run.start/get/cancel/resume/reconcile</b></td><td>AgentRunRequest/runId → AgentRun/accepted</td><td>持久状态、first-terminal-wins；resume 只恢复满足幂等/补偿条件的步骤</td></tr>
+        <tr><td><b class="col">agent.agent.run.start/get/cancel/resume/reconcile</b></td><td>AgentRunRequest/runId → AgentRun/accepted</td><td>持久状态、first-terminal-wins；resume 只恢复满足幂等/补偿条件的步骤</td></tr>
         <tr><td><b class="col">settings.registry/snapshot/validate/patch</b></td><td>scope/version/changes → definitions/effective/changeSet</td><td>非秘密；patch 原子、CAS、幂等</td></tr>
         <tr><td><b class="col">settings.override.remove/change.status</b></td><td>scope/key/changeSet → inherited/status</td><td>恢复继承与断线对账</td></tr>
         <tr><td><b class="col">appSchemaMigration.inspect/status</b></td><td>source/version → report</td><td>仅应用自身迁移；run 为 Host/Engine 启动内部命令，不向 Renderer 暴露</td></tr>
@@ -937,14 +975,14 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <tr><td>浏览器预览</td><td>独立 WebView2 profile 与 virtual host，绑定 DevServerSession</td><td>无应用 Bridge；外部导航、下载和设备权限默认阻断</td></tr>
       <tr><td>VS Code</td><td>EditorAdapter 参数化启动，传工作区和相对文件定位</td><td>仅用户触发；外部变更重新 hash</td></tr>
     </table></div>
-    <div class="warn"><b>沙箱边界不变：</b>Job Object 和 ConPTY 都不是安全沙箱。v1 仅运行签名内建工具与用户明确授权的本机可执行文件；第三方脚本、stdio MCP 和不可信仓库钩子在隔离 POC 完成前不得自动执行。</div>
+    <div class="warn"><b>沙箱边界不变：</b>Job Object 和 ConPTY 都不是安全沙箱。M4/M5 Agent 仅运行随产品发布、签名且 manifest 固定的内建 CommandSpec；用户选择或确认某个 executable 不能提升其信任级别。用户终端和 EditorAdapter 只能由用户直接操作，不进入 Agent capability。第三方脚本、stdio MCP、不可信仓库钩子与任意本机 executable 在强隔离 POC 完成前不得由 Agent 执行。</div>
     <h4>8.6.3 新增 Bridge / RPC 方法</h4>
     <div class="card"><table>
       <tr><th>方法</th><th>请求 → 响应</th><th>约束</th></tr>
       <tr><td><b class="col">workspace.select/register/get</b></td><td>picker/result → Workspace</td><td>Host 选择；Engine 规范化与授权</td></tr>
       <tr><td><b class="col">workspace.tree/read/search</b></td><td>workspaceId + relative scope → entries/content/hits</td><td>预算、忽略与敏感规则</td></tr>
       <tr><td><b class="col">changeset.preview/apply/revert</b></td><td>patch + base hashes → ChangeSet</td><td>幂等键、checkpoint、冲突检测</td></tr>
-      <tr><td><b class="col">tool.run/cancel/subscribe</b></td><td>CommandSpec → ToolRun/stream</td><td>Policy、Job Object、输出上限</td></tr>
+      <tr><td><b class="col">command.start/get/cancel</b></td><td>签名 CommandSpec → CommandJob/stream</td><td>M4 canonical RPC；Policy、Review、Job Object、输出上限。旧 <code>tool.run/cancel/subscribe</code> 仅 legacy adapter 输入，Renderer 新代码禁止调用</td></tr>
       <tr><td><b class="col">terminal.create/input/resize/close</b></td><td>TerminalSpec/bytes → session/events</td><td>用户显式会话、ConPTY</td></tr>
       <tr><td><b class="col">preview.start/navigate/capture/stop</b></td><td>DevServerRef → PreviewSession/Evidence</td><td>隔离 profile、origin allowlist</td></tr>
       <tr><td><b class="col">editor.open</b></td><td>workspaceId + relativePath + line/column → result</td><td>EditorAdapter 白名单</td></tr>
@@ -1006,11 +1044,11 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <div class="er-node">
           <div class="et">PROJECT</div>
           <div class="ef">id, workspace_id, name, root_path, status, current_stage, version</div>
-          <div class="er-rel">contains ↓</div>
+          <div class="er-rel">optionally groups → Session / Artifact</div>
         </div>
         <div class="er-node">
           <div class="et">SESSION</div>
-          <div class="ef">id, project_id, stage_run_id, title, status, model_profile_id</div>
+          <div class="ef">id, workspace_id, project_id?, stage_run_id?, title, status, model_profile_id</div>
           <div class="er-rel">contains ↓</div>
         </div>
         <div class="er-node">
@@ -1042,7 +1080,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       <div class="er" style="margin-top:12px">
         <div class="er-node">
           <div class="et">ARTIFACT</div>
-          <div class="ef">id, project_id, stage_type, artifact_type, title, status, current_version</div>
+          <div class="ef">id, owner_type, owner_id, artifact_type, title, status, current_version</div>
           <div class="er-rel">versions ↓</div>
         </div>
         <div class="er-node">
@@ -1086,9 +1124,9 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><th>实体</th><th>关键字段</th><th>约束</th></tr>
         <tr><td><b class="col">workspace</b></td><td>id, name, settings_json</td><td>首期仅一个 active workspace</td></tr>
         <tr><td><b class="col">project</b></td><td>id, workspace_id, name, root_path, status, current_stage, version</td><td>unique(workspace_id,name)；root_path 授权前规范化</td></tr>
-        <tr><td><b class="col">session</b></td><td>id, project_id, stage_run_id, title, status, model_profile_id</td><td>index(project_id,updated_at)</td></tr>
+        <tr><td><b class="col">session</b></td><td>id, workspace_id, project_id?, stage_run_id?, title, status, model_profile_id</td><td>project optional；index(workspace_id,project_id,updated_at)</td></tr>
         <tr><td><b class="col">message</b></td><td>id, session_id, role, status, content_ref, sequence, usage_json</td><td>unique(session_id,sequence)</td></tr>
-        <tr><td><b class="col">artifact</b></td><td>id, project_id, stage_type, artifact_type, title, status, current_version</td><td>批准后版本不可原地修改</td></tr>
+        <tr><td><b class="col">artifact</b></td><td>id, owner_type, owner_id, artifact_type, title, status, current_version</td><td>owner_type 支持 conversation/ad_hoc_workspace/project；批准后版本不可原地修改</td></tr>
         <tr><td><b class="col">provider</b></td><td>id, name, protocol, base_url, credential_ref, status, origin_fingerprint</td><td>credential_ref 非秘密；URL 敏感</td></tr>
         <tr><td><b class="col">plan_node</b></td><td>id, plan_version_id, type, title, status, risk, inputs_json, acceptance_json, idempotency_key</td><td>DAG 节点，支持 depends_on</td></tr>
         <tr><td><b class="col">review</b></td><td>id, resource_type, resource_id, operation, params_hash, policy_version, risk, status</td><td>决策不可删除</td></tr>
@@ -1246,23 +1284,15 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <span class="ar">/</span>
         <span class="st err">failed</span>
       </div>
-      <div class="sm" style="margin-top:8px">
-        <span class="st err">failed</span>
-        <span class="ar">→</span>
-        <span class="st warn">rollback_pending</span>
-        <span class="ar">→</span>
-        <span class="st warn">rolling_back</span>
-        <span class="ar">→</span>
-        <span class="st start">rolled_back</span>
-        <span class="ar">/</span>
-        <span class="st err">rollback_failed</span>
-      </div>
+      <h4>RollbackAttempt（独立聚合）</h4>
+      <div class="sm" style="margin-top:8px"><span class="st">pending</span><span class="ar">→</span><span class="st run">running</span><span class="ar">→</span><span class="st start">succeeded</span><span class="ar">/</span><span class="st err">failed</span><span class="ar">/</span><span class="st warn">outcome_unknown</span></div>
+      <p>Deployment 只保存部署终态和 latest_rollback_attempt_id/final_rollback_outcome 只读投影；回退过程、receipt 与恢复只写 RollbackAttempt。</p>
     </div>
     <div class="warn">
       任意制品摘要、提交、依赖或测试证据变化使 approved CR 进入 <code>changed_after_approval</code>。
     </div>
 
-    <h3>11.5 Update / Migration 状态机</h3>
+    <h3>11.5 Lunitide AppUpdateAttempt 状态机</h3>
     <div class="card">
       <div class="sm">
         <span class="st">checking</span>
@@ -1280,7 +1310,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <span class="ar">→</span>
         <span class="st run">applying</span>
         <span class="ar">→</span>
-        <span class="st run">migrating</span>
+        <span class="st run">app_schema_migrating</span>
         <span class="ar">→</span>
         <span class="st start">succeeded</span>
         <span class="ar">/</span>
@@ -1290,7 +1320,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
       </div>
     </div>
     <div class="warn">
-      迁移失败不得继续启动新版核心业务，应进入 <code>recovery_required</code>，允许导出诊断、恢复备份或回到兼容旧二进制。
+      此处仅指月汐应用自身 SQLite schema migration。失败不得继续启动新版核心业务，应进入 <code>recovery_required</code>，允许导出诊断、恢复备份或回到兼容旧二进制。用户项目 MigrationPackage 只能由 M7 PromotionAttempt/MigrationAdapter 管理，禁止复用本状态机、签名根或 receipt。
     </div>
   </div>
 </section>
@@ -1337,14 +1367,12 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <p><b>统一预算公式：</b><code>effectiveWindow = min(providerContextWindow, providerInputOutputLimit) - tokenizerSafetyMargin</code>；<code>requiredTokens = system + toolSchema + selectedContext + currentInput + maxOutputReserve + toolContinuationReserve</code>；<code>budgetUsage = requiredTokens / effectiveWindow</code>。70% 只生成 draft，校验通过为 validated；自动模式在 85% 可 CAS 激活；95% 必须压缩并重新预算。若仍超限，返回 <code>CONTEXT_BUDGET_EXCEEDED</code>，不得调用模型。切换到更小窗口模型时必须重新构建，而非截断尾部。</p>
     <div class="card"><table>
       <tr><th>RPC</th><th>输入 → 输出</th><th>约束</th></tr>
-      <tr><td><b class="col">message.list</b></td><td>sessionId, cursor, direction, pageSize, maxBytes → items, nextCursor, hasMore</td><td>cursor 绑定 session 与 message.sequence；单页限制不是会话总量限制；Engine 内部压缩同样按稳定 snapshot/boundary 分页到底</td></tr>
-      <tr><td><b class="col">context.status</b></td><td>sessionId, modelId → canonicalLogicalTokens, canonicalTokenizerVersion/revision/artifactSha256, estimatedRequestTokens, budgetUsage, activeCheckpointId/version</td><td>区分稳定容量口径、本轮发送量与显式激活指针</td></tr>
-      <tr><td><b class="col">context.compact.preview</b></td><td>sessionId → checkpointId, version, sourceStartSeq/sourceEndSeq, sourceDigest, summaryPreview, humanSummary, status</td><td>生成 succeeded draft，不改变 active activation pointer</td></tr>
-      <tr><td><b class="col">context.compact.commit</b></td><td>checkpointId, baseVersion → checkpointId, version, status, activated</td><td>以 <code>compaction_activations.revision</code> 执行 CAS；冲突保留旧 active</td></tr>
+      <tr><td><b class="col">session.messages.list</b></td><td>sessionId, before/after cursor, pageSize → items, nextCursor, hasMore</td><td>cursor 绑定 message.sequence；pageSize≤200 只是单页上限，不是会话总上限</td></tr>
+      <tr><td><b class="col">context.status</b></td><td>sessionId, modelId → canonicalLogicalTokens, canonicalTokenizerVersion, estimatedRequestTokens, budgetUsage, activeSummaryVersion</td><td>区分稳定容量口径与本轮发送量</td></tr>
+      <tr><td><b class="col">context.compact.preview</b></td><td>sessionId, sourceRange, baseVersion → draftVersion, diff, fidelityReport</td><td>preview 绝不改变 active；状态 draft → validating → validated / rejected</td></tr>
+      <tr><td><b class="col">context.compact.commit</b></td><td>summaryVersion, baseVersion → activeVersion</td><td>手动显式提交或自动模式 CAS；失败保留旧版并重新预算</td></tr>
       <tr><td><b class="col">context.handoff.create/import</b></td><td>sourceSessionId, sourceRange/version → Handoff；handoffId → targetSessionId</td><td>校验 source digest、作用域和删除墓碑；重复导入幂等</td></tr>
     </table></div>
-    <div class="note"><b>M3 当前物理模型：</b><code>compaction_checkpoints</code> 保存不可变 source range/digest、摘要和版本；<code>compaction_activations</code> 保存每个 Session 的 active checkpoint 与单调 revision；<code>handoff_capsules / handoff_imports</code> 保存跨会话来源关系。<code>succeeded</code> 仅表示摘要 draft 生成成功，不等于激活。以上字段与生成 Bridge Schema、SQLite migration 和当前代码一致；未来逻辑名不得反向覆盖当前线协议事实。</div>
-    <div class="callout"><b>M3 → M4 运行边界：</b>M4 Root AgentRun 只保存对 M3 Session、Context selection manifest、active checkpoint revision、Handoff provenance 和消息 sequence range 的不可变引用。恢复时先重建 ContextEnvelope 并校验墓碑/版本，再继续无副作用步骤；任何来源失效、摘要 revision 漂移或外部副作用结果不明都必须暂停并对账，不得从自由文本摘要猜测状态。</div>
     <div class="warn"><b>保留与删除：</b>压缩、归档、切换模型和跨窗口续接均不得删除原始 Message。用户显式删除或合规保留期是唯一删除入口；墓碑与源对象变为不可读 MUST 在同一事务完成，所有读取/召回/装配/import 立即 fail-closed，再异步物理清除内容及递归派生物。传播失败也不得恢复可读。</div>
     <div class="note"><b>压缩错误码：</b><code>COMPACTION_GENERATION_FAILED</code>、<code>FIDELITY_REJECTED</code>、<code>BASE_VERSION_CONFLICT</code>、<code>SOURCE_DELETED</code>、<code>BUDGET_STILL_EXCEEDED</code>。任一失败后必须重跑 Context Builder；旧 active version 若仍超预算，不得继续发送。</div>
     <div class="callout"><b>1M 可用性门禁：</b>固定 corpus 必须覆盖消息、工具大输出、附件、摘要、Handoff 和删除墓碑；验收 append/page/query P95、重建/压缩耗时、内存峰值、磁盘放大、崩溃恢复与不同模型窗口矩阵。摘要先以 JSON Schema、claim type、source span、引用完整性和 deterministic verifier 为强制门禁；语义保真使用人工标注 benchmark，不以模型自评冒充 100% 正确。</div>
@@ -1369,17 +1397,16 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
     <div class="card">
       <table>
         <tr><th>#</th><th>规则</th></tr>
-        <tr><td><b class="col">1</b></td><td>Provider 列表与普通详情只显示 configured/requires_reentry，不自动读取 Key；进入编辑页仍默认空值/隐藏</td></tr>
-        <tr><td><b class="col">2</b></td><td>用户明确点击“显示已保存 API Key”后，Host 必须以平台原生对话框再次确认用户在场，并从 Engine 读取权威 providerId/protocol/origin/credentialRef 绑定；确认失败不得读取 Secret</td></tr>
+        <tr><td><b class="col">1</b></td><td>API Key 编辑时默认显示掩码，不回传明文到 Renderer</td></tr>
+        <tr><td><b class="col">2</b></td><td>"眼睛"按钮不得直接取得已保存 Key；默认方案是只允许覆盖 Key</td></tr>
         <tr><td><b class="col">3</b></td><td>保存新 Key 时 Renderer 通过一次性受保护 Bridge 提交 Host，Host 立即 DPAPI 保存并清空前端字段；不得存入 Zustand、localStorage 或日志</td></tr>
         <tr><td><b class="col">4</b></td><td>BaseURL 的协议或 origin 改变时，旧 credential 不自动复用；用户重新确认</td></tr>
         <tr><td><b class="col">5</b></td><td>模型同步最多 50 个，限制响应体、超时和重定向；不覆盖供应商名称、Key 或未保存编辑</td></tr>
-        <tr><td><b class="col">6</b></td><td>揭示值只存在于当前编辑 generation 的受控内存；取消、离页、迟到响应和保存后立即清零，不进入 localStorage、日志、诊断或 DTO；未修改的揭示值不得重新提交</td></tr>
-        <tr><td><b class="col">7</b></td><td>默认模型删除前必须先选择新默认</td></tr>
+        <tr><td><b class="col">6</b></td><td>默认模型删除前必须先选择新默认</td></tr>
       </table>
     </div>
     <div class="warn">
-      <b>ADR-007 Accepted（按当前产品合同修订）：</b>Provider Key 默认不读取；用户在编辑页显式请求并通过 Host 原生用户在场确认后可短时揭示。揭示不是稳定配置状态，不得缓存、自动重试或跨 generation 保留；Host/Engine 仍是凭据权威边界。
+      <b>ADR-007 Accepted：</b>已保存 Key 不向 Renderer 回显，只允许覆盖；输入窗口为唯一明文例外。优先安全于便利。
     </div>
 
     <h3>12.4 SecretService 接口</h3>
@@ -1422,7 +1449,7 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <div class="num">CHAPTER 13</div>
         <h2>ADR 总览</h2>
       </div>
-      <span class="tag"><b>ADR</b> 001–012</span>
+      <span class="tag"><b>ADR</b> 001–013</span>
     </div>
     <p class="lead">架构决策记录（ADR）追踪所有关键架构决策的当前状态。Open ADR 未批准前，不得由实现者自行扩展范围。</p>
 
@@ -1435,20 +1462,22 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td><b class="col">ADR-004</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>DPAPI CurrentUser 为 v1 Secret backend；Credential Manager 后续可插拔</td></tr>
         <tr><td><b class="col">ADR-005</b></td><td><b style="color:var(--warn)">Open</b></td><td>SQLite 向量扩展 / 独立本地向量索引选型</td></tr>
         <tr><td><b class="col">ADR-006</b></td><td><b style="color:var(--warn)">Open</b></td><td>首期支持的代码语言解析器范围</td></tr>
-        <tr><td><b class="col">ADR-007</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>Provider Key 默认不读取；显式请求 + Host 原生确认后短时揭示，禁止持久化、自动重试和跨编辑 generation 保留</td></tr>
+        <tr><td><b class="col">ADR-007</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>已保存 Key 不向 Renderer 回显，只允许覆盖；输入窗口为唯一明文例外</td></tr>
         <tr><td><b class="col">ADR-008</b></td><td><b style="color:var(--ok)">Accepted</b></td><td>per-user NSIS 初装 + 独立签名 Go Updater；签名 manifest 与 staging 替换</td></tr>
         <tr><td><b class="col">ADR-009</b></td><td><b style="color:var(--warn)">Open</b></td><td>Skill 包签名信任根和仓库协议</td></tr>
         <tr><td><b class="col">ADR-010</b></td><td><b style="color:var(--warn)">Open</b></td><td>用户项目部署执行器的首批目标环境</td></tr>
         <tr><td><b class="col">ADR-011</b></td><td><b style="color:var(--muted)">Deferred</b></td><td>多人协作部署形态和身份源</td></tr>
         <tr><td><b class="col">ADR-012</b></td><td><b style="color:var(--warn)">Open</b></td><td>模板 docx/html 支持矩阵和渲染引擎</td></tr>
+        <tr><td><b class="col">ADR-013</b></td><td><b style="color:var(--warn)">Open</b></td><td>第三方脚本与 stdio MCP 的 Windows 隔离模型；未 Accepted 且 POC 未通过时保持 disabled/quarantined</td></tr>
       </table>
     </div>
 
     <div class="note">
-      <b>阻断关系：</b>ADR-005/006/009 阻断 M6 对应向量、解析与第三方 Skill 能力；ADR-012 阻断 M5/M7 对应模板格式；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M4 的可靠单 Agent 主链；未批准能力必须 disabled/quarantined，不得由实现者自行扩展。ADR-011 始终不阻断 v1。
+      <b>阻断关系：</b>ADR-012 阻断 M5 docx/html（Markdown/JSON 不受阻）；ADR-005/006/009/013 与 Windows 隔离 POC 阻断 M6 对应向量、解析、第三方 Skill、第三方脚本、stdio MCP 与通用 Browser；ADR-010 阻断 M7 具体用户项目部署执行器。它们不阻断 M0–M4 单 Agent 主链；未批准能力必须 disabled/quarantined。ADR-011 未批准时多人 N-of-M 不得启用，v1 使用单 Owner 顺序确认。
     </div>
 
     <h3>13.1 关键冲突裁决</h3>
+    <div class="note"><b>跨文档优先级：</b>ADR &gt; Architecture &gt; PRD milestone boundary &gt; Module Detail &gt; S5–S9 &gt; Mockup。实现与验收发现冲突时必须按此序裁决，不得由低优先级文档反向扩大范围。</div>
     <div class="card">
       <table>
         <tr><th>冲突</th><th>裁决</th></tr>
@@ -1458,7 +1487,8 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
         <tr><td>OData 数据库直连</td><td><b class="col">OData HTTP</b>；DB 直连独立 Connector</td></tr>
         <tr><td>技能命中即执行</td><td><b class="col">命中仅选择</b>，执行仍过 Policy</td></tr>
         <tr><td>本地数据不出机</td><td><b class="col">本地持久化</b>；云调用会外发所选数据</td></tr>
-        <tr><td>Key 编辑回显</td><td><b class="col">默认不读取</b>；显式请求并通过 Host 原生确认后短时揭示，编辑结束即清零</td></tr>
+        <tr><td>Key 编辑回显</td><td><b class="col">正式默认不回显</b>，覆盖式更新</td></tr>
+        <tr><td>Run Bridge 命名</td><td><b class="col"><code>agent.run.*</code> canonical</b>；<code>plan.run.*</code> 仅 legacy/prototype compatibility，不作为新 runtime API</td></tr>
       </table>
     </div>
   </div>
@@ -1491,5 +1521,5 @@ footer .fr{font-family:var(--mono);font-size:11px;color:var(--muted)}
   }
 })();
 </script>
-</body>
+<div class="note"><b>M4 API canonical 裁决：</b><code>agent.run.*</code>、<code>command.start/get/cancel</code>、<code>run.plan.put</code>、<code>evidence.list</code>；旧 <code>command.run/status</code>、<code>plan.update</code> 与裸 <code>run.*</code> 仅由 legacy adapter 接收，Renderer 新调用禁止使用。</div></body>
 </html>

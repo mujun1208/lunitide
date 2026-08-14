@@ -329,7 +329,7 @@ footer p{font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacin
     <p class="lead" style="margin-top:18px">
       四层记忆模型确保<b>时间连续性</b>，可插拔技能系统提供<b>可扩展能力</b>。
       记忆负责"记住什么、忘掉什么、如何安全召回"，技能负责"在何时、以何种权限、调用什么"——
-      两者共同构成 Agent 跨会话、跨任务的可信任执行底座。M3 完成 Session Context、版本化摘要、1M 逻辑容量、Handoff 和删除传播；M6 在 M4 可靠单 Agent与 M5 项目产物之上完成跨会话四层 Memory、Ontology recall 与 Skill/Tool 最小闭环。ADR-005 未裁决时关闭向量 capability，ADR-009 未裁决时第三方 Skill 保持 quarantined。
+      两者共同构成 Agent 跨会话、跨任务的可信任执行底座。M3 保持 Session Context、版本化摘要、1M 逻辑容量、Handoff 和删除传播；M4 仅增加 Run 内 working context/evidence，MUST NOT 自动跨 scope 注入记忆；M6 才交付显式确认的跨会话 Memory、Ontology recall、内建→第三方 Skill 与扩展。ADR-005 未裁决时关闭向量 capability，ADR-009/隔离 POC 未通过时第三方 Skill 保持 quarantined。
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
       <span class="tag">Memory Manager</span>
@@ -337,7 +337,7 @@ footer p{font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacin
       <span class="tag"><b>4</b> 层记忆</span>
       <span class="tag"><b>7</b> 态状态机</span>
       <span class="tag">跨项目泄漏率 <b>= 0</b></span>
-      <span class="tag"><b>实施</b> M3 Context/Handoff · M6 Memory/Skill</span>
+      <span class="tag"><b>实施</b> M3 Context · M4 Run Evidence · M6 Memory/Skill/Ontology</span>
     </div>
   </div>
 </section>
@@ -459,7 +459,8 @@ footer p{font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacin
       <tbody>
         <tr><td><span class="col">id</span></td><td>ULID</td><td>记忆唯一标识</td></tr>
         <tr><td><span class="col">workspace_id</span></td><td>ULID</td><td>所属工作空间，隔离边界</td></tr>
-        <tr><td><span class="col">project_id</span></td><td>ULID</td><td>所属项目，作用域粒度</td></tr>
+        <tr><td><span class="col">owner_type</span></td><td>enum</td><td>conversation / ad_hoc_workspace / project / organization</td></tr>
+        <tr><td><span class="col">owner_id</span></td><td>ULID</td><td>与 owner_type 组成不可空作用域；真实 owner 必须存在</td></tr>
         <tr><td><span class="col">layer</span></td><td>enum</td><td><b>working / short_term / long_term / semantic</b></td></tr>
         <tr><td><span class="col">kind</span></td><td>enum</td><td>fact / preference / decision / episodic / summary …</td></tr>
         <tr><td><span class="col">content_ref</span></td><td>ref</td><td>内容引用（结构化记录 + 向量索引）</td></tr>
@@ -638,11 +639,16 @@ footer p{font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacin
     <h3>4.6 可借鉴实现与边界</h3>
     <table><thead><tr><th>项目</th><th>借鉴点</th><th>月汐取舍</th></tr></thead><tbody>
       <tr><td><b>OpenAI Codex CLI</b><br><code>github.com/openai/codex</code></td><td><code>/compact</code>、自动压缩、续接任务的用户心智</td><td>借鉴交互；补强版本、来源范围、保真报告和失败回退。仓库 Apache-2.0，复用代码仍须保留 NOTICE/许可证</td></tr>
+      <tr><td><b>Claude Code</b></td><td>项目规则、Skills/MCP、Hooks、受控工具与并行工作树</td><td>借鉴开放协议与工作流；不复制私有 runtime。M5 先内建 Skill/HTTP MCP，M6 才开放第三方/stdio 与 Child</td></tr>
+      <tr><td><b>Claude Cowork</b></td><td>普通对话按需授权本地文件夹、连接器与知识工作产物</td><td>借鉴“任务先行、项目可选”；所有文件/连接器仍受 Lunitide Grant/Review/Artifact provenance</td></tr>
+      <tr><td><b>Trae / TraeWork 类工作台</b></td><td>对话、代码、终端、预览和通用产物渐进组合</td><td>只对标能力维度；地区/版本公开合同不足时标记待复核，不假设强沙箱</td></tr>
+      <tr><td><b>WorkBuddy 类桌面 Agent</b></td><td>本地资料、办公产物、连接器和长任务入口</td><td>同名/版本未锁定前不作协议兼容承诺；验收使用本产品独立能力合同</td></tr>
       <tr><td><b>Aider</b><br><code>github.com/Aider-AI/aider</code></td><td>chat history 摘要、repo map、按相关代码进入上下文</td><td>借鉴“仓库地图 + 按需代码”，不把 repo map 当事实源</td></tr>
       <tr><td><b>LangGraph</b><br><code>github.com/langchain-ai/langgraph</code></td><td>checkpoint、线程状态、消息裁剪/摘要节点</td><td>借鉴状态机与可恢复 checkpoint；生产实现仍使用既定 Go Engine，不引入 Python 运行时</td></tr>
       <tr><td><b>Letta / MemGPT</b><br><code>github.com/letta-ai/letta</code></td><td>工作记忆与归档记忆分层、按需调入</td><td>借鉴分层理念；继续保持“摘要上下文”和“确认后的长期记忆”边界</td></tr>
     </tbody></table>
     <div class="note"><b>引入规则：</b>优先借鉴公开协议、算法和测试思想，不直接复制产品品牌或 UI；任何源码依赖在锁定版本前复核许可证、NOTICE、维护状态与供应链风险。</div>
+    <div class="callout"><b>Skill scope 新裁决：</b><code>conversation → ad_hoc_workspace → project → organization</code> 是逐级扩大的四层作用域。安装源可以全局可见，但启用、路径、网络、Secret、SandboxProfile 与成本预算必须逐 scope 授权；普通对话临时启用不随“转为项目”自动升级。</div>
 
     <h3>4.7 验收与回归基线</h3>
     <table><thead><tr><th>测试</th><th>必须满足</th></tr></thead><tbody>
@@ -696,8 +702,8 @@ footer p{font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacin
     </div>
     <p>记忆承载用户隐私与项目机密，安全隔离是不可妥协的硬性要求。Lunitide 在作用域隔离、删除传播两方面建立完整机制。</p>
 
-    <h3>5.1 跨项目隔离</h3>
-    <p>每条记忆绑定 <code style="color:var(--tide1);font-family:var(--mono)">workspace_id</code> 与 <code style="color:var(--tide1);font-family:var(--mono)">project_id</code>，召回查询始终携带作用域过滤，确保 A 项目的记忆永远不会出现在 B 项目的上下文中。</p>
+    <h3>5.1 跨作用域隔离</h3>
+    <p>每条记忆绑定 <code style="color:var(--tide1);font-family:var(--mono)">workspace_id</code> 与不可空的 <code style="color:var(--tide1);font-family:var(--mono)">owner_type + owner_id</code>，召回查询始终携带完整作用域过滤，确保普通对话、AdHocWorkspace、项目和组织记忆不会未经授权互相注入；project owner 继续保证 A 项目记忆永不进入 B 项目。</p>
 
     <div class="warn">
       <b>硬性约束：</b>跨项目 Memory 泄漏率必须为 <b>0</b>。

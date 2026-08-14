@@ -766,7 +766,7 @@ footer .copyright{width:100%;margin-top:24px;padding-top:20px;border-top:1px sol
     </div>
 
     <div class="reveal d3" id="conversation-complexity-routing">
-      <h3>全对话复杂度路由与受控委派（M6）</h3>
+      <h3>可靠单 Agent 循环（M4）与受控委派（M6）</h3>
       <p>Router 观察完整逻辑会话、当前目标、未完成承诺、上下文来源、风险和预算，而不是按当前一句的关键词触发。简单任务沿单 Agent loop；复杂且可分解任务形成可审查 Plan，并由 Orchestrator 以有界的 fan-out/fan-in 调度 Child AgentInvocation。</p>
       <ul>
         <li><b>三个概念必须分离：</b>Agent Profile 是角色配置，PlanNode 是待完成工作，AgentInvocation 才是一次父或子运行实例。</li>
@@ -775,7 +775,8 @@ footer .copyright{width:100%;margin-top:24px;padding-top:20px;border-top:1px sol
         <li><b>可验证汇合：</b>父级保留冲突与失败，来源回链到 Child evidence；安全或测试失败不能被多数结果覆盖。</li>
         <li><b>对用户透明：</b>展示目标、假设、计划、风险、进度和证据，不暴露模型私有思维链。</li>
       </ul>
-      <p><b>交付边界：</b>M4 先交付可靠单 Root Agent，M5 交付九阶段生产系统；本节的复杂度路由与受控子 Agent 从 M6 启用。M0–M3 只提供 Session/Context provenance 与 schema 兼容，不实现子 Agent。</p>
+      <p><b>交付边界：</b>M4 交付 durable 单 Agent loop、Review/ToolCall/Evidence/预算/恢复，MUST NOT 实现 Child/fan-out；M5 将普通对话统一到该 loop，并开放 AdHocWorkspace、Artifact、内建 Skill 与 HTTP MCP 子集，但 parent/delegation 仍为空；DelegationEnvelope、Parent/Child、JoinBarrier 从 M6 启用；M7 再关联项目 Stage/Artifact/Workflow。此分期不改变 Ontology / Memory / Skills / Planning / Governance 五大内核定义。</p>
+      <div class="callout"><b>普通对话能力原则：</b>项目是持久、版本化、九阶段和发布治理容器，不是能力开关。Skill 匹配、MCP/Connector 发现、Workspace 绑定、Browser、Artifact 和后台任务均可在 conversation/ad-hoc-workspace scope 下使用；升级到 project/organization scope 时必须重新鉴权，审批 token、Secret lease 和临时 grant 不继承。</div>
     </div>
 
     <div class="reveal d3">

@@ -602,7 +602,7 @@ footer .links a:hover{color:var(--tide1)}
     </div>
 
     <h3>3.7 Key 安全规则</h3>
-    <div class="warn"><b>API Key 默认不读取，显式揭示是受控例外。</b>稳定 Provider DTO 仅存 credential_ref/state，不含明文；列表、普通详情、ChatRequest、日志、审计、诊断与持久化均不得出现 Key。用户在编辑页主动请求并通过 Host 原生用户在场确认后，<code>provider.credential.reveal</code> 可把权威绑定对应的值短时返回当前编辑 generation；取消、离页、迟到响应或保存后必须清零，未修改不得重新提交。网关正常调用仍由 Host/Engine 在出口侧注入，不经过 Renderer。</div>
+    <div class="warn"><b>API Key 永不回显。</b>凭据仅存引用（credential_ref），不存明文；任何接口返回、日志、审计事件中均不得出现密钥原文。ChatRequest 不得携带 API Key，密钥由网关在出口侧注入。</div>
   </div>
 </section>
 
@@ -620,23 +620,22 @@ footer .links a:hover{color:var(--tide1)}
       </div>
       <span class="tag"><b>实体</b> workspace / project / session / message / context_summary / context_handoff</span>
     </div>
-    <p class="lead">这是系统的组织骨架：Workspace 隔离租户级边界，Project 承载工程上下文，Session 与 Message 构成交互流水。</p>
+    <p class="lead">这是系统的组织骨架：Workspace 隔离本机用户数据与策略边界；Session/Message 是普通对话和项目对话共同的交互流水；Project 仅在用户显式选择后承载九阶段、长期产物和发布治理，不是 Session 的必选父级。</p>
 
     <h3>4.1 实体字段</h3>
-    <div class="note"><b>逻辑模型与物理模型分栏：</b>下表描述稳定目标语义，不表示所有表名已经落库。M3 当前物理实现使用 <code>projects / sessions / messages / message_parts / attachments / token_ledger / compaction_checkpoints / compaction_activations / compaction_activation_bases / handoff_capsules / handoff_imports / deletion_tombstones</code>。Bridge 与迁移以仓库生成 Schema 和 SQLite migration 为当前事实。</div>
     <table>
       <tr><th>实体</th><th>关键字段</th><th>约束 / 索引</th></tr>
       <tr><td><b>workspace</b></td><td class="col">id, name, settings_json</td><td>首期仅一个 active workspace</td></tr>
       <tr><td><b>project</b></td><td class="col">id, workspace_id, name, root_path, status, current_stage, version</td><td>UNIQUE(workspace_id, name)；root_path 授权前规范化</td></tr>
       <tr><td><b>project_setting</b></td><td class="col">project_id, key, value_json</td><td>UNIQUE(project_id, key)</td></tr>
-      <tr><td><b>session</b></td><td class="col">id, project_id, stage_run_id, title, status, model_profile_id</td><td>INDEX(project_id, updated_at)</td></tr>
+      <tr><td><b>session</b></td><td class="col">id, workspace_id, project_id?, stage_run_id?, title, status, model_profile_id</td><td>project_id 可空；INDEX(workspace_id, project_id, updated_at)；无项目 Session 仍有独立 owner identity</td></tr>
       <tr><td><b>message</b></td><td class="col">id, session_id, role, status, content_ref, sequence, usage_json</td><td>UNIQUE(session_id, sequence)</td></tr>
       <tr><td><b>message_part</b></td><td class="col">id, message_id, type, text/file_ref/tool_call_id, ordinal</td><td>UNIQUE(message_id, ordinal)</td></tr>
-      <tr><td><b>attachment</b></td><td class="col">id, project_id, file_ref, mime, size, parse_status, sha256</td><td>sha256 索引；解析隔离</td></tr>
+      <tr><td><b>attachment</b></td><td class="col">id, owner_type, owner_id, session_id?, file_ref, mime, size, parse_status, sha256</td><td>owner_type IN (session, project) 且真实 owner 必须存在；sha256 索引；解析隔离</td></tr>
       <tr><td><b>context_summary</b></td><td class="col">id, session_id, kind, version, source_seq_start/end, source_digest, parent_summary_ids, content_ref, token_count, fidelity_json, status</td><td>UNIQUE(session_id, kind, version)；源范围不可变</td></tr>
       <tr><td><b>summary_claim_source</b></td><td class="col">summary_id, claim_id, claim_type, source_type/id, seq_start/end, quote_ref, artifact_revision, source_digest, verification_status</td><td>INDEX(summary_id, claim_id)；所有需溯源 claim 覆盖率 100%</td></tr>
-      <tr><td><b>context_handoff</b></td><td class="col">id, workspace_id, project_id, source/target_session_id, version, source_seq_start/end, source_digest, source_summary_version, schema_version, content_ref, status, invalid_reason, created/imported_at</td><td>CHECK(start≤end)；UNIQUE(source_session_id, version)</td></tr>
-      <tr><td><b>handoff_import</b></td><td class="col">handoff_id, target_session_id, imported_at, status</td><td>UNIQUE(handoff_id, target_session_id)；同项目导入幂等</td></tr>
+      <tr><td><b>context_handoff</b></td><td class="col">id, workspace_id, project_id?, source/target_session_id, version, source_seq_start/end, source_digest, source_summary_version, schema_version, content_ref, status, invalid_reason, created/imported_at</td><td>CHECK(start≤end)；UNIQUE(source_session_id, version)；无项目时限定同 workspace/session owner scope</td></tr>
+      <tr><td><b>handoff_import</b></td><td class="col">handoff_id, target_session_id, imported_at, status</td><td>UNIQUE(handoff_id, target_session_id)；同 owner scope 导入幂等，跨 project 仍默认拒绝</td></tr>
       <tr><td><b>context_build</b></td><td class="col">id, session_id, model_id, canonical_logical_tokens, canonical_tokenizer_version, estimated_request_tokens, effective_window, reserve_tokens, summary_version, manifest_ref</td><td>记录每轮实际装配清单，不保存秘密</td></tr>
     </table>
 
@@ -665,20 +664,9 @@ footer .links a:hover{color:var(--tide1)}
         <li><b>单会话逻辑上下文至少 1M tokens</b>——logical_tokens 是累计可重建容量，不受模型单次窗口或消息分页上限约束。</li>
         <li><b>消息原文与摘要分离</b>——压缩只追加 context_summary；不得 UPDATE/DELETE 源 message。显式数据删除是唯一例外，并通过墓碑使派生摘要和 Handoff 失效。</li>
         <li><b>摘要保真合同</b>——每个事实性、状态性、决策性、约束性、任务性和证据性 claim 必须关联叶级 Message/ToolResult/Artifact revision；建议/推断显式标型并保存 derivation sources，仅指向父摘要不算完成溯源。</li>
-        <li><b>分页不是容量限制</b>——消息 RPC 使用 sequence cursor 向前/向后分页；单页最大 200 条和 payload 上限不得写入 session 总量校验。Engine 内部压缩 source-range 扫描也必须复用稳定 snapshot/boundary 分页到底，不得另设 1000/10000 条隐式总上限。</li>
+        <li><b>分页不是容量限制</b>——消息 RPC 使用 sequence cursor 向前/向后分页；单页最大 200 条和 payload 上限不得写入 session 总量校验。</li>
       </ul>
     </div>
-
-    <h3 id="m3-m4-persistence-contract">4.4 M3 → M4 持久化继承合同</h3>
-    <table><thead><tr><th>M3 权威事实</th><th>M4 引用方式</th><th>禁止行为</th></tr></thead><tbody>
-      <tr><td>Session / Message sequence</td><td>Root Run 保存 session_id 与输入 sequence snapshot/range</td><td>不得把 Run 日志复制成新 Message 权威源；不得用分页上限截断历史</td></tr>
-      <tr><td>ContextEnvelope selection trace</td><td>保存 manifest ref/digest、tokenizer identity、模型窗口与预算</td><td>不得只保存最终 prompt 或不可追溯摘要</td></tr>
-      <tr><td>compaction activation revision</td><td>Run checkpoint 绑定 active checkpoint id + revision；恢复时 CAS/重建</td><td>不得读取“最新 succeeded”替代显式 active；不得让 preview 隐式激活</td></tr>
-      <tr><td>Handoff provenance / tombstone</td><td>保存 capsule/import refs；每次恢复前 fail-closed 校验来源</td><td>不得在源删除后继续注入缓存摘要</td></tr>
-      <tr><td>Workspace identity / file hash</td><td>M4 新增受控 WorkspaceBinding 与 ChangeSet base hash，不修改 M3 消息模型</td><td>不得信任 Renderer 绝对路径；不得静默覆盖外部编辑</td></tr>
-      <tr><td>副作用与审批</td><td>M4 新增 EffectJournal、receipt、Review digest 和恢复状态</td><td>不得把聊天“同意”当审批；不得对 outcome_unknown 自动重放</td></tr>
-    </tbody></table>
-    <div class="warn"><b>兼容要求：</b>M4 迁移只能新增表/列/索引或通过受验证的表重建升级；不得重写既有迁移，不得清理用户数据库。旧 M3 会话在没有 Run 引用时仍须完整可读；新增 Run 字段未知或缺失不得导致 Message、摘要或 Handoff 不可读。</div>
   </div>
 </section>
 
@@ -694,14 +682,15 @@ footer .links a:hover{color:var(--tide1)}
         <div class="num">CHAPTER 05</div>
         <h2>阶段与产物</h2>
       </div>
-      <span class="tag"><b>实体</b> stage_run / stage_input_snapshot / artifact / artifact_version / artifact_review / trace_link</span>
+      <span class="tag"><b>实体</b> stage_definition / stage_run / stage_input_snapshot / artifact / artifact_version / artifact_review / trace_link</span>
     </div>
     <p class="lead">阶段（Stage）是流水线的执行单元，产物（Artifact）是阶段的输出与下一阶段的输入。输入快照保证阶段可重现，版本与 Review 保证产物可治理。</p>
 
     <h3>5.1 实体字段</h3>
     <table>
       <tr><th>实体</th><th>关键字段</th></tr>
-      <tr><td><b>stage_run</b></td><td class="col">id, project_id, stage_type, status, attempt, input_snapshot_id, started_at, completed_at, version</td></tr>
+      <tr><td><b>stage_definition</b></td><td class="col">id, stage_key, definition_version, input_schema_ref, output_schema_ref, gate_ref, dependency_ref, digest, status, published_at</td></tr>
+      <tr><td><b>stage_run</b></td><td class="col">id, project_id, stage_definition_id, stage_definition_version, stage_definition_digest, stage_type, status, attempt, input_snapshot_id, started_at, completed_at, version</td></tr>
       <tr><td><b>stage_input_snapshot</b></td><td class="col">id, stage_run_id, snapshot_hash, created_at</td></tr>
       <tr><td><b>stage_input_item</b></td><td class="col">snapshot_id, artifact_version_id, role, required</td></tr>
       <tr><td><b>artifact</b></td><td class="col">id, project_id, stage_type, artifact_type, title, status, current_version</td></tr>
@@ -709,6 +698,7 @@ footer .links a:hover{color:var(--tide1)}
       <tr><td><b>artifact_review</b></td><td class="col">id, artifact_version_id, reviewer_type, decision, findings_ref, created_at</td></tr>
       <tr><td><b>trace_link</b></td><td class="col">from_type, from_id, to_type, to_id, relation</td></tr>
     </table>
+    <div class="note"><b>定义版本冻结：</b><code>stage_definition</code> 发布后不可变；<code>stage_run</code> MUST 固定 definition id/version/digest，定义升级只影响新 Run。历史 Run、输入快照、Gate 判定和产物来源继续按原 definition revision 解释，MUST NOT 以当前最新定义回算或静默迁移。</div>
 
     <h3>5.2 阶段状态机</h3>
     <div class="sm-label">正常路径</div>
@@ -790,6 +780,20 @@ footer .links a:hover{color:var(--tide1)}
       </ul>
     </div>
 
+    <h4 id="m4-durable-runtime">M4 durable 单 Agent Runtime 实体 / DDL 约束</h4>
+    <table><tr><th>实体</th><th>关键字段 / DDL 约束</th></tr>
+      <tr><td>agent_run / agent_turn / agent_step</td><td><code>id, session_id, status, terminal_version, budget_json, used_json, checkpoint_ref</code>；FK 级联限制、<code>UNIQUE(run_id,ordinal)</code>、terminal_version CAS；M4 <code>parent_run_id/delegation_id IS NULL</code>。</td></tr>
+      <tr><td>tool_call / observation</td><td><code>tool_id, descriptor_version, args_digest, resource_digest, policy_version, review_id, status</code>；Observation append-only，<code>UNIQUE(tool_call_id,seq)</code>，正文存 blob ref/digest。</td></tr>
+      <tr><td>effect_journal / run_event</td><td><code>operation_digest UNIQUE, prepared_at, state, receipt_ref</code>；event <code>UNIQUE(run_id,seq)</code>，状态与 outbox 同事务。</td></tr>
+      <tr><td>workspace_registration / grant / lease</td><td>canonical root identity + volume/file id；grant scope/expiry；lease fencing token 单调递增，过期后所有句柄调用失败。</td></tr>
+      <tr><td>change_set / command_job / evidence</td><td>ChangeSet 绑定 base digest/checkpoint；CommandJob 绑定签名 CommandSpec，不存 shell；Evidence 绑定 source/time/digest/provenance。</td></tr>
+    </table>
+<pre>AgentRun: queued → running ↔ paused_review | paused_budget
+running → completed | failed | cancelled | interrupted | outcome_unknown
+ToolCall: proposed → policy_checked → awaiting_review → approved → running
+running → succeeded | failed | cancelled | outcome_unknown; awaiting_review → denied</pre>
+    <p><b>主要 RPC：</b><code>agent.agent.run.start/get/resume/cancel/reconcile, review.decide, workspace.register/grant/revoke, fs.tree/stat/read/readMany/glob/grep, changeset.preview/apply/revert, command.start/cancel/status, web.fetch/search, run.plan.put, evidence.list</code>。<code>agent.run.*</code> 是 canonical；既有 <code>plan.run.*</code> 仅 legacy/prototype compatibility，不用于新 runtime。状态事件 MUST 带 run seq/correlation/schemaVersion；Review 决策、状态和 outbox 同事务。预算字段 MUST 包含 model turns/tool calls/tokens/cost/wall-clock/output bytes/retries/no-progress/hard ceiling。</p>
+
     <h4 id="agent-delegation-contract">全对话 ComplexityDecision 与 AgentRun / Delegation 合同（M6）</h4>
     <table>
       <tr><th>实体</th><th>关键字段</th><th>关键约束</th></tr>
@@ -800,17 +804,16 @@ footer .links a:hover{color:var(--tide1)}
       <tr><td><b>join_barrier</b></td><td class="col">id, plan_node_id, required_delegation_ids, optional_delegation_ids, join_policy, status, conflict_ref, accepted_result_refs</td><td>安全/测试失败不可多数覆盖；required 未满足不得宣称成功</td></tr>
       <tr><td><b>run_provenance_link</b></td><td class="col">run_id, source_type, source_id, source_revision, relation, digest, ordinal</td><td>最终来源必须可达 Message/ToolResult/Artifact revision，不得只指向父 Agent 摘要</td></tr>
     </table>
-<pre>agent_delegation:
-proposed → accepted → running
-running → succeeded | failed | cancelled | interrupted | outcome_unknown
-interrupted → reconciling → running | failed | outcome_unknown</pre>
+<pre>Child AgentRun terminal: completed | failed | cancelled | interrupted | outcome_unknown
+Delegation: proposed → accepted → running → delivered | failed | cancelled
+JoinBarrier: open → ready → validating → succeeded | failed | timed_out | cancelled</pre>
     <div class="card"><ul>
       <li>Supervisor 仅在依赖、Policy、Root 剩余预算与资源冲突检查均通过后创建 Child；默认最大递归深度为 1，扩大深度必须由策略显式允许。</li>
       <li>Root cancel/deadline 递归传播；Child 只能获得父级有效权限的衰减子集，审批、Secret lease、临时 capability 不继承。</li>
       <li>恢复先重建 run tree；已有 child_run_id/idempotency_key 时禁止重复 spawn。副作用复用 checkpoint/EffectJournal/receipt，对 <code>outcome_unknown</code> 先对账。</li>
       <li>父级只在 required delegation 满足 schema、acceptance、证据、测试、Review 与全局验收后聚合；失败时按计划重试、降级或重新规划，不得伪造成功。</li>
     </ul></div>
-    <div class="note"><b>M0–M5 向前兼容：</b>M4/M5 可写入 root_run_id、correlation_id、provenance_ref 与 schema_version，但 parent_run_id/delegation_id 必须为空，运行固定为可靠单 Root Agent。旧记录缺字段时按 <code>root_run_id=run_id, parent_run_id=null</code> 恢复，不合成虚假 Child；未知未来字段可忽略或隔离，不得使消息不可读。Complexity Router、Delegation、Child 并发与 Join 仅在 M6 实现。</div>
+    <div class="note"><b>Legacy 与里程碑兼容：</b>M0–M3 记录按 <code>root_run_id=run_id,parent_run_id=null</code> 恢复；M4/M5 parent/delegation 仍必须为空。M5 的 <code>stage_run_id/artifact_version_id</code> 仅关联 M4 Run，不复制执行核。Complexity Router、Delegation、Child 并发与 Join 仅在 M6 实现；首版只读并行或隔离工作树并由单写者汇总。</div>
 
     <h3>6.2 治理实体</h3>
     <table>
@@ -898,8 +901,8 @@ interrupted → reconciling → running | failed | outcome_unknown</pre>
       <ul>
         <li><code>(project_id, node_type, natural_key)</code> <b>唯一</b>——同一项目内同类节点的自然键唯一，防止重复解析产生重复节点。</li>
         <li>Edge：<code>(project_id, from_id, edge_type)</code> 索引——支撑从源节点出发的邻接遍历。</li>
-        <li><b>所有查询强制 project_id</b>——本体查询不可跨项目，从数据层杜绝越权读取。</li>
-        <li>向量记录必须带 workspace/project scope、source revision 和 tombstone。</li>
+        <li><b>所有查询强制完整 owner scope</b>——<code>owner_type + owner_id</code> 必须同时匹配；project 类型仍不可跨项目，从数据层杜绝越权读取。</li>
+        <li>向量记录必须带 workspace/owner scope、source revision 和 tombstone。</li>
       </ul>
     </div>
 
@@ -927,7 +930,7 @@ interrupted → reconciling → running | failed | outcome_unknown</pre>
     <h3>8.1 实体字段</h3>
     <table>
       <tr><th>实体</th><th>关键字段</th></tr>
-      <tr><td><b>memory_entry</b></td><td class="col">id, workspace_id, project_id, layer, kind, content_ref, confidence, importance, status, ttl_at, revision</td></tr>
+      <tr><td><b>memory_entry</b></td><td class="col">id, workspace_id, owner_type, owner_id, layer, kind, content_ref, confidence, importance, status, ttl_at, revision</td></tr>
       <tr><td><b>memory_source</b></td><td class="col">memory_id, source_type, source_id, source_revision, quote_ref</td></tr>
       <tr><td><b>memory_revision</b></td><td class="col">id, memory_id, old_ref, new_ref, reason, actor, time</td></tr>
       <tr><td><b>recall_event</b></td><td class="col">id, session_id, query_hash, memory_id, score, rank, injected_tokens, time</td></tr>
@@ -1144,7 +1147,7 @@ interrupted → reconciling → running | failed | outcome_unknown</pre>
     </div>
     <p>任意制品摘要、提交、依赖或测试证据变化使 approved CR 进入 <code>changed_after_approval</code>。</p>
 
-    <div class="sm-label">Deployment 状态</div>
+    <div class="sm-label">Deployment 状态（回退过程不在此枚举）</div>
     <div class="dag">
       <div class="node">pending</div>
       <div class="arrow">→</div>
@@ -1154,17 +1157,9 @@ interrupted → reconciling → running | failed | outcome_unknown</pre>
       <div class="arrow">|</div>
       <div class="node err">failed</div>
     </div>
-    <div class="dag" style="padding-top:0">
-      <div class="node warn">rollback_pending</div>
-      <div class="arrow">→</div>
-      <div class="node warn">rolling_back</div>
-      <div class="arrow">→</div>
-      <div class="node done">rolled_back</div>
-      <div class="arrow">|</div>
-      <div class="node err">rollback_failed</div>
-    </div>
+    <p>回退过程只由 <code>RollbackAttempt pending→running→succeeded|failed|outcome_unknown</code> 权威维护；Deployment 只保存原部署终态及 latest_rollback_attempt_id/final_rollback_outcome 投影，不独立写回退过程状态。</p>
 
-    <div class="sm-label">Update / Migration 状态</div>
+    <div class="sm-label">Lunitide AppUpdateAttempt 状态</div>
     <div class="dag">
       <div class="node">checking</div>
       <div class="arrow">→</div>
@@ -1178,8 +1173,6 @@ interrupted → reconciling → running | failed | outcome_unknown</pre>
     </div>
     <div class="dag" style="padding-top:0">
       <div class="node active">applying</div>
-      <div class="arrow">→</div>
-      <div class="node active">migrating</div>
       <div class="arrow">→</div>
       <div class="node done">succeeded</div>
       <div class="arrow">|</div>
@@ -1239,7 +1232,7 @@ setting_migration_journal(migration_id, from_version, to_version, step_id,
       <tr><td>普通设置</td><td>draft → validate → 原子 patch → event → component apply</td><td>保留 draft 与字段错误；版本冲突展示脱敏 diff</td></tr>
       <tr><td>外观</td><td>Renderer 内存预览；保存后持久化</td><td>取消、离页或预览超时恢复最后提交值</td></tr>
       <tr><td>语言/运行时</td><td>保存后标记 renderer_reload/app_restart</td><td>允许稍后重载，不得显示虚假完成</td></tr>
-      <tr><td>Provider/Key</td><td>稳定 DTO 只返回 configured/requires_reentry；新值走一次性输入 → Host SecretService；显式揭示走 Host 原生确认 → 短时编辑 generation</td><td>拒绝、失败、取消、离页和迟到响应均清零；不缓存、不自动重试、不把未修改揭示值重新提交</td></tr>
+      <tr><td>Provider/Key</td><td>Provider 专用 RPC；Key 走一次性输入 → Host SecretService</td><td>失败清零缓冲；只返回 configured/requires_reentry</td></tr>
       <tr><td>安全/保留策略</td><td>影响摘要 + 显式确认 + Policy/Review</td><td>策略变化使旧批准失效，不追溯自动执行</td></tr>
       <tr><td>删除/恢复/导出/更新</td><td>专用 Command RPC、参数摘要、状态查询和恢复</td><td>outcome_unknown 时先对账，禁止盲目重放</td></tr>
     </tbody></table>
@@ -1267,6 +1260,20 @@ migration: detected → preview → staging → validating → committing
 
     <h3>11.7 验收门禁</h3>
     <ul class="checklist"><li>分类、搜索、作用域切换、现有默认值和保存条与原型一致；未复制参考产品视觉。</li><li>application 变更只影响未覆盖项目；恢复继承正确；Policy 冲突取更严格者。</li><li>批量保存全成或全败；双窗口并发返回 conflict；相同幂等键不重复提交。</li><li>Key 在 Renderer 稳定状态、Zustand/localStorage、SQLite、日志、诊断、dump 和稳定内存扫描 0 明文。</li><li>外观预览可完整撤销；reload/restart 状态准确；断线 outcome_unknown 可对账恢复。</li><li>导出预览、删除传播、备份恢复、更新签名/防降级和 schema migration 故障用例通过。</li><li>initial/loading/refreshing/empty/error/partial/stale/offline/permission-denied/saving/conflict/outcome-unknown/restart-required 均有 E2E 和无障碍验证。</li><li>每个设置动作可追踪到 capability、schema、SDK、Engine handler、Policy、事件、错误和测试。</li></ul>
+  </div>
+</section>
+
+<section id="m5-m7-domain-addendum">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="num">M5–M7 DOMAIN ADDENDUM</div><h2>对话能力、执行平面、项目与企业发行合同</h2></div></div>
+    <h3 id="m5-project-contract">M5 Conversation Capability / AdHoc Workspace / Artifact</h3>
+    <p>普通对话与项目对话共用 M4 <code>agent_run/tool_call/run_review/effect_journal</code>；新增 <code>workspace_attachment</code> 绑定 <code>temporary|local_folder|git_repository</code>，新增稳定 <code>artifact/artifact_version/artifact_blob</code> 保存 digest、MIME、classification、lineage 与 retention。<code>conversation_promotion</code> 显式把 Session/Run/Artifact 关联到 Project，但必须重新验证 Workspace grant、Secret、Skill/MCP scope；不得复制审批 token。legacy chat toolruntime 只读迁移，禁止产生第二执行事实。</p>
+    <h3 id="m6-extension-contract">M6 Skill / MCP / Sandbox / Cloud / Delegation</h3>
+    <p>新增 <code>capability_source、skill_package/version/installation/invocation/grant、mcp_server/schema_snapshot/session/invocation、execution_target/job、sandbox_instance、workspace_snapshot、artifact_transfer、price_snapshot、cost_ledger</code>。ExecutionJob 状态为 <code>queued→provisioning→syncing→running→collecting→succeeded|failed|cancelled|outcome_unknown</code>；每次远程 effect 保存 provider receipt。Child AgentRun terminal、Delegation、JoinBarrier 使用互不替代的三套状态；唯一 Writer 合并后必须在最终单一树重跑 required tests。</p>
+    <h3 id="m7-release-enterprise-contract">M7 Release / Enterprise</h3>
+    <p>M7 才启用 <code>workflow_version/stage_run/stage_input_snapshot/artifact_review/trace_link</code> 的九阶段生产合同；<code>execution_job</code>、<code>release_package/promotion</code> 与 <code>app_update_package/update_attempt</code> MUST 使用不同表、外键域、状态机、签名根与回滚 receipt。Promotion 聚合状态为 <code>draft/prepared/approved/in_progress/verified/failed/rolled_back/forward_fixed/outcome_unknown</code>；企业策略冲突取更严格者；组织成本中心聚合模型/计算/存储/出口实际用量但不得改写原始 provider receipt。ADR-011 未批准只允许单 Owner 顺序确认，N-of-M 禁用；ADR-010 未批准具体部署 adapter 禁用。</p>
+    <h3 id="execution-domain-invariants">跨里程碑实体不变量</h3>
+    <table><tr><th>不变量</th><th>强制要求</th></tr><tr><td>能力统一</td><td>builtin、Skill、MCP、Connector、Browser 都映射到版本化 CapabilityDescriptor；普通/项目对话的 grant、Review 和 Audit 语义相同。</td></tr><tr><td>执行与部署分离</td><td>ExecutionJob 只产生 PatchProposal/Artifact/Evidence；不得写生产环境。Deployment 只消费已批准 ReleasePackage；AppUpdate 只更新月汐自身。</td></tr><tr><td>成本可审计</td><td>执行前 price/estimate/authorization 不可变绑定，执行后 actual usage 与 receipt 只追加；未知费用不得默认为 0。</td></tr><tr><td>供应商可替换</td><td>业务记录保存 provider key + contract version + receipt，不保存只对单一供应商有效的 URL 作为权威身份。</td></tr></table>
   </div>
 </section>
 
@@ -1301,5 +1308,5 @@ migration: detected → preview → staging → validating → committing
   }
 })();
 </script>
-</body>
+<div class="note"><b>M4 API canonical 裁决：</b><code>agent.run.*</code>、<code>command.start/get/cancel</code>、<code>run.plan.put</code>、<code>evidence.list</code>；旧 <code>command.run/status</code>、<code>plan.update</code> 与裸 <code>run.*</code> 仅由 legacy adapter 接收，Renderer 新调用禁止使用。</div></body>
 </html>
