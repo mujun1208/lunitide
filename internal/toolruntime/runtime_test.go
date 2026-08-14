@@ -66,6 +66,19 @@ func TestInvalidExecutionModeFailsClosed(t *testing.T) {
 	}
 }
 
+func TestReadOnlyToolsDoNotCreateRequestedPaths(t *testing.T) {
+	r, _ := New(t.TempDir())
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	for _, name := range []string{"workspace.list", "workspace.read"} {
+		if _, err := r.Execute(context.Background(), Approval, s, name, json.RawMessage(`{"path":"missing/nested"}`), false); err == nil {
+			t.Fatalf("%s unexpectedly succeeded", name)
+		}
+		if _, err := os.Stat(filepath.Join(r.root, s)); !os.IsNotExist(err) {
+			t.Fatalf("%s created a read-only workspace: %v", name, err)
+		}
+	}
+}
+
 func TestContainment(t *testing.T) {
 	r, _ := New(t.TempDir())
 	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"

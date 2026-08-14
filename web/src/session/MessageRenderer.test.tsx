@@ -73,6 +73,16 @@ it('Message Renderer restores assistant messages with agent presentation', async
   expect(assistant.closest('li')).toHaveTextContent('AGENT')
 })
 
+it('Message Renderer distinguishes tool history and marks user round starts', async () => {
+  await open(messages({ list: vi.fn().mockResolvedValue(page([message(1, { text: 'question' }), message(2, { role: 'tool', text: 'read result' })])) }))
+  const user = await screen.findByText('question')
+  expect(user.closest('li')).toHaveClass('round-start')
+  const tool = screen.getByText('read result')
+  expect(tool.closest('li')).toHaveClass('tool')
+  expect(tool.closest('li')).toHaveTextContent('TOOL')
+  expect(tool.closest('li')).not.toHaveTextContent('AGENT')
+})
+
 it('Message Renderer accepts exact flat Unicode boundaries and rejects rune/byte overflow and NUL', async () => {
   const append = vi.fn().mockResolvedValue(message(1)), user = await open(messages({ append }))
   await screen.findByText('还没有消息')

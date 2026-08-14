@@ -108,11 +108,17 @@ func Digest(name string, args json.RawMessage) string {
 	h := sha256.Sum256(append(append([]byte(name), 0), canonical...))
 	return hex.EncodeToString(h[:])
 }
-func (r *Runtime) sessionRoot(session string) (string, error) {
+func (r *Runtime) sessionPath(session string) (string, error) {
 	if len(session) != 26 || strings.ContainsAny(session, "/\\") {
 		return "", errors.New("invalid session")
 	}
-	p := filepath.Join(r.root, session)
+	return filepath.Join(r.root, session), nil
+}
+func (r *Runtime) sessionRoot(session string) (string, error) {
+	p, err := r.sessionPath(session)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(p, 0700); err != nil {
 		return "", err
 	}
@@ -128,11 +134,16 @@ var ErrPendingConsumed = errors.New("pending action already consumed")
 var ErrWorkspaceChanged = errors.New("workspace changed since approval request")
 
 func (r *Runtime) workspaceDigest(session string) (string, error) {
-	root, err := r.sessionRoot(session)
+	root, err := r.sessionPath(session)
 	if err != nil {
 		return "", err
 	}
 	h := sha256.New()
+	if _, err = os.Stat(root); os.IsNotExist(err) {
+		return hex.EncodeToString(h.Sum(nil)), nil
+	} else if err != nil {
+		return "", err
+	}
 	var paths []string
 	err = filepath.Walk(root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
@@ -284,17 +295,25 @@ func (r *Runtime) path(session, rel string, write bool) (string, error) {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
 		return "", errors.New("path traversal")
 	}
-	root, err := r.sessionRoot(session)
+	root, err := r.sessionPath(session)
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(root, clean)
-	parent := p
 	if write {
-		parent = filepath.Dir(p)
+		if err = os.MkdirAll(root, 0700); err != nil {
+			return "", err
+		}
+	} else if info, statErr := os.Stat(root); statErr != nil {
+		return "", statErr
+	} else if !info.IsDir() {
+		return "", errors.New("session workspace is not a directory")
 	}
-	if err = os.MkdirAll(parent, 0700); err != nil {
-		return "", err
+	p := filepath.Join(root, clean)
+	parent := filepath.Dir(p)
+	if write {
+		if err = os.MkdirAll(parent, 0700); err != nil {
+			return "", err
+		}
 	}
 	realParent, err := filepath.EvalSymlinks(parent)
 	if err != nil {
