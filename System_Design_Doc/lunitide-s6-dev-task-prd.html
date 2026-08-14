@@ -304,10 +304,10 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
       <span class="tag"><b>阶段六</b> · 开发任务与实现</span>
       <span class="tag">DevTask · TaskSourceLink · ScanRun</span>
       <span class="tag">双向可追踪 · 不可变证据</span>
-      <span class="tag"><b>实施</b> M4 产物追踪 → M5 Policy/ToolRuntime → M6 完整工作台</span>
+      <span class="tag"><b>实施</b> M5 AdHocTask → M6 隔离/云执行与多 Agent → M7 项目任务/发布证据</span>
     </div>
     <p class="lead" style="margin-top:18px">
-      开发管理专家基于需求、方案、UI、DB、接口产物生成任务。阶段六同时提供对话优先的轻量开发工作台：关联本地目录与 VS Code，按需调用文件、代码、终端、浏览器和变更工具。每个任务绑定代码变更、命令运行、验证证据与扫描结果，形成从需求到测试的<b>双向可追踪</b>闭环。M4 提供可靠单 Agent、Policy/Review、checkpoint、真实 Workspace/ChangeSet 与受控 Command/Web；M5 提供批准且版本化的 Artifact/Trace；M6 才关闭扩展生态、多 Agent 与专业 DevTask→ChangeSet→Test/Scan Evidence→Review 工作台门禁；M7 只复用不可变证据签发 ReleasePackage。
+      专题 S6（不是 Milestone）映射为：M5 普通对话可形成 AdHocTask、ChangeSet、Test Evidence 和 Artifact，但不自动进入九阶段；M6 增加隔离/云 ExecutionJob、工作台和受治理多 Agent；M7 才把经用户显式升级的任务组织为 DevTask/Artifact/Trace 并签发 ReleasePackage。MUST NOT 把 multi-agent 写回 M5，也不得让普通对话绕过 M7 CR/发布门禁。
     </p>
   </div>
 </header>
@@ -410,7 +410,8 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
     <h3>1.6 开发工作区运行实体</h3>
     <p>以下运行实体把 DevTask 连接到真实开发过程；它们记录执行事实，但不替代磁盘内容和 Git 版本事实。</p>
     <table class="field-table"><thead><tr><th>实体</th><th>核心字段</th><th>职责</th></tr></thead><tbody>
-      <tr><td><span class="col">WorkspaceBinding</span></td><td>project_id, root_ref, root_identity, trust_state, ignore_revision</td><td>项目与本地受信目录的绑定</td></tr>
+      <tr><td><span class="col">WorkspaceBinding</span></td><td>owner_type/id, root_ref, root_identity, trust_state, ignore_revision</td><td>普通对话 AdHocWorkspace 或项目与本地/远程快照的绑定；升级项目时重新授权</td></tr>
+      <tr><td><span class="col">ExecutionJob</span></td><td>run_id, target_id, snapshot_digest, status, provider_receipt, usage_digest</td><td>M6 隔离/云执行事实；只返回 PatchProposal/Artifact/Evidence，不是 Deployment</td></tr>
       <tr><td><span class="col">DevSession</span></td><td>task_id, workspace_id, conversation_id, plan_version, checkpoint_id</td><td>串联任务、对话、工作区、计划与恢复点</td></tr>
       <tr><td><span class="col">ChangeSet</span></td><td>base_revision, patch_ref, status, files_count, additions, deletions</td><td>原子变更集合，支持逐文件接受、撤销和冲突检测</td></tr>
       <tr><td><span class="col">ToolRun</span></td><td>tool_type, command_hash, cwd_ref, policy_decision_id, status, exit_code</td><td>文件、CLI、终端、浏览器等工具运行记录</td></tr>
@@ -431,11 +432,11 @@ footer .copy{font-family:var(--mono);font-size:11px;color:var(--muted);margin-le
     </ol></div>
 
     <h3 id="complex-code-multi-agent-loop">1.7A 复杂代码任务的多 Agent 消费闭环（M6）</h3>
-    <p>S6/M6 消费 M4 Durable Root Run 与 M6 Agent Kernel 产生的 <code>ComplexityDecision、PlanVersion、Parent/Child AgentRun、AgentResult</code>；复杂度分类、通用 DAG、子 Agent 生命周期、并发预算、取消/恢复和 JoinBarrier 均由 M6 权威实现，S6 禁止建立领域私有副本或更宽松策略。</p>
+    <p>S6/M6 消费 M4 Agent Kernel 与 M6 受治理多 Agent 产生的 <code>ComplexityDecision、PlanVersion、Parent/Child AgentRun、AgentResult</code>；Child 生命周期、并发预算、取消/恢复和 JoinBarrier 由 M6 权威实现，S6 MUST NOT 建立领域私有执行核或更宽松策略。</p>
     <table class="field-table"><thead><tr><th>M4/M6 通用输出</th><th>S6 消费实体</th><th>闭环要求</th></tr></thead><tbody>
       <tr><td>ComplexityDecision / PlanVersion</td><td>DevSession / DevTask</td><td>记录为何直答、单 Agent 计划或多 Agent；绑定不可变计划版本</td></tr>
       <tr><td>Parent/Child AgentRun</td><td>Assignment / ToolRun / 活动记录</td><td>可映射前端、后端、DB、安全、QA 等逻辑分支，但不重新定义通用运行状态</td></tr>
-      <tr><td>AgentResult / JoinBarrier</td><td>ChangeSet / CodeChange / Evidence</td><td>按 base hash/CAS 汇合；文件重叠先冲突处理，禁止子结果直接静默覆盖工作区</td></tr>
+      <tr><td>AgentResult / JoinBarrier</td><td>ChangeSet / CodeChange / Evidence</td><td>Child 对主工作区只读，仅从隔离 staging/worktree 返回 PatchProposal + baseTreeDigest + Evidence；只有 Root WorkspaceMutationCoordinator 可按拓扑和 fencing sequence 串行重基/CAS/apply。文件重叠先冲突处理，最终合并树必须重跑 required test/scan，禁止子结果直接覆盖工作区</td></tr>
       <tr><td>Tool / Test / Scan result</td><td>ToolRun / TestRun / ScanRun</td><td>形成不可变证据；required 测试、安全扫描或 Review 失败不得被其他分支成功覆盖</td></tr>
       <tr><td>Checkpoint / Policy / Review</td><td>DevSession.checkpoint_id / policy_decision_id / waiting_review</td><td>写前恢复点和逐动作审批继续生效；Child 不继承审批 token、Secret lease 或临时 capability</td></tr>
     </tbody></table>
