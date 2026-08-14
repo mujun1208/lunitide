@@ -36,6 +36,9 @@ func TestPolicyAndRealSideEffects(t *testing.T) {
 	if _, e := r.Execute(context.Background(), AutoEdit, s, "command.run", json.RawMessage(`{"argv":["go","version"]}`), false); !errors.Is(e, ErrApprovalRequired) {
 		t.Fatal(e)
 	}
+	if _, e := r.Execute(context.Background(), AutoEdit, s, "command.run", json.RawMessage(`{"argv":["go","version"]}`), true); e != nil {
+		t.Fatalf("approved auto-edit command: %v", e)
+	}
 	if _, e := r.Execute(context.Background(), FullAccess, s, "command.run", json.RawMessage(`{"argv":["go","version"]}`), false); e != nil {
 		t.Fatal(e)
 	}
@@ -43,6 +46,26 @@ func TestPolicyAndRealSideEffects(t *testing.T) {
 		t.Fatal("dangerous command ran")
 	}
 }
+
+func TestInvalidExecutionModeFailsClosed(t *testing.T) {
+	r, _ := New(t.TempDir())
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	for _, name := range []string{"workspace.list", "workspace.write", "command.run"} {
+		args := json.RawMessage(`{"path":"."}`)
+		if name == "workspace.write" {
+			args = json.RawMessage(`{"path":"blocked.txt","content":"blocked"}`)
+		} else if name == "command.run" {
+			args = json.RawMessage(`{"argv":["go","version"]}`)
+		}
+		if _, err := r.Execute(context.Background(), Mode("invalid"), s, name, args, true); err == nil {
+			t.Fatalf("invalid mode executed %s", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(r.root, s, "blocked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("invalid mode mutated workspace: %v", err)
+	}
+}
+
 func TestContainment(t *testing.T) {
 	r, _ := New(t.TempDir())
 	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"

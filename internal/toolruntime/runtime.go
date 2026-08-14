@@ -318,6 +318,11 @@ func (r *Runtime) path(session, rel string, write bool) (string, error) {
 	return p, nil
 }
 func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (Result, error) {
+	switch mode {
+	case Approval, AutoEdit, Plan, FullAccess:
+	default:
+		return Result{}, errors.New("invalid execution mode")
+	}
 	if mode == Plan {
 		return Result{}, errors.New("tools disabled in plan mode")
 	}
@@ -416,7 +421,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		return written, nil
 	case "command.run":
-		if mode != FullAccess && !(mode == Approval && approved) {
+		if mode != FullAccess && !(approved && (mode == Approval || mode == AutoEdit)) {
 			return Result{}, errors.New("command denied")
 		}
 		var a struct {
