@@ -6,6 +6,11 @@ const Version = "1.0"
 type Method string
 
 const (
+	MethodAgentRunCancel            Method = "agent.run.cancel"
+	MethodAgentRunGet               Method = "agent.run.get"
+	MethodAgentRunReconcile         Method = "agent.run.reconcile"
+	MethodAgentRunResume            Method = "agent.run.resume"
+	MethodAgentRunStart             Method = "agent.run.start"
 	MethodAttachmentDelete          Method = "attachment.delete"
 	MethodAttachmentGet             Method = "attachment.get"
 	MethodAttachmentIngest          Method = "attachment.ingest"
@@ -16,8 +21,16 @@ const (
 	MethodAttachmentUploadCommit    Method = "attachment.upload.commit"
 	MethodBrowserClose              Method = "browser.close"
 	MethodBrowserOpen               Method = "browser.open"
+	MethodCapabilityList            Method = "capability.list"
+	MethodChangesetApply            Method = "changeset.apply"
+	MethodChangesetPreview          Method = "changeset.preview"
+	MethodChangesetRevert           Method = "changeset.revert"
 	MethodChatStart                 Method = "chat.start"
 	MethodChatToolApprove           Method = "chat.tool.approve"
+	MethodCommandCancel             Method = "command.cancel"
+	MethodCommandGet                Method = "command.get"
+	MethodCommandReviewRequest      Method = "command.review.request"
+	MethodCommandStart              Method = "command.start"
 	MethodContextCompactCancel      Method = "context.compact.cancel"
 	MethodContextCompactCommit      Method = "context.compact.commit"
 	MethodContextCompactPreview     Method = "context.compact.preview"
@@ -29,6 +42,13 @@ const (
 	MethodContextHandoffRevoke      Method = "context.handoff.revoke"
 	MethodContextStatus             Method = "context.status"
 	MethodDiagnosticsExport         Method = "diagnostics.export"
+	MethodEvidenceList              Method = "evidence.list"
+	MethodFsGlob                    Method = "fs.glob"
+	MethodFsGrep                    Method = "fs.grep"
+	MethodFsRead                    Method = "fs.read"
+	MethodFsReadMany                Method = "fs.readMany"
+	MethodFsStat                    Method = "fs.stat"
+	MethodFsTree                    Method = "fs.tree"
 	MethodMemoryCreate              Method = "memory.create"
 	MethodMemoryDelete              Method = "memory.delete"
 	MethodMemoryGet                 Method = "memory.get"
@@ -81,8 +101,10 @@ const (
 	MethodProviderTest              Method = "provider.test"
 	MethodProviderUpdate            Method = "provider.update"
 	MethodReviewApprove             Method = "review.approve"
+	MethodReviewDecide              Method = "review.decide"
 	MethodReviewList                Method = "review.list"
 	MethodReviewReject              Method = "review.reject"
+	MethodRunPlanPut                Method = "run.plan.put"
 	MethodSessionCreate             Method = "session.create"
 	MethodSessionDelete             Method = "session.delete"
 	MethodSessionList               Method = "session.list"
@@ -107,8 +129,13 @@ const (
 	MethodTerminalResize            Method = "terminal.resize"
 	MethodTerminalStart             Method = "terminal.start"
 	MethodUiThemeSet                Method = "ui.theme.set"
+	MethodWebFetch                  Method = "web.fetch"
+	MethodWebSearch                 Method = "web.search"
+	MethodWorkspaceGrant            Method = "workspace.grant"
+	MethodWorkspaceLease            Method = "workspace.lease"
 	MethodWorkspaceList             Method = "workspace.list"
 	MethodWorkspaceRead             Method = "workspace.read"
+	MethodWorkspaceRegister         Method = "workspace.register"
 	MethodWorkspaceRootGet          Method = "workspace.root.get"
 	MethodWorkspaceRootSelect       Method = "workspace.root.select"
 )
@@ -119,6 +146,11 @@ type MethodMetadata struct {
 }
 
 var MethodMetadataByMethod = map[Method]MethodMetadata{
+	MethodAgentRunCancel:            {Owner: "engine", Enabled: true},
+	MethodAgentRunGet:               {Owner: "engine", Enabled: true},
+	MethodAgentRunReconcile:         {Owner: "engine", Enabled: true},
+	MethodAgentRunResume:            {Owner: "engine", Enabled: true},
+	MethodAgentRunStart:             {Owner: "engine", Enabled: true},
 	MethodAttachmentDelete:          {Owner: "engine", Enabled: true},
 	MethodAttachmentGet:             {Owner: "engine", Enabled: true},
 	MethodAttachmentIngest:          {Owner: "engine", Enabled: true},
@@ -129,8 +161,16 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodAttachmentUploadCommit:    {Owner: "engine", Enabled: true},
 	MethodBrowserClose:              {Owner: "host", Enabled: true},
 	MethodBrowserOpen:               {Owner: "host", Enabled: true},
+	MethodCapabilityList:            {Owner: "engine", Enabled: true},
+	MethodChangesetApply:            {Owner: "engine", Enabled: true},
+	MethodChangesetPreview:          {Owner: "engine", Enabled: true},
+	MethodChangesetRevert:           {Owner: "engine", Enabled: true},
 	MethodChatStart:                 {Owner: "engine", Enabled: true},
 	MethodChatToolApprove:           {Owner: "engine", Enabled: true},
+	MethodCommandCancel:             {Owner: "engine", Enabled: true},
+	MethodCommandGet:                {Owner: "engine", Enabled: true},
+	MethodCommandReviewRequest:      {Owner: "engine", Enabled: true},
+	MethodCommandStart:              {Owner: "engine", Enabled: true},
 	MethodContextCompactCancel:      {Owner: "engine", Enabled: true},
 	MethodContextCompactCommit:      {Owner: "engine", Enabled: true},
 	MethodContextCompactPreview:     {Owner: "engine", Enabled: true},
@@ -142,6 +182,13 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodContextHandoffRevoke:      {Owner: "engine", Enabled: true},
 	MethodContextStatus:             {Owner: "engine", Enabled: true},
 	MethodDiagnosticsExport:         {Owner: "host", Enabled: true},
+	MethodEvidenceList:              {Owner: "engine", Enabled: true},
+	MethodFsGlob:                    {Owner: "engine", Enabled: true},
+	MethodFsGrep:                    {Owner: "engine", Enabled: true},
+	MethodFsRead:                    {Owner: "engine", Enabled: true},
+	MethodFsReadMany:                {Owner: "engine", Enabled: true},
+	MethodFsStat:                    {Owner: "engine", Enabled: true},
+	MethodFsTree:                    {Owner: "engine", Enabled: true},
 	MethodMemoryCreate:              {Owner: "engine", Enabled: true},
 	MethodMemoryDelete:              {Owner: "engine", Enabled: true},
 	MethodMemoryGet:                 {Owner: "engine", Enabled: true},
@@ -194,8 +241,10 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodProviderTest:              {Owner: "engine", Enabled: true},
 	MethodProviderUpdate:            {Owner: "engine", Enabled: true},
 	MethodReviewApprove:             {Owner: "engine", Enabled: true},
+	MethodReviewDecide:              {Owner: "engine", Enabled: true},
 	MethodReviewList:                {Owner: "engine", Enabled: true},
 	MethodReviewReject:              {Owner: "engine", Enabled: true},
+	MethodRunPlanPut:                {Owner: "engine", Enabled: true},
 	MethodSessionCreate:             {Owner: "engine", Enabled: true},
 	MethodSessionDelete:             {Owner: "engine", Enabled: true},
 	MethodSessionList:               {Owner: "engine", Enabled: true},
@@ -220,11 +269,16 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodTerminalResize:            {Owner: "engine", Enabled: true},
 	MethodTerminalStart:             {Owner: "engine", Enabled: true},
 	MethodUiThemeSet:                {Owner: "host", Enabled: true},
+	MethodWebFetch:                  {Owner: "engine", Enabled: true},
+	MethodWebSearch:                 {Owner: "engine", Enabled: true},
+	MethodWorkspaceGrant:            {Owner: "engine", Enabled: true},
+	MethodWorkspaceLease:            {Owner: "engine", Enabled: true},
 	MethodWorkspaceList:             {Owner: "host", Enabled: true},
 	MethodWorkspaceRead:             {Owner: "host", Enabled: true},
+	MethodWorkspaceRegister:         {Owner: "engine", Enabled: true},
 	MethodWorkspaceRootGet:          {Owner: "host", Enabled: true},
 	MethodWorkspaceRootSelect:       {Owner: "host", Enabled: true},
 }
-var Methods = [...]Method{MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodAttachmentUploadAbort, MethodAttachmentUploadBegin, MethodAttachmentUploadChunk, MethodAttachmentUploadCommit, MethodBrowserClose, MethodBrowserOpen, MethodChatStart, MethodChatToolApprove, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDiagnosticsExport, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodPlanRunCancel, MethodPlanRunJoin, MethodPlanRunSpawn, MethodPlanRunStart, MethodPlanRunTree, MethodPlanTodoCreate, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialReveal, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewList, MethodReviewReject, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSessionUpdate, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillExecute, MethodSkillGet, MethodSkillInvoke, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth, MethodTerminalClose, MethodTerminalInput, MethodTerminalResize, MethodTerminalStart, MethodUiThemeSet, MethodWorkspaceList, MethodWorkspaceRead, MethodWorkspaceRootGet, MethodWorkspaceRootSelect}
+var Methods = [...]Method{MethodAgentRunCancel, MethodAgentRunGet, MethodAgentRunReconcile, MethodAgentRunResume, MethodAgentRunStart, MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodAttachmentUploadAbort, MethodAttachmentUploadBegin, MethodAttachmentUploadChunk, MethodAttachmentUploadCommit, MethodBrowserClose, MethodBrowserOpen, MethodCapabilityList, MethodChangesetApply, MethodChangesetPreview, MethodChangesetRevert, MethodChatStart, MethodChatToolApprove, MethodCommandCancel, MethodCommandGet, MethodCommandReviewRequest, MethodCommandStart, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDiagnosticsExport, MethodEvidenceList, MethodFsGlob, MethodFsGrep, MethodFsRead, MethodFsReadMany, MethodFsStat, MethodFsTree, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMessageAppend, MethodMessageList, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodPlanRunCancel, MethodPlanRunJoin, MethodPlanRunSpawn, MethodPlanRunStart, MethodPlanRunTree, MethodPlanTodoCreate, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialReveal, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewDecide, MethodReviewList, MethodReviewReject, MethodRunPlanPut, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSessionUpdate, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillExecute, MethodSkillGet, MethodSkillInvoke, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth, MethodTerminalClose, MethodTerminalInput, MethodTerminalResize, MethodTerminalStart, MethodUiThemeSet, MethodWebFetch, MethodWebSearch, MethodWorkspaceGrant, MethodWorkspaceLease, MethodWorkspaceList, MethodWorkspaceRead, MethodWorkspaceRegister, MethodWorkspaceRootGet, MethodWorkspaceRootSelect}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

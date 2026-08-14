@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/evidence.list.schema.json",
+  "title": "evidence.list payload",
+  "x-method": "evidence.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["runId"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/EvidenceListResultDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "runId": "bad-id"
+      }
+    ]
+  }
+}

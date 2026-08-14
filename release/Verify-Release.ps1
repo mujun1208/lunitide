@@ -1,5 +1,5 @@
 param([Parameter(Mandatory)][string]$OutputRoot,[Parameter(Mandatory)][string]$Version,[string]$ExpectedSignerThumbprint,[switch]$AllowUnsignedDevelopment)
-$ErrorActionPreference='Stop'; $OutputRoot=(Resolve-Path $OutputRoot).Path
+$ErrorActionPreference='Stop'; . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1'); $OutputRoot=(Resolve-Path $OutputRoot).Path
 if($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$'){throw 'Invalid release version'}
 $stage=Join-Path $OutputRoot "Lunitide-$Version-x64"; $installer=Join-Path $OutputRoot "Lunitide-Setup-$Version-x64.exe"; $manifest=Join-Path $OutputRoot 'SHA256SUMS.txt'
 foreach($path in @($stage,$installer,$manifest)){if(-not(Test-Path $path)){throw "Missing release artifact: $path"}}
@@ -12,6 +12,6 @@ if($AllowUnsignedDevelopment){$ExpectedSignerThumbprint=''}
 if(-not $AllowUnsignedDevelopment){
   if($ExpectedSignerThumbprint -notmatch '\A[0-9A-Fa-f]{40}\z'){throw 'Signed release verification requires an exact publisher thumbprint'}
   $sig=Get-AuthenticodeSignature $installer; if($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -cne $ExpectedSignerThumbprint.ToUpperInvariant() -or -not $sig.TimeStamperCertificate){throw 'Installer publisher signature or timestamp is invalid'}
-  $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue; if(-not $signtool){throw 'Signed release verification requires Windows SDK signtool.exe'}; & $signtool.Source verify /pa /all /v $installer; if($LASTEXITCODE){throw 'Windows policy rejected the installer signature or timestamp chain'}
+  & (Resolve-SignTool) verify /pa /all /v $installer; if($LASTEXITCODE){throw 'Windows policy rejected the installer signature or timestamp chain'}
 }
 Write-Host "Complete release acceptance passed: $OutputRoot"

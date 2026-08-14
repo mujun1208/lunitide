@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/lunitide/lunitide/internal/agentorchestration"
+	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/app"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
@@ -111,6 +112,25 @@ func main() {
 		log.Fatalf("agent coordination restart recovery failed; engine not ready: %v", err)
 	}
 	engine.SetAgentCoordinator(coordinator)
+	agentRuns := agentrunapp.New(store.AgentRuntimeRepository())
+	engine.SetAgentRunService(agentRuns)
+	// M4-F: resolve command jobs left in queued/running by a previous crash
+	// to outcome_unknown before serving traffic (unprovable side effects are
+	// never blindly retried). Failure means unreconciled jobs remain, so
+	// startup fails closed.
+	if reconciled, err := agentRuns.ReconcileCommandJobs(ctx); err != nil {
+		log.Fatalf("command job reconciliation failed; engine not ready: %v", err)
+	} else if reconciled > 0 {
+		log.Printf("command job reconciliation: %d job(s) resolved to outcome_unknown", reconciled)
+	}
+	// Run generic recovery only after specialized effect dispatch. Prepared
+	// changesets remain recoverable by an idempotent client retry; command
+	// effects have already been reconciled above.
+	if recovered, err := agentRuns.RunRecoveryScanner(ctx); err != nil {
+		log.Fatalf("durable run recovery failed; engine not ready: %v", err)
+	} else if recovered.Runs+recovered.Steps+recovered.ToolCalls+recovered.Effects > 0 {
+		log.Printf("durable run recovery: runs=%d steps=%d tools=%d effects=%d", recovered.Runs, recovered.Steps, recovered.ToolCalls, recovered.Effects)
+	}
 	engine.SetMigrationService(app.NewMigrationAdapter(store))
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
 	engine.SetupHandoffService(store)

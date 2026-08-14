@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/web.search.schema.json",
+  "title": "web.search payload",
+  "x-method": "web.search",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "maxResults": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    }
+  },
+  "required": ["runId", "query"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/WebSearchResultDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "query": "golang generics",
+        "maxResults": 5
+      }
+    ],
+    "negative": [
+      {
+        "runId": "bad-id",
+        "query": "test"
+      }
+    ]
+  }
+}

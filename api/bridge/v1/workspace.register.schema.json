@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.register.schema.json",
+  "title": "workspace.register payload",
+  "x-method": "workspace.register",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rootPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "required": ["rootPath"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/WorkspaceRegistrationDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rootPath": "C:\\Users\\mujun\\workspaces\\demo"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

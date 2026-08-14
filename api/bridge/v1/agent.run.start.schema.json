@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agent.run.start.schema.json",
+  "title": "agent.run.start payload",
+  "x-method": "agent.run.start",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "budget": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/AgentRunBudgetDTO"
+    }
+  },
+  "required": ["sessionId", "budget"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/AgentRunDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "budget": {
+          "maxModelTurns": 8,
+          "maxToolCalls": 32,
+          "maxTokens": 100000,
+          "maxCostMicros": 500000,
+          "maxWallClockSeconds": 3600,
+          "maxOutputBytes": 1048576,
+          "maxRetries": 3,
+          "maxNoProgress": 5,
+          "hardCeiling": true
+        }
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ]
+  }
+}

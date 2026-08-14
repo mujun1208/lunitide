@@ -1,12 +1,11 @@
 param([Parameter(Mandatory)][string]$Installer,[Parameter(Mandatory)][string]$ExpectedVersion,[Parameter(Mandatory)][string]$ExpectedInstallerHash,[string]$TestRoot,[string]$InstallDirectory,[string]$ExpectedSignerThumbprint,[switch]$AllowUnsignedDevelopment)
-$ErrorActionPreference='Stop'; $Installer=(Resolve-Path $Installer).Path
+$ErrorActionPreference='Stop'; . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1'); $Installer=(Resolve-Path $Installer).Path
 if($ExpectedInstallerHash -notmatch '\A[0-9A-Fa-f]{64}\z'){throw 'Expected installer SHA-256 must be exactly 64 hexadecimal characters'}
 if(-not $AllowUnsignedDevelopment){
   if($ExpectedSignerThumbprint -notmatch '\A[0-9A-Fa-f]{40}\z'){throw 'Signed acceptance requires an exact publisher thumbprint'}
   $sig=Get-AuthenticodeSignature $Installer
   if($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -cne $ExpectedSignerThumbprint.ToUpperInvariant() -or -not $sig.TimeStamperCertificate){throw 'Installer publisher signature or timestamp is invalid'}
-  $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue; if(-not $signtool){throw 'Signed acceptance requires Windows SDK signtool.exe'}
-  & $signtool.Source verify /pa /all /v $Installer; if($LASTEXITCODE){throw 'Windows policy rejected the installer signature or timestamp chain'}
+  & (Resolve-SignTool) verify /pa /all /v $Installer; if($LASTEXITCODE){throw 'Windows policy rejected the installer signature or timestamp chain'}
 }
 function Assert-InstallerHash { if((Get-FileHash $Installer -Algorithm SHA256).Hash -cne $ExpectedInstallerHash.ToUpperInvariant()){throw 'Installer SHA-256 changed before execution'} }
 function Wait-Until([scriptblock]$Condition,[string]$Failure,[int]$TimeoutSeconds=20) {

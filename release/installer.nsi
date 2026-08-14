@@ -11,6 +11,13 @@ RequestExecutionLevel user
 !define APPID "Lunitide.Desktop.7A565D82-936E-4E06-962D-83B5DD24E53C"
 !define OWNERFILE ".lunitide-install-owner"
 !define PRODUCT "Lunitide 月汐"
+; ADR-003: v1 ships against the Evergreen WebView2 Runtime. The installer MUST
+; detect a minimum runtime version and offer recoverable acquisition guidance.
+; The minimum tracks the pinned loader generation (1.0.3537.50 SDK ~ runtime
+; 134); anything older cannot be assumed to implement the APIs in use.
+!define WV2CLIENT "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+!define WV2MINVERSION "134.0.0.0"
+!define WV2URL "https://developer.microsoft.com/microsoft-edge/webview2/#download-section"
 Name "${PRODUCT}"
 OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\Lunitide"
@@ -20,6 +27,7 @@ SetCompressor /SOLID lzma
 !define MUI_ICON "${STAGE}\lunitide-icon.ico"
 !define MUI_UNICON "${STAGE}\lunitide-icon.ico"
 !insertmacro MUI_PAGE_WELCOME
+Page custom WV2GuideShow WV2GuideLeave
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -40,6 +48,10 @@ Var InstallParent
 Var InstallLeaf
 Var InstallLog
 Var PurgeAttempts
+Var WV2Version
+Var WV2Continue
+Var WV2BtnDownload
+Var WV2BtnRetry
 !macro Log MESSAGE
   FileOpen $9 "$InstallLog" a
   FileSeek $9 0 END
@@ -60,6 +72,76 @@ Function .onInit
   ${GetOptions} $0 "/ALLOWDOWNGRADE" $1
   ${IfNot} ${Errors}
     StrCpy $AllowDowngrade 1
+  ${EndIf}
+  StrCpy $WV2Continue 0
+  Call DetectWebView2
+  ${If} $WV2Version == ""
+    !insertmacro Log "event=warning code=W140 phase=webview2 reason=runtime-absent-or-too-old min=${WV2MINVERSION}"
+  ${Else}
+    !insertmacro Log "event=webview2 version=$WV2Version"
+  ${EndIf}
+FunctionEnd
+Function DetectWebView2
+  ; Evergreen Runtime registration: per-user under HKCU, per-machine under the
+  ; 32-bit HKLM view (EdgeUpdate is x86); the 64-bit view is a fallback.
+  StrCpy $WV2Version ""
+  ReadRegStr $0 HKCU "Software\Microsoft\EdgeUpdate\Clients\${WV2CLIENT}" "pv"
+  StrCmp $0 "" 0 +2
+    StrCpy $WV2Version $0
+  ReadRegStr $0 HKLM "Software\Microsoft\EdgeUpdate\Clients\${WV2CLIENT}" "pv"
+  StrCmp $0 "" 0 +2
+    StrCpy $WV2Version $0
+  SetRegView 64
+  ReadRegStr $0 HKLM "Software\Microsoft\EdgeUpdate\Clients\${WV2CLIENT}" "pv"
+  SetRegView 32
+  StrCmp $0 "" 0 +2
+    StrCpy $WV2Version $0
+  ${If} $WV2Version != ""
+    ${VersionCompare} $WV2Version "${WV2MINVERSION}" $0
+    ${If} $0 == 2
+      !insertmacro Log "event=warning code=W141 phase=webview2 reason=runtime-too-old found=$WV2Version min=${WV2MINVERSION}"
+      StrCpy $WV2Version ""
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+Function WV2OpenDownload
+  ExecShell "open" "${WV2URL}"
+FunctionEnd
+Function WV2Recheck
+  Call DetectWebView2
+  ${If} $WV2Version != ""
+    MessageBox MB_ICONINFORMATION|MB_OK "WebView2 Runtime $WV2Version detected. Continue with Next."
+  ${EndIf}
+FunctionEnd
+Function WV2GuideShow
+  ${If} ${Silent}
+    Abort
+  ${EndIf}
+  ${If} $WV2Version != ""
+    Abort
+  ${EndIf}
+  nsDialogs::Create 1018
+  Pop $0
+  ${NSD_CreateLabel} 0 0 100% 40u "Lunitide requires the Microsoft Edge WebView2 Runtime (version ${WV2MINVERSION} or newer), which was not detected on this system. Install it with the official Evergreen Bootstrapper, then choose Re-check. You may also continue without it and install the Runtime later; Lunitide will not start until it is present."
+  Pop $0
+  ${NSD_CreateButton} 0 46u 48% 14u "Open Runtime download page"
+  Pop $WV2BtnDownload
+  ${NSD_OnClick} $WV2BtnDownload WV2OpenDownload
+  ${NSD_CreateButton} 52% 46u 48% 14u "Re-check"
+  Pop $WV2BtnRetry
+  ${NSD_OnClick} $WV2BtnRetry WV2Recheck
+  nsDialogs::Show
+FunctionEnd
+Function WV2GuideLeave
+  Call DetectWebView2
+  ${If} $WV2Version == ""
+    ${If} $WV2Continue != 1
+      MessageBox MB_ICONEXCLAMATION|MB_YESNO "WebView2 Runtime is still missing. Lunitide cannot start until it is installed.$\r$\n$\r$\nContinue the installation anyway?" IDYES wv2_continue_install
+      Abort
+wv2_continue_install:
+      StrCpy $WV2Continue 1
+      !insertmacro Log "event=warning code=W142 phase=webview2 reason=user-continued-without-runtime"
+    ${EndIf}
   ${EndIf}
 FunctionEnd
 Section "Install"

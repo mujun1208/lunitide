@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/command.review.request.schema.json",
+  "title": "command.review.request payload",
+  "x-method": "command.review.request",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},
+    "leaseId": {"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},
+    "fencingToken": {"type":"integer","minimum":1},
+    "templateId": {"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z][a-z0-9]*(\\.[a-z0-9]+)+$"},
+    "templateVersion": {"type":"string","minLength":1,"maxLength":32,"pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "target": {"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_./=-]+$"},
+    "workDir": {"type":"string","maxLength":512}
+  },
+  "required": ["runId","leaseId","fencingToken","templateId","templateVersion"],
+  "x-result": {"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/CommandReviewRequestResultDTO"},
+  "x-examples": {
+    "positive": [{"runId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","leaseId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","fencingToken":1,"templateId":"go.test","templateVersion":"1.0.0","target":"./..."}],
+    "negative": [{"runId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","leaseId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","fencingToken":1,"templateId":"go.test;rm","templateVersion":"1.0.0"}]
+  }
+}

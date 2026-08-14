@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agent.run.get.schema.json",
+  "title": "agent.run.get payload",
+  "x-method": "agent.run.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["runId"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/AgentRunDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

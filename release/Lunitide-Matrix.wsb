@@ -1,0 +1,16 @@
+<Configuration>
+  <Networking>Enable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>E:\Trae-Work-Projects\lunitide\release\sandbox-share</HostFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>E:\Trae-Work-Projects\lunitide\release\matrix-evidence</HostFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\WDAGUtilityAccount\Desktop\sandbox-share\Invoke-SandboxMatrix.ps1"</Command>
+  </LogonCommand>
+</Configuration>

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/fs.read.schema.json",
+  "title": "fs.read payload",
+  "x-method": "fs.read",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "leaseId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "fencingToken": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "maxBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1048576
+    }
+  },
+  "required": ["leaseId", "fencingToken", "path"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/FsReadResultDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "leaseId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fencingToken": 1,
+        "path": "src/main.go",
+        "maxBytes": 65536
+      }
+    ],
+    "negative": [
+      {
+        "leaseId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fencingToken": 1
+      }
+    ]
+  }
+}

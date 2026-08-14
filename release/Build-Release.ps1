@@ -8,6 +8,7 @@ param(
   [string]$ExpectedSignerThumbprint = $env:LUNITIDE_SIGNER_THUMBPRINT
 )
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $version=(Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
@@ -27,9 +28,7 @@ function Assert-PublisherSignature([string]$Artifact) {
   if ($sig.Status -ne 'Valid') { throw "Invalid signature for $Artifact`: $($sig.Status)" }
   if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint.ToUpperInvariant() -cne $expected.ToUpperInvariant()) { throw "Signer does not match the pinned publisher certificate: $Artifact" }
   if (-not $sig.TimeStamperCertificate) { throw "Signature is missing a trusted timestamp: $Artifact" }
-  $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue
-  if (-not $signtool) { throw 'Production verification requires Windows SDK signtool.exe' }
-  & $signtool.Source verify /pa /all /v $Artifact
+  & (Resolve-SignTool) verify /pa /all /v $Artifact
   if ($LASTEXITCODE) { throw "Windows Authenticode policy rejected the signature or timestamp chain: $Artifact" }
 }
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -47,7 +46,10 @@ try {
   & go build -trimpath -buildvcs=false -ldflags '-s -w' -o (Join-Path $stage 'purge-user-data.exe') ./cmd/purge-user-data
   if ($LASTEXITCODE) { throw 'purge helper build failed' }
 } finally { $env:CGO_ENABLED=$oldCgo; $env:GOOS=$oldOs; $env:GOARCH=$oldArch; Pop-Location }
-& npm --prefix web run build; if ($LASTEXITCODE) { throw 'renderer build failed' }
+# Route npm through cmd so its stderr warnings stay plain text; under Windows
+# PowerShell 5.1 a native stderr write would otherwise become a terminating
+# error with $ErrorActionPreference='Stop' even when the build succeeds.
+& cmd.exe /c 'npm --prefix web run build 2>&1'; if ($LASTEXITCODE) { throw 'renderer build failed' }
 Copy-Item (Join-Path $root 'web\dist\*') (Join-Path $stage 'web\dist') -Recurse -Force
 Copy-Item (Join-Path $root 'resources\lunitide-icon.ico') $stage -Force
 # The PE-embedded icon (cmd/desktop/lunitide.syso) is committed to the repo and
