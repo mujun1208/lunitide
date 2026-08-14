@@ -225,12 +225,13 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .message-panel-header{padding:14px 18px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between}
 .message-panel-header h2{font-size:16px;margin:0;font-family:var(--serif)}
 .message-list{display:flex;flex-direction:column;gap:0;padding:18px;list-style:none;margin:0}
-.message-list>.msg{padding:18px 0;border-top:1px solid var(--rule)}.message-list>.msg:first-child{border-top:0}
+.message-list>.msg{padding:18px 0;border-top:1px solid color-mix(in srgb,var(--rule) 45%,transparent)}.message-list>.msg.round-start{margin-top:18px;padding-top:28px;border-top-color:var(--rule)}.message-list>.msg.round-start:first-child{margin-top:0}.message-list>.msg:first-child{border-top:0}
 .message-list .msg{display:flex;gap:10px;max-width:88%}
 .message-list .msg.me{flex-direction:row-reverse;margin-left:auto}
 .message-list .msg .avatar{width:32px;height:32px;border-radius:10px;flex:none;display:grid;place-items:center;font-size:14px;color:#04121f;font-weight:700;font-family:var(--mono)}
 .message-list .msg.user .avatar{background:linear-gradient(135deg,var(--tide2),var(--glow))}
 .message-list .msg.agent .avatar{background:linear-gradient(135deg,var(--tide3),var(--tide1))}
+.message-list .msg.tool .avatar{border:1px solid var(--line);background:rgba(127,127,127,.12);color:var(--muted)}
 .message-list .msg .msg-content{min-width:0;display:flex;flex-direction:column;gap:3px}
 .message-list .msg.me .msg-content{align-items:flex-end}
 .message-list .msg .who{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.05em}
