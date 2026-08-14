@@ -263,6 +263,11 @@ func (h *Host) createWebView() error {
 	h.loader = loader
 	var runtimeVersion string
 	if result := wv2.GetAvailableCoreWebView2BrowserVersionString("", &runtimeVersion); failed(result) || runtimeVersion == "" {
+		// ADR-003: the installer detects/guides runtime acquisition; when the
+		// desktop still starts without a runtime (silent install, runtime later
+		// removed), fail closed with an explicit, actionable dialog instead of
+		// a window flash on a console-less windowsgui process.
+		showRuntimeMissingDialog(h.hwnd)
 		return fmt.Errorf("WebView2 Evergreen Runtime is unavailable: 0x%x", uint32(result))
 	}
 	h.environmentHandler = wv2.NewICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerByFunc(func(code com.Error, env *wv2.ICoreWebView2Environment) com.Error {

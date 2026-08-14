@@ -1031,6 +1031,1146 @@
         "updatedAt",
         "version"
       ]
+    },
+    "AgentRunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "paused_review",
+        "paused_budget",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "outcome_unknown"
+      ]
+    },
+    "AgentRunBudgetDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxModelTurns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxToolCalls": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxCostMicros": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxWallClockSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxNoProgress": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hardCeiling": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "maxModelTurns",
+        "maxToolCalls",
+        "maxTokens",
+        "maxCostMicros",
+        "maxWallClockSeconds",
+        "maxOutputBytes",
+        "maxRetries",
+        "maxNoProgress",
+        "hardCeiling"
+      ]
+    },
+    "AgentRunUsageDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modelTurns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toolCalls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "costMicros": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wallClockSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outputBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "noProgress": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "modelTurns",
+        "toolCalls",
+        "tokens",
+        "costMicros",
+        "wallClockSeconds",
+        "outputBytes",
+        "retries",
+        "noProgress"
+      ]
+    },
+    "AgentRunDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "status": {
+          "$ref": "#/$defs/AgentRunStatus"
+        },
+        "budget": {
+          "$ref": "#/$defs/AgentRunBudgetDTO"
+        },
+        "used": {
+          "$ref": "#/$defs/AgentRunUsageDTO"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "sessionId",
+        "status",
+        "budget",
+        "used",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ]
+    },
+    "AgentToolDescriptorDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "kind": {
+          "enum": [
+            "fs",
+            "changeset",
+            "command",
+            "web",
+            "plan",
+            "evidence"
+          ]
+        },
+        "risk": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "requiresReview": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kind",
+        "risk",
+        "enabled",
+        "requiresReview"
+      ]
+    },
+    "CapabilityManifestDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manifestVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/AgentToolDescriptorDTO"
+          }
+        }
+      },
+      "required": [
+        "manifestVersion",
+        "digest",
+        "items"
+      ]
+    },
+    "RunReviewDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "runId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "approvalDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "rejected"
+          ]
+        },
+        "decidedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "decidedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "approvalDigest",
+        "decision",
+        "decidedBy",
+        "decidedAt",
+        "createdAt"
+      ]
+    },
+    "ReviewDecideResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/AgentRunDTO"
+        },
+        "review": {
+          "$ref": "#/$defs/RunReviewDTO"
+        }
+      },
+      "required": [
+        "run",
+        "review"
+      ]
+    },
+    "ChangeSetStatus": {
+      "enum": [
+        "draft",
+        "previewed",
+        "approved",
+        "applied",
+        "reverted",
+        "conflicted"
+      ]
+    },
+    "ChangeSetDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "runId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "baseDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "approvalDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "$ref": "#/$defs/ChangeSetStatus"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "baseDigest",
+        "approvalDigest",
+        "status",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChangeSetOperationDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "op": {
+          "enum": [
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "contentDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "originalDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "appliedDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "ordinal",
+        "op",
+        "path"
+      ]
+    },
+    "ChangeSetPreviewResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changeSet": {
+          "$ref": "#/$defs/ChangeSetDTO"
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/ChangeSetOperationDTO"
+          }
+        }
+      },
+      "required": [
+        "changeSet",
+        "operations"
+      ]
+    },
+    "ChangeSetApplyResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changeSet": {
+          "$ref": "#/$defs/ChangeSetDTO"
+        },
+        "appliedOps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "changeSet",
+        "appliedOps"
+      ]
+    },
+    "ChangeSetRevertResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changeSet": {
+          "$ref": "#/$defs/ChangeSetDTO"
+        },
+        "revertedOps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "changeSet",
+        "revertedOps"
+      ]
+    },
+    "CommandJobStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+        "outcome_unknown"
+      ]
+    },
+    "CommandReviewRequestResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commandSpecDigest": {"type":"string","minLength":64,"maxLength":64,"pattern":"^[0-9a-f]{64}$"},
+        "approvalDigest": {"type":"string","minLength":64,"maxLength":64,"pattern":"^[0-9a-f]{64}$"}
+      },
+      "required": ["commandSpecDigest", "approvalDigest"]
+    },
+    "CommandJobDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "runId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "commandSpecDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandJobStatus"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 2147483647
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "commandSpecDigest",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceScopeDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "execute"
+            ]
+          }
+        }
+      },
+      "required": [
+        "paths",
+        "operations"
+      ]
+    },
+    "WorkspaceRegistrationDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "canonicalRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "rootDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "revoked"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "canonicalRoot",
+        "rootDigest",
+        "status",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceGrantDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "registrationId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "scope": {
+          "$ref": "#/$defs/WorkspaceScopeDTO"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "expired",
+            "revoked"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "registrationId",
+        "scope",
+        "expiresAt",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceLeaseDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "grantId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "fencingToken": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "expired",
+            "released"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "grantId",
+        "fencingToken",
+        "expiresAt",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FsTreeEntryDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "dir"
+          ]
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ]
+    },
+    "FsTreeResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/FsTreeEntryDTO"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "entries",
+        "truncated"
+      ]
+    },
+    "FsStatResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "dir"
+          ]
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modifiedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "sizeBytes",
+        "modifiedAt"
+      ]
+    },
+    "FsReadResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "content",
+        "sizeBytes",
+        "digest",
+        "truncated"
+      ]
+    },
+    "FsReadManyItemDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "not_found",
+            "not_a_file",
+            "binary",
+            "too_large"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "status"
+      ]
+    },
+    "FsReadManyResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/FsReadManyItemDTO"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "FsGlobResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matches": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "matches",
+        "truncated"
+      ]
+    },
+    "FsGrepMatchDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "path",
+        "line",
+        "text"
+      ]
+    },
+    "EvidenceDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "runId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sourceUri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "contentDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "kind",
+        "sourceUri",
+        "contentDigest",
+        "capturedAt",
+        "createdAt"
+      ]
+    },
+    "WebFetchResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/EvidenceDTO"
+        },
+        "finalUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "contentType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 32768
+        },
+        "textTruncated": {
+          "type": "boolean"
+        },
+        "fetchedBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "evidence",
+        "finalUrl",
+        "status",
+        "contentType",
+        "title",
+        "text",
+        "textTruncated",
+        "fetchedBytes"
+      ]
+    },
+    "WebSearchResultItemDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "snippet": {
+          "type": "string",
+          "maxLength": 1024
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "snippet"
+      ]
+    },
+    "WebSearchResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/EvidenceDTO"
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/WebSearchResultItemDTO"
+          }
+        }
+      },
+      "required": [
+        "evidence",
+        "query",
+        "results"
+      ]
+    },
+    "FsGrepResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matches": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/FsGrepMatchDTO"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "matches",
+        "truncated"
+      ]
+    },
+    "RunPlanDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ULID"
+        },
+        "runId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "planDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "plan": {
+          "type": "object"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "planDigest",
+        "plan",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RunPlanPutResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "$ref": "#/$defs/RunPlanDTO"
+        }
+      },
+      "required": [
+        "plan"
+      ]
+    },
+    "EvidenceListResultDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/EvidenceDTO"
+          }
+        }
+      },
+      "required": [
+        "runId",
+        "evidence"
+      ]
     }
   },
   "x-examples": {

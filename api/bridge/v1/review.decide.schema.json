@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/review.decide.schema.json",
+  "title": "review.decide payload",
+  "x-method": "review.decide",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "approvalDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "decision": {
+      "enum": ["approved", "rejected"]
+    }
+  },
+  "required": ["runId", "expectedVersion", "approvalDigest", "decision"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ReviewDecideResultDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedVersion": 3,
+        "approvalDigest": "06fe2b87000000000000000000000000000000000000000000000000000000aa",
+        "decision": "approved"
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedVersion": 3,
+        "approvalDigest": "06fe2b87",
+        "decision": "maybe"
+      }
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/changeset.apply.schema.json",
+  "title": "changeset.apply payload",
+  "x-method": "changeset.apply",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "changeSetId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "approvalDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "leaseId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "fencingToken": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": ["changeSetId", "expectedVersion", "approvalDigest", "leaseId", "fencingToken"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ChangeSetApplyResultDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "changeSetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedVersion": 2,
+        "approvalDigest": "06fe2b87000000000000000000000000000000000000000000000000000000aa",
+        "leaseId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fencingToken": 1
+      }
+    ],
+    "negative": [
+      {
+        "changeSetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedVersion": 2,
+        "approvalDigest": "06fe2b87",
+        "leaseId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fencingToken": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.grant.schema.json",
+  "title": "workspace.grant payload",
+  "x-method": "workspace.grant",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "registrationId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "scope": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/WorkspaceScopeDTO"
+    },
+    "ttlSeconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 86400
+    }
+  },
+  "required": ["registrationId", "scope", "ttlSeconds"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/WorkspaceGrantDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "registrationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "scope": {
+          "paths": ["src/**", "docs/readme.md"],
+          "operations": ["read", "write"]
+        },
+        "ttlSeconds": 3600
+      }
+    ],
+    "negative": [
+      {
+        "registrationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "scope": {
+          "paths": [],
+          "operations": ["delete"]
+        },
+        "ttlSeconds": 10
+      }
+    ]
+  }
+}

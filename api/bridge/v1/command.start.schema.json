@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/command.start.schema.json",
+  "title": "command.start payload",
+  "x-method": "command.start",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "leaseId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "fencingToken": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "templateId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+)+$"
+    },
+    "templateVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9_./=-]+$"
+    },
+    "workDir": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "expectedSpecDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "approvalDigest": {
+      "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": ["runId", "leaseId", "fencingToken", "templateId", "templateVersion", "expectedSpecDigest", "approvalDigest"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/CommandJobDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "leaseId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fencingToken": 1,
+        "templateId": "go.test",
+        "templateVersion": "1.0.0",
+        "target": "./internal/...",
+        "workDir": "",
+        "expectedSpecDigest": "06fe2b87000000000000000000000000000000000000000000000000000000aa",
+        "approvalDigest": "16fe2b87000000000000000000000000000000000000000000000000000000bb"
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "leaseId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fencingToken": 1,
+        "templateId": "go.test; rm -rf /",
+        "templateVersion": "1.0.0"
+      }
+    ]
+  }
+}

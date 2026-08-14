@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/agentorchestration"
+	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/compactionapp"
@@ -115,6 +116,7 @@ type Engine struct {
 	terminalsMu        sync.Mutex
 	terminalOwners     map[string]*terminalOwner
 	coordinator        *agentorchestration.Coordinator
+	agentRuns          *agentrunapp.Service
 }
 type terminalOwner struct {
 	emit     EventEmitter
@@ -146,6 +148,33 @@ type runtimeHandler func(*Engine, context.Context, bridge.Request) bridge.Respon
 // RuntimeHandlers is both the runtime allow-list and the dispatch table.
 // Contract tests compare its non-nil handlers with the public schema.
 var RuntimeHandlers = map[bridge.Method]runtimeHandler{
+	bridge.MethodAgentRunCancel:            handleAgentRunCancel,
+	bridge.MethodAgentRunGet:               handleAgentRunGet,
+	bridge.MethodAgentRunReconcile:         handleAgentRunReconcile,
+	bridge.MethodAgentRunResume:            handleAgentRunResume,
+	bridge.MethodAgentRunStart:             handleAgentRunStart,
+	bridge.MethodCapabilityList:            handleCapabilityList,
+	bridge.MethodChangesetApply:            handleChangesetApply,
+	bridge.MethodChangesetPreview:          handleChangesetPreview,
+	bridge.MethodChangesetRevert:           handleChangesetRevert,
+	bridge.MethodCommandCancel:             handleCommandCancel,
+	bridge.MethodCommandGet:                handleCommandGet,
+	bridge.MethodCommandReviewRequest:      handleCommandReviewRequest,
+	bridge.MethodCommandStart:              handleCommandStart,
+	bridge.MethodEvidenceList:              handleEvidenceList,
+	bridge.MethodFsGlob:                    handleFsGlob,
+	bridge.MethodFsGrep:                    handleFsGrep,
+	bridge.MethodFsRead:                    handleFsRead,
+	bridge.MethodFsReadMany:                handleFsReadMany,
+	bridge.MethodFsStat:                    handleFsStat,
+	bridge.MethodFsTree:                    handleFsTree,
+	bridge.MethodReviewDecide:              handleReviewDecide,
+	bridge.MethodRunPlanPut:                handleRunPlanPut,
+	bridge.MethodWebFetch:                  handleWebFetch,
+	bridge.MethodWebSearch:                 handleWebSearch,
+	bridge.MethodWorkspaceGrant:            handleWorkspaceGrant,
+	bridge.MethodWorkspaceLease:            handleWorkspaceLease,
+	bridge.MethodWorkspaceRegister:         handleWorkspaceRegister,
 	bridge.MethodAttachmentDelete:          handleAttachmentDelete,
 	bridge.MethodAttachmentGet:             handleAttachmentGet,
 	bridge.MethodAttachmentIngest:          handleAttachmentIngest,
@@ -899,6 +928,10 @@ func (e *Engine) SetAdapterFactoryForTest(factory func(context.Context, provider
 }
 
 func (e *Engine) SetAgentCoordinator(c *agentorchestration.Coordinator) { e.coordinator = c }
+
+// SetAgentRunService wires the M4 reliable single-agent runtime service
+// (capability.list + agent.run.*) into the engine.
+func (e *Engine) SetAgentRunService(s *agentrunapp.Service) { e.agentRuns = s }
 
 func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Response {
 	if _, err := ulid.ParseStrict(request.ID); err != nil {
