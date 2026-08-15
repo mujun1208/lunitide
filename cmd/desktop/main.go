@@ -24,6 +24,7 @@ import (
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/systemsettings"
 	"github.com/lunitide/lunitide/internal/uitheme"
 	"github.com/lunitide/lunitide/internal/webviewhost"
 	"github.com/lunitide/lunitide/internal/workspaceapp"
@@ -195,6 +196,7 @@ func run() error {
 		bridge.MethodProviderUpdate:           credentialHandler,
 		bridge.MethodProviderDelete:           credentialHandler,
 		bridge.MethodDiagnosticsExport:        &diagnosticapp.HostHandler{},
+		bridge.MethodSystemSettingsOpen:       &systemsettings.Handler{OpenMicrophone: webviewhost.OpenMicrophonePrivacySettings},
 		bridge.MethodUiThemeSet:               themeHandler,
 		bridge.MethodWorkspaceRootSelect:      workspaceHandler,
 		bridge.MethodWorkspaceRootGet:         workspaceHandler,

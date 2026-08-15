@@ -52,6 +52,24 @@ func TestExternalActionsDefaultDeny(t *testing.T) {
 	}
 }
 
+func TestMicrophonePermissionIsLimitedToTrustedApplication(t *testing.T) {
+	if !MicrophonePermissionAllowed(TrustedOrigin+"/index.html", true) {
+		t.Fatal("trusted application microphone request was rejected")
+	}
+	for _, test := range []struct {
+		uri        string
+		microphone bool
+	}{
+		{TrustedOrigin + "/index.html", false},
+		{"https://evil.example/", true},
+		{"http://app.lunitide.local/", true},
+	} {
+		if MicrophonePermissionAllowed(test.uri, test.microphone) {
+			t.Fatalf("allowed microphone request: %#v", test)
+		}
+	}
+}
+
 func TestGenerationCurrentDropsPreNavigationWork(t *testing.T) {
 	if !GenerationCurrent(7, 7, false) {
 		t.Fatal("current generation was dropped")

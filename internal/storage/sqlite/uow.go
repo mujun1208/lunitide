@@ -357,6 +357,72 @@ func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (messa
 	return v, nil
 }
 
+func (t *txAdapter) RewindMessages(ctx context.Context, sessionID, messageID string) (messageapp.RewindResult, error) {
+	r := messageapp.RewindResult{SessionID: sessionID, MessageID: messageID}
+	var seq, bytes int64
+	var role, projectID string
+	if err := t.q.QueryRowContext(ctx, `SELECT m.sequence,m.role,s.project_id FROM messages m JOIN sessions s ON s.id=m.session_id WHERE m.id=? AND m.session_id=?`, messageID, sessionID).Scan(&seq, &role, &projectID); err != nil {
+		if err == sql.ErrNoRows {
+			return r, messageapp.ErrMessageNotFound
+		}
+		return r, err
+	}
+	if role != "user" {
+		return r, messageapp.ErrRewindRequiresUserMessage
+	}
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*),COALESCE(SUM(length(CAST(p.text AS BLOB))),0) FROM messages m JOIN message_parts p ON p.message_id=m.id WHERE m.session_id=? AND m.sequence>=?`, sessionID, seq).Scan(&r.DeletedCount, &bytes); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM handoff_imports WHERE capsule_id IN(SELECT h.id FROM handoff_capsules h JOIN compaction_checkpoints c ON c.id=h.checkpoint_id WHERE c.session_id=?)`, sessionID); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE checkpoint_id IN(SELECT id FROM compaction_checkpoints WHERE session_id=?)`, sessionID); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `UPDATE compaction_activations SET checkpoint_id=NULL,revision=revision+1,updated_at=? WHERE session_id=?`, formatTime(time.Now().UTC()), sessionID); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, sessionID); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN('message.append','message.append-assistant') AND json_extract(response_json,'$.sessionId')=? AND json_extract(response_json,'$.sequence')>=?`, sessionID, seq); err != nil {
+		return r, err
+	}
+	deleted, err := t.q.ExecContext(ctx, `DELETE FROM messages WHERE session_id=? AND sequence>=?`, sessionID, seq)
+	if err != nil {
+		return r, err
+	}
+	if n, err := deleted.RowsAffected(); err != nil || n != r.DeletedCount {
+		return r, messageapp.ErrDataInvariantViolation
+	}
+	r.LastSequence = seq - 1
+	state, err := t.q.ExecContext(ctx, `UPDATE message_session_state SET last_sequence=?,message_count=?,text_bytes=text_bytes-?,history_revision=history_revision+1 WHERE session_id=? AND message_count=last_sequence AND last_sequence>=? AND text_bytes>=?`, r.LastSequence, r.LastSequence, bytes, sessionID, seq, bytes)
+	if err != nil {
+		return r, err
+	}
+	if n, err := state.RowsAffected(); err != nil || n != 1 {
+		return r, messageapp.ErrDataInvariantViolation
+	}
+	project, err := t.q.ExecContext(ctx, `UPDATE message_project_usage SET text_bytes=text_bytes-? WHERE project_id=? AND text_bytes>=?`, bytes, projectID, bytes)
+	if err != nil {
+		return r, err
+	}
+	if n, err := project.RowsAffected(); err != nil || n != 1 {
+		return r, messageapp.ErrDataInvariantViolation
+	}
+	workspace, err := t.q.ExecContext(ctx, `UPDATE message_workspace_usage SET text_bytes=text_bytes-? WHERE singleton=1 AND text_bytes>=?`, bytes, bytes)
+	if err != nil {
+		return r, err
+	}
+	if n, err := workspace.RowsAffected(); err != nil || n != 1 {
+		return r, messageapp.ErrDataInvariantViolation
+	}
+	if err := t.q.QueryRowContext(ctx, `SELECT history_revision FROM message_session_state WHERE session_id=?`, sessionID).Scan(&r.HistoryRevision); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
 func (t *txAdapter) Message(ctx context.Context, id string) (message.Message, error) {
 	var v message.Message
 	var created string

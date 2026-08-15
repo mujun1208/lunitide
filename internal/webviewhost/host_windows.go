@@ -256,6 +256,7 @@ func (h *Host) Run(ctx context.Context) error {
 }
 
 func (h *Host) createWebView() error {
+	resetDeniedMicrophoneCache(h.userDataFolder)
 	loader, err := loadWebView2Loader()
 	if err != nil {
 		return err
@@ -341,6 +342,7 @@ func (h *Host) controllerCreated(code com.Error, controller *wv2.ICoreWebView2Co
 		h.fail(err)
 		return com.Error(win32.E_FAIL)
 	}
+	h.grantTrustedMicrophone()
 	h.resize()
 	h.initialPending = true
 	if result := h.core.Navigate(TrustedOrigin + "/index.html"); failed(win32.HRESULT(result)) {
@@ -458,7 +460,14 @@ func (h *Host) registerCoreEvents() error {
 		return fmt.Errorf("NewWindowRequested registration failed: 0x%x", uint32(r))
 	}
 	h.permissionHandler = wv2.NewICoreWebView2PermissionRequestedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2PermissionRequestedEventArgs) com.Error {
-		args.SetState(wv2.COREWEBVIEW2_PERMISSION_STATE.COREWEBVIEW2_PERMISSION_STATE_DENY)
+		uri, uriErr := argumentString(args.GetUri)
+		var kind int32
+		allowed := uriErr == nil && !failed(win32.HRESULT(args.GetPermissionKind(&kind))) && MicrophonePermissionAllowed(uri, kind == wv2.COREWEBVIEW2_PERMISSION_KIND.COREWEBVIEW2_PERMISSION_KIND_MICROPHONE)
+		state := wv2.COREWEBVIEW2_PERMISSION_STATE.COREWEBVIEW2_PERMISSION_STATE_DENY
+		if allowed {
+			state = wv2.COREWEBVIEW2_PERMISSION_STATE.COREWEBVIEW2_PERMISSION_STATE_ALLOW
+		}
+		args.SetState(state)
 		var args2 *wv2.ICoreWebView2PermissionRequestedEventArgs2
 		if err := queryUnknown(&args.IUnknown, &wv2.IID_ICoreWebView2PermissionRequestedEventArgs2, unsafe.Pointer(&args2)); err == nil {
 			args2.SetHandled(win32.TRUE)

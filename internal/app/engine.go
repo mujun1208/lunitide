@@ -27,6 +27,9 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/handoffapp"
+	"github.com/lunitide/lunitide/internal/m6app"
+	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -59,6 +62,9 @@ type MessageService interface {
 	Append(context.Context, string, string, any, message.Message) (message.Message, error)
 	AppendAssistant(context.Context, string, string, string, string, messageapp.AssistantUsage) (message.Message, error)
 	List(context.Context, messageapp.PageRequest) (messageapp.Page, error)
+}
+type messageRewindService interface {
+	Rewind(context.Context, string, string, string, string) (messageapp.RewindResult, error)
 }
 type StageService interface {
 	Create(context.Context, string, string, any, stage.Stage) (stage.Stage, error)
@@ -117,6 +123,32 @@ type Engine struct {
 	terminalOwners     map[string]*terminalOwner
 	coordinator        *agentorchestration.Coordinator
 	agentRuns          *agentrunapp.Service
+
+	// M6 slice-1: extension supply chain + MCP endpoint gateway.
+	m6ext         *m6app.ExtensionService
+	mcp6Registry  *mcp6.Registry
+	mcp6Endpoints *m6app.EndpointService
+
+	// M6 slice-2: connector catalog + worker dispatch.
+	m6catalog  *m6app.CatalogService
+	m6dispatch *m6app.DispatchService
+
+	// M6 slice-3: delegation fan-out/fan-in + join barriers.
+	m6delegation *m6app.DelegationService
+	m6barriers   *m6app.BarrierService
+
+	// M6 slice-4: root-writer merge + final-tree gate + outbox.
+	m6merge *m6app.MergeService
+
+	// M7 slice-1: nine-stage versioned workflow backbone.
+	m7workflow *m7app.WorkflowService
+	m7trace    *m7app.TraceService
+	m7gate     *m7app.GateService
+	m7review   *m7app.ReviewService
+
+	// M6 S5C: governed skill import + complexity routing (0053).
+	m6skills  *m6app.SkillImportService
+	m6routing *m6app.RoutingService
 }
 type terminalOwner struct {
 	emit     EventEmitter
@@ -175,6 +207,31 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodWorkspaceGrant:            handleWorkspaceGrant,
 	bridge.MethodWorkspaceLease:            handleWorkspaceLease,
 	bridge.MethodWorkspaceRegister:         handleWorkspaceRegister,
+	bridge.MethodBrowserAct:                handleBrowserAct,
+	bridge.MethodMcpInvoke:                 handleMcpInvoke,
+	bridge.MethodRunSend:                   handleRunSend,
+	bridge.MethodRunCancel:                 handleRunCancel,
+	bridge.MethodWorkspaceConvert:          handleWorkspaceConvert,
+	bridge.MethodExtensionSearch:           handleExtensionSearch,
+	bridge.MethodExtensionInstall:          handleExtensionInstall,
+	bridge.MethodExtensionLifecycle:        handleExtensionLifecycle,
+	bridge.MethodMcp6Register:              handleMcp6Register,
+	bridge.MethodMcp6Invoke:                handleMcp6Invoke,
+	bridge.MethodMcp6Revoke:                handleMcp6Revoke,
+	bridge.MethodConnectorSnapshot:         handleConnectorSnapshot,
+	bridge.MethodWorkerDispatch:            handleWorkerDispatch,
+	bridge.MethodDelegationCreate:          handleDelegationCreate,
+	bridge.MethodDelegationSettle:          handleDelegationSettle,
+	bridge.MethodBarrierArrive:             handleBarrierArrive,
+	bridge.MethodMergeSubmit:               handleMergeSubmit,
+	bridge.MethodComplexityDecide:         handleComplexityDecide,
+	bridge.MethodOpenapiParse:              handleOpenapiParse,
+	bridge.MethodSkillImportApprove:        handleSkillImportApprove,
+	bridge.MethodSkillImportDiscover:       handleSkillImportDiscover,
+	bridge.MethodSkillImportInspect:        handleSkillImportInspect,
+	bridge.MethodSkillImportReject:         handleSkillImportReject,
+	bridge.MethodSkillImportRevoke:         handleSkillImportRevoke,
+	bridge.MethodSkillImportSubmit:         handleSkillImportSubmit,
 	bridge.MethodAttachmentDelete:          handleAttachmentDelete,
 	bridge.MethodAttachmentGet:             handleAttachmentGet,
 	bridge.MethodAttachmentIngest:          handleAttachmentIngest,
@@ -213,6 +270,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSessionUpdate:             handleSessionUpdate,
 	bridge.MethodMessageAppend:             handleMessageAppend,
 	bridge.MethodMessageList:               handleMessageList,
+	bridge.MethodMessageRewind:             handleMessageRewind,
 	bridge.MethodStageCreate:               handleStageCreate,
 	bridge.MethodStageList:                 handleStageList,
 	bridge.MethodPlanGet:                   handlePlanGet,
@@ -270,6 +328,22 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTerminalInput:             handleTerminalInput,
 	bridge.MethodTerminalResize:            handleTerminalResize,
 	bridge.MethodTerminalClose:             handleTerminalClose,
+	bridge.MethodWorkflowCaptureInput:      handleWorkflowCaptureInput,
+	bridge.MethodWorkflowCreateVersion:     handleWorkflowCreateVersion,
+	bridge.MethodWorkflowPublish:           handleWorkflowPublish,
+	bridge.MethodWorkflowStartStage:        handleWorkflowStartStage,
+	bridge.MethodWorkflowTransitionStage:   handleWorkflowTransitionStage,
+	bridge.MethodDevTaskCreate:             handleDevTaskCreate,
+	bridge.MethodDevTaskTransition:         handleDevTaskTransition,
+	bridge.MethodEvidenceAttachScan:        handleEvidenceAttachScan,
+	bridge.MethodEvidenceAttachTest:        handleEvidenceAttachTest,
+	bridge.MethodReviewSubmit:              handleReviewSubmit,
+	bridge.MethodTraceAddEdge:              handleTraceAddEdge,
+	bridge.MethodTraceMarkStale:            handleTraceMarkStale,
+	bridge.MethodTraceQuery:                handleTraceQuery,
+	bridge.MethodTraceResolveStale:         handleTraceResolveStale,
+	bridge.MethodWorkflowCreateCheckpoint:  handleWorkflowCreateCheckpoint,
+	bridge.MethodWorkflowEvaluateGate:      handleWorkflowEvaluateGate,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -932,6 +1006,52 @@ func (e *Engine) SetAgentCoordinator(c *agentorchestration.Coordinator) { e.coor
 // SetAgentRunService wires the M4 reliable single-agent runtime service
 // (capability.list + agent.run.*) into the engine.
 func (e *Engine) SetAgentRunService(s *agentrunapp.Service) { e.agentRuns = s }
+
+// SetM6Services wires the M6 slice-1 services: the extension supply chain,
+// the in-memory MCP endpoint registry and its durable mirror.
+func (e *Engine) SetM6Services(ext *m6app.ExtensionService, reg *mcp6.Registry, endpoints *m6app.EndpointService) {
+	e.m6ext, e.mcp6Registry, e.mcp6Endpoints = ext, reg, endpoints
+}
+
+// SetM6ExecutionServices wires the M6 slice-2 services: the connector
+// metadata catalog and the worker dispatch gateway.
+func (e *Engine) SetM6ExecutionServices(catalog *m6app.CatalogService, dispatch *m6app.DispatchService) {
+	e.m6catalog, e.m6dispatch = catalog, dispatch
+}
+
+// SetM6DelegationServices wires the M6 slice-3 services: the governed
+// parent/child delegation fan-out and the join barriers.
+func (e *Engine) SetM6DelegationServices(delegationSvc *m6app.DelegationService, barriers *m6app.BarrierService) {
+	e.m6delegation, e.m6barriers = delegationSvc, barriers
+}
+
+// SetM6MergeServices wires the M6 slice-4 service: the root-writer merge
+// walk and the final-tree gate (engine-internal loops; merge.submit is
+// their only bridge entry).
+func (e *Engine) SetM6MergeServices(mergeSvc *m6app.MergeService) {
+	e.m6merge = mergeSvc
+}
+
+// SetM6GovernanceServices wires the M6 S5C services: the governed skill
+// import pipeline and the complexity router (0053 domains).
+func (e *Engine) SetM6GovernanceServices(skills *m6app.SkillImportService, routing *m6app.RoutingService) {
+	e.m6skills, e.m6routing = skills, routing
+}
+
+// SetM7WorkflowServices wires the M7 slice-1 service: the nine-stage
+// versioned workflow backbone (create/publish/start/transition/capture).
+func (e *Engine) SetM7WorkflowServices(workflowSvc *m7app.WorkflowService) {
+	e.m7workflow = workflowSvc
+}
+
+// SetM7EvidenceServices wires the M7 slice-2 services: the trace engine
+// with stale propagation, the gate evaluator with checkpoints, and the
+// review service.
+func (e *Engine) SetM7EvidenceServices(traceSvc *m7app.TraceService, gateSvc *m7app.GateService, reviewSvc *m7app.ReviewService) {
+	e.m7trace = traceSvc
+	e.m7gate = gateSvc
+	e.m7review = reviewSvc
+}
 
 func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Response {
 	if _, err := ulid.ParseStrict(request.ID); err != nil {

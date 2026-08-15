@@ -45,17 +45,19 @@ func (s *Store) CreateMemory(ctx context.Context, mem memory.Memory) (memory.Mem
 	if mem.ExpiresAt != nil {
 		expiresAt = formatTime(*mem.ExpiresAt)
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO memories(id, project_id, layer, scope, key, content,
-		 embedding_id, source_id, source_type, confidence, access_count,
-		 last_accessed, expires_at, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		mem.ID, mem.ProjectID, string(mem.Layer), string(mem.Scope), mem.Key, mem.Content,
-		embeddingID, sourceID, sourceType, float64(mem.Confidence), mem.AccessCount,
-		lastAccessed, expiresAt, formatTime(mem.CreatedAt), formatTime(mem.UpdatedAt))
-	if err == nil {
-		s.appendAudit(ctx, "memory.created", mem.ID, "engine", map[string]any{"projectId": mem.ProjectID, "layer": mem.Layer, "scope": mem.Scope})
-	}
+	err := s.execWithAudit(ctx, "memory.created", mem.ID, "engine",
+		map[string]any{"projectId": mem.ProjectID, "layer": mem.Layer, "scope": mem.Scope},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO memories(id, project_id, layer, scope, key, content,
+				 embedding_id, source_id, source_type, confidence, access_count,
+				 last_accessed, expires_at, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				mem.ID, mem.ProjectID, string(mem.Layer), string(mem.Scope), mem.Key, mem.Content,
+				embeddingID, sourceID, sourceType, float64(mem.Confidence), mem.AccessCount,
+				lastAccessed, expiresAt, formatTime(mem.CreatedAt), formatTime(mem.UpdatedAt))
+			return err
+		})
 	return mem, mapWriteError(err)
 }
 
@@ -193,22 +195,24 @@ func (s *Store) ListMemoriesByProject(ctx context.Context, projectID string, lay
 
 // UpdateMemory updates the content of a memory.
 func (s *Store) UpdateMemory(ctx context.Context, id string, content string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE memories SET content=?, updated_at=? WHERE id=?`,
-		content, formatTime(time.Now().UTC()), id)
-	if err == nil {
-		s.appendAudit(ctx, "memory.updated", id, "engine", nil)
-	}
+	err := s.execWithAudit(ctx, "memory.updated", id, "engine", nil,
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`UPDATE memories SET content=?, updated_at=? WHERE id=?`,
+				content, formatTime(time.Now().UTC()), id)
+			return err
+		})
 	return mapWriteError(err)
 }
 
 // DeleteMemory deletes a memory by ID.
 func (s *Store) DeleteMemory(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM memories WHERE id=?`, id)
-	if err == nil {
-		s.appendAudit(ctx, "memory.deleted", id, "engine", nil)
-	}
+	err := s.execWithAudit(ctx, "memory.deleted", id, "engine", nil,
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`DELETE FROM memories WHERE id=?`, id)
+			return err
+		})
 	return mapWriteError(err)
 }
 

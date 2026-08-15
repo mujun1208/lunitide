@@ -28,6 +28,8 @@ var (
 	ErrCursorInvalid              = errors.New("message cursor invalid")
 	ErrPageBudgetTooSmall         = errors.New("message page byte budget too small")
 	ErrAssistantResponseTooLarge  = errors.New("assistant response too large")
+	ErrMessageNotFound            = errors.New("message not found")
+	ErrRewindRequiresUserMessage  = errors.New("rewind requires user message")
 )
 
 type Tx interface {
@@ -38,11 +40,17 @@ type Tx interface {
 	PutAudit(context.Context, providerapp.Audit) error
 	PutTokenLedgerEntry(context.Context, token.LedgerEntry) error
 }
+type rewindTx interface {
+	RewindMessages(context.Context, string, string) (RewindResult, error)
+}
 type UnitOfWork interface {
 	DoMessage(context.Context, func(Tx) error) error
 }
 type Reader interface {
 	ListMessages(context.Context, PageQuery) ([]message.Message, int64, bool, error)
+}
+type historyRevisionReader interface {
+	MessageHistoryRevision(context.Context, string) (int64, error)
 }
 type Direction string
 
@@ -67,12 +75,20 @@ type PageQuery struct {
 	Direction          Direction
 	Snapshot, Boundary int64
 	Limit              int
+	Revision           int64
 }
 type Page struct {
 	Items            []message.Message `json:"items"`
 	HasMore          bool              `json:"hasMore"`
 	NextCursor       *string           `json:"nextCursor"`
 	SnapshotSequence int64             `json:"snapshotSequence"`
+}
+type RewindResult struct {
+	SessionID       string `json:"sessionId"`
+	MessageID       string `json:"messageId"`
+	DeletedCount    int64  `json:"deletedCount"`
+	LastSequence    int64  `json:"lastSequence"`
+	HistoryRevision int64  `json:"historyRevision"`
 }
 type cursorV1 struct {
 	Version   int       `json:"v"`
@@ -81,6 +97,7 @@ type cursorV1 struct {
 	Snapshot  int64     `json:"h"`
 	Boundary  int64     `json:"b"`
 	Digest    string    `json:"x"`
+	Revision  int64     `json:"r"`
 }
 
 const CursorKeySize = 32
@@ -98,7 +115,8 @@ func cursorMAC(key []byte, c cursorV1) []byte {
 		Direction Direction `json:"d"`
 		Snapshot  int64     `json:"h"`
 		Boundary  int64     `json:"b"`
-	}{c.Version, c.SessionID, c.Direction, c.Snapshot, c.Boundary})
+		Revision  int64     `json:"r"`
+	}{c.Version, c.SessionID, c.Direction, c.Snapshot, c.Boundary, c.Revision})
 	_, _ = h.Write(b)
 	return h.Sum(nil)
 }
@@ -120,7 +138,7 @@ func decodeCursor(key []byte, raw string) (cursorV1, error) {
 		return c, ErrCursorInvalid
 	}
 	tag, tagErr := hex.DecodeString(c.Digest)
-	if c.Version != 1 || !message.CanonicalULID(c.SessionID) || (c.Direction != Forward && c.Direction != Backward) || c.Snapshot < 0 || c.Snapshot > message.MaxSafeSequence || c.Boundary < 0 || c.Boundary > c.Snapshot || tagErr != nil || len(tag) != sha256.Size || !hmac.Equal(tag, cursorMAC(key, c)) {
+	if c.Version != 1 || !message.CanonicalULID(c.SessionID) || (c.Direction != Forward && c.Direction != Backward) || c.Snapshot < 0 || c.Snapshot > message.MaxSafeSequence || c.Boundary < 0 || c.Boundary > c.Snapshot || c.Revision < 0 || tagErr != nil || len(tag) != sha256.Size || !hmac.Equal(tag, cursorMAC(key, c)) {
 		return c, ErrCursorInvalid
 	}
 	return c, nil
@@ -153,7 +171,7 @@ func available(v any) bool {
 	return true
 }
 
-func decodeReplay(raw []byte, result *message.Message) error {
+func decodeReplay(raw []byte, result any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(result); err != nil {
@@ -178,13 +196,27 @@ func (s *Service) List(ctx context.Context, r PageRequest) (Page, error) {
 		r.ByteBudget = DefaultByteBudget
 	}
 	q := PageQuery{SessionID: r.SessionID, Direction: r.Direction, Limit: r.Limit}
+	var cursorRevision *int64
 	if r.Cursor != "" {
 		c, e := decodeCursor(s.cursorKey[:], r.Cursor)
 		if e != nil || c.SessionID != r.SessionID || c.Direction != r.Direction {
 			return Page{}, ErrCursorInvalid
 		}
+		cursorRevision = &c.Revision
 		q.Snapshot, q.Boundary = c.Snapshot, c.Boundary
 	}
+	var revision int64
+	if reader, ok := s.read.(historyRevisionReader); ok {
+		var revErr error
+		revision, revErr = reader.MessageHistoryRevision(ctx, r.SessionID)
+		if revErr != nil {
+			return Page{}, revErr
+		}
+	}
+	if cursorRevision != nil && *cursorRevision != revision {
+		return Page{}, ErrCursorInvalid
+	}
+	q.Revision = revision
 	items, snapshot, more, e := s.read.ListMessages(ctx, q)
 	if e != nil {
 		return Page{}, e
@@ -193,7 +225,7 @@ func (s *Service) List(ctx context.Context, r PageRequest) (Page, error) {
 	for {
 		if p.HasMore && len(p.Items) > 0 {
 			b := p.Items[len(p.Items)-1].Sequence
-			c := encodeCursor(s.cursorKey[:], cursorV1{SessionID: r.SessionID, Direction: r.Direction, Snapshot: snapshot, Boundary: b})
+			c := encodeCursor(s.cursorKey[:], cursorV1{SessionID: r.SessionID, Direction: r.Direction, Snapshot: snapshot, Boundary: b, Revision: revision})
 			p.NextCursor = &c
 		} else {
 			p.NextCursor = nil
@@ -270,6 +302,44 @@ func (s *Service) Append(ctx context.Context, key, actor string, request any, va
 			return e
 		}
 		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+	})
+	return result, err
+}
+
+func (s *Service) Rewind(ctx context.Context, key, actor, sessionID, messageID string) (RewindResult, error) {
+	if !providerapp.ValidIdempotencyKey(key) {
+		return RewindResult{}, ErrIdempotencyKeyRequired
+	}
+	body, _ := json.Marshal(struct{ SessionID, MessageID string }{sessionID, messageID})
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	var result RewindResult
+	err := s.uow.DoMessage(ctx, func(tx Tx) error {
+		now := s.now().UTC()
+		record, found, err := tx.Idempotency(ctx, "message.rewind", key, now)
+		if err != nil {
+			return err
+		}
+		if found {
+			if record.Digest != digest {
+				return ErrIdempotencyConflict
+			}
+			return decodeReplay(record.Response, &result)
+		}
+		rewinder, ok := tx.(rewindTx)
+		if !ok {
+			return ErrDataInvariantViolation
+		}
+		result, err = rewinder.RewindMessages(ctx, sessionID, messageID)
+		if err != nil {
+			return err
+		}
+		response, _ := json.Marshal(result)
+		meta, _ := json.Marshal(result)
+		if err = tx.PutAudit(ctx, providerapp.Audit{ID: ulid.Make().String(), Action: "message.rewound", AggregateID: messageID, Actor: actor, Metadata: meta, CreatedAt: now}); err != nil {
+			return err
+		}
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.rewind", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
 	})
 	return result, err
 }

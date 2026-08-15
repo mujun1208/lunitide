@@ -19,6 +19,7 @@ import (
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
@@ -114,6 +115,18 @@ func main() {
 	engine.SetAgentCoordinator(coordinator)
 	agentRuns := agentrunapp.New(store.AgentRuntimeRepository())
 	engine.SetAgentRunService(agentRuns)
+
+	// M7 slice 1: the nine-stage versioned workflow backbone.
+	engine.SetM7WorkflowServices(m7app.NewWorkflowService(store.AgentRuntimeRepository()))
+
+	// M7 slice 2: evidence trace, gates and reviews share the agent-runtime
+	// single-writer transaction.
+	m7traceSvc := m7app.NewTraceService(store.AgentRuntimeRepository())
+	engine.SetM7EvidenceServices(
+		m7traceSvc,
+		m7app.NewGateService(store.AgentRuntimeRepository()),
+		m7app.NewReviewService(store.AgentRuntimeRepository(), m7traceSvc),
+	)
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
 	// never blindly retried). Failure means unreconciled jobs remain, so

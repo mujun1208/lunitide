@@ -1,0 +1,12 @@
+{
+  "id": "builtin.hello",
+  "version": "1.0.0",
+  "name": "Hello",
+  "description": "greet",
+  "capabilities": ["fs.read"],
+  "steps": [],
+  "digest": "dfca21136c7e70a9a1c12aa30b218f6aca95d69135a5e45016f7e909ca8b00ad",
+  "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "signedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2030-01-01T00:00:00Z"
+}

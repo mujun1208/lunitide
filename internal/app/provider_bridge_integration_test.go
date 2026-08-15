@@ -19,12 +19,12 @@ func TestProviderBridgeCRUDIdempotencyAndCAS(t *testing.T) {
 	defer store.Close()
 	engine := NewEngine(providerapp.New(store, store), "test")
 
-	createPayload := `{"name":"Example","protocol":"openai_compatible","baseUrl":"HTTPS://EXAMPLE.COM:443/v1/","models":[{"modelId":"model-1","displayName":"Model One","isDefault":true}]}`
+	createPayload := `{"name":"Example","protocol":"openai_compatible","baseUrl":"HTTPS://EXAMPLE.COM:443/v1/","models":[{"modelId":"model-1","displayName":"Model One","isDefault":true,"contextWindow":128000}]}`
 	create := validRequest("provider.create", createPayload)
 	create.IdempotencyKey = "create-1"
 	createdResponse := engine.Handle(context.Background(), create)
 	created := decodeProviderPayload(t, createdResponse)
-	if !createdResponse.OK || created.ID == "" || created.BaseURL != "https://example.com/v1" || created.Status != provider.StatusEnabled || created.CredentialState != provider.CredentialMissing || created.Version != 1 {
+	if !createdResponse.OK || created.ID == "" || created.BaseURL != "https://example.com/v1" || created.Status != provider.StatusEnabled || created.CredentialState != provider.CredentialMissing || created.Version != 1 || created.Models[0].ContextWindow != 128000 {
 		t.Fatalf("unexpected create: %#v %#v", createdResponse, created)
 	}
 
@@ -41,11 +41,11 @@ func TestProviderBridgeCRUDIdempotencyAndCAS(t *testing.T) {
 		t.Fatalf("unexpected get: %#v", got)
 	}
 
-	updatePayload := `{"id":"` + created.ID + `","name":"Renamed","expectedVersion":1}`
+	updatePayload := `{"id":"` + created.ID + `","name":"Renamed","models":[{"modelId":"model-1","displayName":"Model One","isDefault":true,"contextWindow":200000}],"expectedVersion":1}`
 	update := validRequest("provider.update", updatePayload)
 	update.IdempotencyKey = "update-1"
 	updated := decodeProviderPayload(t, engine.Handle(context.Background(), update))
-	if updated.Name != "Renamed" || updated.Version != 2 || len(updated.Models) != 1 {
+	if updated.Name != "Renamed" || updated.Version != 2 || len(updated.Models) != 1 || updated.Models[0].ContextWindow != 200000 {
 		t.Fatalf("unexpected patch update: %#v", updated)
 	}
 

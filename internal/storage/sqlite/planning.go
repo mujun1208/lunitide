@@ -31,14 +31,16 @@ func (s *Store) CreatePlan(ctx context.Context, plan planning.Plan) (planning.Pl
 	if err := plan.Validate(); err != nil {
 		return plan, err
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO plans(id, project_id, stage_id, name, description, version, status, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?)`,
-		plan.ID, plan.ProjectID, plan.StageID, plan.Name, plan.Description,
-		plan.Version, plan.Status, formatTime(plan.CreatedAt), formatTime(plan.UpdatedAt))
-	if err == nil {
-		s.appendAudit(ctx, "plan.created", plan.ID, "engine", map[string]any{"projectId": plan.ProjectID, "status": plan.Status})
-	}
+	err := s.execWithAudit(ctx, "plan.created", plan.ID, "engine",
+		map[string]any{"projectId": plan.ProjectID, "status": plan.Status},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO plans(id, project_id, stage_id, name, description, version, status, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?,?)`,
+				plan.ID, plan.ProjectID, plan.StageID, plan.Name, plan.Description,
+				plan.Version, plan.Status, formatTime(plan.CreatedAt), formatTime(plan.UpdatedAt))
+			return err
+		})
 	return plan, mapWriteError(err)
 }
 
@@ -110,12 +112,14 @@ func (s *Store) ListPlansByProject(ctx context.Context, projectID string, limit 
 
 // UpdatePlanStatus updates the status of a plan.
 func (s *Store) UpdatePlanStatus(ctx context.Context, id, status string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE plans SET status=?, updated_at=? WHERE id=?`,
-		status, formatTime(time.Now().UTC()), id)
-	if err == nil {
-		s.appendAudit(ctx, "plan.status_updated", id, "engine", map[string]any{"status": status})
-	}
+	err := s.execWithAudit(ctx, "plan.status_updated", id, "engine",
+		map[string]any{"status": status},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`UPDATE plans SET status=?, updated_at=? WHERE id=?`,
+				status, formatTime(time.Now().UTC()), id)
+			return err
+		})
 	return mapWriteError(err)
 }
 
@@ -145,16 +149,18 @@ func (s *Store) CreateNode(ctx context.Context, node planning.Node) (planning.No
 	if err := node.Validate(); err != nil {
 		return node, err
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO plan_nodes(id, plan_id, parent_node_id, name, description, status, risk_level,
-		 budget_tokens, estimate_tokens, worker_role, sequence, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		node.ID, node.PlanID, node.ParentNodeID, node.Name, node.Description,
-		node.Status, node.RiskLevel, node.BudgetTokens, node.EstimateTokens,
-		node.WorkerRole, node.Sequence, formatTime(node.CreatedAt), formatTime(node.UpdatedAt))
-	if err == nil {
-		s.appendAudit(ctx, "node.created", node.ID, "engine", map[string]any{"planId": node.PlanID, "sequence": node.Sequence})
-	}
+	err := s.execWithAudit(ctx, "node.created", node.ID, "engine",
+		map[string]any{"planId": node.PlanID, "sequence": node.Sequence},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO plan_nodes(id, plan_id, parent_node_id, name, description, status, risk_level,
+				 budget_tokens, estimate_tokens, worker_role, sequence, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				node.ID, node.PlanID, node.ParentNodeID, node.Name, node.Description,
+				node.Status, node.RiskLevel, node.BudgetTokens, node.EstimateTokens,
+				node.WorkerRole, node.Sequence, formatTime(node.CreatedAt), formatTime(node.UpdatedAt))
+			return err
+		})
 	return node, mapWriteError(err)
 }
 
@@ -244,11 +250,13 @@ func (s *Store) ListNodesByPlan(ctx context.Context, planID string, limit int) (
 
 // UpdateNodeStatus updates the status of a plan node.
 func (s *Store) UpdateNodeStatus(ctx context.Context, id, status string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE plan_nodes SET status=?, updated_at=? WHERE id=?`,
-		status, formatTime(time.Now().UTC()), id)
-	if err == nil {
-		s.appendAudit(ctx, "node.status_updated", id, "engine", map[string]any{"status": status})
-	}
+	err := s.execWithAudit(ctx, "node.status_updated", id, "engine",
+		map[string]any{"status": status},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`UPDATE plan_nodes SET status=?, updated_at=? WHERE id=?`,
+				status, formatTime(time.Now().UTC()), id)
+			return err
+		})
 	return mapWriteError(err)
 }
