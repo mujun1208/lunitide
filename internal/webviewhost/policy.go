@@ -37,11 +37,19 @@ func (q *BoundedQueue[T]) Len() int   { return len(q.items) }
 // ExternalActionAllowed defaults browser-initiated external actions to deny.
 func ExternalActionAllowed(_ string) bool { return false }
 
+// MicrophonePermissionAllowed is deliberately narrow: only the trusted main
+// application document may request microphone access. WebView2 does not
+// reliably mark getUserMedia requests as user initiated, so renderer controls
+// the short-lived capture lifecycle instead of depending on that hint.
+func MicrophonePermissionAllowed(raw string, microphone bool) bool {
+	return microphone && NavigationAllowed(raw)
+}
+
 // NavigationAllowed is deliberately exact: only HTTPS documents on the fixed
 // virtual host are permitted. Userinfo and non-default ports are rejected.
 func NavigationAllowed(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || strings.ToLower(u.Host) != "app.lunitide.local" || u.User != nil {
+	if err != nil || u.Scheme != "https" || strings.ToLower(u.Host) != TrustedVirtualHost || u.User != nil {
 		return false
 	}
 	return true

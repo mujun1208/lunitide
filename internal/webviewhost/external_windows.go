@@ -18,3 +18,9 @@ func openSystemBrowser(url string) error {
 	}
 	return nil
 }
+
+// OpenMicrophonePrivacySettings opens a fixed Windows settings page. The URI
+// is host-owned so renderer input can never select an arbitrary shell target.
+func OpenMicrophonePrivacySettings() error {
+	return openSystemBrowser("ms-settings:privacy-microphone")
+}

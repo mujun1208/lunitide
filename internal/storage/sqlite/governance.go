@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/governance"
+	"github.com/lunitide/lunitide/internal/domain/provider"
 )
 
 // CreateReview inserts a new governance review.
@@ -37,17 +38,19 @@ func (s *Store) CreateReview(ctx context.Context, r governance.Review) (governan
 	if r.ReviewedAt != nil {
 		reviewedAt = formatTime(*r.ReviewedAt)
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO governance_reviews(id, plan_id, node_id, action_type, action_digest,
-		 input_digest, state_digest, policy_version, risk_level, status,
-		 reviewer_note, expires_at, created_at, reviewed_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, planID, nodeID, r.ActionType, r.ActionDigest,
-		r.InputDigest, r.StateDigest, r.PolicyVersion, r.RiskLevel, r.Status,
-		r.ReviewerNote, expiresAt, formatTime(r.CreatedAt), reviewedAt)
-	if err == nil {
-		s.appendAudit(ctx, "review.created", r.ID, "engine", map[string]any{"actionType": r.ActionType, "riskLevel": r.RiskLevel})
-	}
+	err := s.execWithAudit(ctx, "review.created", r.ID, "engine",
+		map[string]any{"actionType": r.ActionType, "riskLevel": r.RiskLevel},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO governance_reviews(id, plan_id, node_id, action_type, action_digest,
+				 input_digest, state_digest, policy_version, risk_level, status,
+				 reviewer_note, expires_at, created_at, reviewed_at)
+				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				r.ID, planID, nodeID, r.ActionType, r.ActionDigest,
+				r.InputDigest, r.StateDigest, r.PolicyVersion, r.RiskLevel, r.Status,
+				r.ReviewerNote, expiresAt, formatTime(r.CreatedAt), reviewedAt)
+			return err
+		})
 	return r, mapWriteError(err)
 }
 
@@ -161,12 +164,20 @@ func (s *Store) UpdateReviewStatus(ctx context.Context, id string, status govern
 	if reviewedAt != nil {
 		reviewedAtVal = formatTime(*reviewedAt)
 	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE governance_reviews SET status=?, reviewer_note=?, reviewed_at=? WHERE id=?`,
-		status, reviewerNote, reviewedAtVal, id)
-	if err == nil {
-		s.appendAudit(ctx, "review.status_updated", id, "engine", map[string]any{"status": status})
-	}
+	err := s.execWithAudit(ctx, "review.status_updated", id, "engine",
+		map[string]any{"status": status},
+		func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE governance_reviews SET status=?, reviewer_note=?, reviewed_at=? WHERE id=?`,
+				status, reviewerNote, reviewedAtVal, id)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				return provider.ErrNotFound
+			}
+			return nil
+		})
 	return mapWriteError(err)
 }
 
@@ -192,10 +203,15 @@ func (s *Store) CreatePolicy(ctx context.Context, p governance.Policy) (governan
 	if p.IsActive {
 		isActive = 1
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO governance_policies(id, name, description, version, is_active, rules_json, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.Description, p.Version, isActive, p.RulesJSON, formatTime(p.CreatedAt), formatTime(p.UpdatedAt))
+	err := s.execWithAudit(ctx, "policy.created", p.ID, "engine",
+		map[string]any{"name": p.Name, "version": p.Version},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO governance_policies(id, name, description, version, is_active, rules_json, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?)`,
+				p.ID, p.Name, p.Description, p.Version, isActive, p.RulesJSON, formatTime(p.CreatedAt), formatTime(p.UpdatedAt))
+			return err
+		})
 	return p, mapWriteError(err)
 }
 
@@ -271,16 +287,38 @@ func (s *Store) ListPolicies(ctx context.Context, activeOnly bool, limit int) ([
 
 // UpdatePolicy updates the rules_json and bumps updated_at for a policy.
 func (s *Store) UpdatePolicy(ctx context.Context, id string, rulesJSON string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE governance_policies SET rules_json=?, updated_at=? WHERE id=?`,
-		rulesJSON, formatTime(time.Now().UTC()), id)
+	err := s.execWithAudit(ctx, "policy.updated", id, "engine",
+		map[string]any{"id": id},
+		func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE governance_policies SET rules_json=?, updated_at=? WHERE id=?`,
+				rulesJSON, formatTime(time.Now().UTC()), id)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				return provider.ErrNotFound
+			}
+			return nil
+		})
 	return mapWriteError(err)
 }
 
 // DeactivatePolicy sets is_active=0 and bumps updated_at for a policy.
 func (s *Store) DeactivatePolicy(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE governance_policies SET is_active=0, updated_at=? WHERE id=?`,
-		formatTime(time.Now().UTC()), id)
+	err := s.execWithAudit(ctx, "policy.deactivated", id, "engine",
+		map[string]any{"id": id},
+		func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE governance_policies SET is_active=0, updated_at=? WHERE id=?`,
+				formatTime(time.Now().UTC()), id)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				return provider.ErrNotFound
+			}
+			return nil
+		})
 	return mapWriteError(err)
 }

@@ -287,8 +287,14 @@ func (t *agentRuntimeTx) CommitUsage(runID, reservationID string, actual agentru
 	}
 	used, _ := json.Marshal(next)
 	committed, _ := json.Marshal(actual)
-	if _, err = t.tx.ExecContext(t.ctx, `UPDATE run_usage_reservation SET committed_json=?,status='committed',updated_at=? WHERE id=? AND status='reserved'`, string(committed), rfc(at), reservationID); err != nil {
+	resv, err := t.tx.ExecContext(t.ctx, `UPDATE run_usage_reservation SET committed_json=?,status='committed',updated_at=? WHERE id=? AND status='reserved'`, string(committed), rfc(at), reservationID)
+	if err != nil {
 		return r, t.fail(err)
+	}
+	if n, _ := resv.RowsAffected(); n != 1 {
+		// the reservation already left 'reserved' (double commit in one
+		// transaction) — refuse instead of charging used_json twice
+		return r, agentrun.ErrReservation
 	}
 	res, err := t.tx.ExecContext(t.ctx, `UPDATE agent_run SET used_json=?,version=version+1,updated_at=? WHERE id=? AND version=?`, string(used), rfc(at), runID, r.Version)
 	if err != nil {

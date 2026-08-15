@@ -34,14 +34,16 @@ func (s *Store) CreateOntologyNode(ctx context.Context, node ontology.Node) (ont
 	if err := node.Validate(); err != nil {
 		return node, err
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO ontology_nodes(id, project_id, type, name, full_path, description, metadata_json, version, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		node.ID, node.ProjectID, node.Type, node.Name, node.FullPath, node.Description, node.MetadataJSON, node.Version,
-		formatTime(node.CreatedAt), formatTime(node.UpdatedAt))
-	if err == nil {
-		s.appendAudit(ctx, "ontology.node.created", node.ID, "engine", map[string]any{"projectId": node.ProjectID, "type": node.Type})
-	}
+	err := s.execWithAudit(ctx, "ontology.node.created", node.ID, "engine",
+		map[string]any{"projectId": node.ProjectID, "type": node.Type},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO ontology_nodes(id, project_id, type, name, full_path, description, metadata_json, version, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?,?,?)`,
+				node.ID, node.ProjectID, node.Type, node.Name, node.FullPath, node.Description, node.MetadataJSON, node.Version,
+				formatTime(node.CreatedAt), formatTime(node.UpdatedAt))
+			return err
+		})
 	return node, mapWriteError(err)
 }
 
@@ -116,21 +118,23 @@ func (s *Store) ListOntologyNodesByProject(ctx context.Context, projectID string
 
 // UpdateOntologyNode updates the description and metadata_json of an ontology node.
 func (s *Store) UpdateOntologyNode(ctx context.Context, id string, description, metadataJSON string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE ontology_nodes SET description=?, metadata_json=?, version=version+1, updated_at=? WHERE id=?`,
-		description, metadataJSON, formatTime(time.Now().UTC()), id)
-	if err == nil {
-		s.appendAudit(ctx, "ontology.node.updated", id, "engine", nil)
-	}
+	err := s.execWithAudit(ctx, "ontology.node.updated", id, "engine", nil,
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`UPDATE ontology_nodes SET description=?, metadata_json=?, version=version+1, updated_at=? WHERE id=?`,
+				description, metadataJSON, formatTime(time.Now().UTC()), id)
+			return err
+		})
 	return mapWriteError(err)
 }
 
 // DeleteOntologyNode deletes an ontology node by ID.
 func (s *Store) DeleteOntologyNode(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM ontology_nodes WHERE id=?`, id)
-	if err == nil {
-		s.appendAudit(ctx, "ontology.node.deleted", id, "engine", nil)
-	}
+	err := s.execWithAudit(ctx, "ontology.node.deleted", id, "engine", nil,
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `DELETE FROM ontology_nodes WHERE id=?`, id)
+			return err
+		})
 	return mapWriteError(err)
 }
 
@@ -160,14 +164,16 @@ func (s *Store) CreateOntologyEdge(ctx context.Context, edge ontology.Edge) (ont
 	if err := edge.Validate(); err != nil {
 		return edge, err
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO ontology_edges(id, source_node_id, target_node_id, type, label, properties_json, weight, version, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		edge.ID, edge.SourceNodeID, edge.TargetNodeID, edge.Type, edge.Label, edge.PropertiesJSON, edge.Weight, edge.Version,
-		formatTime(edge.CreatedAt), formatTime(edge.UpdatedAt))
-	if err == nil {
-		s.appendAudit(ctx, "ontology.edge.created", edge.ID, "engine", map[string]any{"type": edge.Type, "source": edge.SourceNodeID, "target": edge.TargetNodeID})
-	}
+	err := s.execWithAudit(ctx, "ontology.edge.created", edge.ID, "engine",
+		map[string]any{"type": edge.Type, "source": edge.SourceNodeID, "target": edge.TargetNodeID},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO ontology_edges(id, source_node_id, target_node_id, type, label, properties_json, weight, version, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?,?,?)`,
+				edge.ID, edge.SourceNodeID, edge.TargetNodeID, edge.Type, edge.Label, edge.PropertiesJSON, edge.Weight, edge.Version,
+				formatTime(edge.CreatedAt), formatTime(edge.UpdatedAt))
+			return err
+		})
 	return edge, mapWriteError(err)
 }
 
@@ -267,20 +273,23 @@ func (s *Store) ListOntologyEdgesByTarget(ctx context.Context, targetNodeID stri
 
 // UpdateOntologyEdge updates the weight of an ontology edge.
 func (s *Store) UpdateOntologyEdge(ctx context.Context, id string, weight float64) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE ontology_edges SET weight=?, version=version+1, updated_at=? WHERE id=?`,
-		weight, formatTime(time.Now().UTC()), id)
-	if err == nil {
-		s.appendAudit(ctx, "ontology.edge.updated", id, "engine", map[string]any{"weight": weight})
-	}
+	err := s.execWithAudit(ctx, "ontology.edge.updated", id, "engine",
+		map[string]any{"weight": weight},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`UPDATE ontology_edges SET weight=?, version=version+1, updated_at=? WHERE id=?`,
+				weight, formatTime(time.Now().UTC()), id)
+			return err
+		})
 	return mapWriteError(err)
 }
 
 // DeleteOntologyEdge deletes an ontology edge by ID.
 func (s *Store) DeleteOntologyEdge(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM ontology_edges WHERE id=?`, id)
-	if err == nil {
-		s.appendAudit(ctx, "ontology.edge.deleted", id, "engine", nil)
-	}
+	err := s.execWithAudit(ctx, "ontology.edge.deleted", id, "engine", nil,
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `DELETE FROM ontology_edges WHERE id=?`, id)
+			return err
+		})
 	return mapWriteError(err)
 }

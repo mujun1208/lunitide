@@ -55,7 +55,8 @@ func TestAgentOrchestrationRepositoryPersistsReopensAndOrdersEvents(t *testing.T
 	if _, err = c.Start(ctx, root.ID); err != nil {
 		t.Fatal(err)
 	}
-	child, err := c.SpawnChild(ctx, root.ID, testNodeID, "worker", agentorchestration.Todo{ID: "01ARZ3NDEKTSV4RRFFQ69G5FA6", Title: "child"})
+	// Scope Seal (0041): child runs are structurally banned; every run is a root.
+	second, err := c.CreateRoot(ctx, testPlanID, testNodeID, "worker", agentorchestration.Todo{ID: "01ARZ3NDEKTSV4RRFFQ69G5FA6", Title: "second"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestAgentOrchestrationRepositoryPersistsReopensAndOrdersEvents(t *testing.T
 		t.Fatalf("reopened root=%#v err=%v", got, err)
 	}
 	kids, err := c.ListPlanRuns(ctx, testPlanID)
-	if err != nil || len(kids) != 2 || kids[1].ParentRunID != root.ID || kids[1].ID != child.ID {
+	if err != nil || len(kids) != 2 || kids[1].ParentRunID != "" || kids[1].ID != second.ID {
 		t.Fatalf("tree=%#v err=%v", kids, err)
 	}
 	events, err := c.Events(ctx, "")

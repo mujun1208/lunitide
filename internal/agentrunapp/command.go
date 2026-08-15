@@ -618,6 +618,21 @@ func (s *Service) CommandCancel(ctx context.Context, key, actor string, request 
 		if err := tx.PutCommandJob(job); err != nil {
 			return err
 		}
+		// cascade: the kill signal lands after this commit, so the killed
+		// process tree's external effect is unprovable — journal it as
+		// outcome_unknown (never blindly retried; reconciliation can still
+		// resolve it exactly once)
+		if effect, err := tx.GetEffectByKey("command.start/" + job.ID); err == nil {
+			resolved, rerr := effect.Resolve(agentrun.EffectOutcomeUnknown, job.ID, now)
+			if rerr != nil {
+				return rerr
+			}
+			if err := tx.PutEffect(resolved); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, agentrun.ErrNotFound) {
+			return err
+		}
 		if err := appendRunEvent(tx, job.RunID, agentrun.EventCommandCancelCompleted, map[string]any{
 			"schemaVersion": 1,
 			"runId":         job.RunID,

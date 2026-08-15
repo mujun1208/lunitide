@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 )
 
@@ -45,17 +46,19 @@ func (s *Store) CreateSkill(ctx context.Context, sk skill.Skill) (skill.Skill, e
 	if sk.MinEngineVersion != nil {
 		minEngineVersion = *sk.MinEngineVersion
 	}
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO skills(id, name, display_name, description, version, status,
-		 permissions_json, entry_point, manifest_json, signature, publisher_id,
-		 min_engine_version, created_at, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		sk.ID, sk.Name, sk.DisplayName, sk.Description, sk.Version, sk.Status,
-		string(permJSON), sk.EntryPoint, sk.ManifestJSON, signature, publisherID,
-		minEngineVersion, formatTime(sk.CreatedAt), formatTime(sk.UpdatedAt))
-	if err == nil {
-		s.appendAudit(ctx, "skill.created", sk.ID, "engine", map[string]any{"name": sk.Name, "version": sk.Version})
-	}
+	err = s.execWithAudit(ctx, "skill.created", sk.ID, "engine",
+		map[string]any{"name": sk.Name, "version": sk.Version},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO skills(id, name, display_name, description, version, status,
+				 permissions_json, entry_point, manifest_json, signature, publisher_id,
+				 min_engine_version, created_at, updated_at)
+				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				sk.ID, sk.Name, sk.DisplayName, sk.Description, sk.Version, sk.Status,
+				string(permJSON), sk.EntryPoint, sk.ManifestJSON, signature, publisherID,
+				minEngineVersion, formatTime(sk.CreatedAt), formatTime(sk.UpdatedAt))
+			return err
+		})
 	return sk, mapWriteError(err)
 }
 
@@ -205,9 +208,20 @@ func (s *Store) ListSkills(ctx context.Context, status string, limit int) ([]ski
 
 // UpdateSkill updates the display name and description of a skill.
 func (s *Store) UpdateSkill(ctx context.Context, id, displayName, description string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE skills SET display_name=?, description=?, updated_at=? WHERE id=?`,
-		displayName, description, formatTime(time.Now().UTC()), id)
+	err := s.execWithAudit(ctx, "skill.updated", id, "engine",
+		map[string]any{"id": id},
+		func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE skills SET display_name=?, description=?, updated_at=? WHERE id=?`,
+				displayName, description, formatTime(time.Now().UTC()), id)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				return provider.ErrNotFound
+			}
+			return nil
+		})
 	return mapWriteError(err)
 }
 
@@ -217,28 +231,42 @@ func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, descript
 	if minEngineVersion != nil {
 		minEV = *minEngineVersion
 	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, version=version+1, updated_at=? WHERE id=?`,
-		displayName, description, entryPoint, manifestJSON, permissionsJSON, minEV, formatTime(time.Now().UTC()), id)
+	err := s.execWithAudit(ctx, "skill.updated", id, "engine",
+		map[string]any{"id": id},
+		func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, version=version+1, updated_at=? WHERE id=?`,
+				displayName, description, entryPoint, manifestJSON, permissionsJSON, minEV, formatTime(time.Now().UTC()), id)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				return provider.ErrNotFound
+			}
+			return nil
+		})
 	return mapWriteError(err)
 }
 
 // UpdateSkillStatus updates the status of a skill.
 func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE skills SET status=?, updated_at=? WHERE id=?`,
-		status, formatTime(time.Now().UTC()), id)
-	if err == nil {
-		s.appendAudit(ctx, "skill.status_updated", id, "engine", map[string]any{"status": status})
-	}
+	err := s.execWithAudit(ctx, "skill.status_updated", id, "engine",
+		map[string]any{"status": status},
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx,
+				`UPDATE skills SET status=?, updated_at=? WHERE id=?`,
+				status, formatTime(time.Now().UTC()), id)
+			return err
+		})
 	return mapWriteError(err)
 }
 
 // DeleteSkill deletes a skill by ID.
 func (s *Store) DeleteSkill(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM skills WHERE id=?`, id)
-	if err == nil {
-		s.appendAudit(ctx, "skill.deleted", id, "engine", nil)
-	}
+	err := s.execWithAudit(ctx, "skill.deleted", id, "engine", nil,
+		func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `DELETE FROM skills WHERE id=?`, id)
+			return err
+		})
 	return mapWriteError(err)
 }

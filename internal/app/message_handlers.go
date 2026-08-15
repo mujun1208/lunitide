@@ -62,6 +62,27 @@ func handleMessageList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	}
 	return bridge.Success(r.ID, page)
 }
+func handleMessageRewind(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		MessageID string `json:"messageId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !message.CanonicalULID(p.SessionID) || !message.CanonicalULID(p.MessageID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.rewind 参数无效", false)
+	}
+	if failure := requireIdempotency(r); failure != nil {
+		return *failure
+	}
+	rewinder, ok := e.messages.(messageRewindService)
+	if !ok {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "消息回退暂时不可用", true)
+	}
+	result, err := rewinder.Rewind(ctx, r.IdempotencyKey, sessionMutationActor, p.SessionID, p.MessageID)
+	if err != nil {
+		return messageFailure(r, err)
+	}
+	return bridge.Success(r.ID, result)
+}
 func messageFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, messageapp.ErrIdempotencyKeyRequired):
@@ -70,6 +91,10 @@ func messageFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, messageapp.ErrSessionNotFound):
 		return bridge.Failure(r.ID, r.TraceID, "SESSION_NOT_FOUND", "会话不存在", false)
+	case errors.Is(err, messageapp.ErrMessageNotFound):
+		return bridge.Failure(r.ID, r.TraceID, "MESSAGE_NOT_FOUND", "消息不存在", false)
+	case errors.Is(err, messageapp.ErrRewindRequiresUserMessage):
+		return bridge.Failure(r.ID, r.TraceID, "MESSAGE_REWIND_REQUIRES_USER", "只能从用户消息回退", false)
 	case errors.Is(err, messageapp.ErrCursorInvalid):
 		return bridge.Failure(r.ID, r.TraceID, "MESSAGE_CURSOR_INVALID", "消息分页游标无效", false)
 	case errors.Is(err, messageapp.ErrPageBudgetTooSmall):
