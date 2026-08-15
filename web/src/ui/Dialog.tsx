@@ -11,7 +11,7 @@ export function Dialog({open,title,description,onClose,children,initialFocus}:{o
  return <div className="modal-backdrop" onMouseDown={()=>closeRef.current()}><section ref={panel} tabIndex={-1} className="moon-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description?descriptionId:undefined} onMouseDown={e=>e.stopPropagation()}><h2 id={titleId}>{title}</h2>{description&&<p id={descriptionId}>{description}</p>}{children}</section></div>
 }
 
-export function ConfirmDialog({open,title,description,confirmLabel='确认删除',busy=false,onCancel,onConfirm}:{open:boolean;title:string;description:string;confirmLabel?:string;busy?:boolean;onCancel:()=>void;onConfirm:()=>void}):React.JSX.Element|null{
+export function ConfirmDialog({open,title,description,confirmLabel='确认删除',danger=true,busy=false,onCancel,onConfirm}:{open:boolean;title:string;description:string;confirmLabel?:string;danger?:boolean;busy?:boolean;onCancel:()=>void;onConfirm:()=>void}):React.JSX.Element|null{
  const cancel=useRef<HTMLButtonElement>(null)
- return <Dialog open={open} title={title} description={description} onClose={()=>{if(!busy)onCancel()}} initialFocus={cancel}><div className="dialog-actions"><button ref={cancel} disabled={busy} onClick={onCancel}>取消</button><button className="danger" disabled={busy} onClick={onConfirm}>{busy?'处理中…':confirmLabel}</button></div></Dialog>
+ return <Dialog open={open} title={title} description={description} onClose={()=>{if(!busy)onCancel()}} initialFocus={cancel}><div className="dialog-actions"><button ref={cancel} disabled={busy} onClick={onCancel}>取消</button><button className={danger?'danger':'primary'} disabled={busy} onClick={onConfirm}>{busy?'处理中…':confirmLabel}</button></div></Dialog>
 }

@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'project' | 'connection' | 'security' | 'data' | 'shortcuts' | 'diagnostics' | 'about'
+import{systemSettingsBridge}from'../bridge/client'
+import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'project' | 'connection' | 'security' | 'data' | 'shortcuts' | 'diagnostics' | 'about'
 
 const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'general', icon: '◌', label: '常规' },
   { id: 'appearance', icon: '◐', label: '外观' },
   { id: 'providers', icon: '◈', label: '模型与供应商' },
+  { id: 'voice', icon: '◉', label: '语音与麦克风' },
   { id: 'project', icon: '◇', label: '项目默认值' },
   { id: 'connection', icon: '⇄', label: '连接与代理' },
   { id: 'security', icon: '⛨', label: '安全与治理' },
@@ -119,6 +122,7 @@ export function SettingsPage({ onNavigateProviders, onBack, initialCategory = 'g
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
+          {category === 'voice' && <VoicePanel />}
           {category === 'about' && <AboutPanel />}
           {(['project', 'connection', 'security', 'data', 'shortcuts', 'diagnostics'].includes(category)) && <PlaceholderPanel category={category} />}
         </div>
@@ -313,6 +317,16 @@ function ProvidersPanel({ onNavigate }: { onNavigate?: () => void }): React.JSX.
       </div>
     </div>
   )
+}
+
+function VoicePanel():React.JSX.Element{
+ const[devices,setDevices]=useState<MediaDeviceInfo[]>([]),[deviceId,setDeviceId]=useState(selectedMicrophoneId),[status,setStatus]=useState(''),[busy,setBusy]=useState(false)
+ const refresh=async()=>{setBusy(true);setStatus('正在检测麦克风…');try{if(!navigator.mediaDevices?.enumerateDevices)throw new Error('当前 WebView 不支持设备检测');const items=(await navigator.mediaDevices.enumerateDevices()).filter(item=>item.kind==='audioinput');setDevices(items);if(deviceId&&!items.some(item=>item.deviceId===deviceId))setStatus('当前设备列表中未显示已选麦克风；获得权限或重新连接设备后再确认。');else setStatus(items.length?`检测到 ${items.length} 个麦克风输入设备。`:'未检测到麦克风，请检查连接和 Windows 设备设置。')}catch(e){setStatus(e instanceof Error?e.message:'无法检测麦克风')}finally{setBusy(false)}}
+ useEffect(()=>{void refresh()},[])
+ const choose=(value:string)=>{setDeviceId(value);saveMicrophoneId(value);setStatus(value?'已保存所选麦克风。':'已使用系统默认麦克风。')}
+ const test=async()=>{setBusy(true);setStatus('正在请求麦克风权限…');let stream:MediaStream|undefined;try{stream=await navigator.mediaDevices.getUserMedia(microphoneConstraints());setStatus('麦克风可用，测试成功。');const items=(await navigator.mediaDevices.enumerateDevices()).filter(item=>item.kind==='audioinput');setDevices(items)}catch(e){const name=e instanceof DOMException?e.name:'';setStatus(name==='NotAllowedError'||name==='SecurityError'?'权限被拒绝，请打开 Windows 麦克风设置并允许桌面应用访问。':name==='NotFoundError'?'未检测到可用麦克风。':'无法启动麦克风，请检查设备是否被占用或驱动异常。')}finally{stream?.getTracks().forEach(track=>track.stop());setBusy(false)}}
+ const openSettings=async()=>{setBusy(true);try{await systemSettingsBridge.open({page:'privacy-microphone'});setStatus('已打开 Windows 麦克风隐私设置。请开启“麦克风访问”和“允许桌面应用访问麦克风”。')}catch(e){setStatus(e instanceof Error?e.message:'无法打开 Windows 麦克风设置')}finally{setBusy(false)}}
+ return <div className="setting-group"><div className="setting-group-title">语音与麦克风</div><div className="setting-row"><div><div className="setting-label">输入设备</div><div className="setting-desc">选择语音输入使用的麦克风；设备失效时自动回退到系统默认。</div></div><select className="setting-select" aria-label="麦克风输入设备" value={deviceId} onChange={e=>choose(e.target.value)}><option value="">系统默认麦克风</option>{devices.map((device,index)=><option key={device.deviceId} value={device.deviceId}>{device.label||`麦克风 ${index+1}`}</option>)}</select></div><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-desc">Windows 隐私权限不能由软件自动开启。请确保“麦克风访问”和“允许桌面应用访问麦克风”均已开启；语音转文字还依赖 Windows 在线语音识别服务。</div><div className="microphone-setting-actions"><button disabled={busy} onClick={()=>void refresh()}>刷新设备</button><button disabled={busy} onClick={()=>void test()}>测试麦克风</button><button className="primary" disabled={busy} onClick={()=>void openSettings()}>打开 Windows 麦克风设置</button></div>{status&&<p role="status" className="notice">{status}</p>}</div></div>
 }
 
 function AboutPanel(): React.JSX.Element {

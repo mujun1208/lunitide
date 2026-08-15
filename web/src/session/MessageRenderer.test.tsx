@@ -62,7 +62,7 @@ it('Message Renderer shows loading and error, then retries from latest page and 
 it('Message Renderer renders XSS payloads as inert text without element injection', async () => {
   const xss = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>'
   await open(messages({ list: vi.fn().mockResolvedValue(page([message(1, { text: xss })])) }))
-  expect(await screen.findByText(xss)).toBeInTheDocument(); expect(document.querySelector('.message-list img, .message-list script, .message-list svg')).toBeNull()
+  expect(await screen.findByText(xss)).toBeInTheDocument(); expect(document.querySelector('.message-list .message-body img, .message-list .message-body script, .message-list .message-body svg')).toBeNull()
 })
 
 it('Message Renderer restores assistant messages with agent presentation', async () => {

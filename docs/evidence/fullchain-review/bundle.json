@@ -1,0 +1,88 @@
+{
+  "name": "fullchain-review",
+  "date": "2026-08-15T18:35:16",
+  "scope": "M0-M6 full-chain review; M5/M6 + M6/M7 junctions",
+  "fixedFiles": [
+    {
+      "path": "migrations/0055_audit_actions_policy_skill.sql",
+      "severity": "SEV2",
+      "sha256": "102cd375292643096d4386922f66c33d34f246e294c44f787c3a5431fbdf2e30",
+      "summary": "audit_events CHECK +4 actions: policy.created/updated/deactivated, skill.updated"
+    },
+    {
+      "path": "internal/storage/sqlite/store.go",
+      "severity": "SEV2",
+      "sha256": "cdf7e7cdd94169c208c56980452d7b846e80f5ff92764e7f3762b80ce0bdb630",
+      "summary": "manifest +0055; expectedSchemaSQL audit_events DDL synced (+4 actions)"
+    },
+    {
+      "path": "internal/workspace/changeset.go",
+      "severity": "SEV1",
+      "sha256": "3cae63c8eadd6a65e4a56649c36591a8520aba030616050dcb66c9f965312925",
+      "summary": "Apply syncs it.RollbackRef in-memory after SetM5ChangeSetItemRollback (both write paths) so compensate() restores modify/delete bytes"
+    },
+    {
+      "path": "internal/workspace/changeset_test.go",
+      "severity": "TEST",
+      "sha256": "334a5d488e8e7e5be234622b38b87f37816c6b205df3020c371c84d039d12f9b",
+      "summary": "+TestChangesetApplyCompensation (SEV1 regression: later-item failure must restore earlier modify)"
+    },
+    {
+      "path": "internal/workspace/convert.go",
+      "severity": "SEV2",
+      "sha256": "f03bcde6c4e00c5d649f68441821f7905faf7ccc1fa4d3d6ae49d3dedfc25b15",
+      "summary": "Publish conflict-overwrite: restore backup when replacement rename fails (target no longer stranded)"
+    },
+    {
+      "path": "internal/m6app/skillimport.go",
+      "severity": "SEV2",
+      "sha256": "e33bc7c5f4f7f38ce01385c2d1182037581b03df59ae0e94f6afd4e153dabe26",
+      "summary": "InstallSkill idempotent replay returns existing install instead of ErrSkillInstallNotFound"
+    },
+    {
+      "path": "internal/app/m7_handlers.go",
+      "severity": "SEV2",
+      "sha256": "0b19e212d4296dc9f2b93c351c23cc33a5cf30f4b06219beaca8f90498ba0582",
+      "summary": "error mapping per M7 PRD: m7flow.ErrStageFixedSet->M7-WF-002, ErrStageCycle->M7-WF-003; ErrNotPublished->WORKFLOW_VERSION_UNPUBLISHED (off the WF-002 slot)"
+    },
+    {
+      "path": "internal/app/m7_handlers_test.go",
+      "severity": "TEST",
+      "sha256": "82f73ca358fe00d43796574bbfef7e0d2de986d597fce443b3c58ac03a99092d",
+      "summary": "unpublished assertion updated; +TestWorkflowErrorMappingTable (direct m7WorkflowFailure unit mapping)"
+    },
+    {
+      "path": "internal/storage/sqlite/governance.go",
+      "severity": "SEV2",
+      "sha256": "e5a9aa5dc4dc2e71ca1f98d40aaa37d46c3904eb6206b9cbee14a29728eb05b6",
+      "summary": "CreatePolicy/UpdatePolicy/DeactivatePolicy via execWithAudit (policy.* actions) + RowsAffected not-found checks; UpdateReviewStatus RowsAffected"
+    },
+    {
+      "path": "internal/storage/sqlite/skill_storage.go",
+      "severity": "SEV2",
+      "sha256": "b3550cb95c1fea85688bc63a06106bbabdf19db70aa80cbfdb3640728465054e",
+      "summary": "UpdateSkill/UpdateSkillFields via execWithAudit (skill.updated) + RowsAffected not-found checks"
+    }
+  ],
+  "removedProbes": [
+    "zz_diag_diff_test.go",
+    "zz_dump_full_test.go",
+    "zz_sev1_probe_test.go",
+    "zz_dump_0054_test.go"
+  ],
+  "gates": {
+    "goVet": "0 warnings",
+    "goTest": "ok=74 fail=0 (count=1)",
+    "bridgeCheck": "zero drift",
+    "webBuild": "tsc+vite 319 modules ok",
+    "race": "skipped: no cgo/gcc on host (consistent with prior baselines)"
+  },
+  "disclosures": [
+    "DatabaseContract ETL/OData legacy deferred",
+    "stdio transport gate closed per M6-MCP-004",
+    "M6 services not assembled in cmd/engine/main.go (retryable STORAGE_UNAVAILABLE)",
+    "M7 slices 2-5 out of scope for this pass",
+    "zero UI changes"
+  ],
+  "bundleDigest": "313b5e6dcb536072b9390500f621e5b1a30018a3f5ad1b2f19f17fdd7a0e86e9"
+}
