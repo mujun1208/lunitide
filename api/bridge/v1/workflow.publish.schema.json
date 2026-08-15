@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workflow.publish.schema.json",
+  "title": "workflow.publish payload",
+  "x-method": "workflow.publish",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "workflowVersionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": ["workflowVersionId", "requestId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "workflowVersionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "status": {
+        "enum": ["draft", "published"]
+      },
+      "publishedAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": ["workflowVersionId", "status"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "workflowVersionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "requestId": "req-1002"
+      }
+    ],
+    "negative": [
+      {
+        "workflowVersionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ]
+  }
+}

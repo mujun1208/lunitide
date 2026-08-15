@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/system.settings.open.schema.json",
+  "title": "system.settings.open payload",
+  "x-method": "system.settings.open",
+  "x-owner": "host",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page": { "enum": ["privacy-microphone"] }
+  },
+  "required": ["page"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "opened": { "type": "boolean" } },
+    "required": ["opened"]
+  },
+  "x-examples": {
+    "positive": [{ "page": "privacy-microphone" }],
+    "negative": [{}, { "page": "privacy-camera" }, { "page": "ms-settings:privacy-microphone" }, { "page": "privacy-microphone", "uri": "calc.exe" }]
+  }
+}

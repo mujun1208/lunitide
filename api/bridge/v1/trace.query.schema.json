@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/trace.query.schema.json",
+  "title": "trace.query payload",
+  "x-method": "trace.query",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rootType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "rootId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "direction": {
+      "enum": [
+        "up",
+        "down"
+      ]
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "nextCursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "rootType",
+    "rootId",
+    "direction",
+    "depth"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "edges": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "nextCursor": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "edges"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rootType": "stage_run",
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "direction": "down",
+        "depth": 2
+      }
+    ],
+    "negative": [
+      {
+        "rootType": "stage_run",
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "direction": "sideways",
+        "depth": 2
+      }
+    ]
+  }
+}

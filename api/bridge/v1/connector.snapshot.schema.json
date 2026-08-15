@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/connector.snapshot.schema.json",
+  "title": "connector.snapshot payload",
+  "x-method": "connector.snapshot",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "connectorId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "metadataScope": {
+      "enum": [
+        "catalog",
+        "schema",
+        "table",
+        "column",
+        "index",
+        "constraint"
+      ]
+    }
+  },
+  "required": [
+    "connectorId",
+    "metadataScope"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "snapshotVersion": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "objects": {
+        "type": "object"
+      },
+      "fetchedAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "snapshotVersion",
+      "objects",
+      "fetchedAt"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "connectorId": "postgres-main",
+        "metadataScope": "table"
+      }
+    ],
+    "negative": [
+      {
+        "connectorId": "postgres-main",
+        "metadataScope": "rows"
+      },
+      {
+        "connectorId": "",
+        "metadataScope": "catalog"
+      }
+    ]
+  }
+}

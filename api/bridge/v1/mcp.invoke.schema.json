@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp.invoke.schema.json",
+  "title": "mcp.invoke payload",
+  "x-method": "mcp.invoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "endpointId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "tool": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
+    },
+    "args": {
+      "type": "object",
+      "minProperties": 0,
+      "maxProperties": 64
+    }
+  },
+  "required": ["runId", "endpointId", "tool", "args"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "result": {
+        "type": "object"
+      },
+      "bytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4194304
+      },
+      "durationMs": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30000
+      }
+    },
+    "required": ["result", "bytes", "durationMs"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "tool": "searchDocs",
+        "args": {
+          "query": "durable run"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "tool": "rm -rf /",
+        "args": {}
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "args": {}
+      }
+    ]
+  }
+}

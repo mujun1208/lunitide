@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/trace.addEdge.schema.json",
+  "title": "trace.addEdge payload",
+  "x-method": "trace.addEdge",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "fromType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "fromId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "fromDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relation": {
+      "enum": [
+        "implements",
+        "verifies",
+        "traces_to",
+        "derived_from",
+        "reviews",
+        "produces",
+        "promotes"
+      ]
+    },
+    "toType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "toId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "toDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "fromType",
+    "fromId",
+    "fromDigest",
+    "relation",
+    "toType",
+    "toId",
+    "toDigest"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "edgeId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": [
+      "edgeId"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "fromType": "dev_task",
+        "fromId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fromDigest": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        "relation": "implements",
+        "toType": "stage_run",
+        "toId": "01ARZ3NDEKTSV4RRFFQ69G5FBW",
+        "toDigest": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
+      }
+    ],
+    "negative": [
+      {
+        "fromType": "dev_task",
+        "fromId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fromDigest": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        "relation": "contains",
+        "toType": "stage_run",
+        "toId": "01ARZ3NDEKTSV4RRFFQ69G5FBW",
+        "toDigest": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
+      }
+    ]
+  }
+}

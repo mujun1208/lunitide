@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workflow.captureInput.schema.json",
+  "title": "workflow.captureInput payload",
+  "x-method": "workflow.captureInput",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "stageRunId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "inputs": {
+      "type": "object",
+      "minProperties": 0,
+      "maxProperties": 64,
+      "additionalProperties": true
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": ["stageRunId", "inputs", "requestId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "snapshotId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "snapshotDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "capturedAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": ["snapshotId", "snapshotDigest", "capturedAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "inputs": {
+          "brief": "v1"
+        },
+        "requestId": "req-1003"
+      },
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "inputs": {
+          "m6.finalTree": {
+            "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+            "digest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+          }
+        },
+        "requestId": "req-1004"
+      }
+    ],
+        "negative": [
+      {"stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "inputs": {}, "requestId": ""},
+      {"stageRunId": "not-a-ulid", "inputs": {"a": "b"}, "requestId": "req-1005"},
+      {"stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "inputs": ["array"], "requestId": "req-1005"}
+    ]
+  }
+}

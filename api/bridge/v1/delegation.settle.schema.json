@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/delegation.settle.schema.json",
+  "title": "delegation.settle payload",
+  "x-method": "delegation.settle",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "delegationId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "resultBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "type": "object"
+        },
+        "patchDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "testEvidenceRefs": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "usage": {
+          "type": "object"
+        },
+        "resultDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "claims",
+        "patchDigest",
+        "testEvidenceRefs",
+        "usage",
+        "resultDigest"
+      ]
+    }
+  },
+  "required": [
+    "delegationId",
+    "resultBundle"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "settledAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "budgetConsumed": {
+        "type": "object"
+      },
+      "barrierState": {
+        "enum": [
+          "open",
+          "closed",
+          "not_applicable"
+        ]
+      }
+    },
+    "required": [
+      "settledAt",
+      "budgetConsumed",
+      "barrierState"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "delegationId": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "resultBundle": {
+          "claims": {
+            "summary": "tests refactored"
+          },
+          "patchDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a",
+          "testEvidenceRefs": [
+            "evidence://run/01ARZ3/tests"
+          ],
+          "usage": {
+            "tokens": 42000
+          },
+          "resultDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "delegationId": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "resultBundle": {
+          "claims": {},
+          "patchDigest": "zzz",
+          "testEvidenceRefs": [],
+          "usage": {},
+          "resultDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6"
+        }
+      }
+    ]
+  }
+}

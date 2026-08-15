@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workflow.evaluateGate.schema.json",
+  "title": "workflow.evaluateGate payload",
+  "x-method": "workflow.evaluateGate",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "stageRunId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "gateKey": {
+      "enum": [
+        "stage.exit",
+        "dev.integration",
+        "verify.security",
+        "release.package"
+      ]
+    }
+  },
+  "required": [
+    "stageRunId",
+    "gateKey"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "decision": {
+        "enum": [
+          "PASS",
+          "FAIL",
+          "BLOCKED"
+        ]
+      },
+      "findings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": [
+      "decision",
+      "findings"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "gateKey": "stage.exit"
+      }
+    ],
+    "negative": [
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "gateKey": "custom.gate"
+      }
+    ]
+  }
+}

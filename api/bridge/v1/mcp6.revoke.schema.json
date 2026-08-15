@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp6.revoke.schema.json",
+  "title": "mcp6.revoke payload",
+  "x-method": "mcp6.revoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "endpointId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "reason": {
+      "enum": ["credential", "drift", "policy", "manual"]
+    }
+  },
+  "required": ["endpointId", "reason"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpointId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "const": "revoked"
+      },
+      "poolsCleared": {
+        "const": true
+      }
+    },
+    "required": ["endpointId", "state", "poolsCleared"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "reason": "drift"
+      }
+    ],
+    "negative": [
+      {
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "reason": "because"
+      },
+      {
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+      }
+    ]
+  }
+}

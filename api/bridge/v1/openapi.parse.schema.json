@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/openapi.parse.schema.json",
+  "title": "openapi.parse payload",
+  "x-method": "openapi.parse",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "spec": {
+      "type": "string",
+      "minLength": 100,
+      "maxLength": 5242880
+    },
+    "contentEncoding": {
+      "enum": ["", "identity", "gzip", "deflate"]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": ["spec"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "digest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "openapi": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
+      },
+      "specVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "operationCount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500
+      },
+      "authTypes": {
+        "type": "array",
+        "maxItems": 6,
+        "items": {
+          "enum": ["none", "apiKeyHeader", "apiKeyQuery", "bearerToken", "basic", "oauth2ClientCredentials"]
+        }
+      }
+    },
+    "required": ["digest", "openapi", "specVersion", "operationCount", "authTypes"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "spec": "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Pets\",\"version\":\"1.0.0\"},\"paths\":{\"/pets\":{\"get\":{\"operationId\":\"listPets\",\"responses\":{\"200\":{\"description\":\"ok\"}}}}}}",
+        "name": "pets-api"
+      }
+    ],
+    "negative": [
+      {
+        "spec": "{}"
+      },
+      {
+        "spec": "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Pets\",\"version\":\"1.0.0\"},\"paths\":{\"/pets\":{\"get\":{\"operationId\":\"listPets\",\"responses\":{\"200\":{\"description\":\"ok\"}}}}}}",
+        "contentEncoding": "br"
+      }
+    ]
+  }
+}

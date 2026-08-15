@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/delegation.create.schema.json",
+  "title": "delegation.create payload",
+  "x-method": "delegation.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rootId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "parentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "inputDigests": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "capabilitySet": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "budgetGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpuSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wallClockMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "cpuSeconds",
+        "tokens",
+        "cost",
+        "wallClockMs"
+      ]
+    },
+    "deadlineMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 86400000
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4
+    }
+  },
+  "required": [
+    "rootId",
+    "parentId",
+    "objective",
+    "inputDigests",
+    "capabilitySet",
+    "budgetGrant",
+    "deadlineMs",
+    "depth"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "delegationId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "envelopeSignature": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "required": [
+      "delegationId",
+      "envelopeSignature"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+        "parentId": "node-12",
+        "objective": "Refactor auth module tests",
+        "inputDigests": [
+          "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+        ],
+        "capabilitySet": [
+          "fs.read",
+          "command.run"
+        ],
+        "budgetGrant": {
+          "cpuSeconds": 120,
+          "tokens": 500000,
+          "cost": 200,
+          "wallClockMs": 600000
+        },
+        "deadlineMs": 600000,
+        "depth": 0
+      }
+    ],
+    "negative": [
+      {
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+        "parentId": "node-12",
+        "objective": "Refactor auth module tests",
+        "inputDigests": [],
+        "capabilitySet": [],
+        "budgetGrant": {
+          "cpuSeconds": 120,
+          "tokens": 500000,
+          "cost": 200,
+          "wallClockMs": 600000
+        },
+        "deadlineMs": 600000,
+        "depth": 9
+      }
+    ]
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.convert.schema.json",
+  "title": "workspace.convert payload",
+  "x-method": "workspace.convert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "sourceWorkspaceId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        }
+      },
+      "required": ["projectId"]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "messageIds": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 200,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          }
+        },
+        "artifactIds": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 500,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          }
+        }
+      },
+      "required": ["messageIds", "artifactIds"]
+    },
+    "previewDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "回传 run.convert 预览阶段返回的摘要即视为用户明确确认；缺省时仅执行预检并返回预览。"
+    }
+  },
+  "required": ["runId", "sourceWorkspaceId", "target", "scope"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "conversionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "previewDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "committed": {
+        "type": "boolean"
+      }
+    },
+    "required": ["conversionId", "previewDigest", "committed"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "sourceWorkspaceId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "target": {
+          "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+        },
+        "scope": {
+          "messageIds": ["01ARZ3NDEKTSV4RRFFQ69G5FAY"],
+          "artifactIds": ["01ARZ3NDEKTSV4RRFFQ69G5FAZ"]
+        }
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "sourceWorkspaceId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "target": {
+          "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+        },
+        "scope": {
+          "messageIds": [],
+          "artifactIds": []
+        },
+        "previewDigest": "06fe2b87000000000000000000000000000000000000000000000000000000aa"
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "sourceWorkspaceId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "scope": {
+          "messageIds": [],
+          "artifactIds": []
+        }
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "sourceWorkspaceId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "target": {
+          "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+        }
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "sourceWorkspaceId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "target": {
+          "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+        },
+        "scope": {
+          "messageIds": [],
+          "artifactIds": []
+        },
+        "previewDigest": "not-a-digest"
+      }
+    ]
+  }
+}
