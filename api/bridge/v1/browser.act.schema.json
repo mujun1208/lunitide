@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/browser.act.schema.json",
+  "title": "browser.act payload",
+  "x-method": "browser.act",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "action": {
+      "enum": ["navigate", "read", "click", "type"]
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "value": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 4096
+    }
+  },
+  "required": ["runId", "action", "target"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "snapshotArtifactId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "elements": {
+        "type": "array",
+        "minItems": 0,
+        "maxItems": 500,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "refId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "label": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 512
+            }
+          },
+          "required": ["refId", "role", "label"]
+        }
+      }
+    },
+    "required": ["snapshotArtifactId", "elements"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "action": "navigate",
+        "target": "https://example.com/docs"
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "action": "type",
+        "target": "e12",
+        "value": "monthly report"
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "action": "scroll",
+        "target": "e12"
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "action": "read"
+      },
+      {
+        "runId": "not-a-ulid",
+        "action": "navigate",
+        "target": "https://example.com"
+      }
+    ]
+  }
+}

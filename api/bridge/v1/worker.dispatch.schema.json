@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/worker.dispatch.schema.json",
+  "title": "worker.dispatch payload",
+  "x-method": "worker.dispatch",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "jobSpecDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "capabilityToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "budgetLeaseId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "jobSpecDigest",
+    "capabilityToken",
+    "budgetLeaseId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "workerId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "taskId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "worktreeRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "required": [
+      "workerId",
+      "taskId",
+      "worktreeRef"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "jobSpecDigest": "e73af74900e7aac397025f467319555d90f3154fd51e3485a7218385d2463fb7",
+        "capabilityToken": "captok:01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "budgetLeaseId": "lease-7f3a"
+      }
+    ],
+    "negative": [
+      {
+        "jobSpecDigest": "deadbeef",
+        "capabilityToken": "captok:01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "budgetLeaseId": "lease-7f3a"
+      },
+      {
+        "jobSpecDigest": "e73af74900e7aac397025f467319555d90f3154fd51e3485a7218385d2463fb7",
+        "capabilityToken": "",
+        "budgetLeaseId": "lease-7f3a"
+      }
+    ]
+  }
+}

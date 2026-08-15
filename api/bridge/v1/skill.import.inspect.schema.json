@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/skill.import.inspect.schema.json",
+  "title": "skill.import.inspect payload",
+  "x-method": "skill.import.inspect",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "candidateId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "noticeRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "sourceAttestation": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16384
+    }
+  },
+  "required": ["candidateId", "expectedVersion"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "candidateId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["inspected"]
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["candidateId", "state", "version"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 1,
+        "noticeRef": "NOTICE",
+        "signature": "sig-1"
+      }
+    ],
+    "negative": [
+      {
+        "candidateId": "not-a-ulid",
+        "expectedVersion": 1
+      },
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 0
+      }
+    ]
+  }
+}

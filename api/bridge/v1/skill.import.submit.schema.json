@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/skill.import.submit.schema.json",
+  "title": "skill.import.submit payload",
+  "x-method": "skill.import.submit",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "candidateId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "scanRefs": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16384
+    },
+    "injectionScan": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16384
+    },
+    "evaluationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": ["candidateId", "expectedVersion", "scanRefs", "injectionScan", "evaluationId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "candidateId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["awaiting_approval"]
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["candidateId", "state", "version"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 4,
+        "scanRefs": "[\"scan://001\"]",
+        "injectionScan": "{\"verdict\":\"clean\"}",
+        "evaluationId": "eval-001"
+      }
+    ],
+    "negative": [
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 4,
+        "injectionScan": "{\"verdict\":\"clean\"}",
+        "evaluationId": "eval-001"
+      },
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 4,
+        "scanRefs": "[\"scan://001\"]",
+        "injectionScan": "{\"verdict\":\"clean\"}",
+        "evaluationId": ""
+      }
+    ]
+  }
+}

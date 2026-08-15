@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/trace.markStale.schema.json",
+  "title": "trace.markStale payload",
+  "x-method": "trace.markStale",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "subjectType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "subjectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "causeEdge": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "subjectType",
+    "subjectId",
+    "causeEdge"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "staleMarkId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": [
+      "staleMarkId"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "subjectType": "stage_run",
+        "subjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "causeEdge": "01ARZ3NDEKTSV4RRFFQ69G5FBX"
+      }
+    ],
+    "negative": [
+      {
+        "subjectType": "stage_run",
+        "subjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ]
+  }
+}

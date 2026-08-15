@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/skill.import.revoke.schema.json",
+  "title": "skill.import.revoke payload",
+  "x-method": "skill.import.revoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "candidateId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    }
+  },
+  "required": ["candidateId", "expectedVersion", "reason"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "candidateId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["revoked"]
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["candidateId", "state", "version"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 8,
+        "reason": "signature revoked upstream"
+      }
+    ],
+    "negative": [
+      {
+        "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedVersion": 8,
+        "reason": ""
+      },
+      {
+        "candidateId": "bad",
+        "expectedVersion": 8,
+        "reason": "signature revoked upstream"
+      }
+    ]
+  }
+}

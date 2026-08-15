@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/extension.lifecycle.schema.json",
+  "title": "extension.lifecycle payload",
+  "x-method": "extension.lifecycle",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "installId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "op": {
+      "enum": ["enable", "disable", "pause", "upgrade", "rollback", "uninstall"]
+    },
+    "targetVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": ["installId", "op"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "installId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["discovered", "verifying", "installed", "enabled", "paused", "blocked", "quarantined", "uninstalled", "rolling_back"]
+      },
+      "auditEventId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": ["installId", "state", "auditEventId"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "installId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "op": "enable"
+      },
+      {
+        "installId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "op": "upgrade",
+        "targetVersion": "2.0.0"
+      }
+    ],
+    "negative": [
+      {
+        "installId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "op": "explode"
+      },
+      {
+        "installId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "op": "rollback",
+        "targetVersion": ""
+      }
+    ]
+  }
+}

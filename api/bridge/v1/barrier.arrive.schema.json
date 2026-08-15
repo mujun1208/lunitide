@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/barrier.arrive.schema.json",
+  "title": "barrier.arrive payload",
+  "x-method": "barrier.arrive",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "barrierId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "childId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "resultDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "barrierId",
+    "childId",
+    "attempt",
+    "resultDigest"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "barrierState": {
+        "enum": [
+          "open",
+          "closed"
+        ]
+      },
+      "alreadySettled": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "barrierState",
+      "alreadySettled"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "barrierId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "childId": "task-7",
+        "attempt": 0,
+        "resultDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+      }
+    ],
+    "negative": [
+      {
+        "barrierId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "childId": "task-7",
+        "attempt": -1,
+        "resultDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+      },
+      {
+        "barrierId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "childId": "task-7",
+        "attempt": 0,
+        "resultDigest": "short"
+      }
+    ]
+  }
+}

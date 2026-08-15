@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workflow.createVersion.schema.json",
+  "title": "workflow.createVersion payload",
+  "x-method": "workflow.createVersion",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": ["projectId", "requestId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "workflowVersionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "status": {
+        "enum": ["draft", "published"]
+      },
+      "definitionDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "required": ["workflowVersionId", "version", "status", "definitionDigest"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "requestId": "req-1001"
+      }
+    ],
+    "negative": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      },
+      {
+        "projectId": "not-a-ulid",
+        "requestId": "req-1001"
+      }
+    ]
+  }
+}

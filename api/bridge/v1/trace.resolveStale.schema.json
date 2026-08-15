@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/trace.resolveStale.schema.json",
+  "title": "trace.resolveStale payload",
+  "x-method": "trace.resolveStale",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "staleMarkId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "resolutionType": {
+      "enum": [
+        "recaptured",
+        "reevaluated",
+        "waived"
+      ]
+    },
+    "reevaluationId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "resolvedBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "staleMarkId",
+    "resolutionType",
+    "resolvedBy"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "resolutionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": [
+      "resolutionId"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "staleMarkId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "resolutionType": "recaptured",
+        "resolvedBy": "reviewer-a"
+      }
+    ],
+    "negative": [
+      {
+        "staleMarkId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "resolutionType": "forgotten",
+        "resolvedBy": "r"
+      }
+    ]
+  }
+}

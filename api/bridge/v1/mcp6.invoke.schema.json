@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp6.invoke.schema.json",
+  "title": "mcp6.invoke payload",
+  "x-method": "mcp6.invoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "endpointId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "tool": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
+    },
+    "args": {
+      "type": "object",
+      "minProperties": 0,
+      "maxProperties": 64
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "deadlineMs": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 30000
+    }
+  },
+  "required": ["endpointId", "tool", "args", "idempotencyKey", "deadlineMs"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "result": {
+        "type": "object"
+      },
+      "bytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4194304
+      },
+      "durationMs": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30000
+      },
+      "traceId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": ["result", "bytes", "durationMs", "traceId"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "tool": "searchDocs",
+        "args": {
+          "query": "durable run"
+        },
+        "idempotencyKey": "run-01ARZ3-call-1",
+        "deadlineMs": 5000
+      }
+    ],
+    "negative": [
+      {
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "tool": "rm -rf /",
+        "args": {},
+        "idempotencyKey": "run-01ARZ3-call-2",
+        "deadlineMs": 5000
+      },
+      {
+        "endpointId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "tool": "searchDocs",
+        "args": {},
+        "idempotencyKey": "",
+        "deadlineMs": 5000
+      }
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp6.register.schema.json",
+  "title": "mcp6.register payload",
+  "x-method": "mcp6.register",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transport": {
+          "const": "https"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 2048,
+          "pattern": "^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$"
+        },
+        "authRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": ["transport", "url", "authRef"]
+    },
+    "capabilityPin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serverIdentityDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "toolSchemaDigests": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 256,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "required": ["serverIdentityDigest", "toolSchemaDigests"]
+    }
+  },
+  "required": ["endpoint", "capabilityPin"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpointId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["probe", "ready", "degraded"]
+      }
+    },
+    "required": ["endpointId", "state"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "endpoint": {
+          "transport": "https",
+          "url": "https://mcp.example.com/sse",
+          "authRef": "secretref:vault/mcp-example/token"
+        },
+        "capabilityPin": {
+          "serverIdentityDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6",
+          "toolSchemaDigests": {
+            "searchDocs": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+          }
+        }
+      }
+    ],
+    "negative": [
+      {
+        "endpoint": {
+          "transport": "stdio",
+          "url": "https://mcp.example.com/sse",
+          "authRef": "secretref:vault/mcp-example/token"
+        },
+        "capabilityPin": {
+          "serverIdentityDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6",
+          "toolSchemaDigests": {
+            "searchDocs": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+          }
+        }
+      },
+      {
+        "endpoint": {
+          "transport": "https",
+          "url": "http://mcp.example.com/sse",
+          "authRef": "secretref:vault/mcp-example/token"
+        },
+        "capabilityPin": {
+          "serverIdentityDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6",
+          "toolSchemaDigests": {}
+        }
+      }
+    ]
+  }
+}

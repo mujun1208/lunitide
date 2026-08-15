@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/skill.import.discover.schema.json",
+  "title": "skill.import.discover payload",
+  "x-method": "skill.import.discover",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "assetType": {
+      "enum": ["skill", "profile", "prompt_bundle"]
+    },
+    "sourceUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "immutableCommit": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "archiveHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "publisher": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "noticeRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    }
+  },
+  "required": ["assetType", "sourceUrl", "immutableCommit", "archiveHash", "license", "publisher"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "candidateId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["discovered", "pinned", "inspected", "scanned", "evaluated", "awaiting_approval", "approved", "rejected", "revoked"]
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["candidateId", "state", "version"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "assetType": "skill",
+        "sourceUrl": "https://src.example/acme/pdf-tool",
+        "immutableCommit": "0123456789abcdef0123456789abcdef01234567",
+        "archiveHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "license": "MIT",
+        "publisher": "acme"
+      }
+    ],
+    "negative": [
+      {
+        "assetType": "plugin",
+        "sourceUrl": "https://src.example/acme/pdf-tool",
+        "immutableCommit": "0123456789abcdef0123456789abcdef01234567",
+        "archiveHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "license": "MIT",
+        "publisher": "acme"
+      },
+      {
+        "assetType": "skill",
+        "sourceUrl": "https://src.example/acme/pdf-tool",
+        "immutableCommit": "0123456789abcdef0123456789abcdef01234567",
+        "archiveHash": "short",
+        "license": "MIT",
+        "publisher": "acme"
+      }
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/extension.install.schema.json",
+  "title": "extension.install payload",
+  "x-method": "extension.install",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "artifactId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "permissionGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "granted": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "confirmedDeltaDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": ["granted", "confirmedDeltaDigest"]
+    }
+  },
+  "required": ["artifactId", "version", "permissionGrant"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "installId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["installed", "quarantined"]
+      },
+      "auditEventId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": ["installId", "state", "auditEventId"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "artifactId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "version": "1.2.0",
+        "permissionGrant": {
+          "granted": ["fs.read"],
+          "confirmedDeltaDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "artifactId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "version": "1.2.0",
+        "permissionGrant": {
+          "granted": [],
+          "confirmedDeltaDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+        }
+      },
+      {
+        "artifactId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "version": "1.2.0",
+        "permissionGrant": {
+          "granted": ["fs.read"],
+          "confirmedDeltaDigest": "not-a-digest"
+        }
+      }
+    ]
+  }
+}

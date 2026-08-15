@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/evidence.attachScan.schema.json",
+  "title": "evidence.attachScan payload",
+  "x-method": "evidence.attachScan",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "scanner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "severityGate": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "reportDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "taskRef",
+    "scanner",
+    "severityGate",
+    "reportDigest"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "scanId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": [
+      "scanId"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskRef": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "scanner": "sast",
+        "severityGate": "high",
+        "reportDigest": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+      }
+    ],
+    "negative": [
+      {
+        "taskRef": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "scanner": "sast",
+        "severityGate": "high",
+        "reportDigest": "zz"
+      }
+    ]
+  }
+}

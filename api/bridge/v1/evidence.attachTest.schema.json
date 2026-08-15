@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/evidence.attachTest.schema.json",
+  "title": "evidence.attachTest payload",
+  "x-method": "evidence.attachTest",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "result": {
+      "enum": [
+        "pass",
+        "fail",
+        "error",
+        "timeout"
+      ]
+    },
+    "reportDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "taskRef",
+    "result",
+    "reportDigest"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "testId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": [
+      "testId"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskRef": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "result": "pass",
+        "reportDigest": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      }
+    ],
+    "negative": [
+      {
+        "taskRef": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "result": "green",
+        "reportDigest": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      }
+    ]
+  }
+}

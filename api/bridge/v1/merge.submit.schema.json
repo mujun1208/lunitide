@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/merge.submit.schema.json",
+  "title": "merge.submit payload",
+  "x-method": "merge.submit",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rootId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "childId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "expectedHead": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "patchDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "testsRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "childId",
+        "expectedHead",
+        "patchDigest",
+        "testsRef"
+      ]
+    }
+  },
+  "required": [
+    "rootId",
+    "sequence",
+    "intent"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "intentId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": [
+          "queued",
+          "stale"
+        ]
+      }
+    },
+    "required": [
+      "intentId",
+      "state"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+        "sequence": 1,
+        "intent": {
+          "childId": "task-7",
+          "expectedHead": "refs/heads/main@a1b2c3",
+          "patchDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a",
+          "testsRef": "evidence://run/01ARZ3/tests"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+        "sequence": 0,
+        "intent": {
+          "childId": "task-7",
+          "expectedHead": "refs/heads/main@a1b2c3",
+          "patchDigest": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a",
+          "testsRef": "evidence://run/01ARZ3/tests"
+        }
+      },
+      {
+        "rootId": "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+        "sequence": 1,
+        "intent": {
+          "childId": "task-7",
+          "expectedHead": "refs/heads/main@a1b2c3",
+          "patchDigest": "nope",
+          "testsRef": "evidence://run/01ARZ3/tests"
+        }
+      }
+    ]
+  }
+}

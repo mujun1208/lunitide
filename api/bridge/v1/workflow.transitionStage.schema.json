@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workflow.transitionStage.schema.json",
+  "title": "workflow.transitionStage payload",
+  "x-method": "workflow.transitionStage",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "stageRunId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "to": {
+      "enum": ["ready", "running", "waiting_review", "approved", "completed", "blocked", "paused", "cancelled"]
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": ["stageRunId", "to", "expectedVersion"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "stageRunId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "state": {
+        "enum": ["draft", "ready", "running", "waiting_review", "approved", "completed", "blocked", "paused", "cancelled"]
+      },
+      "lockVersion": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["stageRunId", "state", "lockVersion"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "to": "running",
+        "expectedVersion": 1
+      }
+    ],
+    "negative": [
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "to": "draft",
+        "expectedVersion": 1
+      },
+      {
+        "stageRunId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "to": "running"
+      }
+    ]
+  }
+}

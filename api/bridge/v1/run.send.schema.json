@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/run.send.schema.json",
+  "title": "run.send payload",
+  "x-method": "run.send",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 131072
+    },
+    "attachments": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "file"
+          },
+          "artifactId": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          }
+        },
+        "required": ["kind", "artifactId"]
+      }
+    }
+  },
+  "required": ["sessionId", "text"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "runId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "eventSeq": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "status": {
+        "enum": ["queued", "running"]
+      }
+    },
+    "required": ["runId", "eventSeq", "status"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "text": "帮我总结这个工作区的变更"
+      },
+      {
+        "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "text": "继续上一步",
+        "attachments": [
+          {
+            "kind": "file",
+            "artifactId": "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+          }
+        ]
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      },
+      {
+        "sessionId": "not-a-ulid",
+        "text": "hello"
+      },
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "text": ""
+      }
+    ]
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/review.submit.schema.json",
+  "title": "review.submit payload",
+  "x-method": "review.submit",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "subjectType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "subjectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "subjectVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "verdict": {
+      "enum": [
+        "approve",
+        "reject"
+      ]
+    },
+    "reviewerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "authorId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    }
+  },
+  "required": [
+    "subjectType",
+    "subjectId",
+    "verdict",
+    "reviewerId",
+    "authorId",
+    "reason"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "reviewId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "traceEdgeId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": [
+      "reviewId",
+      "traceEdgeId"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "subjectType": "stage_run",
+        "subjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "verdict": "approve",
+        "reviewerId": "reviewer-a",
+        "authorId": "author-x",
+        "reason": "LGTM"
+      }
+    ],
+    "negative": [
+      {
+        "subjectType": "stage_run",
+        "subjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "verdict": "maybe",
+        "reviewerId": "r",
+        "authorId": "a",
+        "reason": "x"
+      }
+    ]
+  }
+}
