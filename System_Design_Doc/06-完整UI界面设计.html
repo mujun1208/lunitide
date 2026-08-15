@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lunitide 月汐 · 工作台 UI 原型</title>
+<title>Lunitide 月汐 · V2.0 完整 UI 界面设计</title>
 <style>
 /* ═══════════════════════════════════════════════════════════
    Lunitide 月汐 — 共享样式模板 (Black Starry Sky + Moon Theme)
@@ -480,6 +480,13 @@ td .col{color:var(--tide1)}
 .editor-pane{min-width:0;display:flex;flex-direction:column}.editor-bar{height:38px;padding:0 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:8px;font:10px var(--mono);color:var(--muted)}.editor-code{margin:0;flex:1;border:0;border-radius:0;background:#080d16;padding:14px 16px;font:10.5px/1.72 var(--mono);overflow:hidden;color:#c7d6eb}.ln{display:inline-block;width:24px;color:#526174;user-select:none}.code-add{display:block;background:rgba(59,214,160,.07);color:#c9f5e7}.code-edit{display:block;background:rgba(127,180,255,.07)}.editor-status{height:32px;padding:0 11px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:12px;font:9.5px var(--mono);color:var(--muted)}
 .panel-tray{border-top:1px solid var(--rule);display:grid;grid-template-columns:1fr 1fr 1fr;background:rgba(12,18,29,.9)}.tray-item{padding:9px 11px;border-right:1px solid var(--rule);font:9.5px var(--mono);color:var(--muted)}.tray-item:last-child{border-right:0}.tray-item b{display:block;color:var(--ink);font:11px var(--sans);margin-bottom:2px}
 
+/* ── Project lifecycle, asset templates & three-column workspace ── */
+.drawer-cue{display:none;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;background:#0d1624;color:var(--ink);font:11px var(--sans);margin-bottom:10px}.drawer-cue b{color:var(--glow)}
+.pm-shell{border:1px solid var(--rule);border-radius:11px;background:#080d16;overflow:hidden}.pm-toolbar{display:flex;gap:9px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--rule);flex-wrap:wrap}.pm-toolbar input{min-height:36px;min-width:220px;flex:1;background:#0f1724;border:1px solid var(--rule);border-radius:7px;color:var(--ink);padding:0 11px}.table-scroll{overflow:auto}.pm-table{min-width:1040px}.pm-head,.pm-row{display:grid;grid-template-columns:1.35fr .65fr .65fr .7fr .85fr .7fr 1.35fr;gap:9px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--rule)}.pm-head{font:9.5px var(--mono);color:var(--muted);letter-spacing:.06em;background:rgba(12,18,29,.9)}.pm-row{font-size:10.5px}.pm-row b{font-size:12px}.pm-actions{display:flex;gap:5px;flex-wrap:wrap}.pm-actions button{min-height:27px;padding:0 7px;font-size:9.5px}.readonly{opacity:.72}.readonly .pm-actions button:not(.allowed){cursor:not-allowed;opacity:.42}.gate-note{padding:11px 14px;color:var(--muted);font-size:10.5px;background:rgba(127,180,255,.04)}
+.modal-grid{display:grid;grid-template-columns:1.12fr .88fr;gap:12px;margin-top:14px}.mock-dialog{border:1px solid var(--line);border-radius:11px;background:#0c1421;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden}.dialog-head,.dialog-foot{padding:11px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--rule)}.dialog-head b{font-size:13px}.dialog-head span{margin-left:auto;color:var(--muted)}.dialog-body{padding:13px 14px}.dialog-foot{border-top:1px solid var(--rule);border-bottom:0;justify-content:flex-end}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.field{display:grid;gap:4px}.field.wide{grid-column:1/-1}.field label{font:9.5px var(--mono);color:var(--muted)}.field input,.field select,.field textarea{width:100%;min-height:34px;border:1px solid var(--rule);border-radius:6px;background:#101a29;color:var(--ink);padding:7px 9px;font:10.5px var(--sans)}.danger-confirm{display:grid;gap:7px;padding:10px;border:1px solid rgba(255,122,122,.28);background:rgba(255,122,122,.05);border-radius:8px;font-size:10px}.confirm-triplet{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.confirm-triplet span{padding:7px;border:1px solid var(--rule);border-radius:6px;color:var(--muted)}
+.project-workspace{display:grid;grid-template-columns:210px minmax(330px,1fr) minmax(330px,.9fr);min-height:720px;background:#080d16}.phase-nav{padding:14px 10px;border-right:1px solid var(--rule);background:rgba(12,18,29,.96)}.project-switch{padding:9px;border:1px solid var(--rule);border-radius:8px;margin:10px 0;font-size:11px}.phase-list{display:grid;gap:3px}.phase-item{padding:7px 8px;border-radius:6px;color:var(--muted);font-size:10.5px}.phase-item.on{color:var(--ink);background:rgba(127,180,255,.1);box-shadow:inset 2px 0 var(--glow)}.project-chat{display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--rule)}.project-chat .dev-chat-stream{overflow:auto}.workspace-panel{min-width:0;display:flex;flex-direction:column}.workspace-tabs{display:flex;overflow:auto;border-bottom:1px solid var(--rule);min-height:52px}.workspace-tabs button{white-space:nowrap;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);padding:0 10px}.workspace-tabs button.on{color:var(--ink);border-color:var(--glow)}.workspace-body{padding:13px;overflow:auto}.artifact-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.artifact{padding:8px 9px;border:1px solid var(--rule);border-radius:7px;font-size:10px;color:var(--muted)}.artifact b{display:block;color:var(--ink);font-size:10.5px}.template-pick{margin:10px 0;padding:9px;border:1px solid rgba(127,180,255,.25);border-radius:7px;background:rgba(127,180,255,.05);font-size:10px}.panel-resize{padding:7px 10px;border-top:1px solid var(--rule);font:9px var(--mono);color:var(--muted);margin-top:auto}
+.asset-shell{border:1px solid var(--rule);border-radius:11px;background:#080d16;overflow:hidden}.asset-head{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--rule);flex-wrap:wrap}.asset-list{min-width:900px}.asset-row{display:grid;grid-template-columns:1.4fr .7fr .65fr .7fr 1.2fr;gap:9px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--rule);font-size:10.5px}.asset-row.head{font:9.5px var(--mono);color:var(--muted);background:rgba(12,18,29,.9)}.asset-actions{display:flex;gap:5px;flex-wrap:wrap}
+
 /* ── Project data center & release promotion boards ── */
 .ops-shell{display:grid;grid-template-columns:188px minmax(0,1fr);min-height:720px;background:#080d16;border:1px solid var(--rule);border-radius:11px;overflow:hidden}
 .ops-side{padding:15px 11px;background:rgba(12,18,29,.98);border-right:1px solid var(--rule)}
@@ -551,17 +558,34 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
   .setting-row{grid-template-columns:1fr}.toggle{justify-self:start}
   .dev-shell{grid-template-columns:1fr}.dev-nav{display:none}.dev-chat{border-right:0}.work-panel{min-height:620px;border-top:1px solid var(--rule)}
   .ops-shell{grid-template-columns:1fr}.ops-side{display:none}.ops-grid,.release-lower{grid-template-columns:1fr}.promotion{grid-template-columns:1fr}.package-row{grid-template-columns:1fr 1fr}
+  .drawer-cue{display:flex}.modal-grid{grid-template-columns:1fr}.project-workspace{grid-template-columns:1fr}.phase-nav{display:none}.project-chat{border-right:0}.workspace-panel{min-height:540px;border-top:1px solid var(--rule)}
 }
 @media(max-width:640px){
   .launch-actions,.design-rules{grid-template-columns:1fr}
   .composer-tools .tool-btn:nth-of-type(2){display:none}
   .notice-grid,.package-row{grid-template-columns:1fr}.ops-main,.release-shell{padding:14px 10px}.ops-top{align-items:flex-start;flex-wrap:wrap}.ops-top .ui-btn:first-of-type{margin-left:0}.api-row{align-items:flex-start;flex-wrap:wrap}.api-test{margin-left:0;width:100%;text-align:left}
+  .form-grid,.confirm-triplet,.artifact-grid{grid-template-columns:1fr}
 }
 :where(button,a,input,textarea,select,[role="button"],[role="tab"],[tabindex]):focus-visible{outline:2px solid var(--tide1);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* Product boards must not be covered by document chrome. Navigation lives in the index. */
+body>nav{display:none!important}
+.v2-atlas{border-top:1px solid var(--rule)}
+.atlas-intro{display:flex;justify-content:space-between;gap:30px;align-items:end;margin-bottom:20px}.atlas-intro .lead{max-width:720px}
+.atlas-shell{display:grid;grid-template-columns:205px 1fr;min-height:560px;border:1px solid var(--rule);border-radius:12px;overflow:hidden;background:#080d16}
+.atlas-nav{background:#080c14;border-right:1px solid var(--rule);padding:14px 10px}.atlas-nav .s-logo{display:flex;gap:8px;align-items:center;padding:4px 7px 16px}.atlas-nav .s-title{margin:15px 8px 5px}.atlas-nav a{display:flex;gap:8px;color:var(--muted);text-decoration:none;padding:8px 10px;border-radius:7px;font-size:11px}.atlas-nav a.on{color:var(--ink);background:linear-gradient(90deg,rgba(63,214,255,.14),rgba(127,91,255,.08));box-shadow:inset 2px 0 var(--tide1)}
+.atlas-main{padding:18px;min-width:0}.atlas-main-head{display:flex;align-items:center;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--rule)}.atlas-main-head>div{flex:1}.atlas-main-head h3{margin:0;color:var(--ink)}
+.screen-family{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}.screen-route{min-height:126px;border:1px solid var(--rule);border-radius:9px;background:linear-gradient(155deg,rgba(14,28,48,.7),rgba(8,15,25,.72));padding:12px;position:relative}.screen-route::before{content:attr(data-route);display:block;color:var(--glow);font:9px var(--mono);margin-bottom:7px}.screen-route b{display:block;font-size:12px}.screen-route p{font-size:10.5px;line-height:1.55;margin:5px 0}.screen-route .status-badge{position:absolute;right:9px;top:9px}
+.overlay-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}.overlay-strip span{border:1px dashed var(--line);border-radius:7px;padding:8px;color:var(--muted);font-size:10px}.overlay-strip b{display:block;color:var(--tide1)}
+.state-contract{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.state-contract span{font:9px var(--mono);border:1px solid var(--rule);border-radius:999px;padding:3px 8px;color:var(--muted)}
+.asset-manager{display:grid;grid-template-columns:180px 1fr 260px;min-height:590px;border:1px solid var(--rule);border-radius:11px;overflow:hidden;background:#080d16;margin-bottom:28px}.asset-manager-side{padding:13px 9px;background:#080c14;border-right:1px solid var(--rule)}.asset-manager-side a{display:flex;justify-content:space-between;color:var(--muted);padding:7px 9px;border-radius:6px;font-size:10.5px}.asset-manager-side a.on{color:var(--ink);background:linear-gradient(90deg,rgba(63,214,255,.14),rgba(127,91,255,.08));box-shadow:inset 2px 0 var(--tide1)}.asset-manager-main{padding:15px;min-width:0}.asset-manager-toolbar{display:grid;grid-template-columns:1fr auto auto;gap:7px;margin:12px 0}.asset-manager-toolbar input,.asset-manager-toolbar select{border:1px solid var(--rule);border-radius:6px;background:#101927;color:var(--ink);padding:8px;font-size:10px}.asset-files{display:grid;gap:2px}.asset-file{display:grid;grid-template-columns:2fr .8fr .8fr .65fr;gap:8px;padding:10px;border-bottom:1px solid var(--rule);font-size:10px;align-items:center}.asset-file.head{font:9px var(--mono);color:var(--glow)}.asset-file.on{background:rgba(63,214,255,.05)}.asset-file small{display:block;color:var(--muted)}.asset-manager-detail{padding:14px;border-left:1px solid var(--rule);background:#09111c}.asset-manager-preview{height:145px;border:1px solid var(--rule);border-radius:9px;display:grid;place-items:center;background:radial-gradient(circle,rgba(63,134,255,.15),transparent 68%);margin:14px 0}.asset-manager-detail dl{display:grid;grid-template-columns:48px 1fr;gap:7px;font-size:9.5px}.asset-manager-detail dt{color:var(--muted)}.asset-manager-detail dd{margin:0}.asset-manager-detail button{width:100%;margin-top:6px}
+@media(max-width:960px){.atlas-shell{grid-template-columns:1fr}.atlas-nav{display:none}.screen-family{grid-template-columns:repeat(2,1fr)}.overlay-strip{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:960px){.asset-manager{grid-template-columns:160px 1fr}.asset-manager-detail{display:none}}
+@media(max-width:640px){.screen-family,.overlay-strip{grid-template-columns:1fr}.atlas-intro{display:block}.asset-manager{grid-template-columns:1fr}.asset-manager-side{display:none}.asset-file{grid-template-columns:2fr 1fr}.asset-file>*:nth-child(3),.asset-file>*:nth-child(4){display:none}}
 </style>
 </head>
 <body>
@@ -586,8 +610,9 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
       <div class="moon-logo sm"></div>
       <span>LUNITIDE</span><span class="zh">月汐</span>
     </div>
-    <span class="tag">v1.0 PROTOTYPE</span>
+    <span class="tag">V2.0 COMPLETE UI</span>
     <div class="links">
+      <a href="#project-management">项目</a>
       <a href="#workbench">工作台</a>
       <a href="#development-workbench">开发</a>
       <a href="#data-interface-center">数据与接口</a>
@@ -597,6 +622,10 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
       <a href="#governance">治理审批</a>
       <a href="#memory">记忆中心</a>
       <a href="#skills">技能中心</a>
+      <a href="#experts">专家中心</a>
+      <a href="#asset-library">资产库</a>
+      <a href="#companion">月伴对话</a>
+      <a href="#v2-complete-atlas">V2 全界面</a>
       <a href="#settings">设置</a>
       <a href="#top">↑ 返回顶部</a>
     </div>
@@ -633,7 +662,9 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
 <section class="prototype-toc" style="padding:20px 0 40px">
   <div class="wrap">
     <div class="toc">
+      <a href="#project-management"><div class="n">00</div><div class="t">项目清单与生命周期</div></a>
       <a href="#workbench"><div class="n">01</div><div class="t">主工作台</div></a>
+      <a href="#project-workspace"><div class="n">01A</div><div class="t">项目三栏工作台</div></a>
       <a href="#development-workbench"><div class="n">01B</div><div class="t">轻量开发工作台</div></a>
       <a href="#data-interface-center"><div class="n">01C</div><div class="t">数据与接口中心</div></a>
       <a href="#cr-promotion"><div class="n">01D</div><div class="t">CR 与环境晋级</div></a>
@@ -642,9 +673,55 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
       <a href="#governance"><div class="n">04</div><div class="t">治理与审批</div></a>
       <a href="#memory"><div class="n">05</div><div class="t">记忆中心</div></a>
       <a href="#skills"><div class="n">06</div><div class="t">技能中心</div></a>
+      <a href="#experts"><div class="n">06A</div><div class="t">专家中心</div></a>
+      <a href="#asset-library"><div class="n">06B</div><div class="t">资产库</div></a>
+      <a href="#companion"><div class="n">06C</div><div class="t">月伴全屏对话</div></a>
     </div>
   </div>
 </section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     00 · 项目清单与全生命周期
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="project-management"><div class="wrap">
+  <div class="sec-head"><div><span class="num">00 / PROJECT LIFECYCLE</span><h2>项目清单与操作门禁</h2><p class="lead">项目是阶段、资产、对话和发布的作用域。清单统一呈现类型、状态、版本和责任信息；关闭与删除后只能只读查看，恢复后才允许写入。</p></div></div>
+  <div class="drawer-cue" id="project-list-drawer-cue"><b>☰ 项目菜单</b><span>窄屏通过 drawer 打开筛选、项目导航与返回路径，不会隐藏功能。</span></div>
+  <div class="pm-shell" id="project-list-prototype">
+    <div class="pm-toolbar"><input type="search" aria-label="搜索项目" placeholder="搜索项目名称、ITM编号或客户…"><select class="setting-control" style="width:auto"><option>全部类型</option><option>实施项目</option><option>运维项目</option><option>增强项目</option></select><select class="setting-control" style="width:auto"><option>全部状态</option><option>创建</option><option>立项</option><option>需求架构 / 需求评估</option><option>实施中</option><option>集成测试</option><option>上线准备</option><option>系统上线</option><option>项目关闭</option></select><button class="ui-btn primary" type="button">＋ 创建项目</button></div>
+    <div class="table-scroll"><div class="pm-table">
+      <div class="pm-head"><span>项目 / 编号</span><span>类型</span><span>状态</span><span>当前阶段</span><span>版本 / 发布</span><span>负责人 / 更新</span><span>可用动作</span></div>
+      <div class="pm-row"><span><b>在线商城系统</b><br><span class="view-meta">ITM00014 · 某客户</span></span><span>实施项目</span><span class="status-badge">创建</span><span>尚未进入工作台</span><span>0 项产出 · 未发布</span><span>计划 2026-09-01<br>至 2027-03-31</span><span class="pm-actions"><button class="ui-btn">修改</button><button class="ui-btn primary">发布</button><button class="ui-btn" disabled>进入工作台</button><button class="ui-btn danger">删除</button></span></div>
+      <div class="pm-row"><span><b>支付网关巡检</b><br><span class="view-meta">ITM00008 · 某客户</span></span><span>运维项目</span><span class="status-badge ok">实施中</span><span>开发 / 测试</span><span>8 项产出 · CR-128</span><span>计划 2026-07-01<br>至 2026-12-31</span><span class="pm-actions"><button class="ui-btn primary">进入工作台</button><button class="ui-btn">修改</button><button class="ui-btn" disabled>发布</button><button class="ui-btn">关闭</button><button class="ui-btn danger" disabled title="已有产出且处于实施中，不允许删除">删除</button></span></div>
+      <div class="pm-row readonly"><span><b>会员体验增强</b><br><span class="view-meta">ITM00031 · 某客户</span></span><span>增强项目</span><span class="status-badge">项目关闭 · 只读</span><span>关闭前：实施中</span><span>10 项产出 · 已锁版</span><span>计划已完成<br>2025-01-12</span><span class="pm-actions"><button class="ui-btn allowed">只读进入工作台</button><button class="ui-btn" disabled>修改</button><button class="ui-btn" disabled>发布</button><button class="ui-btn allowed">打开项目</button><button class="ui-btn danger" disabled>删除</button></span></div>
+    </div></div>
+    <div class="gate-note"><b>动作门禁：</b>创建状态仅可修改 D–L、发布或删除，不能进入工作台；发布确认后变为立项，之后“进入工作台”可用且发布按钮置灰。关闭项目填写关闭原因并记住关闭前状态；打开项目填写打开原因并恢复原状态。关闭项目只读；删除项目不在清单显示，只保留数据库和审计记录。</div>
+  </div>
+
+  <div class="modal-grid" id="project-dialogs">
+    <div class="mock-dialog" id="project-create-dialog" role="dialog" aria-labelledby="project-create-title"><div class="dialog-head"><b id="project-create-title">创建项目 · A–N</b><span>×</span></div><div class="dialog-body"><div class="form-grid">
+      <div class="field"><label>A 项目编号</label><input value="保存时自动生成 ITM00015" disabled></div><div class="field"><label>B 项目类型 *</label><select><option>实施项目</option><option>运维项目</option><option>增强项目</option></select></div>
+      <div class="field"><label>C 项目名称 *</label><input value="在线商城系统"></div><div class="field wide"><label>D 项目描述 *</label><textarea>建设面向客户的在线商城系统</textarea></div>
+      <div class="field wide"><label>E 项目简介</label><textarea>商城 v2.0 项目简介</textarea></div><div class="field wide"><label>F 项目目标</label><textarea>完成设计、开发、测试与上线</textarea></div>
+      <div class="field"><label>G 客户 *</label><input value="某客户"></div><div class="field"><label>H 合同编号</label><input value="HT-2026-018"></div>
+      <div class="field"><label>I 项目金额</label><input value="CNY 1,200,000.00"></div><div class="field"><label>J 项目预算成本</label><input value="CNY 800,000.00"></div>
+      <div class="field"><label>K 计划开始日期 *</label><input type="date" value="2026-09-01"></div><div class="field"><label>K 计划完成日期 *</label><input type="date" value="2027-03-31"></div>
+      <div class="field wide"><label>L 项目备注</label><textarea>客户环境与上线窗口待确认</textarea></div><div class="field"><label>M 项目状态</label><input value="创建" disabled></div>
+      <div class="field wide"><label>N 阶段文档附件</label><div class="view-meta">新建时为空；保存后按需求架构规范、方案和UI设计、数据库、接口、开发、测试、集成、发布分类上传、下载和版本替换。</div></div>
+    </div></div><div class="dialog-foot"><button class="ui-btn">取消</button><button class="ui-btn primary">保存项目</button></div></div>
+    <div style="display:grid;gap:12px"><div class="mock-dialog" id="project-publish-dialog" role="dialog" aria-label="发布项目"><div class="dialog-head"><b>发布项目 · ITM00014</b><span>×</span></div><div class="dialog-body"><p><b>确实是否发布执行该项目？</b></p><p class="view-meta">确认后项目状态由“创建”变更为“立项”，发布按钮置灰，“进入工作台”按钮启用。</p></div><div class="dialog-foot"><button class="ui-btn">取消</button><button class="ui-btn primary">确认发布</button></div></div>
+    <div class="mock-dialog" id="project-close-delete-dialog"><div class="dialog-head"><b>关闭 / 打开 / 删除项目</b><span>×</span></div><div class="dialog-body"><p class="view-meta">关闭必须填写关闭原因并记录关闭前状态；打开必须填写打开原因并恢复关闭前状态。删除仅做逻辑删除且删除后不再出现在项目清单；有产出或已进入受保护阶段时删除按钮禁用。</p><textarea placeholder="关闭原因或打开原因（必填）"></textarea><div class="pm-actions"><button class="ui-btn">关闭项目</button><button class="ui-btn">打开项目</button><button class="ui-btn danger">删除项目</button></div></div></div></div>
+  </div>
+</div></section>
+
+<!-- 01A · 项目三栏工作台 -->
+<section class="stage-sec" id="project-workspace"><div class="wrap"><div class="sec-head"><div><span class="num">01A / PROJECT WORKSPACE</span><h2>对话恒定的三栏项目工作台</h2><p class="lead">左栏按项目类型投影阶段，中栏始终是对话，右栏可伸缩承载预览、浏览器、CLI、文件管理与计划；代码和变更仅作为开发阶段子视图。</p></div></div>
+  <div class="drawer-cue" id="workspace-drawer-cue"><b>☰ 阶段菜单</b><span>在线商城系统 / 方案和UI设计 · 点按打开同构 drawer；右侧面板在手机转为全屏 route。</span></div>
+    <div class="stage" data-label="lunitide://project/ITM00014/workspace"><div class="browser-dots"><i></i><i></i><i></i></div><div class="project-workspace" id="project-workspace-three-column">
+    <aside class="phase-nav" aria-label="项目阶段导航"><div class="s-logo"><div class="moon-logo sm"></div><b>LUNITIDE</b><span>月汐</span></div><div class="project-switch"><b>在线商城系统</b><br><span class="view-meta">实施 · 进行中</span></div><div class="s-title">实施阶段</div><div class="phase-list"><div class="phase-item">1 需求架构规范</div><div class="phase-item on">2 方案和UI设计</div><div class="phase-item">3 数据库</div><div class="phase-item">4 接口</div><div class="phase-item">5 开发</div><div class="phase-item">6 测试</div><div class="phase-item">7 集成</div><div class="phase-item">8 发布</div></div><div class="contract-note"><b>类型投影</b><br>运维：需求架构规范、数据库、接口、开发、测试、发布。<br>增强：与实施相同八阶段。</div></aside>
+    <main class="project-chat"><header class="dev-top"><div><div class="dev-title">方案和 UI 设计</div><div class="view-meta">ITM00014 · 中栏始终对话</div></div><button class="ui-btn ghost" style="margin-left:auto">上下文</button></header><div class="dev-chat-stream"><div class="msg user me"><div class="av" style="background:var(--glow)">U</div><div><div class="who">USER · 14:32</div><div class="bb">选择企业 Web 模板，先核对需求架构产物，再生成方案与 UI 清单。</div></div></div><div class="msg agent"><div class="av" style="background:var(--tide1)">A</div><div><div class="who">AGENT · 14:33</div><div class="bb">已关联 9 项需求架构产物。右侧展示本阶段 10 项产物与模板；生成前会确认对象、影响和执行意图，计划仅在需要拆解或审批时投影。</div></div></div></div><div class="dev-composer"><div class="context-chips"><span class="context-chip">@ITM00014</span><span class="context-chip">@需求基线 v3</span></div><div class="dev-input-row"><textarea rows="2" aria-label="项目对话" placeholder="继续对话，@ 引用产物，/plan 按需投影计划…"></textarea><button class="ui-btn primary">↑</button></div></div><section class="stage-sec" id="v2-authoritative-ui-corrections"><div class="wrap"><div class="sec-head"><div><span class="num">AUTHORITATIVE CORRECTIONS</span><h2>V2.0 冻结交互裁决</h2></div></div><ul><li>普通聊天中的“选择项目”一律解释为“保存为项目输入 / 在项目中新建会话”，不得原地修改普通会话的 <code>project_id</code>。</li><li>项目“发布”若指生命周期动作，统一改名“立项并激活”；能力仍由 capability/Policy/审批裁决，项目状态不是能力开关。</li><li>本页技能中心、专家中心、资产管理画板是设置内页面原型，不是全局侧栏一级入口。</li><li>没有公开 RPC 的画板主操作必须禁用并标“概念预览”；M9 在 ADR-011 accepted 前始终如此。</li></ul></div></section></main>
+    <section class="workspace-panel" aria-label="可伸缩项目面板"><nav class="workspace-tabs" role="tablist" aria-label="项目工具视图"><button class="on" role="tab" aria-selected="true">预览</button><button role="tab">浏览器</button><button role="tab">CLI</button><button role="tab">文件管理</button><button role="tab">计划</button><button role="tab">开发 ▾</button><button aria-label="收起右侧面板">⇥</button></nav><div class="workspace-body"><div class="template-pick"><b>模板选择</b><br>资产库 / 当前阶段启用模板 · 锁定版本　<button class="micro-btn">更换模板</button></div><div class="section-caption"><b>需求架构规范 · 9 份文件</b><span>9 / 9 已确认</span></div><div class="artifact-grid"><div class="artifact"><b>01 业务需求分析报告</b></div><div class="artifact"><b>02 系统实现评估报告</b></div><div class="artifact"><b>03 需求任务清单</b></div><div class="artifact"><b>04 系统架构设计文档</b></div><div class="artifact"><b>05 系统硬件配置文档</b></div><div class="artifact"><b>06 系统业务规范</b></div><div class="artifact"><b>07 系统开发规范</b></div><div class="artifact"><b>08 系统技术规范</b></div><div class="artifact"><b>09 项目结构规范</b></div></div><div class="section-caption"><b>方案和 UI 设计 · 10 份文件</b><span>2 / 10 草稿</span></div><div class="artifact-grid"><div class="artifact"><b>01 业务流程图</b></div><div class="artifact"><b>02 业务流程清单</b></div><div class="artifact"><b>03 业务蓝图文档</b></div><div class="artifact"><b>04 接口清单</b></div><div class="artifact"><b>05 功能开发清单</b></div><div class="artifact"><b>06 功能详细设计文档</b></div><div class="artifact"><b>07 接口详细设计文档</b></div><div class="artifact"><b>08 数据库详细设计文档</b></div><div class="artifact"><b>09 UI界面详细设计</b></div><div class="artifact"><b>10 集成测试清单文档</b></div></div><div class="danger-confirm" style="margin-top:10px"><b>阶段晋级三关确认（不是重复弹窗）</b><span>① 完整性确认：当前阶段必须 10/10 份文件齐全，模板和来源可追溯</span><span>② 质量与影响确认：评审、追踪、stale 传播和下游影响已检查</span><span>③ 不可逆晋级确认：绑定同一产物 digest，确认进入下一阶段</span><small>任一文件或 digest 变化，三关全部失效并重新确认。</small></div></div><div class="panel-resize">⇤ 拖动调整宽度 · 收起 / 轻览 / 聚焦　三态 · 开发子视图：代码、变更</div></section>
+  </div></div>
+</div></section>
 
 <!-- ═══════════════════════════════════════════════════════════
      01 · 主工作台原型
@@ -655,7 +732,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
       <div>
         <span class="num">01 / PROTOTYPE</span>
         <h2>对话优先工作台</h2>
-        <p class="lead">默认启动页参考 ZCODE 的低干扰、对话优先和渐进展开方式；保留 Lunitide 的黑色星空与月亮品牌。进入项目后才展开九阶段、计划和活动上下文。</p>
+        <p class="lead">默认启动页沿用指定参考 HTML 的低干扰、对话优先和渐进展开结构；保留 Lunitide 的黑色星空与月亮品牌。进入项目后才展开九阶段、计划和活动上下文。</p>
       </div>
     </div>
 
@@ -679,7 +756,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
           </div>
           <div class="launch-foot">
             <a class="recent-item" href="#workbench">⌕ 搜索 / 命令</a>
-            <a class="recent-item" href="#settings">⚙ 设置</a>
+            <a class="recent-item" href="#settings">⚙ 设置（技能与资产在内）</a>
           </div>
         </aside>
         <main class="launch-main">
@@ -689,7 +766,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
             <p>先说目标。需要时再选择项目、文件和工作模式。</p>
             <form class="composer" onsubmit="return false">
               <label for="launch-prompt" style="position:absolute;left:-9999px">输入任务</label>
-              <textarea id="launch-prompt" autofocus placeholder="向月汐提问，或描述你想完成的任务…"></textarea>
+              <textarea id="launch-prompt" placeholder="向月汐提问，或描述你想完成的任务…"></textarea>
               <div class="composer-tools">
                 <button class="tool-btn" type="button">＋ 附件</button>
                 <button class="tool-btn" type="button">◇ 选择项目</button>
@@ -709,7 +786,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
     </div>
 
     <div class="design-rules" id="settings-map">
-      <div class="design-rule"><b>左栏只放高频入口</b>新对话、最近会话、项目、搜索和设置；工作区能力进入项目后渐进展开。</div>
+      <div class="design-rule"><b>左栏只放高频入口</b>新对话、最近会话、项目、搜索和设置；技能、专家与资产管理进入设置；工作区能力进入项目后渐进展开。</div>
       <div class="design-rule"><b>右栏默认收起</b>活动、上下文和审批以徽标/抽屉出现，不永久抢占对话宽度。</div>
       <div class="design-rule"><b>设置统一收口</b>常规、外观、模型、项目、连接、安全、数据、快捷键、诊断更新；星闪可关闭。</div>
     </div>
@@ -937,7 +1014,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
         <section class="env-card"><div class="env-head"><span style="color:var(--warn)">●</span><b>测试</b><span class="status-badge warn" style="margin-left:auto">第 1 次晋级</span></div><div class="env-body"><div class="gate"><span class="ok">✓</span><span>Revision 完整性</span><em>通过</em></div><div class="gate"><span class="wait">○</span><span>数据库迁移前检查</span><em>待执行</em></div><div class="gate"><span class="wait">○</span><span>短时环境锁（最长 8m）</span><em>未申请</em></div><div class="gate"><span class="wait">○</span><span>Owner 明确确认</span><em>待确认</em></div></div><div class="env-foot"><button class="micro-btn" type="button">申请短时锁并晋级</button></div></section>
         <section class="env-card"><div class="env-head"><span style="color:var(--muted)">●</span><b>生产</b><span class="status-badge" style="margin-left:auto">第 2 次晋级</span></div><div class="env-body"><div class="gate"><span>○</span><span>测试验收证据</span><em>等待</em></div><div class="gate"><span>○</span><span>生产 DB 前后检查</span><em>等待</em></div><div class="gate"><span>○</span><span>变更窗口 + 短时锁</span><em>21:00</em></div><div class="gate"><span>○</span><span>Owner 二次强确认 + 回退演练</span><em>等待</em></div></div><div class="env-foot">测试完成后独立发起，不自动连跳；N-of-M 属未来协作 capability</div></section>
       </div>
-      <div class="release-lower"><section class="ops-card"><div class="ops-card-head"><b>门禁与审计时间线</b><span class="view-meta">环境证据永久关联 Revision 07</span></div><div class="audit-list"><div class="audit-item"><b>10:48 · AI</b><span>校验仓库迁移包，manifest checksum 已固定。</span></div><div class="audit-item"><b>10:53 · 林澈</b><span>开发本地执行，DB 前后结构检查一致。</span></div><div class="audit-item"><b>11:06 · 系统</b><span style="color:var(--err)">冲突阻断：周琪的 Revision 06 修改同一字段；已合并并重建为 Revision 07。</span></div><div class="audit-item"><b>11:18 · 周琪</b><span>批准测试晋级；仍待数据负责人审批。</span></div></div></section><section class="ops-card"><div class="ops-card-head"><b>恢复与补偿方案</b><span class="status-badge ok">已验证</span></div><div class="rollback"><p><b>代码：</b>部署上一不可变包 pkg-06。</p><p><b>数据库：</b>默认保留向前兼容结构并执行已审查的前滚补偿；仅在迁移工具证明可逆且数据预检通过时使用逆迁移。</p><p><b>恢复目标：</b>RTO ≤ 8 分钟；恢复后再次执行结构、数据与兼容性检查。</p><div class="danger-strip"><b style="color:var(--err)">冲突会阻断晋级，而不是锁住代码。</b> 环境锁只覆盖迁移执行的短窗口，超时自动释放；审批人可在执行前拒绝或要求新 Revision。</div></div></section></div>
+      <div class="release-lower"><section class="ops-card"><div class="ops-card-head"><b>门禁与审计时间线</b><span class="view-meta">环境证据永久关联 Revision 07</span></div><div class="audit-list"><div class="audit-item"><b>10:48 · 逻辑 Agent</b><span>校验仓库迁移包，manifest checksum 已固定。</span></div><div class="audit-item"><b>10:53 · 本机 Owner</b><span>开发本地执行，DB 前后结构检查一致。</span></div><div class="audit-item"><b>11:06 · 系统</b><span style="color:var(--err)">冲突阻断：检测到 VS Code 外部修改同一字段；Owner 已解决冲突并重建 Revision 07。</span></div><div class="audit-item"><b>11:18 · 本机 Owner</b><span>完成测试晋级确认；生产仍需同一 Owner 二次强确认。</span></div></div></section><section class="ops-card"><div class="ops-card-head"><b>恢复与补偿方案</b><span class="status-badge ok">已验证</span></div><div class="rollback"><p><b>代码：</b>部署上一不可变包 pkg-06。</p><p><b>数据库：</b>默认保留向前兼容结构并执行已审查的前滚补偿；仅在迁移工具证明可逆且数据预检通过时使用逆迁移。</p><p><b>恢复目标：</b>RTO ≤ 8 分钟；恢复后再次执行结构、数据与兼容性检查。</p><div class="danger-strip"><b style="color:var(--err)">冲突会阻断晋级，而不是锁住代码。</b> 环境锁只覆盖迁移执行的短窗口，超时自动释放；本机 Owner 可在执行前拒绝或要求新 Revision。</div></div></section></div>
     </div>
   </div>
 </div></section>
@@ -1098,14 +1175,14 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
 
 <section class="stage-sec" id="ui-contract">
   <div class="wrap">
-    <div class="sec-head"><div><span class="num">IMPLEMENTATION CONTRACT · M4–M7</span><h2>UI 实施与验收合同</h2><p class="lead">画板视觉与信息架构保持不变。M4 在现有对话上增加 Run/审批/Plan/工具/证据；M5 在普通对话内渐进出现临时 Workspace、选择文件夹、Artifact、Skill/MCP、Browser 和后台任务；M6 增加本地/云执行位置与受治理多 Agent；M7 的九阶段、正式项目产物和发布仍只在项目上下文展开。普通聊天与项目保持导航和领域分离，但共享能力底座，项目 MUST NOT 成为能力开关。</p></div></div>
-    <div class="note"><b>里程碑合同：</b>M4 Reliable Single-Agent Runtime（冻结）；M5 Conversation Capability &amp; Local Execution；M6 Extensible, Isolated &amp; Cloud Agent Platform；M7 Project Production, Release &amp; Enterprise Scale。普通对话缺资源时原地展示最小授权卡，而不是强迫创建项目；用户可把会话/产物显式升级为项目且不丢历史。M4/M5 MUST NOT 展示 Child/fan-out；黑色星空、月亮 Logo、对话优先和现有顶层导航 MUST 保持。</div>
-    <div class="card"><h4>普通对话渐进能力卡</h4><ul><li><b>资源：</b>临时 Workspace / 选择文件夹 / Git 仓库，展示 root 类型、允许路径、read/write/execute、有效期和撤销。</li><li><b>执行：</b>本地受控 / 本地强隔离 / 云托管 / 企业私有池；不可用或付费时展示原因、预计费用、数据上传范围和免费替代，不伪造成功。</li><li><b>扩展：</b>Skill/MCP/Connector 展示来源、版本、schema digest、权限、网络域、Secret 使用和 session scope。</li><li><b>产物：</b>预览、下载、保存到目录、继续编辑、转为项目；九阶段只在转为项目后出现。</li></ul></div>
+    <div class="sec-head"><div><span class="num">IMPLEMENTATION CONTRACT · M4–M9 · LEGACY SUPERSEDED</span><h2>UI 实施与验收合同</h2><p class="lead"><b>Legacy superseded：</b>本段旧 M4–M7 里程碑文字已被当前冻结路线替代；画板视觉、布局与信息架构保持不变。当前路线：M4 冻结；M5 对话 + 本地执行；M6 扩展 / 强隔离 / 云 / 多 Agent；M7 九阶段 + 发行；M8 个人长期智能；M9 组织平台。普通聊天与项目严格分离。</p></div></div>
+    <div class="note"><b>Legacy superseded / 当前里程碑合同：</b>旧 M4–M7 映射不再适用。权威映射：M4 冻结；M5 对话 + 本地执行；M6 扩展 / 强隔离 / 云 / 多 Agent；M7 九阶段 + 发行；M8 个人长期智能；M9 组织平台。黑色星空、月亮 Logo、对话优先和现有信息架构 MUST 保持。</div>
     <div class="card"><h4>Capability 与权威状态</h4><ul><li>Renderer 启动后从 Engine 获取版本化 capability manifest；每个动作必须映射到 Bridge schema、生成 SDK、Engine handler、Policy、状态机和测试。没有公开 RPC 的功能只显示“概念预览/规划中”，主操作禁用，禁止硬编码伪能力。</li><li>突变 DTO 返回 status/version/capabilities/reason/updatedAt；请求携带 expectedVersion 和 idempotencyKey。前端 optimistic state 不得放行副作用，事件到达后重新读取权威聚合。</li><li>首期 UI 只展示本机 Owner 与逻辑 Agent；多人头像、QA/数据负责人、双人审批和远端 Presence 仅在 ADR-011 capability 启用后出现。</li></ul></div>
     <div class="card"><h4>统一状态合同</h4><p>首页、项目、五视图、接口、DAG、审批、CR、记忆、技能、设置均 MUST 设计并实现 <code>initial / loading / refreshing / empty / error / partial / stale / offline / permission-denied</code>；流式任务还必须覆盖 cancelling、interrupted、reconnecting、retry-exhausted 和 outcome-unknown。每态定义保留旧数据策略、可用动作、重试、错误码/traceId 与 aria-live。</p></div>
     <div class="card"><h4>键盘、焦点与组件语义</h4><ul><li>使用原生 button/link/input/textarea/select；tabs 遵循 WAI-ARIA tablist/tab/tabpanel 和 roving tabindex，支持方向键/Home/End；文件树使用 tree/treeitem 或等价语义列表。</li><li>初始焦点仅在无迁移/恢复/错误对话框时进入新对话 textarea；dialog/drawer 使用焦点陷阱、Esc 关闭并把焦点返回触发器。发送处理 Enter/Shift+Enter/Ctrl+Enter 与 IME composition，发送中显示停止而非重复发送。</li><li>switch 优先使用 checkbox + label；危险确认必须有可访问名称、影响/证据/回退、当前身份、过期与不可逆提示，不仅靠颜色表达状态。</li></ul></div>
     <div class="card"><h4>响应式与溢出</h4><ul><li>≤960px 隐藏侧栏时必须提供同构 menu/drawer、当前项目/分类标题与返回路径，不能让导航消失；平板工作面板使用可调 bottom sheet，手机使用全屏 route，支持关闭/轻览/聚焦三态。</li><li>禁止用 body/global <code>overflow-x:hidden</code> 掩盖问题；表格、代码、终端和 tab strip 局部滚动，聊天/代码区域 <code>min-height:0; overflow:auto</code>。在 320px、Windows 200% scaling、400% zoom、键盘-only 和 forced-colors 下不得丢失功能。</li></ul></div>
-    <div class="card"><h4>高风险交互不变量</h4><ul><li>Review 的“批准摘要”与“开始执行”分离；批准后 Engine 重算参数、资源、计划和策略，成功才执行。拒绝与要求修改为两个动作，理由必填；changed_after_approval 显示具体 digest diff 并禁用旧批准。</li><li>模型生成内容只能形成 short_term 记忆候选；用户确认内容、来源、作用域后才可升级 long_term。删除提交墓碑后 UI 立即移出可召回结果，并显示 pending/propagating/failed；失败时内容仍不可读。</li><li>五视图必须各有默认/加载/空/错/运行/不可用稿；文件、终端、浏览器、变更不能只以“代码”画板代替。设置作用域显示继承/覆盖/恢复继承，并统一即时保存或草稿保存语义。</li></ul></div>
+    <div class="card"><h4>高风险交互不变量</h4><ul><li>Review 的“批准摘要”与“开始执行”分离；批准后 Engine 重算参数、资源、计划和策略，成功才执行。拒绝与要求修改为两个动作，理由必填；changed_after_approval 显示具体 digest diff 并禁用旧批准。</li><li>模型生成内容只能形成 short_term 记忆候选；用户确认内容、来源、作用域后才可升级 long_term。删除提交墓碑后 UI 立即移出可召回结果，并显示 pending/propagating/failed；失败时内容仍不可读。</li><li>五视图必须各有默认/加载/空/错/运行/不可用稿；文件、终端、浏览器、变更不能只以“代码”画板代替。设置作用域显示继承/覆盖/恢复继承，并统一即时保存或草稿保存语义。</li><li>项目创建字段 A–N、类型阶段投影、项目/模板状态动作门禁与三重语义确认是实施合同；关闭、删除、作废后的对象 MUST 只读。右栏只允许预览/浏览器/CLI/文件管理/计划五个主视图，代码/变更为开发子视图，计划按需投影。</li></ul></div>
+    <div class="card" id="project-asset-implementation-contract"><h4>项目、产物与资产实施合同</h4><ul><li>实施与增强投影：需求架构规范、方案和UI设计、数据库、接口、开发、测试、集成、发布；运维投影：需求架构规范、数据库、接口、开发、测试、发布。中栏聊天永久挂载，不因阶段或工具切换卸载。</li><li>需求架构规范固定 9 项、方案和 UI 固定 10 项；每项记录 templateId/templateVersion、artifactId、digest、status、approver 与追溯关系。模板版本绑定项目后不可静默漂移。</li><li>创建/修改/发布/关闭/删除/打开以及模板上传/启用/作废/恢复/删除均映射公开 RPC 与 capability；危险突变提交对象、影响、意图三重确认，Engine 校验 expectedVersion、引用、审批和幂等键。</li></ul></div>
   </div>
 </section>
 
@@ -1182,9 +1259,8 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
         <div class="pd-row">
           <span class="lab">API Key</span>
           <span class="val">
-            <span class="masked">sk-••••••••••••••••••••3a9f</span>
-            <span class="mono" style="font-size:10px;color:var(--muted);margin-left:8px">已配置 · 不回显明文</span>
-            <button class="ui-btn" type="button" style="margin-left:8px">更新密钥</button>
+            <span class="mono" style="font-size:10px;color:var(--muted)">Host 原生安全控件：默认短时直接显示已保存 Key（示意页不嵌入真实值）</span>
+            <button class="ui-btn" type="button" style="margin-left:8px">隐藏</button><button class="ui-btn" type="button">更新密钥</button>
           </span>
         </div>
         <div class="pd-row">
@@ -1213,7 +1289,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
       </div>
 
       <div class="callout" style="margin-top:14px">
-        <b>安全规则</b>：保存新 Key 时 Renderer 将输入通过一次性受保护 Bridge 提交 Host，Host 立即 DPAPI / Credential Manager 保存并清空前端字段。不得存入 Zustand、localStorage 或日志。BaseURL origin 变化时旧 credential 不自动复用。
+        <b>安全规则</b>：保存新 Key 时 Renderer 只发送打开/提交/取消原生凭据会话的无密意图；Host-owned 原生输入直接写 OS Credential Store，Host 立即 DPAPI / Credential Manager 保存并清空前端字段。不得存入 Zustand、localStorage 或日志。BaseURL origin 变化时旧 credential 不自动复用。
       </div>
     </div>
   </div>
@@ -1503,6 +1579,355 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
 
       <div class="note" style="margin-top:14px"><b>安全规则</b>：新增危险权限必须重新审批；已隔离技能不能直接启用。添加技能时可选择技能市场、本地包或 URL，并先展示签名、发布者和权限变化。</div>
     </div>
+
+    <h3>技能安装 / 更新 / 卸载界面规格</h3>
+    <p>承接 V1 S8 第 10 章「技能安装与安全」的供应链合同：技能是可执行代码，安装即信任——安装是<b>显式、可审计、可回滚</b>的治理动作，而非"点击即用"的便捷操作。三个流程均需展示影响、证据与回退，危险确认遵循全局「对象 / 影响 / 意图」三重语义确认。</p>
+    <div class="card"><h4>安装向导（＋ 添加技能）</h4><ul>
+      <li><b>来源选择</b>：技能市场 / 本地包 / URL 三选一；URL 导入即建立候选并锁定 immutable 内容，分支 / tag / latest 不可作为执行锁。</li>
+      <li><b>预览确认页必显</b>：publisher、semver、package_hash（SHA-256）、签名状态（verified / invalid）、SBOM 与许可证类型（MIT / Apache-2.0 / GPL 等）、已知漏洞（CVE）扫描结果——先展示签名、发布者和权限变化，后提交。</li>
+      <li><b>依赖锁校验</b>：逐项展示依赖与版本约束（如 base-ui-react ≥ v2.0.0、ontology-parser ≥ v1.1.0）；版本约束不可满足或冲突时拒绝安装并报告冲突项，不提供"跳过依赖"选项。</li>
+      <li><b>权限差异确认</b>：与已安装版本逐项对比权限清单，新增项高亮并标注危险级；用户勾选确认后才可提交，安装动作写入审计日志。</li>
+      <li><b>进度与失败</b>：下载 → 哈希校验 → 签名校验 → 依赖解析 → 安装落库，每步状态可见；任一步失败显示错误码与 correlationId，可安全重试，不留下半安装状态。</li>
+    </ul></div>
+    <div class="card"><h4>更新（可更新 · N）</h4><ul>
+      <li>更新入口显示旧版 → 新版 semver 与变更摘要；semver locked 的技能不自动更新，所有更新必须用户显式触发，无后台静默升级。</li>
+      <li><b>权限扩张视为全新授权</b>：新版本 permissions 相比已安装版本新增权限项（如新增网络出口、高危工具调用）时，系统不自动沿用旧版授权——新版本先进入 quarantined，向用户展示权限差异（新增了什么、为什么需要），用户显式批准后才流转 enabled。</li>
+      <li><b>撤销传播</b>：发布者撤销、签名失效或许可证变化时，已安装实例自动 disabled 并传播至全部安装实例；列表头部与底部状态栏同时提示撤销原因与待审查计数。</li>
+    </ul></div>
+    <div class="card"><h4>卸载</h4><ul>
+      <li><b>影响预览</b>：被其他技能依赖锁引用时列出反向依赖，要求先处理依赖或显式确认强制卸载后果；技能正在执行或排队时禁止卸载，先取消任务或等待完成。</li>
+      <li><b>双动作分离</b>：卸载保留配置（可重装恢复）与彻底删除（清除本地数据、缓存与触发记录，安装记录归档为 uninstalled）是两个明确选项，不共用一个确认按钮。</li>
+      <li><b>隔离态卸载</b>：已隔离技能的卸载必须同时展示隔离原因与审查结论，确认文案不可仅靠颜色区分。</li>
+    </ul></div>
+    <table><thead><tr><th>校验项</th><th>说明</th><th>失败处理</th></tr></thead><tbody>
+      <tr><td><b>哈希验证</b></td><td>安装包 package_hash 与 Manifest 声明一致</td><td>拒绝安装</td></tr>
+      <tr><td><b>签名验证</b></td><td>signature 用发布者公钥校验通过</td><td>signature_status=invalid → quarantined</td></tr>
+      <tr><td><b>依赖锁</b></td><td>所有 dependencies 的版本约束可满足、无冲突</td><td>拒绝安装并报告冲突</td></tr>
+      <tr><td><b>权限差异检查</b></td><td>对比已安装版本的 permissions 快照</td><td>权限扩张 → 视为新授权，需人工确认</td></tr>
+      <tr><td><b>撤销机制</b></td><td>发布者可发布撤销，已安装实例自动 disabled</td><td>传播撤销至所有安装实例</td></tr>
+    </tbody></table>
+    <div class="callout"><b>与全局蓝图的一致性：</b>本节与 M6 扩展生态 Overlay 合同同源——「安装 / 升级需权限增量重新确认」「暂停 / 卸载 / 封禁需展示影响任务与残留数据」；技能中心是工作空间级入口，组织级能力市场的安装审批、策略模拟与版本钉住由 M9 承载，此处不重复定义。SBOM 使技能供应链可追溯：当某个依赖被发现存在漏洞时，可快速定位哪些已安装技能受影响。</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     06A · 专家中心（位于技能中心下、资产库上）
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="experts">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">06A / PROTOTYPE</span>
+        <h2>专家中心</h2>
+        <p class="lead">专家是 M7 AgentPersona 岗位说明书的产品化形态，三种来源：市场/本地 AgentPack 安装（走 FR-18 校验链，kind=agent-pack）、六段式本地创建、产品内置。支持启用/停用、版本化修订与归档；项目按九阶段灵活挂载专家集合，阶段执行时 Root Run 经 subagent.spawn 携 personaRef 并行只读派发——专家间无通信、每阶段同时激活 ≤4、专家不携带任何权限。</p>
+      </div>
+    </div>
+
+    <div class="stage" data-label="lunitide://experts/center">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">专家中心</div><div class="view-meta">12 名专家 · 3 种来源 · 8 个部门 · 每阶段挂载 ≤4</div></div>
+        <div class="memory-tabs"><button class="memory-tab on">全部 · 12</button><button class="memory-tab">已启用 · 8</button><button class="memory-tab">已停用 · 2</button><button class="memory-tab">已归档 · 2</button></div>
+        <div class="view-actions"><button class="ui-btn" type="button">导入 AgentPack</button><button class="ui-btn primary" type="button">＋ 创建专家</button></div>
+      </div>
+
+      <div class="skill-layout">
+        <!-- Expert List -->
+        <div class="skill-list">
+          <div class="column-head skill-head"><span>专家</span><span>版本</span><span>状态</span><span>来源</span></div>
+          <div class="skill-row on">
+            <div class="sn">solution-architect<span class="desc">方案架构专家 — 立项边界、技术选型与架构决策记录</span></div>
+            <span class="mono">v2.0.1</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">builtin</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">product-scope-guard<span class="desc">产品边界专家 — 需求范围守护与目标对齐</span></div>
+            <span class="mono">v1.4.0</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">builtin</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">evidence-researcher<span class="desc">证据调研专家 — 证据采集与叶级来源追溯</span></div>
+            <span class="mono">v1.2.2</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">pack</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">ui-ux-reviewer<span class="desc">体验评审专家 — 交互走查与可用性评估</span></div>
+            <span class="mono">v3.0.0</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">pack</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">test-strategist<span class="desc">测试策略专家 — 覆盖策略与验收用例设计</span></div>
+            <span class="mono">v1.1.3</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">local</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">security-reviewer<span class="desc">安全审查专家 — 威胁建模与门禁检查</span></div>
+            <span class="mono">v2.2.0</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">pack</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">release-operator<span class="desc">发布运维专家 — 发布包、门禁与回滚编排</span></div>
+            <span class="mono">v1.0.5</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">builtin</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">retro-facilitator<span class="desc">复盘引导专家 — 运营指标解读与复盘产出</span></div>
+            <span class="mono">v0.9.0</span>
+            <span class="s-stat on">已启用</span>
+            <span class="mono">local</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">db-performance-expert<span class="desc">数据库性能专家 — 索引与查询调优建议</span></div>
+            <span class="mono">v1.0.0</span>
+            <span class="s-stat off">已停用</span>
+            <span class="mono">local</span>
+          </div>
+          <div class="skill-row">
+            <div class="sn">legacy-integration-expert<span class="desc">遗留集成专家 — 来源包已停用，派发跳过</span></div>
+            <span class="mono">v2.4.1</span>
+            <span class="s-stat off">已停用</span>
+            <span class="mono">pack</span>
+          </div>
+        </div>
+
+        <!-- Expert Detail -->
+        <div class="skill-detail">
+          <div class="sd-title">solution-architect</div>
+          <div class="sd-ver">v2.0.1 · division: engineering · source: builtin · six_section_digest: a91c…77e2</div>
+
+          <div class="sd-sec">
+            <h4>六段式岗位说明书</h4>
+            <div class="sd-dep">
+              frontmatter: name / division / version / capabilities_digest<br>
+              ① 身份　② 使命　③ 规则　④ 流程<br>
+              ⑤ 交付模板　⑥ 成功指标
+            </div>
+          </div>
+
+          <div class="sd-sec">
+            <h4>挂载项目</h4>
+            <div class="sd-dep">
+              在线商城系统 · 阶段 1/3/4/5（v2.0.1）<br>
+              数据平台重构 · 阶段 5（v2.0.1，挂载于当前版本）
+            </div>
+          </div>
+
+          <div class="sd-sec">
+            <h4>版本历史（append-only）</h4>
+            <div class="sd-dep">
+              v2.0.1 · 2026-08-02 · 收紧交付模板边界（change_note）<br>
+              v2.0.0 · 2026-07-18 · 六段式对齐 M7 AgentPersona 规范<br>
+              v1.9.0 · 2026-06-30 · 初始版本 · 版本行不可改写
+            </div>
+          </div>
+
+          <div class="sd-sig">
+            <span>✓</span>
+            <div>
+              <div style="color:var(--tide3);font-weight:600">只读派发 · 无权限载荷</div>
+              <div style="color:var(--muted);font-size:10px">readCaps 由 capability_digest 唯一决定 · personaRef 不携带授权 · 结果物化 Evidence 汇回 Root Run</div>
+            </div>
+          </div>
+          <div class="skill-actions"><button class="ui-btn" type="button">修订新版本</button><button class="ui-btn" type="button">停用</button><button class="ui-btn ghost" type="button">归档</button></div>
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:14px"><b>安全规则</b>：专家不携带任何权限，readCaps 仍由 capability_digest 唯一决定；停用/来源包停用/digest 漂移的专家在派发时跳过并提示原因，不影响其余专家（M8-047 提示性降级）；归档需一次性确认令牌且前置解除全部活跃挂载（M8-048）；每阶段挂载超过 4 名即时提示（M8-044）。</div>
+    </div>
+
+    <h3>项目九阶段挂载矩阵</h3>
+    <p>项目实例可按九阶段灵活挂载专家集合：默认采用 M7 九阶段推荐映射，可逐阶段调整；挂载记录锁定具体版本（version_id），阶段执行时按挂载并行派发。停用专家保留挂载记录但派发时跳过并在挂载处显示原因。</p>
+
+    <div class="stage" data-label="lunitide://experts/mounting">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+
+      <div class="view-head">
+        <div><div class="view-title">九阶段挂载矩阵</div><div class="view-meta">项目：在线商城系统 v2.0 · 默认 M7 推荐映射 · 可逐阶段调整</div></div>
+        <div class="view-actions"><button class="ui-btn" type="button">恢复默认映射</button><button class="ui-btn primary" type="button">＋ 挂载专家</button></div>
+      </div>
+
+      <table>
+        <thead><tr><th>#</th><th>阶段</th><th>默认推荐（M7 映射）</th><th>本项目挂载</th><th>上限</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1</td><td>立项与边界</td><td><span class="mono">solution-architect · product-scope-guard</span></td><td>同默认（2 名）</td><td class="mono">2 / 4</td></tr>
+          <tr><td class="mono">2</td><td>调研与证据</td><td><span class="mono">evidence-researcher · security-reviewer</span></td><td>同默认（2 名）</td><td class="mono">2 / 4</td></tr>
+          <tr><td class="mono">3</td><td>需求定义</td><td><span class="mono">product-scope-guard · solution-architect</span></td><td>同默认（2 名）</td><td class="mono">2 / 4</td></tr>
+          <tr><td class="mono">4</td><td>方案与体验</td><td><span class="mono">ui-ux-reviewer · solution-architect</span></td><td>＋ <span class="mono">db-performance-expert</span>（已停用 · 派发跳过）</td><td class="mono">3 / 4</td></tr>
+          <tr><td class="mono">5</td><td>架构与计划</td><td><span class="mono">solution-architect · db-performance-expert · security-reviewer</span></td><td>同默认（3 名）</td><td class="mono">3 / 4</td></tr>
+          <tr><td class="mono">6</td><td>开发与变更</td><td><span class="mono">test-strategist · security-reviewer</span></td><td>同默认（2 名）</td><td class="mono">2 / 4</td></tr>
+          <tr><td class="mono">7</td><td>验证与验收</td><td><span class="mono">test-strategist · ui-ux-reviewer</span></td><td>＋ <span class="mono">security-reviewer</span>（3 名）</td><td class="mono">3 / 4</td></tr>
+          <tr><td class="mono">8</td><td>发布与交付</td><td><span class="mono">release-operator · security-reviewer</span></td><td>同默认（2 名）</td><td class="mono">2 / 4</td></tr>
+          <tr><td class="mono">9</td><td>运营与复盘</td><td><span class="mono">retro-facilitator · release-operator</span></td><td>同默认（2 名）</td><td class="mono">2 / 4</td></tr>
+        </tbody>
+      </table>
+
+      <div class="note" style="margin-top:14px"><b>挂载规则</b>：同项目同阶段 mounted 状态专家超过 4 名由触发器拒绝（M8-044）；挂载目标必须为启用态（M8-045）；Run 启动按挂载派发只读子代理，每名专家各携 personaRef 与 version digest，全部结果物化 Evidence 汇回 Root Run 并建立 TraceEdge；第 5 名挂载尝试即时提示，不提供静默降级。</div>
+    </div>
+
+    <h3>专家创建 / 导入 / 生命周期界面规格</h3>
+    <p>专家中心是 M8 FR-19 的唯一管理入口：外部获取走 AgentPack 校验链，本地创建走六段式向导，启用/停用/修订/归档有独立状态机；对话流不出现创建或挂载捷径，全部动作收敛到专家中心并写入审计。</p>
+    <div class="card"><h4>创建向导（＋ 创建专家）</h4><ul>
+      <li><b>frontmatter 必填</b>：name、division（八类枚举：engineering / design / product / project-management / testing / security / operations / data）、初始 semver（v1.0.0）、capabilities_digest。</li>
+      <li><b>六段式逐段编辑</b>：身份 / 使命 / 规则 / 流程 / 交付模板 / 成功指标逐段校验（schema、段界、注入扫描），任一段非法即拒绝且零落库（M8-042）；成功指标须可判定，交付模板须产物化。</li>
+      <li><b>预览即所见</b>：提交前渲染完整岗位说明书预览，与后续派发时注入子代理的内容完全一致；创建成功即生成 version v1.0.0 并进入 enabled 状态。</li>
+      <li><b>修订</b>：新版本必须填写 change_note，写入新版本行并更新 current_version_id；版本链 append-only，UPDATE/DELETE 由触发器 ABORT（M8-043），并发修订冲突返回 409。</li>
+    </ul></div>
+    <div class="card"><h4>AgentPack 导入</h4><ul>
+      <li><b>统一校验链</b>：kind=agent-pack 的安装复用 FR-18 三步确认流（权限清单 → 来源与签名核对 → 确认），哈希、签名、依赖锁校验与插件一致；对话流不出现导入捷径。</li>
+      <li><b>整包原子承接</b>：按包内 persona 只读目录批量创建 expert_catalog（source=pack，origin_bundle_id 关联来源包）；任一 persona 六段式解析失败则整包隔离、零承接（M8-046）。</li>
+      <li><b>来源包传播</b>：来源包禁用后其专家派发即时跳过（M8-047）；卸载来源包触发对应专家归档而非物理删除，目录与版本历史完整保留。</li>
+    </ul></div>
+    <div class="card"><h4>生命周期（启用 / 停用 / 修订 / 归档）</h4><ul>
+      <li><b>停用即时生效</b>：活跃挂载记录保留，派发时该专家跳过并在挂载矩阵显示跳过原因；其余专家不受影响。</li>
+      <li><b>归档前置检查</b>：存在活跃挂载时归档被拒绝（M8-048），须先逐阶段解除挂载；归档需一次性确认令牌，与卸载/删除类操作一致，不可跳步。</li>
+      <li><b>digest 漂移防护</b>：挂载记录锁定的 version digest 与当前 persona 内容不一致时，派发跳过并提示重新确认版本，防止静默换人格。</li>
+    </ul></div>
+    <table><thead><tr><th>校验项</th><th>说明</th><th>失败处理</th></tr></thead><tbody>
+      <tr><td><b>frontmatter schema</b></td><td>name / division / semver / capabilities_digest 字段齐全且合法</td><td>M8-042 拒绝，零落库</td></tr>
+      <tr><td><b>六段段界</b></td><td>六段齐全、顺序固定、无未闭合标记</td><td>M8-042 拒绝，零落库</td></tr>
+      <tr><td><b>注入扫描</b></td><td>persona 文本不得包含系统提示注入或越权指令样本</td><td>M8-042 拒绝并隔离</td></tr>
+      <tr><td><b>版本链 append-only</b></td><td>版本行仅可新增，改写由触发器 ABORT</td><td>M8-043 冲突返回 409</td></tr>
+      <tr><td><b>挂载上限</b></td><td>同项目同阶段 mounted 状态 ≤ 4 名</td><td>M8-044 即时提示并拒绝</td></tr>
+      <tr><td><b>归档前置</b></td><td>归档前须解除全部活跃挂载</td><td>M8-048 拒绝并列出挂载清单</td></tr>
+    </tbody></table>
+    <div class="callout"><b>与全局蓝图的一致性：</b>本节与 M7 AgentPersona 六段式规范、FR-18 插件校验链同源——「AgentPack 安装走同一三步确认流」「专家只读派发、结果物化 Evidence 汇回 Root Run 并建 TraceEdge」「专家不携带权限，readCaps 由 capability_digest 唯一决定」。专家中心是工作空间级入口，位于技能中心与资产管理之间；组织级专家市场与团队岗位库由 M9 承载，此处不重复定义。</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     06B · 资产库（位于专家中心下、设置上）
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="asset-library"><div class="wrap">
+  <div class="sec-head"><div><span class="num">06B / ASSET MANAGEMENT</span><h2>资产管理 · 设置内分区</h2><p class="lead">从设置进入，不占用全局侧栏，统一管理文件、附件、ChangeSet、阶段产物、测试证据、发布包与模板；模板管理是其中一个子视图。</p></div></div>
+  <div class="stage" data-label="lunitide://assets"><div class="browser-dots"><i></i><i></i><i></i></div><div class="asset-manager">
+    <aside class="asset-manager-side"><div class="s-logo"><div class="moon-logo sm"></div><b>资产管理</b></div><div class="s-title">资产类型</div><a class="on">全部资产 <small>128</small></a><a>文件与附件 <small>46</small></a><a>工作成果 <small>31</small></a><a>阶段文档 <small>24</small></a><a>测试与证据 <small>18</small></a><a>发布包 <small>9</small></a><a>模板 <small>11</small></a><div class="s-title">快捷入口</div><a>最近使用</a><a>收藏</a><a>回收站</a></aside>
+    <main class="asset-manager-main"><div class="view-head"><div><div class="view-title">全部资产</div><div class="view-meta">个人 + 当前项目 · 组织能力未启用</div></div><button class="ui-btn primary" style="margin-left:auto">＋ 导入资产</button></div><div class="asset-manager-toolbar"><input placeholder="搜索名称、类型、来源或摘要…"><select><option>当前项目</option><option>个人</option></select><select><option>最近更新</option><option>名称</option><option>大小</option></select></div><div class="asset-files"><div class="asset-file head"><span>名称</span><span>类型 / Scope</span><span>来源</span><span>版本</span></div><div class="asset-file on"><span><b>完整 UI 界面设计</b><small>06-完整UI界面设计.html</small></span><span>HTML<small>项目</small></span><span>方案和 UI</span><span>v2.0.2</span></div><div class="asset-file"><span><b>数据库逻辑模型</b><small>schema-design.md</small></span><span>文档<small>项目</small></span><span>数据库</span><span>v1.4</span></div><div class="asset-file"><span><b>商品详情页变更</b><small>ChangeSet CS-042</small></span><span>ChangeSet<small>项目</small></span><span>开发</span><span>待评审</span></div><div class="asset-file"><span><b>Windows E2E 测试证据</b><small>evidence-20260814.zip</small></span><span>证据包<small>项目</small></span><span>测试</span><span>sealed</span></div><div class="asset-file"><span><b>Lunitide 2.0.0 测试包</b><small>lunitide-win-x64.zip</small></span><span>发布包<small>项目</small></span><span>发布</span><span>rc.3</span></div></div></main>
+    <aside class="asset-manager-detail"><b>资产详情</b><div class="asset-manager-preview"><div class="moon-logo"></div></div><h3>完整 UI 界面设计</h3><p>指定参考 HTML 视觉基线与 V2.0 全功能界面。</p><dl><dt>Scope</dt><dd>项目 · 月汐 V2.0</dd><dt>来源</dt><dd>方案和 UI 设计</dd><dt>版本</dt><dd>v2.0.2</dd><dt>校验</dt><dd>SHA-256 已验证</dd><dt>引用</dt><dd>3 会话 · 2 阶段</dd></dl><button class="ui-btn primary">在工作区打开</button><button class="ui-btn">@ 引用到对话</button><button class="ui-btn">查看版本历史</button></aside>
+  </div></div>
+  <h3>模板管理子视图</h3>
+  <div class="drawer-cue" id="asset-drawer-cue"><b>☰ 资产库菜单</b><span>窄屏 drawer 提供模板分类、状态筛选与返回“技能中心 / 设置”的路径。</span></div>
+  <div class="asset-shell" id="asset-library-prototype"><div class="asset-head"><div><div class="view-title">模板资产</div><div class="view-meta">11 个模板 · 8 可用 · 2 创建 · 1 作废</div></div><div class="memory-tabs"><button class="memory-tab on">全部</button><button class="memory-tab">需求架构</button><button class="memory-tab">方案和 UI</button><button class="memory-tab">工程与发布</button></div><div class="view-actions"><button class="ui-btn primary">＋ 上传模板</button></div></div>
+    <div class="table-scroll"><div class="asset-list"><div class="asset-row head"><span>模板 / 标识</span><span>分类 / 适用类型</span><span>版本</span><span>状态</span><span>动作</span></div>
+      <div class="asset-row"><span><b>Web 实施标准模板</b><br><span class="view-meta">TPL-WEB-IMPL · 19 项产物</span></span><span>全流程<br>实施 / 增强</span><span>v2.1.0<br>已签名</span><span class="status-badge ok">已启用</span><span class="asset-actions"><button class="micro-btn">查看</button><button class="micro-btn">新版本</button><button class="micro-btn">作废</button><button class="micro-btn">删除</button></span></div>
+      <div class="asset-row"><span><b>轻量运维模板</b><br><span class="view-meta">TPL00012 · 文档模板</span></span><span>系统运维清单<br>某客户</span><span>v1.4.2<br>DOCX</span><span class="status-badge">创建</span><span class="asset-actions"><button class="micro-btn">查看</button><button class="micro-btn">启用</button><button class="micro-btn">删除</button></span></div>
+      <div class="asset-row readonly"><span><b>旧版 UI 设计模板</b><br><span class="view-meta">TPL00009 · 已绑定 3 项目</span></span><span>UI界面详细设计<br>实施</span><span>v0.9.0</span><span class="status-badge warn">已作废</span><span class="asset-actions"><button class="micro-btn allowed">只读查看</button><button class="micro-btn allowed">恢复</button><button class="micro-btn" disabled title="已被引用，只能作废">删除</button></span></div>
+    </div></div><div class="gate-note"><b>模板门禁：</b>上传保存后状态为“创建”；创建可修改、启用或删除；可用可上传新版本或作废；作废只显示恢复。未引用资产确认后彻底删除且不可恢复；已引用资产删除按钮禁用，只能作废。启用前校验格式、哈希、安全扫描和适用交付物类型。</div>
+  </div>
+  <div class="modal-grid" id="asset-dialogs"><div class="mock-dialog" id="asset-upload-dialog" role="dialog" aria-labelledby="asset-upload-title"><div class="dialog-head"><b id="asset-upload-title">上传资产模板</b><span>×</span></div><div class="dialog-body"><div class="form-grid"><div class="field"><label>模板编号</label><input value="保存时自动生成 TPL00013" disabled></div><div class="field"><label>模板名称 *</label><input value="业务需求分析报告模板"></div><div class="field"><label>模板类型 *</label><select><option>文档模板</option><option>脚手架模板</option></select></div><div class="field"><label>交付物文件类型（文档模板显示）*</label><select><option>业务需求分析报告</option><option>系统实现评估报告</option><option>需求任务清单</option><option>系统架构设计文档</option><option>系统硬件配置文档</option><option>系统业务规范</option><option>系统开发规范</option><option>系统技术规范</option><option>项目结构规范</option><option>业务流程图</option><option>业务流程清单</option><option>业务蓝图文档</option><option>接口清单</option><option>功能开发清单</option><option>功能详细设计文档</option><option>接口详细设计文档</option><option>数据库详细设计文档</option><option>UI界面详细设计</option><option>单元测试报告</option><option>系统运维清单</option><option>集成测试场景清单</option><option>集成测试报告</option><option>上线策略和风险评估报告</option><option>应急预案报告</option><option>上线问题清单</option></select></div><div class="field wide"><label>模板描述 *</label><textarea>业务需求分析报告标准交付模板</textarea></div><div class="field"><label>客户</label><input value="某客户"></div><div class="field"><label>状态</label><input value="创建" disabled></div><div class="field"><label>附件 *</label><input value="业务需求分析报告模板.docx"></div><div class="field"><label>文件格式</label><input value="DOCX · 自动识别" disabled></div></div><div class="template-pick"><b>预检结果</b><br>格式/MIME ✓　SHA-256 ✓　病毒扫描 ✓　路径安全 ✓</div></div><div class="dialog-foot"><button class="ui-btn">取消</button><button class="ui-btn primary">上传并保存为创建</button></div></div>
+    <div class="mock-dialog" id="asset-retire-dialog"><div class="dialog-head"><b>作废 / 恢复 / 删除模板</b><span>×</span></div><div class="dialog-body"><div class="danger-confirm"><b>操作影响确认</b><div class="confirm-triplet"><span>对象：TPL00012 v1.4.2</span><span>作废：其他位置不能再新引用，历史引用保留快照</span><span>删除：仅 0 引用时开放，确认后彻底删除且不能恢复</span></div><input value="作废模板" aria-label="模板操作确认文本"></div><p class="view-meta">作废资产显示“恢复”，恢复后状态回到“创建”；删除资产没有恢复入口。</p></div><div class="dialog-foot"><button class="ui-btn">恢复作废资产</button><button class="ui-btn danger">作废 / 彻底删除</button></div></div>
+  </div>
+</div></section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     06C · 月伴全屏对话（M9.5 · 位于资产库下、设置上）
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec" id="companion">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="num">06C / PROTOTYPE · M9.5</span>
+        <h2>月伴全屏对话画板</h2>
+        <p class="lead">SessionPage 内的全屏模式：composer 月亮按钮一键召唤，放大月亮悬浮在增强星空之上。聆听与思考时月亮旋转；开口说话时停转，光晕与月面随播放音量波动发光。形象全部由 SVG + CSS 变量（--moon / --glow / --tide1~3）构成，随明暗主题换色，不使用位图精灵。冻结裁决与四态规范以 <a href="M9.5/03-UI与交互.html">M9.5 · 03 UI 与交互</a> 为权威。</p>
+      </div>
+    </div>
+
+    <h3>召唤入口 · 普通聊天 composer</h3>
+    <div class="stage" data-label="lunitide://chat · SessionPage（入口态）">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div style="padding:20px 18px 16px">
+        <div class="view-meta">不新增一级路由、不新增侧栏入口 · 月亮按钮为唯一召唤方式 · 进入 / 退出全屏模式消息历史保持不变</div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;background:var(--bg2);padding:12px 14px">
+          <div style="flex:1;color:var(--muted);font-size:13px">输入消息，或点话筒直接说……</div>
+          <button class="micro-btn">📎</button>
+          <button class="micro-btn">🎤</button>
+          <button class="ui-btn primary" style="display:inline-flex;align-items:center;gap:7px"><span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#fff,var(--moon2) 58%,#b9cdf2);box-shadow:0 0 9px 3px rgba(127,180,255,.55)"></span>月伴模式</button>
+        </div>
+        <div class="overlay-strip" style="grid-template-columns:repeat(3,1fr)">
+          <span><b>召唤</b>点击月亮按钮 → CompanionStage 全屏，进入时焦点落话筒</span>
+          <span><b>返回</b>Esc 退出 → 回原视图，焦点归还入口按钮</span>
+          <span><b>隐藏</b><code>companion.enabled=false</code> 时入口完全不渲染</span>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:36px">全屏舞台 · speaking 态主画板</h3>
+    <div class="stage" data-label="CompanionStage · fullscreen mode（speaking）">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div style="position:relative;min-height:540px;overflow:hidden;background:radial-gradient(900px 460px at 72% -8%, rgba(63,134,255,.16), transparent 58%),radial-gradient(700px 400px at 12% 6%, rgba(63,214,255,.10), transparent 55%),linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%)">
+        <i style="position:absolute;left:9%;top:18%;width:2px;height:2px;border-radius:50%;background:#cfe0ff;opacity:.8"></i>
+        <i style="position:absolute;left:22%;top:8%;width:1px;height:1px;border-radius:50%;background:#cfe0ff;opacity:.6"></i>
+        <i style="position:absolute;left:31%;top:30%;width:2px;height:2px;border-radius:50%;background:#cfe0ff;opacity:.5"></i>
+        <i style="position:absolute;left:6%;top:56%;width:1px;height:1px;border-radius:50%;background:#cfe0ff;opacity:.7"></i>
+        <i style="position:absolute;left:16%;top:74%;width:2px;height:2px;border-radius:50%;background:#cfe0ff;opacity:.5"></i>
+        <i style="position:absolute;right:12%;top:26%;width:2px;height:2px;border-radius:50%;background:#cfe0ff;opacity:.7"></i>
+        <i style="position:absolute;right:24%;top:12%;width:1px;height:1px;border-radius:50%;background:#cfe0ff;opacity:.6"></i>
+        <i style="position:absolute;right:8%;top:62%;width:2px;height:2px;border-radius:50%;background:#cfe0ff;opacity:.5"></i>
+        <i style="position:absolute;left:46%;top:6%;width:1px;height:1px;border-radius:50%;background:#cfe0ff;opacity:.8"></i>
+        <i style="position:absolute;right:38%;top:20%;width:1px;height:1px;border-radius:50%;background:#cfe0ff;opacity:.5"></i>
+        <button class="micro-btn" style="position:absolute;top:12px;left:14px">× 退出（Esc）</button>
+        <div style="position:absolute;top:12px;right:16px;display:flex;gap:10px;align-items:center">
+          <span class="status-badge" style="color:var(--glow);border-color:rgba(127,180,255,.45)">说话中</span>
+          <span class="view-meta">旋转冻结 · 光晕 0.4~1.0 随 --moon-gain 波动</span>
+        </div>
+        <div style="position:relative;width:270px;height:270px;margin:76px auto 10px">
+          <div style="position:absolute;inset:-48px;border-radius:50%;background:radial-gradient(circle, rgba(127,180,255,.32) 0%, rgba(79,139,255,.12) 52%, transparent 72%);filter:blur(6px)"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 38% 34%, #ffffff 0%, var(--moon2) 56%, #b9cdf2 100%);box-shadow:0 0 48px 20px rgba(207,224,255,.42)">
+            <i style="position:absolute;left:24%;top:28%;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 35%, rgba(150,170,205,.34), rgba(150,170,205,.06))"></i>
+            <i style="position:absolute;left:58%;top:44%;width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 35%, rgba(150,170,205,.30), rgba(150,170,205,.05))"></i>
+            <i style="position:absolute;left:38%;top:62%;width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 40% 35%, rgba(150,170,205,.26), rgba(150,170,205,.04))"></i>
+            <i style="position:absolute;left:66%;top:22%;width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 35% 35%, rgba(150,170,205,.24), rgba(150,170,205,.04))"></i>
+          </div>
+          <span class="view-meta" style="position:absolute;bottom:-26px;left:50%;transform:translateX(-50%);white-space:nowrap">↻ 旋转冻结（speaking 锁存角度）· 点击月亮 = 打断</span>
+        </div>
+        <div class="view-meta" style="text-align:center">MoonSphere · 直径 ≈ 视口短边 38% · SVG 月面 + CSS 光晕层 · Analyser 音量驱动 --moon-gain</div>
+        <div style="max-width:620px;margin:30px auto 0;padding:12px 16px;border:1px solid var(--rule);border-radius:12px;background:rgba(10,20,36,.80)">
+          <div class="view-meta">SubtitleBar · aria-live=polite · 最近 3 段可见，可上滑看全文</div>
+          <p style="margin-top:6px;color:var(--muted);font-size:12px">用户（语音识别）：把这段总结读给我听。</p>
+          <p style="margin-top:5px;border-left:2px solid var(--tide3);padding-left:10px;font-size:13px">月汐：好的，以下是要点——<span class="view-meta">（当前段高亮 · tide3 描边 · 随朗读进度推进）</span></p>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;align-items:center;padding:20px 0 24px">
+          <button class="ui-btn primary">🎤 话筒（Space / Enter）</button>
+          <button class="ui-btn">TTS 开 · Huihui</button>
+          <button class="ui-btn danger">点击月亮打断 ≤100ms</button>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:36px">四态视觉（对齐 M9.5/03 冻结规范）</h3>
+    <div class="screen-family" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <article class="screen-route"><span class="status-badge">idle</span><b>待机</b><p>缓慢旋转 60s/圈；呼吸微光 0.3↔0.5，4s 周期；标签「待机」。</p></article>
+      <article class="screen-route"><span class="status-badge" style="color:var(--tide1);border-color:rgba(59,214,255,.45)">listening</span><b>聆听中</b><p>维持缓旋；光晕稳定 0.4；外圈 12 柱音量环（tide1→tide2 渐变）+ 识别计时。</p></article>
+      <article class="screen-route"><span class="status-badge" style="color:var(--warn);border-color:rgba(255,196,107,.45)">thinking</span><b>思考中</b><p>加速旋转 8s/圈；光晕收拢至 0.25、月面略暗（等待感）。</p></article>
+      <article class="screen-route"><span class="status-badge" style="color:var(--glow);border-color:rgba(127,180,255,.5)">speaking</span><b>说话中</b><p>旋转冻结；光晕 0.4~1.0 随 --moon-gain 波动；色温向 --glow 偏移；字幕段高亮。</p></article>
+    </div>
+    <div class="state-contract"><span>idle</span><span>listening</span><span>thinking</span><span>speaking</span><span>blocked（SAPI 缺失 → 字幕模式，对话不中断）</span><span>error-retryable（合成连续失败）</span><span>offline / stale（沿用会话离线提示）</span><span>reduce-motion：旋转全部静止，仅静态光强 + 文字标签 + 音量数值</span></div>
+    <p class="view-meta" style="margin-top:8px">状态不得仅靠动效或颜色表达：每态必须有右上文字标签 + aria-live 播报（对齐 03 状态与无障碍基线）。</p>
+
+    <h3 style="margin-top:36px">设置 · 语音与麦克风 · 月伴对话小节</h3>
+    <div class="stage" data-label="lunitide://settings · voice-and-microphone">
+      <div class="browser-dots"><i></i><i></i><i></i></div>
+      <div style="padding:18px">
+        <div class="screen-family" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <article class="screen-route"><span class="status-badge ok">总开关</span><b>月伴对话 开</b><p>关闭后入口隐藏、TTS 静默；改动即时生效无需重启。</p></article>
+          <article class="screen-route"><span class="status-badge ok">自动朗读</span><b>回复完成即朗读 开</b><p>关闭时仅字幕；speaking 态不进入，月伴退化为字幕舞台。</p></article>
+          <article class="screen-route"><span class="status-badge">音色</span><b>Microsoft Huihui（中文）</b><p>下拉列出本机 SAPI 音色；右侧「试听」内联播放样例句；音色缺失回退默认并 notice 提示。</p></article>
+          <article class="screen-route"><span class="status-badge">语速 / 音量</span><b>滑杆 · 语速 1.0× · 音量 80%</b><p>Synthesize 参数直传 SAPI；连续合成排队，打断即取消。</p></article>
+        </div>
+        <div class="overlay-strip" style="grid-template-columns:repeat(3,1fr)">
+          <span><b>SAPI 状态行</b>3 个可用音色 · 本机引擎正常</span>
+          <span><b>无 SAPI</b>本节控件禁用并显示降级原因</span>
+          <span><b>试听</b>音色下拉内联，不进入舞台</span>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -1535,6 +1960,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
             <a class="settings-item" href="#settings">⛨ 安全与治理</a>
             <a class="settings-item" href="#memory">❖ 数据与记忆</a>
             <a class="settings-item" href="#skills">✦ 技能</a>
+            <a class="settings-item" href="#experts">✧ 专家</a>
             <a class="settings-item" href="#settings">⌨ 快捷键</a>
             <a class="settings-item" href="#settings">◉ 诊断与更新</a>
             <a class="settings-item" href="#settings">ⓘ 关于</a>
@@ -1577,6 +2003,131 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════
+     V2.0 COMPLETE PRODUCT SCREEN ATLAS
+     ═══════════════════════════════════════════════════════════ -->
+<section class="stage-sec v2-atlas" id="v2-complete-atlas"><div class="wrap">
+  <div class="atlas-intro"><div><span class="num">08 / V2.0 COMPLETE SCREEN ATLAS</span><h2>V2.0 全功能界面图谱</h2></div><p class="lead">上方画板完整继承指定参考 HTML 的产品样式；本区补齐 M0–M9.5 尚未在参考稿中逐页画出的功能。八项是专业工作视图，项目流程权威仍是九阶段。</p></div>
+  <div class="callout"><b>功能到界面的规则：</b>空间决定数据边界；稳定路由承载工作对象；预览、文件、浏览器、CLI、计划与证据进入右侧工作区；审批、影响预览、向导和恢复使用统一 Overlay，不重复建设一级页面。</div>
+
+  <h3>M0–M3 · 启动、鉴权、普通聊天与上下文</h3>
+  <div class="stage" data-label="lunitide://system/startup-and-context"><div class="browser-dots"><i></i><i></i><i></i></div><div class="atlas-shell">
+    <aside class="atlas-nav"><div class="s-logo"><div class="moon-logo sm"></div><b>LUNITIDE</b></div><div class="s-title">个人空间</div><a class="on">＋ 新对话</a><a>⌕ 全局搜索</a><a>▤ 会话历史</a><div class="s-title">工作空间</div><a>◇ 项目清单</a><div class="s-title">系统</div><a>⌕ 搜索</a><a>⚙ 设置（技能/资产/诊断）</a></aside>
+    <main class="atlas-main"><header class="atlas-main-head"><div><h3>启动与普通聊天界面族</h3><span class="view-meta">personal / unscoped · 项目上下文不会隐式继承</span></div><span class="status-badge ok">12 个路由</span></header><div class="screen-family">
+      <article class="screen-route" data-route="/startup"><span class="status-badge ok">M0</span><b>启动壳</b><p>启动进度、核心引擎、数据库与 Renderer 初始化；ready 后进入图2式启动首页。</p></article>
+      <article class="screen-route" data-route="/diagnostics/webview2"><span class="status-badge warn">阻断</span><b>WebView2 缺失</b><p>缺失原因、安装入口、重新检测、错误码与 correlationId。</p></article>
+      <article class="screen-route" data-route="/diagnostics/migration"><span class="status-badge warn">阻断</span><b>数据迁移失败</b><p>失败步骤、只读导出、诊断包、重试前置条件；不自动回放迁移。</p></article>
+      <article class="screen-route" data-route="/auth/project"><span class="status-badge">AUTH</span><b>项目入口鉴权</b><p>登录、恢复会话、成员权限校验；无权时不泄露项目是否存在。</p></article>
+      <article class="screen-route" data-route="/chat/:sessionId"><span class="status-badge ok">M2</span><b>普通聊天会话</b><p>消息流、Run 卡、动作卡、输入器和右侧统一工作区；固定 personal/unscoped。</p></article>
+      <article class="screen-route" data-route="/search"><span class="status-badge">GLOBAL</span><b>授权搜索</b><p>会话、项目和资产分类结果；无结果、受限、离线缓存与 stale 时间戳。</p></article>
+      <article class="screen-route" data-route="/context/inspector"><span class="status-badge ok">M3</span><b>上下文检查器</b><p>逻辑总量、当前请求窗口、来源、摘要版本、裁剪原因与预算阈值。</p></article>
+      <article class="screen-route" data-route="?dialog=compact"><span class="status-badge">DIALOG</span><b>手动压缩</b><p>生成摘要、版本 diff、来源范围和保留项；预览与启用分开确认。</p></article>
+      <article class="screen-route" data-route="?wizard=handoff"><span class="status-badge">WIZARD</span><b>Handoff 续接</b><p>摘要 digest、附件、约束和待办清单；创建新 session 并保留源链接。</p></article>
+    </div><div class="overlay-strip"><span><b>删除影响确认</b>消息、附件、摘要、索引与 Handoff</span><span><b>附件不可用</b>重新授权或移除引用</span><span><b>上下文预算</b>70 / 85 / 95% 分级动作</span><span><b>跨空间迁移</b>保存为项目输入 / 新建项目</span></div><div class="state-contract"><span>starting</span><span>loading</span><span>empty</span><span>streaming</span><span>offline</span><span>reconnecting</span><span>forbidden</span><span>stale</span></div></main>
+  </div></div>
+
+  <h3>M4–M5 · 可靠执行、临时工作区与恢复</h3>
+  <div class="stage" data-label="lunitide://runs/reliable-execution"><div class="browser-dots"><i></i><i></i><i></i></div><div class="atlas-shell">
+    <aside class="atlas-nav"><div class="s-logo"><div class="moon-logo sm"></div><b>可靠执行</b></div><a class="on">◉ 当前 Run</a><a>◇ 计划</a><a>± ChangeSet</a><a>▤ 产物</a><a>◷ 后台任务</a><a>↻ 恢复中心</a><a>⚑ 证据</a></aside>
+    <main class="atlas-main"><header class="atlas-main-head"><div><h3>Root Run · DEV-042</h3><span class="view-meta">唯一 Root · checkpoint cp-118 · workspace online-store</span></div><span class="status-badge warn">等待审批</span><button class="ui-btn">停止</button></header><div class="screen-family">
+      <article class="screen-route" data-route="/runs/:runId"><b>Run 详情</b><p>Turn、Step、预算、当前 ToolCall、receipt、停止与恢复；消息事实和执行事实分离。</p></article>
+      <article class="screen-route" data-route="?dialog=review"><span class="status-badge warn">REVIEW</span><b>ToolCall 审批</b><p>对象、影响、参数、scope、回退、预算、有效期和绑定 digest。</p></article>
+      <article class="screen-route" data-route="/changesets/:id"><b>ChangeSet 审查</b><p>并排/统一 diff、逐文件批准、应用和回滚；base 变化使批准失效。</p></article>
+      <article class="screen-route" data-route="/workspaces/adhoc"><b>临时工作区</b><p>文件树、预览、轻编辑、Git 摘要、配额、到期和只读超限。</p></article>
+      <article class="screen-route" data-route="/tasks/background"><b>后台任务</b><p>结构化命令、实时日志、筛选与取消；取消需要影响确认。</p></article>
+      <article class="screen-route" data-route="/artifacts/:id"><b>Artifact 详情</b><p>MIME、大小、SHA-256、来源和引用；危险类型只下载不执行。</p></article>
+      <article class="screen-route" data-route="/browser/restricted"><b>受限 Browser</b><p>独立低权限会话、HTTPS、访问记录、来源证据与阻断原因。</p></article>
+      <article class="screen-route" data-route="/recovery"><span class="status-badge warn">RECOVERY</span><b>恢复中心</b><p>未完成 Run、孤儿任务、损坏记录：续接、只读导出、对账或放弃。</p></article>
+      <article class="screen-route" data-route="/reconcile/:effect"><span class="status-badge warn">UNKNOWN</span><b>副作用对账</b><p>人工确认外部结果并结束；outcome_unknown 没有快捷重试。</p></article>
+    </div><div class="overlay-strip"><span><b>Workspace 选择器</b>规范化根和读写范围</span><span><b>预算暂停</b>软预算可调整，硬上限只能结束</span><span><b>文件冲突</b>刷新、重基、另存 patch</span><span><b>转为项目</b>目标、冲突预检、明确确认</span></div><div class="state-contract"><span>running</span><span>waiting-user</span><span>waiting-approval</span><span>paused-budget</span><span>cancelling</span><span>outcome-unknown</span><span>recovered</span></div></main>
+  </div></div>
+
+  <h3>M6 · 扩展生态、多 Agent 与最终树验证</h3>
+  <div class="stage" data-label="lunitide://ecosystem-and-delegation"><div class="browser-dots"><i></i><i></i><i></i></div><div class="atlas-shell">
+    <aside class="atlas-nav"><div class="s-logo"><div class="moon-logo sm"></div><b>生态与任务</b></div><a class="on">✦ 扩展目录</a><a>⌁ MCP / Connector</a><a>◇ 云任务</a><a>⌘ 委派树</a><a>⇄ 合并队列</a><a>✓ 最终验证</a><a>▤ 审计策略</a></aside>
+    <main class="atlas-main"><header class="atlas-main-head"><div><h3>生态、多 Agent 与合并界面族</h3><span class="view-meta">能力按 milestone、身份、策略与隔离证据渐进开放</span></div><span class="status-badge">M6</span></header><div class="screen-family">
+      <article class="screen-route" data-route="/ecosystem"><b>扩展生态目录</b><p>搜索、发布者、版本、权限、SBOM、签名、风险和兼容性筛选。</p></article>
+      <article class="screen-route" data-route="/ecosystem/:id"><b>扩展详情</b><p>概览、版本、权限、SBOM、变更、审计及安装/升级抽屉。</p></article>
+      <article class="screen-route" data-route="/connections/http-mcp/new"><b>HTTP MCP 向导</b><p>基本信息、SecretRef/OAuth、能力探测、策略和健康检查。</p></article>
+      <article class="screen-route" data-route="/connections/stdio/gate"><span class="status-badge warn">GATED</span><b>stdio 隔离门禁</b><p>六类隔离证据全部通过并签字后，创建动作才启用。</p></article>
+      <article class="screen-route" data-route="/metadata/browser"><b>DB 元数据浏览器</b><p>Catalog、Schema、表、字段和索引；仅元数据，不预览数据行。</p></article>
+      <article class="screen-route" data-route="/delegations/new"><b>云任务创建</b><p>目标、区域、能力、截止、幂等键、预算、深度、fan-out、Barrier。</p></article>
+      <article class="screen-route" data-route="/delegations/:id/tree"><b>委派树与 Barrier</b><p>Root/Child、预算、去重、到达数、迟到结果、取消与收回预算。</p></article>
+      <article class="screen-route" data-route="/merge-queue"><b>合并队列</b><p>Root 唯一 Writer 检查 Child patch：请求重基、拒绝或进入 CAS 合并。</p></article>
+      <article class="screen-route" data-route="/validation/final-tree"><span class="status-badge warn">FULLSCREEN</span><b>最终树验证</b><p>构建、测试、安全与策略门禁；任一失败都禁用“完成”。</p></article>
+    </div><div class="overlay-strip"><span><b>安装 / 升级</b>权限增量重新确认</span><span><b>暂停 / 卸载 / 封禁</b>影响任务与残留数据</span><span><b>Envelope 检查器</b>Secret 明确不继承</span><span><b>最终证据下载</b>绑定最终树 digest</span></div></main>
+  </div></div>
+
+  <h3>M7 · 九阶段权威流程与八个专业工作视图</h3>
+  <div class="stage" data-label="lunitide://projects/ITM00014/delivery"><div class="browser-dots"><i></i><i></i><i></i></div><div class="atlas-shell">
+    <aside class="atlas-nav"><div class="s-logo"><div class="moon-logo sm"></div><b>在线商城系统</b></div><div class="s-title">流程权威</div><a class="on">◉ 九阶段控制台</a><a>⌘ 追踪与影响</a><a>▤ 产物</a><div class="s-title">专业工作视图</div><a>1 需求架构规范</a><a>2 方案和 UI</a><a>3 数据库</a><a>4 接口</a><a>5 开发</a><a>6 测试</a><a>7 集成</a><a>8 发布</a></aside>
+    <main class="atlas-main"><header class="atlas-main-head"><div><h3>九阶段交付控制台</h3><span class="view-meta">WorkflowVersion 12 · snapshot digest 7f9a…21c4</span></div><span class="status-badge warn">阶段 6 · 待评审</span></header><div class="screen-family">
+      <article class="screen-route" data-route="/delivery/stages"><b>九阶段控制台</b><p>立项与边界、调研与证据、需求定义、方案与体验、架构与计划、开发与变更、验证与验收、发布与交付、运营与复盘。</p></article>
+      <article class="screen-route" data-route="/delivery/stages/:key"><b>阶段详情</b><p>输入快照、工作项、质量证据、Gate、Checkpoint、负责人和 Stale。</p></article>
+      <article class="screen-route" data-route="/delivery/trace"><b>追踪与影响图</b><p>需求 → 产物 → 测试 → 包；高亮 stale 路径，并提供键盘列表替代。</p></article>
+      <article class="screen-route" data-route="/cr/:id/revisions"><b>CR 修订</b><p>manifest、Review、冻结与差异；submitted 后只能创建新 revision。</p></article>
+      <article class="screen-route" data-route="/packages/:digest"><b>不可变包详情</b><p>制品、SBOM、签名、digest 和来源；sealed 后只读。</p></article>
+      <article class="screen-route" data-route="/promotion/new"><span class="status-badge warn">WIZARD</span><b>Promotion 向导</b><p>环境、策略、digest、迁移与执行；开发、测试、生产独立晋级。</p></article>
+      <article class="screen-route" data-route="/deployments/:id"><b>部署执行</b><p>policy check、迁移、部署、验证、日志、审计 ID 与回退。</p></article>
+      <article class="screen-route" data-route="/deployments/:id/rollback"><span class="status-badge warn">INCIDENT</span><b>回滚异常</b><p>rollback_failed 立即冻结环境并进入人工手册，不伪装已恢复。</p></article>
+      <article class="screen-route" data-route="/settings/app-update"><b>客户端更新</b><p>检查、下载、安装、重启、回退；与项目发布完全分离。</p></article>
+    </div><div class="overlay-strip"><span><b>上游影响预览</b>确认后服务端传播 stale</span><span><b>Gate 豁免</b>原因、到期、证据和审批</span><span><b>生产确认</b>输入 digest 后 8 位</span><span><b>阶段详情抽屉</b>依赖、digest、过期原因</span></div></main>
+  </div></div>
+
+  <h3>M8 · 个人长期智能</h3>
+  <div class="stage" data-label="lunitide://personal-intelligence"><div class="browser-dots"><i></i><i></i><i></i></div><div class="atlas-shell">
+    <aside class="atlas-nav"><div class="s-logo"><div class="moon-logo sm"></div><b>个人智能</b></div><a class="on">◌ 记忆收件箱</a><a>◆ 已确认事实</a><a>▤ KnowledgeBase</a><a>⇥ Handoff</a><a>⚡ 自动化</a><a>◷ 运行中心</a><a>⇄ 同步冲突</a><a>⌾ 隐私与设备</a><a>✧ 专家中心</a></aside>
+    <main class="atlas-main"><header class="atlas-main-head"><div><h3>个人长期智能界面族</h3><span class="view-meta">候选必须人工确认 · 可解释召回 · 可撤回与递归删除</span></div><span class="status-badge">M8</span></header><div class="screen-family">
+      <article class="screen-route" data-route="/memory/inbox"><b>记忆收件箱</b><p>pending、confirmed、rejected、expired、restricted；批量确认默认禁用。</p></article>
+      <article class="screen-route" data-route="/memory/facts/:id"><b>事实详情</b><p>逐叶来源、scope、版本、保留期与撤回；无权来源只显示“受限”。</p></article>
+      <article class="screen-route" data-route="?drawer=recall"><b>Recall 解释</b><p>为何出现、新鲜度、来源和裁剪；不泄露其他空间名称或命中数。</p></article>
+      <article class="screen-route" data-route="/knowledge"><b>KnowledgeBase</b><p>集合、文档、索引、引用及 indexing、stale、redacted 状态。</p></article>
+      <article class="screen-route" data-route="/handoffs/new"><b>Handoff 向导</b><p>接收人、明确清单、裁剪差异、有效期和接受状态；发送二次确认。</p></article>
+      <article class="screen-route" data-route="/automations/:id/edit"><b>工作流编辑器</b><p>触发器、步骤、权限、预算、试运行与版本差异。</p></article>
+      <article class="screen-route" data-route="/automations/runs"><b>自动化运行中心</b><p>waiting、running、compensating、quarantined、done。</p></article>
+      <article class="screen-route" data-route="/sync/conflicts"><b>同步冲突箱</b><p>本机、远端、自定义的字段级合并和最终预览。</p></article>
+      <article class="screen-route" data-route="/privacy/devices"><b>隐私与设备</b><p>设备信任、同步、导出、吊销、清除及删除证明进度。</p></article>
+      <article class="screen-route" data-route="/experts"><b>专家中心</b><p>division 八类分组、来源/状态筛选；六段式详情与 append-only 版本历史；启停/归档。</p></article>
+      <article class="screen-route" data-route="/experts/new"><b>创建专家向导</b><p>frontmatter+六段式逐段校验，非法零落库 M8-042；AgentPack 导入走 FR-18 校验链。</p></article>
+      <article class="screen-route" data-route="/experts/mounting"><b>九阶段挂载矩阵</b><p>默认 M7 推荐映射可逐阶段调整；每阶段 ≤4（M8-044）；停用/digest 漂移派发跳过 M8-047。</p></article>
+    </div><div class="overlay-strip"><span><b>候选确认</b>编辑确认、驳回与保留期</span><span><b>删除影响</b>索引、缓存和派生传播</span><span><b>设备吊销</b>与清除数据分开确认</span><span><b>删除证明</b>设备回执和证明编号</span></div></main>
+  </div></div>
+
+  <h3>M9 · 组织治理平台</h3>
+  <div class="stage" data-label="lunitide://org/acme/governance"><div class="browser-dots"><i></i><i></i><i></i></div><div class="atlas-shell">
+    <aside class="atlas-nav"><div class="s-logo"><div class="moon-logo sm"></div><b>ACME 组织</b></div><a class="on">⌂ 组织概览</a><a>◇ TeamSpace</a><a>♙ 成员与身份</a><a>⚖ PolicyCenter</a><a>✓ 审批中心</a><a>✦ 能力市场</a><a>◉ Runner</a><a>¥ 预算中心</a><a>▤ 审计与证据</a><a>⚑ Legal Hold</a><a>⌁ 运营中心</a></aside>
+    <main class="atlas-main"><header class="atlas-main-head"><div><h3>组织治理界面族</h3><span class="view-meta">org / space / 身份 / 环境明确可见 · M9 capability 未启用时显示概念或阻断</span></div><span class="status-badge warn">规划能力</span></header><div class="screen-family">
+      <article class="screen-route" data-route="/org/:orgId"><b>组织概览与切换器</b><p>切换 org/space/身份/环境时清除搜索和不允许继承的缓存上下文。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/identities"><b>成员与身份</b><p>人类、服务、外部身份、角色、SCIM；批量授权先预览差异。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/policies"><b>PolicyCenter</b><p>继承、模拟、版本发布；放宽项阻断并定位父规则。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/approvals"><b>N-of-M 审批</b><p>SoD、撤回与到期；请求者不得自批，无权者不见正文。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/marketplace"><b>能力市场</b><p>组织级安装、策略模拟、审批、版本钉住和撤回影响。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/runners"><b>Runner 管理</b><p>信任、驻留、能力、心跳、排空与隔离；UNKNOWN 不伪装健康。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/budgets"><b>预算中心</b><p>层级额度、预留、实耗、预测、币种和周期。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/audit"><b>审计与证据</b><p>筛选、链校验、脱敏查看、导出再授权及访问记录。</p></article>
+      <article class="screen-route" data-route="/org/:orgId/legal-holds"><span class="status-badge warn">SOD</span><b>Legal Hold</b><p>范围、依据、保管人、到期、双人创建与解除，始终与删除分离。</p></article>
+    </div><div class="overlay-strip"><span><b>策略发布向导</b>编辑、模拟、独立审批、发布</span><span><b>Runner 隔离</b>复述对象并通过 SoD</span><span><b>审计导出</b>敏感证据二次授权</span><span><b>低样本抑制</b>运营指标不下钻个人内容</span></div><div class="state-contract"><span>concept</span><span>blocked</span><span>published</span><span>waiting</span><span>approved</span><span>revoked</span><span>draining</span><span>unknown</span><span>held</span><span>released</span></div></main>
+  </div></div>
+
+  <h3>M9.5 · 月伴全屏对话（体验层增量，与 M8/M9 并行）</h3>
+  <div class="stage" data-label="lunitide://chat · companion fullscreen mode"><div class="browser-dots"><i></i><i></i><i></i></div>
+    <div style="padding:18px;border:1px solid var(--rule);border-radius:12px;background:#080d16">
+      <header class="atlas-main-head"><div><h3>月伴对话界面族</h3><span class="view-meta">session 内全屏模式 · 不新增一级路由 · SVG/CSS 形象随明暗主题换色 · 视觉原型见 <a href="#companion">06C 画板</a></span></div><span class="status-badge ok">M9.5</span></header>
+      <div class="screen-family">
+        <article class="screen-route" data-route="/chat（模式切换）"><b>月伴全屏舞台</b><p>放大月亮 + 增强星空；listening/thinking 旋转，speaking 停转随音量波动发光；字幕 aria-live 逐段高亮。</p></article>
+        <article class="screen-route" data-route="/chat · composer"><b>召唤入口</b><p>月亮按钮一键召唤；进入 / 退出消息历史保持；<code>companion.enabled=false</code> 时入口隐藏。</p></article>
+        <article class="screen-route" data-route="/settings · 语音与麦克风"><b>月伴对话设置</b><p>总开关、自动朗读、音色试听、语速/音量、SAPI 状态行；无 SAPI 控件禁用并显示原因。</p></article>
+        <article class="screen-route" data-route="状态矩阵"><b>四态与降级</b><p>idle/listening/thinking/speaking + reduce-motion 静态光强；SAPI 缺失降级字幕模式，对话不中断。</p></article>
+      </div>
+      <div class="overlay-strip"><span><b>打断</b>点击月亮或 Esc，≤100ms 静音</span><span><b>字幕模式</b>无 SAPI 环境降级</span><span><b>试听</b>音色下拉内联播放</span><span><b>焦点归还</b>退出回入口按钮</span></div>
+      <div class="state-contract"><span>idle</span><span>listening</span><span>thinking</span><span>speaking</span><span>blocked</span><span>error-retryable</span><span>offline</span></div>
+    </div>
+  </div>
+
+  <h3>统一页面与 Overlay 状态合同</h3>
+  <div class="card"><table><thead><tr><th>区域</th><th>状态</th><th>必须呈现</th></tr></thead><tbody><tr><td>数据页面</td><td>loading / empty / ready / no-result / stale</td><td>旧数据保留策略、刷新时间、重试与 traceId</td></tr><tr><td>在线与权限</td><td>offline / reconnecting / unauthenticated / forbidden / restricted</td><td>不可泄露对象、返回路径和允许动作</td></tr><tr><td>执行</td><td>streaming / executing / waiting / cancelling / interrupted / outcome-unknown</td><td>当前事实、停止语义、receipt 与对账入口</td></tr><tr><td>冲突</td><td>workspace / concurrent / sync / immutable conflict</td><td>双方版本、影响、可选解决方案；禁止静默覆盖</td></tr><tr><td>Overlay</td><td>Dialog / Review / Wizard / Inspector / Recovery / Impact</td><td>对象、scope、风险、可逆性、有效期、默认焦点、关闭后焦点归还</td></tr></tbody></table></div>
+</div></section>
+
+<!-- ═══════════════════════════════════════════════════════════
      FOOTER
      ═══════════════════════════════════════════════════════════ -->
 <footer>
@@ -1586,7 +2137,7 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
       LUNITIDE <span style="color:var(--glow)">月汐</span>
     </div>
     <div class="f-tech">Go Core Engine + WebView2 Host + React/TypeScript Renderer</div>
-    <div class="f-copy">Lunitide 月汐 · 全链路统一产品与系统设计 v1.0</div>
+    <div class="f-copy">Lunitide 月汐 · 全链路统一产品与系统设计 v2.0</div>
   </div>
 </footer>
 
@@ -1604,6 +2155,20 @@ footer .f-copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);margi
     st.style.height=sz+'px';
     st.style.animationDelay=Math.random()*4+'s';
     s.appendChild(st);
+  }
+  var launch=document.getElementById('workbench');
+  var projects=document.getElementById('project-management');
+  if(launch&&projects&&projects.parentNode){
+    projects.parentNode.insertBefore(launch,projects);
+  }
+  if(!location.hash){
+    if(launch){
+      history.replaceState(null,'',location.pathname+location.search+'#workbench');
+      requestAnimationFrame(function(){launch.scrollIntoView({block:'start'});});
+    }
+  }else{
+    var target=document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if(target){requestAnimationFrame(function(){target.scrollIntoView({block:'start'});});}
   }
 })();
 </script>
