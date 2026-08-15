@@ -1,0 +1,102 @@
+M5 Day-0 假设清单验证证据（T-5.0.1）
+日期：2026-08-15  HEAD：cf96298 (main)  验证人：AI 开发代理（受用户委托）
+命令基线：go1.26.5 windows/amd64 / Node v24.16.0 / 仓库 E:\Trae-Work-Projects\lunitide
+
+A-001 migrations 目录与最大编号
+  实测：Get-ChildItem migrations | 最大编号 = 0040_message_rewind.sql
+  结论：✓ M5 migration 从 0041 起编（0041 M5 Scope Seal DB 约束，0042 M5 五表）
+
+A-002 M4 已有表 root_run
+  实测：rg "CREATE TABLE.*root_run" migrations/ → 无命中；M4 实际表为 agent_run
+        （migrations/0030_m4_agent_runtime.sql L6-15：id/session_id/status 9 态/budget_json/
+         used_json/version/created_at/updated_at）
+  结论：⚠ 名称漂移（不改变行为合同）。M5 五表 FK 一律引用 agent_run(id)；
+        M5 scope=personal 语义由 m5_adhoc_workspace(run_id) 绑定关系表达，不为 agent_run 加列。
+        按任务卡纪律③记录并回写，实现按 agent_run 适配。
+
+A-003 run_event 唯一索引 (run_id, seq)
+  实测：0030 L75-83 UNIQUE (run_id, sequence)，sequence>0，事件负载 json_valid。
+  结论：✓ 直接复用。
+
+A-004 EffectJournal 写入/重放接口
+  实测：internal/storage/sqlite/agent_runtime.go PutEffect/GetEffectByKey/ListPreparedEffects；
+        internal/agentrunapp/kernel.go RunRecoveryScanner 收敛 prepared/outcome_unknown。
+  结论：✓ 复用，M5 不另建 journal。
+
+A-005 networkpolicy 检查函数
+  实测：internal/networkpolicy/{policy,fetch,client}.go；agentrunapp/web.go defaultWebFetch
+        已通过 SSRF 固定 transport 调用。
+  结论：✓ M5 browser/mcp 网络裁决复用 networkpolicy.Options 管道。
+
+A-006 secretlease Acquire/Release
+  实测：internal/secretlease broker 提供 WithLease(ctx, Request, func([]byte) error)。
+  结论：✓ MCP 认证 SecretRef 经 lease 注入，不进 argv/日志。
+
+A-007 DPAPI Protect/Unprotect
+  实测：host 侧 credentialsubmission/electronsafestorage 提供；engine 侧 DPAPI 明文仅存在于
+        host lease callback 生命周期（ADR-004）。
+  结论：✓ M5 无新增 DPAPI 需求。
+
+A-008 Bridge 注册与 schema 校验
+  实测：internal/app/engine.go RuntimeHandlers map（allow-list + dispatch）；
+        api/bridge/v1/*.schema.json（x-method/x-enabled/x-result/x-examples）；
+        web/scripts/generate-bridge.mjs Ajv 编译 + 正负例 + envelope enum 一致性 + drift gate。
+  结论：✓ 新方法走 schema 文件 + envelope enum + mjs enabled 列表 + 生成管线。
+
+A-009 Job Object 进程树限制封装
+  实测：internal/commandworker/worker.go（M4 CommandSpec 执行）+ windows Job Object。
+  结论：✓ M5 command 复用；后台化阈值 10s/1MiB 在 m5app 包装层实现。
+
+A-010 AppError 结构
+  实测：internal/bridge/protocol.go Error{Code,Message,Retryable,Details,CorrelationID}；
+        bridge.Failure 统一构造。错误码集中于各 handler failure 映射函数。
+  结论：✓ M5 错误码按 04 错误矩阵注册为全局 SNAKE_CASE（阶段码 M5-* 作为测试别名保留在
+        schema x-error-alias 与测试断言中）。
+
+A-011 审计事件写入接口
+  实测：agentrunapp.Tx PutAudit(providerapp.Audit)；audit_events.action 为 CHECK 枚举，
+        新 action 需要 migration 扩展枚举（0030 已示范重建模式）。
+  结论：✓ 0042 迁移中扩展 m5.* 审计动作。
+
+A-012 M4 生命周期 9 态
+  实测：internal/domain/agentrun/agentrun.go L31-41 9 态与 FR-02 完全一致，
+        first-terminal-wins + version CAS。
+  结论：✓ M5 RootRun 直接复用，不落库 WaitingUser/Suspended/Succeeded 别名。
+
+A-013 SQLite foreign_keys=ON 与 WAL
+  实测：internal/storage/sqlite/store.go L204 迁移后 PRAGMA foreign_keys=ON；
+        L223 journal_mode=WAL；busy_timeout=5000。
+  结论：✓ REFERENCES 实际生效，M5 表 FK 可用。
+
+A-014 前端 Bridge TS 生成管线
+  实测：npm run generate:bridge → web/scripts/generate-bridge.mjs →
+        web/src/generated/bridge.ts + internal/bridge/schema_generated.go +
+        internal/contract/schema_generated_test.go；npm run verify:bridge 为 drift gate。
+  结论：✓ 禁止手写 TS，全部生成。
+
+Scope Seal 现状（M4 出口缺口，T-5.0.3 输入）
+  1) handler 注册：engine.go L230-233 仍注册 plan.run.tree/spawn/join → 移除并稳定拒绝。
+  2) Renderer 引用：web/src/bridge/client.ts L284-286 runTree/spawnRun/joinRun；
+     web/src/workspace/CoordinationPlanPanel.tsx 使用；plan.client.test.ts 断言调用序列 →
+     全部移除。
+  3) DB：0028_agent_orchestration.sql agent_plan_runs.parent_run_id 允许非 NULL →
+     0041 重建表加 CHECK (parent_run_id IS NULL)。
+  4) schema：plan.run.spawn/join/tree 三个 schema 文件 x-enabled → false，envelope enum 保留
+     （未启用方法 fail closed，不做降级转发）。
+
+裁决依据：DR-20260814-01 —— Scope Seal 不阻断 M5 开工，转为 M5 并行任务（T-5.0.3）并保留为
+M5 发布门禁。本次交付按"M5 开发 + Scope Seal 关闭"执行。
+
+路径/命名适配回写（不改变行为合同，纪律③）
+  - 设计稿 bridge/schema/m5/ → 仓库惯例 api/bridge/v1/<method>.schema.json（管线不变）。
+  - 设计稿 root_run → agent_run。
+  - 设计稿 internal/bridge/m5、internal/workspace、internal/vcs、internal/command、internal/skill、
+    internal/browser、internal/mcp、internal/artifact → 仓库垂直切片惯例：
+    internal/domain/m5run + internal/m5app + internal/storage/sqlite/m5_runtime.go +
+    internal/app/m5_handlers.go。
+  - 设计稿 DDL 时间戳 INTEGER unix ms → 仓库惯例 TEXT RFC3339Nano。
+  - fs.read/tree/grep、changeset.preview/apply/revert、command.start/cancel/get 已在 M4 交付并
+    注册（capability manifest v6），M5 复用同一执行核；M5 新增 wire 方法：
+    run.send、run.cancel、browser.act、mcp.invoke、workspace.convert。
+
+签字：AI 开发代理（代表用户执行） 2026-08-15

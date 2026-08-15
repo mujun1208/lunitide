@@ -1,0 +1,262 @@
+{
+  "schema": "stdio-poc-evidence/1",
+  "generatedAt": "2026-08-14T23:51:54.5636795Z",
+  "platform": "windows",
+  "verdict": "PASS",
+  "assumptions": [
+    {
+      "id": "host-file",
+      "title": "host filesystem escapes (../, symlink, junction)",
+      "enforcedBy": "guard-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "absolute-host-marker",
+          "attempt": "C:\\Users\\mujun\\AppData\\Local\\Temp\\stdio-poc-1521444036\\host-marker-secret.txt",
+          "blocked": true,
+          "detail": "worker: sandbox escape (file): absolute path outside sandbox: C:\\Users\\mujun\\AppData\\Local\\Temp\\stdio-poc-1521444036\\host-marker-secret.txt"
+        },
+        {
+          "vector": "parent-traversal",
+          "attempt": "..\\host-marker-secret.txt",
+          "blocked": true,
+          "detail": "worker: sandbox escape (file): parent traversal in path: ..\\host-marker-secret.txt"
+        },
+        {
+          "vector": "deep-traversal",
+          "attempt": "..\\..\\..\\..\\host-marker-secret.txt",
+          "blocked": true,
+          "detail": "worker: sandbox escape (file): parent traversal in path: ..\\..\\..\\..\\host-marker-secret.txt"
+        },
+        {
+          "vector": "junction-escape",
+          "attempt": "C:\\Users\\mujun\\AppData\\Local\\Temp\\stdio-poc-1521444036\\sandbox\\escape-dir\\secret.txt",
+          "blocked": true,
+          "detail": "worker: sandbox escape (file): resolved path escapes sandbox: C:\\Users\\mujun\\AppData\\Local\\Temp\\stdio-poc-1521444036\\sandbox\\escape-dir\\secret.txt -\u003e C:\\Users\\mujun\\AppData\\Local\\Temp\\stdio-poc-1521444036\\host-secret-dir\\secret.txt"
+        },
+        {
+          "vector": "in-root-positive-control",
+          "attempt": "C:\\Users\\mujun\\AppData\\Local\\Temp\\stdio-poc-1521444036\\sandbox\\sub\\legit.txt",
+          "blocked": true,
+          "detail": "guard ALLOWED and read 5 bytes"
+        }
+      ],
+      "hostCheck": {
+        "precondition": "host reads marker file and mounts are whitelisted",
+        "confirmed": true,
+        "detail": "markerReadable=true hostGuardRejectsEscapes=true hostGuardAllowsLegit=true junction=\"C:\\\\Users\\\\mujun\\\\AppData\\\\Local\\\\Temp\\\\stdio-poc-1521444036\\\\sandbox\\\\escape-dir\\\\secret.txt\" symlink=\"\""
+      },
+      "startedAt": "2026-08-14T23:51:54.3605314Z",
+      "endedAt": "2026-08-14T23:51:54.407956Z",
+      "digest": "ee4ff46564334bf92a985bc9bd211a1821b2f35dc1a0850c4a6897865a2d9af0"
+    },
+    {
+      "id": "network",
+      "title": "network egress to host/metadata/intranet targets",
+      "enforcedBy": "guard-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "imds-aws",
+          "attempt": "169.254.169.254:80",
+          "blocked": true,
+          "detail": "worker: sandbox escape (network): cloud metadata endpoint: 169.254.169.254"
+        },
+        {
+          "vector": "imds-gcp",
+          "attempt": "metadata.google.internal:80",
+          "blocked": true,
+          "detail": "worker: sandbox escape (network): cloud metadata endpoint: metadata.google.internal"
+        },
+        {
+          "vector": "intranet-rdp",
+          "attempt": "10.0.0.1:3389",
+          "blocked": true,
+          "detail": "worker: sandbox escape (network): target not on allowlist: 10.0.0.1:3389"
+        },
+        {
+          "vector": "host-loopback",
+          "attempt": "127.0.0.1:8080",
+          "blocked": true,
+          "detail": "worker: sandbox escape (network): loopback dial: 127.0.0.1"
+        },
+        {
+          "vector": "not-allowlisted",
+          "attempt": "evil.example.com:443",
+          "blocked": true,
+          "detail": "worker: sandbox escape (network): target not on allowlist: evil.example.com:443"
+        },
+        {
+          "vector": "dns-rebinding-resolved-ip",
+          "attempt": "10.0.0.99:443",
+          "blocked": true,
+          "detail": "worker: sandbox escape (network): target not on allowlist: 10.0.0.99:443"
+        },
+        {
+          "vector": "allowlisted-positive-control",
+          "attempt": "api.example.com:443",
+          "blocked": true,
+          "detail": "guard ALLOWED dial"
+        }
+      ],
+      "hostCheck": {
+        "precondition": "independent host guard classifies all seven targets identically",
+        "confirmed": true,
+        "detail": "hostGuardAgrees=true targets=7"
+      },
+      "startedAt": "2026-08-14T23:51:54.407956Z",
+      "endedAt": "2026-08-14T23:51:54.4449152Z",
+      "digest": "b43f93cd342612b906480f21943ad29ff930abd2f3da21c4324d965a4b527307"
+    },
+    {
+      "id": "secret",
+      "title": "parent environment / secret inheritance",
+      "enforcedBy": "os-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "env-inheritance",
+          "attempt": "getenv LUNITIDE_POC_SECRET_HOST",
+          "blocked": true,
+          "detail": "variable absent from child environment"
+        },
+        {
+          "vector": "env-inheritance",
+          "attempt": "getenv AWS_SECRET_ACCESS_KEY",
+          "blocked": true,
+          "detail": "variable absent from child environment"
+        },
+        {
+          "vector": "env-inheritance",
+          "attempt": "getenv OPENAI_API_KEY",
+          "blocked": true,
+          "detail": "variable absent from child environment"
+        },
+        {
+          "vector": "env-inheritance",
+          "attempt": "getenv ANTHROPIC_API_KEY",
+          "blocked": true,
+          "detail": "variable absent from child environment"
+        },
+        {
+          "vector": "env-inheritance",
+          "attempt": "getenv USERPROFILE",
+          "blocked": true,
+          "detail": "variable absent from child environment"
+        }
+      ],
+      "hostCheck": {
+        "precondition": "host environment carries the marker secret",
+        "confirmed": true,
+        "detail": "hostGetenv=\"poc-host-secret-7f3a\""
+      },
+      "startedAt": "2026-08-14T23:51:54.4449152Z",
+      "endedAt": "2026-08-14T23:51:54.4707361Z",
+      "digest": "6849bfde984676e597ba53a2adefd66ca9c9fc88ebc895073515ab590658e9ae"
+    },
+    {
+      "id": "proctree",
+      "title": "fork bomb and process-tree survival",
+      "enforcedBy": "os-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "fork-bomb",
+          "attempt": "spawn 16 grandchildren",
+          "blocked": true,
+          "detail": "spawned=3 rejected=13 pids=[4240 35220 27088] (job active-process quota)"
+        }
+      ],
+      "hostCheck": {
+        "precondition": "Kill reaps the tree; every grandchild pid is dead",
+        "confirmed": true,
+        "detail": "rootExit=1 waitErr=\u003cnil\u003e grandchilds=3 allDead=true pids=[4240 35220 27088]"
+      },
+      "startedAt": "2026-08-14T23:51:54.4707361Z",
+      "endedAt": "2026-08-14T23:51:54.509862Z",
+      "digest": "4de4f081d42634720612017a6238f43770cd950283429c60303d4ea3db348c0b"
+    },
+    {
+      "id": "resource",
+      "title": "memory exhaustion",
+      "enforcedBy": "os-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "memory-exhaustion",
+          "attempt": "commit 536870912 bytes",
+          "blocked": true,
+          "detail": "committed 140 MiB then VirtualAlloc failed: The paging file is too small for this operation to complete. (job commit quota)"
+        }
+      ],
+      "hostCheck": {
+        "precondition": "child reports VirtualAlloc rejection below the request",
+        "confirmed": true,
+        "detail": "committed 140 MiB then VirtualAlloc failed: The paging file is too small for this operation to complete. (job commit quota)"
+      },
+      "startedAt": "2026-08-14T23:51:54.5106987Z",
+      "endedAt": "2026-08-14T23:51:54.5365815Z",
+      "digest": "eaadec005118c145ca90de0f84d5fddc2e945a0fb23641b11463ec8bb3c5b58c"
+    },
+    {
+      "id": "protocol",
+      "title": "protocol cheating (oversize/malformed/forged frames)",
+      "enforcedBy": "protocol-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "zero-length-frame",
+          "attempt": "bad frame classified as malformed",
+          "blocked": true,
+          "detail": "classified=malformed"
+        },
+        {
+          "vector": "garbage-payload",
+          "attempt": "bad frame classified as malformed",
+          "blocked": true,
+          "detail": "classified=malformed"
+        },
+        {
+          "vector": "forged-type",
+          "attempt": "bad frame classified as forged",
+          "blocked": true,
+          "detail": "classified=forged"
+        },
+        {
+          "vector": "forged-nonce",
+          "attempt": "bad frame classified as forged",
+          "blocked": true,
+          "detail": "classified=forged"
+        },
+        {
+          "vector": "forged-probe",
+          "attempt": "bad frame classified as forged",
+          "blocked": true,
+          "detail": "classified=forged"
+        },
+        {
+          "vector": "oversize-declared",
+          "attempt": "bad frame classified as oversize",
+          "blocked": true,
+          "detail": "classified=oversize"
+        }
+      ],
+      "hostCheck": {
+        "precondition": "stream stays aligned; trailing report frame parses",
+        "confirmed": true,
+        "detail": "trailingReportErr=\u003cnil\u003e"
+      },
+      "startedAt": "2026-08-14T23:51:54.5365815Z",
+      "endedAt": "2026-08-14T23:51:54.5636795Z",
+      "digest": "86d6d41bc6d87120b6404ed38bf5ad234ebc618ba07ef6f4dc8129b6f0d235b7"
+    }
+  ],
+  "bundleDigest": "b74dc646a11a859b6d62983e51e6add36656c9130466a37cfe9d5681d33229cc",
+  "notes": [
+    "POC PASS only permits entering 5B (controlled implementation) development.",
+    "stdio transport stays DISABLED: M6-MCP-004 remains in force.",
+    "host-file and network assumptions are enforced at the guard layer (the stdio worker runtime funnels access through the host guard); the OS-level boundary (AppContainer) is 5B scope.",
+    "secret, proctree and resource assumptions are OS-enforced (explicit environment block, Job Object quotas).",
+    "5A/5B/5C evidence must bind the same build/config digest before production enablement."
+  ]
+}

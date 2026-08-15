@@ -1,0 +1,90 @@
+M6 Day-0 假设清单验证证据（T-6.0.1）
+日期：2026-08-15  HEAD：cf96298 (main)  验证人：AI 开发代理（受用户委托）
+命令基线：go1.26.5 windows/amd64 / Node v24.16.0 / 仓库 E:\Trae-Work-Projects\lunitide
+
+A-001 migrations 目录与最大编号
+  实测：Get-ChildItem migrations | 最大编号 = 0043_m5_changeset_rollback.sql
+  结论：✓ M6 migration 从 0044 起编（0044 扩展供应链+HTTP MCP，0045 Connector
+        元数据快照，0046 云任务/委派/预算/屏障/合并/出站箱，共 11 表）。
+
+A-002 M6 设计 DDL 的 root_run 表名
+  实测：rg "CREATE TABLE.*root_run" migrations/ → 无命中；M4/M5 实际表为 agent_run
+        （0030_m4_agent_runtime.sql，M5 全部 FK 引用它）。
+  结论：⚠ 名称漂移（不改变行为合同）。M6 六个 root 绑定表（m6_delegation、
+        m6_budget_account、m6_barrier、m6_merge_intent 等）root_id 一律
+        REFERENCES agent_run(id) ON DELETE CASCADE。按任务卡纪律③记录并回写。
+
+A-003 M5 Scope Seal 解除条件
+  实测：0041_m5_scope_seal.sql 通过 agent_run 重建使 parent_run_id 仅容 NULL
+        （CHECK parent_run_id IS NULL）；M5 期 SpawnChild 已改为 CreateRoot。
+  结论：✓ M6 不回改 agent_run（避免第 4 次 ATR 重建）。Parent/Child 关系由
+        m6_delegation(root_id, parent_id, child_task_id, depth 0..4) 独立承载，
+        Child 永远是 m6_cloud_task 行而非 agent_run 行，Root 状态机不动。
+
+A-004 预算存储与守恒不变式
+  实测：M4 agent_run.budget_json/used_json 为单行 JSON 投影，无账本表。
+  结论：✓ M6 新增 m6_budget_account（root_id × dimension 四维：
+        cpu_seconds/tokens/cost/wall_clock），保留设计 CHECK(granted =
+        reserved + consumed + refundable) 守恒不变式（BGT-001/002），
+        ledger 服务保证所有转移不越界，乐观锁 version 递增。
+
+A-005 云任务幂等
+  实测：M4 command_job 有 idempotency 处理但无跨进程租约表。
+  结论：✓ m6_cloud_task 携带 idempotency_key UNIQUE + payload_digest
+        （TSK-001）：同 key 不同 payload 的重放被拒绝而非静默返回旧结果；
+        lease_owner/lease_expires_at/attempt 支持崩溃后租约接管。
+
+A-006 MCP endpoint 与 stdio 门
+  实测：M5 internal/mcp/remote.go 仅 HTTPS 只读；无 endpoint 注册表。
+  结论：✓ m6_mcp_endpoint.transport CHECK 容纳 ('https','stdio')，但 bridge 层
+        在 stdio gate（M6-MCP-004）DISABLED 时拒绝创建 stdio 行；auth_ref 是
+        SecretRef 句柄（绝不存凭证值），capability_pin 为 JSON 能力指纹。
+
+A-007 扩展供应链对象
+  实测：M5 skills 为内建只读注册，无第三方工件表。
+  结论：✓ m6_extension_artifact(publisher, name, version, digest UNIQUE,
+        signature_state verified/failed/revoked, sbom_ref, manifest_json,
+        risk low/medium/high) + m6_extension_install(subject×scope 九态生命
+        周期：discovered→verifying→installed→enabled/paused/blocked/
+        quarantined→uninstalled/rolling_back)。
+
+A-008 UNIQUE(publisher,name,version,digest) 的存储形态
+  实测：SQLite 对表约束 UNIQUE 生成 sqlite_autoindex_*，validateSchema 查询
+        排除 sqlite_autoindex_%（store.go SELECT ... WHERE name NOT LIKE
+        'sqlite_autoindex_%'）。
+  结论：⚠ expectedSchemaSQL 不收录 ux_m6_extension_artifact_* 独立索引条目
+        （迁移中无 CREATE UNIQUE INDEX，只有表约束）；曾误加导致
+        "schema definition object set incomplete"，已删除并记录。
+
+A-009 Connector 元数据边界
+  实测：M5 无任何 DB 直连；M6-DB-001/002 要求语句+驱动方法双白名单。
+  结论：✓ m6_connector_catalog 仅存元数据快照（metadata_scope CHECK 收敛于
+        catalog/schema/table/column/index/constraint），objects_json ≤16MiB，
+        UNIQUE(connector_id, snapshot_version) 支持版本化快照比对。
+
+A-010 JoinBarrier 与合并意图
+  实测：M4 无 fan-out/fan-in 设施；M5 禁 Child。
+  结论：✓ m6_barrier(policy ALL/QUORUM/FAIL_FAST, expected_children 1..100,
+        quorum ≤ expected_children) + m6_barrier_arrival(UNIQUE barrier_id×
+        child_id, outcome succeeded/failed/cancelled/expired, result_digest)；
+        m6_merge_intent 承载 Root Writer CAS 合并（expected_head/current_head、
+        patch_digest、tests_ref、九态）。
+
+A-011 事件出口
+  实测：M4 已有 outbox_events（引擎域），M6 云侧事件独立。
+  结论：✓ 新增 m6_outbox（published 0/1 + published_at + ix_outbox_unpub），
+        与引擎域 outbox_events 分域，避免发布器竞争。
+
+A-012 schema 校验同步管线
+  实测：store.go expectedMigrations（文件名+SHA-256）与 expectedSchemaSQL
+        （type:name → DDL 字面量）双清单；validateSchema 逐对象比对
+        sqlite_schema 原文。
+  结论：✓ 0044/0045/0046 已入 manifest（摘要实测复核一致）；expectedSchemaSQL
+        收录 11 表 + 8 显式索引（表约束 autoindex 除外）。曾发现补丁脚本按文件
+        顺序漏掉每个文件首个 CREATE 语句（A-008 关联），已手工补齐并全量
+        go test ./internal/storage/... 通过（含 v1 fixture 升级路径与
+        v26 手工回退装置——装置已补 M6 表 DROP 以支持 0027 起全量重放）。
+
+门禁快照（本任务卡完成时）
+  go test ./internal/storage/... ./internal/agentorchestration/... → ok
+  store.go / token_ledger_migration_test.go 已 gofmt。

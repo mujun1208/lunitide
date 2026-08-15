@@ -1,0 +1,294 @@
+{
+  "schema": "stdio-5c-evidence/1",
+  "generatedAt": "2026-08-15T01:24:34.6584977Z",
+  "platform": "windows/amd64",
+  "policyDigest": "8715358b0eb04ebf7ed7d36f7f0cb82d9794cac7110e79328b0bda073dc95147",
+  "gateOpen": false,
+  "verdict": "PASS",
+  "records": [
+    {
+      "id": "host-file",
+      "title": "host filesystem escapes (guard channel + bare-channel probe)",
+      "enforcedBy": "guard-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "direct-host-file",
+          "attempt": "read a host secret outside the sandbox root",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (file): absolute path outside sandbox: C:\\Users\\mujun\\AppData\\Local\\Temp\\TestRedTeamProductionEscape2629504839\\001\\rt\\rt-host-file\\host-marker-secret.txt"
+        },
+        {
+          "vector": "junction-escape",
+          "attempt": "reach a host dir through a junction inside the root",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (file): resolved path escapes sandbox: C:\\Users\\mujun\\AppData\\Local\\Temp\\TestRedTeamProductionEscape2629504839\\001\\rt\\rt-host-file\\root\\escape-dir\\secret.txt -\u003e C:\\Users\\mujun\\AppData\\Local\\Temp\\TestRedTeamProductionEscape2629504839\\001\\rt\\rt-host-file\\host-secret-dir\\secret.txt"
+        },
+        {
+          "vector": "positive-control",
+          "attempt": "legitimate file inside the root stays reachable",
+          "blocked": true,
+          "detail": "guard: \u003cnil\u003e"
+        }
+      ],
+      "hostCheck": "markerReadable=true hostGuardRejectsEscapes=true hostGuardAllowsLegit=true",
+      "startedAt": "2026-08-15T01:24:30.6950331Z",
+      "endedAt": "2026-08-15T01:24:31.0190096Z",
+      "digest": "a3ddaa2e2902b52f7001b9cba2f26a09b61ef32d37f5786369554bd79ed32445"
+    },
+    {
+      "id": "network",
+      "title": "network egress (guard channel + bare-channel probe)",
+      "enforcedBy": "guard-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "imds-aws",
+          "attempt": "dial 169.254.169.254:80 (want blocked=true)",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (network): cloud metadata endpoint: 169.254.169.254"
+        },
+        {
+          "vector": "imds-gcp",
+          "attempt": "dial metadata.google.internal:80 (want blocked=true)",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (network): cloud metadata endpoint: metadata.google.internal"
+        },
+        {
+          "vector": "intranet-rdp",
+          "attempt": "dial 10.0.0.1:3389 (want blocked=true)",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (network): target not on allowlist: 10.0.0.1:3389"
+        },
+        {
+          "vector": "host-loopback",
+          "attempt": "dial 127.0.0.1:8080 (want blocked=true)",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (network): loopback dial: 127.0.0.1"
+        },
+        {
+          "vector": "not-allowlisted",
+          "attempt": "dial evil.example.com:443 (want blocked=true)",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (network): target not on allowlist: evil.example.com:443"
+        },
+        {
+          "vector": "dns-rebinding-resolved-ip",
+          "attempt": "dial 10.0.0.99:443 (want blocked=true)",
+          "blocked": true,
+          "detail": "guard: worker: sandbox escape (network): target not on allowlist: 10.0.0.99:443"
+        },
+        {
+          "vector": "allowlisted-positive-control",
+          "attempt": "dial api.example.com:443 (want blocked=false)",
+          "blocked": true,
+          "detail": "guard: \u003cnil\u003e"
+        }
+      ],
+      "hostCheck": "hostGuardAgrees=true targets=7",
+      "startedAt": "2026-08-15T01:24:31.0190096Z",
+      "endedAt": "2026-08-15T01:24:31.0796391Z",
+      "digest": "2402cf717c55f584b27a12eb17c8ef2163ebddf200ea4e654bf1ba1744acf359"
+    },
+    {
+      "id": "secret",
+      "title": "parent environment / secret inheritance",
+      "enforcedBy": "os-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "env-inheritance",
+          "attempt": "full child environment dump",
+          "blocked": true,
+          "detail": "env=[STDIOWORKER_SESSION=766e0a55a20f0c6579f21832faa4e8aa STDIOWORKER_SPEC_DIGEST=71b7141231c9e326175400b302adb08900224743a75b24a706b09b479c47f497 SystemRoot=C:\\WINDOWS] leakedVariables=0"
+        }
+      ],
+      "hostCheck": "hostGetenv=\"leak-me-if-you-can\" envCount=3",
+      "startedAt": "2026-08-15T01:24:31.0796391Z",
+      "endedAt": "2026-08-15T01:24:31.1162773Z",
+      "digest": "12a82c5250d64f2700baefd3bc2eb132854b11f47803425a7a017a80d262a97f"
+    },
+    {
+      "id": "proctree",
+      "title": "fork bomb and process-tree survival",
+      "enforcedBy": "os-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "fork-bomb",
+          "attempt": "spawn 16 grandchildren under maxProcs=4",
+          "blocked": true,
+          "detail": "spawned=3 rejected=13 pids=[43528 50044 25660] (job active-process quota)"
+        }
+      ],
+      "hostCheck": "grandchilds=3 allDeadAfterRun=true",
+      "startedAt": "2026-08-15T01:24:31.1162773Z",
+      "endedAt": "2026-08-15T01:24:33.1797799Z",
+      "digest": "1bc0bb813b1d99716380d85acf136045242343052cc4cfc1f4d2366b5cafb5f3"
+    },
+    {
+      "id": "resource",
+      "title": "memory exhaustion",
+      "enforcedBy": "os-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "memory-exhaustion",
+          "attempt": "commit 352 MiB against a 256 MiB job cap",
+          "blocked": true,
+          "detail": "virtual alloc refused after 192 MiB: The paging file is too small for this operation to complete. (requested 352 MiB, committed 192 MiB)"
+        }
+      ],
+      "hostCheck": "job commit quota is enforced by the OS (SetInformationJobObject JobMemoryLimit)",
+      "startedAt": "2026-08-15T01:24:33.1797799Z",
+      "endedAt": "2026-08-15T01:24:33.2143545Z",
+      "digest": "c835d63d4a5da63af94debab1ccb868f16d644701408b5bbf9e38a75256cde05"
+    },
+    {
+      "id": "protocol",
+      "title": "protocol cheating (forged session/sequence/digest)",
+      "enforcedBy": "protocol-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "forged-session",
+          "attempt": "cheat the framed protocol",
+          "blocked": true,
+          "detail": "verdict=EXPIRED (session binding + strict sequence + spec digest + heartbeat watchdogs)"
+        },
+        {
+          "vector": "seq-gap",
+          "attempt": "cheat the framed protocol",
+          "blocked": true,
+          "detail": "verdict=EXPIRED (session binding + strict sequence + spec digest + heartbeat watchdogs)"
+        },
+        {
+          "vector": "digest-lie",
+          "attempt": "cheat the framed protocol",
+          "blocked": true,
+          "detail": "verdict=EXPIRED (session binding + strict sequence + spec digest + heartbeat watchdogs)"
+        },
+        {
+          "vector": "silent",
+          "attempt": "cheat the framed protocol",
+          "blocked": true,
+          "detail": "verdict=EXPIRED (session binding + strict sequence + spec digest + heartbeat watchdogs)"
+        }
+      ],
+      "hostCheck": "expiredAuditEvents=4 cheaters=4",
+      "startedAt": "2026-08-15T01:24:33.2143545Z",
+      "endedAt": "2026-08-15T01:24:33.34309Z",
+      "digest": "047c206ac0fb66900e2ec3505d66f5429548b2839d28a3de386a01e45535e5f1"
+    },
+    {
+      "id": "crash-recovery",
+      "title": "host-crash journal recovery",
+      "enforcedBy": "runtime-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "host-crash-orphans",
+          "attempt": "LAUNCHED run left behind by a dead host",
+          "blocked": true,
+          "detail": "marked CRASHED, 0 unrecovered remain"
+        },
+        {
+          "vector": "torn-journal-tail",
+          "attempt": "half-written journal line from a mid-append crash",
+          "blocked": true,
+          "detail": "corrupt tail tolerated, prior good state recovered"
+        },
+        {
+          "vector": "double-recovery",
+          "attempt": "run Recover twice",
+          "blocked": true,
+          "detail": "second walk is idempotent"
+        }
+      ],
+      "hostCheck": "recoveredAuditEvents=1",
+      "startedAt": "2026-08-15T01:24:33.34309Z",
+      "endedAt": "2026-08-15T01:24:33.367911Z",
+      "digest": "557e184bec6dd8398ec59f1f241e6267ceff0e8e7d4502237dfb8b1c4a704c66"
+    },
+    {
+      "id": "revoke",
+      "title": "revocation freezes late results (M6-SBX-004)",
+      "enforcedBy": "runtime-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "revoke-kills-tree",
+          "attempt": "revoke a live forever-run",
+          "blocked": true,
+          "detail": "state=REVOKED rootPidAlive=false"
+        },
+        {
+          "vector": "late-result-freeze",
+          "attempt": "deliver a RESULT after revocation",
+          "blocked": true,
+          "detail": "result frozen nil, Wait returns ErrRevoked (M6-SBX-004)"
+        },
+        {
+          "vector": "revocation-audited",
+          "attempt": "audit trail of the revocation",
+          "blocked": true,
+          "detail": "actions=[stdio.worker.launched stdio.worker.revoked]"
+        }
+      ],
+      "hostCheck": "journalRevoked=true",
+      "startedAt": "2026-08-15T01:24:33.367911Z",
+      "endedAt": "2026-08-15T01:24:34.0920055Z",
+      "digest": "90fe41df71fcb6ed0851c0c24c9d7bc25a5905f664dd619c20c5d065b2ef6792"
+    },
+    {
+      "id": "fault-injection",
+      "title": "fault injection (journal/audit failures)",
+      "enforcedBy": "runtime-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "journal-write-failure",
+          "attempt": "journal fsync fails right after spawn",
+          "blocked": true,
+          "detail": "launchErr=true orphanRuns=0"
+        },
+        {
+          "vector": "audit-sink-failure",
+          "attempt": "audit sink rejects every event",
+          "blocked": true,
+          "detail": "run state=COMPLETED despite failing audit sink"
+        }
+      ],
+      "hostCheck": "fail-fast on durability loss, best-effort on observability loss",
+      "startedAt": "2026-08-15T01:24:34.0920055Z",
+      "endedAt": "2026-08-15T01:24:34.1273429Z",
+      "digest": "611c671a93f3047d9787cce4270f4105b4de8d390e6177c0e99c9c55dd53e3e3"
+    },
+    {
+      "id": "capacity",
+      "title": "16 parallel signed launches",
+      "enforcedBy": "runtime-level",
+      "passed": true,
+      "attacks": [
+        {
+          "vector": "parallel-launch-storm",
+          "attempt": "16 concurrent signed launches",
+          "blocked": true,
+          "detail": "completed=16/16 elapsed=531ms"
+        }
+      ],
+      "hostCheck": "launchedAuditEvents=26 completedAuditEvents=21",
+      "startedAt": "2026-08-15T01:24:34.1273429Z",
+      "endedAt": "2026-08-15T01:24:34.6584977Z",
+      "digest": "140a250d941176941e302987719ed199a6e0616d197785cbc17af7e5cd29ebce"
+    }
+  ],
+  "bundleDigest": "2ddd22dc79ca74b5d36c402f935b51540d8188f85e1596d74d39c7bad20f86ea",
+  "notes": [
+    "A 5C red-team PASS alone authorizes nothing: production stdio enablement additionally requires the Security Owner sign-off recorded outside this repository.",
+    "The runtime Gate stays closed and M6-MCP-004 keeps the stdio transport disabled at the registry gate.",
+    "host-file and network are enforced at the worker.Guard layer; the bare-channel probes record the current OS boundary honestly (no AppContainer in this build).",
+    "secret, proctree and resource are OS-enforced (explicit environment block, Job Object quotas).",
+    "This bundle binds the same frozen policy digest the 5B launch specs verify (config-digest contract of 5A/5B/5C)."
+  ]
+}

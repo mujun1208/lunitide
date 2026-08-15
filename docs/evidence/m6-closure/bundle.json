@@ -1,0 +1,117 @@
+{
+  "schema": "m6-closure-evidence/1",
+  "generatedAt": "2026-08-15T09:16:48.971799+00:00",
+  "platform": "windows/amd64",
+  "verdict": "PASS",
+  "records": [
+    {
+      "id": "gap-1",
+      "title": "0053 migration applied and schema-pinned",
+      "commands": [
+        "go test ./internal/storage/sqlite/... -count=1"
+      ],
+      "detail": "migrations 0001-0053 continuous; store.go expectedSchemaSQL matches sqlite_schema dump (dump test pattern)",
+      "passed": true
+    },
+    {
+      "id": "gap-2",
+      "title": "review fixes A: M5-H3 revert residue / H1 convert audit / H2 publish rollback / M1 committed CAS / M4 changeset audit",
+      "commands": [
+        "go test ./internal/... -count=1"
+      ],
+      "detail": "revert quota release via staged size; convert/publish audited in-tx; commit usage CAS checks RowsAffected; changeset preview/apply/revert audited",
+      "passed": true
+    },
+    {
+      "id": "gap-3",
+      "title": "review fixes B: endpoint/barrier audit + cancel cascade + M0-M3 appendAudit tx + emitFinal marshal",
+      "commands": [
+        "go test ./internal/... -count=1"
+      ],
+      "detail": "endpoint.registered/barrier.created audited; command cancel marks effect_journal outcome_unknown; execWithAudit wraps business+audit writes",
+      "passed": true
+    },
+    {
+      "id": "gap-4",
+      "title": "OpenAPI 3.0 consumer parser (5MB cap, $ref<=10, paths<=500, 6 auth enums, bomb guard)",
+      "commands": [
+        "go test ./internal/openapi/ -count=1"
+      ],
+      "detail": "catalog codes M6-OAS-001/002/003; deterministic canonical digest",
+      "passed": true
+    },
+    {
+      "id": "gap-5",
+      "title": "Integration/ApiOperation/FieldMapping governance + CredentialRef (M6-CRD-001) + optimistic locks",
+      "commands": [
+        "go test ./internal/app/ -run TestM6S5 -count=1"
+      ],
+      "detail": "M6-INT-001/M6-MAP-001 enforced; CAS transitions audited",
+      "passed": true
+    },
+    {
+      "id": "gap-6",
+      "title": "HealthSample/CallLog append-only + five-state aggregation",
+      "commands": [
+        "go test ./internal/app/ -run TestHealthFiveStateAggregation -count=1"
+      ],
+      "detail": "paused > unknown > healthy(>=99%) > degraded(>=90%) > unhealthy; append-only via triggers; M6-HLT-001 blocks paused scheduling",
+      "passed": true
+    },
+    {
+      "id": "gap-7",
+      "title": "Skill manifest validation + skill 5-table chain + ImportCandidate pipeline",
+      "commands": [
+        "go test ./internal/app/ -run TestSkillImportPipeline -count=1"
+      ],
+      "detail": "discovered->pinned->inspected->scanned->evaluated->awaiting_approval->approved|rejected|revoked; approval materializes skill+version+dependency; M6-SKL-001",
+      "passed": true
+    },
+    {
+      "id": "gap-8",
+      "title": "ComplexityDecision router + manifest/bundle/synthesis freezing + delegation integration",
+      "commands": [
+        "go test ./internal/app/ -run TestComplexityRoutingAndSynthesis -count=1"
+      ],
+      "detail": "simple->single / moderate->planned-single / complex|high-risk->delegated; reasonCodes audited; frozen digests content-addressed",
+      "passed": true
+    },
+    {
+      "id": "gap-9",
+      "title": "CloudRunner registry/attestation/mTLS + region+egress policy + fenced leases + receipt reconcile",
+      "commands": [
+        "go test ./internal/app/ -run TestCloudRunnerLeaseAndReconcile -count=1"
+      ],
+      "detail": "fencing epoch CAS; outcome_unknown receipts reconciled, never re-dispatched blindly",
+      "passed": true
+    },
+    {
+      "id": "gap-10",
+      "title": "Bridge wiring: 8 schemas + envelope enum + allow-list + handlers + engine routes + route-level tests",
+      "commands": [
+        "node scripts/generate-bridge.mjs --check",
+        "go test ./internal/app/ -run \"TestOpenapiParseRoute|TestComplexityDecideRoute|TestSkillImportRoutePipeline\" -count=1"
+      ],
+      "detail": "complexity.decide/openapi.parse/skill.import.{discover,inspect,submit,approve,reject,revoke} enabled; contract regenerated (bridge.ts + schema_generated.go); nil-service degrades to retryable STORAGE_UNAVAILABLE; idempotent replay verified",
+      "passed": true
+    },
+    {
+      "id": "gap-11",
+      "title": "Full closure regression",
+      "commands": [
+        "go vet ./...",
+        "go test ./... -count=1",
+        "npm run build (web)"
+      ],
+      "detail": "vet=0 warnings; test ok=74 fail=0; bridge --check no drift; vite build 319 modules + tsc clean",
+      "passed": true
+    }
+  ],
+  "notes": [
+    "Error codes follow M6_ERROR_CATALOG_V2 naming (M6-OAS/INT/MAP/CRD/HLT/SKL-001) defined per-domain; no central registry by convention.",
+    "M6 services (slices 1-4 + S5C) are not yet wired in cmd/engine/main.go: bridge methods answer retryable STORAGE_UNAVAILABLE until the assembly slice lands. Disclosed, not hidden.",
+    "stdio transport Gate stays closed per M6-MCP-004.",
+    "DatabaseContract legacy entities (ETL/OData) remain deferred by design."
+  ],
+  "bundleDigest": "4cc25e26a4fc9630f9c34e2ba41e43f09799eb982448bf1ea5cda5e4b8a21f4e"
+}
