@@ -1,0 +1,22 @@
+﻿=== RUN   TestApproval
+=== RUN   TestApproval/requester_self-approval_is_refused_(SoD,_T-07)
+=== RUN   TestApproval/candidates_freeze_at_creation_(M9-013)
+=== RUN   TestApproval/duplicate_subject_roles_cast_exactly_one_vote_(T-09)
+=== RUN   TestApproval/service_identity_cannot_satisfy_a_human_threshold_(T-04)
+=== RUN   TestApproval/n-of-m_reaches_APPROVED_and_dispatch_gate_passes
+=== RUN   TestApproval/revoking_after_approval_falls_back_to_WAITING_APPROVAL_(T-08)
+=== RUN   TestApproval/votes_are_bound_to_request_and_policy_digests_(M9-010)
+=== RUN   TestApproval/policy_tightening_recomputes_and_drops_approved_state
+=== RUN   TestApproval/expired_identity_recomputes_the_tally_(T-03_adjacency)
+--- PASS: TestApproval (0.00s)
+    --- PASS: TestApproval/requester_self-approval_is_refused_(SoD,_T-07) (0.00s)
+    --- PASS: TestApproval/candidates_freeze_at_creation_(M9-013) (0.00s)
+    --- PASS: TestApproval/duplicate_subject_roles_cast_exactly_one_vote_(T-09) (0.00s)
+    --- PASS: TestApproval/service_identity_cannot_satisfy_a_human_threshold_(T-04) (0.00s)
+    --- PASS: TestApproval/n-of-m_reaches_APPROVED_and_dispatch_gate_passes (0.00s)
+    --- PASS: TestApproval/revoking_after_approval_falls_back_to_WAITING_APPROVAL_(T-08) (0.00s)
+    --- PASS: TestApproval/votes_are_bound_to_request_and_policy_digests_(M9-010) (0.00s)
+    --- PASS: TestApproval/policy_tightening_recomputes_and_drops_approved_state (0.00s)
+    --- PASS: TestApproval/expired_identity_recomputes_the_tally_(T-03_adjacency) (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/policy	0.432s

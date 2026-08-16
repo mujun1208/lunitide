@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/subagent.tree.schema.json",
+  "title": "subagent.tree payload",
+  "x-method": "subagent.tree",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rootRunId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cursor": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "required": ["rootRunId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "subagents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "purpose": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["queued", "running", "completed", "failed", "cancelled", "orphaned"]
+            },
+            "spentTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "observationCount": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": ["id", "purpose", "status", "spentTokens", "observationCount"]
+        }
+      },
+      "nextCursor": {
+        "type": "string"
+      }
+    },
+    "required": ["subagents"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rootRunId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "limit": 20
+      }
+    ],
+    "negative": [
+      {
+        "rootRunId": "",
+        "limit": 20
+      }
+    ]
+  }
+}

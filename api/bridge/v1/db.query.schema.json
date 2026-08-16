@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/db.query.schema.json",
+  "title": "db.query payload",
+  "x-method": "db.query",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "connectionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "sqlitePath": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "sql": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    },
+    "params": {
+      "type": "array",
+      "maxItems": 100
+    },
+    "maxRows": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30000
+    }
+  },
+  "required": ["runId", "sql", "maxRows", "timeoutMs"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "columns": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "rows": {
+        "type": "array"
+      },
+      "rowCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "resultDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "required": ["columns", "rowCount", "truncated", "resultDigest"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "sqlitePath": "workspace/app.db",
+        "sql": "SELECT id, state FROM stage_runs ORDER BY created_at DESC",
+        "maxRows": 100,
+        "timeoutMs": 5000
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "sqlitePath": "workspace/app.db",
+        "sql": "SELECT 1",
+        "maxRows": 999999,
+        "timeoutMs": 5000
+      }
+    ]
+  }
+}

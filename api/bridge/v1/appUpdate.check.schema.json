@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/appUpdate.check.schema.json",
+  "title": "appUpdate.check payload",
+  "x-method": "appUpdate.check",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "channel": {
+      "type": "string",
+      "enum": ["stable", "beta"]
+    },
+    "currentVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    }
+  },
+  "required": [
+    "channel",
+    "currentVersion"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "updateId": {
+        "oneOf": [
+          {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          {
+            "type": "string",
+            "enum": [""]
+          }
+        ]
+      },
+      "version": {
+        "type": "string"
+      },
+      "digest": {
+        "type": "string"
+      },
+      "mandatory": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "updateId",
+      "version",
+      "digest",
+      "mandatory"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "channel": "stable",
+        "currentVersion": "1.2.0"
+      }
+    ],
+    "negative": [
+      {
+        "channel": "internal",
+        "currentVersion": "1.2.0"
+      }
+    ]
+  }
+}

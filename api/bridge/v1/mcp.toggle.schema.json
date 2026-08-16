@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp.toggle.schema.json",
+  "title": "mcp.toggle payload",
+  "x-method": "mcp.toggle",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "endpointId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "actor": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": ["endpointId", "enabled"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpointId": {
+        "type": "string"
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "state": {
+        "type": "string",
+        "enum": ["probe", "ready", "degraded", "revoked", "quarantined"]
+      }
+    },
+    "required": ["endpointId", "enabled", "state"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "endpointId": "mcp-01J8ZGB2V8X2B4C6D8F0G2H4J6",
+        "enabled": true,
+        "actor": "operator-1"
+      }
+    ],
+    "negative": [
+      {
+        "endpointId": "mcp-01J8ZGB2V8X2B4C6D8F0G2H4J6",
+        "enabled": "yes"
+      }
+    ]
+  }
+}

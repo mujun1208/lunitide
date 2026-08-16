@@ -1,0 +1,6 @@
+﻿=== RUN   TestPlanRunHandlersRejectNonStrictPayloads
+--- PASS: TestPlanRunHandlersRejectNonStrictPayloads (0.00s)
+=== RUN   TestPlanRunHandlersCoordinateWithoutExternalExecution
+--- PASS: TestPlanRunHandlersCoordinateWithoutExternalExecution (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/app	1.528s

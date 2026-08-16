@@ -1,0 +1,64 @@
+﻿=== RUN   TestM9CoreUseCases
+=== RUN   TestM9CoreUseCases/T-01_cross-org_access_denied_on_every_layer_with_no_existence_leak
+=== RUN   TestM9CoreUseCases/T-02_switching_TeamSpace_leaves_the_old_context_unreachable
+=== RUN   TestM9CoreUseCases/T-03_expired_external_identity_kills_tickets,_votes_and_runs
+=== RUN   TestM9CoreUseCases/T-04_service_identities_cannot_satisfy_human_thresholds
+=== RUN   TestM9CoreUseCases/T-05_child_relaxation_rejected_and_located
+=== RUN   TestM9CoreUseCases/T-06_parent_republish_vs_child_save_race_forces_re-proof
+=== RUN   TestM9CoreUseCases/T-07_requester_self-approval_is_SoD-refused_and_audited
+=== RUN   TestM9CoreUseCases/T-08_2-of-3_vote_revocation_returns_the_request_to_WAITING
+=== RUN   TestM9CoreUseCases/T-09_one_subject_across_many_roles_casts_exactly_one_vote
+=== RUN   TestM9CoreUseCases/T-10_tampered_manifest_or_body_is_quarantined,_zero_installs
+=== RUN   TestM9CoreUseCases/T-11_market_revocation_propagates_to_registry_and_cache_subscribers
+=== RUN   TestM9CoreUseCases/T-12_packages_without_completed_legal_review_never_show_licensed
+=== RUN   TestM9CoreUseCases/T-13_restricted_data_with_only_a_cloud_runner_blocks,_never_downgrades
+=== RUN   TestM9CoreUseCases/T-14_lost_side-effect_runner_goes_UNKNOWN_and_is_never_re-dispatched
+=== RUN   TestM9CoreUseCases/T-15_concurrent_reservations_stay_inside_the_hard_limit
+=== RUN   TestM9CoreUseCases/T-16_duplicate_settlement_receipts_never_double-charge
+=== RUN   TestM9CoreUseCases/T-17_audit_chain_detects_deletion,_reordering_and_tampering
+=== RUN   TestM9CoreUseCases/T-18_delete_hitting_an_active_hold_diverts_to_the_evidence_store
+=== RUN   TestM9CoreUseCases/T-19_restore_replays_holds_before_any_delete_gate_opens
+=== RUN   TestM9CoreUseCases/T-20_low-sample_groups_are_suppressed_and_cannot_identify_anyone
+--- PASS: TestM9CoreUseCases (0.01s)
+    --- PASS: TestM9CoreUseCases/T-01_cross-org_access_denied_on_every_layer_with_no_existence_leak (0.00s)
+    --- PASS: TestM9CoreUseCases/T-02_switching_TeamSpace_leaves_the_old_context_unreachable (0.00s)
+    --- PASS: TestM9CoreUseCases/T-03_expired_external_identity_kills_tickets,_votes_and_runs (0.00s)
+    --- PASS: TestM9CoreUseCases/T-04_service_identities_cannot_satisfy_human_thresholds (0.00s)
+    --- PASS: TestM9CoreUseCases/T-05_child_relaxation_rejected_and_located (0.00s)
+    --- PASS: TestM9CoreUseCases/T-06_parent_republish_vs_child_save_race_forces_re-proof (0.00s)
+    --- PASS: TestM9CoreUseCases/T-07_requester_self-approval_is_SoD-refused_and_audited (0.00s)
+    --- PASS: TestM9CoreUseCases/T-08_2-of-3_vote_revocation_returns_the_request_to_WAITING (0.00s)
+    --- PASS: TestM9CoreUseCases/T-09_one_subject_across_many_roles_casts_exactly_one_vote (0.00s)
+    --- PASS: TestM9CoreUseCases/T-10_tampered_manifest_or_body_is_quarantined,_zero_installs (0.00s)
+    --- PASS: TestM9CoreUseCases/T-11_market_revocation_propagates_to_registry_and_cache_subscribers (0.00s)
+    --- PASS: TestM9CoreUseCases/T-12_packages_without_completed_legal_review_never_show_licensed (0.00s)
+    --- PASS: TestM9CoreUseCases/T-13_restricted_data_with_only_a_cloud_runner_blocks,_never_downgrades (0.00s)
+    --- PASS: TestM9CoreUseCases/T-14_lost_side-effect_runner_goes_UNKNOWN_and_is_never_re-dispatched (0.00s)
+    --- PASS: TestM9CoreUseCases/T-15_concurrent_reservations_stay_inside_the_hard_limit (0.00s)
+    --- PASS: TestM9CoreUseCases/T-16_duplicate_settlement_receipts_never_double-charge (0.00s)
+    --- PASS: TestM9CoreUseCases/T-17_audit_chain_detects_deletion,_reordering_and_tampering (0.00s)
+    --- PASS: TestM9CoreUseCases/T-18_delete_hitting_an_active_hold_diverts_to_the_evidence_store (0.00s)
+    --- PASS: TestM9CoreUseCases/T-19_restore_replays_holds_before_any_delete_gate_opens (0.00s)
+    --- PASS: TestM9CoreUseCases/T-20_low-sample_groups_are_suppressed_and_cannot_identify_anyone (0.00s)
+=== RUN   TestM9ErrorCodeRegression
+=== RUN   TestM9ErrorCodeRegression/org_foundation_M9-001..M9-006
+=== RUN   TestM9ErrorCodeRegression/policy_algebra_+_approval_M9-007..M9-014
+=== RUN   TestM9ErrorCodeRegression/market_M9-015..M9-018
+=== RUN   TestM9ErrorCodeRegression/runner_dispatch_M9-019..M9-022
+=== RUN   TestM9ErrorCodeRegression/budget_M9-023..M9-025
+=== RUN   TestM9ErrorCodeRegression/audit_M9-026..M9-027
+=== RUN   TestM9ErrorCodeRegression/legal_hold_M9-028..M9-029
+=== RUN   TestM9ErrorCodeRegression/privacy_M9-030
+=== RUN   TestM9ErrorCodeRegression/decision_gate_M9-031
+--- PASS: TestM9ErrorCodeRegression (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/org_foundation_M9-001..M9-006 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/policy_algebra_+_approval_M9-007..M9-014 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/market_M9-015..M9-018 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/runner_dispatch_M9-019..M9-022 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/budget_M9-023..M9-025 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/audit_M9-026..M9-027 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/legal_hold_M9-028..M9-029 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/privacy_M9-030 (0.00s)
+    --- PASS: TestM9ErrorCodeRegression/decision_gate_M9-031 (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/e2e	1.708s

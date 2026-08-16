@@ -1,0 +1,115 @@
+﻿=== RUN   TestEstimateTokens
+=== RUN   TestEstimateTokens/empty
+=== RUN   TestEstimateTokens/single_ascii
+=== RUN   TestEstimateTokens/four_ascii
+=== RUN   TestEstimateTokens/five_ascii
+=== RUN   TestEstimateTokens/english_sentence
+=== RUN   TestEstimateTokens/chinese_single
+=== RUN   TestEstimateTokens/chinese_sentence
+=== RUN   TestEstimateTokens/mixed
+=== RUN   TestEstimateTokens/emoji
+=== RUN   TestEstimateTokens/long_english
+=== RUN   TestEstimateTokens/long_chinese
+--- PASS: TestEstimateTokens (0.00s)
+    --- PASS: TestEstimateTokens/empty (0.00s)
+    --- PASS: TestEstimateTokens/single_ascii (0.00s)
+    --- PASS: TestEstimateTokens/four_ascii (0.00s)
+    --- PASS: TestEstimateTokens/five_ascii (0.00s)
+    --- PASS: TestEstimateTokens/english_sentence (0.00s)
+    --- PASS: TestEstimateTokens/chinese_single (0.00s)
+    --- PASS: TestEstimateTokens/chinese_sentence (0.00s)
+    --- PASS: TestEstimateTokens/mixed (0.00s)
+    --- PASS: TestEstimateTokens/emoji (0.00s)
+    --- PASS: TestEstimateTokens/long_english (0.00s)
+    --- PASS: TestEstimateTokens/long_chinese (0.00s)
+=== RUN   TestLedgerEntryValidate
+--- PASS: TestLedgerEntryValidate (0.00s)
+=== RUN   TestCanonicalArtifactSHA256
+    token_test.go:108: Canonical artifact SHA-256: 06fe2b876324749071a0e58670d754bd9ba07c5b0bac563a3cbe04be6b70a0ec
+--- PASS: TestCanonicalArtifactSHA256 (0.00s)
+=== RUN   TestCanonicalTokenizerIdentity
+--- PASS: TestCanonicalTokenizerIdentity (0.00s)
+=== RUN   TestNormalizeText
+=== RUN   TestNormalizeText/empty
+=== RUN   TestNormalizeText/plain_ascii
+=== RUN   TestNormalizeText/lf_preserved
+=== RUN   TestNormalizeText/crlf_to_lf
+=== RUN   TestNormalizeText/cr_to_lf
+=== RUN   TestNormalizeText/mixed_line_endings
+=== RUN   TestNormalizeText/trailing_crlf
+=== RUN   TestNormalizeText/chinese
+--- PASS: TestNormalizeText (0.00s)
+    --- PASS: TestNormalizeText/empty (0.00s)
+    --- PASS: TestNormalizeText/plain_ascii (0.00s)
+    --- PASS: TestNormalizeText/lf_preserved (0.00s)
+    --- PASS: TestNormalizeText/crlf_to_lf (0.00s)
+    --- PASS: TestNormalizeText/cr_to_lf (0.00s)
+    --- PASS: TestNormalizeText/mixed_line_endings (0.00s)
+    --- PASS: TestNormalizeText/trailing_crlf (0.00s)
+    --- PASS: TestNormalizeText/chinese (0.00s)
+=== RUN   TestNormalizeText_InvalidUTF8
+--- PASS: TestNormalizeText_InvalidUTF8 (0.00s)
+=== RUN   TestCanonicalJSON
+--- PASS: TestCanonicalJSON (0.00s)
+=== RUN   TestCanonicalJSON_NestedObject
+--- PASS: TestCanonicalJSON_NestedObject (0.00s)
+=== RUN   TestEstimateAttachmentTokens
+--- PASS: TestEstimateAttachmentTokens (0.00s)
+=== RUN   TestEstimateStructuredTokens
+--- PASS: TestEstimateStructuredTokens (0.00s)
+=== RUN   TestEstimateTokens_Deterministic
+--- PASS: TestEstimateTokens_Deterministic (0.00s)
+=== RUN   TestEstimateTokens_CRLFNormalization
+--- PASS: TestEstimateTokens_CRLFNormalization (0.00s)
+=== RUN   TestGoldenCorpus
+=== RUN   TestGoldenCorpus/empty
+=== RUN   TestGoldenCorpus/single-word-english
+=== RUN   TestGoldenCorpus/short-english-sentence
+=== RUN   TestGoldenCorpus/english-paragraph
+=== RUN   TestGoldenCorpus/single-cjk-character
+=== RUN   TestGoldenCorpus/chinese-sentence
+=== RUN   TestGoldenCorpus/mixed-cn-en
+=== RUN   TestGoldenCorpus/code-snippet
+=== RUN   TestGoldenCorpus/json-object
+=== RUN   TestGoldenCorpus/ulid
+=== RUN   TestGoldenCorpus/multiline-with-crlf
+=== RUN   TestGoldenCorpus/emoji
+=== RUN   TestGoldenCorpus/long-english-1k
+--- PASS: TestGoldenCorpus (0.00s)
+    --- PASS: TestGoldenCorpus/empty (0.00s)
+    --- PASS: TestGoldenCorpus/single-word-english (0.00s)
+    --- PASS: TestGoldenCorpus/short-english-sentence (0.00s)
+    --- PASS: TestGoldenCorpus/english-paragraph (0.00s)
+    --- PASS: TestGoldenCorpus/single-cjk-character (0.00s)
+    --- PASS: TestGoldenCorpus/chinese-sentence (0.00s)
+    --- PASS: TestGoldenCorpus/mixed-cn-en (0.00s)
+    --- PASS: TestGoldenCorpus/code-snippet (0.00s)
+    --- PASS: TestGoldenCorpus/json-object (0.00s)
+    --- PASS: TestGoldenCorpus/ulid (0.00s)
+    --- PASS: TestGoldenCorpus/multiline-with-crlf (0.00s)
+    --- PASS: TestGoldenCorpus/emoji (0.00s)
+    --- PASS: TestGoldenCorpus/long-english-1k (0.00s)
+=== RUN   TestGoldenCorpusFrozen
+--- PASS: TestGoldenCorpusFrozen (0.00s)
+=== RUN   TestArtifactDescriptor
+--- PASS: TestArtifactDescriptor (0.00s)
+=== RUN   TestEstimateTokens_NFCStability
+--- PASS: TestEstimateTokens_NFCStability (0.00s)
+=== RUN   TestNormalizeText_NFCEquivalence
+=== RUN   TestNormalizeText_NFCEquivalence/latin-acute-accent
+=== RUN   TestNormalizeText_NFCEquivalence/german-umlaut
+=== RUN   TestNormalizeText_NFCEquivalence/greek-tonos
+=== RUN   TestNormalizeText_NFCEquivalence/cjk-compatibility
+=== RUN   TestNormalizeText_NFCEquivalence/hangul-syllable
+=== RUN   TestNormalizeText_NFCEquivalence/multiple-combining-marks
+--- PASS: TestNormalizeText_NFCEquivalence (0.00s)
+    --- PASS: TestNormalizeText_NFCEquivalence/latin-acute-accent (0.00s)
+    --- PASS: TestNormalizeText_NFCEquivalence/german-umlaut (0.00s)
+    --- PASS: TestNormalizeText_NFCEquivalence/greek-tonos (0.00s)
+    --- PASS: TestNormalizeText_NFCEquivalence/cjk-compatibility (0.00s)
+    --- PASS: TestNormalizeText_NFCEquivalence/hangul-syllable (0.00s)
+    --- PASS: TestNormalizeText_NFCEquivalence/multiple-combining-marks (0.00s)
+=== RUN   TestNormalizeText_NFCNotNFKC
+--- PASS: TestNormalizeText_NFCNotNFKC (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/domain/token	0.468s

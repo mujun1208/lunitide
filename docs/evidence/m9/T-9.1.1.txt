@@ -1,0 +1,18 @@
+﻿=== RUN   TestIsolation
+=== RUN   TestIsolation/cross_org_space_access_is_uniformly_denied
+=== RUN   TestIsolation/cross_org_principal_access_is_uniformly_denied
+=== RUN   TestIsolation/foreign_org_id_on_the_org_endpoint_answers_M9-003
+=== RUN   TestIsolation/missing_org_context_fails_closed
+=== RUN   TestIsolation/in_org_reads_succeed_and_stay_scoped
+=== RUN   TestIsolation/org_id_rebind_trips_the_DDL_guard
+=== RUN   TestIsolation/suspended_org_refuses_new_writes_but_keeps_reads
+--- PASS: TestIsolation (0.00s)
+    --- PASS: TestIsolation/cross_org_space_access_is_uniformly_denied (0.00s)
+    --- PASS: TestIsolation/cross_org_principal_access_is_uniformly_denied (0.00s)
+    --- PASS: TestIsolation/foreign_org_id_on_the_org_endpoint_answers_M9-003 (0.00s)
+    --- PASS: TestIsolation/missing_org_context_fails_closed (0.00s)
+    --- PASS: TestIsolation/in_org_reads_succeed_and_stay_scoped (0.00s)
+    --- PASS: TestIsolation/org_id_rebind_trips_the_DDL_guard (0.00s)
+    --- PASS: TestIsolation/suspended_org_refuses_new_writes_but_keeps_reads (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/org	1.618s

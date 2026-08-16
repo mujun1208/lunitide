@@ -1,0 +1,8 @@
+﻿=== RUN   TestOpenMigratesAndListsEmptyProviders
+--- PASS: TestOpenMigratesAndListsEmptyProviders (0.65s)
+=== RUN   TestMigrationJournalRecordsAndEnforcesChecksum
+--- PASS: TestMigrationJournalRecordsAndEnforcesChecksum (0.41s)
+=== RUN   TestMigrationManifestMatchesEmbeddedBytes
+--- PASS: TestMigrationManifestMatchesEmbeddedBytes (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/storage/sqlite	3.365s

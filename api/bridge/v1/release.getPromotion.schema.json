@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/release.getPromotion.schema.json",
+  "title": "release.getPromotion payload",
+  "x-method": "release.getPromotion",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "promotionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": [
+    "promotionId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "promotion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "fromEnv": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "toEnv": {
+            "type": "string",
+            "enum": ["dev", "stage", "prod"]
+          },
+          "canonicalIntentDigest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "policyVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "fromEnv",
+          "toEnv",
+          "canonicalIntentDigest",
+          "policyVersion"
+        ]
+      },
+      "timeline": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "step": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "actor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "startedAt": {
+              "type": "string"
+            },
+            "completedAt": {
+              "type": "string"
+            },
+            "auditId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "step",
+            "actor",
+            "startedAt",
+            "completedAt",
+            "auditId"
+          ]
+        }
+      },
+      "migrations": {
+        "type": "array"
+      },
+      "deployments": {
+        "type": "array"
+      },
+      "rollbackAttempts": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "promotion",
+      "timeline",
+      "migrations",
+      "deployments",
+      "rollbackAttempts"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "promotionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "promotionId": "not-a-ulid"
+      }
+    ]
+  }
+}

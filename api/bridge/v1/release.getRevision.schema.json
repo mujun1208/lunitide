@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/release.getRevision.schema.json",
+  "title": "release.getRevision payload",
+  "x-method": "release.getRevision",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "crId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revisionNo": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    }
+  },
+  "required": [
+    "crId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "revisions": {
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revisionNo": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "submitted",
+                "approved",
+                "rejected",
+                "superseded"
+              ]
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "createdAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "revisionNo",
+            "status",
+            "digest",
+            "createdAt"
+          ]
+        }
+      },
+      "manifest": {
+        "type": "object"
+      },
+      "reviews": {
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+          "type": "object"
+        }
+      }
+    },
+    "required": [
+      "revisions",
+      "manifest",
+      "reviews"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "crId": "CR-1042"
+      },
+      {
+        "crId": "CR-1042",
+        "revisionNo": 3
+      }
+    ],
+    "negative": [
+      {
+        "crId": "CR-1042",
+        "revisionNo": -1
+      }
+    ]
+  }
+}

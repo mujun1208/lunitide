@@ -33,13 +33,16 @@ func TestOpenMigratesAndListsEmptyProviders(t *testing.T) {
 }
 
 func TestListLoadsProviderModelsWithoutConnectionDeadlock(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	// Migration replay is not part of the deadlock watch: under -race it alone
+	// can exceed any small budget, so Open runs on an unbounded context and the
+	// 2s watchdog below guards only the query path this test is named after.
+	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := store.db.ExecContext(ctx, `INSERT INTO providers(id,name,protocol,base_url,credential_state,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, "01K00000000000000000000000", "DeepSeek", "openai_compatible", "https://api.deepseek.com", "missing", now, now); err != nil {
 		t.Fatal(err)

@@ -1,0 +1,119 @@
+M9.5 证据：月伴对话全量交付（T-9.5.1.1 ~ T-9.5.3.4）
+执行时间：2026-08-16 (Asia/Shanghai)
+前置：M2 ChatBridge / 设置域 / toggleSpeech 链路均已交付；M9.5 无决策阻断。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+一、MC1 TTS 内核（T-9.5.1.1 ~ T-9.5.1.4）
+
+产物：
+  internal/tts/tts.go              接口与 M95-001~004 错误语义
+  internal/tts/sapi_windows.go     SpVoice+SpFileStream 合成 WAV（16kHz/mono/16bit）、
+                                    GetVoices 枚举（id/name/gender/lang）、rate[-10,10]/
+                                    volume[0,100] 映射（github.com/zzl/go-com + go-win32api）
+  internal/tts/fallback_other.go   非 Windows 空实现：voices 空、synthesize 返回 M95-001
+  internal/tts/service.go          单 flight 合成队列、cancel 丢弃标志与队列清空、
+                                    WAV→base64、分段去重
+  internal/app/m9_tts_handlers.go  tts.voices / tts.synthesize / tts.cancel bridge 注册
+
+偏差说明（SDK）：计划文档提及 go-ole；实现采用 github.com/zzl/go-com（同等 COM 封装，
+含 IDispatch 辅助），许可证为 MIT，功能与约束等价。
+
+DoD 验证：
+  go test ./internal/tts/ -count=1            → ok（7 个测试全过）
+    TestSapiIntegrationVoices                 真机枚举含 zh-CN 音色
+    TestSapiIntegrationSynthesizeWav          真机合成 WAV 头校验（RIFF/WAVE fmt 16k/mono/16bit）
+    TestServiceSynthesizeSingleFlight         并发排队无引擎重入
+    TestServiceCancelDiscardsQueuedSegments   cancel 后零僵尸合成（队列段全部丢弃）
+    TestServiceDeduplicatesRepeatedSegments   分段去重
+    TestServiceErrorPropagation               M95-002 单段失败语义
+    TestServiceCancelIdleIsNoOp               空闲 cancel 幂等
+  go test ./internal/tts/ -race               → 本机无 gcc（CGO 不可用），-race 无法执行；
+                                               环境约束记录在案；单 flight 语义由上述
+                                               通道同步测试覆盖
+  go test ./internal/contract/ -run
+    TestGeneratedEnabledEngineRuntimeRoutesMatchSchema → PASS（三方法进入 enabled 合约）
+  web/src/generated/bridge.ts                 含 tts.voices/synthesize/cancel 类型（代码生成）
+  web/src/bridge/client.ts createTtsBridge     三方法客户端 + M95-003/004 notice 字段
+
+设置（T-9.5.1.4）：
+  SettingsPage.tsx CompanionSection 挂于「语音与麦克风」分组内「月伴对话」小节：
+  总开关 / 自动朗读 / 音色选择+试听（M95-004 notice 路径）/ 语速 / 音量 / SAPI 状态行
+  （probing→available/unavailable，无引擎时控件禁用并说明原因）。
+  保存即写 localStorage lunitide:companion，改动即时生效；零新表零 migration。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+二、MC2 月亮舞台与状态机（T-9.5.2.1 ~ T-9.5.2.3）
+
+产物：
+  web/src/session/companion/useCompanionMachine.ts   四态状态机，唯一 dispatch，
+    Guard 拒绝非法迁移并上报 M95-005 COMPANION_STATE_INVALID（保留当前态）
+  web/src/session/companion/MoonSphere.tsx           纯 SVG 月亮 + CSS 分层
+    （本体/月面纹理/光晕/12 柱音量环）；speaking 时月面可点击打断；零图片资产
+  web/src/session/companion/CompanionStage.tsx       全屏舞台（含内联 SubtitleBar/
+    Controls，与任务卡"含 SubtitleBar/Controls"一致）：body 锁滚动、卸载归还焦点
+    至入口按钮、aria-live 字幕、控制条（话筒/朗读开关/文字输入/退出）
+  styles.css companion-* 增量                        颜色全用既有变量；
+    .reduce-motion 下旋转/音量环停用，四态以光强+data-state 标签区分
+
+迁移矩阵（冻结版）验证：npx vitest run useCompanionMachine → 11/11 PASS
+  9 条正例：idle×MIC_ACTIVATE→listening；listening×{MIC_CANCEL,RECOGNIZED_FINAL}；
+  thinking×{REPLY_COMPLETED→speaking,REPLY_TERMINAL→idle}；
+  speaking×{PLAYBACK_ENDED,INTERRUPT→idle,MIC_CLICK_WHILE_SPEAKING→listening}
+  负例：4 态 × 8 事件全部非矩阵组合均被拒绝且当前态保持（23 组逐一断言）
+
+键盘契约：Esc=speaking 打断/其余退出；Space/Enter=话筒；输入框内不劫持。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+三、MC3 语音闭环整合（T-9.5.3.1 ~ T-9.5.3.3）
+
+  speech.ts        复用 toggleSpeech 链路：已存麦克风 deviceId exact 约束、
+                   失效自动回退系统默认；zh-CN final-only SpeechRecognition；
+                   final 直发 ChatBridge（不落输入框）；识别中取消回 idle；
+                   错误码沿用 MICROPHONE_PERMISSION_DENIED / MICROPHONE_DEVICE_NOT_FOUND /
+                   MICROPHONE_DEVICE_BUSY / SPEECH_SERVICE_* 既有冻结码
+  companionText.ts 清洗（代码块→「代码已省略」、URL→域名、emoji 剔除并修复
+                   标点前孤立空格、markdown 符号剥离）+ 分段（。？！\n 切分、
+                   单段 ≤500 字符逗号二次切分、≤20 段截断追加「后续内容请看字幕」）
+                   → npx vitest run companionText → 8/8 PASS
+  ttsPlayer.ts     串行分段队列 + 80% 进度预取下一段（stageNextSegment 于每段
+                   开播前staging，timeupdate 80% 触发）；AudioContext 全局单例、
+                   每 audio 元素 createMediaElementSource 仅一次；blobUrl 播毕即
+                   revoke；Analyser(fftSize=256) rAF 节流 30fps 仅 speaking 存活，
+                   gain∈[0,1] 写 --moon-gain；连续 3 段失败熔断（字幕保留）
+  打断与降级（T-9.5.3.3，集成于 CompanionStage/ttsPlayer，未单独拆 interrupt.ts，
+  功能等价）：点击月亮/Esc/speaking 中点话筒 → 立即 audio.pause+清 src（同步静音）
+  + fire-and-forget tts.cancel（回执超时不弹错）+ 未播段丢弃；
+  M95-001 一次性降级 banner「已切换字幕模式」；熔断 banner 提供「重试本段朗读」；
+  SAPI 缺失时对话/语音输入不受影响（纯字幕模式）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+四、T-9.5.3.4 e2e 说明（残余项）
+
+  本仓库无 Playwright/e2e 基础设施（无 e2e/ 目录、无 playwright 配置、
+  package.json 无 test:e2e 脚本），且 MC 场景依赖真机 Windows SAPI 引擎 +
+  WebView2 麦克风授权，无法在当前隔离环境自动化。
+  替代覆盖：vitest 全量 38 文件 / 326 测试 PASS（含月伴状态机矩阵、文本清洗
+  分段、舞台集成渲染回归）；真机 e2e 走查（MC-01~08、P95 时延、打断 ≤100ms、
+  Windows N 降级）移交人工验收清单。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+五、全量回归（2026-08-16）
+
+  go test ./...（主模块全包）        → 全部 ok（internal/tts、internal/app、
+                                       internal/contract 等均含 M9.5 改动）
+  npm run build                      → PASS（generate:bridge + tsc --noEmit +
+                                       vite build，326 modules）
+  npx vitest run                     → 38 files / 326 tests PASS
+
+  本次收尾修复（相对上轮）：
+  1. 两个新测试文件补 vitest 显式导入（describe/test）后可运行；
+  2. companionText URL 清洗未消费路径部分 → 正则整体消费仅留域名；
+     emoji 剔除后标点前孤立空格 → CJK 标点前空格折叠；
+  3. ttsPlayer 80% 预取死代码：speak 循环未 staging 下一段 → 已修复并接入。
+
+  合规复核：零新增数据表、零 migration、零新增系统权限（麦克风预授权复用）、
+  无第二会话内核（chat.start 复用）、无第二设置存储（lunitide: 命名空间）、
+  音频与字幕内容不入日志（bridge 仅记方法/耗时/错误码）。
+
+回滚：companion.enabled=false → 入口隐藏、舞台不可达，TTS bridge 方法保留不被
+调用；既有聊天零回归（全量 vitest 佐证）。

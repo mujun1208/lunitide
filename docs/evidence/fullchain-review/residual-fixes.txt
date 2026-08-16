@@ -1,0 +1,108 @@
+全链路审计残留项修复证据（fullchain-review residual fixes）
+执行时间：2026-08-16 (Asia/Shanghai)
+前置：2026-08-16 全链路审计通过（228 schema / Go handler / 前端调用一致，六大 UI 入口链路
+      贯通）；本轮处置审计列出的全部残留项。UI 风格、界面、基础功能未做变更
+      （新增页面沿用既有 skill-center / setting-group 设计体系）。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+一、TTS 前端类型迁移（低风险记录项 R1）
+
+  web/src/bridge/client.ts
+    TtsVoice / TtsSynthesizePayload / TtsSynthesizeResult 改为
+    从 web/src/generated/bridge.ts 生成类型派生；M95-003/004 notice
+    字段随 schema 字面量收窄，消除手写 string 宽类型。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+二、子代理调研面板（M7 T-7.6.5 残留 UI）
+
+  web/src/bridge/client.ts   SubagentBridge（spawn 30s 上限 / list / read /
+                             follow / dispose，统一 try/catch 包装）
+  web/src/workspace/SubagentPanel.tsx
+                             并行取证面板：任务列表 / 运行态 / 报告读取，
+                             复用 workspace 既有 Tab 体系
+  web/src/workspace/Workspace.tsx
+                             挂载「子代理」页签（不改既有布局结构）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+三、专家中心（M8 FR-19 P1 残留 UI）
+
+  web/src/expert/ExpertCenterPage.tsx
+                             专家清单（division/state 过滤 + 名称查询）、
+                             六段式画像编辑器（identity/mission/rules/
+                             workflow/deliverableTemplate/successMetrics）、
+                             semver 版本历史、SHA-256 令牌确认归档、
+                             九阶段挂载矩阵（expert.mount / expert.mounting.get）
+  web/src/bridge/client.ts   ExpertBridge 八方法（list/detail/create/update/
+                             toggle/archive/mount/mountingGet），
+                             archive 确认令牌走 MutationOptions 重试通道
+  web/src/App.tsx            侧栏新增「专家中心」入口（技能中心之后、
+                             资产管理之前）；App.test.tsx 顺序断言同步更新
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+四、插件面板增强（M8 P1 残留 UI）
+
+  web/src/settings/SettingsPage.tsx PluginsPanel
+    - 开发者工具视图（plugin.developer.* 三方法）
+    - 三步安装确认流（确认清单 → 下载摘要 → install 确认令牌），
+      走 plugin.install bridge，不含任何旁路安装
+    - 隔离区横幅：quarantined 条目常驻置顶 + 一键卸载
+      （plugin.uninstall 确认令牌）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+五、协作门禁（M8 FR-17 残留 UI）
+
+  web/src/settings/SettingsPage.tsx CollabGatePanel（设置新增「协作门禁」分组）
+    collabGate.status   主体能力快照（capability/policyVersion/digest/effectiveAt）
+    collabGate.evaluate 45 天证据窗口评估（pass/fail/insufficient 三态呈现）
+    collabGate.confirm  决策 ID + 令牌带外确认（令牌不落日志/UI 之外的存储）
+    未开启主体不暴露任何编排细节，仅显示门禁关闭态。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+六、诊断导出（低风险记录项 R3）
+
+  web/src/bridge/client.ts  DiagnosticsBridge.exportDiagnostics
+                            （方法名规避保留字 export）
+  web/src/settings/SettingsPage.tsx DiagnosticsPanel
+                            「导出诊断包」按钮 → diagnostics.export，
+                            呈现归档路径与条目统计。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+七、sync/learning 后端核实（审计项 A4/A5）
+
+  结论：sync.* 与 learning/memory.confirmCandidate 后端 handler 与
+  schema 均已注册并可用（m8app / memoryapp 包内测试全绿）；
+  前端暂无消费入口属设计内状态（M8 交付范围不含 sync UI），
+  无需代码变更，记录在案。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+八、M5 死组件处置（审计项 A6）
+
+  删除 7 个从未挂载的 M5 时期组件及其测试（详见删除清单），
+  构建产物与测试计数相应减少（38→31 文件），无任何引用残留
+  （typecheck + build 双重验证）。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+九、全量回归（门禁全绿）
+
+  go test ./...（仓库根）        → exit 0，全部包 ok
+                                    （含 internal/run 2.799s 真跑，其余 cached）
+  npm run build（web/）          → exit 0
+                                    generate:bridge + tsc --noEmit +
+                                    vite build：333 模块，
+                                    dist/index-*.js 959.08 kB (gzip 275.29 kB)
+  npx vitest run（web/）         → exit 0
+                                    Test Files 31 passed (31)
+                                    Tests       230 passed (230)
+                                    Duration    13.61s
+  契约零漂移                     → generate:bridge 在 build 内先行执行，
+                                    generated/bridge.ts 与 schema 同步再编译
+
+  证据时间：2026-08-16 09:07 (Asia/Shanghai)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+十、遗留事项（与前轮审计一致，非本轮范围）
+
+  - M9 生产任务卡 T-9.1.1~T-9.5.2 冻结中（待 ADR-011 与 D-1~D-6 决策接受）
+  - -race 门禁：本机无 gcc（CGO 不可用），沿用既往基线记录
+  - M9.5 真机 e2e（SAPI 播放 / P95 / 打断 ≤100ms / Windows N 降级演练）
+    需真机环境，列入手动验收清单

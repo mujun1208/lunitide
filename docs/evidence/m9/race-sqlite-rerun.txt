@@ -1,0 +1,15 @@
+ok  	github.com/lunitide/lunitide/internal/storage/sqlite	1472.423s
+
+=== RACE GATE SUMMARY (2026-08-16) ===
+1) Full-repo `go test -race ./...`: every package passed except internal/storage/sqlite,
+   which hit the DEFAULT 10m per-package timeout (modernc.org/sqlite pure-Go engine under
+   race instrumentation replays all 69 migrations per store open; ~20x slowdown).
+   No data race was reported anywhere.
+2) Root cause of the one failure: TestListLoadsProviderModelsWithoutConnectionDeadlock
+   wrapped `Open` (migration replay) inside a 2s deadlock-watchdog context. Under -race
+   the migrations alone exceed 2s, so the watchdog tripped at migration 0030
+   ("context deadline exceeded") - a timing artifact, not a race.
+   Fix: watchdog now starts AFTER Open; it still guards the INSERT+List query path
+   the test is named after. Normal path re-verified: 0.29s.
+3) This file: `go test -race -timeout 40m -count=1 ./internal/storage/sqlite/` -> ok 1472.423s.
+   Combined with (1), the full repository is -race clean: zero data races, zero failures.

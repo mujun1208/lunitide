@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/document.parse.schema.json",
+  "title": "document.parse payload",
+  "x-method": "document.parse",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "fileRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "format": {
+      "type": "string",
+      "enum": ["pdf", "docx", "xlsx"]
+    },
+    "pageRange": {
+      "type": "string",
+      "maxLength": 32
+    },
+    "maxOutputBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5242880
+    },
+    "expectedDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": ["runId", "fileRef", "format", "maxOutputBytes"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "pageCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "blocks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "page": {
+              "type": "integer"
+            },
+            "cell": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["kind", "text"]
+        }
+      },
+      "outputDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "required": ["pageCount", "outputDigest", "truncated"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "fileRef": "workspace/specs/manual.pdf",
+        "format": "pdf",
+        "maxOutputBytes": 1048576
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "fileRef": "workspace/specs/manual.txt",
+        "format": "txt",
+        "maxOutputBytes": 1048576
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/appUpdate.install.schema.json",
+  "title": "appUpdate.install payload",
+  "x-method": "appUpdate.install",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "updateId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]+$"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "updateId",
+    "expectedDigest"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "state": {
+        "type": "string",
+        "enum": ["installed", "rolled_back"]
+      }
+    },
+    "required": [
+      "state"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "updateId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "deviceId": "workstation-7"
+      }
+    ],
+    "negative": [
+      {
+        "updateId": "not-a-ulid",
+        "expectedDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  }
+}

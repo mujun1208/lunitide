@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp.market.search.schema.json",
+  "title": "mcp.market.search payload",
+  "x-method": "mcp.market.search",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cursor": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "required": ["query"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "itemId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "name": {
+              "type": "string"
+            },
+            "publisher": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "transportHint": {
+              "type": "string",
+              "enum": ["stdio", "https"]
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "signed": {
+              "type": "boolean"
+            }
+          },
+          "required": ["itemId", "name", "publisher", "description", "transportHint", "signed"]
+        }
+      },
+      "nextCursor": {
+        "type": "string"
+      },
+      "fresh": {
+        "type": "boolean"
+      }
+    },
+    "required": ["items", "fresh"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "query": "filesystem",
+        "limit": 20
+      }
+    ],
+    "negative": [
+      {
+        "query": "",
+        "limit": 20
+      }
+    ]
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/release.getPackage.schema.json",
+  "title": "release.getPackage payload",
+  "x-method": "release.getPackage",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "packageId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": [
+    "packageId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "package": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          "crRevisionId": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          "manifestDigest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "blobDigest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "building",
+              "sealed",
+              "failed"
+            ]
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "sealedAt": {
+            "type": "string"
+          },
+          "memberDigests": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "algorithm": {
+                  "const": "sha256"
+                }
+              },
+              "required": [
+                "name",
+                "size",
+                "sha256",
+                "algorithm"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "crRevisionId",
+          "manifestDigest",
+          "blobDigest",
+          "signature",
+          "state",
+          "verified",
+          "memberDigests"
+        ]
+      },
+      "sbom": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "format",
+          "digest"
+        ]
+      }
+    },
+    "required": [
+      "package"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "packageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

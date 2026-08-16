@@ -31,17 +31,19 @@ func (r *AgentRuntimeRepository) TransactEvidence(ctx context.Context, fn func(m
 // nodeTables maps trace node types onto their authoritative tables. Only
 // types with a row identity are traceable (TRC-001 endpoint existence).
 var nodeTables = map[string]string{
-	"project":               "projects",
-	"workflow_version":      "workflow_versions",
-	"workflow_instance":     "workflow_instances",
-	"stage_run":             "stage_runs",
-	"stage_input_snapshot":  "stage_input_snapshots",
-	"artifact_version":      "artifact_versions",
-	"review":                "reviews",
-	"trace_edge":            "trace_edges",
-	"dev_task":              "dev_tasks",
-	"test_run":              "test_runs",
-	"scan_run":              "scan_runs",
+	"project":              "projects",
+	"workflow_version":     "workflow_versions",
+	"workflow_instance":    "workflow_instances",
+	"stage_run":            "stage_runs",
+	"stage_input_snapshot": "stage_input_snapshots",
+	"artifact_version":     "artifact_versions",
+	"review":               "reviews",
+	"trace_edge":           "trace_edges",
+	"dev_task":             "dev_tasks",
+	"test_run":             "test_runs",
+	"scan_run":             "scan_runs",
+	"cr_revision":          "cr_revisions",
+	"release_package":      "release_packages",
 }
 
 func (t *agentRuntimeTx) NodeExists(nodeType, nodeID string) (bool, error) {

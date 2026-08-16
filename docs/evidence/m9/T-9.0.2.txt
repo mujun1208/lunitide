@@ -1,0 +1,62 @@
+M9 T-9.0.2 证据：阻断期威胁建模与可丢弃原型（T-9.0.2）
+执行时间：2026-08-16 (Asia/Shanghai)
+前置：T-9.0.1（docs/evidence/m9-day0.txt）— D-1~D-6 全部未 accepted，
+      本卡为阻断期唯一可执行开发卡（M9/05 dev-ready-tasks）。
+
+一、威胁模型（6 份，docs/threat/）
+
+  m9-01-org-isolation.md            跨组织隔离与存在性侧信道（T-01/T-02 + 私人资产硬边界）
+  m9-02-identity-approval.md        身份生命周期 + SoD + N-of-M（T-03/04/07/08/09）
+  m9-03-policy-algebra.md           策略层级合并只收紧与放宽拒绝（T-05/06）
+  m9-04-market-signing.md           市场签名、供应链与许可审查（T-10/11/12）
+  m9-05-runner-residency.md         混合 Runner 信任、驻留路由与 UNKNOWN 恢复（T-13/14）
+  m9-06-budget-audit-hold-privacy.md 预算双分录、审计链、Legal Hold、隐私聚合（T-15~20）
+
+  每份含：资产/威胁主体/STRIDE 攻击面/缓解措施（对齐 M9/02 技术设计）/
+  解封后可验证断言（映射 04 的 20 用例与 M9-001~031 概念码）/残余风险移交。
+  覆盖核对：04 核心 20 用例全部映射；31 概念错误码在缓解/断言中被引用。
+
+二、可丢弃原型（tools/proto-m9/，独立 go module）
+
+  边界合规声明（DoD：无生产 schema/API/Registry 写入）：
+  - 独立模块 tools/proto-m9/go.mod（module github.com/lunitide/lunitide/tools/proto-m9），
+    不在主模块依赖图内：主模块 `go list ./...` 零命中 proto-m9（实测），
+    生产包结构上无法 import 原型 → 满足"CI 必须拒绝原型依赖进入生产包"。
+  - 纯内存实现 + 合成数据；无 SQL、无 Bridge 注册、无 Registry/Runner 连接。
+  - 主模块 go build ./... 在原型加入前后均通过（生产面零改动）。
+
+  原型子系统与对应威胁模型/用例种子：
+  - IsolationGate       统一拒绝面（跨组织==不存在，存在性零泄漏）+ fail-closed 上下文  T-01/T-02
+  - MergeTightenOnly    allow 交集/deny 并集/上限取最小/required 并集 + 放宽拒绝        T-05
+  - ApprovalRequest     SoD 自批拒绝/冻结候选/服务身份拒人类门槛/过期失效/撤票回退/主体去重 T-03/04/07/08/09
+  - Route + EffectJournal 无安全 Runner 阻断不降级 + UNKNOWN 禁自动重跑副作用            T-13/T-14
+  - BudgetLedger        原子预留硬限额 + 幂等结算（重复回执不重复扣款）                  T-15/T-16
+  - AuditChain         prev_hash 链 + 篡改检测                                          T-17
+  - LegalHoldGate      ACTIVE 保全转受限证据库不物理清除 + 解除后正常删除                T-18
+  - PrivacyAggregator  k 阈值低样本抑制                                                 T-20
+
+三、验证命令与结果（隔离环境执行）
+
+  cd tools/proto-m9
+  go vet ./...          → 通过（零告警）
+  go test ./... -count=1 → ok github.com/lunitide/lunitide/tools/proto-m9 0.345s
+                          12/12 PASS（含子测试 15 断言组）
+  说明：本机 CGO_ENABLED=0，-race 不可用；并发正确性由互斥锁 + 硬限额计数
+  断言（8×20 对 100 限额恰 5 成功）覆盖。解封后生产账本测试须在 CGO 环境补 -race
+  （任务卡 T-9.4.1 验证命令已含 -race）。
+
+四、冻结面确认（阻断期正确状态）
+
+  - 无 M9 schema migration（起编 N=68，解封后 0069_m9_org_foundation.sql）
+  - 无 M9 Bridge schema JSON / 契约再生成
+  - 无 M9-001~031 wire AppError 合同（仅概念 taxonomy 引用）
+  - 无生产 Registry 注册 / Runner 派发 / 组织 UI 控件
+  - 切片 1-5 任务卡（T-9.1.1~T-9.5.2）全部保持冻结态，等待对应 D-x accepted
+
+五、解封移交清单
+
+  1. D-1~D-6 逐项 accepted → 按 07 §6 回写 M9/02 假设清单与 M9/01 FR 四段式
+  2. 按 05 切片顺序领取任务卡；原型语义作为生产测试种子，实现落位
+     internal/org、internal/policy、internal/market、internal/execution、
+     internal/budget、internal/audit、internal/legal
+  3. 原型目录 tools/proto-m9/ 在切片 1 生产实现合入后整体删除（可丢弃）

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/lunitide/lunitide/internal/agentorchestration"
@@ -17,12 +18,16 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/m8app"
+	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
+	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/planningapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -34,6 +39,7 @@ import (
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/lunitide/lunitide/internal/tts"
 )
 
 func main() {
@@ -127,6 +133,69 @@ func main() {
 		m7app.NewGateService(store.AgentRuntimeRepository()),
 		m7app.NewReviewService(store.AgentRuntimeRepository(), m7traceSvc),
 	)
+
+	// M7 slice 3: CR revisions and immutable release packages.
+	engine.SetM7ReleaseServices(m7app.NewReleaseService(store.AgentRuntimeRepository()))
+
+	// M7 slice 4: the promotion saga (migration/deployment adapters stay
+	// internal to the Promotion aggregate - M7-MIG-001).
+	engine.SetM7PromotionServices(m7app.NewPromotionService(store.AgentRuntimeRepository()))
+	engine.SetM7UpdateServices(m7app.NewUpdateService(store.AgentRuntimeRepository()))
+	// M7 slices 6-8: read-only subagent runtime, tool-gap runtime and the
+	// MCP settings plane (invoke stays on mcp6.invoke per the wire
+	// contract). The frozen tool manifest is seeded read-only at startup.
+	engine.SetM7RuntimeServices(
+		m7app.NewSubagentService(store.AgentRuntimeRepository()),
+		m7app.NewToolgapService(store.AgentRuntimeRepository()),
+		m7app.NewMcpRuntimeService(store.AgentRuntimeRepository()),
+	)
+	// M8 slice 1: the governed long-term memory core (candidate/fact/
+	// source-leaf/recall on the shared single-writer transaction).
+	engine.SetM8MemoryServices(m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user"))
+	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the
+	// workflow bundle dispatch projection (single-writer transactions).
+	engine.SetM8SliceServices(
+		m8app.NewKBService(store.AgentRuntimeRepository(), "local-user"),
+		m8app.NewHandoffService(store.AgentRuntimeRepository(), "local-user"),
+		m8app.NewAutomationService(store.AgentRuntimeRepository()),
+	)
+	// M8 FR-18: unified plugin bundle runtime - capabilities hot-register
+	// into the existing registries through the verification chain.
+	engine.SetM8PluginService(m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user"))
+	// M8 FR-19: expert center - the persona read-only directory holds the
+	// canonical six-section bodies addressed by persona_ref digest.
+	personaRoot, err := dataRoot.PrepareSubdirectory("personas")
+	if err != nil {
+		log.Fatalf("prepare persona directory failed; engine not ready: %v", err)
+	}
+	engine.SetM8ExpertService(m8app.NewExpertService(
+		store.AgentRuntimeRepository(), "local-user",
+		m8app.NewFilePersonaStore(personaRoot.Path()),
+	))
+	// M8 FR-17: the write-collaboration gate stays disabled through M8 -
+	// evaluate/status/confirm run the frozen-threshold evaluation and the
+	// one-time-token decision lifecycle over the M7 subagent audit and the
+	// M5/M6 EffectJournal (read-only aggregation, fail-closed).
+	engine.SetM8CollabGateService(m8app.NewCollabGateService(
+		store.AgentRuntimeRepository(),
+		store.AgentRuntimeRepository().GateEvidence(),
+		m8core.WriteCollabBinding(),
+	))
+	// M9.5 Moon Companion: offline SAPI TTS runtime. Synthesis stays
+	// process-local (no network); machines without SAPI degrade to the
+	// M95-001 subtitle-only mode at the bridge layer.
+	engine.SetM9TtsService(tts.NewService(tts.NewPlatformEngine()))
+	// M9 slice-1: org foundation - the org-admin bridge service derives the
+	// verified org context from the persisted operator binding (ADR-011);
+	// payloads never carry an org scope.
+	orgRoot, err := dataRoot.PrepareSubdirectory("org")
+	if err != nil {
+		log.Fatalf("prepare org directory failed; engine not ready: %v", err)
+	}
+	engine.SetM9OrgAdminService(m9app.NewOrgAdminService(
+		org.NewService(org.NewGate(store.OrgStorage()), nil),
+		m9app.NewFileBindingStore(filepath.Join(orgRoot.Path(), "binding.json")),
+	))
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
 	// never blindly retried). Failure means unreconciled jobs remain, so

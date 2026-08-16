@@ -1,0 +1,64 @@
+M9 Day-0 决策状态与复用假设核验（T-9.0.1）
+核验时间：2026-08-16 (Asia/Shanghai)
+核验人：工程代理（依据 M9/02-技术设计.html#dev-ready-assumptions 与 M9/05-实施顺序.html#dev-ready-gate）
+
+一、D-1~D-6 决策状态（rg -n "status" docs/adr/ 实测）
+
+docs/adr/ 目录现存条目：
+  ADR-001-production-architecture.md        - Status: Accepted
+  ADR-002-ipc-security.md                   - Status: Accepted, implementation in progress
+  ADR-003-local-storage-threat-boundary.md  - Status: Accepted
+  ADR-004-host-secrets-and-engine-leases.md - Status: Accepted
+  ADR-005-long-context-compaction-and-handoff.md - Status: Accepted
+  ADR-014-provider-status.md                - Status: （生命周期最小状态说明，非 M9 范围）
+
+M9 依赖决策实测结果：
+  D-1 ADR-011 Organization 边界        : NOT ACCEPTED（docs/adr/ 无 ADR-011 条目，rg "ADR-011" 零命中）
+  D-2 企业身份模型（IdP/外部/限时角色）: NOT ACCEPTED（无身份决策条目）
+  D-3 策略合并代数（只收紧证明）       : NOT ACCEPTED（无策略代数条目）
+  D-4 Runner 信任与驻留证明             : NOT ACCEPTED（无 Runner 证明条目）
+  D-5 审计保留与 Legal Hold 权威流程    : NOT ACCEPTED（无 Hold 权威条目）
+  D-6 市场签名根                        : NOT ACCEPTED（无签名根条目）
+
+结论：D-1~D-6 全部未 accepted。依据 M9/02「决策阻断与技术退出」与 M9/05「所有生产任务的共同前置」：
+  - 禁止 schema migration、生产 Bridge API、持久化生产数据、生产 Registry 注册、Runner 派发开发
+  - DDL/Bridge Schema/错误矩阵留空为正确状态
+  - 阻断期唯一可执行卡：T-9.0.2（威胁建模 + tools/proto-m9 可丢弃原型）
+  - 切片 1-5 全部任务卡（T-9.1.1~T-9.5.2）保持冻结态
+
+二、复用假设实测（A-007/A-008/A-009）
+
+A-007 M6 内核可复用（不建第二内核）：
+  实测：migrations/ 含 0044_m6_extension_supply_chain / 0045_m6_connector_catalog /
+        0046_m6_cloud_delegation / 0049_m6_audit_merge / 0053_m6_s5c_skill_routing_cloud
+        等 m6_ 前缀迁移（10 个文件命中 m6_ 模式）。
+  结论：✓ 成立（Registry/Worker/CloudTask 契约在库）。
+
+A-008 审计链/Outbox/EffectJournal 可扩展点：
+  实测：prev_hash 命中 internal/audit/outbox.go、internal/storage/sqlite/m7_update.go、
+        migrations/0057_m7_appupdate_split.sql；
+        effect_journal 命中 internal/storage/sqlite/store.go、agent_runtime.go、
+        m8_collabgate.go（M8 门禁证据源已聚合该账本）。
+  结论：✓ 成立（BudgetLedger 可作为 M9 新建实体并按 CloudTask 回执语义对账）。
+
+A-009 迁移起编 N 实测：
+  实测：migrations/ 共 68 个 .sql；最大编号 0068_m8_expert.sql；
+        M7 7 个（0054~0060）、M8 8 个（0061~0068）均已入 manifest。
+  结论：起编 N = 68，解封后 M9 首个迁移为 0069_m9_org_foundation.sql；编号不回收、
+        已应用迁移禁止修改。
+
+三、M8→M9 衔接结论
+
+上游依赖（M9/01 PRD「上游依赖」）逐项：
+  - M6 生态目录/Worker/CloudTask/Registry/Runner 状态机契约：在库（A-007）
+  - M8 私有资产边界：在库（plugin/expert/memory/kb/handoff/tombstone/automation/
+    collab_gate 迁移与服务已交付，go build ./... 与 internal/m8app、internal/app、
+    internal/bridge/m5 测试全绿，2026-08-16 实测）
+  - 组织身份/审批/策略/预算上游输入：依赖 D-1~D-6，未决
+
+处置：M9 生产面保持关闭为合同正确状态。本日仅执行 T-9.0.1（本文件）与
+T-9.0.2（docs/threat/m9-*.md 六份 + tools/proto-m9/ 可丢弃原型，合成数据、
+独立 go module、无生产 schema/API/Registry 写入）。
+
+后续解锁路径：六项决策逐项 accepted 并回写 M9/02 假设清单与 M9/01 FR 四段式
+（按 07 §6 变更规则）后，对应切片任务卡方可领取。

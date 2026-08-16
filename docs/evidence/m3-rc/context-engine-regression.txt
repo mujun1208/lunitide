@@ -1,0 +1,378 @@
+﻿=== RUN   TestExecute_Success
+--- PASS: TestExecute_Success (0.00s)
+=== RUN   TestExecuteAutomaticCheckpointPassesProviderIDToSummarizer
+--- PASS: TestExecuteAutomaticCheckpointPassesProviderIDToSummarizer (0.00s)
+=== RUN   TestExecuteManualCheckpointPassesProviderIDToSummarizer
+--- PASS: TestExecuteManualCheckpointPassesProviderIDToSummarizer (0.00s)
+=== RUN   TestExecute_NotPending
+--- PASS: TestExecute_NotPending (0.00s)
+=== RUN   TestExecute_NotFound
+--- PASS: TestExecute_NotFound (0.00s)
+=== RUN   TestExecute_EmptySourceRange
+--- PASS: TestExecute_EmptySourceRange (0.00s)
+=== RUN   TestExecute_LargeSourceRangeUsesRollingBatches
+--- PASS: TestExecute_LargeSourceRangeUsesRollingBatches (0.00s)
+=== RUN   TestExecuteRollingBatchRejectsLossOfEarlierProtectedFact
+--- PASS: TestExecuteRollingBatchRejectsLossOfEarlierProtectedFact (0.00s)
+=== RUN   TestExecute_SummarizerFails
+--- PASS: TestExecute_SummarizerFails (0.00s)
+=== RUN   TestExecute_SourceReadFails
+--- PASS: TestExecute_SourceReadFails (0.00s)
+=== RUN   TestExecute_RollingSummary_PassesPriorSummary
+--- PASS: TestExecute_RollingSummary_PassesPriorSummary (0.00s)
+=== RUN   TestExecute_RollingSummary_NoPrevCheckpoint
+--- PASS: TestExecute_RollingSummary_NoPrevCheckpoint (0.00s)
+=== RUN   TestRecoverOrphanedCheckpoints_RunningMarkedFailed
+--- PASS: TestRecoverOrphanedCheckpoints_RunningMarkedFailed (0.00s)
+=== RUN   TestRecoverOrphanedCheckpoints_PendingReexecuted
+--- PASS: TestRecoverOrphanedCheckpoints_PendingReexecuted (0.00s)
+=== RUN   TestRecoverOrphanedCheckpoints_NoOrphans
+--- PASS: TestRecoverOrphanedCheckpoints_NoOrphans (0.00s)
+=== RUN   TestRecoverOrphanedCheckpointsProcessesMoreThanOneBatch
+--- PASS: TestRecoverOrphanedCheckpointsProcessesMoreThanOneBatch (0.00s)
+=== RUN   TestRecoverOrphanedCheckpoints_Mixed
+--- PASS: TestRecoverOrphanedCheckpoints_Mixed (0.00s)
+=== RUN   TestPreviewCreatesCheckpointAndReturnsSummary
+--- PASS: TestPreviewCreatesCheckpointAndReturnsSummary (0.00s)
+=== RUN   TestCommitWithCorrectBaseVersionActivates
+--- PASS: TestCommitWithCorrectBaseVersionActivates (0.00s)
+=== RUN   TestCommitWithWrongBaseVersionReturnsConflict
+--- PASS: TestCommitWithWrongBaseVersionReturnsConflict (0.00s)
+=== RUN   TestCancelPendingCheckpoint
+--- PASS: TestCancelPendingCheckpoint (0.00s)
+=== RUN   TestCancelNonPendingReturnsError
+--- PASS: TestCancelNonPendingReturnsError (0.00s)
+=== RUN   TestExecuteCASConflict
+--- PASS: TestExecuteCASConflict (0.00s)
+=== RUN   TestCommitMarksPreviousSucceededAsSuperseded
+--- PASS: TestCommitMarksPreviousSucceededAsSuperseded (0.00s)
+=== RUN   TestRetryFailedCheckpoint
+--- PASS: TestRetryFailedCheckpoint (0.00s)
+=== RUN   TestRetryNonFailedReturnsError
+--- PASS: TestRetryNonFailedReturnsError (0.00s)
+=== RUN   TestVerifyLowWatermarkPasses
+--- PASS: TestVerifyLowWatermarkPasses (0.00s)
+=== RUN   TestVerifyLowWatermarkZeroContextWindow
+--- PASS: TestVerifyLowWatermarkZeroContextWindow (0.00s)
+=== RUN   TestConcurrentCheckAndTriggerSameSession
+--- PASS: TestConcurrentCheckAndTriggerSameSession (0.01s)
+=== RUN   TestBuildSummarizerMessagesStructurallyEncodesAdversarialInput
+--- PASS: TestBuildSummarizerMessagesStructurallyEncodesAdversarialInput (0.00s)
+=== RUN   TestBuildSummarizerMessagesQuotesInvalidPriorSummary
+--- PASS: TestBuildSummarizerMessagesQuotesInvalidPriorSummary (0.00s)
+=== RUN   TestExtractProtectedFacts
+--- PASS: TestExtractProtectedFacts (0.00s)
+=== RUN   TestExtractProtectedFactsDeduplicates
+--- PASS: TestExtractProtectedFactsDeduplicates (0.00s)
+=== RUN   TestExtractProtectedFactsEmptyMessages
+--- PASS: TestExtractProtectedFactsEmptyMessages (0.00s)
+=== RUN   TestValidateProtectedFactsAllPresent
+--- PASS: TestValidateProtectedFactsAllPresent (0.00s)
+=== RUN   TestValidateProtectedFactsMissing
+--- PASS: TestValidateProtectedFactsMissing (0.00s)
+=== RUN   TestValidateProtectedFactsNoFacts
+--- PASS: TestValidateProtectedFactsNoFacts (0.00s)
+=== RUN   TestValidateProtectedFactsInvalidJSON
+--- PASS: TestValidateProtectedFactsInvalidJSON (0.00s)
+=== RUN   TestExecute_ProtectedFactsViolation
+--- PASS: TestExecute_ProtectedFactsViolation (0.00s)
+=== RUN   TestExecute_ProtectedFactsPreservedSucceeds
+--- PASS: TestExecute_ProtectedFactsPreservedSucceeds (0.00s)
+=== RUN   TestLockSessionHonorsCancellation
+--- PASS: TestLockSessionHonorsCancellation (0.00s)
+=== RUN   TestTriggerScansBeyondSingleMessagePage
+--- PASS: TestTriggerScansBeyondSingleMessagePage (0.00s)
+=== RUN   TestTrigger_BelowHighWatermark
+--- PASS: TestTrigger_BelowHighWatermark (0.00s)
+=== RUN   TestTrigger_AboveHighWatermark
+--- PASS: TestTrigger_AboveHighWatermark (0.00s)
+=== RUN   TestTrigger_Cooldown
+--- PASS: TestTrigger_Cooldown (0.00s)
+=== RUN   TestTrigger_CompactionInProgress
+--- PASS: TestTrigger_CompactionInProgress (0.00s)
+=== RUN   TestTrigger_InsufficientMessages
+--- PASS: TestTrigger_InsufficientMessages (0.00s)
+=== RUN   TestTrigger_ResetCooldown
+--- PASS: TestTrigger_ResetCooldown (0.00s)
+=== RUN   TestTrigger_AllMessagesFitLowWatermark
+--- PASS: TestTrigger_AllMessagesFitLowWatermark (0.00s)
+=== RUN   TestDefaultWatermarkConfig
+--- PASS: TestDefaultWatermarkConfig (0.00s)
+=== RUN   TestTrigger_CheckpointVersionIncrement
+--- PASS: TestTrigger_CheckpointVersionIncrement (0.00s)
+=== RUN   TestTriggerManualCreatesCheckpoint
+--- PASS: TestTriggerManualCreatesCheckpoint (0.00s)
+=== RUN   TestTriggerManualInvalidRange
+--- PASS: TestTriggerManualInvalidRange (0.00s)
+=== RUN   TestTriggerManualRejectsMissingRequestedBoundary
+--- PASS: TestTriggerManualRejectsMissingRequestedBoundary (0.00s)
+=== RUN   TestTriggerManualInsufficientMessages
+--- PASS: TestTriggerManualInsufficientMessages (0.00s)
+=== RUN   TestTriggerManualAlreadyInProgress
+--- PASS: TestTriggerManualAlreadyInProgress (0.00s)
+=== RUN   TestTriggerManualLinksToPrevSucceeded
+--- PASS: TestTriggerManualLinksToPrevSucceeded (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/compactionapp	0.731s
+=== RUN   TestEffectiveInputBudget
+--- PASS: TestEffectiveInputBudget (0.00s)
+=== RUN   TestEffectiveInputBudgetDefaultsToContextWindow
+--- PASS: TestEffectiveInputBudgetDefaultsToContextWindow (0.00s)
+=== RUN   TestAssembleReturnsLatestUserMessageWhenBudgetTight
+--- PASS: TestAssembleReturnsLatestUserMessageWhenBudgetTight (0.00s)
+=== RUN   TestAssembleSelectsMessagesWithinBudget
+--- PASS: TestAssembleSelectsMessagesWithinBudget (0.00s)
+=== RUN   TestAssembleEmptySessionReturnsError
+--- PASS: TestAssembleEmptySessionReturnsError (0.00s)
+=== RUN   TestAssembleZeroBudgetReturnsError
+--- PASS: TestAssembleZeroBudgetReturnsError (0.00s)
+=== RUN   TestReverseMessages
+--- PASS: TestReverseMessages (0.00s)
+=== RUN   TestAssembleTurnBoundaryProtection
+--- PASS: TestAssembleTurnBoundaryProtection (0.00s)
+=== RUN   TestAssembleTurnBoundarySkipsIncompleteTurn
+--- PASS: TestAssembleTurnBoundarySkipsIncompleteTurn (0.00s)
+=== RUN   TestAssembleToolSchemaTokensReserved
+--- PASS: TestAssembleToolSchemaTokensReserved (0.00s)
+=== RUN   TestAssemblePriorSummaryInjection
+--- PASS: TestAssemblePriorSummaryInjection (0.00s)
+=== RUN   TestAssembleFindsLatestUserNotFirst
+--- PASS: TestAssembleFindsLatestUserNotFirst (0.00s)
+=== RUN   TestAssembleNoUserMessagesReturnsError
+--- PASS: TestAssembleNoUserMessagesReturnsError (0.00s)
+=== RUN   TestValidateProviderSequenceValid
+=== RUN   TestValidateProviderSequenceValid/simple_user-assistant
+=== RUN   TestValidateProviderSequenceValid/system_at_start
+=== RUN   TestValidateProviderSequenceValid/multiple_system_at_start
+=== RUN   TestValidateProviderSequenceValid/consecutive_user_messages
+--- PASS: TestValidateProviderSequenceValid (0.00s)
+    --- PASS: TestValidateProviderSequenceValid/simple_user-assistant (0.00s)
+    --- PASS: TestValidateProviderSequenceValid/system_at_start (0.00s)
+    --- PASS: TestValidateProviderSequenceValid/multiple_system_at_start (0.00s)
+    --- PASS: TestValidateProviderSequenceValid/consecutive_user_messages (0.00s)
+=== RUN   TestValidateProviderSequenceInvalid
+=== RUN   TestValidateProviderSequenceInvalid/empty
+=== RUN   TestValidateProviderSequenceInvalid/system_after_non-system
+=== RUN   TestValidateProviderSequenceInvalid/consecutive_assistant
+=== RUN   TestValidateProviderSequenceInvalid/no_user_message
+--- PASS: TestValidateProviderSequenceInvalid (0.00s)
+    --- PASS: TestValidateProviderSequenceInvalid/empty (0.00s)
+    --- PASS: TestValidateProviderSequenceInvalid/system_after_non-system (0.00s)
+    --- PASS: TestValidateProviderSequenceInvalid/consecutive_assistant (0.00s)
+    --- PASS: TestValidateProviderSequenceInvalid/no_user_message (0.00s)
+=== RUN   TestAssemblePinnedFactsInjection
+--- PASS: TestAssemblePinnedFactsInjection (0.00s)
+=== RUN   TestAssemblePinnedFactsWithPriorSummary
+--- PASS: TestAssemblePinnedFactsWithPriorSummary (0.00s)
+=== RUN   TestAssembleRetrievedEvidenceWithinBudget
+--- PASS: TestAssembleRetrievedEvidenceWithinBudget (0.00s)
+=== RUN   TestAssembleRetrievedEvidenceExceedingBudget
+--- PASS: TestAssembleRetrievedEvidenceExceedingBudget (0.00s)
+=== RUN   TestAssembleToolCallToolResultAtomicity
+--- PASS: TestAssembleToolCallToolResultAtomicity (0.00s)
+=== RUN   TestAssembleToolCallToolResultSkippedTogether
+--- PASS: TestAssembleToolCallToolResultSkippedTogether (0.00s)
+=== RUN   TestValidateProviderSequenceToolValid
+=== RUN   TestValidateProviderSequenceToolValid/assistant_then_tool
+=== RUN   TestValidateProviderSequenceToolValid/assistant_then_multiple_tools
+--- PASS: TestValidateProviderSequenceToolValid (0.00s)
+    --- PASS: TestValidateProviderSequenceToolValid/assistant_then_tool (0.00s)
+    --- PASS: TestValidateProviderSequenceToolValid/assistant_then_multiple_tools (0.00s)
+=== RUN   TestValidateProviderSequenceToolInvalid
+=== RUN   TestValidateProviderSequenceToolInvalid/tool_without_preceding_assistant
+=== RUN   TestValidateProviderSequenceToolInvalid/tool_at_start
+=== RUN   TestValidateProviderSequenceToolInvalid/tool_after_user
+--- PASS: TestValidateProviderSequenceToolInvalid (0.00s)
+    --- PASS: TestValidateProviderSequenceToolInvalid/tool_without_preceding_assistant (0.00s)
+    --- PASS: TestValidateProviderSequenceToolInvalid/tool_at_start (0.00s)
+    --- PASS: TestValidateProviderSequenceToolInvalid/tool_after_user (0.00s)
+=== RUN   TestAssembleEnvelopeDeletedSourceFailClosed
+=== RUN   TestAssembleEnvelopeDeletedSourceFailClosed/deleted_accepted_checkpoint
+=== RUN   TestAssembleEnvelopeDeletedSourceFailClosed/deleted_pinned_facts
+=== RUN   TestAssembleEnvelopeDeletedSourceFailClosed/deleted_related_evidence
+=== RUN   TestAssembleEnvelopeDeletedSourceFailClosed/deleted_handoff_capsule
+--- PASS: TestAssembleEnvelopeDeletedSourceFailClosed (0.00s)
+    --- PASS: TestAssembleEnvelopeDeletedSourceFailClosed/deleted_accepted_checkpoint (0.00s)
+    --- PASS: TestAssembleEnvelopeDeletedSourceFailClosed/deleted_pinned_facts (0.00s)
+    --- PASS: TestAssembleEnvelopeDeletedSourceFailClosed/deleted_related_evidence (0.00s)
+    --- PASS: TestAssembleEnvelopeDeletedSourceFailClosed/deleted_handoff_capsule (0.00s)
+=== RUN   TestAssembleEnvelopeAttachmentRemainsUntrustedUserData
+--- PASS: TestAssembleEnvelopeAttachmentRemainsUntrustedUserData (0.00s)
+=== RUN   TestAssembleEnvelopeSelectionTrace
+--- PASS: TestAssembleEnvelopeSelectionTrace (0.00s)
+=== RUN   TestAssembleEnvelopePriorSummaryParticipatesInBudget
+--- PASS: TestAssembleEnvelopePriorSummaryParticipatesInBudget (0.00s)
+=== RUN   TestAssembleEnvelopePinnedFactsOrder
+--- PASS: TestAssembleEnvelopePinnedFactsOrder (0.00s)
+=== RUN   TestAssembleEnvelopeHandoffCapsuleInjection
+--- PASS: TestAssembleEnvelopeHandoffCapsuleInjection (0.00s)
+=== RUN   TestAssembleEnvelopeDeterministicOutput
+--- PASS: TestAssembleEnvelopeDeterministicOutput (0.00s)
+=== RUN   TestAssembleEnvelopeWindowMatrix
+=== RUN   TestAssembleEnvelopeWindowMatrix/window_8192
+=== RUN   TestAssembleEnvelopeWindowMatrix/window_16384
+=== RUN   TestAssembleEnvelopeWindowMatrix/window_32768
+=== RUN   TestAssembleEnvelopeWindowMatrix/window_131072
+=== RUN   TestAssembleEnvelopeWindowMatrix/window_204800
+=== RUN   TestAssembleEnvelopeWindowMatrix/window_1048576
+--- PASS: TestAssembleEnvelopeWindowMatrix (0.00s)
+    --- PASS: TestAssembleEnvelopeWindowMatrix/window_8192 (0.00s)
+    --- PASS: TestAssembleEnvelopeWindowMatrix/window_16384 (0.00s)
+    --- PASS: TestAssembleEnvelopeWindowMatrix/window_32768 (0.00s)
+    --- PASS: TestAssembleEnvelopeWindowMatrix/window_131072 (0.00s)
+    --- PASS: TestAssembleEnvelopeWindowMatrix/window_204800 (0.00s)
+    --- PASS: TestAssembleEnvelopeWindowMatrix/window_1048576 (0.00s)
+=== RUN   TestAssembleEnvelopeRetrievedEvidenceBudgetExceeded
+--- PASS: TestAssembleEnvelopeRetrievedEvidenceBudgetExceeded (0.00s)
+=== RUN   TestAssembleEnvelopeBudgetTooSmall
+--- PASS: TestAssembleEnvelopeBudgetTooSmall (0.00s)
+=== RUN   TestAssembleEnvelopeDurableMessagesChronological
+=== RUN   TestAssembleEnvelopeDurableMessagesChronological/user-assistant
+=== RUN   TestAssembleEnvelopeDurableMessagesChronological/tool-chain
+=== RUN   TestAssembleEnvelopeDurableMessagesChronological/multi-turn
+--- PASS: TestAssembleEnvelopeDurableMessagesChronological (0.00s)
+    --- PASS: TestAssembleEnvelopeDurableMessagesChronological/user-assistant (0.00s)
+    --- PASS: TestAssembleEnvelopeDurableMessagesChronological/tool-chain (0.00s)
+    --- PASS: TestAssembleEnvelopeDurableMessagesChronological/multi-turn (0.00s)
+=== RUN   TestAssembleEnvelopePriorSummaryIsQuotedUserData
+--- PASS: TestAssembleEnvelopePriorSummaryIsQuotedUserData (0.00s)
+=== RUN   TestAssembleEnvelopeRelatedEvidenceIsQuotedUserContextWithExactAccounting
+--- PASS: TestAssembleEnvelopeRelatedEvidenceIsQuotedUserContextWithExactAccounting (0.00s)
+=== RUN   TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary
+=== RUN   TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary/exact_boundary
+=== RUN   TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary/one_token_short
+--- PASS: TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary (0.00s)
+    --- PASS: TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary/exact_boundary (0.00s)
+    --- PASS: TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary/one_token_short (0.00s)
+=== RUN   TestAssembleEnvelopePinnedFactsIncludesRenderedPrefixInAccounting
+--- PASS: TestAssembleEnvelopePinnedFactsIncludesRenderedPrefixInAccounting (0.00s)
+=== RUN   TestAssembleEnvelopeFinalAccountingAcrossModuloAndNormalizationBoundaries
+=== RUN   TestAssembleEnvelopeFinalAccountingAcrossModuloAndNormalizationBoundaries/ascii-modulo-4
+=== RUN   TestAssembleEnvelopeFinalAccountingAcrossModuloAndNormalizationBoundaries/nfc-and-line-endings
+--- PASS: TestAssembleEnvelopeFinalAccountingAcrossModuloAndNormalizationBoundaries (0.00s)
+    --- PASS: TestAssembleEnvelopeFinalAccountingAcrossModuloAndNormalizationBoundaries/ascii-modulo-4 (0.00s)
+    --- PASS: TestAssembleEnvelopeFinalAccountingAcrossModuloAndNormalizationBoundaries/nfc-and-line-endings (0.00s)
+=== RUN   TestM3ExitWindowMatrixWithMillionTokenLogicalHistory
+=== RUN   TestM3ExitWindowMatrixWithMillionTokenLogicalHistory/window-32768
+=== RUN   TestM3ExitWindowMatrixWithMillionTokenLogicalHistory/window-131072
+=== RUN   TestM3ExitWindowMatrixWithMillionTokenLogicalHistory/window-204800
+--- PASS: TestM3ExitWindowMatrixWithMillionTokenLogicalHistory (0.02s)
+    --- PASS: TestM3ExitWindowMatrixWithMillionTokenLogicalHistory/window-32768 (0.00s)
+    --- PASS: TestM3ExitWindowMatrixWithMillionTokenLogicalHistory/window-131072 (0.00s)
+    --- PASS: TestM3ExitWindowMatrixWithMillionTokenLogicalHistory/window-204800 (0.01s)
+=== RUN   TestM3FixedCorpusSourceAndSummaryFidelity
+=== RUN   TestM3FixedCorpusSourceAndSummaryFidelity/window-32768
+=== RUN   TestM3FixedCorpusSourceAndSummaryFidelity/window-131072
+=== RUN   TestM3FixedCorpusSourceAndSummaryFidelity/window-204800
+--- PASS: TestM3FixedCorpusSourceAndSummaryFidelity (0.03s)
+    --- PASS: TestM3FixedCorpusSourceAndSummaryFidelity/window-32768 (0.00s)
+    --- PASS: TestM3FixedCorpusSourceAndSummaryFidelity/window-131072 (0.01s)
+    --- PASS: TestM3FixedCorpusSourceAndSummaryFidelity/window-204800 (0.01s)
+=== RUN   TestM3FixedCorpusTombstoneFailsClosed
+--- PASS: TestM3FixedCorpusTombstoneFailsClosed (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/contextapp	0.680s
+=== RUN   TestPlanFinalGate
+--- PASS: TestPlanFinalGate (0.00s)
+=== RUN   TestRollbackCandidatesReverseOrder
+--- PASS: TestRollbackCandidatesReverseOrder (0.00s)
+=== RUN   TestReconcileRecovery
+--- PASS: TestReconcileRecovery (0.00s)
+=== RUN   TestFinalGateErrors
+--- PASS: TestFinalGateErrors (0.00s)
+=== RUN   TestWorktreeIsolation
+--- PASS: TestWorktreeIsolation (0.74s)
+=== RUN   TestWorktreePathDiscipline
+--- PASS: TestWorktreePathDiscipline (0.28s)
+=== RUN   TestWorktreeRootApplyMarker
+--- PASS: TestWorktreeRootApplyMarker (0.60s)
+=== RUN   TestWriterStateMachineEdges
+--- PASS: TestWriterStateMachineEdges (0.00s)
+=== RUN   TestWriterCASVerdicts
+--- PASS: TestWriterCASVerdicts (0.00s)
+=== RUN   TestWriterFencing
+--- PASS: TestWriterFencing (0.00s)
+=== RUN   TestWriterTotalOrder
+--- PASS: TestWriterTotalOrder (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/merge	2.136s
+=== RUN   TestService_CreateCapsule_Success
+--- PASS: TestService_CreateCapsule_Success (0.00s)
+=== RUN   TestService_CreateCapsule_CheckpointNotFound
+--- PASS: TestService_CreateCapsule_CheckpointNotFound (0.00s)
+=== RUN   TestService_CreateCapsule_CheckpointNotSucceeded
+--- PASS: TestService_CreateCapsule_CheckpointNotSucceeded (0.00s)
+=== RUN   TestService_CreateCapsule_SessionMismatch
+--- PASS: TestService_CreateCapsule_SessionMismatch (0.00s)
+=== RUN   TestService_CreateCapsule_GetCheckpointError
+--- PASS: TestService_CreateCapsule_GetCheckpointError (0.00s)
+=== RUN   TestService_CreateCapsule_EmptyFieldsDefault
+--- PASS: TestService_CreateCapsule_EmptyFieldsDefault (0.00s)
+=== RUN   TestService_GetCapsule_Success
+--- PASS: TestService_GetCapsule_Success (0.00s)
+=== RUN   TestService_GetCapsule_NotFound
+--- PASS: TestService_GetCapsule_NotFound (0.00s)
+=== RUN   TestService_ListCapsulesBySourceSession_LimitClamped
+--- PASS: TestService_ListCapsulesBySourceSession_LimitClamped (0.00s)
+=== RUN   TestService_ListActiveCapsules
+--- PASS: TestService_ListActiveCapsules (0.00s)
+=== RUN   TestService_ActivateCapsule_Success
+--- PASS: TestService_ActivateCapsule_Success (0.00s)
+=== RUN   TestService_ActivateCapsule_NotFound
+--- PASS: TestService_ActivateCapsule_NotFound (0.00s)
+=== RUN   TestService_ActivateCapsule_NotActive
+--- PASS: TestService_ActivateCapsule_NotActive (0.00s)
+=== RUN   TestService_ActivateCapsule_Expired
+--- PASS: TestService_ActivateCapsule_Expired (0.00s)
+=== RUN   TestService_ActivateCapsule_DigestMismatch
+--- PASS: TestService_ActivateCapsule_DigestMismatch (0.00s)
+=== RUN   TestService_ActivateCapsule_CheckpointDeleted
+--- PASS: TestService_ActivateCapsule_CheckpointDeleted (0.00s)
+=== RUN   TestService_ActivateCapsule_NoExpiry
+--- PASS: TestService_ActivateCapsule_NoExpiry (0.00s)
+=== RUN   TestService_RevokeCapsule_Success
+--- PASS: TestService_RevokeCapsule_Success (0.00s)
+=== RUN   TestService_RevokeCapsule_NotFound
+--- PASS: TestService_RevokeCapsule_NotFound (0.00s)
+=== RUN   TestService_RevokeCapsule_NotActive
+--- PASS: TestService_RevokeCapsule_NotActive (0.00s)
+=== RUN   TestService_DigestBinding_RoundTrip
+--- PASS: TestService_DigestBinding_RoundTrip (0.00s)
+=== RUN   TestService_ImportCapsule_Success
+--- PASS: TestService_ImportCapsule_Success (0.00s)
+=== RUN   TestService_ImportCapsule_IdempotentReimport
+--- PASS: TestService_ImportCapsule_IdempotentReimport (0.00s)
+=== RUN   TestService_ImportCapsule_DifferentTargets
+--- PASS: TestService_ImportCapsule_DifferentTargets (0.00s)
+=== RUN   TestService_ImportCapsule_CrossProjectRejected
+--- PASS: TestService_ImportCapsule_CrossProjectRejected (0.00s)
+=== RUN   TestService_ImportCapsule_NotFound
+--- PASS: TestService_ImportCapsule_NotFound (0.00s)
+=== RUN   TestService_ImportCapsule_NotActive
+--- PASS: TestService_ImportCapsule_NotActive (0.00s)
+=== RUN   TestService_ImportCapsule_Expired
+--- PASS: TestService_ImportCapsule_Expired (0.00s)
+=== RUN   TestService_ImportCapsule_SourceDeleted
+--- PASS: TestService_ImportCapsule_SourceDeleted (0.00s)
+=== RUN   TestService_ImportCapsule_DigestMismatch
+--- PASS: TestService_ImportCapsule_DigestMismatch (0.00s)
+=== RUN   TestService_InspectCapsule_Success
+--- PASS: TestService_InspectCapsule_Success (0.00s)
+=== RUN   TestService_InspectCapsule_SourceDeleted
+--- PASS: TestService_InspectCapsule_SourceDeleted (0.00s)
+=== RUN   TestService_InspectCapsule_NotFound
+--- PASS: TestService_InspectCapsule_NotFound (0.00s)
+=== RUN   TestService_ListImportedCapsuleContexts_FailClosedOnDeletion
+--- PASS: TestService_ListImportedCapsuleContexts_FailClosedOnDeletion (0.00s)
+=== RUN   TestService_ListImportedCapsuleContexts_SkipsRevoked
+--- PASS: TestService_ListImportedCapsuleContexts_SkipsRevoked (0.00s)
+=== RUN   TestService_ImportCapsule_FailClosedOnSessionTombstone
+--- PASS: TestService_ImportCapsule_FailClosedOnSessionTombstone (0.00s)
+=== RUN   TestService_ImportCapsule_FailClosedOnCheckpointTombstone
+--- PASS: TestService_ImportCapsule_FailClosedOnCheckpointTombstone (0.00s)
+=== RUN   TestService_ListImportedCapsuleContexts_TombstoneFailClosed
+--- PASS: TestService_ListImportedCapsuleContexts_TombstoneFailClosed (0.00s)
+=== RUN   TestService_ListImportedCapsuleContexts_NoTombstoneChecker
+--- PASS: TestService_ListImportedCapsuleContexts_NoTombstoneChecker (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/handoffapp	0.513s

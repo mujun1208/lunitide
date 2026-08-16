@@ -1,0 +1,20 @@
+﻿=== RUN   TestPrivacyThreshold
+=== RUN   TestPrivacyThreshold/T-20:_groups_below_the_frozen_k_suppress_with_zero_leakage_(M9-030)
+=== RUN   TestPrivacyThreshold/subject_dedup:_one_subject_cannot_lift_a_group_to_k_alone
+=== RUN   TestPrivacyThreshold/M9-030:_direct_low-sample_single-group_query_refuses
+=== RUN   TestPrivacyThreshold/forbidden_drill-down_dimensions_refuse_(prompt/file/user/session)
+=== RUN   TestPrivacyThreshold/progressive_rollout:_default_off,_per-org_switch_is_effective
+=== RUN   TestPrivacyThreshold/window_rules:_24h_minimum_and_natural-day_alignment
+=== RUN   TestPrivacyThreshold/cross-window_differential_control:_overlapping_windows_refuse_(M9-030)
+=== RUN   TestPrivacyThreshold/access_review_journal_records_every_query
+--- PASS: TestPrivacyThreshold (0.00s)
+    --- PASS: TestPrivacyThreshold/T-20:_groups_below_the_frozen_k_suppress_with_zero_leakage_(M9-030) (0.00s)
+    --- PASS: TestPrivacyThreshold/subject_dedup:_one_subject_cannot_lift_a_group_to_k_alone (0.00s)
+    --- PASS: TestPrivacyThreshold/M9-030:_direct_low-sample_single-group_query_refuses (0.00s)
+    --- PASS: TestPrivacyThreshold/forbidden_drill-down_dimensions_refuse_(prompt/file/user/session) (0.00s)
+    --- PASS: TestPrivacyThreshold/progressive_rollout:_default_off,_per-org_switch_is_effective (0.00s)
+    --- PASS: TestPrivacyThreshold/window_rules:_24h_minimum_and_natural-day_alignment (0.00s)
+    --- PASS: TestPrivacyThreshold/cross-window_differential_control:_overlapping_windows_refuse_(M9-030) (0.00s)
+    --- PASS: TestPrivacyThreshold/access_review_journal_records_every_query (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/metrics	1.441s

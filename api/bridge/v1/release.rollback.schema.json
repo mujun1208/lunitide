@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/release.rollback.schema.json",
+  "title": "release.rollback payload",
+  "x-method": "release.rollback",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "promotionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operatorId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "promotionId",
+    "reason",
+    "requestId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "rollbackRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "state": {
+        "type": "string",
+        "enum": ["rolling_back", "rolled_back", "failed"]
+      }
+    },
+    "required": [
+      "rollbackRef",
+      "state"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "promotionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "reason": "health check failed after deploy",
+        "requestId": "rbk-001",
+        "operatorId": "u-ops-2"
+      }
+    ],
+    "negative": [
+      {
+        "promotionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "requestId": "rbk-001"
+      }
+    ]
+  }
+}

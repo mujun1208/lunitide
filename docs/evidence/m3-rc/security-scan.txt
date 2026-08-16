@@ -1,0 +1,3 @@
+﻿command: go vet ./...
+date: 2026-08-16 13:29:37
+exit code: 0 (zero findings - no output from go vet)

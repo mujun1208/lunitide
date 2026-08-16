@@ -11,6 +11,10 @@ const (
 	MethodAgentRunReconcile         Method = "agent.run.reconcile"
 	MethodAgentRunResume            Method = "agent.run.resume"
 	MethodAgentRunStart             Method = "agent.run.start"
+	MethodAppUpdateCheck            Method = "appUpdate.check"
+	MethodAppUpdateInstall          Method = "appUpdate.install"
+	MethodArchivePack               Method = "archive.pack"
+	MethodArchiveUnpack             Method = "archive.unpack"
 	MethodAttachmentDelete          Method = "attachment.delete"
 	MethodAttachmentGet             Method = "attachment.get"
 	MethodAttachmentIngest          Method = "attachment.ingest"
@@ -19,6 +23,7 @@ const (
 	MethodAttachmentUploadBegin     Method = "attachment.upload.begin"
 	MethodAttachmentUploadChunk     Method = "attachment.upload.chunk"
 	MethodAttachmentUploadCommit    Method = "attachment.upload.commit"
+	MethodAutomationDispatch        Method = "automation.dispatch"
 	MethodBarrierArrive             Method = "barrier.arrive"
 	MethodBrowserAct                Method = "browser.act"
 	MethodBrowserClose              Method = "browser.close"
@@ -29,6 +34,9 @@ const (
 	MethodChangesetRevert           Method = "changeset.revert"
 	MethodChatStart                 Method = "chat.start"
 	MethodChatToolApprove           Method = "chat.tool.approve"
+	MethodCollabGateConfirm         Method = "collabGate.confirm"
+	MethodCollabGateEvaluate        Method = "collabGate.evaluate"
+	MethodCollabGateStatus          Method = "collabGate.status"
 	MethodCommandCancel             Method = "command.cancel"
 	MethodCommandGet                Method = "command.get"
 	MethodCommandReviewRequest      Method = "command.review.request"
@@ -45,14 +53,24 @@ const (
 	MethodContextHandoffListImports Method = "context.handoff.list-imports"
 	MethodContextHandoffRevoke      Method = "context.handoff.revoke"
 	MethodContextStatus             Method = "context.status"
+	MethodDbQuery                   Method = "db.query"
 	MethodDelegationCreate          Method = "delegation.create"
 	MethodDelegationSettle          Method = "delegation.settle"
 	MethodDevTaskCreate             Method = "devTask.create"
 	MethodDevTaskTransition         Method = "devTask.transition"
 	MethodDiagnosticsExport         Method = "diagnostics.export"
+	MethodDocumentParse             Method = "document.parse"
 	MethodEvidenceAttachScan        Method = "evidence.attachScan"
 	MethodEvidenceAttachTest        Method = "evidence.attachTest"
 	MethodEvidenceList              Method = "evidence.list"
+	MethodExpertArchive             Method = "expert.archive"
+	MethodExpertCreate              Method = "expert.create"
+	MethodExpertDetail              Method = "expert.detail"
+	MethodExpertList                Method = "expert.list"
+	MethodExpertMount               Method = "expert.mount"
+	MethodExpertMountingGet         Method = "expert.mounting.get"
+	MethodExpertToggle              Method = "expert.toggle"
+	MethodExpertUpdate              Method = "expert.update"
 	MethodExtensionInstall          Method = "extension.install"
 	MethodExtensionLifecycle        Method = "extension.lifecycle"
 	MethodExtensionSearch           Method = "extension.search"
@@ -62,10 +80,21 @@ const (
 	MethodFsReadMany                Method = "fs.readMany"
 	MethodFsStat                    Method = "fs.stat"
 	MethodFsTree                    Method = "fs.tree"
+	MethodGitRead                   Method = "git.read"
+	MethodHandoffAccept             Method = "handoff.accept"
+	MethodHttpDownload              Method = "http.download"
+	MethodHttpRequest               Method = "http.request"
+	MethodKbUpsertDocument          Method = "kb.upsertDocument"
+	MethodMcpAdd                    Method = "mcp.add"
+	MethodMcpHealth                 Method = "mcp.health"
 	MethodMcpInvoke                 Method = "mcp.invoke"
+	MethodMcpList                   Method = "mcp.list"
+	MethodMcpMarketSearch           Method = "mcp.market.search"
+	MethodMcpToggle                 Method = "mcp.toggle"
 	MethodMcp6Invoke                Method = "mcp6.invoke"
 	MethodMcp6Register              Method = "mcp6.register"
 	MethodMcp6Revoke                Method = "mcp6.revoke"
+	MethodMemoryConfirmCandidate    Method = "memory.confirmCandidate"
 	MethodMemoryCreate              Method = "memory.create"
 	MethodMemoryDelete              Method = "memory.delete"
 	MethodMemoryGet                 Method = "memory.get"
@@ -95,6 +124,16 @@ const (
 	MethodOntologyNodeSearch        Method = "ontology.node.search"
 	MethodOntologyNodeUpdate        Method = "ontology.node.update"
 	MethodOpenapiParse              Method = "openapi.parse"
+	MethodOrgActivate               Method = "org.activate"
+	MethodOrgCreate                 Method = "org.create"
+	MethodOrgMemberInvite           Method = "org.member.invite"
+	MethodOrgMemberList             Method = "org.member.list"
+	MethodOrgMemberRevoke           Method = "org.member.revoke"
+	MethodOrgSpaceCreate            Method = "org.space.create"
+	MethodOrgSpaceList              Method = "org.space.list"
+	MethodOrgSummary                Method = "org.summary"
+	MethodOrgSuspend                Method = "org.suspend"
+	MethodOrgSwitch                 Method = "org.switch"
 	MethodPlanActivate              Method = "plan.activate"
 	MethodPlanComplete              Method = "plan.complete"
 	MethodPlanCreate                Method = "plan.create"
@@ -108,6 +147,14 @@ const (
 	MethodPlanRunStart              Method = "plan.run.start"
 	MethodPlanRunTree               Method = "plan.run.tree"
 	MethodPlanTodoCreate            Method = "plan.todo.create"
+	MethodPluginDevCreate           Method = "plugin.dev.create"
+	MethodPluginInstall             Method = "plugin.install"
+	MethodPluginList                Method = "plugin.list"
+	MethodPluginMarketDetail        Method = "plugin.market.detail"
+	MethodPluginMarketSearch        Method = "plugin.market.search"
+	MethodPluginToggle              Method = "plugin.toggle"
+	MethodPluginUninstall           Method = "plugin.uninstall"
+	MethodPluginUpgrade             Method = "plugin.upgrade"
 	MethodProjectCreate             Method = "project.create"
 	MethodProjectDelete             Method = "project.delete"
 	MethodProjectList               Method = "project.list"
@@ -120,6 +167,14 @@ const (
 	MethodProviderModelSync         Method = "provider.model.sync"
 	MethodProviderTest              Method = "provider.test"
 	MethodProviderUpdate            Method = "provider.update"
+	MethodRecallQuery               Method = "recall.query"
+	MethodReleaseBuildPackage       Method = "release.buildPackage"
+	MethodReleaseCreateRevision     Method = "release.createRevision"
+	MethodReleaseGetPackage         Method = "release.getPackage"
+	MethodReleaseGetPromotion       Method = "release.getPromotion"
+	MethodReleaseGetRevision        Method = "release.getRevision"
+	MethodReleasePromote            Method = "release.promote"
+	MethodReleaseRollback           Method = "release.rollback"
 	MethodReviewApprove             Method = "review.approve"
 	MethodReviewDecide              Method = "review.decide"
 	MethodReviewList                Method = "review.list"
@@ -152,16 +207,24 @@ const (
 	MethodStageCreate               Method = "stage.create"
 	MethodStageList                 Method = "stage.list"
 	MethodStreamCancel              Method = "stream.cancel"
+	MethodSubagentJoin              Method = "subagent.join"
+	MethodSubagentSpawn             Method = "subagent.spawn"
+	MethodSubagentTree              Method = "subagent.tree"
+	MethodSyncPush                  Method = "sync.push"
 	MethodSystemHealth              Method = "system.health"
 	MethodSystemSettingsOpen        Method = "system.settings.open"
 	MethodTerminalClose             Method = "terminal.close"
 	MethodTerminalInput             Method = "terminal.input"
 	MethodTerminalResize            Method = "terminal.resize"
 	MethodTerminalStart             Method = "terminal.start"
+	MethodTombstoneDelete           Method = "tombstone.delete"
 	MethodTraceAddEdge              Method = "trace.addEdge"
 	MethodTraceMarkStale            Method = "trace.markStale"
 	MethodTraceQuery                Method = "trace.query"
 	MethodTraceResolveStale         Method = "trace.resolveStale"
+	MethodTtsCancel                 Method = "tts.cancel"
+	MethodTtsSynthesize             Method = "tts.synthesize"
+	MethodTtsVoices                 Method = "tts.voices"
 	MethodUiThemeSet                Method = "ui.theme.set"
 	MethodWebFetch                  Method = "web.fetch"
 	MethodWebSearch                 Method = "web.search"
@@ -194,6 +257,10 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodAgentRunReconcile:         {Owner: "engine", Enabled: true},
 	MethodAgentRunResume:            {Owner: "engine", Enabled: true},
 	MethodAgentRunStart:             {Owner: "engine", Enabled: true},
+	MethodAppUpdateCheck:            {Owner: "engine", Enabled: true},
+	MethodAppUpdateInstall:          {Owner: "engine", Enabled: true},
+	MethodArchivePack:               {Owner: "engine", Enabled: true},
+	MethodArchiveUnpack:             {Owner: "engine", Enabled: true},
 	MethodAttachmentDelete:          {Owner: "engine", Enabled: true},
 	MethodAttachmentGet:             {Owner: "engine", Enabled: true},
 	MethodAttachmentIngest:          {Owner: "engine", Enabled: true},
@@ -202,6 +269,7 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodAttachmentUploadBegin:     {Owner: "engine", Enabled: true},
 	MethodAttachmentUploadChunk:     {Owner: "engine", Enabled: true},
 	MethodAttachmentUploadCommit:    {Owner: "engine", Enabled: true},
+	MethodAutomationDispatch:        {Owner: "engine", Enabled: true},
 	MethodBarrierArrive:             {Owner: "engine", Enabled: true},
 	MethodBrowserAct:                {Owner: "engine", Enabled: true},
 	MethodBrowserClose:              {Owner: "host", Enabled: true},
@@ -212,6 +280,9 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodChangesetRevert:           {Owner: "engine", Enabled: true},
 	MethodChatStart:                 {Owner: "engine", Enabled: true},
 	MethodChatToolApprove:           {Owner: "engine", Enabled: true},
+	MethodCollabGateConfirm:         {Owner: "engine", Enabled: true},
+	MethodCollabGateEvaluate:        {Owner: "engine", Enabled: true},
+	MethodCollabGateStatus:          {Owner: "engine", Enabled: true},
 	MethodCommandCancel:             {Owner: "engine", Enabled: true},
 	MethodCommandGet:                {Owner: "engine", Enabled: true},
 	MethodCommandReviewRequest:      {Owner: "engine", Enabled: true},
@@ -228,14 +299,24 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodContextHandoffListImports: {Owner: "engine", Enabled: true},
 	MethodContextHandoffRevoke:      {Owner: "engine", Enabled: true},
 	MethodContextStatus:             {Owner: "engine", Enabled: true},
+	MethodDbQuery:                   {Owner: "engine", Enabled: true},
 	MethodDelegationCreate:          {Owner: "engine", Enabled: true},
 	MethodDelegationSettle:          {Owner: "engine", Enabled: true},
 	MethodDevTaskCreate:             {Owner: "engine", Enabled: true},
 	MethodDevTaskTransition:         {Owner: "engine", Enabled: true},
 	MethodDiagnosticsExport:         {Owner: "host", Enabled: true},
+	MethodDocumentParse:             {Owner: "engine", Enabled: true},
 	MethodEvidenceAttachScan:        {Owner: "engine", Enabled: true},
 	MethodEvidenceAttachTest:        {Owner: "engine", Enabled: true},
 	MethodEvidenceList:              {Owner: "engine", Enabled: true},
+	MethodExpertArchive:             {Owner: "engine", Enabled: true},
+	MethodExpertCreate:              {Owner: "engine", Enabled: true},
+	MethodExpertDetail:              {Owner: "engine", Enabled: true},
+	MethodExpertList:                {Owner: "engine", Enabled: true},
+	MethodExpertMount:               {Owner: "engine", Enabled: true},
+	MethodExpertMountingGet:         {Owner: "engine", Enabled: true},
+	MethodExpertToggle:              {Owner: "engine", Enabled: true},
+	MethodExpertUpdate:              {Owner: "engine", Enabled: true},
 	MethodExtensionInstall:          {Owner: "engine", Enabled: true},
 	MethodExtensionLifecycle:        {Owner: "engine", Enabled: true},
 	MethodExtensionSearch:           {Owner: "engine", Enabled: true},
@@ -245,10 +326,21 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodFsReadMany:                {Owner: "engine", Enabled: true},
 	MethodFsStat:                    {Owner: "engine", Enabled: true},
 	MethodFsTree:                    {Owner: "engine", Enabled: true},
+	MethodGitRead:                   {Owner: "engine", Enabled: true},
+	MethodHandoffAccept:             {Owner: "engine", Enabled: true},
+	MethodHttpDownload:              {Owner: "engine", Enabled: true},
+	MethodHttpRequest:               {Owner: "engine", Enabled: true},
+	MethodKbUpsertDocument:          {Owner: "engine", Enabled: true},
+	MethodMcpAdd:                    {Owner: "engine", Enabled: true},
+	MethodMcpHealth:                 {Owner: "engine", Enabled: true},
 	MethodMcpInvoke:                 {Owner: "engine", Enabled: true},
+	MethodMcpList:                   {Owner: "engine", Enabled: true},
+	MethodMcpMarketSearch:           {Owner: "engine", Enabled: true},
+	MethodMcpToggle:                 {Owner: "engine", Enabled: true},
 	MethodMcp6Invoke:                {Owner: "engine", Enabled: true},
 	MethodMcp6Register:              {Owner: "engine", Enabled: true},
 	MethodMcp6Revoke:                {Owner: "engine", Enabled: true},
+	MethodMemoryConfirmCandidate:    {Owner: "engine", Enabled: true},
 	MethodMemoryCreate:              {Owner: "engine", Enabled: true},
 	MethodMemoryDelete:              {Owner: "engine", Enabled: true},
 	MethodMemoryGet:                 {Owner: "engine", Enabled: true},
@@ -278,6 +370,16 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodOntologyNodeSearch:        {Owner: "engine", Enabled: true},
 	MethodOntologyNodeUpdate:        {Owner: "engine", Enabled: true},
 	MethodOpenapiParse:              {Owner: "engine", Enabled: true},
+	MethodOrgActivate:               {Owner: "engine", Enabled: true},
+	MethodOrgCreate:                 {Owner: "engine", Enabled: true},
+	MethodOrgMemberInvite:           {Owner: "engine", Enabled: true},
+	MethodOrgMemberList:             {Owner: "engine", Enabled: true},
+	MethodOrgMemberRevoke:           {Owner: "engine", Enabled: true},
+	MethodOrgSpaceCreate:            {Owner: "engine", Enabled: true},
+	MethodOrgSpaceList:              {Owner: "engine", Enabled: true},
+	MethodOrgSummary:                {Owner: "engine", Enabled: true},
+	MethodOrgSuspend:                {Owner: "engine", Enabled: true},
+	MethodOrgSwitch:                 {Owner: "engine", Enabled: true},
 	MethodPlanActivate:              {Owner: "engine", Enabled: true},
 	MethodPlanComplete:              {Owner: "engine", Enabled: true},
 	MethodPlanCreate:                {Owner: "engine", Enabled: true},
@@ -291,6 +393,14 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodPlanRunStart:              {Owner: "engine", Enabled: true},
 	MethodPlanRunTree:               {Owner: "engine", Enabled: true},
 	MethodPlanTodoCreate:            {Owner: "engine", Enabled: true},
+	MethodPluginDevCreate:           {Owner: "engine", Enabled: true},
+	MethodPluginInstall:             {Owner: "engine", Enabled: true},
+	MethodPluginList:                {Owner: "engine", Enabled: true},
+	MethodPluginMarketDetail:        {Owner: "engine", Enabled: true},
+	MethodPluginMarketSearch:        {Owner: "engine", Enabled: true},
+	MethodPluginToggle:              {Owner: "engine", Enabled: true},
+	MethodPluginUninstall:           {Owner: "engine", Enabled: true},
+	MethodPluginUpgrade:             {Owner: "engine", Enabled: true},
 	MethodProjectCreate:             {Owner: "engine", Enabled: true},
 	MethodProjectDelete:             {Owner: "engine", Enabled: true},
 	MethodProjectList:               {Owner: "engine", Enabled: true},
@@ -303,6 +413,14 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodProviderModelSync:         {Owner: "engine", Enabled: true},
 	MethodProviderTest:              {Owner: "engine", Enabled: true},
 	MethodProviderUpdate:            {Owner: "engine", Enabled: true},
+	MethodRecallQuery:               {Owner: "engine", Enabled: true},
+	MethodReleaseBuildPackage:       {Owner: "engine", Enabled: true},
+	MethodReleaseCreateRevision:     {Owner: "engine", Enabled: true},
+	MethodReleaseGetPackage:         {Owner: "engine", Enabled: true},
+	MethodReleaseGetPromotion:       {Owner: "engine", Enabled: true},
+	MethodReleaseGetRevision:        {Owner: "engine", Enabled: true},
+	MethodReleasePromote:            {Owner: "engine", Enabled: true},
+	MethodReleaseRollback:           {Owner: "engine", Enabled: true},
 	MethodReviewApprove:             {Owner: "engine", Enabled: true},
 	MethodReviewDecide:              {Owner: "engine", Enabled: true},
 	MethodReviewList:                {Owner: "engine", Enabled: true},
@@ -335,16 +453,24 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodStageCreate:               {Owner: "engine", Enabled: true},
 	MethodStageList:                 {Owner: "engine", Enabled: true},
 	MethodStreamCancel:              {Owner: "engine", Enabled: true},
+	MethodSubagentJoin:              {Owner: "engine", Enabled: true},
+	MethodSubagentSpawn:             {Owner: "engine", Enabled: true},
+	MethodSubagentTree:              {Owner: "engine", Enabled: true},
+	MethodSyncPush:                  {Owner: "engine", Enabled: true},
 	MethodSystemHealth:              {Owner: "engine", Enabled: true},
 	MethodSystemSettingsOpen:        {Owner: "host", Enabled: true},
 	MethodTerminalClose:             {Owner: "engine", Enabled: true},
 	MethodTerminalInput:             {Owner: "engine", Enabled: true},
 	MethodTerminalResize:            {Owner: "engine", Enabled: true},
 	MethodTerminalStart:             {Owner: "engine", Enabled: true},
+	MethodTombstoneDelete:           {Owner: "engine", Enabled: true},
 	MethodTraceAddEdge:              {Owner: "engine", Enabled: true},
 	MethodTraceMarkStale:            {Owner: "engine", Enabled: true},
 	MethodTraceQuery:                {Owner: "engine", Enabled: true},
 	MethodTraceResolveStale:         {Owner: "engine", Enabled: true},
+	MethodTtsCancel:                 {Owner: "engine", Enabled: true},
+	MethodTtsSynthesize:             {Owner: "engine", Enabled: true},
+	MethodTtsVoices:                 {Owner: "engine", Enabled: true},
 	MethodUiThemeSet:                {Owner: "host", Enabled: true},
 	MethodWebFetch:                  {Owner: "engine", Enabled: true},
 	MethodWebSearch:                 {Owner: "engine", Enabled: true},
@@ -365,6 +491,6 @@ var MethodMetadataByMethod = map[Method]MethodMetadata{
 	MethodWorkspaceRootGet:          {Owner: "host", Enabled: true},
 	MethodWorkspaceRootSelect:       {Owner: "host", Enabled: true},
 }
-var Methods = [...]Method{MethodAgentRunCancel, MethodAgentRunGet, MethodAgentRunReconcile, MethodAgentRunResume, MethodAgentRunStart, MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodAttachmentUploadAbort, MethodAttachmentUploadBegin, MethodAttachmentUploadChunk, MethodAttachmentUploadCommit, MethodBarrierArrive, MethodBrowserAct, MethodBrowserClose, MethodBrowserOpen, MethodCapabilityList, MethodChangesetApply, MethodChangesetPreview, MethodChangesetRevert, MethodChatStart, MethodChatToolApprove, MethodCommandCancel, MethodCommandGet, MethodCommandReviewRequest, MethodCommandStart, MethodComplexityDecide, MethodConnectorSnapshot, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDelegationCreate, MethodDelegationSettle, MethodDevTaskCreate, MethodDevTaskTransition, MethodDiagnosticsExport, MethodEvidenceAttachScan, MethodEvidenceAttachTest, MethodEvidenceList, MethodExtensionInstall, MethodExtensionLifecycle, MethodExtensionSearch, MethodFsGlob, MethodFsGrep, MethodFsRead, MethodFsReadMany, MethodFsStat, MethodFsTree, MethodMcpInvoke, MethodMcp6Invoke, MethodMcp6Register, MethodMcp6Revoke, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMergeSubmit, MethodMessageAppend, MethodMessageList, MethodMessageRewind, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodOpenapiParse, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodPlanRunCancel, MethodPlanRunJoin, MethodPlanRunSpawn, MethodPlanRunStart, MethodPlanRunTree, MethodPlanTodoCreate, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialReveal, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodReviewApprove, MethodReviewDecide, MethodReviewList, MethodReviewReject, MethodReviewSubmit, MethodRunCancel, MethodRunPlanPut, MethodRunSend, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSessionUpdate, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillExecute, MethodSkillGet, MethodSkillImportApprove, MethodSkillImportDiscover, MethodSkillImportInspect, MethodSkillImportReject, MethodSkillImportRevoke, MethodSkillImportSubmit, MethodSkillInvoke, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSystemHealth, MethodSystemSettingsOpen, MethodTerminalClose, MethodTerminalInput, MethodTerminalResize, MethodTerminalStart, MethodTraceAddEdge, MethodTraceMarkStale, MethodTraceQuery, MethodTraceResolveStale, MethodUiThemeSet, MethodWebFetch, MethodWebSearch, MethodWorkerDispatch, MethodWorkflowCaptureInput, MethodWorkflowCreateCheckpoint, MethodWorkflowCreateVersion, MethodWorkflowEvaluateGate, MethodWorkflowPublish, MethodWorkflowStartStage, MethodWorkflowTransitionStage, MethodWorkspaceConvert, MethodWorkspaceGrant, MethodWorkspaceLease, MethodWorkspaceList, MethodWorkspaceRead, MethodWorkspaceRegister, MethodWorkspaceRootGet, MethodWorkspaceRootSelect}
+var Methods = [...]Method{MethodAgentRunCancel, MethodAgentRunGet, MethodAgentRunReconcile, MethodAgentRunResume, MethodAgentRunStart, MethodAppUpdateCheck, MethodAppUpdateInstall, MethodArchivePack, MethodArchiveUnpack, MethodAttachmentDelete, MethodAttachmentGet, MethodAttachmentIngest, MethodAttachmentList, MethodAttachmentUploadAbort, MethodAttachmentUploadBegin, MethodAttachmentUploadChunk, MethodAttachmentUploadCommit, MethodAutomationDispatch, MethodBarrierArrive, MethodBrowserAct, MethodBrowserClose, MethodBrowserOpen, MethodCapabilityList, MethodChangesetApply, MethodChangesetPreview, MethodChangesetRevert, MethodChatStart, MethodChatToolApprove, MethodCollabGateConfirm, MethodCollabGateEvaluate, MethodCollabGateStatus, MethodCommandCancel, MethodCommandGet, MethodCommandReviewRequest, MethodCommandStart, MethodComplexityDecide, MethodConnectorSnapshot, MethodContextCompactCancel, MethodContextCompactCommit, MethodContextCompactPreview, MethodContextHandoffCreate, MethodContextHandoffImport, MethodContextHandoffInspect, MethodContextHandoffList, MethodContextHandoffListImports, MethodContextHandoffRevoke, MethodContextStatus, MethodDbQuery, MethodDelegationCreate, MethodDelegationSettle, MethodDevTaskCreate, MethodDevTaskTransition, MethodDiagnosticsExport, MethodDocumentParse, MethodEvidenceAttachScan, MethodEvidenceAttachTest, MethodEvidenceList, MethodExpertArchive, MethodExpertCreate, MethodExpertDetail, MethodExpertList, MethodExpertMount, MethodExpertMountingGet, MethodExpertToggle, MethodExpertUpdate, MethodExtensionInstall, MethodExtensionLifecycle, MethodExtensionSearch, MethodFsGlob, MethodFsGrep, MethodFsRead, MethodFsReadMany, MethodFsStat, MethodFsTree, MethodGitRead, MethodHandoffAccept, MethodHttpDownload, MethodHttpRequest, MethodKbUpsertDocument, MethodMcpAdd, MethodMcpHealth, MethodMcpInvoke, MethodMcpList, MethodMcpMarketSearch, MethodMcpToggle, MethodMcp6Invoke, MethodMcp6Register, MethodMcp6Revoke, MethodMemoryConfirmCandidate, MethodMemoryCreate, MethodMemoryDelete, MethodMemoryGet, MethodMemoryList, MethodMemorySearch, MethodMemoryUpdate, MethodMergeSubmit, MethodMessageAppend, MethodMessageList, MethodMessageRewind, MethodMigrationInspect, MethodMigrationRun, MethodMigrationStatus, MethodNodeComplete, MethodNodeCreate, MethodNodeFail, MethodNodeList, MethodNodeStart, MethodOntologyEdgeCreate, MethodOntologyEdgeDelete, MethodOntologyEdgeList, MethodOntologyEdgeUpdate, MethodOntologyNodeCreate, MethodOntologyNodeDelete, MethodOntologyNodeGet, MethodOntologyNodeList, MethodOntologyNodeSearch, MethodOntologyNodeUpdate, MethodOpenapiParse, MethodOrgActivate, MethodOrgCreate, MethodOrgMemberInvite, MethodOrgMemberList, MethodOrgMemberRevoke, MethodOrgSpaceCreate, MethodOrgSpaceList, MethodOrgSummary, MethodOrgSuspend, MethodOrgSwitch, MethodPlanActivate, MethodPlanComplete, MethodPlanCreate, MethodPlanGet, MethodPlanList, MethodPlanPause, MethodPlanResume, MethodPlanRunCancel, MethodPlanRunJoin, MethodPlanRunSpawn, MethodPlanRunStart, MethodPlanRunTree, MethodPlanTodoCreate, MethodPluginDevCreate, MethodPluginInstall, MethodPluginList, MethodPluginMarketDetail, MethodPluginMarketSearch, MethodPluginToggle, MethodPluginUninstall, MethodPluginUpgrade, MethodProjectCreate, MethodProjectDelete, MethodProjectList, MethodProviderCreate, MethodProviderCredentialReveal, MethodProviderCredentialSubmit, MethodProviderDelete, MethodProviderGet, MethodProviderList, MethodProviderModelSync, MethodProviderTest, MethodProviderUpdate, MethodRecallQuery, MethodReleaseBuildPackage, MethodReleaseCreateRevision, MethodReleaseGetPackage, MethodReleaseGetPromotion, MethodReleaseGetRevision, MethodReleasePromote, MethodReleaseRollback, MethodReviewApprove, MethodReviewDecide, MethodReviewList, MethodReviewReject, MethodReviewSubmit, MethodRunCancel, MethodRunPlanPut, MethodRunSend, MethodSessionCreate, MethodSessionDelete, MethodSessionList, MethodSessionUpdate, MethodSkillCreate, MethodSkillDelete, MethodSkillDeprecate, MethodSkillDisable, MethodSkillExecute, MethodSkillGet, MethodSkillImportApprove, MethodSkillImportDiscover, MethodSkillImportInspect, MethodSkillImportReject, MethodSkillImportRevoke, MethodSkillImportSubmit, MethodSkillInvoke, MethodSkillList, MethodSkillMatch, MethodSkillPublish, MethodSkillUpdate, MethodStageCreate, MethodStageList, MethodStreamCancel, MethodSubagentJoin, MethodSubagentSpawn, MethodSubagentTree, MethodSyncPush, MethodSystemHealth, MethodSystemSettingsOpen, MethodTerminalClose, MethodTerminalInput, MethodTerminalResize, MethodTerminalStart, MethodTombstoneDelete, MethodTraceAddEdge, MethodTraceMarkStale, MethodTraceQuery, MethodTraceResolveStale, MethodTtsCancel, MethodTtsSynthesize, MethodTtsVoices, MethodUiThemeSet, MethodWebFetch, MethodWebSearch, MethodWorkerDispatch, MethodWorkflowCaptureInput, MethodWorkflowCreateCheckpoint, MethodWorkflowCreateVersion, MethodWorkflowEvaluateGate, MethodWorkflowPublish, MethodWorkflowStartStage, MethodWorkflowTransitionStage, MethodWorkspaceConvert, MethodWorkspaceGrant, MethodWorkspaceLease, MethodWorkspaceList, MethodWorkspaceRead, MethodWorkspaceRegister, MethodWorkspaceRootGet, MethodWorkspaceRootSelect}
 
 func ValidMethod(method string) bool { _, ok := MethodMetadataByMethod[Method(method)]; return ok }

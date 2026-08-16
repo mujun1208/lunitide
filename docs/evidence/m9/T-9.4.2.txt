@@ -1,0 +1,26 @@
+﻿=== RUN   TestOrgChain
+=== RUN   TestOrgChain/partitions_chain_independently_per_org_(seq_restarts,_no_cross-org_linkage)
+=== RUN   TestOrgChain/duplicate_event_id_across_partitions_is_refused
+=== RUN   TestOrgChain/T-17:_deletion_breaks_the_chain_(M9-026)
+=== RUN   TestOrgChain/T-17:_reordering_breaks_the_chain_(M9-026)
+=== RUN   TestOrgChain/T-17:_field_tampering_breaks_the_chain_(M9-026)
+=== RUN   TestOrgChain/VerifyAll_isolates_one_tenant's_broken_chain_from_the_others
+=== RUN   TestOrgChain/M9-027:_export_refuses_missing,_expired,_mismatched_and_reused_grants
+=== RUN   TestOrgChain/export_is_independently_recomputable_and_leaves_a_trail_(T-17/M9-027)
+=== RUN   TestOrgChain/broken_chain_blocks_export_(M9-026_refuses_before_M9-027_shipping)
+=== RUN   TestOrgChain/signed_checkpoints_verify_and_detect_forgery
+=== RUN   TestOrgChain/concurrent_appends_keep_every_partition_gap-free
+--- PASS: TestOrgChain (0.00s)
+    --- PASS: TestOrgChain/partitions_chain_independently_per_org_(seq_restarts,_no_cross-org_linkage) (0.00s)
+    --- PASS: TestOrgChain/duplicate_event_id_across_partitions_is_refused (0.00s)
+    --- PASS: TestOrgChain/T-17:_deletion_breaks_the_chain_(M9-026) (0.00s)
+    --- PASS: TestOrgChain/T-17:_reordering_breaks_the_chain_(M9-026) (0.00s)
+    --- PASS: TestOrgChain/T-17:_field_tampering_breaks_the_chain_(M9-026) (0.00s)
+    --- PASS: TestOrgChain/VerifyAll_isolates_one_tenant's_broken_chain_from_the_others (0.00s)
+    --- PASS: TestOrgChain/M9-027:_export_refuses_missing,_expired,_mismatched_and_reused_grants (0.00s)
+    --- PASS: TestOrgChain/export_is_independently_recomputable_and_leaves_a_trail_(T-17/M9-027) (0.00s)
+    --- PASS: TestOrgChain/broken_chain_blocks_export_(M9-026_refuses_before_M9-027_shipping) (0.00s)
+    --- PASS: TestOrgChain/signed_checkpoints_verify_and_detect_forgery (0.00s)
+    --- PASS: TestOrgChain/concurrent_appends_keep_every_partition_gap-free (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/audit	0.433s
