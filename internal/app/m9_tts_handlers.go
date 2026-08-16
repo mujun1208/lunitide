@@ -1,14 +1,17 @@
 // M9.5 Moon Companion bridge handlers: tts.voices / tts.synthesize /
-// tts.cancel. Errors follow the frozen M95 code matrix — M95-001
-// (engine unavailable, 503 semantics) and M95-002 (segment synthesis
-// failed, 500 semantics) are failures; M95-003 (cancel notice) and
-// M95-004 (voice fallback notice) travel as 200-level payload notices.
+// tts.cancel / tts.refAudios. Errors follow the frozen M95 code matrix —
+// M95-001 (engine unavailable, 503 semantics) and M95-002 (segment
+// synthesis failed, 500 semantics) are failures; M95-003 (cancel
+// notice), M95-004 (voice fallback notice) and M95-005 (edge engine
+// fell back to SAPI) travel as 200-level payload notices.
 package app
 
 import (
 	"context"
 	"errors"
 	"log"
+	"os"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -16,9 +19,20 @@ import (
 )
 
 func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var p struct{}
+	var p struct {
+		Engine string `json:"engine"`
+	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.voices 参数无效", false)
+	}
+	if !tts.ValidEngine(p.Engine) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/edge/ref", false)
+	}
+	switch p.Engine {
+	case tts.EngineEdge:
+		return bridge.Success(r.ID, map[string]any{"voices": tts.EdgeVoices()})
+	case tts.EngineRef:
+		return bridge.Success(r.ID, map[string]any{"voices": tts.RefVoices()})
 	}
 	if e.m9tts == nil {
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
@@ -35,16 +49,34 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 
 func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Text    string `json:"text"`
-		VoiceID string `json:"voiceId"`
-		Rate    *int   `json:"rate"`
-		Volume  *int   `json:"volume"`
+		Text          string `json:"text"`
+		VoiceID       string `json:"voiceId"`
+		Rate          *int   `json:"rate"`
+		Volume        *int   `json:"volume"`
+		Engine        string `json:"engine"`
+		RefEndpoint   string `json:"refEndpoint"`
+		RefWavPath    string `json:"refWavPath"`
+		RefPromptText string `json:"refPromptText"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.synthesize 参数无效", false)
 	}
 	if p.Text == "" || utf8.RuneCountInString(p.Text) > tts.MaxSegmentChars {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
+	}
+	if !tts.ValidEngine(p.Engine) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/edge/ref", false)
+	}
+	if p.Engine == tts.EngineRef {
+		if !strings.HasPrefix(p.RefEndpoint, "http://") && !strings.HasPrefix(p.RefEndpoint, "https://") {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
+		}
+		if strings.TrimSpace(p.RefWavPath) == "" {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
+		}
+		if _, err := os.Stat(p.RefWavPath); err != nil {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
+		}
 	}
 	if e.m9tts == nil {
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
@@ -56,10 +88,29 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if p.Volume != nil {
 		volume = *p.Volume
 	}
-	out, err := e.m9tts.Synthesize(tts.SynthesizeInput{
+	input := tts.SynthesizeInput{
 		Text: p.Text, VoiceID: p.VoiceID, Rate: rate, Volume: volume,
-	})
+		Engine: p.Engine, RefEndpoint: p.RefEndpoint,
+		RefWavPath: p.RefWavPath, RefPromptText: p.RefPromptText,
+	}
+	out, err := e.m9tts.Synthesize(input)
 	if err != nil {
+		// The edge engine needs the network: when it is unreachable, one
+		// offline SAPI attempt keeps the companion audible and surfaces a
+		// notice instead of a hard failure (M95-005).
+		if p.Engine == tts.EngineEdge && errors.Is(err, tts.ErrSynthesisFailed) {
+			fallback, fbErr := e.m9tts.Synthesize(tts.SynthesizeInput{
+				Text: p.Text, Rate: rate, Volume: volume,
+			})
+			if fbErr == nil && !fallback.Discarded {
+				payload := map[string]any{
+					"wav_base64":    fallback.Result.WavBase64,
+					"duration_hint": fallback.Result.DurationHint,
+					"notice":        "TTS_ENGINE_FALLBACK",
+				}
+				return bridge.Success(r.ID, payload)
+			}
+		}
 		return ttsFailure(r, err)
 	}
 	if out.Discarded {
@@ -89,6 +140,28 @@ func handleTtsCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	}
 	e.m9tts.Cancel() // idempotent: a no-op when idle
 	return bridge.Success(r.ID, map[string]any{"notice": "TTS_CANCELLED"})
+}
+
+// handleTtsRefAudios browses a local directory for reference audio so
+// the settings page can pick a timbre from collections such as
+// E:\AI电影漫剧\800+音色合集. A missing directory is a 200 with
+// exists=false (the picker shows it, not an error toast).
+func handleTtsRefAudios(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		Dir string `json:"dir"`
+	}
+	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.Dir) == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "dir 不能为空", false)
+	}
+	clean, entries, err := tts.ListRefAudioEntries(p.Dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return bridge.Success(r.ID, map[string]any{"dir": clean, "exists": false, "entries": []tts.RefAudioEntry{}})
+		}
+		log.Printf("tts.refAudios failure: %v", err)
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "目录无法读取（请检查路径与权限）", false)
+	}
+	return bridge.Success(r.ID, map[string]any{"dir": clean, "exists": true, "entries": entries})
 }
 
 // ttsFailure maps the tts error family onto the M95 code matrix while
