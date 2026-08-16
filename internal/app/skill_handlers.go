@@ -18,6 +18,7 @@ type SkillService interface {
 	List(context.Context, skill.SkillStatus) ([]skill.Skill, error)
 	Match(context.Context, string) ([]skill.SkillMatch, error)
 	Create(context.Context, skill.Skill) (skill.Skill, error)
+	InstallFromCatalog(context.Context, string) (skill.Skill, error)
 	UpdateFields(context.Context, string, *string, *string, *string, *string, []skill.PermissionLevel, *string, int64) (*skill.Skill, error)
 	Delete(context.Context, string) error
 	Publish(context.Context, string) error
@@ -330,5 +331,69 @@ func skillFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVALID_TRANSITION", "技能状态转换无效", false)
 	default:
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+	}
+}
+
+// handleSkillCatalogList answers the product-shipped skill template catalog
+// (P3-2 local market). Each entry reports whether this name+version is
+// already materialized locally so the UI can flip install → installed.
+func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	if !skillServiceAvailable(e.skills) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+	}
+	existing, err := e.skills.List(ctx, "")
+	if err != nil {
+		return skillFailure(r, err)
+	}
+	have := make(map[string]bool, len(existing))
+	for _, s := range existing {
+		have[s.Name+"@"+s.Version] = true
+	}
+	type entry struct {
+		ID          string   `json:"id"`
+		Name        string   `json:"name"`
+		DisplayName string   `json:"displayName"`
+		Description string   `json:"description"`
+		Category    string   `json:"category"`
+		Version     string   `json:"version"`
+		Permissions []string `json:"permissions"`
+		Installed   bool     `json:"installed"`
+	}
+	items := make([]entry, 0, len(skillapp.Catalog()))
+	for _, t := range skillapp.Catalog() {
+		perms := make([]string, 0, len(t.Permissions))
+		for _, p := range t.Permissions {
+			perms = append(perms, string(p))
+		}
+		items = append(items, entry{ID: t.ID, Name: t.Name, DisplayName: t.DisplayName,
+			Description: t.Description, Category: t.Category, Version: t.Version,
+			Permissions: perms, Installed: have[t.Name+"@"+t.Version]})
+	}
+	return bridge.Success(r.ID, map[string]any{"items": items})
+}
+
+// handleSkillInstall materializes one catalog template as a local draft
+// skill through the normal create pipeline (permissions review + publish
+// gate still apply).
+func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		TemplateID string `json:"templateId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.TemplateID) == "" || len(p.TemplateID) > 64 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.install 参数无效", false)
+	}
+	if !skillServiceAvailable(e.skills) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+	}
+	s, err := e.skills.InstallFromCatalog(ctx, p.TemplateID)
+	switch {
+	case err == nil:
+		return bridge.Success(r.ID, map[string]any{"skillId": s.ID, "name": s.Name, "status": string(s.Status)})
+	case errors.Is(err, skillapp.ErrTemplateUnknown):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_TEMPLATE_NOT_FOUND", "模板不存在", false)
+	case errors.Is(err, skillapp.ErrTemplateInstalled):
+		return bridge.Failure(r.ID, r.TraceID, "SKILL_TEMPLATE_INSTALLED", "该模板版本已安装", false)
+	default:
+		return skillFailure(r, err)
 	}
 }

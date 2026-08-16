@@ -86,7 +86,7 @@ func (a *OpenAI) Stream(ctx context.Context, secret []byte, in Request, emit fun
 }
 
 func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) error {
-	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in), MaxTokens: in.MaxTokens}
+	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil), MaxTokens: in.MaxTokens}
 	body, err := marshalBounded(p, a.o.MaxRequestBytes)
 	if err != nil {
 		return err
@@ -108,10 +108,11 @@ func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) 
 }
 
 func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
-	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in), MaxTokens: in.MaxTokens, Stream: stream}
+	wn := buildWireNames(in.Tools, openAIToolNameMax)
+	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn), MaxTokens: in.MaxTokens, Stream: stream}
 	for _, t := range in.Tools {
 		x := openAITool{Type: "function"}
-		x.Function.Name, x.Function.Description, x.Function.Parameters = t.Name, t.Description, t.Schema
+		x.Function.Name, x.Function.Description, x.Function.Parameters = wn.wire(t.Name), t.Description, t.Schema
 		p.Tools = append(p.Tools, x)
 	}
 	if stream {
@@ -121,6 +122,7 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 	}
 	var last error
 	maxAttempts := attempts(a.o, in, stream)
+	sanitized := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		body, err := marshalBounded(p, a.o.MaxRequestBytes)
 		if err != nil {
@@ -146,8 +148,22 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			return Response{}, last
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			reason := boundedReason(resp.Body)
 			resp.Body.Close()
-			last = statusError(resp.StatusCode)
+			// Some OpenAI-compatible providers reject non-core JSON
+			// Schema keywords (additionalProperties, minimum, maxItems,
+			// ...). On a 400 with tools attached, retry exactly once with
+			// sanitized schemas before giving up; the chat layer then
+			// falls back to plain dialogue with this reason surfaced.
+			if resp.StatusCode == http.StatusBadRequest && len(p.Tools) > 0 && !sanitized {
+				sanitized = true
+				for i := range p.Tools {
+					p.Tools[i].Function.Parameters = sanitizeToolSchema(p.Tools[i].Function.Parameters)
+				}
+				attempt--
+				continue
+			}
+			last = statusErrorReason(resp.StatusCode, reason)
 			if attempt < maxAttempts && in.IdempotencyKey != "" && a.o.IdempotencyHeader != "" && retryableStatus(resp.StatusCode) {
 				if e := waitRetry(ctx, retryDelay(resp, attempt, a.o.RetryBase)); e != nil {
 					return Response{}, e
@@ -171,23 +187,23 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			}
 			m := Message{Role: out.Choices[0].Message.Role, Content: out.Choices[0].Message.Content}
 			for _, tc := range out.Choices[0].Message.ToolCalls {
-				m.ToolCalls = append(m.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: json.RawMessage(tc.Function.Arguments)})
+				m.ToolCalls = append(m.ToolCalls, ToolCall{ID: tc.ID, Name: wn.original(tc.Function.Name), Arguments: json.RawMessage(tc.Function.Arguments)})
 			}
 			return Response{Message: m, Usage: normalizeUsage(out.Usage.Prompt, out.Usage.Completion, out.Usage.Total), Reasoning: out.Choices[0].Message.ReasoningContent}, nil
 		}
-		return a.readStream(resp.Body, emit)
+		return a.readStream(resp.Body, emit, wn)
 	}
 	return Response{}, last
 }
 
-func openAIMessages(in Request) []openAIMessage {
+func openAIMessages(in Request, wn *wireNames) []openAIMessage {
 	out := make([]openAIMessage, 0, len(in.Messages))
 	lastUser := -1
 	for _, m := range in.Messages {
 		x := openAIMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
 		for _, tc := range m.ToolCalls {
 			c := openAIToolCall{ID: tc.ID, Type: "function"}
-			c.Function.Name, c.Function.Arguments = tc.Name, string(tc.Arguments)
+			c.Function.Name, c.Function.Arguments = wn.wire(tc.Name), string(tc.Arguments)
 			x.ToolCalls = append(x.ToolCalls, c)
 		}
 		out = append(out, x)
@@ -209,7 +225,7 @@ func openAIMessages(in Request) []openAIMessage {
 	return out
 }
 
-func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error) (Response, error) {
+func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, error) {
 	defer body.Close()
 	var out Response
 	out.Message.Role = RoleAssistant
@@ -274,7 +290,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error) (Respons
 		if p == nil || p.id == "" || p.name == "" || !json.Valid([]byte(p.args)) {
 			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "invalid tool call")
 		}
-		tc := ToolCall{ID: p.id, Name: p.name, Arguments: json.RawMessage(p.args)}
+		tc := ToolCall{ID: p.id, Name: wn.original(p.name), Arguments: json.RawMessage(p.args)}
 		out.Message.ToolCalls = append(out.Message.ToolCalls, tc)
 		if emit != nil {
 			if e := emit(Delta{ToolCall: &tc}); e != nil {

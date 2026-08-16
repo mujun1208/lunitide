@@ -1,11 +1,14 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -217,15 +220,15 @@ func TestCancelAndRequestBudget(t *testing.T) {
 
 func TestVisionPayloadContracts(t *testing.T) {
 	in := Request{Model: "vision", Messages: []Message{{Role: RoleUser, Content: "inspect"}}, Images: []Image{{MIME: "image/png", Data: []byte{1, 2, 3}}}}
-	openBody, err := json.Marshal(openAIRequest{Model: in.Model, Messages: openAIMessages(in)})
+	openBody, err := json.Marshal(openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil)})
 	if err != nil || !strings.Contains(string(openBody), `"type":"image_url"`) || !strings.Contains(string(openBody), `data:image/png;base64,AQID`) {
 		t.Fatalf("OpenAI vision payload=%s err=%v", openBody, err)
 	}
-	anthropicBody, err := json.Marshal(anthropicPayload(in, false))
+	anthropicBody, err := json.Marshal(anthropicPayload(in, false, nil))
 	if err != nil || !strings.Contains(string(anthropicBody), `"type":"image"`) || !strings.Contains(string(anthropicBody), `"media_type":"image/png"`) || !strings.Contains(string(anthropicBody), `"data":"AQID"`) {
 		t.Fatalf("Anthropic vision payload=%s err=%v", anthropicBody, err)
 	}
-	plain, _ := json.Marshal(openAIRequest{Model: "plain", Messages: openAIMessages(Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}})})
+	plain, _ := json.Marshal(openAIRequest{Model: "plain", Messages: openAIMessages(Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil)})
 	if !strings.Contains(string(plain), `"content":"hi"`) {
 		t.Fatalf("plain payload compatibility lost: %s", plain)
 	}
@@ -250,5 +253,195 @@ func TestAnthropicStreamingToolUseFragments(t *testing.T) {
 	}
 	if len(out.Message.ToolCalls) != 1 || emitted == nil || string(out.Message.ToolCalls[0].Arguments) != `{"path":"a.txt","content":"ok"}` {
 		t.Fatalf("out=%+v emitted=%+v", out, emitted)
+	}
+}
+
+func TestSanitizeToolSchemaStripsNonCoreKeywords(t *testing.T) {
+	in := json.RawMessage(`{"type":"object","additionalProperties":false,"required":["a"],"properties":{"a":{"type":"integer","minimum":1,"maximum":9},"b":{"type":"array","items":{"type":"string","minLength":1},"maxItems":5}}}`)
+	var doc map[string]any
+	if err := json.Unmarshal(sanitizeToolSchema(in), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["additionalProperties"]; ok {
+		t.Fatal("additionalProperties kept")
+	}
+	props := doc["properties"].(map[string]any)
+	if _, ok := props["a"].(map[string]any)["minimum"]; ok {
+		t.Fatal("minimum kept")
+	}
+	if _, ok := props["b"].(map[string]any)["maxItems"]; ok {
+		t.Fatal("maxItems kept")
+	}
+	if _, ok := props["b"].(map[string]any)["items"]; !ok {
+		t.Fatal("items dropped")
+	}
+	if _, ok := doc["required"]; !ok {
+		t.Fatal("required dropped")
+	}
+	core := json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)
+	if string(sanitizeToolSchema(core)) != string(core) {
+		t.Fatalf("core-only schema must round-trip unchanged: %s", sanitizeToolSchema(core))
+	}
+}
+
+func TestBoundedReasonUnwrapsProviderErrorBodies(t *testing.T) {
+	if got := boundedReason(strings.NewReader(`{"error":{"message":"additionalProperties not supported"}}`)); got != "additionalProperties not supported" {
+		t.Fatalf("wrapped message: %q", got)
+	}
+	if got := boundedReason(strings.NewReader(`{"message":"tools unsupported"}`)); got != "tools unsupported" {
+		t.Fatalf("flat message: %q", got)
+	}
+	if got := boundedReason(strings.NewReader("raw\nmulti\r\nline")); got != "raw multi line" {
+		t.Fatalf("raw collapse: %q", got)
+	}
+	if got := boundedReason(nil); got != "" {
+		t.Fatalf("nil reader: %q", got)
+	}
+	long := strings.Repeat("x", 500)
+	if got := boundedReason(strings.NewReader(`{"error":{"message":"` + long + `"}}`)); len([]rune(got)) != 200 {
+		t.Fatalf("bound: %d", len([]rune(got)))
+	}
+}
+
+func TestOpenAI400WithToolsRetriesSanitizedSchemaThenSucceeds(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{
+		response(400, `{"error":{"message":"additionalProperties not supported"}}`),
+		response(200, `{"choices":[{"message":{"role":"assistant","content":"ok","tool_calls":[{"id":"c1","type":"function","function":{"name":"workspace.list","arguments":"{}"}}]}}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`),
+	}}
+	in := Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, Tools: []ToolDefinition{{Name: "workspace.list", Description: "d", Schema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1}},"additionalProperties":false}`)}}}
+	out, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Message.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %d", len(out.Message.ToolCalls))
+	}
+	if len(f.requests) != 2 {
+		t.Fatalf("requests = %d", len(f.requests))
+	}
+	b1, _ := io.ReadAll(f.requests[0].Body)
+	b2, _ := io.ReadAll(f.requests[1].Body)
+	var first, second map[string]any
+	if json.Unmarshal(b1, &first) != nil || json.Unmarshal(b2, &second) != nil {
+		t.Fatal("unmarshal request bodies")
+	}
+	if _, ok := first["tools"]; !ok {
+		t.Fatal("first request missing tools")
+	}
+	params := second["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)["parameters"].(map[string]any)
+	if _, ok := params["additionalProperties"]; ok {
+		t.Fatal("second request kept additionalProperties")
+	}
+	if _, ok := params["properties"].(map[string]any)["path"].(map[string]any)["minLength"]; ok {
+		t.Fatal("second request kept minLength")
+	}
+}
+
+func TestOpenAI400WithToolsSurfacesReasonWhenSanitizedRetryAlsoFails(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{
+		response(400, `{"error":{"message":"model does not support function calling"}}`),
+		response(400, `{"error":{"message":"model does not support function calling"}}`),
+	}}
+	in := Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, Tools: []ToolDefinition{{Name: "t", Description: "d", Schema: json.RawMessage(`{"type":"object"}`)}}}
+	_, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, in)
+	if err == nil {
+		t.Fatal("want error after sanitized retry fails")
+	}
+	if !strings.Contains(err.Error(), "function calling") {
+		t.Fatalf("upstream reason missing: %v", err)
+	}
+	var ge *Error
+	if !errors.As(err, &ge) || ge.HTTPStatus != 400 {
+		t.Fatalf("error shape: %v", err)
+	}
+}
+
+func TestWireNamesSanitizeCollisionAndLength(t *testing.T) {
+	if got := sanitizeToolName("workspace.list"); got != "workspace_list" {
+		t.Fatalf("dot sanitize: %q", got)
+	}
+	if got := sanitizeToolName("mcp_01ARZ_tool.v2"); got != "mcp_01ARZ_tool_v2" {
+		t.Fatalf("mixed sanitize: %q", got)
+	}
+	if got := sanitizeToolName("already_fine-1"); got != "already_fine-1" {
+		t.Fatalf("clean name changed: %q", got)
+	}
+	wn := buildWireNames([]ToolDefinition{{Name: "workspace.list"}, {Name: "workspace_list"}, {Name: "command.run"}}, openAIToolNameMax)
+	for _, name := range []string{"workspace.list", "workspace_list", "command.run"} {
+		wire := wn.wire(name)
+		if len(wire) > openAIToolNameMax || !wireNamePattern.MatchString(wire) {
+			t.Fatalf("wire name %q for %q invalid", wire, name)
+		}
+		if got := wn.original(wire); got != name {
+			t.Fatalf("round trip %q->%q->%q", name, wire, got)
+		}
+	}
+	if wn.wire("workspace.list") == wn.wire("workspace_list") {
+		t.Fatal("collision not resolved")
+	}
+	long := strings.Repeat("a", 100) + "." + strings.Repeat("b", 30)
+	wn2 := buildWireNames([]ToolDefinition{{Name: long}}, openAIToolNameMax)
+	if wire := wn2.wire(long); len(wire) > openAIToolNameMax || wn2.original(wire) != long {
+		t.Fatalf("long name round trip failed: %q", wire)
+	}
+}
+
+var wireNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func TestOpenAIToolNamesRoundTripForStrictProviders(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{response(200, `{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"workspace_list","arguments":"{}"}}]}}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)}}
+	in := Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, Tools: []ToolDefinition{{Name: "workspace.list", Description: "d", Schema: json.RawMessage(`{"type":"object"}`)}}}
+	out, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Message.ToolCalls) != 1 || out.Message.ToolCalls[0].Name != "workspace.list" {
+		t.Fatalf("tool call name = %+v", out.Message.ToolCalls)
+	}
+	b1, _ := io.ReadAll(f.requests[0].Body)
+	var req map[string]any
+	if json.Unmarshal(b1, &req) != nil {
+		t.Fatal("unmarshal body")
+	}
+	fn := req["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)
+	if fn["name"] != "workspace_list" {
+		t.Fatalf("wire name = %v", fn["name"])
+	}
+	if bytes.Contains(b1, []byte(`"workspace.list"`)) {
+		t.Fatal("request leaked internal dotted name")
+	}
+}
+
+func TestOpenAIStreamToolNamesRoundTrip(t *testing.T) {
+	body := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"command_\",\"arguments\":\"\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"run\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n"
+	f := &fakeConnector{responses: []*http.Response{response(200, body)}}
+	var emitted *ToolCall
+	out, err := NewOpenAI(f, Options{}).Stream(context.Background(), nil, Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, Tools: []ToolDefinition{{Name: "command.run", Description: "d", Schema: json.RawMessage(`{"type":"object"}`)}}}, func(d Delta) error {
+		if d.ToolCall != nil {
+			emitted = d.ToolCall
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Message.ToolCalls) != 1 || out.Message.ToolCalls[0].Name != "command.run" || emitted == nil || emitted.Name != "command.run" {
+		t.Fatalf("stream names: out=%+v emitted=%+v", out.Message.ToolCalls, emitted)
+	}
+}
+
+func TestAnthropicToolNamesRoundTrip(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{response(200, `{"content":[{"type":"tool_use","id":"t1","name":"workspace_write","input":{"path":"a"}}],"usage":{"input_tokens":1,"output_tokens":1}}`)}}
+	in := Request{Model: "m", MaxTokens: 8, Messages: []Message{{Role: RoleUser, Content: "hi"}}, Tools: []ToolDefinition{{Name: "workspace.write", Description: "d", Schema: json.RawMessage(`{"type":"object"}`)}}}
+	out, err := NewAnthropic(f, Options{}).Complete(context.Background(), nil, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Message.ToolCalls) != 1 || out.Message.ToolCalls[0].Name != "workspace.write" {
+		t.Fatalf("tool call name = %+v", out.Message.ToolCalls)
+	}
+	b1, _ := io.ReadAll(f.requests[0].Body)
+	if bytes.Contains(b1, []byte(`"workspace.write"`)) || !bytes.Contains(b1, []byte(`"workspace_write"`)) {
+		t.Fatalf("anthropic wire name wrong: %s", b1)
 	}
 }

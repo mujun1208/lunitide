@@ -62,10 +62,10 @@ export function MarkdownMessage({text}:{text:string}) {
   >{text}</ReactMarkdown>
 }
 
-export function ThinkingPanel({text,open,onToggle,children}:{text:string;open:boolean;onToggle:(open:boolean)=>void;children?:React.ReactNode}) {
+export function ThinkingPanel({text,open,onToggle,status,children}:{text:string;open:boolean;onToggle:(open:boolean)=>void;status?:string;children?:React.ReactNode}) {
   if(!text&&!children)return null
   return <details className="thinking-panel" open={open} onToggle={event=>onToggle(event.currentTarget.open)}>
-    <summary>任务过程</summary>
+    <summary><span className="thinking-summary-label">任务过程</span>{status&&<span className="thinking-summary-status">{status}</span>}</summary>
     <div className="thinking-content">{text&&<div className="thinking-reasoning"><b>思考</b><MarkdownMessage text={text}/></div>}{children}</div>
   </details>
 }

@@ -22,8 +22,9 @@ import (
 // ErrNotAllowed is GIT-001: subcommand or argument outside the allowlist.
 var ErrNotAllowed = errors.New("vcs: git operation outside allowlist (GIT-001)")
 
-// AllowedSubcommands is the frozen M5 allowlist.
-var AllowedSubcommands = []string{"add", "branch", "commit", "diff", "restore", "status"}
+// AllowedSubcommands is the frozen M5 allowlist plus the P1-4 worktree
+// isolation surface (add/list/remove only).
+var AllowedSubcommands = []string{"add", "branch", "commit", "diff", "restore", "status", "worktree"}
 
 // allowedFlags is the per-subcommand flag whitelist. A flag argument is
 // accepted when its name part (before '=') matches exactly, or matches a
@@ -82,6 +83,11 @@ func ValidateArgv(args []string) error {
 		return fmt.Errorf("%w: empty argv; allowed: %s", ErrNotAllowed, strings.Join(AllowedSubcommands, ","))
 	}
 	sub := strings.ToLower(args[0])
+	// P1-4: worktree has its own positional grammar (action then path/ref),
+	// so it bypasses the generic flag/positional machinery.
+	if sub == "worktree" {
+		return validateWorktreeArgs(args[1:])
+	}
 	flags, ok := allowedFlags[sub]
 	if !ok {
 		return fmt.Errorf("%w: subcommand %q not allowed; allowed: %s", ErrNotAllowed, args[0], strings.Join(AllowedSubcommands, ","))
@@ -155,6 +161,106 @@ func validateFlagValue(kind, val string) error {
 	case "ref":
 		if !refOrPathRe.MatchString(val) || strings.Contains(val, "..") || strings.HasPrefix(val, "/") {
 			return fmt.Errorf("%w: ref %q rejected", ErrNotAllowed, val)
+		}
+	}
+	return nil
+}
+
+// validateWorktreeArgs validates the P1-4 worktree isolation surface:
+// worktree add <workspace-rel-path> [ref] [-b <branch>] [--detach],
+// worktree list [--porcelain] [path],
+// worktree remove [--force] <workspace-rel-path>.
+// Worktree paths stay workspace-relative (no .., no absolute, no "."), so
+// an isolated working tree can never be planted outside the controlled
+// workspace.
+func validateWorktreeArgs(args []string) error {
+	bad := func(reason string) error {
+		return fmt.Errorf("%w: worktree %s; allowed: worktree add <path> [ref] [-b <branch>] [--detach] | list [--porcelain] | remove [--force] <path>", ErrNotAllowed, reason)
+	}
+	if len(args) == 0 {
+		return bad("requires add|list|remove")
+	}
+	action := strings.ToLower(args[0])
+	if action != "add" && action != "list" && action != "remove" {
+		return bad(fmt.Sprintf("action %q not allowed", args[0]))
+	}
+	okPath := func(p string) bool {
+		return p != "." && !strings.HasPrefix(p, "/") && !strings.Contains(p, "\\") && !strings.Contains(p, "..") && workspace.ValidateRelPath(p) == nil
+	}
+	okRef := func(r string) bool {
+		return refOrPathRe.MatchString(r) && !strings.Contains(r, "..") && !strings.HasPrefix(r, "/")
+	}
+	okBranch := func(b string) bool {
+		return branchNameRe.MatchString(b) && !strings.Contains(b, "..") && !strings.HasSuffix(b, ".lock") && !strings.HasSuffix(b, "/") && !strings.HasSuffix(b, ".")
+	}
+	var positionals []string
+	expectBranch := false
+	for _, arg := range args[1:] {
+		if arg == "" {
+			return bad("empty argument")
+		}
+		if expectBranch {
+			// -b value: a new branch name for the isolated worktree.
+			if !okBranch(arg) {
+				return bad(fmt.Sprintf("branch name %q rejected", arg))
+			}
+			expectBranch = false
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			name := arg
+			hasValue := false
+			if i := strings.IndexByte(arg, '='); i >= 0 {
+				name = arg[:i]
+				hasValue = true
+			}
+			switch {
+			case name == "--detach" && action == "add":
+			case name == "--porcelain" && action == "list":
+			case name == "--force" && action == "remove":
+			case name == "-b" && action == "add":
+				if !hasValue {
+					expectBranch = true
+					continue
+				}
+				branch := strings.TrimPrefix(arg, "-b=")
+				if !okBranch(branch) {
+					return bad(fmt.Sprintf("branch name %q rejected", branch))
+				}
+			default:
+				return bad(fmt.Sprintf("flag %q not allowed for worktree %s", arg, action))
+			}
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+	if expectBranch {
+		return bad("branch name missing")
+	}
+	switch action {
+	case "add":
+		if len(positionals) < 1 || len(positionals) > 2 {
+			return bad("add takes one workspace-relative path and an optional ref")
+		}
+		if !okPath(positionals[0]) {
+			return bad(fmt.Sprintf("worktree path %q escapes workspace", positionals[0]))
+		}
+		if len(positionals) == 2 && !okRef(positionals[1]) {
+			return bad(fmt.Sprintf("ref %q rejected", positionals[1]))
+		}
+	case "list":
+		if len(positionals) > 1 {
+			return bad("list takes at most one path")
+		}
+		if len(positionals) == 1 && !okPath(positionals[0]) {
+			return bad(fmt.Sprintf("path %q escapes workspace", positionals[0]))
+		}
+	case "remove":
+		if len(positionals) != 1 {
+			return bad("remove takes exactly one path")
+		}
+		if !okPath(positionals[0]) {
+			return bad(fmt.Sprintf("worktree path %q escapes workspace", positionals[0]))
 		}
 	}
 	return nil

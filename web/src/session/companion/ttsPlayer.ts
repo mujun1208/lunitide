@@ -37,6 +37,7 @@ export class TtsPlayer {
       callbacks.onFinished?.('completed')
       return
     }
+    unlockTtsAudio()
     this.interruptLocal()
     const generation = ++this.generation
     const bridge = getTtsBridge()
@@ -171,16 +172,23 @@ export class TtsPlayer {
     const audio = new Audio()
     this.audio = audio
     try {
-      sharedAudioContext = sharedAudioContext ?? new AudioContext()
-      if (sharedAudioContext.state === 'suspended') void sharedAudioContext.resume()
-      // One createMediaElementSource per element for the whole lifetime.
-      const source = sharedAudioContext.createMediaElementSource(audio)
-      const analyser = sharedAudioContext.createAnalyser()
-      analyser.fftSize = 256
-      source.connect(analyser)
-      analyser.connect(sharedAudioContext.destination)
-      this.analyser = analyser
-      this.samples = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
+      // Only route the element through Web Audio when the shared
+      // context is actually running: a suspended context would swallow
+      // the sound entirely. unlockTtsAudio() runs on user gestures so
+      // the context is running before the first segment; otherwise we
+      // skip the analyser (visual-only loss) and keep native playback.
+      if (sharedAudioContext && sharedAudioContext.state === 'running') {
+        // One createMediaElementSource per element for the whole lifetime.
+        const source = sharedAudioContext.createMediaElementSource(audio)
+        const analyser = sharedAudioContext.createAnalyser()
+        analyser.fftSize = 256
+        source.connect(analyser)
+        analyser.connect(sharedAudioContext.destination)
+        this.analyser = analyser
+        this.samples = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
+      } else {
+        void sharedAudioContext?.resume().catch(() => {})
+      }
     } catch {
       this.analyser = null // Visual-only loss: playback still works.
     }
@@ -246,6 +254,22 @@ export class TtsPlayer {
     this.audio = null
     this.analyser = null
     this.samples = null
+  }
+}
+
+/**
+ * Autoplay-policy unlock: create/resume the shared AudioContext ahead
+ * of playback. Called on user gestures (pointerdown/keydown, moon
+ * click, Space) and at speak() time so the analyser path is only taken
+ * when the context is actually running — a suspended context would
+ * swallow the sound entirely.
+ */
+export function unlockTtsAudio(): void {
+  try {
+    sharedAudioContext = sharedAudioContext ?? new AudioContext()
+    if (sharedAudioContext.state === 'suspended') void sharedAudioContext.resume().catch(() => {})
+  } catch {
+    sharedAudioContext = null
   }
 }
 

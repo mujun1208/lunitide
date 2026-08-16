@@ -14,6 +14,8 @@ import (
 	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/app"
+	"github.com/lunitide/lunitide/internal/artifactreview"
+	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/compactionapp"
@@ -24,8 +26,10 @@ import (
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/m9app"
+	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/planningapp"
@@ -149,6 +153,14 @@ func main() {
 		m7app.NewToolgapService(store.AgentRuntimeRepository()),
 		m7app.NewMcpRuntimeService(store.AgentRuntimeRepository()),
 	)
+	// M6 MCP endpoint registry: production transport adapters live in
+	// mcpgateway.go (frozen M5 GET client, self-host allowlist; stdio via
+	// the 5B-isolated spawn engine). Extension supply / endpoint
+	// persistence services stay unwired until their storage slices are
+	// enabled; the handlers nil-guard them.
+	mcp6Registry := mcp6.NewRegistry(mcpGatewayProbe, mcpGatewayInvoke, mcpEmptyLease{})
+	mcp6Registry.SetDescribeFunc(mcpGatewayDescribe)
+	engine.SetM6Services(nil, mcp6Registry, nil)
 	// M8 slice 1: the governed long-term memory core (candidate/fact/
 	// source-leaf/recall on the shared single-writer transaction).
 	engine.SetM8MemoryServices(m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user"))
@@ -225,8 +237,44 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Web tools ride the same SSRF-pinned transport as the agent-run web
+	// fetch (plain HTTP allowed for public read-only content).
+	tools.SetWebFetcher(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}})
+	})
 	engine.SetToolRuntime(tools)
 	defer tools.Close()
+	// stdio MCP sessions sandbox under the tool workspaces tree (M6-MCP-004
+	// gate opened 2026-08-16; per-endpoint subdirectory, per-call lifetime).
+	mcpStdioRoot, err := toolRoot.PrepareSubdirectory("mcp-stdio")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer mcpStdioRoot.Close()
+	mcpGatewaySetStdioWorkDir(mcpStdioRoot.Path())
+	// P2-2 artifact acceptance log lives beside the tool workspaces
+	// (single-user, low-volume, atomic file persistence).
+	reviewRoot, err := dataRoot.PrepareSubdirectory("artifact-reviews")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer reviewRoot.Close()
+	reviews, err := artifactreview.NewStore(reviewRoot.Path())
+	if err != nil {
+		log.Fatal(err)
+	}
+	engine.SetArtifactReviewStore(reviews)
+	// P2-3 resident automation: cron scheduler beside the tool workspaces.
+	// The headless executor is attached after the engine is fully wired so
+	// scheduled runs reuse the single durable chat kernel.
+	automationStore, err := scheduler.NewStore(dataRoot.Path())
+	if err != nil {
+		log.Fatal(err)
+	}
+	automationSched := scheduler.New(automationStore, nil, scheduler.NewPlatformNotifier())
+	automationSched.SetExecutor(engine.AutomationHeadlessExecutor())
+	engine.SetAutomationScheduler(automationSched)
+	automationSched.Start(ctx)
 	terminalRoot, err := toolRoot.PrepareSubdirectory("terminals")
 	if err != nil {
 		log.Fatal(err)

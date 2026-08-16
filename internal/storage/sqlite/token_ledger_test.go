@@ -19,7 +19,7 @@ func TestTokenLedgerPersistsIdentityAndSupportsRevisions(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	projectID, sessionID, messageID := "01ARZ3NDEKTSV4RRFFQ69G5FA0", "01ARZ3NDEKTSV4RRFFQ69G5FA1", "01ARZ3NDEKTSV4RRFFQ69G5FA2"
 	stamp := now.Format(time.RFC3339Nano)
-	if _, err = store.db.ExecContext(ctx, `INSERT INTO projects(id,name,created_at,updated_at) VALUES(?,?,?,?)`, projectID, "p", stamp, stamp); err != nil {
+	if _, err = store.db.ExecContext(ctx, `INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES(?,?, 'ITM00001', ?,?)`, projectID, "p", stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.db.ExecContext(ctx, `INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES(?,?,?,?,?)`, sessionID, projectID, "s", stamp, stamp); err != nil {

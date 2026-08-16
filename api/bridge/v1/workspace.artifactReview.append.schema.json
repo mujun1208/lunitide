@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.artifactReview.append.schema.json",
+  "title": "workspace.artifactReview.append payload",
+  "x-method": "workspace.artifactReview.append",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "callId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "toolName": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "kind": {
+      "enum": ["html", "xlsx", "docx", "pptx", "pdf"]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*$"
+    },
+    "action": {
+      "enum": ["comment", "revise", "accept"]
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 4000
+    }
+  },
+  "required": ["sessionId", "callId", "kind", "path", "action"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "sessionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "callId": {
+        "type": "string"
+      },
+      "kind": {
+        "enum": ["html", "xlsx", "docx", "pptx", "pdf"]
+      },
+      "path": {
+        "type": "string"
+      },
+      "action": {
+        "enum": ["comment", "revise", "accept"]
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": ["id", "sessionId", "callId", "kind", "path", "action", "createdAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "callId": "call-1",
+        "toolName": "excel.gen",
+        "kind": "xlsx",
+        "path": "reports/q3.xlsx",
+        "action": "comment",
+        "note": "请补充环比列"
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "callId": "call-1",
+        "kind": "zip",
+        "path": "a.zip",
+        "action": "comment"
+      },
+      {
+        "sessionId": "not-a-ulid",
+        "callId": "",
+        "kind": "xlsx",
+        "path": "a.xlsx",
+        "action": "approve"
+      }
+    ]
+  }
+}

@@ -69,8 +69,34 @@ type MemoryTx interface {
 	PutSourceLeaves([]m8core.SourceLeaf) error
 	PutRecallTrace(m8core.RecallTrace) error
 	ListActiveFactsWithLeaves(scopeID string) ([]m8core.MemoryFact, map[string][]m8core.SourceLeaf, error)
+	ListCandidatesByState(state string, limit int) ([]m8core.MemoryCandidate, error)
+	AppendFeedbackEvent(FeedbackEvent) error
 	AppendAuditEvent(audit.Event) (audit.Event, error)
 }
+
+// FeedbackEvent is one append-only row of the learning loop evidence ledger
+// (migration 0065 feedback_events): feedback only ever forms new evidence,
+// it never rewrites history in place.
+type FeedbackEvent struct {
+	EventID    string
+	SubjectID  string
+	Action     string // accept | reject | correct
+	TargetType string
+	TargetID   string
+	Evidence   string // JSON
+	CreatedAt  string
+}
+
+// Feedback actions accepted by RecordFeedback.
+const (
+	FeedbackAccept  = "accept"
+	FeedbackReject  = "reject"
+	FeedbackCorrect = "correct"
+)
+
+// LearningScope is the single-user scope every chat-originated preference
+// candidate and chat-side preference snapshot reads from.
+const LearningScope = "local"
 
 // MemoryUnitOfWork is the slice-1 single-writer boundary.
 type MemoryUnitOfWork interface {
@@ -679,4 +705,191 @@ func actorOr(actor string) string {
 		return "anonymous"
 	}
 	return actor
+}
+
+// FeedbackRecordInput is the feedback.record command: one chat-side
+// accept/reject/correct signal. Only "correct" carries preference text and
+// therefore only "correct" proposes a candidate - accept/reject stay pure
+// evidence.
+type FeedbackRecordInput struct {
+	Action     string // accept | reject | correct
+	TargetType string // e.g. "message"
+	TargetID   string // e.g. message ULID
+	Text       string // preference statement, required for correct
+	Actor      string
+}
+
+// FeedbackRecordResult answers the persisted event and, for correct, the
+// proposed pending preference candidate awaiting explicit confirmation.
+type FeedbackRecordResult struct {
+	EventID                string
+	CandidateID            string
+	ConfirmationToken      string
+}
+
+// RecordFeedback appends one feedback event and, for corrections with
+// text, proposes a governed preference candidate (inferred, untrusted):
+// the FR-11 invariant is untouched - only the explicit token path ever
+// promotes it into memory_facts and the chat-side snapshot.
+func (s *MemoryService) RecordFeedback(ctx context.Context, in FeedbackRecordInput) (FeedbackRecordResult, error) {
+	if s == nil || s.uow == nil {
+		return FeedbackRecordResult{}, ErrServiceUnavailable
+	}
+	switch in.Action {
+	case FeedbackAccept, FeedbackReject, FeedbackCorrect:
+	default:
+		return FeedbackRecordResult{}, fmt.Errorf("%w: action %q", ErrPayloadInvalid, in.Action)
+	}
+	if len(in.TargetType) < 1 || len(in.TargetType) > 64 || len(in.TargetID) < 1 || len(in.TargetID) > 128 {
+		return FeedbackRecordResult{}, fmt.Errorf("%w: target invalid", ErrPayloadInvalid)
+	}
+	if len(in.Text) > 2048 {
+		return FeedbackRecordResult{}, fmt.Errorf("%w: text too long", ErrPayloadInvalid)
+	}
+	if in.Action == FeedbackCorrect && strings.TrimSpace(in.Text) == "" {
+		return FeedbackRecordResult{}, fmt.Errorf("%w: correct requires text", ErrPayloadInvalid)
+	}
+	now := s.clock.Now().UTC()
+	eventID := ulid.Make().String()
+	evidence, err := json.Marshal(map[string]string{"text": in.Text})
+	if err != nil {
+		return FeedbackRecordResult{}, err
+	}
+	event := FeedbackEvent{
+		EventID:    eventID,
+		SubjectID:  s.subject,
+		Action:     in.Action,
+		TargetType: in.TargetType,
+		TargetID:   in.TargetID,
+		Evidence:   string(evidence),
+		CreatedAt:  now.Format(time.RFC3339),
+	}
+	if err := s.uow.TransactMemory(ctx, func(tx MemoryTx) error {
+		return tx.AppendFeedbackEvent(event)
+	}); err != nil {
+		return FeedbackRecordResult{}, err
+	}
+	out := FeedbackRecordResult{EventID: eventID}
+	if in.Action == FeedbackCorrect {
+		doc := m8core.PayloadDoc{
+			Content:     strings.TrimSpace(in.Text),
+			ScopeID:     LearningScope,
+			Sensitivity: m8core.SensPrivate,
+			Leaves: []m8core.SourceLeafClaim{{
+				JSONPointer: "/content",
+				EvidenceRef: "feedback://" + eventID,
+				Digest:      m8core.DigestOf(strings.TrimSpace(in.Text)),
+			}},
+		}
+		prop, err := s.ProposeCandidate(ctx, ProposeInput{
+			SubjectID: s.subject,
+			Doc:       doc,
+			Inferred:  true,
+			Trust:     m8core.TrustUntrusted,
+			Actor:     actorOr(in.Actor),
+		})
+		if err != nil {
+			return FeedbackRecordResult{}, err
+		}
+		out.CandidateID = prop.Candidate.CandidateID
+		out.ConfirmationToken = prop.ConfirmToken
+	}
+	return out, nil
+}
+
+// PendingCandidateView is one pending candidate projection for the UI.
+type PendingCandidateView struct {
+	CandidateID       string `json:"candidateId"`
+	Content           string `json:"content"`
+	ScopeID           string `json:"scopeId"`
+	ConfirmationToken string `json:"confirmationToken"`
+	CreatedAt         string `json:"createdAt"`
+	ExpiresAt         string `json:"expiresAt"`
+}
+
+// ListPendingCandidates answers pending candidates (newest first) for the
+// memory-center confirmation journey.
+func (s *MemoryService) ListPendingCandidates(ctx context.Context, limit int) ([]PendingCandidateView, error) {
+	if s == nil || s.uow == nil {
+		return nil, ErrServiceUnavailable
+	}
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.listCandidates(ctx, m8core.CandPending, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PendingCandidateView, 0, len(rows))
+	for _, c := range rows {
+		var doc m8core.PayloadDoc
+		if err := json.Unmarshal([]byte(c.Payload), &doc); err != nil {
+			continue
+		}
+		out = append(out, PendingCandidateView{
+			CandidateID:       c.CandidateID,
+			Content:           doc.Content,
+			ScopeID:           doc.ScopeID,
+			ConfirmationToken: c.ConfirmToken,
+			CreatedAt:         c.CreatedAt,
+			ExpiresAt:         c.ExpiresAt,
+		})
+	}
+	return out, nil
+}
+
+func (s *MemoryService) listCandidates(ctx context.Context, state string, limit int) ([]m8core.MemoryCandidate, error) {
+	var rows []m8core.MemoryCandidate
+	err := s.uow.TransactMemory(ctx, func(tx MemoryTx) error {
+		var err error
+		rows, err = tx.ListCandidatesByState(state, limit)
+		return err
+	})
+	return rows, err
+}
+
+// ConfirmedSnapshot answers the confirmed (explicitly promoted) candidate
+// contents of one scope for chat-side preference injection, bounded by
+// maxItems and maxBytes (injected-tokens budget: preferences must never
+// crowd out the conversation context).
+func (s *MemoryService) ConfirmedSnapshot(ctx context.Context, scopeID string, maxItems, maxBytes int) ([]string, error) {
+	if s == nil || s.uow == nil {
+		return nil, ErrServiceUnavailable
+	}
+	if len(scopeID) < 1 || len(scopeID) > m8core.MaxScopeID {
+		return nil, fmt.Errorf("%w: scope invalid", ErrPayloadInvalid)
+	}
+	if maxItems < 1 {
+		maxItems = 8
+	}
+	if maxBytes < 64 {
+		maxBytes = 2048
+	}
+	rows, err := s.listCandidates(ctx, m8core.CandConfirmed, 200)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, maxItems)
+	used := 0
+	for _, c := range rows {
+		if len(out) >= maxItems || used >= maxBytes {
+			break
+		}
+		var doc m8core.PayloadDoc
+		if err := json.Unmarshal([]byte(c.Payload), &doc); err != nil || doc.ScopeID != scopeID {
+			continue
+		}
+		content := strings.TrimSpace(doc.Content)
+		if content == "" {
+			continue
+		}
+		// Never cut a UTF-8 rune in half: a preference that no longer
+		// fits the budget wholesale is skipped, not truncated.
+		if remaining := maxBytes - used; len(content) > remaining {
+			continue
+		}
+		out = append(out, content)
+		used += len(content)
+	}
+	return out, nil
 }

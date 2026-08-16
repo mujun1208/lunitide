@@ -13,7 +13,7 @@
       "additionalProperties": false,
       "properties": {
         "transport": {
-          "const": "https"
+          "enum": ["https", "stdio"]
         },
         "url": {
           "type": "string",
@@ -25,9 +25,25 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 256
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(npx|uvx|node)$"
+        },
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         }
       },
-      "required": ["transport", "url", "authRef"]
+      "required": ["transport"]
     },
     "capabilityPin": {
       "type": "object",
@@ -75,7 +91,20 @@
         "capabilityPin": {
           "serverIdentityDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6",
           "toolSchemaDigests": {
-            "searchDocs": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+            "searchDocs": "e18fd15c7d72014b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a3f"
+          }
+        }
+      },
+      {
+        "endpoint": {
+          "transport": "stdio",
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-everything"]
+        },
+        "capabilityPin": {
+          "serverIdentityDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6",
+          "toolSchemaDigests": {
+            "echo": "e18fd15c7d72014b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a3f"
           }
         }
       }
@@ -84,13 +113,13 @@
       {
         "endpoint": {
           "transport": "stdio",
-          "url": "https://mcp.example.com/sse",
-          "authRef": "secretref:vault/mcp-example/token"
+          "command": "bash",
+          "args": ["-c", "ls"]
         },
         "capabilityPin": {
           "serverIdentityDigest": "5ef2f7789ba27d1aa63bd5aeeb2a07611d0a35837cdda1e5f444ef5fb0837aa6",
           "toolSchemaDigests": {
-            "searchDocs": "e18fd15c7d72014d5b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a"
+            "searchDocs": "e18fd15c7d72014b8d6cee758ec1a9f75618fab8ebfd2ebc3958c1d501924a3f"
           }
         }
       },

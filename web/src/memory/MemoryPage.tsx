@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { memoryBridge, type MemoryBridge } from '../bridge/client'
+import { feedbackBridge, memoryBridge, type FeedbackBridge, type MemoryBridge } from '../bridge/client'
 import type { MemoryDTO, MemoryLayer, MemoryScope } from '../generated/bridge'
+
+type PendingCandidate = { candidateId: string; content: string; scopeId: string; confirmationToken: string; createdAt: string; expiresAt: string }
 
 const LAYER_LABELS: Record<MemoryLayer, string> = {
   working: '工作记忆', episodic: '情景记忆', semantic: '语义记忆', procedural: '程序记忆'
@@ -20,7 +22,7 @@ const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', bac
 const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: '#1e293b', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 
-export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: string; bridge?: MemoryBridge }): React.JSX.Element {
+export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedbackBridge }: { projectId: string; bridge?: MemoryBridge; feedback?: FeedbackBridge }): React.JSX.Element {
   const [memories, setMemories] = useState<MemoryDTO[]>([])
   const [selected, setSelected] = useState<MemoryDTO | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,6 +31,8 @@ export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: st
   const [searchQuery, setSearchQuery] = useState('')
   const [layerFilter, setLayerFilter] = useState<MemoryLayer | ''>('')
   const [editContent, setEditContent] = useState<string | null>(null)
+  const [pending, setPending] = useState<PendingCandidate[]>([])
+  const [pendingBusy, setPendingBusy] = useState('')
 
   const [showCreate, setShowCreate] = useState(false)
   const [newLayer, setNewLayer] = useState<MemoryLayer>('working')
@@ -83,6 +87,25 @@ export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: st
     finally { setBusy(false) }
   }
 
+  const loadPending = useCallback(async () => {
+    try {
+      const r = await feedback.candidates({ limit: 50 })
+      setPending(r.items)
+    } catch { setPending([]) }
+  }, [feedback])
+
+  useEffect(() => { void loadPending() }, [loadPending])
+
+  const decideCandidate = async (item: PendingCandidate, action: 'confirm' | 'reject') => {
+    if (!bridge.confirmCandidate || pendingBusy) return
+    setPendingBusy(item.candidateId); setError(undefined)
+    try {
+      await bridge.confirmCandidate({ candidateId: item.candidateId, confirmationToken: item.confirmationToken, action, requestId: `ui-${Date.now()}` })
+      setPending(values => values.filter(v => v.candidateId !== item.candidateId))
+    } catch (e) { setError(e instanceof Error ? e.message : '偏好确认失败') }
+    finally { setPendingBusy('') }
+  }
+
   if (!projectId) {
     return <div className="shell"><div className="empty"><b>请先选择项目</b><span>在项目总览中选择一个项目后即可管理记忆。</span></div></div>
   }
@@ -131,6 +154,23 @@ export function MemoryPage({ projectId, bridge = memoryBridge }: { projectId: st
             <button type="button" style={btnStyle} onClick={() => setShowCreate(false)}>取消</button>
           </div>
         </form>
+      )}
+      {pending.length > 0 && (
+        <section aria-label="偏好确认" style={{ marginBottom: '18px', padding: '14px', border: '1px solid #334155', borderRadius: '8px', background: '#0a0e1a' }}>
+          <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>偏好确认（{pending.length}）</h2>
+          <p style={{ margin: '0 0 10px', color: '#8fa3bf', fontSize: '12px' }}>来自会话反馈的偏好候选。仅在你显式确认后才会沉淀为长期偏好并注入后续对话。</p>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {pending.map(item => (
+              <div key={item.candidateId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827' }}>
+                <span style={{ flex: 1, fontSize: '13px', overflowWrap: 'anywhere' }}>{item.content}</span>
+                <span style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button style={primaryBtnStyle} disabled={pendingBusy === item.candidateId} onClick={() => void decideCandidate(item, 'confirm')}>{pendingBusy === item.candidateId ? '处理中…' : '确认沉淀'}</button>
+                  <button style={btnStyle} disabled={pendingBusy === item.candidateId} onClick={() => void decideCandidate(item, 'reject')}>拒绝</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,380px) 1fr', gap: '20px' }}>
         <section style={panelStyle}>

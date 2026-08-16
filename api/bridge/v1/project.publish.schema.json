@@ -1,0 +1,13 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://lunitide.local/schema/bridge/v1/project.publish.schema.json",
+  "title":"project.publish payload","x-method":"project.publish","x-owner":"engine","x-enabled":true,
+  "type":"object","additionalProperties":false,
+  "properties":{
+    "id":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},
+    "version":{"type":"integer","minimum":1}
+  },
+  "required":["id","version"],
+  "x-result":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"},
+  "x-examples":{"positive":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","version":1}],"negative":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}]}
+}

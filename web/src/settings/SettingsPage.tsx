@@ -1,8 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getPluginBridge,getTtsBridge,systemSettingsBridge,type TtsVoice}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getPluginBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice}from'../bridge/client'
+import type{Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'mcp' | 'plugins' | 'collab' | 'project' | 'connection' | 'security' | 'data' | 'shortcuts' | 'diagnostics' | 'about'
+import{OrgAdminPage}from'../org/OrgAdminPage'
+import{MemoryPage}from'../memory/MemoryPage'
+import{OntologyPage}from'../ontology/OntologyPage'
+import{PlanPage}from'../plan/PlanPage'
+import{ReviewPage}from'../review/ReviewPage'
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'org' | 'data' | 'security' | 'mcp' | 'plugins' | 'collab' | 'diagnostics' | 'about'
 
 // sha256Hex mirrors m8core.DigestOf for bridge confirm tokens (hex, 64).
 const sha256Hex = async (value: string): Promise<string> => {
@@ -15,14 +21,12 @@ const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'appearance', icon: '◐', label: '外观' },
   { id: 'providers', icon: '◈', label: '模型与供应商' },
   { id: 'voice', icon: '◉', label: '语音与麦克风' },
+  { id: 'org', icon: '⬡', label: '组织管理' },
+  { id: 'data', icon: '❖', label: '数据与记忆' },
+  { id: 'security', icon: '⛨', label: '安全与治理' },
   { id: 'mcp', icon: '⧉', label: 'MCP 服务器' },
   { id: 'plugins', icon: '⬢', label: '插件' },
   { id: 'collab', icon: '⌘', label: '协作门禁' },
-  { id: 'project', icon: '◇', label: '项目默认值' },
-  { id: 'connection', icon: '⇄', label: '连接与代理' },
-  { id: 'security', icon: '⛨', label: '安全与治理' },
-  { id: 'data', icon: '❖', label: '数据与记忆' },
-  { id: 'shortcuts', icon: '⌨', label: '快捷键' },
   { id: 'diagnostics', icon: '◉', label: '诊断与更新' },
   { id: 'about', icon: 'ⓘ', label: '关于' },
 ]
@@ -133,12 +137,18 @@ export function SettingsPage({ onNavigateProviders, onBack, initialCategory = 'g
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
           {category === 'voice' && <VoicePanel />}
+          {category === 'org' && <OrgAdminPage />}
+          {category === 'data' && <ProjectScopedTabs tabs={[{ id: 'memory', label: '记忆', render: pid => <MemoryPage projectId={pid} /> }, { id: 'ontology', label: '本体', render: pid => <OntologyPage projectId={pid} /> }]} />}
+          {category === 'security' && <>
+            <CommandPolicyPanel />
+            <HooksPanel />
+            <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} /> }, { id: 'plans', label: '计划管理', render: pid => <PlanPage projectId={pid} /> }]} />
+          </>}
           {category === 'mcp' && <McpPanel />}
           {category === 'plugins' && <PluginsPanel />}
           {category === 'collab' && <CollabGatePanel />}
           {category === 'diagnostics' && <DiagnosticsPanel />}
           {category === 'about' && <AboutPanel />}
-          {(['project', 'connection', 'security', 'data', 'shortcuts'].includes(category)) && <PlaceholderPanel category={category} />}
         </div>
       </div>
     </div>
@@ -353,7 +363,7 @@ function CompanionSection():React.JSX.Element{
  const save=(next:CompanionSettings)=>{setCompanion(next);saveCompanionSettings(next);setStatus('设置已保存，立即生效。')}
  const preview=async()=>{if(!voices.length)return;setBusy(true);setStatus('正在合成试听…');try{const voiceId=companion.voiceId&&(voices.some(v=>v.voice_id===companion.voiceId)?companion.voiceId:(setStatus('所选音色不可用，已回退默认音色。'),undefined))||undefined;const result=await getTtsBridge().synthesize({text:'你好，我是月汐，很高兴与你同行。',voiceId,rate:companion.rate,volume:companion.volume});if(result.discarded||!result.wav_base64){setStatus('试听已取消。');return}const bytes=Uint8Array.from(atob(result.wav_base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));audioRef.current?.pause();const audio=new Audio(url);audioRef.current=audio;audio.onended=()=>URL.revokeObjectURL(url);await audio.play();setStatus(result.notice?`${result.notice}（M95-004）`:'试听播放中…')}catch(e){setStatus(e instanceof Error?`试听失败：${e.message}`:'试听失败，本机可能无语音合成引擎')}finally{setBusy(false)}}
  const disabled=engineState!=='available'
- return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="回复自动朗读" desc="回复完成后自动用本机语音朗读；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={disabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voices.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name} · {voice.lang}</option>)}</select><button disabled={disabled||busy} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div><div className="setting-row"><div><div className="setting-label">语速（SAPI rate {-10}~{10}）</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} disabled={disabled} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量（0~100）</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} disabled={disabled} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div>{status&&<p role="status" className="notice">{status}</p>}</>
+ return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="语音唤醒（你好，月汐）" desc="在首页待命：说「你好，月汐」自动进入月伴对话，唤醒词后的话会作为提问直接回答；依赖 Windows 在线语音识别与麦克风权限。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="回复自动朗读" desc="回复完成后自动用本机语音朗读；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={disabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voices.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name} · {voice.lang}</option>)}</select><button disabled={disabled||busy} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div><div className="setting-row"><div><div className="setting-label">语速（SAPI rate {-10}~{10}）</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} disabled={disabled} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量（0~100）</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} disabled={disabled} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div>{status&&<p role="status" className="notice">{status}</p>}</>
 }
 
 function AboutPanel(): React.JSX.Element {
@@ -489,6 +499,65 @@ function McpPanel(): React.JSX.Element {
           </div>
         ))}
       </div>
+      <McpPresetsSection />
+      {status && <p role="status" className="notice">{status}</p>}
+    </div>
+  )
+}
+
+// c3-mcp — 预置免费官方 MCP server 目录：卡片展示 + 一键注册（stdio / npx），
+// needsArgs 条目先把占位符替换为用户输入再注册；不放宽任何 stdio 白名单。
+export type McpPresetItem = Mcp6PresetsListResult['items'][number]
+
+export function McpPresetsSection({ bridge = getMcpBridge() }: { bridge?: McpBridge }): React.JSX.Element {
+  const [items, setItems] = useState<McpPresetItem[]>([])
+  const [status, setStatus] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [argDraft, setArgDraft] = useState<{ id: string; value: string } | null>(null)
+
+  useEffect(() => {
+    setBusy(true)
+    bridge.presets()
+      .then(r => { setItems(r.items); setStatus('') })
+      .catch(e => setStatus(e instanceof Error ? e.message : '预置目录加载失败'))
+      .finally(() => setBusy(false))
+  }, [bridge])
+
+  // 反斜杠属于 stdio 白名单元字符：Windows 路径先归一为正斜杠再替换占位符。
+  const resolveArgs = (preset: McpPresetItem, value: string): string[] =>
+    preset.args.map(a => a === preset.argPlaceholder ? value.trim().replaceAll('\\', '/') : a)
+
+  const register = async (preset: McpPresetItem, value?: string) => {
+    setBusy(true); setStatus('')
+    try {
+      await bridge.add({ origin: 'manual', transport: 'stdio', command: preset.command, args: resolveArgs(preset, value ?? ''), riskConfirmed: true, requestId: crypto.randomUUID() })
+      setArgDraft(null)
+      setStatus(`已注册 ${preset.name}，进入 probe 探测。`)
+    } catch (e) { setStatus(e instanceof Error ? e.message : `${preset.name} 注册失败`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+      <div className="setting-group-title" style={{ marginTop: 8 }}>预置服务器（免费官方）</div>
+      <div className="setting-desc">官方 @modelcontextprotocol 参考 server，一键注册（stdio / npx），无需手填 URL 或命令。</div>
+      {items.map(p => (
+        <div className="setting-row" key={p.id} style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="setting-label">{p.name} · {p.category}{p.needsArgs ? ' · 需补充参数' : ''}</div>
+            <div className="setting-desc">{p.description} — <span style={{ fontFamily: 'var(--mono)' }}>{p.command} {p.args.join(' ')}</span></div>
+            {argDraft?.id === p.id && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input className="setting-input" style={{ flex: 1 }} placeholder={p.argHint ?? '请输入参数'} value={argDraft.value}
+                  onChange={ev => setArgDraft({ id: p.id, value: ev.target.value })} aria-label={`${p.name} 参数`} />
+                <button disabled={busy || !argDraft.value.trim()} aria-label={`确认注册 ${p.name}`} onClick={() => void register(p, argDraft.value)}>确认注册</button>
+              </div>
+            )}
+          </div>
+          {argDraft?.id === p.id
+            ? <button disabled={busy} onClick={() => setArgDraft(null)}>取消</button>
+            : <button disabled={busy} aria-label={`注册 ${p.name}`} onClick={() => (p.needsArgs ? setArgDraft({ id: p.id, value: '' }) : void register(p))}>注册</button>}
+        </div>
+      ))}
       {status && <p role="status" className="notice">{status}</p>}
     </div>
   )
@@ -761,6 +830,182 @@ function CollabGatePanel(): React.JSX.Element {
   )
 }
 
+// 0.3.5 命令白名单 — command.run 用户可配只读命令集（tools.commandPolicy.*）。
+// 内置 git/go 只读规则不可移除；此处编辑的是叠加在其上的用户白名单，
+// 保存即校验并热生效（fail-closed：非法文档整体拒绝，不影响现运行规则）。
+interface PolicyEntry { prefix: string; maxArgs: number; timeoutMs: number }
+export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: ToolsPolicyBridge }): React.JSX.Element {
+  const [entries, setEntries] = useState<PolicyEntry[]>([])
+  const [status, setStatus] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const parsePrefix = (raw: string): string[] => raw.trim().split(/\s+/).filter(Boolean)
+  const formatPrefix = (prefix: string[]): string => prefix.join(' ')
+
+  useEffect(() => {
+    const load = async () => {
+      setBusy(true)
+      try {
+        const r = await bridge.getCommandPolicy()
+        setEntries(r.commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
+        setLoaded(true)
+      } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单读取失败') } finally { setBusy(false) }
+    }
+    void load()
+  }, [])
+
+  const save = async () => {
+    setBusy(true); setStatus('')
+    try {
+      const commands = entries.map(e => {
+        const prefix = parsePrefix(e.prefix)
+        const doc: { prefix: string[]; maxArgs?: number; timeoutMs?: number } = { prefix }
+        if (e.maxArgs > 0) doc.maxArgs = e.maxArgs
+        if (e.timeoutMs > 0) doc.timeoutMs = e.timeoutMs
+        return doc
+      }).filter(c => c.prefix.length > 0)
+      const r = await bridge.setCommandPolicy({ commands })
+      setStatus(`已保存并热生效：${r.applied} 条用户规则（叠加内置 git/go 只读集）。`)
+      setEntries(commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
+    } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单保存失败（文档被整体拒绝，现运行规则不变）') } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="setting-group">
+      <div className="setting-group-title">命令白名单（command.run）</div>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="setting-desc">聊天中 command.run 仅允许白名单内的只读命令。内置 git/go 只读集恒生效；下方为用户附加规则，保存即校验并热生效，非法文档整体拒绝（fail-closed）。超时范围 1s–300s，argv 总长上限 16。</div>
+      </div>
+      {entries.map((entry, i) => (
+        <div className="setting-row" key={i} style={{ gridTemplateColumns: '1fr auto' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="setting-input" style={{ width: 260 }} placeholder="命令前缀（如 node --version）" value={entry.prefix} maxLength={128} onChange={e => setEntries(entries.map((x, j) => j === i ? { ...x, prefix: e.target.value } : x))} aria-label={`规则 ${i + 1} 命令前缀`} />
+            <input className="setting-input" style={{ width: 90 }} type="number" min={0} max={16} placeholder="maxArgs" value={entry.maxArgs || ''} onChange={e => setEntries(entries.map((x, j) => j === i ? { ...x, maxArgs: Math.max(0, Math.min(16, Number(e.target.value) || 0)) } : x))} aria-label={`规则 ${i + 1} 最大参数数`} />
+            <input className="setting-input" style={{ width: 110 }} type="number" min={1000} max={300000} step={500} placeholder="超时 ms" value={entry.timeoutMs || ''} onChange={e => setEntries(entries.map((x, j) => j === i ? { ...x, timeoutMs: Math.max(1000, Math.min(300000, Number(e.target.value) || 10_000)) } : x))} aria-label={`规则 ${i + 1} 超时毫秒`} />
+          </div>
+          <button disabled={busy} onClick={() => setEntries(entries.filter((_, j) => j !== i))} aria-label={`删除规则 ${i + 1}`}>删除</button>
+        </div>
+      ))}
+      <div className="setting-row">
+        <div className="setting-desc">{loaded ? `共 ${entries.length} 条用户规则（不含内置 git/go 只读集）` : '正在读取当前白名单…'}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button disabled={busy} onClick={() => setEntries([...entries, { prefix: '', maxArgs: 0, timeoutMs: 10_000 }])}>添加规则</button>
+          <button className="primary" disabled={busy || !loaded} onClick={() => void save()}>保存并热生效</button>
+        </div>
+      </div>
+      {status && <p role="status" className="notice">{status}</p>}
+    </div>
+  )
+}
+
+// P3-B Hooks — 工具调用拦截规则（tools.hooksPolicy.*）。规则在工具执行前
+// 评估：block 拒绝并回显原因；requireApproval 强制审批（即使自动模式）；
+// allow 免除审批往返（不放宽命令白名单）。多规则命中时 block 最优先。
+// 保存即校验并热生效（fail-closed：非法文档整体拒绝，不影响现运行规则）。
+const HOOK_TOOLS = ['workspace.list', 'workspace.read', 'workspace.write', 'workspace.search', 'workspace.edit', 'todo.write', 'command.run', 'web.fetch', 'web.search', 'excel.gen', 'excel.parse', 'docx.gen', 'pptx.gen', 'pdf.gen'] as const
+const HOOK_DECISIONS = [
+  { value: 'block', label: '拦截（拒绝执行）' },
+  { value: 'requireApproval', label: '强制审批' },
+  { value: 'allow', label: '免审批放行' },
+] as const
+interface HookEntry { id: string; events: string[]; tools: string[]; decision: string; message: string }
+export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolicyBridge }): React.JSX.Element {
+  const [entries, setEntries] = useState<HookEntry[]>([])
+  const [events, setEvents] = useState<{ sessionId: string; toolName: string; hookId: string; event: string; decision: string; createdAt: string }[]>([])
+  const [status, setStatus] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      setBusy(true)
+      try {
+        const [policy, recent] = await Promise.all([bridge.getHooksPolicy(), bridge.listHookEvents({ limit: 20 })])
+        setEntries(policy.hooks.map(h => ({ id: h.id, events: [...h.events], tools: [...h.tools], decision: h.decision, message: h.message ?? '' })))
+        setEvents(recent.events)
+        setLoaded(true)
+      } catch (e) { setStatus(e instanceof Error ? e.message : 'Hooks 规则读取失败') } finally { setBusy(false) }
+    }
+    void load()
+  }, [])
+
+  const refreshEvents = async () => {
+    try { const r = await bridge.listHookEvents({ limit: 20 }); setEvents(r.events) } catch { /* 保持现状 */ }
+  }
+
+  const save = async () => {
+    setBusy(true); setStatus('')
+    try {
+      const hooks = entries
+        .map(e => ({ ...e, id: e.id.trim(), tools: e.tools.filter(Boolean) }))
+        .filter(e => e.id && e.tools.length > 0)
+      const r = await bridge.setHooksPolicy({ hooks: hooks as ToolsHooksPolicySetPayload['hooks'] })
+      setStatus(`已保存并热生效：${r.applied} 条 Hook 规则。`)
+      setEntries(hooks)
+    } catch (e) { setStatus(e instanceof Error ? e.message : 'Hooks 规则保存失败（文档被整体拒绝，现运行规则不变）') } finally { setBusy(false) }
+  }
+
+  const toggleIn = (list: string[], value: string): string[] => list.includes(value) ? list.filter(x => x !== value) : [...list, value]
+  const update = (i: number, patch: Partial<HookEntry>) => setEntries(entries.map((x, j) => j === i ? { ...x, ...patch } : x))
+
+  return (
+    <div className="setting-group">
+      <div className="setting-group-title">Hooks 拦截规则（工具调用）</div>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="setting-desc">在工具执行前拦截：拦截=拒绝并回显原因；强制审批=即使自动编辑/完全访问也走审批；免审批=跳过审批往返（命令白名单仍生效）。多条规则命中时按 拦截 &gt; 强制审批 &gt; 免审批 取最严。保存即校验并热生效，非法文档整体拒绝（fail-closed）。</div>
+      </div>
+      {entries.map((entry, i) => (
+        <div className="setting-row" key={i} style={{ gridTemplateColumns: '1fr auto' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="setting-input" style={{ width: 150 }} placeholder="规则 ID（如 no-docx）" value={entry.id} maxLength={64} onChange={e => update(i, { id: e.target.value })} aria-label={`规则 ${i + 1} ID`} />
+            <select className="setting-input" style={{ width: 150 }} value={entry.decision} onChange={e => update(i, { decision: e.target.value, message: e.target.value === 'block' ? entry.message : '' })} aria-label={`规则 ${i + 1} 动作`}>
+              {HOOK_DECISIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+            {entry.decision === 'block' && <input className="setting-input" style={{ width: 220 }} placeholder="拒绝原因（必填）" value={entry.message} maxLength={256} onChange={e => update(i, { message: e.target.value })} aria-label={`规则 ${i + 1} 拒绝原因`} />}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {HOOK_TOOLS.map(tool => (
+              <label key={tool} style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+                <input type="checkbox" checked={entry.tools.includes(tool)} onChange={() => update(i, { tools: toggleIn(entry.tools, tool) })} aria-label={`规则 ${i + 1} 工具 ${tool}`} />
+                {tool}
+              </label>
+            ))}
+            <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+              <input type="checkbox" checked={entry.events.includes('afterToolCall')} onChange={() => update(i, { events: toggleIn(entry.events.includes('beforeToolCall') ? entry.events : ['beforeToolCall', ...entry.events], 'afterToolCall') })} aria-label={`规则 ${i + 1} 执行后审计`} />
+              执行后审计
+            </label>
+            <button disabled={busy} onClick={() => setEntries(entries.filter((_, j) => j !== i))} aria-label={`删除规则 ${i + 1}`}>删除</button>
+          </div>
+        </div>
+      ))}
+      <div className="setting-row">
+        <div className="setting-desc">{loaded ? `共 ${entries.length} 条规则` : '正在读取当前 Hooks 规则…'}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button disabled={busy} onClick={() => setEntries([...entries, { id: '', events: ['beforeToolCall'], tools: [], decision: 'block', message: '' }])}>添加规则</button>
+          <button className="primary" disabled={busy || !loaded} onClick={() => void save()}>保存并热生效</button>
+        </div>
+      </div>
+      {loaded && (
+        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+          <div className="setting-label">最近命中记录</div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button disabled={busy} onClick={() => void refreshEvents()}>刷新</button>
+          </div>
+          {events.length === 0 ? <div className="setting-desc">暂无命中记录。</div> : (
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.9 }}>
+              {events.map((ev, k) => (
+                <li key={k}>{ev.createdAt} · {ev.hookId} · {ev.toolName} · {ev.event}{ev.decision ? ` · ${ev.decision}` : ''} · 会话 {ev.sessionId.slice(-6)}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {status && <p role="status" className="notice">{status}</p>}
+    </div>
+  )
+}
+
 // M7 appUpdate — 诊断与更新：检查更新通道与安装（回滚状态可见）。
 function DiagnosticsPanel(): React.JSX.Element {
   const bridge = getAppUpdateBridge()
@@ -836,23 +1081,36 @@ function DiagnosticsPanel(): React.JSX.Element {
   )
 }
 
-function PlaceholderPanel({ category }: { category: SettingsCategory }): React.JSX.Element {
-  const descriptions: Partial<Record<SettingsCategory, string>> = {
-    project: '项目级配置默认值：阶段策略、模板引用、自动审批边界、产物保留策略等。待 M3 九阶段与产物设计冻结后启用。',
-    connection: '网络代理配置：HTTP/HTTPS 代理、SSL 证书策略、连接超时与重试、SSRF 防护白名单。待 M5 数据接口工作台阶段启用。',
-    security: '安全与治理：审批边界配置、审计日志策略、高风险操作清单、凭据访问策略、信任根管理。待 M4 智能内核阶段启用。',
-    data: '数据与记忆：记忆生命周期、备份恢复策略、隐私脱敏规则、数据删除与保留。待 M2 基础备份恢复与 M4 记忆中心完成后启用。',
-    shortcuts: '键盘快捷键：全局与上下文快捷键自定义、冲突检测、预设方案。即将推出。',
-    diagnostics: '诊断与更新：应用更新通道、运行健康检查、脱敏诊断包导出、日志级别配置。待 M6 CR 部署发行阶段启用。',
-  }
+function ProjectScopedTabs({ tabs }: { tabs: Array<{ id: string; label: string; render: (projectId: string) => React.JSX.Element }> }): React.JSX.Element {
+  const [projects, setProjects] = useState<ProjectDTO[]>([])
+  const [projectId, setProjectId] = useState('')
+  const [tab, setTab] = useState(tabs[0]?.id ?? '')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let alive = true
+    projectBridge.list().then(result => {
+      if (!alive) return
+      setProjects(result.items)
+      setProjectId(current => (result.items.some(item => item.id === current) ? current : (result.items[0]?.id ?? '')))
+    }).catch(e => { if (alive) setError(e instanceof Error ? e.message : '项目列表载入失败') })
+    return () => { alive = false }
+  }, [])
+  const active = tabs.find(item => item.id === tab) ?? tabs[0]
   return (
-    <div className="setting-group">
-      <div className="setting-group-title">{CATEGORIES.find(c => c.id === category)?.label}</div>
-      <div className="setting-placeholder">
-        <div className="placeholder-icon">◇</div>
-        <p>{descriptions[category] ?? '此分类正在规划中，即将推出。'}</p>
-        <span className="placeholder-badge">规划中</span>
+    <div className="project-scoped-panel">
+      <div className="project-scoped-toolbar">
+        <label>作用域项目
+          <select aria-label="选择作用域项目" value={projectId} onChange={e => setProjectId(e.target.value)}>
+            {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="project-scoped-tabs" role="tablist" aria-label="子分类">
+          {tabs.map(item => (
+            <button type="button" role="tab" key={item.id} aria-selected={item.id === active?.id} onClick={() => setTab(item.id)}>{item.label}</button>
+          ))}
+        </div>
       </div>
+      {error ? <p className="notice" role="alert">{error}</p> : !projectId ? <p className="notice">还没有可用项目；请先在“项目管理”中创建。</p> : active?.render(projectId)}
     </div>
   )
 }

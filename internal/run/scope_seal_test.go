@@ -67,7 +67,7 @@ func seedSealPlan(t *testing.T, db *sql.DB) {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO projects(id,name,created_at,updated_at) VALUES(?,'seal-project','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`, []any{sealProjectID}},
+		{`INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES(?,'seal-project','ITM00007','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`, []any{sealProjectID}},
 		{`INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, []any{sealProjectID}},
 		{`INSERT INTO plans(id,project_id,name,version,status,created_at,updated_at) VALUES(?,?,'seal-plan',1,'draft','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`, []any{sealPlanID, sealProjectID}},
 		{`INSERT INTO plan_nodes(id,plan_id,name,status,risk_level,sequence,created_at,updated_at) VALUES(?,?,'seal-node','pending','low',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`, []any{sealNodeID, sealPlanID}},

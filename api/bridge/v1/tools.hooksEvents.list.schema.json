@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/tools.hooksEvents.list.schema.json",
+  "title": "tools.hooksEvents.list payload",
+  "x-method": "tools.hooksEvents.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "events": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sessionId": { "type": "string", "minLength": 26, "maxLength": 26 },
+            "toolName": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "hookId": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "event": { "enum": ["beforeToolCall", "afterToolCall"] },
+            "decision": { "enum": ["", "block", "requireApproval", "allow"] },
+            "argsDigest": { "type": "string", "maxLength": 64 },
+            "resultDigest": { "type": "string", "maxLength": 64 },
+            "createdAt": { "type": "string", "minLength": 1 }
+          },
+          "required": ["sessionId", "toolName", "hookId", "event", "decision", "createdAt"]
+        }
+      }
+    },
+    "required": ["events"]
+  },
+  "x-examples": {
+    "positive": [
+      {},
+      { "limit": 10 }
+    ],
+    "negative": [
+      { "limit": 0 },
+      { "unexpected": true }
+    ]
+  }
+}

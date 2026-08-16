@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,8 +16,10 @@ import (
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -34,6 +38,22 @@ type eventEmitterKey struct{}
 type streamParentKey struct{}
 
 type executionMode string
+
+// Preference injection budget (learning loop P3-3): confirmed preferences
+// appended to the system instruction are bounded so they never crowd out
+// the conversation context.
+const (
+	preferenceInjectMaxItems = 8
+	preferenceInjectMaxBytes = 2048
+)
+
+// Skill catalog injection budget (c4-skill): the installed-skill directory
+// appended to the system instruction is bounded the same way so the catalog
+// can never crowd out the conversation context.
+const (
+	skillInjectMaxItems = 12
+	skillInjectMaxBytes = 2048
+)
 
 const (
 	executionModeApproval   executionMode = "approval"
@@ -74,7 +94,36 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !validMode {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
 	}
-	trustedMessages := append([]gateway.Message{{Role: gateway.RoleSystem, Content: executionModeInstruction(mode)}}, p.Messages...)
+	instruction := executionModeInstruction(mode)
+	if mode != executionModePlan && e.delegation == delegationProactive {
+		instruction += delegationProactiveHint
+	}
+	// Learning loop (P3-3): confirmed preferences ride at the end of the
+	// system instruction. Only explicitly confirmed candidates ever reach
+	// here and the snapshot is bounded (items + bytes) so preferences never
+	// crowd out the conversation. Snapshot failure is non-fatal - the chat
+	// proceeds without injection.
+	if e.m8memory != nil {
+		if prefs, perr := e.m8memory.ConfirmedSnapshot(ctx, m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); perr == nil && len(prefs) > 0 {
+			var b strings.Builder
+			b.WriteString(instruction)
+			b.WriteString("\n\n以下为用户已显式确认的偏好，回答时必须遵守：\n")
+			for _, pref := range prefs {
+				b.WriteString("- ")
+				b.WriteString(pref)
+				b.WriteString("\n")
+			}
+			instruction = b.String()
+		}
+	}
+	// c4-skill: append the installed-skill directory (metadata only) so the
+	// model knows which skills exist and when to reference them. Injected in
+	// every execution mode including plan - the catalog is read-only
+	// knowledge and does not conflict with the plan-mode no-tool rule.
+	if catalog := e.skillCatalogInjection(ctx); catalog != "" {
+		instruction += "\n\n" + catalog
+	}
+	trustedMessages := append([]gateway.Message{{Role: gateway.RoleSystem, Content: instruction}}, p.Messages...)
 
 	item, err := e.providers.Get(ctx, p.ProviderID)
 	if err != nil {
@@ -242,6 +291,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 			return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, err)
 		}
+		// P1-3 complexity.decide wiring: deterministic full-conversation
+		// scoring labels the tier; moderate+ conversations get an explicit
+		// nudge toward the planned path (plan.run) in the system message.
+		if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == gateway.RoleSystem {
+			messages[0].Content += tierHint
+		}
 		// Images are expensive and model-dependent. Unlike parsed text, do not
 		// silently resend every historical image on every turn: only explicitly
 		// referenced images enter the multimodal request.
@@ -291,7 +346,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	e.streamsMu.Unlock()
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1}
 	if mode != executionModePlan && e.tools != nil {
-		req.Tools = engineToolDefinitions()
+		req.Tools = append(engineToolDefinitions(), e.subagentToolDefinitions(mode)...)
+		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
+		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -352,13 +409,228 @@ func executionModeInstruction(mode executionMode) string {
 	}
 }
 
+// skillCatalogInjection builds the installed-skill directory appended to the
+// system instruction (c4-skill): one metadata-only line per published skill
+// (name + trigger keywords + one-sentence summary) plus a usage rule, so the
+// model can proactively reference skills. The directory is bounded by
+// skillInjectMaxItems/skillInjectMaxBytes (overflow truncates with an
+// explicit notice) and is fail-closed: an unavailable skill service or a
+// read failure logs and injects nothing instead of blocking the chat.
+func (e *Engine) skillCatalogInjection(ctx context.Context) string {
+	if !skillServiceAvailable(e.skills) {
+		return ""
+	}
+	skills, err := e.skills.List(ctx, skill.SkillStatusPublished)
+	if err != nil {
+		log.Printf("skill catalog injection skipped: skill list unavailable: %v", err)
+		return ""
+	}
+	if len(skills) == 0 {
+		return ""
+	}
+	const header = "[可用技能目录]\n"
+	const usage = "使用规则：当用户请求与某技能触发场景匹配时，先声明“将使用技能 X”，再执行。\n"
+	const truncNotice = "（技能目录已截断）\n"
+	var b strings.Builder
+	b.WriteString(header)
+	// Reserve the header, the usage rule and the worst-case truncation
+	// notice up front so the finished block always fits the byte budget.
+	budget := skillInjectMaxBytes - len(header) - len(usage) - len(truncNotice)
+	injected := 0
+	truncated := false
+	for _, sk := range skills {
+		if injected == skillInjectMaxItems {
+			truncated = true
+			break
+		}
+		line := skillCatalogLine(sk)
+		if len(line) > budget {
+			if budget <= 0 {
+				truncated = true
+				break
+			}
+			// Defensive: a single oversized line is UTF-8-safe truncated to
+			// the remaining budget rather than blowing the global cap.
+			b.WriteString(truncateUTF8Bytes(line, budget) + "\n")
+			truncated = true
+			break
+		}
+		b.WriteString(line)
+		budget -= len(line)
+		injected++
+	}
+	if truncated {
+		b.WriteString(truncNotice)
+	}
+	b.WriteString(usage)
+	return b.String()
+}
+
+// skillCatalogLine renders one published skill as a single catalog line:
+//
+//   - name：one-sentence summary。当用户提到“t1、t2”时使用。
+//
+// The line carries metadata only - never the skill manifest body.
+func skillCatalogLine(sk skill.Skill) string {
+	if triggers := skillCatalogTriggers(sk.ManifestJSON); len(triggers) > 0 {
+		return "- " + sk.Name + "：" + skillCatalogSummary(sk.Description, sk.DisplayName) + "。当用户提到“" + strings.Join(triggers, "、") + "”时使用。\n"
+	}
+	return "- " + sk.Name + "：" + skillCatalogSummary(sk.Description, sk.DisplayName) + "。\n"
+}
+
+// skillCatalogSummary collapses a description to its first sentence (or the
+// display name when empty), bounded to 60 runes so each catalog line stays a
+// one-sentence digest.
+func skillCatalogSummary(description, displayName string) string {
+	summary := description
+	if summary == "" {
+		summary = displayName
+	}
+	if idx := strings.Index(summary, "。"); idx >= 0 {
+		summary = summary[:idx]
+	}
+	if r := []rune(summary); len(r) > 60 {
+		summary = string(r[:60])
+	}
+	return summary
+}
+
+// skillCatalogTriggers extracts up to four non-empty trigger keywords from
+// the skill manifest ("triggers" key, as written by catalog installs). A
+// missing or malformed manifest answers no triggers; the summary line then
+// carries the trigger scenario alone.
+func skillCatalogTriggers(manifestJSON string) []string {
+	var m struct {
+		Triggers []string `json:"triggers"`
+	}
+	if json.Unmarshal([]byte(manifestJSON), &m) != nil {
+		return nil
+	}
+	var triggers []string
+	for _, t := range m.Triggers {
+		if t = strings.TrimSpace(t); t != "" {
+			triggers = append(triggers, t)
+			if len(triggers) == 4 {
+				break
+			}
+		}
+	}
+	return triggers
+}
+
 func engineToolDefinitions() []gateway.ToolDefinition {
 	return []gateway.ToolDefinition{
 		{Name: "workspace.list", Description: "List a controlled session workspace directory", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"additionalProperties":false}`)},
 		{Name: "workspace.read", Description: "Read a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "workspace.write", Description: "Atomically write a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`)},
-		{Name: "command.run", Description: "Run one allowlisted argv command in the controlled workspace", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2}},"required":["argv"],"additionalProperties":false}`)},
+		{Name: "workspace.search", Description: "Search session workspace files for a literal substring or regex; answers path:line: text matches (binary and oversized files skipped)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"literal substring, or regex when regex=true"},"path":{"type":"string","description":"workspace-relative directory to search (default .)"},"regex":{"type":"boolean"},"max":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "workspace.edit", Description: "Anchored edit of a controlled session workspace file: oldText must match exactly once (or pass replaceAll=true) and is replaced by newText; everything else stays untouched", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["path","oldText","newText"],"additionalProperties":false}`)},
+		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
+		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist)", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
+		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body)", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
+		{Name: "web.search", Description: "Search the public web (DuckDuckGo Lite) and return ranked results with titles, URLs and snippets", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string"},"max":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .xlsx"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
+		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
+		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
+		{Name: "pptx.gen", Description: "Generate a .pptx slide deck (title slide content plus title+bullets slides) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
+		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 	}
+}
+
+// mcpToolPrefix namespaces merged MCP endpoint tools inside the model tool
+// list: mcp_<endpointULID>_<tool>. The endpoint ID is a fixed 26-char ULID,
+// so the split point is deterministic.
+const mcpToolPrefix = "mcp_"
+
+// mcpToolName composes the chat-facing tool name for one ready endpoint
+// tool. ok is false when the composed name exceeds the 64-char function
+// name budget common across providers or carries characters outside the
+// portable [A-Za-z0-9_-] set; such tools are skipped rather than renamed.
+func mcpToolName(endpointID, tool string) (string, bool) {
+	name := mcpToolPrefix + endpointID + "_" + tool
+	if len(name) > 64 {
+		return "", false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return "", false
+		}
+	}
+	return name, true
+}
+
+// parseMcpToolName splits a chat-facing mcp_ tool name back into its
+// endpoint ID and MCP tool name.
+func parseMcpToolName(name string) (endpointID, tool string, ok bool) {
+	rest := strings.TrimPrefix(name, mcpToolPrefix)
+	if len(name) <= len(mcpToolPrefix) || len(rest) < 28 || rest[26] != '_' {
+		return "", "", false
+	}
+	return rest[:26], rest[27:], true
+}
+
+// mcpToolDefinitions merges ready MCP endpoint tools into the engine tool
+// list. When the describe cache carries a real input schema it is used
+// verbatim (after a JSON object sanity check); otherwise the tool falls
+// back to a pass-through object schema. Invoke still enforces pinning,
+// state and breaker per call regardless of which schema was advertised.
+func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
+	if e.mcp6Registry == nil {
+		return nil
+	}
+	snapshot := e.mcp6Registry.ReadyToolSnapshot()
+	if len(snapshot) == 0 {
+		return nil
+	}
+	defs := make([]gateway.ToolDefinition, 0, len(snapshot))
+	for _, t := range snapshot {
+		name, ok := mcpToolName(t.EndpointID, t.Tool)
+		if !ok {
+			continue
+		}
+		description := "MCP tool " + t.Tool + " on endpoint " + t.EndpointID + " (arguments pass through to the endpoint)"
+		if t.Description != "" {
+			description = t.Description
+		}
+		schema := []byte(`{"type":"object","additionalProperties":true}`)
+		if len(t.Schema) > 0 && json.Valid(t.Schema) && t.Schema[0] == '{' {
+			schema = t.Schema
+		}
+		defs = append(defs, gateway.ToolDefinition{Name: name, Description: description, Schema: schema})
+	}
+	return defs
+}
+
+// invokeMcpTool executes one merged MCP tool call through the mcp6
+// registry. The registry owns state gating, capability pinning, credential
+// leasing and breaker accounting; the 30 s deadline mirrors the frozen
+// mcp6.invoke upper bound. The result is flattened to canonical JSON so it
+// can ride the normal tool-message path back to the model.
+func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, rawArgs json.RawMessage) (string, error) {
+	if e.mcp6Registry == nil {
+		return "", errors.New("MCP gateway unavailable")
+	}
+	var args map[string]any
+	if len(rawArgs) > 0 {
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return "", errors.New("MCP tool arguments must be a JSON object")
+		}
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	invokeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	result, err := e.mcp6Registry.Invoke(invokeCtx, endpointID, tool, args)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(result.Result)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
 }
 
 func combineDurableProviderMessages(history []contextapp.Message, explicit []gateway.Message, info contextapp.ProviderInfo) ([]gateway.Message, error) {
@@ -416,11 +688,18 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		CallID     string `json:"callId"`
 		ArgsDigest string `json:"argsDigest"`
 		Approved   bool   `json:"approved"`
+		Scope      string `json:"scope"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.SessionID) || p.CallID == "" || len(p.CallID) > 128 || len(p.ArgsDigest) != 64 || e.tools == nil {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.tool.approve 参数无效", false)
 	}
-	r, err := e.tools.Decide(ctx, p.SessionID, p.CallID, p.ArgsDigest, p.Approved)
+	if p.Scope == "" {
+		p.Scope = toolruntime.ApprovalScopeOnce
+	}
+	if !toolruntime.ApprovalScopeValid(p.Scope) {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.tool.approve scope 无效", false)
+	}
+	r, err := e.tools.DecideScoped(ctx, p.SessionID, p.CallID, p.ArgsDigest, p.Approved, p.Scope)
 	if err != nil {
 		return bridge.Failure(request.ID, request.TraceID, "TOOL_APPROVAL_CONSUMED", err.Error(), false)
 	}
@@ -432,8 +711,14 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		status = "executed"
 	}
 	result := map[string]any{"callId": p.CallID, "status": status, "resultDigest": r.Digest, "summary": r.Output}
-	if p.Approved && r.Artifact != nil && r.Artifact.Kind == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
-		result["artifact"] = map[string]string{"kind": r.Artifact.Kind, "path": r.Artifact.Path, "content": r.Artifact.Content}
+	if p.Approved && r.Artifact != nil {
+		if k := r.Artifact.Kind; k == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
+			result["artifact"] = map[string]string{"kind": k, "path": r.Artifact.Path, "content": r.Artifact.Content}
+		} else if artifactKindValid(k) {
+			// Office artifacts are binary: emit metadata only; the renderer
+			// previews them via workspace.artifact.preview.
+			result["artifact"] = map[string]string{"kind": k, "path": r.Artifact.Path, "content": ""}
+		}
 	}
 	return bridge.Success(request.ID, result)
 }
@@ -570,7 +855,33 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			var gatewayErr *gateway.Error
 			if streamErr != nil && !toolsFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
 				// Some compatible text models reject function definitions. Retry once
-				// as plain chat while preserving messages and attachment context.
+				// as plain chat while preserving messages and attachment context. The
+				// degradation is surfaced explicitly instead of silently dropping
+				// tools: the notice enters both the live stream and the persisted
+				// assistant text so the history keeps the record. The adapter has
+				// already retried once with sanitized schemas; whatever reason the
+				// upstream still reports is appended so the user can act on it.
+				reason := gatewayErr.Message
+				if i := strings.Index(reason, ": "); i >= 0 {
+					reason = reason[i+2:]
+				}
+				if runes := []rune(strings.TrimSpace(reason)); len(runes) > 0 {
+					if len(runes) > 160 {
+						runes = runes[:160]
+					}
+					reason = string(runes)
+				} else {
+					reason = ""
+				}
+				why := ""
+				if reason != "" {
+					why = "，原因：" + reason
+				}
+				notice := "（系统提示：当前模型拒绝了工具定义" + why + "，本轮已自动切换为纯对话模式：文件读写、命令执行、联网获取与 MCP 工具不可用。如需完整能力，请切换到支持函数调用的模型或检查该服务商的工具参数要求。）\n\n"
+				assistantText.WriteString(notice)
+				if err := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); err != nil {
+					return err
+				}
 				req.Tools = nil
 				toolsFallbackUsed = true
 				continue
@@ -579,6 +890,24 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				break
 			}
 			req.Messages = append(req.Messages, result.Message)
+			// Parallel subagents: same-turn subagent.spawn calls are
+			// pre-started (bounded) so independent research subagents
+			// overlap; each result is consumed in original call order
+			// below, keeping the event stream deterministic.
+			subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls)
+			// Early returns below (duplicate call ID, invalid args, send
+			// failures) must not abandon pre-started spawn goroutines:
+			// drain unconsumed futures when the callback exits. The
+			// lease context cancellation bounds the wait.
+			defer func() {
+				for _, ch := range subagentFutures {
+					select {
+					case <-ch:
+					case <-op.Done():
+						return
+					}
+				}
+			}()
 			for _, call := range result.Message.ToolCalls {
 				if seen[call.ID] {
 					return errors.New("duplicate tool call id")
@@ -590,6 +919,56 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest}}); err != nil {
 					return err
+				}
+				if endpointID, mcpTool, isMcp := parseMcpToolName(call.Name); isMcp {
+					summary, invokeErr := e.invokeMcpTool(op, endpointID, mcpTool, call.Arguments)
+					if invokeErr != nil {
+						summary = invokeErr.Error()
+					}
+					if len(summary) > 4096 {
+						summary = summary[:4096]
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
+				}
+				if subagentToolNames[call.Name] {
+					var summary string
+					var invokeErr error
+					if future, ok := subagentFutures[call.ID]; ok {
+						res := <-future
+						summary, invokeErr = res.summary, res.err
+						delete(subagentFutures, call.ID)
+					} else {
+						summary, invokeErr = e.invokeSubagentTool(op, a, credential, req.Model, sessionID, call.Name, call.Arguments)
+					}
+					if invokeErr != nil {
+						summary = invokeErr.Error()
+					}
+					if len(summary) > 4096 {
+						summary = summary[:4096]
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
+				}
+				if planToolNames[call.Name] {
+					summary, invokeErr := e.invokePlanRunTool(op, a, credential, req.Model, sessionID, mode, call.Arguments)
+					if invokeErr != nil {
+						summary = invokeErr.Error()
+					}
+					if len(summary) > 4096 {
+						summary = summary[:4096]
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
 				}
 				r, toolErr := e.tools.Execute(op, toolruntime.Mode(mode), sessionID, call.Name, call.Arguments, false)
 				if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
@@ -609,8 +988,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					summary = summary[:4096]
 				}
 				toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
-				if toolErr == nil && r.Artifact != nil && r.Artifact.Kind == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
-					toolEvent.Artifact = &bridge.ArtifactEvent{Kind: r.Artifact.Kind, Path: r.Artifact.Path, Content: r.Artifact.Content}
+				if toolErr == nil && r.Artifact != nil {
+					if k := r.Artifact.Kind; k == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
+						toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: r.Artifact.Content}
+					} else if artifactKindValid(k) {
+						toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: ""}
+					}
 				}
 				if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: toolEvent}); err != nil {
 					return err
@@ -619,6 +1002,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 		}
 		streamResult = result
+		// Step-budget exhaustion: when the 6th step still produced tool
+		// calls the loop ends after executing them, and without a final
+		// text the user would see a completed stream with no answer.
+		// Surface a Chinese notice in both the live stream and the
+		// persisted assistant text (same pattern as the 400 fallback).
+		if streamErr == nil && len(result.Message.ToolCalls) > 0 && assistantText.Len() == 0 {
+			const notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
+			assistantText.WriteString(notice)
+			if sendErr := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); sendErr != nil {
+				return sendErr
+			}
+		}
 		if streamErr == nil && result.Usage.TotalTokens > 0 {
 			if sendErr := send(bridge.Event{Type: bridge.EventUsage, Usage: &bridge.UsageEvent{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens, TotalTokens: result.Usage.TotalTokens}}); sendErr != nil {
 				return sendErr

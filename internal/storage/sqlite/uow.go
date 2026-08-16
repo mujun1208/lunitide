@@ -72,6 +72,36 @@ type txAdapter struct {
 	q *sql.Conn
 }
 
+const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status,created_at,updated_at,version`
+
+func (t *txAdapter) getProject(ctx context.Context, id string) (project.Project, error) {
+	var p project.Project
+	var created, updated string
+	row := t.q.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE id=?`, id)
+	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.Status, &created, &updated, &p.Version); err != nil {
+		if err == sql.ErrNoRows {
+			return p, project.ErrNotFound
+		}
+		return p, err
+	}
+	var err error
+	if p.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
+		return p, err
+	}
+	if p.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
+		return p, err
+	}
+	return p, p.Validate()
+}
+
+func (t *txAdapter) nextProjectCode(ctx context.Context) (string, error) {
+	var max int
+	if err := t.q.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(substr(project_code,4) AS INTEGER)),0) FROM projects`).Scan(&max); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("ITM%05d", max+1), nil
+}
+
 func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (project.Project, error) {
 	var count int
 	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects`).Scan(&count); err != nil {
@@ -94,18 +124,58 @@ func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (proje
 		return p, err
 	}
 	if p.Status == "" {
-		p.Status = project.StatusActive
+		p.Status = project.StatusCreated
+	}
+	if p.Type == "" {
+		p.Type = project.TypeImplementation
+	}
+	if p.ProjectCode == "" {
+		if p.ProjectCode, err = t.nextProjectCode(ctx); err != nil {
+			return p, err
+		}
 	}
 	now := time.Now().UTC()
 	p.CreatedAt, p.UpdatedAt, p.Version = now, now, 1
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?)`, p.ID, p.Name, p.Status, formatTime(now), formatTime(now), p.Version)
+	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.Status, formatTime(now), formatTime(now), p.Version)
 	if err == nil {
 		_, err = t.q.ExecContext(ctx, `INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, p.ID)
 	}
 	return p, mapWriteError(err)
+}
+
+func (t *txAdapter) UpdateProject(ctx context.Context, id string, version int64, mutate func(*project.Project) error) (project.Project, error) {
+	p, err := t.getProject(ctx, id)
+	if err != nil {
+		return p, err
+	}
+	if p.Version != version {
+		return p, projectapp.ErrProjectVersionConflict
+	}
+	if err = mutate(&p); err != nil {
+		return p, err
+	}
+	p.UpdatedAt = time.Now().UTC()
+	p.Version = version + 1
+	if err = p.Validate(); err != nil {
+		return p, err
+	}
+	result, err := t.q.ExecContext(ctx, `UPDATE projects SET name=?,project_type=?,description=?,summary=?,objective=?,client=?,contract_no=?,amount=?,budget=?,plan_start=?,plan_end=?,remark=?,close_reason=?,status=?,updated_at=?,version=? WHERE id=? AND version=?`,
+		p.Name, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.Status, formatTime(p.UpdatedAt), p.Version, id, version)
+	if err != nil {
+		return p, mapWriteError(err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return p, projectapp.ErrProjectVersionConflict
+	}
+	return p, nil
+}
+
+func (t *txAdapter) GetProject(ctx context.Context, id string) (project.Project, error) {
+	return t.getProject(ctx, id)
 }
 
 func (t *txAdapter) CreateSession(ctx context.Context, v session.Session) (session.Session, error) {

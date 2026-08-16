@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/tools.commandPolicy.set.schema.json",
+  "title": "tools.commandPolicy.set payload",
+  "x-method": "tools.commandPolicy.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "commands": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "prefix": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "maxArgs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 300000
+          }
+        },
+        "required": [
+          "prefix"
+        ]
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "applied": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 128
+      }
+    },
+    "required": [
+      "applied"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "commands": []
+      },
+      {
+        "commands": [
+          {
+            "prefix": [
+              "node",
+              "--version"
+            ],
+            "maxArgs": 2,
+            "timeoutMs": 15000
+          }
+        ]
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "commands": [
+          {
+            "prefix": []
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "prefix": [
+              "go",
+              "test",
+              "-run",
+              "x",
+              "-count",
+              "1",
+              "-v",
+              "-a",
+              "-b"
+            ],
+            "maxArgs": 99
+          }
+        ]
+      }
+    ]
+  }
+}

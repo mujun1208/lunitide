@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/automation.run.list.schema.json",
+  "title": "automation.run.list payload",
+  "x-method": "automation.run.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "jobId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "runs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "jobId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "jobName": { "type": "string" },
+            "state": { "enum": ["running", "succeeded", "failed"] },
+            "trigger": { "enum": ["cron", "manual"] },
+            "summary": { "type": "string" },
+            "totalTokens": { "type": "integer" },
+            "error": { "type": "string" },
+            "startedAt": { "type": "string", "format": "date-time" },
+            "finishedAt": { "type": "string", "format": "date-time" }
+          },
+          "required": ["id", "jobId", "jobName", "state", "trigger", "startedAt"]
+        }
+      }
+    },
+    "required": ["runs"]
+  },
+  "x-examples": {
+    "positive": [{ "limit": 20 }],
+    "negative": [{ "limit": 0 }]
+  }
+}

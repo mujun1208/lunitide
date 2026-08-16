@@ -25,7 +25,7 @@ func orchestrationStore(t *testing.T, path string) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.db.Exec(`INSERT OR IGNORE INTO projects(id,name,created_at,updated_at) VALUES(?, 'project', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`, testProjectID)
+	_, err = s.db.Exec(`INSERT OR IGNORE INTO projects(id,name,project_code,created_at,updated_at) VALUES(?, 'project', 'ITM00001', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`, testProjectID)
 	if err == nil {
 		_, err = s.db.Exec(`INSERT OR IGNORE INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, testProjectID)
 	}

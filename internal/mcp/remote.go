@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -239,6 +240,39 @@ func (c *Client) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, erro
 	// MCP-003: read-only idempotent calls retry exactly once; both
 	// attempts failed at the transport level, surface the last error.
 	return InvokeResult{}, fmt.Errorf("%w after %d attempts: %v", ErrInvokeFailed, MaxRetries+1, lastErr)
+}
+
+// ToolInfo is one tool advertisement returned by ListTools.
+type ToolInfo struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+}
+
+// ListTools performs the read-only catalogue fetch: GET {BaseURL}/tools
+// under the same frozen response policy as Invoke (status / encoding / size
+// cap, no redirects, single retry on transport failure). The response is
+// either a JSON array of tool advertisements or an error.
+func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.TotalTimeout)
+	defer cancel()
+	target := c.BaseURL + "/tools"
+	var lastErr error
+	for attempt := 0; attempt <= MaxRetries; attempt++ {
+		data, err := c.attempt(ctx, target)
+		if err == nil {
+			var tools []ToolInfo
+			if err := json.Unmarshal(data, &tools); err != nil {
+				return nil, fmt.Errorf("mcp: tools catalogue is not a JSON array: %w", err)
+			}
+			return tools, nil
+		}
+		lastErr = err
+		if !retryable(err) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("mcp: tools catalogue fetch failed after %d attempts: %v", MaxRetries+1, lastErr)
 }
 
 // attempt executes one GET and applies the MCP-002 response policy in

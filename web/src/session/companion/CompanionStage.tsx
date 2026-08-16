@@ -1,19 +1,23 @@
-// CompanionStage.tsx is the M9.5 full-screen moon stage (T-9.5.2.3 +
-// MC3 integration): it composes MoonSphere, SubtitleBar and
-// CompanionControls, owns the companion state machine, drives the
-// TtsPlayer speech pipeline with segment-highlighted subtitles, wires
-// final transcripts straight into ChatBridge, and implements the
-// degradation chain (M95-001 one-shot banner, 3-failure circuit
-// breaker with retry, cancel-receipt tolerance). Esc interrupts
-// (speaking) or exits; Space/Enter toggles the microphone; focus
-// returns to the entry button on unmount.
+// CompanionStage.tsx is the full-screen pure-moon voice stage: no
+// subtitle bar, no control buttons — just the moon, a faint status
+// pill and a ghost exit. The conversation is fully automatic: the
+// first activation (auto attempt when the microphone permission is
+// already granted, otherwise Space / moon click) arms a hands-free
+// loop — listen → final transcript → ChatBridge → TTS reply →
+// auto re-listen — so talking to 月汐 feels like a chat. Replies are
+// announced through a visually-hidden aria-live log; the degradation
+// chain (M95-001 banner, 3-failure circuit breaker with retry,
+// cancel-receipt tolerance) is preserved. Esc interrupts (speaking)
+// or exits; Space/Enter toggles the microphone; focus returns to the
+// entry element on unmount.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, getTtsBridge, type TtsVoice } from '../../bridge/client'
 import { defaultCompanionSettings, loadCompanionSettings, saveCompanionSettings, type CompanionSettings } from './companionSettings'
 import { prepareSpeech } from './companionText'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
 import { startCompanionSpeech, type CompanionSpeechHandle } from './speech'
-import { TtsPlayer } from './ttsPlayer'
+import { TtsPlayer, unlockTtsAudio } from './ttsPlayer'
+import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
 
 export interface CompanionStageProps {
@@ -34,6 +38,8 @@ interface SubtitleRound {
 
 const STATE_LABELS: Record<CompanionState, string> = { idle: '待机', listening: '聆听中', thinking: '思考中', speaking: '说话中' }
 const idleLevels = Array.from({ length: MOON_RING_BINS }, () => 0)
+/** Re-listen guard: stop the hands-free loop after this many silent auto-restarts in a row. */
+const MAX_SILENT_RESTARTS = 3
 
 export function CompanionStage({ chatStatus, assistantText, error, chatReady, onSend, onExit }: CompanionStageProps): React.JSX.Element {
   const machine = useCompanionMachine()
@@ -46,30 +52,38 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const [levels, setLevels] = useState<number[]>(idleLevels)
   const [rounds, setRounds] = useState<SubtitleRound[]>([])
   const [listenSeconds, setListenSeconds] = useState(0)
-  const [typed, setTyped] = useState('')
-  const [typing, setTyping] = useState(false)
+  const [hintVisible, setHintVisible] = useState(false)
   const [localError, setLocalError] = useState<BridgeClientError>()
   const rootRef = useRef<HTMLDivElement>(null)
-  const micRef = useRef<HTMLButtonElement>(null)
   const entryFocusRef = useRef<Element | null>(null)
   const speechHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
-  const lastAssistantRef = useRef('')
-  const followPauseRef = useRef(0)
-  const subtitleRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef(machine.state)
   stateRef.current = machine.state
+  /** Hands-free loop armed after the first successful microphone activation. */
+  const autoLoopRef = useRef(false)
+  const autoStartTriedRef = useRef(false)
+  const exitedRef = useRef(false)
+  const silentRestartsRef = useRef(0)
 
-  // Mount: load settings, probe the TTS engine, lock body scroll,
-  // remember the entry element for focus return, focus the mic.
+  // Mount: load settings, probe the TTS engine, unlock audio playback,
+  // lock body scroll, remember the entry element for focus return.
   useEffect(() => {
     const stored = loadCompanionSettings()
     setSettings(stored)
     entryFocusRef.current = document.activeElement
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    micRef.current?.focus()
+    // The stage renders inside .launch-content, whose stacking level sits
+    // below .launch-sidebar — so the sidebar must be retired via a root-level
+    // flag (html.companion-active) instead of relying on the overlay's z-index.
+    document.documentElement.classList.add('companion-active')
+    rootRef.current?.focus()
+    unlockTtsAudio()
+    const unlock = () => unlockTtsAudio()
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
     let cancelled = false
     getTtsBridge()
       .voices()
@@ -86,7 +100,10 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       })
     return () => {
       cancelled = true
+      exitedRef.current = true
+      autoLoopRef.current = false
       document.body.style.overflow = previousOverflow
+      document.documentElement.classList.remove('companion-active')
       speechHandleRef.current?.stop()
       speechHandleRef.current = undefined
       playerRef.current?.dispose()
@@ -146,9 +163,12 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     return playerRef.current
   }, [])
 
+  // Default to a gentle female voice: explicit choice → zh female →
+  // any female → zh → first available.
   const activeVoiceId = useCallback(() => {
     if (settings.voiceId && voices.some(voice => voice.voice_id === settings.voiceId)) return settings.voiceId
-    return (voices.find(voice => voice.lang.toLowerCase().startsWith('zh')) ?? voices[0])?.voice_id ?? ''
+    const zh = voices.filter(voice => voice.lang.toLowerCase().startsWith('zh'))
+    return (zh.find(voice => voice.gender === 'female') ?? voices.find(voice => voice.gender === 'female') ?? zh[0] ?? voices[0])?.voice_id ?? ''
   }, [settings.voiceId, voices])
 
   const speak = useCallback(
@@ -200,41 +220,41 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     if (stateRef.current === 'speaking') machine.dispatch({ type: 'INTERRUPT' })
   }, [machine])
 
-  const toggleMic = useCallback(() => {
-    if (!chatReady) {
-      setLocalError(new BridgeClientError('请先配置并选择可用的供应商和模型', 'CHAT_CONFIG_MISSING', false, 'renderer'))
-      return
-    }
-    const state = stateRef.current
-    if (state === 'listening') {
-      speechHandleRef.current?.stop()
-      speechHandleRef.current = undefined
-      machine.dispatch({ type: 'MIC_CANCEL' })
-      return
-    }
-    if (state === 'thinking') return
-    if (state === 'speaking') {
-      playerRef.current?.interrupt()
-      setGain(0)
-      machine.dispatch({ type: 'MIC_CLICK_WHILE_SPEAKING' })
-      startListening()
-      return
-    }
-    startListening()
-  }, [chatReady, machine])
+  // P3-4 automation→TTS linkage: a run that finishes while the stage
+  // sits idle is spoken like a proactive reply — re-using the
+  // retrySegment dispatch chain so the frozen machine matrix holds.
+  // Busy stages never broadcast (the scheduler toast still notifies).
+  useAutomationBroadcast({
+    enabled: settings.enabled && settings.autoSpeak && ttsAvailable === true,
+    idle: () => stateRef.current === 'idle',
+    onBroadcast: text => {
+      if (stateRef.current !== 'idle' || exitedRef.current) return
+      setRounds([]) // a proactive announcement opens its own turn
+      machine.dispatch({ type: 'MIC_ACTIVATE' })
+      machine.dispatch({ type: 'RECOGNIZED_FINAL' })
+      machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
+      speak(text)
+    },
+  })
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback((auto: boolean) => {
     setLocalError(undefined)
+    unlockTtsAudio()
     void startCompanionSpeech({
       onFinal: transcript => {
         speechHandleRef.current = undefined
-        setRounds(current => [...current, { role: 'user', text: transcript }])
+        silentRestartsRef.current = 0
+        // A new turn retires the previous one: only this user line stays,
+        // the assistant reply streams in below it and both fade away with
+        // the next question.
+        setRounds([{ role: 'user', text: transcript }])
         if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
         machine.dispatch({ type: 'RECOGNIZED_FINAL' })
         onSend(transcript)
       },
       onError: issue => {
         speechHandleRef.current = undefined
+        autoLoopRef.current = false
         setLocalError(issue)
         if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
       },
@@ -247,38 +267,89 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       .then(handle => {
         if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
         speechHandleRef.current = handle
+        autoLoopRef.current = true
+        setHintVisible(false)
       })
       .catch(issue => {
-        setLocalError(issue)
+        // Failed start disarms the loop (no infinite auto-retry);
+        // silent auto attempt keeps the stage clean and just invites
+        // the user to activate with Space / moon click — a gesture
+        // also unlocks mic permission prompts and audio playback.
+        autoLoopRef.current = false
+        if (auto) setHintVisible(true)
+        else setLocalError(issue)
       })
   }, [machine, onSend])
 
+  // Hands-free loop: once armed, every return to idle (reply played,
+  // interrupted, silence timeout) automatically re-opens the mic so
+  // the user just keeps talking.
+  useEffect(() => {
+    if (machine.state !== 'idle' || !autoLoopRef.current || exitedRef.current) return
+    const timer = window.setTimeout(() => {
+      if (stateRef.current !== 'idle' || !autoLoopRef.current || exitedRef.current) return
+      if (++silentRestartsRef.current > MAX_SILENT_RESTARTS) {
+        autoLoopRef.current = false
+        silentRestartsRef.current = 0
+        setHintVisible(true)
+        return
+      }
+      startListening(true)
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [machine.state, startListening])
+
+  // Auto-start attempt when the chat is ready: with microphone
+  // permission already granted this opens the listening loop without
+  // any click; otherwise the catch shows the faint hint. The callback
+  // lives in a ref so the effect (and its timer) survive unrelated
+  // re-renders — e.g. the voices() probe resolving right after mount.
+  const startListeningRef = useRef(startListening)
+  startListeningRef.current = startListening
+  useEffect(() => {
+    if (autoStartTriedRef.current || !chatReady) return
+    autoStartTriedRef.current = true
+    const timer = window.setTimeout(() => {
+      if (!exitedRef.current && stateRef.current === 'idle') startListeningRef.current(true)
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [chatReady])
+
+  const toggleMic = useCallback(() => {
+    unlockTtsAudio()
+    if (!chatReady) {
+      setLocalError(new BridgeClientError('请先配置并选择可用的供应商和模型', 'CHAT_CONFIG_MISSING', false, 'renderer'))
+      return
+    }
+    const state = stateRef.current
+    if (state === 'listening') {
+      speechHandleRef.current?.stop()
+      speechHandleRef.current = undefined
+      // Manual stop pauses the hands-free loop; Space re-arms it.
+      autoLoopRef.current = false
+      silentRestartsRef.current = 0
+      machine.dispatch({ type: 'MIC_CANCEL' })
+      return
+    }
+    if (state === 'thinking') return
+    if (state === 'speaking') {
+      playerRef.current?.interrupt()
+      setGain(0)
+      machine.dispatch({ type: 'MIC_CLICK_WHILE_SPEAKING' })
+      startListening(false)
+      return
+    }
+    startListening(false)
+  }, [chatReady, machine, startListening])
+
   const exit = useCallback(() => {
+    exitedRef.current = true
+    autoLoopRef.current = false
     speechHandleRef.current?.stop()
     speechHandleRef.current = undefined
     if (stateRef.current === 'speaking') interrupt()
     onExit()
   }, [interrupt, onExit])
-
-  const sendTyped = () => {
-    const text = typed.trim()
-    if (!text || stateRef.current === 'thinking' || stateRef.current === 'speaking') return
-    setTyped('')
-    setTyping(false)
-    setRounds(current => [...current, { role: 'user', text }])
-    // Typed send follows the frozen matrix: idle→listening→thinking.
-    if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-    machine.dispatch({ type: 'RECOGNIZED_FINAL' })
-    onSend(text)
-  }
-
-  const toggleAutoSpeak = () => {
-    setSettings(current => {
-      const next = { ...current, autoSpeak: !current.autoSpeak }
-      saveCompanionSettings(next)
-      return next
-    })
-  }
 
   const retrySegment = () => {
     setCircuitBroken(false)
@@ -292,57 +363,35 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   }
 
   // Keyboard contract: Esc = interrupt (speaking) or exit; Space/Enter
-  // = microphone (unless typing in the folded composer).
+  // = microphone (unless focused on an interactive element).
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault()
-      if (typing) {
-        setTyping(false)
-        return
-      }
       if (stateRef.current === 'speaking') interrupt()
       else exit()
       return
     }
     if (event.key === ' ' || event.key === 'Enter') {
       const target = event.target as HTMLElement
-      // Only interactive elements swallow Space/Enter here; a bare
-      // `[role]` selector would match the dialog root itself for every
-      // descendant and kill the stage-level mic shortcut (MC-06).
-      if (target.closest('input,textarea,button,select,a')) return
+      if (target.closest('button,input,textarea,select,a')) return
       event.preventDefault()
       toggleMic()
     }
   }
 
-  const followSubtitle = (force = false) => {
-    const box = subtitleRef.current
-    if (!box) return
-    const now = performance.now()
-    if (!force && now < followPauseRef.current) return
-    box.scrollTop = box.scrollHeight
-  }
-
-  const onSubtitleScroll = () => {
-    const box = subtitleRef.current
-    if (!box) return
-    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40
-    if (nearBottom) followPauseRef.current = 0
-    else if (!followPauseRef.current) followPauseRef.current = performance.now() + 3000
-  }
-
-  useEffect(() => {
-    followSubtitle()
-  }, [rounds])
-
-  const activeIndex = (() => {
-    const last = rounds[rounds.length - 1]
-    return last?.role === 'assistant' && last.segments ? last.activeIndex : undefined
-  })()
-  const lastAssistant = [...rounds].reverse().find(round => round.role === 'assistant')
-
   return (
-    <div className="companion-stage" ref={rootRef} data-state={machine.state} role="dialog" aria-modal="true" aria-label="月伴对话舞台" onKeyDown={onKeyDown} style={{ '--moon-gain': gain } as React.CSSProperties}>
+    <div
+      className="companion-stage"
+      ref={rootRef}
+      tabIndex={-1}
+      data-state={machine.state}
+      data-started={autoLoopRef.current || machine.state !== 'idle'}
+      role="dialog"
+      aria-modal="true"
+      aria-label="月伴对话舞台"
+      onKeyDown={onKeyDown}
+      style={{ '--moon-gain': gain } as React.CSSProperties}
+    >
       <div className="companion-stars" aria-hidden="true">
         {COMPANION_STARS.map((star, index) => (
           <i key={index} style={{ left: star.x, top: star.y, width: star.s, height: star.s, animationDelay: star.d, animationDuration: star.t }} className={star.bright ? 'bright' : undefined} />
@@ -358,7 +407,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       )}
       {circuitBroken && (
         <div className="companion-banner warn" role="status">
-          语音朗读暂时不可用，字幕不受影响
+          语音朗读暂时不可用
           <button type="button" onClick={retrySegment}>
             重试本段朗读
           </button>
@@ -373,87 +422,32 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
           <span>代码 {(localError ?? error)!.code}</span>
         </div>
       )}
+      <MoonSphere state={machine.state} gain={gain} levels={levels} interruptible={machine.state !== 'thinking'} onInterrupt={machine.state === 'speaking' ? interrupt : toggleMic} />
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${machine.state}`} aria-hidden="true" />
         {STATE_LABELS[machine.state]}
         {machine.state === 'listening' && <time>{`${Math.floor(listenSeconds / 60)}:${String(listenSeconds % 60).padStart(2, '0')}`}</time>}
         {machine.state === 'thinking' && <span className="companion-status-sub">月汐思考中…</span>}
       </div>
-      <MoonSphere state={machine.state} gain={gain} levels={levels} interruptible={machine.state === 'speaking'} onInterrupt={interrupt} />
-      <div className="companion-subtitles" ref={subtitleRef} tabIndex={0} aria-label="对话字幕" onScroll={onSubtitleScroll}>
+      {hintVisible && machine.state === 'idle' && (
+        <p className="companion-hint" aria-live="polite">
+          轻点月亮或按空格，开始和月汐说话
+        </p>
+      )}
+      {/* Live subtitle strip: the current turn streams here character by
+          character (wind-blown sand feel) and retires when the next turn
+          starts; the aria-live log still announces every round. */}
+      <div className="companion-subtitles" aria-label="对话记录">
         <div className="companion-subtitle-list" aria-live="polite" role="log">
           {rounds.map((round, index) => (
             <SubtitleRow key={index} round={round} />
           ))}
-          {!rounds.length && <p className="companion-subtitle-hint">点击话筒或按空格开始说话，也可以展开输入框打字。</p>}
+          {!rounds.length && <p className="companion-subtitle-hint">开启麦克风后，你说的话和月汐的回答都会在这里播报。</p>}
         </div>
       </div>
-      {machine.state === 'speaking' && lastAssistant?.segments && activeIndex !== undefined && (
-        <p className="companion-active-line" aria-hidden="true">
-          {lastAssistant.segments[activeIndex]}
-        </p>
-      )}
-      {typing && (
-        <form
-          className="companion-typing"
-          onSubmit={event => {
-            event.preventDefault()
-            sendTyped()
-          }}
-        >
-          <input
-            value={typed}
-            autoFocus
-            aria-label="文字输入"
-            placeholder="输入文字，Enter 发送，Esc 收起"
-            onChange={event => setTyped(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === 'Escape') {
-                event.stopPropagation()
-                setTyping(false)
-              }
-            }}
-          />
-          <button type="submit" className="primary" disabled={!typed.trim()}>
-            发送
-          </button>
-        </form>
-      )}
-      <div className="companion-controls" role="toolbar" aria-label="月伴控制">
-        <button
-          type="button"
-          ref={micRef}
-          className={`companion-mic state-${machine.state}`}
-          aria-label={machine.state === 'listening' ? '取消语音输入' : '语音输入（空格）'}
-          aria-pressed={machine.state === 'listening'}
-          disabled={!chatReady && machine.state === 'idle'}
-          onClick={toggleMic}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-            <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className="companion-tts-toggle"
-          aria-label={settings.autoSpeak ? '关闭自动朗读' : '开启自动朗读'}
-          aria-pressed={settings.autoSpeak}
-          disabled={!ttsAvailable}
-          title={ttsAvailable === undefined ? '正在检测语音引擎…' : ttsAvailable ? '自动朗读开关' : '本机无语音合成引擎'}
-          onClick={toggleAutoSpeak}
-        >
-          {settings.autoSpeak && ttsAvailable ? '🔊' : '🔇'} 朗读
-        </button>
-        {!typing && machine.state !== 'listening' && (
-          <button type="button" className="companion-type-toggle" aria-label="展开文字输入" onClick={() => setTyping(true)}>
-            ⌨ 输入
-          </button>
-        )}
-        <button type="button" className="companion-exit" aria-label="退出月伴舞台（Esc）" onClick={exit}>
-          退出
-        </button>
-      </div>
+      <button type="button" className="companion-exit" aria-label="退出月伴对话（Esc）" onClick={exit}>
+        退出
+      </button>
     </div>
   )
 }
@@ -463,7 +457,7 @@ function SubtitleRow({ round }: { round: SubtitleRound }): React.JSX.Element {
     return (
       <p className="companion-line user">
         <span className="who" aria-hidden="true">我</span>
-        {round.text}
+        <StreamChars text={round.text} />
       </p>
     )
   }
@@ -482,8 +476,24 @@ function SubtitleRow({ round }: { round: SubtitleRound }): React.JSX.Element {
   return (
     <p className="companion-line assistant">
       <span className="who" aria-hidden="true">月汐</span>
-      {round.text || '…'}
+      <StreamChars text={round.text || '…'} />
     </p>
+  )
+}
+
+/** Stream text character by character: each new character drifts in like
+ *  wind-blown sand (blur + slide + fade), so streamed replies materialize
+ *  continuously instead of popping in chunk by chunk. Stable per-index keys
+ *  keep already-shown characters from re-animating on every stream chunk. */
+function StreamChars({ text }: { text: string }): React.JSX.Element {
+  return (
+    <span className="stream-chars">
+      {Array.from(text).map((char, index) => (
+        <span key={index} className="sand" style={{ animationDelay: `${Math.min(index * 10, 260)}ms` }}>
+          {char === ' ' ? '\u00A0' : char}
+        </span>
+      ))}
+    </span>
   )
 }
 

@@ -5,6 +5,7 @@
 export interface CompanionSettings {
   enabled: boolean
   autoSpeak: boolean
+  wakeWord: boolean
   voiceId: string
   rate: number
   volume: number
@@ -15,6 +16,7 @@ const STORAGE_KEY = 'lunitide:companion'
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
   autoSpeak: true,
+  wakeWord: true,
   voiceId: '',
   rate: 0,
   volume: 80,
@@ -29,6 +31,7 @@ export function loadCompanionSettings(): CompanionSettings {
     return {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
       autoSpeak: typeof parsed.autoSpeak === 'boolean' ? parsed.autoSpeak : fallback.autoSpeak,
+      wakeWord: typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord,
       voiceId: typeof parsed.voiceId === 'string' ? parsed.voiceId : '',
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),

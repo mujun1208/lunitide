@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { MemoryBridge } from '../bridge/client'
+import type { FeedbackBridge, MemoryBridge } from '../bridge/client'
 import type { MemoryDTO } from '../generated/bridge'
 import { MemoryPage } from './MemoryPage'
 
@@ -14,6 +14,9 @@ const api = (o: Partial<MemoryBridge> = {}): MemoryBridge => ({
   get: vi.fn(), list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn().mockResolvedValue(memory),
   search: vi.fn().mockResolvedValue({ items: [] }), update: vi.fn().mockResolvedValue({ updated: true }),
   delete: vi.fn().mockResolvedValue({ deleted: true }), ...o,
+})
+const feedbackApi = (o: Partial<FeedbackBridge> = {}): FeedbackBridge => ({
+  record: vi.fn(), candidates: vi.fn().mockResolvedValue({ items: [] }), ...o,
 })
 
 it('renders empty state and loads memories for the project', async () => {
@@ -39,4 +42,38 @@ it('creates a memory via the create form', async () => {
   fireEvent.click(screen.getByRole('button', { name: '创建记忆' }))
   await waitFor(() => expect(create).toHaveBeenCalledOnce())
   expect(create.mock.calls[0][0]).toMatchObject({ projectId: P, key: '新决策', content: '采用 TypeScript' })
+})
+
+const pendingItem = {
+  candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAB', content: '回答默认使用中文', scopeId: 'local',
+  confirmationToken: 'a'.repeat(64), createdAt: now, expiresAt: now,
+}
+
+it('confirms a pending preference candidate and removes it from the list', async () => {
+  const confirmCandidate = vi.fn().mockResolvedValue({ candidateId: pendingItem.candidateId, state: 'confirmed' })
+  const bridge = api({ confirmCandidate })
+  const feedback = feedbackApi({ candidates: vi.fn().mockResolvedValue({ items: [pendingItem] }) })
+  render(<MemoryPage projectId={P} bridge={bridge} feedback={feedback} />)
+  expect(await screen.findByText('回答默认使用中文')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '确认沉淀' }))
+  await waitFor(() => expect(confirmCandidate).toHaveBeenCalledOnce())
+  expect(confirmCandidate.mock.calls[0][0]).toMatchObject({ candidateId: pendingItem.candidateId, action: 'confirm' })
+  await waitFor(() => expect(screen.queryByText('回答默认使用中文')).not.toBeInTheDocument())
+})
+
+it('rejects a pending preference candidate', async () => {
+  const confirmCandidate = vi.fn().mockResolvedValue({ candidateId: pendingItem.candidateId, state: 'rejected' })
+  const bridge = api({ confirmCandidate })
+  const feedback = feedbackApi({ candidates: vi.fn().mockResolvedValue({ items: [pendingItem] }) })
+  render(<MemoryPage projectId={P} bridge={bridge} feedback={feedback} />)
+  await screen.findByText('回答默认使用中文')
+  fireEvent.click(screen.getByRole('button', { name: '拒绝' }))
+  await waitFor(() => expect(confirmCandidate).toHaveBeenCalledWith(expect.objectContaining({ action: 'reject' })))
+  await waitFor(() => expect(screen.queryByText('回答默认使用中文')).not.toBeInTheDocument())
+})
+
+it('hides the confirmation section when no candidates are pending', async () => {
+  render(<MemoryPage projectId={P} bridge={api()} feedback={feedbackApi()} />)
+  await screen.findByText('暂无记忆')
+  expect(screen.queryByLabelText('偏好确认')).not.toBeInTheDocument()
 })

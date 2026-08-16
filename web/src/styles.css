@@ -7,8 +7,8 @@
   --glow:#7fb4ff; --glow2:#4f8bff;
   --tide1:#3bd6ff; --tide2:#7f5bff; --tide3:#2fd6b5;
   --ok:#3bd6a0; --warn:#ffc46b; --err:#ff7a7a;
-  --mono:"Cascadia Code","Consolas","SF Mono",monospace;
-  --sans:"Inter","Source Han Sans SC","Noto Sans SC","Microsoft YaHei UI","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Code","Consolas","SF Mono","Microsoft YaHei UI","Segoe UI",monospace;
+  --sans:"Inter","Segoe UI Variable Text","Segoe UI","Source Han Sans SC","Noto Sans SC","Microsoft YaHei UI",system-ui,sans-serif;
   --serif:var(--sans);
   font-family:var(--sans); color:var(--ink); background:var(--bg); color-scheme:dark;
 }
@@ -221,7 +221,7 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .round-nav button{width:8px;height:8px;min-width:0;padding:0;border:0;border-radius:50%;background:var(--muted);opacity:.55}.round-nav button.active{transform:scale(1.35);background:var(--accent);opacity:1}.round-nav button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .scroll-to-bottom{position:absolute;z-index:13;right:28px;bottom:128px;padding:7px 11px;border-radius:99px;box-shadow:0 5px 18px rgba(0,0,0,.28)}
 .message-body>*:first-child{margin-top:0}.message-body>*:last-child{margin-bottom:0}.message-body h1,.message-body h2,.message-body h3{margin:1em 0 .45em;line-height:1.3}.message-body h1{font-size:1.45em}.message-body h2{font-size:1.25em}.message-body h3{font-size:1.1em}.message-body ul,.message-body ol{padding-left:1.5em}.message-body blockquote{margin:.75em 0;padding:.15em .9em;border-left:3px solid var(--accent);color:var(--muted)}.message-body pre{overflow:auto;padding:12px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.25)}.message-body code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.message-body :not(pre)>code{padding:.1em .35em;border-radius:4px;background:rgba(127,127,127,.16)}.message-body table{display:block;max-width:100%;overflow-x:auto;border-collapse:collapse}.message-body th,.message-body td{padding:6px 9px;border:1px solid var(--line);text-align:left}.message-body a{color:var(--accent);text-decoration:underline}
-.thinking-panel{margin:0 0 10px;max-width:100%;border:1px solid var(--line);border-radius:9px;background:rgba(127,127,127,.06);font-size:12px}.thinking-panel summary{cursor:pointer;padding:7px 10px;color:var(--muted);font-weight:600}.thinking-content{display:grid;gap:7px;padding:0 10px 9px}.thinking-content p{margin:.45em 0}.thinking-reasoning>b{display:block;margin:2px 0 5px;color:var(--muted)}.thinking-content .tool-activity{margin:0;padding:8px 9px;border:1px solid color-mix(in srgb,var(--line) 72%,transparent);border-radius:7px;background:rgba(0,0,0,.12)}
+.thinking-panel{margin:0 0 10px;max-width:100%;border:1px solid var(--line);border-radius:9px;background:rgba(127,127,127,.06);font-size:12px}.thinking-panel summary{cursor:pointer;display:flex;align-items:center;gap:8px;min-width:0;padding:7px 10px;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden}.thinking-summary-label{flex-shrink:0}.thinking-summary-status{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:400;opacity:.85}.thinking-content{display:grid;gap:6px;padding:0 10px 9px}.thinking-content p{margin:.45em 0}.thinking-reasoning>b{display:block;margin:2px 0 5px;color:var(--muted)}.thinking-content .tool-activity{display:flex;align-items:center;gap:8px;min-width:0;margin:0;padding:6px 9px;border:1px solid color-mix(in srgb,var(--line) 72%,transparent);border-radius:7px;background:rgba(0,0,0,.12)}.tool-activity-info{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tool-activity .approval-actions{flex-shrink:0;display:flex;align-items:center;gap:6px}
 .message-panel-header{padding:14px 18px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between}
 .message-panel-header h2{font-size:16px;margin:0;font-family:var(--serif)}
 .message-list{display:flex;flex-direction:column;gap:0;padding:18px;list-style:none;margin:0}
@@ -496,6 +496,13 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 
 /* ===== M9.5 Moon Companion stage (colors via --moon/--glow/--tide1~3) ===== */
 .companion-stage{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(1100px 640px at 70% -10%,rgba(63,134,255,.16),transparent 60%),radial-gradient(900px 520px at 14% 6%,rgba(63,214,255,.09),transparent 55%),linear-gradient(180deg,#04060e 0%,#04070f 45%,#071022 100%);--moon-gain:0}
+/* 月伴舞台打开时收起左侧导航：舞台渲染在 .launch-content 内（层级低于 .launch-sidebar），
+   靠根节点旗标 html.companion-active 让侧栏平滑缩回、内容区占满全屏 */
+.launch-sidebar{transition:width .3s ease,opacity .25s ease,transform .3s ease,padding .3s ease}
+html.companion-active .launch-sidebar{width:0;padding-left:0;padding-right:0;border-right-width:0;opacity:0;transform:translateX(-14px);pointer-events:none}
+html.companion-active .launch-content{width:100%;margin-left:0}
+html.companion-active .sidebar-resizer{display:none}
+html.companion-active .drawer-toggle{display:none}
 .companion-stars{position:absolute;inset:0;pointer-events:none}
 .companion-stars i{position:absolute;border-radius:50%;background:#d7e7ff;box-shadow:0 0 3px rgba(190,219,255,.75);animation:companionTwinkle ease-in-out infinite}
 .companion-stars i.bright{background:#fff;box-shadow:0 0 4px 1px rgba(208,229,255,.9),0 0 12px 2px rgba(92,154,255,.34)}
@@ -507,44 +514,72 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 .companion-status{position:absolute;top:22px;right:26px;display:flex;align-items:center;gap:8px;z-index:3;padding:7px 13px;border:1px solid rgba(143,170,216,.3);border-radius:999px;background:rgba(10,17,30,.85);color:var(--ink);font-size:13px}
 .companion-status time{color:var(--muted);font:11px var(--mono)}
 .companion-status-sub{color:var(--muted);font-size:11px}
+.companion-hint{position:absolute;bottom:118px;left:50%;transform:translateX(-50%);z-index:3;margin:0;color:#a7bce0;font-size:13.5px;letter-spacing:.08em;text-shadow:0 1px 10px rgba(0,0,0,.75);animation:companionHintPulse 2.8s ease-in-out infinite}
+@keyframes companionHintPulse{0%,100%{opacity:.4}50%{opacity:.95}}
+.reduce-motion .companion-hint{animation:none;opacity:.7}
 .companion-status-dot{width:9px;height:9px;border-radius:50%}
 .companion-status-dot.state-idle{background:var(--muted)}
 .companion-status-dot.state-listening{background:var(--tide1);box-shadow:0 0 8px var(--tide1)}
 .companion-status-dot.state-thinking{background:var(--tide2);box-shadow:0 0 8px var(--tide2)}
 .companion-status-dot.state-speaking{background:var(--tide3);box-shadow:0 0 8px var(--tide3)}
-.companion-moon{position:relative;width:38vmin;height:38vmin;flex:none}
-.companion-moon-halo{position:absolute;inset:-16%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(222,234,255,.30) 0%,rgba(142,182,255,.14) 34%,transparent 66%);filter:blur(10px);opacity:.4}
-.companion-moon.state-idle .companion-moon-halo{animation:companionBreath 4s ease-in-out infinite}
-.companion-moon.state-listening .companion-moon-halo{opacity:.4}
-.companion-moon.state-thinking .companion-moon-halo{opacity:.25}
-.companion-moon.state-speaking .companion-moon-halo{opacity:calc(.4 + var(--moon-gain) * .6)}
-@keyframes companionBreath{0%,100%{opacity:.3}50%{opacity:.5}}
-.companion-moon-ring{position:absolute;inset:0;pointer-events:none}
-.companion-moon-ring i{position:absolute;top:50%;left:50%;display:none;width:4px;height:calc(2vmin + var(--ring-level) * 3.4vmin);border-radius:99px;background:linear-gradient(180deg,var(--tide1),var(--tide2));box-shadow:0 0 8px rgba(63,214,255,.5);transform:rotate(var(--ring-angle)) translateY(calc(-19vmin - 6px))}
-.companion-moon.state-listening .companion-moon-ring i{display:block}
+.companion-moon{position:relative;width:38vmin;height:38vmin;flex:none;animation:companionMoonEnter 1s cubic-bezier(.2,.85,.3,1.08) both}
+/* 进入月伴：月亮由小缓缓放大就位 */
+@keyframes companionMoonEnter{from{transform:scale(.78);opacity:0}to{transform:scale(1);opacity:1}}
+.companion-moon-halo{position:absolute;inset:-16%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(244,249,255,.58) 0%,rgba(206,229,255,.32) 36%,rgba(166,205,255,.15) 54%,transparent 72%);opacity:.55}
+/* 晕圈：贴着月亮边缘的两层柔光环，各自忽明忽暗地呼吸 */
+.companion-moon-halo::after{content:"";position:absolute;inset:7%;border-radius:50%;border:1px solid rgba(208,230,255,.5);box-shadow:0 0 18px rgba(168,206,255,.4),0 0 42px rgba(140,190,255,.22),inset 0 0 14px rgba(185,218,255,.3);animation:companionHaloRing 5.6s ease-in-out infinite}
+.companion-moon-halo::before{content:"";position:absolute;inset:13%;border-radius:50%;border:1px solid rgba(190,220,255,.32);box-shadow:0 0 14px rgba(160,205,255,.3),inset 0 0 10px rgba(180,215,255,.22);animation:companionHaloRing 4.3s ease-in-out infinite reverse}
+@keyframes companionHaloRing{0%,100%{opacity:.38;transform:scale(1)}45%{opacity:.95;transform:scale(1.014)}70%{opacity:.55;transform:scale(1.006)}}
+/* 待机时隐约忽闪的白光：不规则明暗步进模拟月光闪烁 */
+.companion-moon .companion-moon-halo{animation:companionFlicker 6.4s linear infinite}
+/* 聆听时停用 flicker（动画会盖住 opacity 声明），改为光晕随麦克风音量呼吸 */
+.companion-moon.state-listening .companion-moon-halo{animation:none;opacity:calc(.42 + var(--moon-level,0) * .45);transition:opacity .18s linear}
+.companion-moon.state-thinking .companion-moon-halo{animation:none;opacity:.25}
+/* 月汐说话：光晕随朗读音量波动放大，像月亮呼吸发亮 */
+.companion-moon.state-speaking .companion-moon-halo{animation:companionHaloPulse 1.8s ease-in-out infinite;opacity:calc(.45 + var(--moon-gain) * .55)}
+@keyframes companionHaloPulse{0%,100%{transform:scale(1)}50%{transform:scale(calc(1.05 + var(--moon-gain,0) * .08))}}
+/* 说话/聆听共用：一圈一圈向外推开的波动光环（强度由 --moon-wave 驱动：聆听=麦克风音量，说话=朗读音量） */
+.companion-moon-ripples{position:absolute;inset:4%;pointer-events:none;opacity:0;transition:opacity .4s}
+.companion-moon.state-listening .companion-moon-ripples,.companion-moon.state-speaking .companion-moon-ripples{opacity:1}
+.companion-moon-ripples i{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(188,214,255,.5);box-shadow:0 0 22px rgba(150,192,255,.3),inset 0 0 16px rgba(170,206,255,.2);opacity:0;transform:scale(.94);animation:companionMoonRipple 3s cubic-bezier(.2,.55,.35,1) infinite}
+.companion-moon-ripples i:nth-child(2){animation-delay:1s}
+.companion-moon-ripples i:nth-child(3){animation-delay:2s}
+.companion-moon.state-listening .companion-moon-ripples i{border-color:rgba(150,222,255,.55);box-shadow:0 0 24px rgba(120,205,255,.32),inset 0 0 16px rgba(150,220,255,.22);animation-duration:3.6s}
+@keyframes companionMoonRipple{0%{transform:scale(.94);opacity:0}14%{opacity:calc(.28 + var(--moon-wave,0) * .62)}62%{opacity:calc(.08 + var(--moon-wave,0) * .36)}100%{transform:scale(1.62);opacity:0}}
+@keyframes companionFlicker{0%,100%{opacity:.3}6%{opacity:.48}11%{opacity:.34}17%{opacity:.54}24%{opacity:.36}31%{opacity:.5}38%{opacity:.33}46%{opacity:.56}54%{opacity:.38}61%{opacity:.52}69%{opacity:.35}77%{opacity:.5}85%{opacity:.37}92%{opacity:.47}}
 .companion-moon-body{position:absolute;inset:0;padding:0;border:0;border-radius:50%;background:transparent;cursor:default;overflow:hidden;transition:box-shadow .3s}
 .companion-moon-body:disabled{cursor:default}
 .companion-moon-body:not(:disabled){cursor:pointer}
-.companion-moon-body svg{display:block;width:100%;height:100%;filter:drop-shadow(0 0 26px rgba(207,224,255,.28));transition:filter .25s,brightness .25s}
+.companion-moon-body svg{display:block;width:100%;height:100%;filter:drop-shadow(0 0 30px rgba(216,232,255,.45)) brightness(1.05);transition:filter .25s,brightness .25s}
 .companion-moon.state-speaking .companion-moon-body svg{filter:drop-shadow(0 0 calc(20px + var(--moon-gain) * 34px) rgba(127,180,255,calc(.3 + var(--moon-gain) * .5))) brightness(calc(1 + var(--moon-gain) * .22))}
 .companion-moon.state-thinking .companion-moon-body svg{filter:drop-shadow(0 0 18px rgba(127,91,255,.25)) brightness(.86)}
 .companion-moon-face{transform-box:fill-box;transform-origin:center;will-change:transform;animation:companionSpin 60s linear infinite}
+/* 月亮始终缓缓自转（忽闪的晕圈随它一起呼吸）；思考时转得快一点 */
 .companion-moon.state-thinking .companion-moon-face{animation-duration:8s}
-.companion-moon.state-speaking .companion-moon-face{animation-play-state:paused}
 @keyframes companionSpin{to{transform:rotate(360deg)}}
 .companion-ring-value{display:none;position:absolute;left:50%;bottom:-2.4vmin;transform:translateX(-50%);color:var(--muted);font:11px var(--mono)}
 .reduce-motion .companion-moon-face{animation:none!important}
-.reduce-motion .companion-moon-ring{display:none!important}
 .reduce-motion .companion-ring-value{display:block}
-.reduce-motion .companion-moon.state-idle .companion-moon-halo{animation:none;opacity:.3}
+.reduce-motion .companion-moon{animation:none!important}
+.reduce-motion .companion-moon-ripples{display:none!important}
+.reduce-motion .companion-moon-halo::before,.reduce-motion .companion-moon-halo::after{animation:none;opacity:.4}
+.reduce-motion .companion-moon.state-speaking .companion-moon-halo{animation:none}
+.reduce-motion .companion-moon.state-idle .companion-moon-halo,.reduce-motion .companion-moon.state-listening .companion-moon-halo,.reduce-motion .companion-moon .companion-moon-halo{animation:none;opacity:.35}
 .reduce-motion .companion-moon.state-listening .companion-moon-halo{opacity:.45}
 .reduce-motion .companion-moon.state-thinking .companion-moon-halo{opacity:.25}
 .reduce-motion .companion-stage .companion-stars i{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
-.companion-subtitles{position:absolute;bottom:132px;left:50%;transform:translateX(-50%);width:min(720px,86vw);max-height:24vh;min-height:64px;overflow-y:auto;padding:6px 14px;border:1px solid rgba(143,170,216,.18);border-radius:14px;background:rgba(6,11,20,.62);backdrop-filter:blur(6px)}
+/* 当前一轮对话的单行字幕条：宽度随内容收缩，长句省略号截断，整框保持一行高 */
+.companion-subtitles{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(720px,86vw);padding:4px 16px;border:1px solid rgba(143,170,216,.16);border-radius:999px;background:rgba(6,11,20,.55);backdrop-filter:blur(6px)}
 .companion-subtitles:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
-.companion-subtitle-hint{margin:10px 2px;color:var(--muted);font-size:12.5px;text-align:center}
-.companion-line{margin:9px 2px;font-size:14.5px;line-height:1.75}
+.companion-subtitle-hint{margin:1px 0;color:var(--muted);font-size:11.5px;text-align:center;white-space:nowrap}
+.companion-line{margin:2px 0;font-size:13.5px;line-height:1.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 流式字幕：新字符像风吹沙一样淡淡飘入（虚化→清晰、轻位移→归位） */
+.stream-chars .sand{display:inline-block;opacity:0;filter:blur(3px);transform:translate(5px,3px);animation:companionSandIn .55s ease-out forwards}
+@keyframes companionSandIn{55%{filter:blur(.6px);transform:translate(1px,.5px)}to{opacity:1;filter:blur(0);transform:none}}
+.reduce-motion .stream-chars .sand{animation:none!important;opacity:1;filter:none;transform:none}
+.companion-line.assistant .segment{animation:companionSegmentIn .4s ease-out both}
+@keyframes companionSegmentIn{from{opacity:.35}to{opacity:1}}
 .companion-line .who{display:inline-block;margin-right:9px;padding:1px 8px;border-radius:999px;font-size:10.5px;vertical-align:1px}
 .companion-line.user{color:#bfe9ff}
 .companion-line.user .who{background:rgba(127,91,255,.22);color:var(--tide2)}
@@ -568,9 +603,12 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 .companion-entry{width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:16px!important;color:var(--moon)!important;text-shadow:0 0 10px rgba(127,180,255,.55)}
 .companion-entry:hover{border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
 .companion-entry[aria-expanded="true"]{border-color:var(--tide3)!important;box-shadow:0 0 12px rgba(47,214,181,.4)}
-@media(max-width:900px){.companion-moon{width:44vmin;height:44vmin}.companion-moon-ring i{transform:rotate(var(--ring-angle)) translateY(calc(-22vmin - 6px))}.companion-subtitles{bottom:150px;max-height:20vh}.companion-controls{gap:9px}.companion-mic{width:56px;height:56px}}
+@media(max-width:900px){.companion-moon{width:44vmin;height:44vmin}.companion-subtitles{bottom:168px;max-width:88vw}.companion-controls{gap:9px}.companion-mic{width:56px;height:56px}}
 html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,html[data-theme="light"] .skill-detail,html[data-theme="light"] .files-panel{background:#f8fcff;color:var(--ink)}html[data-theme="light"] .skill-status-tabs{background:#edf6fc}html[data-theme="light"] .skill-row:hover,html[data-theme="light"] .skill-row.active{background:rgba(49,139,205,.09)}
 @media(max-width:1050px){.skill-center-layout{grid-template-columns:1fr}.skill-detail{min-height:320px}.skill-center-toolbar{flex-wrap:wrap}.skill-search{margin-left:0}}@media(max-width:680px){.skill-center{padding:66px 14px 20px}.skill-center-header{align-items:flex-start;flex-direction:column}.skill-status-tabs{max-width:100%;overflow-x:auto}.skill-center-layout{display:block}.skill-detail{margin-top:12px}.skill-table-head{display:none}.skill-row{grid-template-columns:1fr auto}.skill-row>code:last-child,.skill-row>.skill-status{display:none}}
+
+/* P3-2 skill market: catalog cards reuse the skill center look. */
+.skill-market{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;padding-bottom:24px}.skill-market-card{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}.skill-market-card>header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.skill-market-card>header code{color:var(--muted);font-size:10px}.skill-market-card>p{flex:1;margin:0;color:var(--muted);font-size:12px}.skill-market-card>footer{display:flex;justify-content:space-between;align-items:center;gap:8px}.skill-market-card>footer small{color:var(--muted);font-family:var(--mono)}.skill-market-card.is-installed{border-color:rgba(47,214,181,.4)}.skill-market-installed{color:var(--ok);font-size:11px}html[data-theme="light"] .skill-market-card{background:#f8fcff}
 
 .local-explorer{border-bottom:1px solid var(--rule);padding:10px;display:grid;gap:6px}.local-explorer header{display:flex;justify-content:space-between;align-items:center}.local-explorer>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.local-explorer [role=tree]{display:grid;max-height:360px;overflow:auto}.local-tree-row{border:0;background:transparent;color:var(--ink);text-align:left;padding:5px;display:flex;gap:6px}.local-tree-row:hover{background:rgba(127,180,255,.1)}.session-pending{display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid var(--line);border-top-color:var(--glow);border-radius:50%;animation:session-spin .7s linear infinite}@keyframes session-spin{to{transform:rotate(360deg)}}
 
@@ -693,3 +731,32 @@ html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,htm
 .m5-no-conflict{margin:0;font-size:12px;color:var(--ok)}
 .m5-convert-foot{display:flex;justify-content:flex-end;gap:10px}
 
+
+/* P2-2 artifact acceptance panel (workspace preview tab) */
+.artifact-panel{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:12px;display:grid;gap:10px;margin-top:12px}
+.artifact-panel h3{margin:0;font-size:13px}
+.artifact-panel>p{margin:0;color:var(--muted);font-size:12px}
+.artifact-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.artifact-item{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:8px;background:var(--bg)}
+.artifact-item.is-accepted{border-color:#2fd6b5}
+.artifact-item-head{display:flex;align-items:center;gap:8px;min-width:0}
+.artifact-item-head b{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.artifact-kind{color:var(--muted);font-family:var(--mono)}
+.artifact-kind-label{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.artifact-accepted-badge{font-size:11px;color:#0e1a2b;background:#2fd6b5;border-radius:6px;padding:1px 8px}
+.artifact-review-count{font-size:11px;color:var(--muted)}
+.artifact-item-note input{width:100%;box-sizing:border-box}
+.artifact-item-actions{display:flex;gap:8px;flex-wrap:wrap}
+.artifact-item-actions button{font-size:12px}
+.artifact-accept{border-color:#2fd6b5}
+.artifact-export-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.artifact-export-bar select{font-size:12px}
+.artifact-export-bar input{flex:1;min-width:180px;font-size:12px}
+.artifact-export{border-color:var(--accent,#4a7dcc)}
+.artifact-preview{border-top:1px dashed var(--line);padding-top:8px;display:grid;gap:8px}
+.artifact-text{margin:0;max-height:260px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
+.artifact-xlsx{display:grid;gap:10px;max-height:300px;overflow:auto}
+.artifact-xlsx-sheet>b{font-size:12px;color:var(--muted)}
+.artifact-xlsx-table table{border-collapse:collapse;font-size:12px;font-family:var(--mono)}
+.artifact-xlsx-table td{border:1px solid var(--line);padding:2px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artifact-notice{margin:0;font-size:12px;color:#2fd6b5}
