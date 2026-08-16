@@ -89,6 +89,122 @@ func TestGitAllowlistValidateArgv(t *testing.T) {
 	}
 }
 
+// TestGitWorktreeIsolationSurface covers the P1-4 activation: add/list/
+// remove with workspace-contained paths, and the escapes that stay
+// fail-closed.
+func TestGitWorktreeIsolationSurface(t *testing.T) {
+	allowed := [][]string{
+		{"worktree", "list"},
+		{"worktree", "list", "--porcelain"},
+		{"worktree", "add", "wt/feature-a"},
+		{"worktree", "add", "wt/feature-a", "main"},
+		{"worktree", "add", "-b", "feature-a", "wt/feature-a"},
+		{"worktree", "add", "-b=feature-a", "wt/feature-a"},
+		{"worktree", "add", "--detach", "wt/scratch"},
+		{"worktree", "remove", "wt/feature-a"},
+		{"worktree", "remove", "--force", "wt/feature-a"},
+	}
+	for _, argv := range allowed {
+		if err := vcs.ValidateArgv(argv); err != nil {
+			t.Errorf("argv %v must pass, got %v", argv, err)
+		}
+	}
+	denied := [][]string{
+		{"worktree"},
+		{"worktree", "prune"},
+		{"worktree", "lock", "wt/x"},
+		{"worktree", "unlock", "wt/x"},
+		{"worktree", "move", "wt/x", "wt/y"},
+		{"worktree", "repair"},
+		// path escapes: parent traversal, absolute, drive, dot, backslash
+		{"worktree", "add", ".."},
+		{"worktree", "add", "../outside"},
+		{"worktree", "add", "a/../../b"},
+		{"worktree", "add", "C:\\abs"},
+		{"worktree", "add", "/abs"},
+		{"worktree", "add", `wt\x`},
+		{"worktree", "remove", ".."},
+		{"worktree", "list", "../outside"},
+		// ref injection on add
+		{"worktree", "add", "wt/a", "main..evil"},
+		// flag misuse across actions
+		{"worktree", "list", "--force"},
+		{"worktree", "remove", "--porcelain", "wt/a"},
+		{"worktree", "add", "--force", "wt/a"},
+		// branch name abuse
+		{"worktree", "add", "-b", "b..range", "wt/a"},
+		{"worktree", "add", "-b", "b.lock", "wt/a"},
+		// arity violations
+		{"worktree", "add"},
+		{"worktree", "add", "wt/a", "main", "extra"},
+		{"worktree", "remove"},
+		{"worktree", "remove", "wt/a", "wt/b"},
+		{"worktree", "list", "a", "b"},
+		{"worktree", "add", "-b"},
+	}
+	for _, argv := range denied {
+		err := vcs.ValidateArgv(argv)
+		if err == nil {
+			t.Errorf("argv %v must be denied", argv)
+			continue
+		}
+		if !errors.Is(err, vcs.ErrNotAllowed) {
+			t.Errorf("argv %v must answer GIT-001, got %v", argv, err)
+		}
+	}
+}
+
+// TestGitWorktreeRunnerRoundTrip exercises the allowlisted worktree surface
+// end-to-end through the hardened Runner when git exists.
+func TestGitWorktreeRunnerRoundTrip(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, nil, "init", "-q")
+	run(t, repo, nil, "config", "user.email", "t@local")
+	run(t, repo, nil, "config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, nil, "add", "a.txt")
+	run(t, repo, nil, "commit", "-qm", "init")
+	hooks := filepath.Join(dir, "hooks")
+	runner := vcs.NewRunner(gitPath, hooks)
+	if err := runner.EnsureEmptyHooksDir(); err != nil {
+		t.Fatal(err)
+	}
+	// The worktree path is workspace-relative to the repo root.
+	if _, err := runner.Run(context.Background(), repo, []string{"worktree", "add", "wt/iso-a"}, nil); err != nil {
+		t.Fatalf("worktree add: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "wt", "iso-a", "a.txt")); err != nil {
+		t.Fatalf("isolated tree missing tracked file: %v", err)
+	}
+	list, err := runner.Run(context.Background(), repo, []string{"worktree", "list", "--porcelain"}, nil)
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	if !strings.Contains(list.Stdout, "iso-a") {
+		t.Fatalf("worktree list output missing iso-a: %q", list.Stdout)
+	}
+	if _, err := runner.Run(context.Background(), repo, []string{"worktree", "remove", "wt/iso-a"}, nil); err != nil {
+		t.Fatalf("worktree remove: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "wt", "iso-a")); !os.IsNotExist(err) {
+		t.Fatal("worktree remove left the tree behind")
+	}
+	// Escape attempts still answer GIT-001 before any process runs.
+	if _, err := runner.Run(context.Background(), repo, []string{"worktree", "add", "../outside"}, nil); !errors.Is(err, vcs.ErrNotAllowed) {
+		t.Fatalf("worktree escape answered %v, want GIT-001", err)
+	}
+}
+
 func TestGitAllowlistRunsAndBlocksHooks(t *testing.T) {
 	runner, repo := gitRunner(t)
 	ctx := context.Background()

@@ -1,6 +1,7 @@
 package toolruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -12,10 +13,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/officetools"
+	"github.com/lunitide/lunitide/internal/webfetch"
 	_ "modernc.org/sqlite"
 )
 
@@ -35,6 +41,21 @@ type Runtime struct {
 	root string
 	db   *sql.DB
 	now  func() time.Time
+	// fetchWeb is the SSRF-pinned web transport injected by the host
+	// (cmd/engine). nil keeps web.* tools unavailable (tests, offline).
+	fetchWeb func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
+	// rulesMu guards commandRules for hot reload (SetCommandPolicyJSON
+	// swaps the slice; Execute copies the header under RLock).
+	rulesMu       sync.RWMutex
+	commandRules  []commandRule
+	userRulesPath string
+	// hooksMu guards hookRules for hot reload (SetHooksPolicyJSON).
+	hooksMu        sync.RWMutex
+	hookRules      []hookRule
+	hooksRulesPath string
+	// auditMu makes the lazy ensureAudit open exactly one SQLite handle
+	// even under concurrent callers.
+	auditMu sync.Mutex
 }
 type Result struct {
 	Output   string    `json:"output"`
@@ -59,9 +80,170 @@ func New(root string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{root: filepath.Clean(real), now: func() time.Time { return time.Now().UTC() }}, nil
+	r := &Runtime{root: filepath.Clean(real), now: func() time.Time { return time.Now().UTC() }}
+	r.commandRules = builtinCommandRules()
+	r.userRulesPath = filepath.Join(r.root, "command-policy.json")
+	r.hooksRulesPath = filepath.Join(r.root, "hooks-policy.json")
+	return r, nil
+}
+
+// commandRule is one allowlist entry: an argv prefix plus how many total
+// argv items the invocation may carry and the deadline granted to it.
+type commandRule struct {
+	prefix   []string
+	maxArgs  int
+	deadline time.Duration
+}
+
+const (
+	commandDeadlineDefault = 10 * time.Second
+	commandDeadlineMin     = time.Second
+	commandDeadlineMax     = 5 * time.Minute
+	commandMaxArgv         = 16
+)
+
+// builtinCommandRules is the fixed read-only observation set. git runs only
+// through --no-pager explicit flags (pagers/filters disabled both via the
+// flag and the sanitized environment set in runCommand).
+func builtinCommandRules() []commandRule {
+	return []commandRule{
+		{prefix: []string{"go", "version"}, maxArgs: 2, deadline: 10 * time.Second},
+		{prefix: []string{"git", "--no-pager", "status"}, maxArgs: 4, deadline: 10 * time.Second},
+		{prefix: []string{"git", "--no-pager", "log"}, maxArgs: 8, deadline: 10 * time.Second},
+		{prefix: []string{"git", "--no-pager", "diff"}, maxArgs: 6, deadline: 10 * time.Second},
+		{prefix: []string{"git", "--no-pager", "show"}, maxArgs: 6, deadline: 10 * time.Second},
+		{prefix: []string{"git", "--no-pager", "branch"}, maxArgs: 4, deadline: 10 * time.Second},
+	}
+}
+
+// loadUserCommandPolicy merges the optional user whitelist file
+// (<root>/command-policy.json). A present-but-invalid file fails closed so
+// the operator notices instead of running with a half-applied policy.
+func (r *Runtime) loadUserCommandPolicy() error {
+	raw, err := os.ReadFile(r.userRulesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	userRules, err := buildUserRules(raw)
+	if err != nil {
+		return err
+	}
+	rules := builtinCommandRules()
+	rules = append(rules, userRules...)
+	r.rulesMu.Lock()
+	r.commandRules = rules
+	r.rulesMu.Unlock()
+	return nil
+}
+
+// userPolicyDoc is the command-policy.json wire shape shared by load, get
+// and set.
+type userPolicyDoc struct {
+	Commands []struct {
+		Prefix    []string `json:"prefix"`
+		MaxArgs   int      `json:"maxArgs,omitempty"`
+		TimeoutMS int64    `json:"timeoutMs,omitempty"`
+	} `json:"commands"`
+}
+
+// buildUserRules validates one whitelist document and renders it into
+// concrete rules without touching runtime state (build-then-swap keeps a
+// rejected document from half-applying).
+func buildUserRules(raw []byte) ([]commandRule, error) {
+	var doc userPolicyDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("command-policy.json: %w", err)
+	}
+	if len(doc.Commands) > 128 {
+		return nil, errors.New("command-policy.json: more than 128 commands")
+	}
+	rules := make([]commandRule, 0, len(doc.Commands))
+	for _, c := range doc.Commands {
+		if len(c.Prefix) < 1 || len(c.Prefix) > 8 {
+			return nil, errors.New("command-policy.json: prefix must have 1-8 items")
+		}
+		for _, item := range c.Prefix {
+			if item == "" || strings.Contains(item, "..") || strings.HasPrefix(item, "/") || strings.HasPrefix(item, `\`) || len(item) > 2 && item[1] == ':' {
+				return nil, errors.New("command-policy.json: invalid prefix item")
+			}
+		}
+		maxArgs := c.MaxArgs
+		if maxArgs <= 0 {
+			maxArgs = len(c.Prefix)
+		}
+		if maxArgs > commandMaxArgv {
+			maxArgs = commandMaxArgv
+		}
+		deadline := time.Duration(c.TimeoutMS) * time.Millisecond
+		if deadline <= 0 {
+			deadline = commandDeadlineDefault
+		}
+		if deadline > commandDeadlineMax {
+			deadline = commandDeadlineMax
+		}
+		rules = append(rules, commandRule{prefix: c.Prefix, maxArgs: maxArgs, deadline: deadline})
+	}
+	return rules, nil
+}
+
+// CommandPolicyJSON answers the persisted user whitelist document
+// ({"commands":[]} when the file does not exist yet).
+func (r *Runtime) CommandPolicyJSON() ([]byte, error) {
+	raw, err := os.ReadFile(r.userRulesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []byte(`{"commands":[]}`), nil
+		}
+		return nil, err
+	}
+	if !json.Valid(raw) {
+		return nil, errors.New("command-policy.json: stored document is not valid JSON")
+	}
+	return raw, nil
+}
+
+// SetCommandPolicyJSON validates, atomically persists and hot-applies a
+// new user whitelist. An invalid document is refused without touching the
+// file or the live rules.
+func (r *Runtime) SetCommandPolicyJSON(raw []byte) error {
+	if len(raw) > 64<<10 {
+		return errors.New("command-policy.json: document exceeds 64 KiB")
+	}
+	if !json.Valid(raw) {
+		return errors.New("command-policy.json: document is not valid JSON")
+	}
+	userRules, err := buildUserRules(raw)
+	if err != nil {
+		return err
+	}
+	tmp := r.userRulesPath + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0600); err != nil {
+		return err
+	}
+	// os.Rename on Windows refuses to replace an existing destination.
+	_ = os.Remove(r.userRulesPath)
+	if err := os.Rename(tmp, r.userRulesPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	rules := builtinCommandRules()
+	rules = append(rules, userRules...)
+	r.rulesMu.Lock()
+	r.commandRules = rules
+	r.rulesMu.Unlock()
+	return nil
+}
+
+// SetWebFetcher installs the SSRF-pinned fetch transport for web.* tools.
+func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)) {
+	r.fetchWeb = f
 }
 func (r *Runtime) ensureAudit() error {
+	r.auditMu.Lock()
+	defer r.auditMu.Unlock()
 	if r.db != nil {
 		return nil
 	}
@@ -76,7 +258,18 @@ func (r *Runtime) ensureAudit() error {
 		result_digest TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
 		decided_at TEXT NOT NULL DEFAULT '', completed_at TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL,
 		UNIQUE(session_id, call_id, args_digest));
-		CREATE INDEX IF NOT EXISTS ix_chat_tool_calls_status ON chat_tool_calls(status, expires_at);`); err != nil {
+		CREATE TABLE IF NOT EXISTS chat_tool_approval_rules(
+			id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, tool_name TEXT NOT NULL,
+			args_digest TEXT NOT NULL, scope TEXT NOT NULL, created_at TEXT NOT NULL,
+			UNIQUE(session_id, tool_name, args_digest));
+		CREATE TABLE IF NOT EXISTS chat_tool_hook_events(
+		id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, tool_name TEXT NOT NULL,
+		hook_id TEXT NOT NULL, event TEXT NOT NULL, decision TEXT NOT NULL DEFAULT '',
+		args_digest TEXT NOT NULL DEFAULT '', result_digest TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL);
+	CREATE INDEX IF NOT EXISTS ix_chat_tool_calls_status ON chat_tool_calls(status, expires_at);
+	CREATE INDEX IF NOT EXISTS ix_tool_approval_rules_match ON chat_tool_approval_rules(tool_name, args_digest, scope);
+	CREATE INDEX IF NOT EXISTS ix_chat_tool_hook_events_session ON chat_tool_hook_events(session_id, id);`); err != nil {
 		db.Close()
 		return err
 	}
@@ -89,6 +282,14 @@ func Open(root string) (*Runtime, error) {
 		return nil, err
 	}
 	if err = r.ensureAudit(); err != nil {
+		return nil, err
+	}
+	if err = r.loadUserCommandPolicy(); err != nil {
+		_ = r.Close()
+		return nil, err
+	}
+	if err = r.loadUserHooksPolicy(); err != nil {
+		_ = r.Close()
 		return nil, err
 	}
 	return r, nil
@@ -223,6 +424,71 @@ func (r *Runtime) Prepare(ctx context.Context, runID, session, callID, name stri
 }
 
 func (r *Runtime) Decide(ctx context.Context, session, callID, digest string, approve bool) (Result, error) {
+	return r.DecideScoped(ctx, session, callID, digest, approve, ApprovalScopeOnce)
+}
+
+// Approval remember scopes (P1-5). "session" auto-approves the exact
+// (tool, canonical args) pair for the rest of one session; "always"
+// persists the rule across sessions. Matching stays exact-digest, so a
+// remembered rule never widens to argument variants that were not
+// approved.
+const (
+	ApprovalScopeOnce    = "once"
+	ApprovalScopeSession = "session"
+	ApprovalScopeAlways  = "always"
+)
+
+// ApprovalScopeValid reports whether scope is one of the frozen values.
+func ApprovalScopeValid(scope string) bool {
+	return scope == ApprovalScopeOnce || scope == ApprovalScopeSession || scope == ApprovalScopeAlways
+}
+
+// DecideScoped is Decide with a remember scope. Approving with
+// session/always records an exact (tool, args digest) auto-approve rule;
+// rejecting never records anything.
+func (r *Runtime) DecideScoped(ctx context.Context, session, callID, digest string, approve bool, scope string) (Result, error) {
+	if !ApprovalScopeValid(scope) {
+		return Result{}, errors.New("invalid approval scope")
+	}
+	out, err := r.decide(ctx, session, callID, digest, approve)
+	if err != nil {
+		return out, err
+	}
+	if approve && scope != ApprovalScopeOnce {
+		var name, raw string
+		if e := r.db.QueryRowContext(ctx, `SELECT tool_name,args_json FROM chat_tool_calls WHERE session_id=? AND call_id=? AND args_digest=?`, session, callID, digest).Scan(&name, &raw); e == nil {
+			canonical, ce := canonicalArgs(json.RawMessage(raw))
+			if ce == nil {
+				if d := Digest(name, canonical); d != "" {
+					_ = r.rememberApproval(ctx, session, name, d, scope)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// rememberApproval upserts one auto-approve rule. Re-approving the same
+// pair at a different scope upgrades it (session → always).
+func (r *Runtime) rememberApproval(ctx context.Context, session, name, digest, scope string) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO chat_tool_approval_rules(session_id,tool_name,args_digest,scope,created_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(session_id,tool_name,args_digest) DO UPDATE SET scope=excluded.scope`, session, name, digest, scope, r.now().Format(time.RFC3339Nano))
+	return err
+}
+
+// approvalRemembered reports whether an exact (tool, canonical args)
+// auto-approve rule exists: a session rule bound to this session, or an
+// always rule from any session.
+func (r *Runtime) approvalRemembered(ctx context.Context, session, name, digest string) bool {
+	if r.db == nil {
+		return false
+	}
+	var one int
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM chat_tool_approval_rules WHERE tool_name=? AND args_digest=? AND (scope=? OR (scope=? AND session_id=?)) LIMIT 1`, name, digest, ApprovalScopeAlways, ApprovalScopeSession, session).Scan(&one)
+	return err == nil
+}
+
+func (r *Runtime) decide(ctx context.Context, session, callID, digest string, approve bool) (Result, error) {
 	if err := r.ensureAudit(); err != nil {
 		return Result{}, err
 	}
@@ -309,6 +575,19 @@ func (r *Runtime) path(session, rel string, write bool) (string, error) {
 		return "", errors.New("session workspace is not a directory")
 	}
 	p := filepath.Join(root, clean)
+	// The session root itself (path ".") is a valid read target: resolve
+	// symlinks and confirm it stays a directory. It is never a writable
+	// target (replacing the workspace root would destroy the sandbox).
+	if clean == "." {
+		if write {
+			return "", errors.New("workspace root is not writable")
+		}
+		real, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			return "", err
+		}
+		return real, nil
+	}
 	parent := filepath.Dir(p)
 	if write {
 		if err = os.MkdirAll(parent, 0700); err != nil {
@@ -336,7 +615,7 @@ func (r *Runtime) path(session, rel string, write bool) (string, error) {
 	}
 	return p, nil
 }
-func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (Result, error) {
+func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (out Result, err error) {
 	switch mode {
 	case Approval, AutoEdit, Plan, FullAccess:
 	default:
@@ -345,9 +624,29 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 	if mode == Plan {
 		return Result{}, errors.New("tools disabled in plan mode")
 	}
-	mutating := name == "workspace.write" || name == "command.run"
-	if mutating && !approved && ((mode == Approval) || (name == "command.run" && mode == AutoEdit)) {
-		return Result{}, ErrApprovalRequired
+	// P3-B hooks: evaluate beforeToolCall rules first (block > gate >
+	// grant priority, fail-closed). A block refuses before anything else;
+	// every matched rule leaves one audit row whatever the outcome.
+	hooks := r.evaluateHooks(name)
+	defer func() { r.recordHookEvents(ctx, session, name, Digest(name, args), out.Digest, hooks) }()
+	if hooks.blockMessage != "" {
+		return Result{}, fmt.Errorf("%w: %s", ErrHookBlocked, hooks.blockMessage)
+	}
+	if hooks.grantApproval && !approved {
+		approved = true
+	}
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || officeGenTools[name]
+	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
+		// Remembered exact approvals (P1-5) satisfy the gate without a new
+		// round-trip; unmatched or argument-variant calls still gate.
+		if canonical, ce := canonicalArgs(args); ce == nil {
+			if d := Digest(name, canonical); d != "" && r.approvalRemembered(ctx, session, name, d) {
+				approved = true
+			}
+		}
+		if !approved {
+			return Result{}, ErrApprovalRequired
+		}
 	}
 	switch name {
 	case "workspace.list":
@@ -439,6 +738,103 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 			written.Artifact = &Artifact{Kind: "html", Path: filepath.ToSlash(a.Path), Content: a.Content}
 		}
 		return written, nil
+	case "workspace.search":
+		var a struct {
+			Query string `json:"query"`
+			Path  string `json:"path"`
+			Regex bool   `json:"regex"`
+			Max   int    `json:"max"`
+		}
+		if strict(args, &a) != nil || a.Query == "" || len(a.Query) > 512 {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if a.Path == "" {
+			a.Path = "."
+		}
+		max := a.Max
+		if max <= 0 {
+			max = 50
+		}
+		if max > 200 {
+			max = 200
+		}
+		hits, e := r.searchWorkspace(session, a.Path, a.Query, a.Regex, max)
+		if e != nil {
+			return Result{}, e
+		}
+		return result(strings.Join(hits, "\n")), nil
+	case "workspace.edit":
+		var a struct {
+			Path       string `json:"path"`
+			OldText    string `json:"oldText"`
+			NewText    string `json:"newText"`
+			ReplaceAll bool   `json:"replaceAll"`
+		}
+		if strict(args, &a) != nil || a.Path == "" || a.OldText == "" || len(a.OldText) > maxFile || len(a.NewText) > maxFile {
+			return Result{}, errors.New("invalid arguments")
+		}
+		p, e := r.path(session, a.Path, false)
+		if e != nil {
+			return Result{}, e
+		}
+		b, e := os.ReadFile(p)
+		if e != nil || len(b) > maxFile {
+			return Result{}, errors.New("file missing or exceeds limit")
+		}
+		count := strings.Count(string(b), a.OldText)
+		if count == 0 {
+			return Result{}, errors.New("oldText not found in file")
+		}
+		if count > 1 && !a.ReplaceAll {
+			return Result{}, fmt.Errorf("oldText found %d times; set replaceAll=true or narrow the anchor", count)
+		}
+		updated := strings.Replace(string(b), a.OldText, a.NewText, 1)
+		if a.ReplaceAll {
+			updated = strings.ReplaceAll(string(b), a.OldText, a.NewText)
+		}
+		if len(updated) > maxFile {
+			return Result{}, errors.New("edited file exceeds limit")
+		}
+		tmp, e := os.CreateTemp(filepath.Dir(p), ".edit-*")
+		if e != nil {
+			return Result{}, e
+		}
+		tn := tmp.Name()
+		defer os.Remove(tn)
+		if e = tmp.Chmod(0600); e == nil {
+			_, e = tmp.WriteString(updated)
+		}
+		if e == nil {
+			e = tmp.Sync()
+		}
+		ce := tmp.Close()
+		if e == nil {
+			e = ce
+		}
+		if e == nil {
+			_ = os.Remove(p)
+			e = os.Rename(tn, p)
+		}
+		if e != nil {
+			return Result{}, e
+		}
+		return result(fmt.Sprintf("edited %s (%d replacement(s))", a.Path, count)), nil
+	case "todo.write":
+		var a struct {
+			Todos []struct {
+				Content  string `json:"content"`
+				Status   string `json:"status"`
+				Priority string `json:"priority"`
+			} `json:"todos"`
+		}
+		if strict(args, &a) != nil {
+			return Result{}, errors.New("invalid arguments")
+		}
+		rendered, e := r.writeTodos(session, a.Todos)
+		if e != nil {
+			return Result{}, e
+		}
+		return result(rendered), nil
 	case "command.run":
 		if mode != FullAccess && !(approved && (mode == Approval || mode == AutoEdit)) {
 			return Result{}, errors.New("command denied")
@@ -446,17 +842,25 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		var a struct {
 			Argv []string `json:"argv"`
 		}
-		if strict(args, &a) != nil || !allowed(a.Argv) {
+		if strict(args, &a) != nil {
+			return Result{}, errors.New("command denied")
+		}
+		r.rulesMu.RLock()
+		rules := r.commandRules
+		r.rulesMu.RUnlock()
+		rule, ok := matchCommandRule(rules, a.Argv)
+		if !ok {
 			return Result{}, errors.New("command denied")
 		}
 		root, e := r.sessionRoot(session)
 		if e != nil {
 			return Result{}, e
 		}
-		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		cctx, cancel := context.WithTimeout(ctx, rule.deadline)
 		defer cancel()
 		cmd := exec.CommandContext(cctx, a.Argv[0], a.Argv[1:]...)
 		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0")
 		out, e := cmd.CombinedOutput()
 		if len(out) > 64<<10 {
 			out = out[:64<<10]
@@ -465,16 +869,428 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, fmt.Errorf("command failed: %s", out)
 		}
 		return result(string(out)), nil
+	case "web.fetch":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if strict(args, &a) != nil || a.URL == "" || len(a.URL) > 2048 {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if r.fetchWeb == nil {
+			return Result{}, errors.New("web tools unavailable")
+		}
+		page, e := r.fetchWeb(ctx, a.URL)
+		if e != nil {
+			return Result{}, e
+		}
+		extracted, ok := webfetch.ExtractText(page.ContentType, page.Body, webfetch.MaxTextBytes)
+		if !ok {
+			return Result{}, fmt.Errorf("unsupported content type: %s", page.ContentType)
+		}
+		var b strings.Builder
+		if extracted.Title != "" {
+			b.WriteString("title: " + extracted.Title + "\n")
+		}
+		b.WriteString("url: " + page.FinalURL + "\n")
+		if extracted.Truncated || page.Truncated {
+			b.WriteString("note: content truncated\n")
+		}
+		b.WriteString("\n" + extracted.Text)
+		return result(truncateRunes(b.String(), 12000)), nil
+	case "web.search":
+		var a struct {
+			Query string `json:"query"`
+			Max   int    `json:"max"`
+		}
+		if strict(args, &a) != nil || strings.TrimSpace(a.Query) == "" || len(a.Query) > 512 {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if r.fetchWeb == nil {
+			return Result{}, errors.New("web tools unavailable")
+		}
+		max := a.Max
+		if max <= 0 {
+			max = 5
+		}
+		if max > 10 {
+			max = 10
+		}
+		page, e := r.fetchWeb(ctx, webfetch.SearchURL(a.Query))
+		if e != nil {
+			return Result{}, e
+		}
+		results := webfetch.ParseSearchResults(string(page.Body), max)
+		var b strings.Builder
+		b.WriteString("query: " + a.Query + "\n")
+		if len(results) == 0 {
+			b.WriteString("no results\n")
+		}
+		for i, hit := range results {
+			fmt.Fprintf(&b, "\n%d. %s\n   %s\n", i+1, hit.Title, hit.URL)
+			if hit.Snippet != "" {
+				b.WriteString("   " + hit.Snippet + "\n")
+			}
+		}
+		return result(b.String()), nil
+	case "excel.gen":
+		var a struct {
+			Path   string                  `json:"path"`
+			Sheets []officetools.SheetSpec `json:"sheets"`
+		}
+		if strict(args, &a) != nil || a.Path == "" {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if strings.ToLower(filepath.Ext(a.Path)) != ".xlsx" {
+			return Result{}, errors.New("excel.gen path must end with .xlsx")
+		}
+		data, e := officetools.GenXLSX(a.Sheets)
+		if e != nil {
+			return Result{}, e
+		}
+		return r.writeGenerated(session, a.Path, data, len(a.Sheets))
+	case "excel.parse":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if strict(args, &a) != nil || a.Path == "" {
+			return Result{}, errors.New("invalid arguments")
+		}
+		p, e := r.path(session, a.Path, false)
+		if e != nil {
+			return Result{}, e
+		}
+		b, e := os.ReadFile(p)
+		if e != nil || len(b) > maxGeneratedBytes {
+			return Result{}, errors.New("file missing or exceeds limit")
+		}
+		summary, e := officetools.ParseXLSX(b)
+		if e != nil {
+			return Result{}, e
+		}
+		return result(summary), nil
+	case "docx.gen":
+		var a struct {
+			Path   string                  `json:"path"`
+			Title  string                  `json:"title"`
+			Blocks []officetools.DocxBlock `json:"blocks"`
+		}
+		if strict(args, &a) != nil || a.Path == "" {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if strings.ToLower(filepath.Ext(a.Path)) != ".docx" {
+			return Result{}, errors.New("docx.gen path must end with .docx")
+		}
+		data, e := officetools.GenDocx(a.Title, a.Blocks)
+		if e != nil {
+			return Result{}, e
+		}
+		return r.writeGenerated(session, a.Path, data, len(a.Blocks))
+	case "pptx.gen":
+		var a struct {
+			Path   string                  `json:"path"`
+			Title  string                  `json:"title"`
+			Slides []officetools.SlideSpec `json:"slides"`
+		}
+		if strict(args, &a) != nil || a.Path == "" {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if strings.ToLower(filepath.Ext(a.Path)) != ".pptx" {
+			return Result{}, errors.New("pptx.gen path must end with .pptx")
+		}
+		data, e := officetools.GenPptx(a.Title, a.Slides)
+		if e != nil {
+			return Result{}, e
+		}
+		return r.writeGenerated(session, a.Path, data, len(a.Slides))
+	case "pdf.gen":
+		var a struct {
+			Path  string `json:"path"`
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		}
+		if strict(args, &a) != nil || a.Path == "" {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if strings.ToLower(filepath.Ext(a.Path)) != ".pdf" {
+			return Result{}, errors.New("pdf.gen path must end with .pdf")
+		}
+		data, e := officetools.GenPDF(a.Title, a.Body)
+		if e != nil {
+			return Result{}, e
+		}
+		return r.writeGenerated(session, a.Path, data, -1)
 	default:
 		return Result{}, errors.New("unknown tool")
 	}
 }
-func allowed(a []string) bool {
-	// Keep the command surface to a fixed, informational invocation that does
-	// not evaluate repository configuration, hooks, aliases, or user input.
-	// In particular, git is intentionally excluded because filters/pagers may
-	// create descendants that CommandContext cannot reliably contain on Windows.
-	return len(a) == 2 && a[0] == "go" && a[1] == "version"
+
+// officeGenTools are the P2-1 generators: they mutate the session
+// workspace, so they ride the workspace.write approval class.
+var officeGenTools = map[string]bool{
+	"excel.gen": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true,
+}
+
+// ReadWorkspaceFile reads up to max bytes of one contained session
+// workspace file (binary-safe). Host-side preview surfaces (bridge
+// workspace.officePreview) use it; the model-facing read path stays
+// workspace.read.
+func (r *Runtime) ReadWorkspaceFile(session, relPath string, max int64) ([]byte, error) {
+	if max <= 0 || max > maxGeneratedBytes {
+		max = maxGeneratedBytes
+	}
+	p, err := r.path(session, relPath, false)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, max))
+}
+
+// WorkspaceRoot answers the runtime root (host-side export surfaces).
+func (r *Runtime) WorkspaceRoot() string { return r.root }
+
+// maxGeneratedBytes bounds both generated and parsed Office payloads.
+const maxGeneratedBytes = 8 << 20
+
+// writeGenerated persists generated bytes into the session workspace with
+// the same atomic temp+rename discipline as workspace.write.
+func (r *Runtime) writeGenerated(session, relPath string, data []byte, count int) (Result, error) {
+	if len(data) > maxGeneratedBytes {
+		return Result{}, errors.New("generated file exceeds limit")
+	}
+	p, e := r.path(session, relPath, true)
+	if e != nil {
+		return Result{}, e
+	}
+	tmp, e := os.CreateTemp(filepath.Dir(p), ".gen-*")
+	if e != nil {
+		return Result{}, e
+	}
+	tn := tmp.Name()
+	defer os.Remove(tn)
+	if e = tmp.Chmod(0600); e == nil {
+		_, e = tmp.Write(data)
+	}
+	if e == nil {
+		e = tmp.Sync()
+	}
+	ce := tmp.Close()
+	if e == nil {
+		e = ce
+	}
+	if e == nil {
+		_ = os.Remove(p)
+		e = os.Rename(tn, p)
+	}
+	if e != nil {
+		return Result{}, e
+	}
+	out := result(fmt.Sprintf("generated %s (%d bytes)", relPath, len(data)))
+	if count >= 0 {
+		out.Output = fmt.Sprintf("generated %s (%d bytes, %d sections)", relPath, len(data), count)
+	}
+	// P2-2: surface the generated file as an artifact card. Office kinds
+	// carry no inline content (binary payloads); preview goes through the
+	// host-side workspace.artifact.preview method.
+	switch strings.ToLower(filepath.Ext(relPath)) {
+	case ".xlsx", ".docx", ".pptx", ".pdf":
+		out.Artifact = &Artifact{Kind: strings.TrimPrefix(strings.ToLower(filepath.Ext(relPath)), "."), Path: filepath.ToSlash(relPath)}
+	}
+	return out, nil
+}
+
+// matchCommandRule finds the first allowlist entry whose prefix matches the
+// argv head and whose total length stays within maxArgs. Longer argv lists
+// are denied even when the prefix matches, so one entry cannot become a
+// wildcard.
+func matchCommandRule(rules []commandRule, a []string) (commandRule, bool) {
+	if len(a) < 1 || len(a) > commandMaxArgv {
+		return commandRule{}, false
+	}
+	for _, rule := range rules {
+		if len(a) > rule.maxArgs || len(a) < len(rule.prefix) {
+			continue
+		}
+		match := true
+		for i := range rule.prefix {
+			if a[i] != rule.prefix[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return rule, true
+		}
+	}
+	return commandRule{}, false
+}
+
+// truncateRunes bounds tool output on a rune boundary.
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 || len(s) <= limit {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit])
+}
+
+// searchWorkspace walks one contained session workspace subtree and
+// answers "path:line: text" hits for a literal or regex query. Binary
+// files (NUL byte in the first 8 KiB) and oversized files are skipped;
+// the walk stops as soon as max hits accumulate.
+func (r *Runtime) searchWorkspace(session, relPath, query string, regex bool, max int) ([]string, error) {
+	root, err := r.path(session, relPath, false)
+	if err != nil {
+		return nil, err
+	}
+	var re *regexp.Regexp
+	if regex {
+		re, err = regexp.Compile(query)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex: %w", err)
+		}
+	}
+	var hits []string
+	err = filepath.WalkDir(root, func(p string, d os.DirEntry, e error) error {
+		if e != nil || d.IsDir() || len(hits) >= max {
+			if e != nil {
+				return e
+			}
+			return nil
+		}
+		rel, e2 := filepath.Rel(root, p)
+		if e2 != nil {
+			return e2
+		}
+		if rel == "." {
+			return nil
+		}
+		b, e2 := os.ReadFile(p)
+		if e2 != nil || len(b) > maxFile {
+			return nil
+		}
+		probe := b
+		if len(probe) > 8192 {
+			probe = probe[:8192]
+		}
+		if bytes.IndexByte(probe, 0) >= 0 {
+			return nil
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			if len(hits) >= max {
+				return nil
+			}
+			if len(line) > 400 {
+				line = truncateRunes(line, 400)
+			}
+			matched := false
+			if re != nil {
+				matched = re.MatchString(line)
+			} else {
+				matched = strings.Contains(line, query)
+			}
+			if matched {
+				hits = append(hits, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), i+1, strings.TrimRight(line, "\r")))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(hits) == 0 {
+		return []string{"no matches"}, nil
+	}
+	return hits, nil
+}
+
+// todoItem is one checklist entry persisted per session.
+type todoItem struct {
+	Content  string `json:"content"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+}
+
+const (
+	todoMax        = 50
+	todoMaxContent = 500
+)
+
+// writeTodos validates and atomically persists one full checklist for
+// the session (stored outside the session workspace so it never disturbs
+// the approval workspace digest) and answers the rendered checklist.
+func (r *Runtime) writeTodos(session string, todos []struct {
+	Content  string `json:"content"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+}) (string, error) {
+	if len(todos) > todoMax {
+		return "", errors.New("too many todos (max 50)")
+	}
+	items := make([]todoItem, 0, len(todos))
+	inProgress := 0
+	for _, t := range todos {
+		content := strings.TrimSpace(t.Content)
+		if content == "" || len(content) > todoMaxContent {
+			return "", errors.New("todo content must be 1-500 chars")
+		}
+		status := t.Status
+		if status == "" {
+			status = "pending"
+		}
+		if status != "pending" && status != "in_progress" && status != "completed" {
+			return "", errors.New("todo status must be pending|in_progress|completed")
+		}
+		if status == "in_progress" {
+			inProgress++
+		}
+		priority := t.Priority
+		if priority == "" {
+			priority = "medium"
+		}
+		if priority != "high" && priority != "medium" && priority != "low" {
+			return "", errors.New("todo priority must be high|medium|low")
+		}
+		items = append(items, todoItem{Content: content, Status: status, Priority: priority})
+	}
+	if inProgress > 1 {
+		return "", errors.New("only one todo may be in_progress at a time")
+	}
+	dir := filepath.Join(r.root, ".todos")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(dir, session+".json")
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0600); err != nil {
+		return "", err
+	}
+	_ = os.Remove(target)
+	if err := os.Rename(tmp, target); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d todo(s) stored", len(items))
+	for i, t := range items {
+		mark := " "
+		if t.Status == "completed" {
+			mark = "x"
+		}
+		fmt.Fprintf(&b, "\n%d. [%s] (%s|%s) %s", i+1, mark, t.Status, t.Priority, t.Content)
+	}
+	return b.String(), nil
 }
 func strict(b []byte, v any) error {
 	d := json.NewDecoder(strings.NewReader(string(b)))

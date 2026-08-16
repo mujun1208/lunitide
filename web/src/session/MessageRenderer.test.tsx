@@ -7,7 +7,7 @@ import { SessionPage } from './SessionPage'
 
 afterEach(cleanup)
 const P = '01ARZ3NDEKTSV4RRFFQ69G5FAV', S1 = '01ARZ3NDEKTSV4RRFFQ69G5FAA', S2 = '01ARZ3NDEKTSV4RRFFQ69G5FAB', NOW = '2025-01-01T00:00:00Z'
-const project: ProjectDTO = { id: P, name: 'Messages', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
+const project: ProjectDTO = { id: P, name: 'Messages', projectCode: 'ITM00001', type: 'implementation', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
 const sessions: SessionDTO[] = [S1, S2].map((id, i) => ({ id, projectId: P, title: `Session ${i + 1}`, pinned: false, status: 'active', createdAt: `2025-01-01T00:00:0${i}Z`, updatedAt: `2025-01-01T00:00:0${i}Z`, version: 1 }))
 const message = (sequence: number, overrides: Partial<MessageDTO> = {}): MessageDTO => ({ id: sequence === 1 ? '01ARZ3NDEKTSV4RRFFQ69G5FAC' : sequence === 2 ? '01ARZ3NDEKTSV4RRFFQ69G5FAD' : '01ARZ3NDEKTSV4RRFFQ69G5FAE', sessionId: S1, role: 'user', status: 'completed', sequence, text: `message-${sequence}`, createdAt: `2025-01-01T00:00:0${sequence}Z`, ...overrides })
 const sessionBridge: SessionBridge = { list: vi.fn().mockResolvedValue({ items: sessions }), create: vi.fn(), update: vi.fn(), delete: vi.fn() }

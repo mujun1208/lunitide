@@ -27,6 +27,20 @@ const (
 	hostWindowStyle = win32.WS_OVERLAPPEDWINDOW
 )
 
+// enableHighResolutionRendering opts the process into per-monitor-v2 DPI
+// awareness BEFORE any window exists. Without this, Windows renders the whole
+// window at 96 DPI and bitmap-stretches it on scaled displays (125%/150%),
+// which is the primary cause of blurry text. Per-monitor-v2 is what Chromium
+// hosts (Trae/VSCode/Electron) use; Windows 10 1703+ supports it, older
+// systems fall back to system-DPI awareness which still avoids stretching
+// on the primary monitor.
+func enableHighResolutionRendering() {
+	ok, err := win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+	if ok == 0 || err != win32.NO_ERROR {
+		win32.SetProcessDPIAware()
+	}
+}
+
 type Host struct {
 	gateway        *hostbridge.Gateway
 	folder         string
@@ -175,6 +189,7 @@ func (h *Host) Run(ctx context.Context) error {
 	defer h.closeSTA()
 
 	instance, _ := win32.GetModuleHandle(nil)
+	enableHighResolutionRendering()
 	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), Style: win32.CS_HREDRAW | win32.CS_VREDRAW, LpfnWndProc: syscall.NewCallback(windowProc), HInstance: instance, HbrBackground: win32.HBRUSH(win32.COLOR_WINDOW + 1), LpszClassName: win32.StrToPwstr(windowClass)}
 	wc.HCursor, _ = win32.LoadCursor(0, win32.IDC_ARROW)
 	if hIcon := loadAppIcon(); hIcon != 0 {
@@ -188,6 +203,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if h.hwnd == 0 {
 		return errors.New("CreateWindowEx failed")
 	}
+	h.applyInitialDpiSize()
 	setDarkTitleBar(h.hwnd, false)
 	if hIcon := wc.HIcon; hIcon != 0 {
 		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_BIG), win32.LPARAM(hIcon))
@@ -671,6 +687,21 @@ func (h *Host) resize() {
 	}
 }
 
+// applyInitialDpiSize rescales the 1280x800 logical client area to physical
+// pixels for the monitor the window was created on. With DPI awareness now
+// declared, CreateWindowEx sizes are physical pixels; without this rescale
+// the window would open 1280x800 physical (= visually smaller on 150%).
+// The suggested-rect from WM_DPICHANGED covers later monitor moves.
+func (h *Host) applyInitialDpiSize() {
+	dpi := win32.GetDpiForWindow(h.hwnd)
+	if dpi == 0 || dpi == 96 {
+		return
+	}
+	rect := win32.RECT{Right: win32.MulDiv(1280, int32(dpi), 96), Bottom: win32.MulDiv(800, int32(dpi), 96)}
+	_, _ = win32.AdjustWindowRectExForDpi(&rect, hostWindowStyle, 0, 0, dpi)
+	_, _ = win32.SetWindowPos(h.hwnd, 0, 0, 0, rect.Right-rect.Left, rect.Bottom-rect.Top, win32.SWP_NOMOVE|win32.SWP_NOZORDER|win32.SWP_NOACTIVATE)
+}
+
 func (h *Host) removeFrame(target *frameRegistration) {
 	for i, reg := range h.frames {
 		if reg == target {
@@ -770,6 +801,20 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 	case win32.WM_SIZE:
 		if h != nil {
 			h.resize()
+		}
+		return 0
+	case win32.WM_DPICHANGED:
+		// Per-monitor-v2: adopt the system-suggested window rect for the new
+		// monitor DPI. WM_SIZE follows and refits the WebView2 controller;
+		// WebView2's built-in monitor-scale detection then refreshes its
+		// rasterization scale, keeping text crisp when dragged across screens
+		// with different scale factors.
+		if h != nil {
+			// LPARAM→pointer via address-of indirection (vet-safe pattern).
+			raw := *(*unsafe.Pointer)(unsafe.Pointer(&lParam))
+			if suggested := (*win32.RECT)(raw); suggested != nil {
+				_, _ = win32.SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right-suggested.Left, suggested.Bottom-suggested.Top, win32.SWP_NOZORDER|win32.SWP_NOACTIVATE)
+			}
 		}
 		return 0
 	case uiMessage:

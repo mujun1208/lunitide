@@ -130,6 +130,36 @@ func (t *agentRuntimeTx) PutRecallTrace(tr m8core.RecallTrace) error {
 	return t.fail(err)
 }
 
+// ListCandidatesByState answers candidates of one state, newest first.
+func (t *agentRuntimeTx) ListCandidatesByState(state string, limit int) ([]m8core.MemoryCandidate, error) {
+	rows, err := t.tx.QueryContext(t.ctx,
+		`SELECT `+m8candColumns+` FROM memory_candidates WHERE state=? ORDER BY created_at DESC, candidate_id DESC LIMIT ?`,
+		state, limit)
+	if err != nil {
+		return nil, t.fail(err)
+	}
+	defer rows.Close()
+	out := []m8core.MemoryCandidate{}
+	for rows.Next() {
+		c, err := scanCandidate(rows)
+		if err != nil {
+			return nil, t.fail(err)
+		}
+		out = append(out, c)
+	}
+	return out, t.fail(rows.Err())
+}
+
+// AppendFeedbackEvent appends one row to the learning-loop evidence ledger
+// (migration 0065). Feedback only ever forms new evidence.
+func (t *agentRuntimeTx) AppendFeedbackEvent(ev m8app.FeedbackEvent) error {
+	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO feedback_events
+		(event_id,subject_id,action,target_type,target_id,evidence,created_at)
+		VALUES(?,?,?,?,?,?,?)`,
+		ev.EventID, ev.SubjectID, ev.Action, ev.TargetType, ev.TargetID, ev.Evidence, ev.CreatedAt)
+	return t.fail(err)
+}
+
 const m8factColumns = `fact_id,scope_id,version,sensitivity,state,superseded_by,deleted_at,created_at`
 const m8leafColumns = `id,fact_id,fact_version,json_pointer,evidence_ref,digest,created_at`
 

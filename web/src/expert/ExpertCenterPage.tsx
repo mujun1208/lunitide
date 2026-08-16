@@ -38,7 +38,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge}:{b
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??''))}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge])
  useEffect(()=>{void load()},[load])
- useEffect(()=>{projects.list().then(result=>{setProjectItems(result.items.filter(item=>!item.name.startsWith('⁣')));setMountProjectId(current=>current||result.items.find(item=>!item.name.startsWith('⁣'))?.id||'')}).catch(()=>{})},[projects])
+ useEffect(()=>{try{projects.list().then(result=>{setProjectItems(result.items.filter(item=>!item.name.startsWith('⁣')));setMountProjectId(current=>current||result.items.find(item=>!item.name.startsWith('⁣'))?.id||'')}).catch(()=>{})}catch{/* bridge unavailable outside WebView2: mounting matrix stays hidden */}},[projects])
  const loadDetail=useCallback(async(expertId:string)=>{if(!expertId){setDetail(undefined);return}try{setDetail(await bridge.detail({expertId}))}catch(e){setError(e instanceof Error?e.message:'专家详情加载失败')}},[bridge])
  useEffect(()=>{void loadDetail(selectedId)},[selectedId,loadDetail])
  useEffect(()=>{if(!mountProjectId){setMatrix(undefined);return}let alive=true;bridge.mountingGet({projectId:mountProjectId}).then(result=>{if(alive)setMatrix(result)}).catch(()=>{if(alive)setMatrix(undefined)});return()=>{alive=false}},[bridge,mountProjectId])

@@ -3,7 +3,10 @@
   "$id":"https://lunitide.local/schema/bridge/v1/project.list.schema.json",
   "title":"project.list payload","x-method":"project.list","x-owner":"engine","x-enabled":true,
   "type":"object","additionalProperties":false,
-  "properties":{"status":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectStatus"}},
+  "properties":{
+    "status":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectStatus"},
+    "type":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectType"}
+  },
   "x-result":{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","maxItems":100,"items":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"}}},"required":["items"]},
   "x-examples":{"positive":[{}],"negative":[{"unexpected":true}]}
 }

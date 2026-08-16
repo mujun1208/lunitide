@@ -68,7 +68,7 @@ func TestProjectCapacityBoundaryAndConcurrentAtomicity(t *testing.T) {
 		t.Fatalf("projects=%d err=%v", len(items), err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = a.db.Exec(`INSERT INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,?,?,?,1)`, "01ARZ3NDEKTSV4RRFFQ69G5FAV", "Externally inserted", "active", now, now); err != nil {
+	if _, err = a.db.Exec(`INSERT INTO projects(id,name,project_code,status,created_at,updated_at,version) VALUES(?,?,?, 'active',?,?,1)`, "01ARZ3NDEKTSV4RRFFQ69G5FAV", "Externally inserted", "ITM99999", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = a.ListProjects(ctx, project.Filter{}); err == nil || !strings.Contains(err.Error(), "list exceeds capacity") {

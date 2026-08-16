@@ -129,6 +129,75 @@ func TestDurableApprovalCASAndNoPreApprovalSideEffect(t *testing.T) {
 	}
 }
 
+// TestApprovalRememberSessionAndAlwaysScopes covers P1-5: approving with
+// scope=session auto-approves the exact pair within the session (but not
+// other sessions), scope=always carries across sessions, argument
+// variants never inherit a remembered approval, and rejecting records
+// nothing.
+func TestApprovalRememberSessionAndAlwaysScopes(t *testing.T) {
+	root := t.TempDir()
+	r, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx := context.Background()
+	s1 := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	s2 := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	args := json.RawMessage(`{"content":"v1","path":"a.txt"}`)
+	digest := Digest("workspace.write", args)
+
+	// scope=session: the same pair in s1 skips the gate, s2 still gates.
+	if _, err = r.Prepare(ctx, "run-1", s1, "call-1", "workspace.write", args, Approval, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.DecideScoped(ctx, s1, "call-1", digest, true, ApprovalScopeSession); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Execute(ctx, Approval, s1, "workspace.write", args, false); err != nil {
+		t.Fatalf("session-remembered call still gated: %v", err)
+	}
+	if _, err = r.Execute(ctx, Approval, s1, "workspace.write", json.RawMessage(`{"content":"v2","path":"a.txt"}`), false); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("argument variant inherited approval: %v", err)
+	}
+	if _, err = r.Execute(ctx, Approval, s2, "workspace.write", args, false); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("session rule leaked across sessions: %v", err)
+	}
+
+	// scope=always: the pair passes in a different session too.
+	if _, err = r.Prepare(ctx, "run-2", s2, "call-2", "workspace.write", args, Approval, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.DecideScoped(ctx, s2, "call-2", digest, true, ApprovalScopeAlways); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Execute(ctx, Approval, s1, "workspace.write", args, false); err != nil {
+		t.Fatalf("always rule not honored in original session: %v", err)
+	}
+	third := "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	if _, err = r.Execute(ctx, Approval, third, "workspace.write", args, false); err != nil {
+		t.Fatalf("always rule not honored in third session: %v", err)
+	}
+
+	// Rejection records nothing: the next identical call still gates.
+	rejectArgs := json.RawMessage(`{"content":"no","path":"b.txt"}`)
+	rejectDigest := Digest("workspace.write", rejectArgs)
+	if _, err = r.Prepare(ctx, "run-3", s1, "call-3", "workspace.write", rejectArgs, Approval, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.DecideScoped(ctx, s1, "call-3", rejectDigest, false, ApprovalScopeAlways); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Execute(ctx, Approval, s1, "workspace.write", rejectArgs, false); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("rejected pair became auto-approved: %v", err)
+	}
+
+	// Invalid scope is refused before any state change.
+	if _, err = r.DecideScoped(ctx, s1, "x", digest, true, "forever"); err == nil {
+		t.Fatal("invalid scope accepted")
+	}
+}
+
 func TestApprovalFailsClosedWhenWorkspaceChanges(t *testing.T) {
 	root := t.TempDir()
 	r, err := Open(root)

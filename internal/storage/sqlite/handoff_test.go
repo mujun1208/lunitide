@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -22,8 +23,8 @@ func seedHandoff(t *testing.T, s *Store, sameProject bool) (string, string) {
 	}
 	source, target := ulid.Make().String(), ulid.Make().String()
 	message1, message2, checkpoint, capsule := ulid.Make().String(), ulid.Make().String(), ulid.Make().String(), ulid.Make().String()
-	for _, p := range []string{project1, project2} {
-		if _, err := s.db.Exec(`INSERT OR IGNORE INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,'active',?,?,1)`, p, "p-"+p, now, now); err != nil {
+	for i, p := range []string{project1, project2} {
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO projects(id,name,project_code,status,created_at,updated_at,version) VALUES(?,?,?, 'active',?,?,1)`, p, "p-"+p, fmt.Sprintf("ITM%05d", i+1), now, now); err != nil {
 			t.Fatal(err)
 		}
 	}

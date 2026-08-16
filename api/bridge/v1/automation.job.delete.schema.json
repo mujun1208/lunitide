@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/automation.job.delete.schema.json",
+  "title": "automation.job.delete payload",
+  "x-method": "automation.job.delete",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["id"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "deleted": { "type": "boolean" }
+    },
+    "required": ["deleted"]
+  },
+  "x-examples": {
+    "positive": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAE" }],
+    "negative": [{ "id": "not-a-ulid" }]
+  }
+}

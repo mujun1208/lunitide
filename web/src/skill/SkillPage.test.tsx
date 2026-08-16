@@ -50,3 +50,34 @@ it('deletes a skill from the list', async () => {
   await waitFor(() => expect(del).toHaveBeenCalledOnce())
   expect(del.mock.calls[0][0]).toEqual({ id: skill.id, expectedVersion: 1 })
 })
+
+const catalogEntry = {
+  id: 'meeting-minutes', name: 'tpl-meeting-minutes', displayName: '会议纪要助手',
+  description: '整理会话为结构化会议纪要', category: '办公协作', version: '1.0.0',
+  permissions: ['read_write' as const], installed: false,
+}
+
+it('shows the market catalog and installs a template', async () => {
+  const catalogList = vi.fn().mockResolvedValue({ items: [catalogEntry] })
+  const install = vi.fn().mockResolvedValue({ skillId: '01ARZ3NDEKTSV4RRFFQ69G5FBB', name: 'tpl-meeting-minutes', status: 'draft' })
+  const list = vi.fn().mockResolvedValue({ items: [] })
+  const bridge = api({ list, catalogList, install })
+  render(<SkillPage bridge={bridge} />)
+  await screen.findByText('暂无技能')
+  fireEvent.click(screen.getByRole('tab', { name: '技能市场' }))
+  expect(await screen.findByText('会议纪要助手')).toBeInTheDocument()
+  expect(catalogList).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: '安装' }))
+  await waitFor(() => expect(install).toHaveBeenCalledWith({ templateId: 'meeting-minutes' }))
+  await waitFor(() => expect(list).toHaveBeenCalled())
+})
+
+it('marks installed templates in the market', async () => {
+  const catalogList = vi.fn().mockResolvedValue({ items: [{ ...catalogEntry, installed: true }] })
+  const install = vi.fn()
+  render(<SkillPage bridge={api({ catalogList, install })} />)
+  await screen.findByText('暂无技能')
+  fireEvent.click(screen.getByRole('tab', { name: '技能市场' }))
+  expect(await screen.findByText('已安装')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '安装' })).not.toBeInTheDocument()
+})

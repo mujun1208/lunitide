@@ -7,7 +7,7 @@ import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode } from './Sess
 
 afterEach(()=>{cleanup();localStorage.removeItem('lunitide:microphone-device-id')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
-const project:ProjectDTO={id:P,name:'Runtime',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
+const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const sessionBridge:SessionBridge={list:vi.fn().mockResolvedValue({items:[session]}),create:vi.fn(),update:vi.fn(),delete:vi.fn()}
 const page=(items:MessageDTO[]=[])=>({items,hasMore:false,nextCursor:null,snapshotSequence:items.length})
@@ -149,16 +149,20 @@ it('retries a failed initial attachment and continues with its context id',async
  await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-retried'}]});expect(append).toHaveBeenCalledOnce()
 })
 
-it('shows streaming thinking expanded, then collapses it when the answer starts',async()=>{
+it('collapses streaming thinking by default, expands on demand and shows a live status line',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
  const user=await open({messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge,chat:{start,dispose:vi.fn()},providers})
  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'分析')
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'thinking',thinking:{text:'**内部推理**'}}))
- const details=screen.getByText('任务过程').closest('details')!;expect(details).toHaveAttribute('open');expect(screen.getByText('内部推理').tagName).toBe('STRONG')
+ const details=screen.getByText('任务过程').closest('details')!
+ expect(details).not.toHaveAttribute('open')
+ expect(screen.getByText('正在思考…')).toBeInTheDocument()
+ await user.click(screen.getByText('任务过程'))
+ expect(details).toHaveAttribute('open');expect(screen.getByText('内部推理').tagName).toBe('STRONG')
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'delta',delta:{text:'最终答案'}}))
- expect(details).not.toHaveAttribute('open');expect(screen.getByText('最终答案')).toBeInTheDocument()
+ expect(screen.getByText('最终答案')).toBeInTheDocument()
 })
 
 it('can navigate from the bottom to an earlier round without pending auto-follow undoing it',async()=>{

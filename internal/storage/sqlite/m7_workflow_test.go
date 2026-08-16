@@ -22,7 +22,7 @@ func newM7WorkflowService(t *testing.T) (*m7app.WorkflowService, *Store, string)
 	svc := m7app.NewWorkflowService(store.AgentRuntimeRepository())
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	pid := "01ARZ3NDEKTSV4RRFFQ69G5FA0"
-	if _, err := store.db.Exec(`INSERT INTO projects(id,name,created_at,updated_at) VALUES(?,?,?,?)`,
+	if _, err := store.db.Exec(`INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES(?,?, 'ITM00001', ?,?)`,
 		pid, "m7-project", now, now); err != nil {
 		t.Fatal(err)
 	}

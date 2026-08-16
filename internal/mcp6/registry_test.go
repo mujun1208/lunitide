@@ -30,12 +30,29 @@ func newTestRegistry(probe ProbeFunc, invoke InvokeFunc) *Registry {
 	return r
 }
 
-// M6-MCP-004: stdio stays disabled at the registration gate itself.
-func TestRegisterRejectsStdio(t *testing.T) {
+// M6-MCP-004 (gate opened 2026-08-16): stdio registers through the
+// whitelist — non-whitelisted commands and metacharacter args still
+// refuse; the happy shape reaches ready like any transport.
+func TestRegisterStdioAdmission(t *testing.T) {
 	r := newTestRegistry(nil, nil)
-	_, err := r.Register(context.Background(), "stdio", "https://example.com/mcp", "secretref:pool/a", validPin())
+	_, err := r.Register(context.Background(), EndpointInput{Transport: "stdio", Command: "bash", Args: []string{"-c", "evil"}, Pin: validPin()})
 	if !errors.Is(err, ErrStdioDisabled) {
-		t.Fatalf("want ErrStdioDisabled, got %v", err)
+		t.Fatalf("want ErrStdioDisabled for non-whitelisted command, got %v", err)
+	}
+	_, err = r.Register(context.Background(), EndpointInput{Transport: "stdio", Command: "npx", Args: []string{"-y; calc"}, Pin: validPin()})
+	if !errors.Is(err, ErrStdioDisabled) {
+		t.Fatalf("want ErrStdioDisabled for metacharacter args, got %v", err)
+	}
+	e, err := r.Register(context.Background(), EndpointInput{Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-everything"}, Pin: validPin()})
+	if err != nil || e.State != StateReady {
+		t.Fatalf("stdio register failed: %v state=%s", err, e.State)
+	}
+	if e.Transport != "stdio" || e.URL != "stdio://npx" || len(e.Args) != 2 {
+		t.Fatalf("bad stdio endpoint shape: %+v", e)
+	}
+	// unknown transports still refuse at the gate
+	if _, err := r.Register(context.Background(), EndpointInput{Transport: "grpc", URL: "x", Pin: validPin()}); !errors.Is(err, ErrStdioDisabled) {
+		t.Fatalf("want ErrStdioDisabled for grpc, got %v", err)
 	}
 }
 
@@ -44,7 +61,7 @@ func TestRegisterDegradedOnProbeFailure(t *testing.T) {
 	r := newTestRegistry(func(ctx context.Context, e *Endpoint) error {
 		return errors.New("tls handshake timeout")
 	}, nil)
-	e, err := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, err := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	if e == nil || e.State != StateDegraded {
 		t.Fatalf("want degraded endpoint, got %+v", e)
 	}
@@ -55,7 +72,7 @@ func TestRegisterDegradedOnProbeFailure(t *testing.T) {
 
 func TestRegisterRejectsInlineCredential(t *testing.T) {
 	r := newTestRegistry(nil, nil)
-	_, err := r.Register(context.Background(), "https", "https://example.com/mcp", "Bearer abc123", validPin())
+	_, err := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "Bearer abc123", Pin: validPin()})
 	if err == nil || !strings.Contains(err.Error(), "secretref") {
 		t.Fatalf("want secretref handle rejection, got %v", err)
 	}
@@ -65,11 +82,11 @@ func TestRegisterRejectsBadPin(t *testing.T) {
 	r := newTestRegistry(nil, nil)
 	pin := validPin()
 	pin.ServerIdentityDigest = "not-a-digest"
-	if _, err := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", pin); err == nil {
+	if _, err := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: pin}); err == nil {
 		t.Fatal("want malformed pin rejection")
 	}
 	pin2 := CapabilityPin{ServerIdentityDigest: strings.Repeat("a", 64)} // no tools
-	if _, err := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", pin2); err == nil {
+	if _, err := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: pin2}); err == nil {
 		t.Fatal("want empty toolset rejection")
 	}
 }
@@ -82,7 +99,7 @@ func TestInvokeHappyPath(t *testing.T) {
 		}
 		return map[string]any{"hits": 3}, nil
 	})
-	e, err := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, err := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	if err != nil || e.State != StateReady {
 		t.Fatalf("register failed: %v %s", err, e.State)
 	}
@@ -100,7 +117,7 @@ func TestInvokeUnpinnedToolDrifts(t *testing.T) {
 	r := newTestRegistry(nil, func(ctx context.Context, e *Endpoint, tool string, args map[string]any, auth []byte) (map[string]any, error) {
 		return map[string]any{}, nil
 	})
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	_, err := r.Invoke(context.Background(), e.ID, "deleteEverything", nil)
 	if !errors.Is(err, ErrCapabilityDrift) {
 		t.Fatalf("want ErrCapabilityDrift, got %v", err)
@@ -119,7 +136,7 @@ func TestInvokeCredentialRevocation(t *testing.T) {
 	r := newTestRegistry(nil, func(ctx context.Context, e *Endpoint, tool string, args map[string]any, auth []byte) (map[string]any, error) {
 		return nil, ErrCredentialRevoked
 	})
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	_, err := r.Invoke(context.Background(), e.ID, "searchDocs", nil)
 	if !errors.Is(err, ErrCredentialRevoked) {
 		t.Fatalf("want ErrCredentialRevoked, got %v", err)
@@ -140,7 +157,7 @@ func TestBreakerOpensAfterFiveFailures(t *testing.T) {
 		}
 		return map[string]any{}, nil // 5th call would succeed — breaker must already be open
 	})
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	for i := 0; i < 4; i++ {
 		if _, err := r.Invoke(context.Background(), e.ID, "searchDocs", nil); !errors.Is(err, ErrTransport) {
 			t.Fatalf("call %d: want ErrTransport, got %v", i+1, err)
@@ -174,7 +191,7 @@ func TestBreakerResetsOnSuccess(t *testing.T) {
 		}
 		return map[string]any{"ok": true}, nil
 	})
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	for i := 0; i < 3; i++ {
 		_, _ = r.Invoke(context.Background(), e.ID, "searchDocs", nil)
 	}
@@ -197,7 +214,7 @@ func TestSecretNeverLeaksIntoErrors(t *testing.T) {
 	r := newTestRegistry(nil, func(ctx context.Context, e *Endpoint, tool string, args map[string]any, auth []byte) (map[string]any, error) {
 		return nil, errors.New("upstream said: topsecret is invalid")
 	})
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	_, err := r.Invoke(context.Background(), e.ID, "searchDocs", nil)
 	if err == nil {
 		t.Fatal("want error")
@@ -209,7 +226,7 @@ func TestSecretNeverLeaksIntoErrors(t *testing.T) {
 
 func TestRevokeIdempotentAndValidated(t *testing.T) {
 	r := newTestRegistry(nil, nil)
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	if _, err := r.Revoke(e.ID, "because"); err == nil {
 		t.Fatal("want invalid reason rejection")
 	}
@@ -234,7 +251,7 @@ func TestProbeRecoversDegraded(t *testing.T) {
 		}
 		return nil
 	}, nil)
-	e, _ := r.Register(context.Background(), "https", "https://example.com/mcp", "secretref:pool/a", validPin())
+	e, _ := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
 	if e.State != StateDegraded {
 		t.Fatalf("want degraded, got %s", e.State)
 	}

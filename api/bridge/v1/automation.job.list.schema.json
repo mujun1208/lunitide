@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/automation.job.list.schema.json",
+  "title": "automation.job.list payload",
+  "x-method": "automation.job.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "jobs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "name": { "type": "string" },
+            "cron": { "type": "string" },
+            "prompt": { "type": "string" },
+            "providerId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "modelId": { "type": "string" },
+            "sessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "executionMode": { "type": "string" },
+            "webhookUrl": { "type": "string", "maxLength": 512 },
+            "enabled": { "type": "boolean" },
+            "lastRunAt": { "type": "string", "format": "date-time" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+          },
+          "required": ["id", "name", "cron", "prompt", "providerId", "modelId", "sessionId", "enabled", "createdAt", "updatedAt"]
+        }
+      }
+    },
+    "required": ["jobs"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

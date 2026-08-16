@@ -343,13 +343,30 @@ func TestMcp6RegisterInvokeRevokeRoundTrip(t *testing.T) {
 	}
 }
 
-// M6-MCP-004: stdio registrations stay disabled at the gate.
-func TestMcp6RegisterRejectsStdio(t *testing.T) {
+// M6-MCP-004 (gate opened 2026-08-16): stdio registers through the
+// whitelist — non-whitelisted commands still refuse; the admitted shape
+// registers and answers ready.
+func TestMcp6RegisterStdio(t *testing.T) {
 	h := newM6Harness(t)
 	resp := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6Register,
-		`{"endpoint":{"transport":"stdio","url":"https://mcp.example.com/sse","authRef":"secretref:pool/a"},"capabilityPin":{"serverIdentityDigest":"`+sha256Hex("srv")+`","toolSchemaDigests":{"t":"`+sha256Hex("t")+`"}}}`, ""))
+		`{"endpoint":{"transport":"stdio","command":"bash","args":["-c","ls"]},"capabilityPin":{"serverIdentityDigest":"`+sha256Hex("srv")+`","toolSchemaDigests":{"t":"`+sha256Hex("t")+`"}}}`, ""))
 	if resp.OK || resp.Error.Code != mcp6.CodeStdioDisabled {
-		t.Fatalf("want M6-MCP-004, got %+v", resp.Error)
+		t.Fatalf("want M6-MCP-004 for non-whitelisted command, got %+v", resp.Error)
+	}
+	badShape := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6Register,
+		`{"endpoint":{"transport":"stdio","url":"https://mcp.example.com/sse"},"capabilityPin":{"serverIdentityDigest":"`+sha256Hex("srv")+`","toolSchemaDigests":{"t":"`+sha256Hex("t")+`"}}}`, ""))
+	if badShape.OK || badShape.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("want schema rejection for stdio without command/args, got %+v", badShape.Error)
+	}
+	ok := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6Register,
+		`{"endpoint":{"transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-everything"]},"capabilityPin":{"serverIdentityDigest":"`+sha256Hex("srv")+`","toolSchemaDigests":{"t":"`+sha256Hex("t")+`"}}}`, ""))
+	var regOut struct {
+		EndpointID string `json:"endpointId"`
+		State      string `json:"state"`
+	}
+	m6Payload(t, ok, &regOut)
+	if regOut.State != "ready" {
+		t.Fatalf("want ready stdio endpoint, got %q", regOut.State)
 	}
 }
 
@@ -388,5 +405,55 @@ func TestMcp6ServicesUnwired(t *testing.T) {
 		if resp.OK || resp.Error.Code != "STORAGE_UNAVAILABLE" && resp.Error.Code != "FEATURE_DISABLED" {
 			t.Fatalf("%s unwired: %+v", tc.method, resp.Error)
 		}
+	}
+}
+
+// c3-mcp: mcp6.presets.list answers the curated catalog, every returned
+// row clears the unchanged stdio admission gate via mcp6.register, and the
+// unknown-field payload is rejected like any strict-schema method.
+func TestMcp6PresetsList(t *testing.T) {
+	h := newM6Harness(t)
+	resp := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6PresetsList, `{}`, ""))
+	var out struct {
+		Items []mcp6.Preset `json:"items"`
+	}
+	m6Payload(t, resp, &out)
+	if len(out.Items) < 9 {
+		t.Fatalf("want at least 9 presets, got %d", len(out.Items))
+	}
+	byID := make(map[string]mcp6.Preset, len(out.Items))
+	for _, it := range out.Items {
+		byID[it.ID] = it
+	}
+	for _, id := range []string{"everything", "filesystem", "fetch", "memory", "sequentialthinking", "git", "github", "puppeteer", "sqlite"} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("preset %s missing from bridge answer", id)
+		}
+	}
+	if fs := byID["filesystem"]; !fs.NeedsArgs || fs.ArgPlaceholder != "{{dir}}" || fs.ArgHint == "" {
+		t.Fatalf("filesystem preset placeholder contract broken: %+v", fs)
+	}
+
+	// End-to-end: each catalog row (placeholder resolved to a benign path)
+	// registers through the real mcp6.register admission path.
+	for _, it := range out.Items {
+		argsJSON, err := json.Marshal(it.ResolveArgs("C:/Users/demo/projects/sample"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6Register,
+			`{"endpoint":{"transport":"stdio","command":"`+it.Command+`","args":`+string(argsJSON)+`},"capabilityPin":{"serverIdentityDigest":"`+sha256Hex("srv")+`","toolSchemaDigests":{"t":"`+sha256Hex("t")+`"}}}`, ""))
+		var regOut struct {
+			State string `json:"state"`
+		}
+		m6Payload(t, reg, &regOut)
+		if regOut.State != "ready" {
+			t.Fatalf("preset %s did not register ready: %q", it.ID, regOut.State)
+		}
+	}
+
+	bad := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6PresetsList, `{"unexpected":true}`, ""))
+	if bad.OK || bad.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("want schema rejection for unknown fields, got %+v", bad.Error)
 	}
 }

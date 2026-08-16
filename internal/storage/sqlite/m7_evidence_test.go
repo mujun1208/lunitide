@@ -26,7 +26,7 @@ func newM7EvidenceHarness(t *testing.T) (*m7app.TraceService, *m7app.GateService
 	wf := m7app.NewWorkflowService(repo)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	pid := "01ARZ3NDEKTSV4RRFFQ69G5FA0"
-	if _, err := store.db.Exec(`INSERT INTO projects(id,name,created_at,updated_at) VALUES(?,?,?,?)`,
+	if _, err := store.db.Exec(`INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES(?,?, 'ITM00001', ?,?)`,
 		pid, "m7-evd-project", now, now); err != nil {
 		t.Fatal(err)
 	}

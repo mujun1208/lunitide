@@ -83,10 +83,10 @@ type anthropicResponse struct {
 	} `json:"usage"`
 }
 
-func anthropicPayload(in Request, stream bool) anthropicRequest {
+func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 	p := anthropicRequest{Model: in.Model, MaxTokens: in.MaxTokens, Stream: stream}
 	for _, t := range in.Tools {
-		p.Tools = append(p.Tools, anthropicTool{Name: t.Name, Description: t.Description, InputSchema: t.Schema})
+		p.Tools = append(p.Tools, anthropicTool{Name: wn.wire(t.Name), Description: t.Description, InputSchema: t.Schema})
 	}
 	if p.MaxTokens <= 0 {
 		p.MaxTokens = 1
@@ -105,7 +105,7 @@ func anthropicPayload(in Request, stream bool) anthropicRequest {
 					blocks = append(blocks, anthropicBlock{Type: "text", Text: m.Content})
 				}
 				for _, tc := range m.ToolCalls {
-					blocks = append(blocks, anthropicBlock{Type: "tool_use", ID: tc.ID, Name: tc.Name, Input: tc.Arguments})
+					blocks = append(blocks, anthropicBlock{Type: "tool_use", ID: tc.ID, Name: wn.wire(tc.Name), Input: tc.Arguments})
 				}
 				content = blocks
 			}
@@ -137,7 +137,8 @@ func (a *Anthropic) Stream(ctx context.Context, s []byte, in Request, emit func(
 	return a.run(ctx, s, in, true, emit)
 }
 func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
-	p := anthropicPayload(in, stream)
+	wn := buildWireNames(in.Tools, anthropicToolNameMax)
+	p := anthropicPayload(in, stream, wn)
 	maxAttempts := attempts(a.o, in, stream)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		body, e := marshalBounded(p, a.o.MaxRequestBytes)
@@ -175,7 +176,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 			return Response{}, statusError(status)
 		}
 		if stream {
-			return a.readStream(resp.Body, emit)
+			return a.readStream(resp.Body, emit, wn)
 		}
 		var x anthropicResponse
 		e = strictJSON(resp.Body, &x)
@@ -199,14 +200,14 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 				reasoning.WriteString(c.Thinking)
 			}
 			if c.Type == "tool_use" && c.ID != "" && c.Name != "" && json.Valid(c.Input) {
-				calls = append(calls, ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Input})
+				calls = append(calls, ToolCall{ID: c.ID, Name: wn.original(c.Name), Arguments: c.Input})
 			}
 		}
 		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: normalizeUsage(x.Usage.Input, x.Usage.Output, 0), Reasoning: reasoning.String()}, nil
 	}
 	return Response{}, safeError("RETRY_EXHAUSTED", StageConnect, 0, "upstream unavailable")
 }
-func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error) (Response, error) {
+func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, error) {
 	defer body.Close()
 	out := Response{Message: Message{Role: RoleAssistant}}
 	type partialCall struct {
@@ -272,7 +273,7 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error) (Resp
 				if !json.Valid(raw) {
 					return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool arguments are invalid JSON")
 				}
-				call := ToolCall{ID: p.id, Name: p.name, Arguments: raw}
+				call := ToolCall{ID: p.id, Name: wn.original(p.name), Arguments: raw}
 				out.Message.ToolCalls = append(out.Message.ToolCalls, call)
 				if emit != nil {
 					if e := emit(Delta{ToolCall: &call}); e != nil {

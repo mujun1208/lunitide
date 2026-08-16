@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.artifact.preview.schema.json",
+  "title": "workspace.artifact.preview payload",
+  "x-method": "workspace.artifact.preview",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*\\.(html|xlsx|docx|pptx)$"
+    }
+  },
+  "required": ["sessionId", "path"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "kind": {
+        "enum": ["html", "xlsx", "docx", "pptx"]
+      },
+      "path": {
+        "type": "string"
+      },
+      "size": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8388608
+      },
+      "content": {
+        "type": "string",
+        "maxLength": 262144
+      }
+    },
+    "required": ["kind", "path", "size", "content"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "reports/q3.xlsx"
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "../escape.xlsx"
+      },
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "reports/q3.pdf"
+      }
+    ]
+  }
+}

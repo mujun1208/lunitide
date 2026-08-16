@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.artifactReview.list.schema.json",
+  "title": "workspace.artifactReview.list payload",
+  "x-method": "workspace.artifactReview.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "sessionId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "callId": {
+              "type": "string"
+            },
+            "toolName": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": ["html", "xlsx", "docx", "pptx", "pdf"]
+            },
+            "path": {
+              "type": "string"
+            },
+            "action": {
+              "enum": ["comment", "revise", "accept"]
+            },
+            "note": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": ["id", "sessionId", "callId", "kind", "path", "action", "createdAt"]
+        }
+      },
+      "acceptedPaths": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "string",
+          "maxLength": 512
+        }
+      }
+    },
+    "required": ["items", "acceptedPaths"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE"
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "sessionId": "nope",
+        "extra": true
+      }
+    ]
+  }
+}

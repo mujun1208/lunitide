@@ -3,8 +3,21 @@
   "$id":"https://lunitide.local/schema/bridge/v1/project.create.schema.json",
   "title":"project.create payload","x-method":"project.create","x-owner":"engine","x-enabled":true,
   "type":"object","additionalProperties":false,
-  "properties":{"name":{"type":"string","minLength":1,"maxLength":200}},
+  "properties":{
+    "name":{"type":"string","minLength":1,"maxLength":200},
+    "type":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectType"},
+    "description":{"type":"string","maxLength":2000},
+    "summary":{"type":"string","maxLength":500},
+    "objective":{"type":"string","maxLength":2000},
+    "client":{"type":"string","maxLength":200},
+    "contractNo":{"type":"string","maxLength":100},
+    "amount":{"type":"number","minimum":0},
+    "budget":{"type":"number","minimum":0},
+    "planStart":{"type":"string","pattern":"^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "planEnd":{"type":"string","pattern":"^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "remark":{"type":"string","maxLength":2000}
+  },
   "required":["name"],
   "x-result":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"},
-  "x-examples":{"positive":[{"name":"My Project"}],"negative":[{"name":""}]}
+  "x-examples":{"positive":[{"name":"My Project","type":"implementation","client":"ACME","planStart":"2026-01-01","planEnd":"2026-06-30"}],"negative":[{"name":""}]}
 }

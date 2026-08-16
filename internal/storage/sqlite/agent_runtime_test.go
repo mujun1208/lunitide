@@ -41,8 +41,8 @@ func openRuntimeStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { store.Close() })
 	now := rtAt.Format(time.RFC3339Nano)
-	if _, err = store.db.Exec(`INSERT INTO projects(id,name,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?)`,
-		rtProjectULID, "Demo", "active", now, now, 1); err != nil {
+	if _, err = store.db.Exec(`INSERT INTO projects(id,name,project_code,status,created_at,updated_at,version) VALUES(?,?,?, 'active',?,?,1)`,
+		rtProjectULID, "Demo", "ITM00001", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.db.Exec(`INSERT INTO sessions(id,project_id,title,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?)`,

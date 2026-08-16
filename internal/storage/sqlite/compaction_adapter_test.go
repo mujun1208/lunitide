@@ -57,7 +57,7 @@ func TestSumTokenLedgerAfterSeqUsesCanonicalIdentityAndRevision(t *testing.T) {
 	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FA0"
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FA1"
 	now := "2025-01-01T00:00:00Z"
-	if _, err := store.db.ExecContext(ctx, `INSERT INTO projects(id,name,created_at,updated_at) VALUES(?,?,?,?)`, projectID, "p", now, now); err != nil {
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES(?,?, 'ITM00001', ?,?)`, projectID, "p", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES(?,?,?,?,?)`, sessionID, projectID, "s", now, now); err != nil {

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/automation.status.schema.json",
+  "title": "automation.status payload",
+  "x-method": "automation.status",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "running": { "type": "boolean" },
+      "startedAt": { "type": "string", "format": "date-time" },
+      "lastHeartbeat": { "type": "string", "format": "date-time" },
+      "nextFire": {
+        "type": "object",
+        "additionalProperties": { "type": "string", "format": "date-time" }
+      },
+      "runningJobs": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["running", "lastHeartbeat", "nextFire", "runningJobs"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

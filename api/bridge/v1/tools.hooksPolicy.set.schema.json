@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/tools.hooksPolicy.set.schema.json",
+  "title": "tools.hooksPolicy.set payload",
+  "x-method": "tools.hooksPolicy.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hooks": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "items": { "enum": ["beforeToolCall", "afterToolCall"] }
+          },
+          "tools": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 14,
+              "items": {
+                "enum": [
+                  "workspace.list",
+                  "workspace.read",
+                  "workspace.write",
+                  "workspace.search",
+                  "workspace.edit",
+                  "todo.write",
+                  "command.run",
+                  "web.fetch",
+                  "web.search",
+                  "excel.gen",
+                  "excel.parse",
+                  "docx.gen",
+                  "pptx.gen",
+                  "pdf.gen"
+                ]
+              }
+            },
+          "decision": { "enum": ["block", "requireApproval", "allow"] },
+          "message": { "type": "string", "maxLength": 256 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "decision": { "const": "block" } }, "required": ["decision"] },
+            "then": { "properties": { "message": true }, "required": ["message"] }
+          },
+          {
+            "if": {
+              "properties": { "decision": { "not": { "const": "block" } } },
+              "required": ["decision"]
+            },
+            "then": { "properties": { "message": true }, "not": { "required": ["message"] } }
+          }
+        ],
+        "required": ["id", "events", "tools", "decision"]
+      }
+    }
+  },
+  "required": ["hooks"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "applied": { "type": "integer", "minimum": 0, "maximum": 64 }
+    },
+    "required": ["applied"]
+  },
+  "x-examples": {
+    "positive": [
+      { "hooks": [] },
+      {
+        "hooks": [
+          {
+            "id": "no-docx",
+            "events": ["beforeToolCall"],
+            "tools": ["docx.gen"],
+            "decision": "block",
+            "message": "禁止生成 Word 文档"
+          }
+        ]
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "hooks": [
+          {
+            "id": "x",
+            "events": ["beforeToolCall"],
+            "tools": ["rm -rf"],
+            "decision": "block",
+            "message": "m"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "id": "x",
+            "events": ["beforeToolCall"],
+            "tools": ["workspace.write"],
+            "decision": "block"
+          }
+        ]
+      }
+    ]
+  }
+}

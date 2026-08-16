@@ -182,7 +182,7 @@ DROP TABLE team_spaces;
 DROP TABLE organizations;ALTER TABLE sessions DROP COLUMN pinned;
 ALTER TABLE sessions DROP COLUMN revision;
 DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
-INSERT INTO projects(id,name,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
+INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','ITM00001','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1','01ARZ3NDEKTSV4RRFFQ69G5FA0','session','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO messages(id,session_id,role,sequence,created_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA2','01ARZ3NDEKTSV4RRFFQ69G5FA1','assistant',1,'2026-01-01T00:00:00Z');
 INSERT INTO message_parts(message_id,ordinal,type,text) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA2',1,'text','hello');

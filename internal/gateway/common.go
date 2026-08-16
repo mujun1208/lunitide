@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -73,6 +74,243 @@ func classify(err error) *Error {
 
 func statusError(status int) *Error {
 	return safeError("HTTP_"+strconv.Itoa(status), StageHTTP, status, http.StatusText(status))
+}
+
+// statusErrorReason extends statusError with a bounded, single-line reason
+// extracted from the upstream error body so 4xx diagnostics name the real
+// cause (schema keyword rejected, tools unsupported, ...) instead of a bare
+// status text.
+func statusErrorReason(status int, reason string) *Error {
+	msg := http.StatusText(status)
+	if reason != "" {
+		msg += ": " + reason
+	}
+	return safeError("HTTP_"+strconv.Itoa(status), StageHTTP, status, msg)
+}
+
+// boundedReason reads at most 4 KiB of an error response body and extracts
+// a single-line reason bounded to 200 runes. OpenAI-style error wrappers
+// ({"error":{"message":...}} / {"message":...}) are unwrapped; anything
+// else falls back to the raw text. Control characters are stripped so the
+// result is safe for logs and the persisted fallback notice.
+func boundedReason(r io.Reader) string {
+	if r == nil {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(r, 4096))
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	reason := ""
+	var probe struct {
+		Message string `json:"message"`
+		Error   struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &probe) == nil {
+		if probe.Error.Message != "" {
+			reason = probe.Error.Message
+		} else if probe.Message != "" {
+			reason = probe.Message
+		}
+	}
+	if reason == "" {
+		reason = string(raw)
+	}
+	reason = strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case r < 0x20:
+			return -1
+		default:
+			return r
+		}
+	}, reason)
+	reason = strings.Join(strings.Fields(reason), " ")
+	if runes := []rune(reason); len(runes) > 200 {
+		reason = string(runes[:200])
+	}
+	return reason
+}
+
+// schemaCoreKeys is the JSON Schema subset every targeted
+// OpenAI-compatible provider accepts inside function parameters.
+// sanitizeToolSchema drops everything else (additionalProperties,
+// minimum/maximum, minLength/maxLength, maxItems/minItems, pattern,
+// format, ...) before the one-shot compatibility retry.
+var schemaCoreKeys = map[string]bool{
+	"type":        true,
+	"title":       true,
+	"description": true,
+	"properties":  true,
+	"items":       true,
+	"required":    true,
+	"enum":        true,
+}
+
+// sanitizeToolSchema returns schema reduced to schemaCoreKeys (recursively).
+// On any decode failure or when nothing changes it returns the original.
+func sanitizeToolSchema(schema json.RawMessage) json.RawMessage {
+	var doc any
+	if len(schema) == 0 || json.Unmarshal(schema, &doc) != nil {
+		return schema
+	}
+	cleaned, changed := sanitizeSchemaValue(doc)
+	if !changed {
+		return schema
+	}
+	out, err := json.Marshal(cleaned)
+	if err != nil {
+		return schema
+	}
+	return out
+}
+
+func sanitizeSchemaValue(v any) (any, bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		changed := false
+		for k, child := range t {
+			if !schemaCoreKeys[k] {
+				changed = true
+				continue
+			}
+			if k == "properties" {
+				if props, ok := child.(map[string]any); ok {
+					clean := make(map[string]any, len(props))
+					for name, pv := range props {
+						cp, c := sanitizeSchemaValue(pv)
+						clean[name] = cp
+						changed = changed || c
+					}
+					out[k] = clean
+					continue
+				}
+			}
+			cv, c := sanitizeSchemaValue(child)
+			out[k] = cv
+			changed = changed || c
+		}
+		return out, changed
+	case []any:
+		out := make([]any, len(t))
+		changed := false
+		for i, item := range t {
+			cv, c := sanitizeSchemaValue(item)
+			out[i] = cv
+			changed = changed || c
+		}
+		return out, changed
+	default:
+		return v, false
+	}
+}
+
+// wireNames is the per-request bidirectional tool-name mapping. Internal
+// tool names (workspace.list, mcp_<endpoint>_<tool>, ...) carry dots and
+// possibly other runes that strict OpenAI-compatible and Anthropic
+// providers reject (pattern ^[a-zA-Z0-9_-]+$), so every request maps
+// internal names onto provider-safe wire names and every parsed tool call
+// maps them back. A nil *wireNames is valid: wire() still sanitizes
+// deterministically and original() is the identity.
+type wireNames struct {
+	toWire   map[string]string
+	fromWire map[string]string
+}
+
+const (
+	openAIToolNameMax    = 64
+	anthropicToolNameMax = 128
+)
+
+// sanitizeToolName maps name onto the provider-safe alphabet: every rune
+// outside [a-zA-Z0-9_-] becomes '_'.
+func sanitizeToolName(name string) string {
+	changed := false
+	for _, r := range name {
+		if !providerToolRune(r) {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return name
+	}
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		if providerToolRune(r) {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
+func providerToolRune(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-'
+}
+
+func fnv32(s string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
+}
+
+// buildWireNames precomputes the mapping for the declared tools. Names that
+// sanitize unchanged and fit the budget keep their exact form (most
+// providers already accept those); truncated or colliding names get a
+// deterministic hash suffix so the mapping stays reversible.
+func buildWireNames(tools []ToolDefinition, maxLen int) *wireNames {
+	wn := &wireNames{toWire: make(map[string]string, len(tools)), fromWire: make(map[string]string, len(tools))}
+	used := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		if t.Name == "" {
+			continue
+		}
+		wire := sanitizeToolName(t.Name)
+		if len(wire) > maxLen || used[wire] {
+			base := wire
+			if len(base) > maxLen-7 {
+				base = base[:maxLen-7]
+			}
+			for i := 2; ; i++ {
+				wire = fmt.Sprintf("%s_%05x", base, fnv32(fmt.Sprintf("%s#%d", t.Name, i))&0xfffff)
+				if !used[wire] {
+					break
+				}
+			}
+		}
+		used[wire] = true
+		wn.toWire[t.Name] = wire
+		wn.fromWire[wire] = t.Name
+	}
+	return wn
+}
+
+func (wn *wireNames) wire(name string) string {
+	if wn != nil {
+		if w, ok := wn.toWire[name]; ok {
+			return w
+		}
+	}
+	return sanitizeToolName(name)
+}
+
+func (wn *wireNames) original(name string) string {
+	if wn != nil {
+		if o, ok := wn.fromWire[name]; ok {
+			return o
+		}
+	}
+	return name
 }
 
 func doWithSecret(c Connector, req *http.Request, name, prefix string, secret []byte) (*http.Response, error) {

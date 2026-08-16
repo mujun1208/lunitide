@@ -134,24 +134,46 @@ func handleExtensionLifecycle(e *Engine, ctx context.Context, r bridge.Request) 
 func handleMcp6Register(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		Endpoint struct {
-			Transport string `json:"transport"`
-			URL       string `json:"url"`
-			AuthRef   string `json:"authRef"`
+			Transport string   `json:"transport"`
+			URL       string   `json:"url"`
+			AuthRef   string   `json:"authRef"`
+			Command   string   `json:"command"`
+			Args      []string `json:"args"`
 		} `json:"endpoint"`
 		CapabilityPin struct {
 			ServerIdentityDigest string            `json:"serverIdentityDigest"`
 			ToolSchemaDigests    map[string]string `json:"toolSchemaDigests"`
 		} `json:"capabilityPin"`
 	}
-	if decodePayload(r.Payload, &p) != nil || p.Endpoint.Transport == "" || p.Endpoint.URL == "" || p.Endpoint.AuthRef == "" ||
+	if decodePayload(r.Payload, &p) != nil || p.Endpoint.Transport == "" ||
 		len(p.CapabilityPin.ToolSchemaDigests) < 1 || len(p.CapabilityPin.ToolSchemaDigests) > 256 {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.register 参数无效", false)
+	}
+	// per-transport shape: https needs url+authRef, stdio needs command+args.
+	switch p.Endpoint.Transport {
+	case "https":
+		if p.Endpoint.URL == "" || p.Endpoint.AuthRef == "" {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "https 端点需要 url 与 authRef", false)
+		}
+	case "stdio":
+		if p.Endpoint.Command == "" || len(p.Endpoint.Args) == 0 || len(p.Endpoint.Args) > 16 {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "stdio 端点需要 command 与 1-16 个 args", false)
+		}
+	default:
+		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeStdioDisabled, "传输仅支持 https 或 stdio", false)
 	}
 	if e.mcp6Registry == nil {
 		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "MCP 网关尚未启用", false)
 	}
-	endpoint, err := e.mcp6Registry.Register(ctx, p.Endpoint.Transport, p.Endpoint.URL, p.Endpoint.AuthRef,
-		mcp6.CapabilityPin{ServerIdentityDigest: p.CapabilityPin.ServerIdentityDigest, ToolSchemaDigests: p.CapabilityPin.ToolSchemaDigests})
+	endpoint, err := e.mcp6Registry.Register(ctx, mcp6.EndpointInput{
+		Transport: p.Endpoint.Transport,
+		URL:       p.Endpoint.URL,
+		AuthRef:   p.Endpoint.AuthRef,
+		Command:   p.Endpoint.Command,
+		Args:      p.Endpoint.Args,
+		Pin: mcp6.CapabilityPin{ServerIdentityDigest: p.CapabilityPin.ServerIdentityDigest,
+			ToolSchemaDigests: p.CapabilityPin.ToolSchemaDigests},
+	})
 	if err != nil {
 		resp := m6McpFailure(r, err)
 		// A degraded registration is still a durable registration: persist
@@ -239,6 +261,21 @@ func handleMcp6Revoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}{endpoint.ID, endpoint.State, true})
 }
 
+// handleMcp6PresetsList answers the curated free-official-server catalog
+// (task c3-mcp). The catalog is static and validated at test time against
+// the unchanged m7flow stdio whitelist, so no runtime gate is needed; a
+// preset registration still flows through mcp.add / mcp6.register and their
+// fail-closed admission.
+func handleMcp6PresetsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct{}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.presets.list 参数无效", false)
+	}
+	return bridge.Success(r.ID, struct {
+		Items []mcp6.Preset `json:"items"`
+	}{mcp6.Presets()})
+}
+
 // m6ExtensionFailure maps extension-service errors onto wire codes.
 func m6ExtensionFailure(r bridge.Request, err error) bridge.Response {
 	switch {
@@ -267,7 +304,7 @@ func m6ExtensionFailure(r bridge.Request, err error) bridge.Response {
 func m6McpFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, mcp6.ErrStdioDisabled):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeStdioDisabled, "stdio 传输在隔离 POC 通过前保持禁用", false)
+		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeStdioDisabled, "stdio 端点被拒绝：命令不在白名单或参数含非法字符", false)
 	case errors.Is(err, mcp6.ErrEndpointNotFound):
 		return bridge.Failure(r.ID, r.TraceID, "MCP6_ENDPOINT_NOT_FOUND", "端点不存在", false)
 	case errors.Is(err, mcp6.ErrEndpointRevoked):

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/automation.job.set.schema.json",
+  "title": "automation.job.set payload",
+  "x-method": "automation.job.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "cron": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[0-9*,-/]+( [0-9*,-/]+){4}$" },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 8000 },
+    "providerId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "modelId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "executionMode": { "enum": ["approval", "auto-edit", "plan", "full-access"] },
+    "webhookUrl": { "type": "string", "maxLength": 512, "pattern": "^https://[a-zA-Z0-9.-]+\\..*$" },
+    "enabled": { "type": "boolean" }
+  },
+  "required": ["name", "cron", "prompt", "providerId", "modelId", "sessionId", "enabled"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "createdAt": { "type": "string", "format": "date-time" }
+    },
+    "required": ["id", "createdAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "name": "每日站会摘要",
+        "cron": "30 8 * * 1-5",
+        "prompt": "汇总昨天会话里的待办并生成今日站会摘要",
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "modelId": "gpt-test",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAF",
+        "executionMode": "auto-edit",
+        "enabled": true
+      }
+    ],
+    "negative": [
+      { "name": "bad", "cron": "每天", "prompt": "x", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "modelId": "m", "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAF", "enabled": true }
+    ]
+  }
+}

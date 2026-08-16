@@ -128,8 +128,17 @@
     },
     "ProjectStatus": {
       "enum": [
+        "created",
         "active",
+        "closed",
         "archived"
+      ]
+    },
+    "ProjectType": {
+      "enum": [
+        "implementation",
+        "operations",
+        "enhancement"
       ]
     },
     "ProjectDTO": {
@@ -143,6 +152,57 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "projectCode": {
+          "type": "string",
+          "pattern": "^ITM[0-9]{1,13}$"
+        },
+        "type": {
+          "$ref": "#/$defs/ProjectType"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "objective": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "client": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "contractNo": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "budget": {
+          "type": "number",
+          "minimum": 0
+        },
+        "planStart": {
+          "type": "string",
+          "pattern": "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "planEnd": {
+          "type": "string",
+          "pattern": "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "remark": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "closeReason": {
+          "type": "string",
+          "maxLength": 500
         },
         "status": {
           "$ref": "#/$defs/ProjectStatus"
@@ -163,6 +223,8 @@
       "required": [
         "id",
         "name",
+        "projectCode",
+        "type",
         "status",
         "createdAt",
         "updatedAt",

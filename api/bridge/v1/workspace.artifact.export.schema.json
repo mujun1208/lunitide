@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/workspace.artifact.export.schema.json",
+  "title": "workspace.artifact.export payload",
+  "x-method": "workspace.artifact.export",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*\\.(html|xlsx|docx|pptx|pdf)$"
+    },
+    "target": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 400,
+      "pattern": "^([Dd]esktop|[Dd]ownloads|[Dd]ocuments|[A-Za-z]:[\\\\/].+|\\\\\\\\.+)$",
+      "description": "desktop/downloads/documents 快捷目录，或用户授权的已存在绝对目录"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": ["sessionId", "path", "target"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "exportedPath": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 600
+      },
+      "size": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 33554432
+      }
+    },
+    "required": ["exportedPath", "size"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "reports/q3.xlsx",
+        "target": "desktop"
+      },
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "交付说明.pdf",
+        "target": "D:\\客户交付",
+        "overwrite": false
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "../escape.xlsx",
+        "target": "desktop"
+      },
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "path": "reports/q3.xlsx",
+        "target": "rel/ative"
+      }
+    ]
+  }
+}

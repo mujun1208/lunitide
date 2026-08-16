@@ -5,6 +5,7 @@ package stdioworker
 import (
 	"context"
 	"errors"
+	"os"
 )
 
 // The 5B production engine is Windows-first (Job Object quotas are part of
@@ -22,5 +23,9 @@ func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas) 
 func (p *engineProc) kill() error { return nil }
 
 func (p *engineProc) close() {}
+
+// stdioHandles exposes the pipe/pid triple for the IsolatedProc wrapper;
+// the non-Windows engine never spawns, so the triple is always zero.
+func (p *engineProc) stdioHandles() (*os.File, *os.File, int) { return nil, nil, 0 }
 
 func (p *engineProc) wait(ctx context.Context) (int, error) { return -1, errNoEngine }

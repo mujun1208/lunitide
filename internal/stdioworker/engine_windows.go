@@ -187,6 +187,11 @@ func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas) 
 	}, nil
 }
 
+// stdioHandles exposes the pipe/pid triple for the IsolatedProc wrapper.
+func (p *engineProc) stdioHandles() (*os.File, *os.File, int) {
+	return p.stdin, p.stdout, p.pid
+}
+
 // kill terminates the whole tree.
 func (p *engineProc) kill() error {
 	if p == nil || p.killOnce {

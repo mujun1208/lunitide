@@ -16,10 +16,11 @@ type fixedClock struct{ now time.Time }
 func (c fixedClock) Now() time.Time { return c.now }
 
 type projectMemory struct {
-	mu      sync.Mutex
-	next    int
-	records map[string]providerapp.Record
-	audits  []providerapp.Audit
+	mu       sync.Mutex
+	next     int
+	projects map[string]project.Project
+	records  map[string]providerapp.Record
+	audits   []providerapp.Audit
 }
 
 func (m *projectMemory) ListProjects(context.Context, project.Filter) ([]project.Project, error) {
@@ -35,6 +36,32 @@ func (m *projectMemory) CreateProject(_ context.Context, p project.Project) (pro
 	p.ID = []string{"01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"}[m.next-1]
 	p.Status, p.Version = project.StatusActive, 1
 	p.CreatedAt, p.UpdatedAt = time.Unix(int64(m.next), 0).UTC(), time.Unix(int64(m.next), 0).UTC()
+	if m.projects == nil {
+		m.projects = map[string]project.Project{}
+	}
+	m.projects[p.ID] = p
+	return p, nil
+}
+func (m *projectMemory) GetProject(_ context.Context, id string) (project.Project, error) {
+	p, ok := m.projects[id]
+	if !ok {
+		return project.Project{}, project.ErrNotFound
+	}
+	return p, nil
+}
+func (m *projectMemory) UpdateProject(_ context.Context, id string, version int64, mutate func(*project.Project) error) (project.Project, error) {
+	p, ok := m.projects[id]
+	if !ok {
+		return project.Project{}, project.ErrNotFound
+	}
+	if p.Version != version {
+		return project.Project{}, ErrProjectVersionConflict
+	}
+	if err := mutate(&p); err != nil {
+		return project.Project{}, err
+	}
+	p.Version, p.UpdatedAt = p.Version+1, p.UpdatedAt.Add(time.Second)
+	m.projects[id] = p
 	return p, nil
 }
 func (m *projectMemory) Idempotency(_ context.Context, op, key string, _ time.Time) (providerapp.Record, bool, error) {
