@@ -208,6 +208,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0068_m8_expert.sql", "4f0a2ea9e3d86f3c7cb465c0fa8fbfcf41ff519f897ada6f247c163a07132133"},
 	{"0069_m9_org_foundation.sql", "2c3b93f0a47a944c506cd56241ce69a142acad87434e0d691d2327119e01cde1"},
 	{"0070_m7_project_lifecycle.sql", "6d770e3c76938832fa1056ee75a424db0f5b0a1e224ba5790d934953bf1d4c59"},
+	{"0071_m10_memory_nomination.sql", "ef1f79ac1ad53933a4728a526f46486d01293d948b9d3acb9e223d82b1c1ffb6"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1225,6 +1226,9 @@ var expectedSchemaSQL = map[string]string{
 	"trigger:trg_pr_org_immutable": "CREATE TRIGGER trg_pr_org_immutable BEFORE UPDATE ON principals\n    WHEN NEW.org_id <> OLD.org_id\n    BEGIN SELECT RAISE(ABORT, 'M9-003'); END",
 	"trigger:trg_rb_org_immutable": "CREATE TRIGGER trg_rb_org_immutable BEFORE UPDATE ON role_bindings\n    WHEN NEW.org_id <> OLD.org_id\n    BEGIN SELECT RAISE(ABORT, 'M9-003'); END",
 	"trigger:trg_ts_org_immutable": "CREATE TRIGGER trg_ts_org_immutable BEFORE UPDATE ON team_spaces\n    WHEN NEW.org_id <> OLD.org_id\n    BEGIN SELECT RAISE(ABORT, 'M9-003'); END",
+	// M10 (migration 0071+).
+	"index:idx_nom_state":        "CREATE INDEX idx_nom_state ON memory_nominations(state, created_at)",
+	"table:memory_nominations":   "CREATE TABLE memory_nominations (\n    nomination_id TEXT PRIMARY KEY CHECK (length(nomination_id) = 26 AND substr(nomination_id, 1, 1) GLOB '[0-7]' AND nomination_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    candidate_id TEXT NOT NULL REFERENCES memory_candidates(candidate_id),\n    nominator TEXT NOT NULL CHECK (length(nominator) BETWEEN 1 AND 128),\n    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 2048),\n    source_session_id TEXT CHECK (source_session_id IS NULL OR (length(source_session_id) = 26 AND substr(source_session_id, 1, 1) GLOB '[0-7]' AND source_session_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*')),\n    state TEXT NOT NULL DEFAULT 'nominated' CHECK (state IN ('nominated','decided','withdrawn')),\n    decided_at TEXT,\n    created_at TEXT NOT NULL,\n    UNIQUE (candidate_id)\n)",
 }
 
 type columnSpec struct {
