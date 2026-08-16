@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp.add.schema.json",
+  "title": "mcp.add payload",
+  "x-method": "mcp.add",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "origin": {
+      "type": "string",
+      "enum": ["market", "manual"]
+    },
+    "transport": {
+      "type": "string",
+      "enum": ["stdio", "https"]
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "args": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "maxLength": 512
+      }
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https://",
+      "maxLength": 2048
+    },
+    "envSecretRefs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "marketItemId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "riskConfirmed": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actor": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": ["origin", "requestId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpointId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "state": {
+        "type": "string",
+        "enum": ["probe", "ready", "degraded", "quarantined"]
+      },
+      "capabilityDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "required": ["endpointId", "state"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "origin": "market",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@example/mcp-server"],
+        "marketItemId": "01J8ZGB2V8X2B4C6D8F0G2H4J6",
+        "requestId": "req-1a2b3c",
+        "actor": "operator-1"
+      }
+    ],
+    "negative": [
+      {
+        "origin": "manual",
+        "transport": "ftp",
+        "url": "ftp://example.com/server",
+        "riskConfirmed": true,
+        "requestId": "req-1a2b3d"
+      }
+    ]
+  }
+}

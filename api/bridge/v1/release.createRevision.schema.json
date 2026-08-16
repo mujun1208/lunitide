@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/release.createRevision.schema.json",
+  "title": "release.createRevision payload",
+  "x-method": "release.createRevision",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "crId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "manifest": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 64
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "crId",
+    "manifest",
+    "requestId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "crRevisionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "revisionNo": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "digest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "required": [
+      "crRevisionId",
+      "revisionNo",
+      "digest"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "crId": "CR-1042",
+        "manifest": {
+          "authorId": "u-author-7",
+          "summary": "Add export endpoint"
+        },
+        "requestId": "req-001"
+      }
+    ],
+    "negative": [
+      {
+        "crId": "CR-1042",
+        "requestId": "req-001"
+      }
+    ]
+  }
+}

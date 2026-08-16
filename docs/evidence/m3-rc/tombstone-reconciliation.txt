@@ -1,0 +1,23 @@
+﻿=== RUN   TestService_ImportCapsule_FailClosedOnSessionTombstone
+--- PASS: TestService_ImportCapsule_FailClosedOnSessionTombstone (0.00s)
+=== RUN   TestService_ImportCapsule_FailClosedOnCheckpointTombstone
+--- PASS: TestService_ImportCapsule_FailClosedOnCheckpointTombstone (0.00s)
+=== RUN   TestService_ListImportedCapsuleContexts_TombstoneFailClosed
+--- PASS: TestService_ListImportedCapsuleContexts_TombstoneFailClosed (0.00s)
+=== RUN   TestService_ListImportedCapsuleContexts_NoTombstoneChecker
+--- PASS: TestService_ListImportedCapsuleContexts_NoTombstoneChecker (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/handoffapp	0.533s
+testing: warning: no tests to run
+PASS
+ok  	github.com/lunitide/lunitide/internal/compactionapp	0.717s [no tests to run]
+=== RUN   TestGetAttachmentForDeletionHidesParsedTextAndFindsTombstone
+--- PASS: TestGetAttachmentForDeletionHidesParsedTextAndFindsTombstone (0.35s)
+=== RUN   TestDeleteSessionRecordsTombstones
+--- PASS: TestDeleteSessionRecordsTombstones (0.39s)
+=== RUN   TestDeleteProjectRecordsTombstones
+--- PASS: TestDeleteProjectRecordsTombstones (0.33s)
+=== RUN   TestRecordTombstoneIdempotent
+--- PASS: TestRecordTombstoneIdempotent (0.30s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/storage/sqlite	2.519s

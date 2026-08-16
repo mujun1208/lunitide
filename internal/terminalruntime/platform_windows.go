@@ -199,8 +199,16 @@ func utf16Environment(env []string) []uint16 {
 }
 func (s *winSession) readLoop(cb func([]byte)) {
 	b := make([]byte, 32<<10)
+	// take the output handle under the lock: close() nils s.output on the
+	// same mutex, so an unsynchronized read here is a data race.
+	s.mu.Lock()
+	out := s.output
+	s.mu.Unlock()
+	if out == nil {
+		return
+	}
 	for {
-		n, e := s.output.Read(b)
+		n, e := out.Read(b)
 		if n > 0 {
 			cb(b[:n])
 		}

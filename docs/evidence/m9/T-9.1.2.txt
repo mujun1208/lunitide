@@ -1,0 +1,18 @@
+﻿=== RUN   TestIdentity
+=== RUN   TestIdentity/M9-001_org_not_found
+=== RUN   TestIdentity/M9-004_teamspace_not_found
+=== RUN   TestIdentity/M9-005_principal_expiry_is_clock_fresh_with_no_grace_cache
+=== RUN   TestIdentity/M9-006_role_binding_denied
+=== RUN   TestIdentity/M9-002_suspended_org_refuses_new_runs
+=== RUN   TestIdentity/revocation_watermark_kills_issued_tickets_immediately
+=== RUN   TestIdentity/cross_org_principal_bind_answers_M9-003
+--- PASS: TestIdentity (0.00s)
+    --- PASS: TestIdentity/M9-001_org_not_found (0.00s)
+    --- PASS: TestIdentity/M9-004_teamspace_not_found (0.00s)
+    --- PASS: TestIdentity/M9-005_principal_expiry_is_clock_fresh_with_no_grace_cache (0.00s)
+    --- PASS: TestIdentity/M9-006_role_binding_denied (0.00s)
+    --- PASS: TestIdentity/M9-002_suspended_org_refuses_new_runs (0.00s)
+    --- PASS: TestIdentity/revocation_watermark_kills_issued_tickets_immediately (0.00s)
+    --- PASS: TestIdentity/cross_org_principal_bind_answers_M9-003 (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/org	0.849s

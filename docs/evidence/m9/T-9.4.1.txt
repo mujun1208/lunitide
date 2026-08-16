@@ -1,0 +1,22 @@
+﻿=== RUN   TestOrgLedger
+=== RUN   TestOrgLedger/reserve→settle→release_lifecycle_keeps_derived_balances_honest
+=== RUN   TestOrgLedger/T-15:_concurrent_reservations_never_overshoot_the_hard_limit
+=== RUN   TestOrgLedger/hard-limit_shortfall_refuses_M9-024_and_books_nothing
+=== RUN   TestOrgLedger/reservation_defects_refuse_M9-023
+=== RUN   TestOrgLedger/T-16:_duplicate_settlement_receipts_never_double-charge_(M9-025)
+=== RUN   TestOrgLedger/over-consumption_posts_the_actual_spend_and_flags_OverLimit
+=== RUN   TestOrgLedger/expired_headroom_releases;_outcome_unknown_parks_and_never_guesses_(S3/S9)
+=== RUN   TestOrgLedger/conservation_holds_under_concurrent_duplicate_and_late_traffic
+=== RUN   TestOrgLedger/settled_reservation_idempotent_re-reserve_does_not_double_book
+--- PASS: TestOrgLedger (0.00s)
+    --- PASS: TestOrgLedger/reserve→settle→release_lifecycle_keeps_derived_balances_honest (0.00s)
+    --- PASS: TestOrgLedger/T-15:_concurrent_reservations_never_overshoot_the_hard_limit (0.00s)
+    --- PASS: TestOrgLedger/hard-limit_shortfall_refuses_M9-024_and_books_nothing (0.00s)
+    --- PASS: TestOrgLedger/reservation_defects_refuse_M9-023 (0.00s)
+    --- PASS: TestOrgLedger/T-16:_duplicate_settlement_receipts_never_double-charge_(M9-025) (0.00s)
+    --- PASS: TestOrgLedger/over-consumption_posts_the_actual_spend_and_flags_OverLimit (0.00s)
+    --- PASS: TestOrgLedger/expired_headroom_releases;_outcome_unknown_parks_and_never_guesses_(S3/S9) (0.00s)
+    --- PASS: TestOrgLedger/conservation_holds_under_concurrent_duplicate_and_late_traffic (0.00s)
+    --- PASS: TestOrgLedger/settled_reservation_idempotent_re-reserve_does_not_double_book (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/budget	1.451s

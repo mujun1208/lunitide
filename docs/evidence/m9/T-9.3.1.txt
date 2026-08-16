@@ -1,0 +1,22 @@
+﻿=== RUN   TestRegistry
+=== RUN   TestRegistry/review-then-sign-then-publish_lists_an_installable_package
+=== RUN   TestRegistry/unreviewed_packages_never_publish
+=== RUN   TestRegistry/tampered_manifest_or_body_is_quarantined_and_installs_zero_(T-10,_M9-015)
+=== RUN   TestRegistry/signature_from_outside_the_ring_is_refused_(M9-015)
+=== RUN   TestRegistry/license_review_blocks_install_until_passed_(T-12,_M9-018)
+=== RUN   TestRegistry/platform_read-only_catalog_bypasses_org_license_review
+=== RUN   TestRegistry/revocation_propagates_tombstones_and_quarantines_installs_(T-11,_M9-017)
+=== RUN   TestRegistry/key_rotation:_grace_keys_verify_but_no_longer_sign
+=== RUN   TestRegistry/org_isolation:_packages_never_cross_org_keys
+--- PASS: TestRegistry (0.00s)
+    --- PASS: TestRegistry/review-then-sign-then-publish_lists_an_installable_package (0.00s)
+    --- PASS: TestRegistry/unreviewed_packages_never_publish (0.00s)
+    --- PASS: TestRegistry/tampered_manifest_or_body_is_quarantined_and_installs_zero_(T-10,_M9-015) (0.00s)
+    --- PASS: TestRegistry/signature_from_outside_the_ring_is_refused_(M9-015) (0.00s)
+    --- PASS: TestRegistry/license_review_blocks_install_until_passed_(T-12,_M9-018) (0.00s)
+    --- PASS: TestRegistry/platform_read-only_catalog_bypasses_org_license_review (0.00s)
+    --- PASS: TestRegistry/revocation_propagates_tombstones_and_quarantines_installs_(T-11,_M9-017) (0.00s)
+    --- PASS: TestRegistry/key_rotation:_grace_keys_verify_but_no_longer_sign (0.00s)
+    --- PASS: TestRegistry/org_isolation:_packages_never_cross_org_keys (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/market	0.433s

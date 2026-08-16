@@ -1,0 +1,32 @@
+﻿=== RUN   TestBroker
+=== RUN   TestBroker/local_runner_defaults_to_trusted_in-org_and_serves_restricted_in-org_data
+=== RUN   TestBroker/cloud_runner_with_verified_proof_serves_in-region_internal_data
+=== RUN   TestBroker/attestation_defects_all_refuse_registration_with_M9-019
+=== RUN   TestBroker/route-time_proof_expiry_quarantines_despite_heartbeats_(S3:_heartbeat_is_not_a_proof)
+=== RUN   TestBroker/T-13:_restricted_data_with_only_a_cloud_runner_blocks_M9-021_without_cross-domain_fallback
+=== RUN   TestBroker/sole_runner_outside_required_regions_yields_M9-021
+=== RUN   TestBroker/constraint_misses_yield_M9-022_(capability,_trust,_egress,_secret)
+=== RUN   TestBroker/capable_runner_without_heartbeat_yields_M9-020
+=== RUN   TestBroker/stale_heartbeat_counts_as_offline_(M9-020)
+=== RUN   TestBroker/T-14:_UNKNOWN_blocks_re-dispatch,_locks_the_runner_for_side_effects,_spares_healthy_runners
+=== RUN   TestBroker/duplicate_Route_is_idempotent:_same_runner,_no_second_dispatch_(S6)
+=== RUN   TestBroker/UNKNOWN_recovery_only_via_approved_M6_reconciliation;_conflicts_fail_closed
+=== RUN   TestBroker/M6_projections_map_verbatim_and_fail_closed_on_unknown_facts_(S7)
+=== RUN   TestBroker/task_org_comes_from_the_ticket;_foreign_local_runners_are_invisible_(S4)
+--- PASS: TestBroker (0.00s)
+    --- PASS: TestBroker/local_runner_defaults_to_trusted_in-org_and_serves_restricted_in-org_data (0.00s)
+    --- PASS: TestBroker/cloud_runner_with_verified_proof_serves_in-region_internal_data (0.00s)
+    --- PASS: TestBroker/attestation_defects_all_refuse_registration_with_M9-019 (0.00s)
+    --- PASS: TestBroker/route-time_proof_expiry_quarantines_despite_heartbeats_(S3:_heartbeat_is_not_a_proof) (0.00s)
+    --- PASS: TestBroker/T-13:_restricted_data_with_only_a_cloud_runner_blocks_M9-021_without_cross-domain_fallback (0.00s)
+    --- PASS: TestBroker/sole_runner_outside_required_regions_yields_M9-021 (0.00s)
+    --- PASS: TestBroker/constraint_misses_yield_M9-022_(capability,_trust,_egress,_secret) (0.00s)
+    --- PASS: TestBroker/capable_runner_without_heartbeat_yields_M9-020 (0.00s)
+    --- PASS: TestBroker/stale_heartbeat_counts_as_offline_(M9-020) (0.00s)
+    --- PASS: TestBroker/T-14:_UNKNOWN_blocks_re-dispatch,_locks_the_runner_for_side_effects,_spares_healthy_runners (0.00s)
+    --- PASS: TestBroker/duplicate_Route_is_idempotent:_same_runner,_no_second_dispatch_(S6) (0.00s)
+    --- PASS: TestBroker/UNKNOWN_recovery_only_via_approved_M6_reconciliation;_conflicts_fail_closed (0.00s)
+    --- PASS: TestBroker/M6_projections_map_verbatim_and_fail_closed_on_unknown_facts_(S7) (0.00s)
+    --- PASS: TestBroker/task_org_comes_from_the_ticket;_foreign_local_runners_are_invisible_(S4) (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/execution	0.423s

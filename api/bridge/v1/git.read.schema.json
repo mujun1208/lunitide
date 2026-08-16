@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/git.read.schema.json",
+  "title": "git.read payload",
+  "x-method": "git.read",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "op": {
+      "type": "string",
+      "enum": ["status", "log", "diff"]
+    },
+    "ref": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "maxOutputBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8388608
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": ["runId", "repoPath", "op", "maxOutputBytes", "requestId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "output": {
+        "type": "string"
+      },
+      "outputDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "bytes": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "required": ["output", "outputDigest", "bytes"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "runId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "repoPath": "repos/app",
+        "op": "status",
+        "maxOutputBytes": 65536,
+        "requestId": "req-7a8b9c"
+      }
+    ],
+    "negative": [
+      {
+        "runId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "repoPath": "repos/app",
+        "op": "push",
+        "maxOutputBytes": 65536,
+        "requestId": "req-7a8b9d"
+      }
+    ]
+  }
+}

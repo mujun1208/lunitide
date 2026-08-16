@@ -29,6 +29,8 @@ import (
 	"github.com/lunitide/lunitide/internal/handoffapp"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/m8app"
+	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -37,6 +39,7 @@ import (
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/lunitide/lunitide/internal/tts"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -141,10 +144,38 @@ type Engine struct {
 	m6merge *m6app.MergeService
 
 	// M7 slice-1: nine-stage versioned workflow backbone.
-	m7workflow *m7app.WorkflowService
-	m7trace    *m7app.TraceService
-	m7gate     *m7app.GateService
-	m7review   *m7app.ReviewService
+	m7workflow  *m7app.WorkflowService
+	m7trace     *m7app.TraceService
+	m7gate      *m7app.GateService
+	m7review    *m7app.ReviewService
+	m7release   *m7app.ReleaseService
+	m7promotion *m7app.PromotionService
+	m7update    *m7app.UpdateService
+	m7subagent  *m7app.SubagentService
+	m7toolgap   *m7app.ToolgapService
+	m7mcp       *m7app.McpRuntimeService
+
+	// M8 slice-1: governed long-term memory core.
+	m8memory *m8app.MemoryService
+	// M8 slice-2: versioned knowledge-base documents.
+	m8kb *m8app.KBService
+	// M8 slice-3/5: handoff, tombstone and device sync.
+	m8handoff *m8app.HandoffService
+	// M8 slice-4: workflow bundle dispatch projection.
+	m8automation *m8app.AutomationService
+	// M8 FR-18: unified plugin bundle runtime.
+	m8plugin *m8app.PluginService
+	// M8 FR-19: expert center and project-phase mounting.
+	m8expert *m8app.ExpertService
+
+	// M8 FR-17: the write-collaboration evaluation gate (default disabled).
+	m8gate *m8app.CollabGateService
+
+	// M9.5 Moon Companion: offline SAPI text-to-speech runtime.
+	m9tts *tts.Service
+
+	// M9 slice-1: org-admin bridge service (org.* methods, T-9.1.3).
+	m9org *m9app.OrgAdminService
 
 	// M6 S5C: governed skill import + complexity routing (0053).
 	m6skills  *m6app.SkillImportService
@@ -224,7 +255,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodDelegationSettle:          handleDelegationSettle,
 	bridge.MethodBarrierArrive:             handleBarrierArrive,
 	bridge.MethodMergeSubmit:               handleMergeSubmit,
-	bridge.MethodComplexityDecide:         handleComplexityDecide,
+	bridge.MethodComplexityDecide:          handleComplexityDecide,
 	bridge.MethodOpenapiParse:              handleOpenapiParse,
 	bridge.MethodSkillImportApprove:        handleSkillImportApprove,
 	bridge.MethodSkillImportDiscover:       handleSkillImportDiscover,
@@ -344,6 +375,69 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTraceResolveStale:         handleTraceResolveStale,
 	bridge.MethodWorkflowCreateCheckpoint:  handleWorkflowCreateCheckpoint,
 	bridge.MethodWorkflowEvaluateGate:      handleWorkflowEvaluateGate,
+	bridge.MethodReleaseBuildPackage:       handleReleaseBuildPackage,
+	bridge.MethodReleaseCreateRevision:     handleReleaseCreateRevision,
+	bridge.MethodReleaseGetPackage:         handleReleaseGetPackage,
+	bridge.MethodReleaseGetRevision:        handleReleaseGetRevision,
+	bridge.MethodReleaseGetPromotion:       handleReleaseGetPromotion,
+	bridge.MethodReleasePromote:            handleReleasePromote,
+	bridge.MethodReleaseRollback:           handleReleaseRollback,
+	bridge.MethodAppUpdateCheck:            handleAppUpdateCheck,
+	bridge.MethodAppUpdateInstall:          handleAppUpdateInstall,
+	bridge.MethodArchivePack:               handleArchivePack,
+	bridge.MethodArchiveUnpack:             handleArchiveUnpack,
+	bridge.MethodDbQuery:                   handleDbQuery,
+	bridge.MethodDocumentParse:             handleDocumentParse,
+	bridge.MethodGitRead:                   handleGitRead,
+	bridge.MethodHttpDownload:              handleHttpDownload,
+	bridge.MethodHttpRequest:               handleHttpRequest,
+	bridge.MethodMcpAdd:                    handleMcpAdd,
+	bridge.MethodMcpHealth:                 handleMcpHealth,
+	bridge.MethodMcpList:                   handleMcpList,
+	bridge.MethodMcpMarketSearch:           handleMcpMarketSearch,
+	bridge.MethodMcpToggle:                 handleMcpToggle,
+	bridge.MethodSubagentJoin:              handleSubagentJoin,
+	bridge.MethodSubagentSpawn:             handleSubagentSpawn,
+	bridge.MethodSubagentTree:              handleSubagentTree,
+	bridge.MethodMemoryConfirmCandidate:    handleMemoryConfirmCandidate,
+	bridge.MethodRecallQuery:               handleRecallQuery,
+	bridge.MethodKbUpsertDocument:          handleKBUpsertDocument,
+	bridge.MethodHandoffAccept:             handleHandoffAccept,
+	bridge.MethodTombstoneDelete:           handleTombstoneDelete,
+	bridge.MethodAutomationDispatch:        handleAutomationDispatch,
+	bridge.MethodSyncPush:                  handleSyncPush,
+	bridge.MethodPluginInstall:             handlePluginInstall,
+	bridge.MethodPluginList:                handlePluginList,
+	bridge.MethodPluginToggle:              handlePluginToggle,
+	bridge.MethodPluginUpgrade:             handlePluginUpgrade,
+	bridge.MethodPluginUninstall:           handlePluginUninstall,
+	bridge.MethodPluginDevCreate:           handlePluginDevCreate,
+	bridge.MethodPluginMarketSearch:        handlePluginMarketSearch,
+	bridge.MethodPluginMarketDetail:        handlePluginMarketDetail,
+	bridge.MethodExpertCreate:              handleExpertCreate,
+	bridge.MethodExpertList:                handleExpertList,
+	bridge.MethodExpertDetail:              handleExpertDetail,
+	bridge.MethodExpertUpdate:              handleExpertUpdate,
+	bridge.MethodExpertToggle:              handleExpertToggle,
+	bridge.MethodExpertArchive:             handleExpertArchive,
+	bridge.MethodExpertMount:               handleExpertMount,
+	bridge.MethodExpertMountingGet:         handleExpertMountingGet,
+	bridge.MethodCollabGateEvaluate:        handleCollabGateEvaluate,
+	bridge.MethodCollabGateStatus:          handleCollabGateStatus,
+	bridge.MethodCollabGateConfirm:         handleCollabGateConfirm,
+	bridge.MethodTtsVoices:                 handleTtsVoices,
+	bridge.MethodTtsSynthesize:             handleTtsSynthesize,
+	bridge.MethodTtsCancel:                 handleTtsCancel,
+	bridge.MethodOrgSummary:                handleOrgSummary,
+	bridge.MethodOrgCreate:                 handleOrgCreate,
+	bridge.MethodOrgSwitch:                 handleOrgSwitch,
+	bridge.MethodOrgActivate:               handleOrgActivate,
+	bridge.MethodOrgSuspend:                handleOrgSuspend,
+	bridge.MethodOrgSpaceList:              handleOrgSpaceList,
+	bridge.MethodOrgSpaceCreate:            handleOrgSpaceCreate,
+	bridge.MethodOrgMemberList:             handleOrgMemberList,
+	bridge.MethodOrgMemberInvite:           handleOrgMemberInvite,
+	bridge.MethodOrgMemberRevoke:           handleOrgMemberRevoke,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -1051,6 +1145,70 @@ func (e *Engine) SetM7EvidenceServices(traceSvc *m7app.TraceService, gateSvc *m7
 	e.m7trace = traceSvc
 	e.m7gate = gateSvc
 	e.m7review = reviewSvc
+}
+
+// SetM7ReleaseServices wires the M7 slice-3 service: CR revisions and
+// immutable release packages.
+func (e *Engine) SetM7ReleaseServices(releaseSvc *m7app.ReleaseService) {
+	e.m7release = releaseSvc
+}
+
+// SetM7PromotionServices wires the M7 slice-4 service: the promotion saga
+// with internal migration/deployment adapter ports.
+func (e *Engine) SetM7PromotionServices(promotionSvc *m7app.PromotionService) {
+	e.m7promotion = promotionSvc
+}
+
+// SetM7UpdateServices wires the M7 slice-5 service: the AppUpdate split-track
+// (check/install) and the audit-chain verification behind M7-DR-001.
+func (e *Engine) SetM7UpdateServices(updateSvc *m7app.UpdateService) {
+	e.m7update = updateSvc
+}
+
+// SetM7RuntimeServices wires the M7 slice 6-8 services: the read-only
+// subagent runtime, the tool-gap runtime and the MCP settings plane.
+func (e *Engine) SetM7RuntimeServices(subagentSvc *m7app.SubagentService, toolgapSvc *m7app.ToolgapService, mcpSvc *m7app.McpRuntimeService) {
+	e.m7subagent = subagentSvc
+	e.m7toolgap = toolgapSvc
+	e.m7mcp = mcpSvc
+}
+
+// SetM8MemoryServices wires the M8 slice-1 governed long-term memory core.
+func (e *Engine) SetM8MemoryServices(memorySvc *m8app.MemoryService) {
+	e.m8memory = memorySvc
+}
+
+// SetM8SliceServices wires the M8 slice-2/3/4/5 services (KB, handoff/
+// tombstone/sync, automation).
+func (e *Engine) SetM8SliceServices(kbSvc *m8app.KBService, handoffSvc *m8app.HandoffService, automationSvc *m8app.AutomationService) {
+	e.m8kb = kbSvc
+	e.m8handoff = handoffSvc
+	e.m8automation = automationSvc
+}
+
+// SetM8PluginService wires the M8 FR-18 unified plugin runtime.
+func (e *Engine) SetM8PluginService(pluginSvc *m8app.PluginService) {
+	e.m8plugin = pluginSvc
+}
+
+// SetM8ExpertService wires the M8 FR-19 expert center.
+func (e *Engine) SetM8ExpertService(expertSvc *m8app.ExpertService) {
+	e.m8expert = expertSvc
+}
+
+// SetM8CollabGateService wires the M8 FR-17 write-collaboration gate.
+func (e *Engine) SetM8CollabGateService(gateSvc *m8app.CollabGateService) {
+	e.m8gate = gateSvc
+}
+
+// SetM9OrgAdminService wires the M9 slice-1 org-admin bridge service.
+func (e *Engine) SetM9OrgAdminService(orgSvc *m9app.OrgAdminService) {
+	e.m9org = orgSvc
+}
+
+// SetM9TtsService wires the M9.5 Moon Companion SAPI runtime.
+func (e *Engine) SetM9TtsService(ttsSvc *tts.Service) {
+	e.m9tts = ttsSvc
 }
 
 func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Response {

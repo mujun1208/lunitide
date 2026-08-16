@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/subagent.spawn.schema.json",
+  "title": "subagent.spawn payload",
+  "x-method": "subagent.spawn",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rootRunId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stageRunId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "readCaps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "fs.tree",
+          "fs.stat",
+          "fs.read",
+          "fs.readMany",
+          "fs.glob",
+          "fs.grep",
+          "web.fetch",
+          "web.search",
+          "evidence.list",
+          "browser.act:navigate",
+          "browser.act:read",
+          "browser.act:snapshot"
+        ]
+      }
+    },
+    "personaDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "budgetTokens": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50000
+    },
+    "deadlineMs": {
+      "type": "integer",
+      "minimum": 60000,
+      "maximum": 900000
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actor": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "rootRunId",
+    "purpose",
+    "readCaps",
+    "budgetTokens",
+    "deadlineMs",
+    "requestId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "subagentId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["queued", "running"]
+      },
+      "capabilityDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "required": ["subagentId", "status", "capabilityDigest"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "rootRunId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "purpose": "收集 evidence.list 中与 CR-42 相关的测试证据摘要",
+        "readCaps": ["evidence.list", "fs.grep"],
+        "budgetTokens": 8000,
+        "deadlineMs": 300000,
+        "requestId": "req-7f3a2b",
+        "actor": "operator-1"
+      }
+    ],
+    "negative": [
+      {
+        "rootRunId": "01J8ZG9QV8X2B4C6D8F0G2H4J6",
+        "purpose": "尝试写文件",
+        "readCaps": ["changeset.apply"],
+        "budgetTokens": 8000,
+        "deadlineMs": 300000,
+        "requestId": "req-7f3a2c"
+      }
+    ]
+  }
+}

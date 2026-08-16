@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp.list.schema.json",
+  "title": "mcp.list payload",
+  "x-method": "mcp.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "transport": {
+      "type": "string",
+      "enum": ["stdio", "https"]
+    }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoints": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpointId": {
+              "type": "string"
+            },
+            "transport": {
+              "type": "string",
+              "enum": ["stdio", "https"]
+            },
+            "state": {
+              "type": "string",
+              "enum": ["probe", "ready", "degraded", "revoked", "quarantined"]
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "origin": {
+              "type": "string",
+              "enum": ["market", "manual"]
+            },
+            "lastHealthAt": {
+              "type": "string"
+            }
+          },
+          "required": ["endpointId", "transport", "state", "enabled"]
+        }
+      }
+    },
+    "required": ["endpoints"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "transport": "stdio"
+      }
+    ],
+    "negative": [
+      {
+        "transport": "ftp"
+      }
+    ]
+  }
+}

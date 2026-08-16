@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/subagent.join.schema.json",
+  "title": "subagent.join payload",
+  "x-method": "subagent.join",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "subagentId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "waitMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30000
+    },
+    "expectedCapabilityDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "expectedPolicyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "expectedPersonaDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "maxSummaryBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 131072
+    }
+  },
+  "required": ["subagentId", "waitMs"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["running", "completed", "failed", "cancelled"]
+      },
+      "observations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "evidenceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["seq", "evidenceId", "summary", "digest"]
+        }
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "spentTokens": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "required": ["status", "truncated"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "subagentId": "01J8ZGA1V8X2B4C6D8F0G2H4J6",
+        "waitMs": 5000
+      }
+    ],
+    "negative": [
+      {
+        "subagentId": "01J8ZGA1V8X2B4C6D8F0G2H4J6",
+        "waitMs": 60000
+      }
+    ]
+  }
+}

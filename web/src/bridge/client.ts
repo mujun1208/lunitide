@@ -63,6 +63,15 @@ import {
   type ReviewDecidePayload,type ReviewDecideResult,type ChangesetPreviewPayload,type ChangesetPreviewResult,type ChangesetApplyPayload,type ChangesetApplyResult,type ChangesetRevertPayload,type ChangesetRevertResult,
   type CommandReviewRequestPayload,type CommandReviewRequestResult,type CommandStartPayload,type CommandStartResult,type CommandGetPayload,type CommandGetResult,type CommandCancelPayload,type CommandCancelResult,type WebFetchPayload,type WebFetchResult,type WebSearchPayload,type WebSearchResult,type RunPlanPutPayload,type RunPlanPutResult,type EvidenceListPayload,type EvidenceListResult,
   type OntologyNodeType, type OntologyEdgeType, type SkillStatus, type SkillPermission,
+  type McpListPayload,type McpListResult,type McpAddPayload,type McpAddResult,type McpTogglePayload,type McpToggleResult,type McpHealthPayload,type McpHealthResult,type McpMarketSearchPayload,type McpMarketSearchResult,
+  type PluginListPayload,type PluginListResult,type PluginInstallPayload,type PluginInstallResult,type PluginTogglePayload,type PluginToggleResult,type PluginUninstallPayload,type PluginUninstallResult,type PluginUpgradePayload,type PluginUpgradeResult,type PluginMarketSearchPayload,type PluginMarketSearchResult,type PluginMarketDetailPayload,type PluginMarketDetailResult,type PluginDevCreatePayload,type PluginDevCreateResult,
+  type ExpertListPayload,type ExpertListResult,type ExpertDetailPayload,type ExpertDetailResult,type ExpertCreatePayload,type ExpertCreateResult,type ExpertUpdatePayload,type ExpertUpdateResult,type ExpertTogglePayload,type ExpertToggleResult,type ExpertArchivePayload,type ExpertArchiveResult,type ExpertMountPayload,type ExpertMountResult,type ExpertMountingGetPayload,type ExpertMountingGetResult,
+  type OrgSummaryPayload,type OrgSummaryResult,type OrgCreatePayload,type OrgCreateResult,type OrgSwitchPayload,type OrgSwitchResult,type OrgActivatePayload,type OrgActivateResult,type OrgSuspendPayload,type OrgSuspendResult,type OrgSpaceListPayload,type OrgSpaceListResult,type OrgSpaceCreatePayload,type OrgSpaceCreateResult,type OrgMemberListPayload,type OrgMemberListResult,type OrgMemberInvitePayload,type OrgMemberInviteResult,type OrgMemberRevokePayload,type OrgMemberRevokeResult,
+  type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
+  type TtsVoicesResult,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,
+  type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
+  type CollabGateStatusPayload,type CollabGateStatusResult,type CollabGateEvaluatePayload,type CollabGateEvaluateResult,type CollabGateConfirmPayload,type CollabGateConfirmResult,
+  type DiagnosticsExportPayload,type DiagnosticsExportResult,
 } from '../generated/bridge'
 
 export class BridgeClientError extends Error {
@@ -82,7 +91,7 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'project.create'|'project.delete'|'session.create'|'session.update'|'session.delete'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'
+export type MutationMethod = 'project.create'|'project.delete'|'session.create'|'session.update'|'session.delete'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -117,7 +126,7 @@ export interface MessageBridge { list(payload:MessageListPayload):Promise<Messag
 export interface UIThemeBridge { set(payload:UiThemeSetPayload):Promise<UiThemeSetResult> }
 export interface SystemSettingsBridge { open(payload:SystemSettingsOpenPayload):Promise<SystemSettingsOpenResult> }
 export interface BrowserBridge { open(payload:BrowserOpenPayload):Promise<BrowserOpenResult>; close():Promise<BrowserCloseResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','session.create','session.update','session.delete','message.append','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','plan.create','node.create','memory.create','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.start','command.cancel','web.fetch','web.search','run.plan.put'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','session.create','session.update','session.delete','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','appUpdate.install'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -211,7 +220,49 @@ export function createStageBridge(transport:WebViewTransport,defaultDeadlineMs=8
 }
 let stageSingleton:StageBridge|undefined
 export function getStageBridge():StageBridge{return stageSingleton??=createStageBridge(webview())}
-export const stageBridge:StageBridge={list:p=>getStageBridge().list(p),create:(p,o)=>getStageBridge().create(p,o)}
+export const stageBridge:StageBridge={list:p=>{try{return getStageBridge().list(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getStageBridge().create(p,o)}catch(error){return Promise.reject(error)}}}
+
+// M7 subagent research bridge — read-only parallel collection panel
+// (subagent-ui / T-7.6.5). spawn carries requestId + idempotency key;
+// join blocks up to waitMs (≤30s) so its deadline is 35s.
+export interface SubagentBridge{
+  spawn(payload:SubagentSpawnPayload,options?:MutationOptions<SubagentSpawnPayload>):Promise<SubagentSpawnResult>
+  join(payload:SubagentJoinPayload):Promise<SubagentJoinResult>
+  tree(payload:SubagentTreePayload):Promise<SubagentTreeResult>
+}
+export function createSubagentBridge(transport:WebViewTransport=webview(),deadlineMs=10_000):SubagentBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{spawn:(p,o)=>core.request('subagent.spawn',p,30_000,o?.attempt),join:p=>core.request('subagent.join',p,15_000),tree:p=>core.request('subagent.tree',p)}
+}
+let subagentSingleton:SubagentBridge|undefined
+export function getSubagentBridge():SubagentBridge{return subagentSingleton??=createSubagentBridge()}
+export const subagentBridge:SubagentBridge={spawn:(p,o)=>{try{return getSubagentBridge().spawn(p,o)}catch(error){return Promise.reject(error)}},join:p=>{try{return getSubagentBridge().join(p)}catch(error){return Promise.reject(error)}},tree:p=>{try{return getSubagentBridge().tree(p)}catch(error){return Promise.reject(error)}}}
+
+// M8 collab gate bridge — capability status / evidence evaluation /
+// single-use decision-token confirm (FR-17, GT-01~GT-06).
+export interface CollabGateBridge{
+  status(payload:CollabGateStatusPayload):Promise<CollabGateStatusResult>
+  evaluate(payload:CollabGateEvaluatePayload):Promise<CollabGateEvaluateResult>
+  confirm(payload:CollabGateConfirmPayload):Promise<CollabGateConfirmResult>
+}
+export function createCollabGateBridge(transport:WebViewTransport=webview(),deadlineMs=10_000):CollabGateBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{status:p=>core.request('collabGate.status',p),evaluate:p=>core.request('collabGate.evaluate',p,30_000),confirm:p=>core.request('collabGate.confirm',p)}
+}
+let collabGateSingleton:CollabGateBridge|undefined
+export function getCollabGateBridge():CollabGateBridge{return collabGateSingleton??=createCollabGateBridge()}
+export const collabGateBridge:CollabGateBridge={status:p=>{try{return getCollabGateBridge().status(p)}catch(error){return Promise.reject(error)}},evaluate:p=>{try{return getCollabGateBridge().evaluate(p)}catch(error){return Promise.reject(error)}},confirm:p=>{try{return getCollabGateBridge().confirm(p)}catch(error){return Promise.reject(error)}}}
+
+// Diagnostics export bridge — host-owned redacted diagnostic bundle
+// (diagnostics.export, settings → diagnostics panel).
+export interface DiagnosticsBridge{exportDiagnostics(payload?:DiagnosticsExportPayload):Promise<DiagnosticsExportResult>}
+export function createDiagnosticsBridge(transport:WebViewTransport=webview()):DiagnosticsBridge{
+  const core=createSimpleBridge(transport,{},30_000)
+  return{exportDiagnostics:p=>core.request('diagnostics.export',p??{})}
+}
+let diagnosticsSingleton:DiagnosticsBridge|undefined
+export function getDiagnosticsBridge():DiagnosticsBridge{return diagnosticsSingleton??=createDiagnosticsBridge()}
+export const diagnosticsBridge:DiagnosticsBridge={exportDiagnostics:p=>{try{return getDiagnosticsBridge().exportDiagnostics(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
@@ -493,3 +544,102 @@ let terminalSingleton:TerminalBridge|undefined
 export function getTerminalBridge(){return terminalSingleton??=createTerminalBridge(webview())}
 
 export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path})}}
+
+// M9.5 Moon Companion TTS bridge — offline SAPI synthesis (tts.voices /
+// tts.synthesize / tts.cancel). Synthesis deadline is generous: a
+// 500-char segment at SAPI speed stays well under 15s.
+export type TtsVoice=TtsVoicesResult['voices'][number]
+export type{TtsSynthesizePayload,TtsSynthesizeResult}
+export interface TtsBridge{voices():Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;cancel():Promise<TtsCancelResult>}
+export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);return{voices:()=>core.request('tts.voices',{}),synthesize:payload=>core.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{})}}
+let ttsSingleton:TtsBridge|undefined
+export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()}
+
+// M7 MCP server settings bridge — mcp.list / add / toggle / health /
+// market.search (T-7.8.5 settings page data source).
+export interface McpBridge{
+  list(payload?:McpListPayload):Promise<McpListResult>
+  add(payload:McpAddPayload,options?:MutationOptions<McpAddPayload>):Promise<McpAddResult>
+  toggle(payload:McpTogglePayload,options?:MutationOptions<McpTogglePayload>):Promise<McpToggleResult>
+  health(payload:McpHealthPayload):Promise<McpHealthResult>
+  marketSearch(payload:McpMarketSearchPayload):Promise<McpMarketSearchResult>
+}
+export function createMcpBridge(transport:WebViewTransport=webview(),deadlineMs=10_000):McpBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{list:p=>core.request('mcp.list',p??{}),add:(p,o)=>core.request('mcp.add',p,20_000,o?.attempt),toggle:(p,o)=>core.request('mcp.toggle',p,deadlineMs,o?.attempt),health:p=>core.request('mcp.health',p,15_000),marketSearch:p=>core.request('mcp.market.search',p,15_000)}
+}
+let mcpSingleton:McpBridge|undefined
+export function getMcpBridge():McpBridge{return mcpSingleton??=createMcpBridge()}
+
+// M8 plugin system bridge — install / list / toggle / uninstall / upgrade +
+// market browse + dev bundles (T-8.9.7 settings page data source).
+export interface PluginBridge{
+  list(payload?:PluginListPayload):Promise<PluginListResult>
+  install(payload:PluginInstallPayload,options?:MutationOptions<PluginInstallPayload>):Promise<PluginInstallResult>
+  toggle(payload:PluginTogglePayload,options?:MutationOptions<PluginTogglePayload>):Promise<PluginToggleResult>
+  uninstall(payload:PluginUninstallPayload,options?:MutationOptions<PluginUninstallPayload>):Promise<PluginUninstallResult>
+  upgrade(payload:PluginUpgradePayload,options?:MutationOptions<PluginUpgradePayload>):Promise<PluginUpgradeResult>
+  marketSearch(payload:PluginMarketSearchPayload):Promise<PluginMarketSearchResult>
+  marketDetail(payload:PluginMarketDetailPayload):Promise<PluginMarketDetailResult>
+  devCreate(payload:PluginDevCreatePayload,options?:MutationOptions<PluginDevCreatePayload>):Promise<PluginDevCreateResult>
+}
+export function createPluginBridge(transport:WebViewTransport=webview(),deadlineMs=12_000):PluginBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{list:p=>core.request('plugin.list',p??{}),install:(p,o)=>core.request('plugin.install',p,30_000,o?.attempt),toggle:(p,o)=>core.request('plugin.toggle',p,deadlineMs,o?.attempt),uninstall:(p,o)=>core.request('plugin.uninstall',p,deadlineMs,o?.attempt),upgrade:(p,o)=>core.request('plugin.upgrade',p,30_000,o?.attempt),marketSearch:p=>core.request('plugin.market.search',p,15_000),marketDetail:p=>core.request('plugin.market.detail',p,15_000),devCreate:(p,o)=>core.request('plugin.dev.create',p,30_000,o?.attempt)}
+}
+let pluginSingleton:PluginBridge|undefined
+export function getPluginBridge():PluginBridge{return pluginSingleton??=createPluginBridge()}
+
+// M8 expert center bridge — six-section catalog CRUD + nine-phase mounting
+// (T-8.11.5 expert center data source).
+export interface ExpertBridge{
+  list(payload?:ExpertListPayload):Promise<ExpertListResult>
+  detail(payload:ExpertDetailPayload):Promise<ExpertDetailResult>
+  create(payload:ExpertCreatePayload,options?:MutationOptions<ExpertCreatePayload>):Promise<ExpertCreateResult>
+  update(payload:ExpertUpdatePayload,options?:MutationOptions<ExpertUpdatePayload>):Promise<ExpertUpdateResult>
+  toggle(payload:ExpertTogglePayload,options?:MutationOptions<ExpertTogglePayload>):Promise<ExpertToggleResult>
+  archive(payload:ExpertArchivePayload,options?:MutationOptions<ExpertArchivePayload>):Promise<ExpertArchiveResult>
+  mount(payload:ExpertMountPayload,options?:MutationOptions<ExpertMountPayload>):Promise<ExpertMountResult>
+  mountingGet(payload:ExpertMountingGetPayload):Promise<ExpertMountingGetResult>
+}
+export function createExpertBridge(transport:WebViewTransport=webview(),deadlineMs=12_000):ExpertBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{list:p=>core.request('expert.list',p??{}),detail:p=>core.request('expert.detail',p),create:(p,o)=>core.request('expert.create',p,20_000,o?.attempt),update:(p,o)=>core.request('expert.update',p,deadlineMs,o?.attempt),toggle:(p,o)=>core.request('expert.toggle',p,deadlineMs,o?.attempt),archive:(p,o)=>core.request('expert.archive',p,deadlineMs,o?.attempt),mount:(p,o)=>core.request('expert.mount',p,deadlineMs,o?.attempt),mountingGet:p=>core.request('expert.mounting.get',p)}
+}
+let expertSingleton:ExpertBridge|undefined
+export function getExpertBridge():ExpertBridge{return expertSingleton??=createExpertBridge()}
+export const expertBridge:ExpertBridge={list:p=>{try{return getExpertBridge().list(p)}catch(error){return Promise.reject(error)}},detail:p=>{try{return getExpertBridge().detail(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getExpertBridge().create(p,o)}catch(error){return Promise.reject(error)}},update:(p,o)=>{try{return getExpertBridge().update(p,o)}catch(error){return Promise.reject(error)}},toggle:(p,o)=>{try{return getExpertBridge().toggle(p,o)}catch(error){return Promise.reject(error)}},archive:(p,o)=>{try{return getExpertBridge().archive(p,o)}catch(error){return Promise.reject(error)}},mount:(p,o)=>{try{return getExpertBridge().mount(p,o)}catch(error){return Promise.reject(error)}},mountingGet:p=>{try{return getExpertBridge().mountingGet(p)}catch(error){return Promise.reject(error)}}}
+
+// M9 slice-1 org-admin bridge — org foundation, isolation gate, spaces and
+// members (T-9.1.3 org.* data source).
+export interface OrgBridge{
+  summary(payload?:OrgSummaryPayload):Promise<OrgSummaryResult>
+  create(payload:OrgCreatePayload,options?:MutationOptions<OrgCreatePayload>):Promise<OrgCreateResult>
+  switch(payload:OrgSwitchPayload,options?:MutationOptions<OrgSwitchPayload>):Promise<OrgSwitchResult>
+  activate(payload?:OrgActivatePayload,options?:MutationOptions<OrgActivatePayload>):Promise<OrgActivateResult>
+  suspend(payload?:OrgSuspendPayload,options?:MutationOptions<OrgSuspendPayload>):Promise<OrgSuspendResult>
+  spaceList(payload?:OrgSpaceListPayload):Promise<OrgSpaceListResult>
+  spaceCreate(payload:OrgSpaceCreatePayload,options?:MutationOptions<OrgSpaceCreatePayload>):Promise<OrgSpaceCreateResult>
+  memberList(payload?:OrgMemberListPayload):Promise<OrgMemberListResult>
+  memberInvite(payload:OrgMemberInvitePayload,options?:MutationOptions<OrgMemberInvitePayload>):Promise<OrgMemberInviteResult>
+  memberRevoke(payload:OrgMemberRevokePayload,options?:MutationOptions<OrgMemberRevokePayload>):Promise<OrgMemberRevokeResult>
+}
+export function createOrgBridge(transport:WebViewTransport=webview(),deadlineMs=12_000):OrgBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{summary:p=>core.request('org.summary',p??{}),create:(p,o)=>core.request('org.create',p,deadlineMs,o?.attempt),switch:(p,o)=>core.request('org.switch',p,deadlineMs,o?.attempt),activate:(p,o)=>core.request('org.activate',p??{},deadlineMs,o?.attempt),suspend:(p,o)=>core.request('org.suspend',p??{},deadlineMs,o?.attempt),spaceList:p=>core.request('org.space.list',p??{}),spaceCreate:(p,o)=>core.request('org.space.create',p,deadlineMs,o?.attempt),memberList:p=>core.request('org.member.list',p??{}),memberInvite:(p,o)=>core.request('org.member.invite',p,deadlineMs,o?.attempt),memberRevoke:(p,o)=>core.request('org.member.revoke',p,deadlineMs,o?.attempt)}
+}
+let orgSingleton:OrgBridge|undefined
+export function getOrgBridge():OrgBridge{return orgSingleton??=createOrgBridge()}
+export const orgBridge:OrgBridge={summary:p=>{try{return getOrgBridge().summary(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getOrgBridge().create(p,o)}catch(error){return Promise.reject(error)}},switch:(p,o)=>{try{return getOrgBridge().switch(p,o)}catch(error){return Promise.reject(error)}},activate:(p,o)=>{try{return getOrgBridge().activate(p,o)}catch(error){return Promise.reject(error)}},suspend:(p,o)=>{try{return getOrgBridge().suspend(p,o)}catch(error){return Promise.reject(error)}},spaceList:p=>{try{return getOrgBridge().spaceList(p)}catch(error){return Promise.reject(error)}},spaceCreate:(p,o)=>{try{return getOrgBridge().spaceCreate(p,o)}catch(error){return Promise.reject(error)}},memberList:p=>{try{return getOrgBridge().memberList(p)}catch(error){return Promise.reject(error)}},memberInvite:(p,o)=>{try{return getOrgBridge().memberInvite(p,o)}catch(error){return Promise.reject(error)}},memberRevoke:(p,o)=>{try{return getOrgBridge().memberRevoke(p,o)}catch(error){return Promise.reject(error)}}}
+
+// M7 app update bridge — appUpdate.check / install (settings → diagnostics).
+export interface AppUpdateBridge{
+  check(payload:AppUpdateCheckPayload):Promise<AppUpdateCheckResult>
+  install(payload:AppUpdateInstallPayload,options?:MutationOptions<AppUpdateInstallPayload>):Promise<AppUpdateInstallResult>
+}
+export function createAppUpdateBridge(transport:WebViewTransport=webview(),deadlineMs=30_000):AppUpdateBridge{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return{check:p=>core.request('appUpdate.check',p,30_000),install:(p,o)=>core.request('appUpdate.install',p,120_000,o?.attempt)}
+}
+let appUpdateSingleton:AppUpdateBridge|undefined
+export function getAppUpdateBridge():AppUpdateBridge{return appUpdateSingleton??=createAppUpdateBridge()}

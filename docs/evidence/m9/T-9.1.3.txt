@@ -1,0 +1,17 @@
+﻿
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+ ✓ src/org/OrgAdminPage.test.tsx > renders empty state when no org exists 46ms
+ ✓ src/org/OrgAdminPage.test.tsx > shows isolation gate (M9-003) when orgs exist but none is bound 15ms
+ ✓ src/org/OrgAdminPage.test.tsx > loads scoped spaces and members only for the bound org 16ms
+ ✓ src/org/OrgAdminPage.test.tsx > revoking a member reloads member list immediately (role changes take effect instantly) 91ms
+ ✓ src/org/OrgAdminPage.test.tsx > switching org clears previous scoped data and reloads from the new org only 62ms
+ ✓ src/org/OrgAdminPage.test.tsx > creates an org and binds it immediately 61ms
+ ✓ src/org/OrgAdminPage.test.tsx > activates a draft org through the lifecycle action 31ms
+ ✓ src/org/OrgAdminPage.test.tsx > keeps invite and space actions disabled until required input is provided 32ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  11:54:17
+   Duration  1.54s (transform 118ms, setup 81ms, collect 175ms, tests 354ms, environment 459ms, prepare 196ms)
+

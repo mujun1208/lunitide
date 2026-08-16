@@ -1,0 +1,24 @@
+﻿=== RUN   TestMergeTightenOnly
+=== RUN   TestMergeTightenOnly/four-level_chain_merges_to_the_meet_of_every_layer
+=== RUN   TestMergeTightenOnly/meet_is_never_wider_than_any_single_layer_(merge_proof)
+=== RUN   TestMergeTightenOnly/relaxing_any_dimension_is_rejected_and_names_the_dimension
+=== RUN   TestMergeTightenOnly/parent_missing_fails_closed_with_M9-008
+=== RUN   TestMergeTightenOnly/parent_republish_races_the_child_draft_(T-06)
+=== RUN   TestMergeTightenOnly/digest_pins_the_verdict_and_blocks_replay_after_change
+=== RUN   TestMergeTightenOnly/digest_is_canonical:_set_order_and_key_order_do_not_matter
+=== RUN   TestMergeTightenOnly/chain_versions_record_every_contributing_layer
+=== RUN   TestMergeTightenOnly/simulator_preflights_tighten_vs_relax_per_dimension
+=== RUN   TestMergeTightenOnly/equal_constraints_re-attach_unchanged
+--- PASS: TestMergeTightenOnly (0.00s)
+    --- PASS: TestMergeTightenOnly/four-level_chain_merges_to_the_meet_of_every_layer (0.00s)
+    --- PASS: TestMergeTightenOnly/meet_is_never_wider_than_any_single_layer_(merge_proof) (0.00s)
+    --- PASS: TestMergeTightenOnly/relaxing_any_dimension_is_rejected_and_names_the_dimension (0.00s)
+    --- PASS: TestMergeTightenOnly/parent_missing_fails_closed_with_M9-008 (0.00s)
+    --- PASS: TestMergeTightenOnly/parent_republish_races_the_child_draft_(T-06) (0.00s)
+    --- PASS: TestMergeTightenOnly/digest_pins_the_verdict_and_blocks_replay_after_change (0.00s)
+    --- PASS: TestMergeTightenOnly/digest_is_canonical:_set_order_and_key_order_do_not_matter (0.00s)
+    --- PASS: TestMergeTightenOnly/chain_versions_record_every_contributing_layer (0.00s)
+    --- PASS: TestMergeTightenOnly/simulator_preflights_tighten_vs_relax_per_dimension (0.00s)
+    --- PASS: TestMergeTightenOnly/equal_constraints_re-attach_unchanged (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/policy	0.422s

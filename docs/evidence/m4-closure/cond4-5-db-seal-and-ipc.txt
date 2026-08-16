@@ -1,0 +1,14 @@
+﻿=== RUN   TestScopeSealSealsChildCreation
+--- PASS: TestScopeSealSealsChildCreation (0.28s)
+=== RUN   TestScopeSealUnsealReadiness
+--- PASS: TestScopeSealUnsealReadiness (0.27s)
+=== RUN   TestScopeSealDriftDetection
+=== RUN   TestScopeSealDriftDetection/clean_schema_reports_zero_drift
+=== RUN   TestScopeSealDriftDetection/rogue_orchestration_table_is_caught
+=== RUN   TestScopeSealDriftDetection/tampered_seal_constraint_is_caught
+--- PASS: TestScopeSealDriftDetection (0.90s)
+    --- PASS: TestScopeSealDriftDetection/clean_schema_reports_zero_drift (0.28s)
+    --- PASS: TestScopeSealDriftDetection/rogue_orchestration_table_is_caught (0.28s)
+    --- PASS: TestScopeSealDriftDetection/tampered_seal_constraint_is_caught (0.34s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/run	2.272s

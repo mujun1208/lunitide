@@ -39,7 +39,7 @@ func m7TraceNodeType(t string) bool {
 	switch t {
 	case "project", "workflow_version", "workflow_instance", "stage_run",
 		"stage_input_snapshot", "artifact_version", "review", "trace_edge",
-		"dev_task", "test_run", "scan_run":
+		"dev_task", "test_run", "scan_run", "cr_revision", "release_package":
 		return true
 	}
 	return false
@@ -242,12 +242,29 @@ func handleReviewSubmit(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if e.m7review == nil {
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "评审服务暂时不可用", true)
 	}
+	// CR-revision reviews additionally enforce REV-001: the declared author
+	// must match the manifest author frozen in the revision, and the landed
+	// verdict moves the revision to approved/rejected (the review itself is
+	// append-only evidence either way).
+	if p.SubjectType == "cr_revision" {
+		if e.m7release == nil {
+			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
+		}
+		if err := e.m7release.CheckReviewAuthor(ctx, p.SubjectID, p.AuthorID); err != nil {
+			return m7ReleaseFailure(r, err, "review.submit")
+		}
+	}
 	rev, edgeID, err := e.m7review.SubmitReview(ctx, m7flow.Review{
 		SubjectType: p.SubjectType, SubjectID: p.SubjectID, SubjectVersion: p.SubjectVersion,
 		Verdict: p.Verdict, ReviewerID: p.ReviewerID, Reason: p.Reason,
 	}, p.AuthorID)
 	if err != nil {
 		return m7EvidenceFailure(r, err, "review.submit")
+	}
+	if p.SubjectType == "cr_revision" {
+		if _, err := e.m7release.ApplyReview(ctx, p.SubjectID, p.Verdict); err != nil {
+			return m7ReleaseFailure(r, err, "review.submit")
+		}
 	}
 	return bridge.Success(r.ID, struct {
 		ReviewID    string `json:"reviewId"`

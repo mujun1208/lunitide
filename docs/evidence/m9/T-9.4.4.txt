@@ -1,0 +1,22 @@
+﻿=== RUN   TestHold
+=== RUN   TestHold/activation_without_an_authority_reference_refuses_M9-029
+=== RUN   TestHold/T-18:_delete_hitting_an_active_hold_diverts,_never_purges_(M9-028,_zero_wrongful_purges)
+=== RUN   TestHold/scope_matching:_exact,_hierarchy_and_subject_segments
+=== RUN   TestHold/release_demands_its_own_authority_basis_(M9-029)_and_unblocks_deletes
+=== RUN   TestHold/expired_hold_stops_blocking_without_any_release_ceremony
+=== RUN   TestHold/projection_lag_behind_the_authority_registry_fail-closes_(M9-028)
+=== RUN   TestHold/T-19:_restore_replays_holds_before_reads_open_(no_restoration-window_leak)
+=== RUN   TestHold/evidence_access_and_export_are_authority-gated_and_journaled_(M9-029)
+=== RUN   TestHold/concurrent_screening_keeps_exactly_one_evidence_row_per_object
+--- PASS: TestHold (0.00s)
+    --- PASS: TestHold/activation_without_an_authority_reference_refuses_M9-029 (0.00s)
+    --- PASS: TestHold/T-18:_delete_hitting_an_active_hold_diverts,_never_purges_(M9-028,_zero_wrongful_purges) (0.00s)
+    --- PASS: TestHold/scope_matching:_exact,_hierarchy_and_subject_segments (0.00s)
+    --- PASS: TestHold/release_demands_its_own_authority_basis_(M9-029)_and_unblocks_deletes (0.00s)
+    --- PASS: TestHold/expired_hold_stops_blocking_without_any_release_ceremony (0.00s)
+    --- PASS: TestHold/projection_lag_behind_the_authority_registry_fail-closes_(M9-028) (0.00s)
+    --- PASS: TestHold/T-19:_restore_replays_holds_before_reads_open_(no_restoration-window_leak) (0.00s)
+    --- PASS: TestHold/evidence_access_and_export_are_authority-gated_and_journaled_(M9-029) (0.00s)
+    --- PASS: TestHold/concurrent_screening_keeps_exactly_one_evidence_row_per_object (0.00s)
+PASS
+ok  	github.com/lunitide/lunitide/internal/legal	0.437s

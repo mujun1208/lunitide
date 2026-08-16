@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
@@ -421,6 +424,9 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 	if err != nil {
 		return bridge.Failure(request.ID, request.TraceID, "TOOL_APPROVAL_CONSUMED", err.Error(), false)
 	}
+	if p.Approved {
+		e.persistApprovedToolResult(ctx, p.SessionID, p.CallID, p.ArgsDigest, r)
+	}
 	status := "rejected"
 	if p.Approved {
 		status = "executed"
@@ -430,6 +436,53 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		result["artifact"] = map[string]string{"kind": r.Artifact.Kind, "path": r.Artifact.Path, "content": r.Artifact.Content}
 	}
 	return bridge.Success(request.ID, result)
+}
+
+// persistApprovedToolResult durably records an executed approval-gated tool
+// call as an engine-owned tool-role message. The renderer directs the user to
+// continue the conversation after approving; without this durable record the
+// next turn's history assembly would carry no tool output back to the model.
+// The Decide CAS has already consumed the approval, so persistence is
+// best-effort: a storage failure downgrades the record to a digest-only
+// summary instead of failing the approve response.
+func (e *Engine) persistApprovedToolResult(ctx context.Context, sessionID, callID, argsDigest string, r toolruntime.Result) {
+	if e.messages == nil {
+		return
+	}
+	output := strings.ReplaceAll(r.Output, "\r\n", "\n")
+	output = strings.ReplaceAll(output, "\r", "\n")
+	output = strings.ReplaceAll(output, "\x00", "")
+	output = truncateUTF8Bytes(output, 4096)
+	if strings.TrimSpace(output) == "" {
+		output = "(no output)"
+	}
+	keySum := sha256.Sum256([]byte("chat-tool-result\x00" + sessionID + "\x00" + callID))
+	key := hex.EncodeToString(keySum[:])
+	header := "[tool-result callId=" + callID + " argsDigest=" + argsDigest + " resultDigest=" + r.Digest + "]\n"
+	req := struct {
+		SessionID  string `json:"sessionId"`
+		CallID     string `json:"callId"`
+		ArgsDigest string `json:"argsDigest"`
+	}{SessionID: sessionID, CallID: callID, ArgsDigest: argsDigest}
+	value := message.Message{
+		SessionID: sessionID,
+		Role:      message.RoleTool,
+		Status:    message.StatusCompleted,
+		Text:      header + output,
+	}
+	if _, err := e.messages.Append(ctx, key, "engine", req, value); err == nil {
+		return
+	}
+	// Downgrade to a digest-only record under the same idempotency key: a
+	// partially persisted full record wins on replay (digest mismatch),
+	// while a clean failure persists the minimal summary.
+	minimalReq := struct {
+		SessionID string `json:"sessionId"`
+		CallID    string `json:"callId"`
+		Downgrade string `json:"downgrade"`
+	}{SessionID: sessionID, CallID: callID, Downgrade: "output-omitted"}
+	value.Text = header + "(output unavailable; see resultDigest)"
+	_, _ = e.messages.Append(ctx, key, "engine", minimalReq, value)
 }
 
 func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter, sessionID string, modes ...executionMode) {

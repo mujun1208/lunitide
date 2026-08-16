@@ -1,0 +1,29 @@
+﻿{
+    "name":  "m4-closure",
+    "date":  "2026-08-16T13:28:17",
+    "scope":  "M4 Scope Seal final-form closure per ADR-018",
+    "adr":  {
+                "path":  "docs/adr/ADR-018-scope-seal-final-form.md",
+                "sha256":  "3647c0bb9fe3f961c715349a5a77b68121620d1234adab01b04b25e61a98470c"
+            },
+    "conditions":  [
+                       {
+                           "id":  "cond1-2-handler-renderer",
+                           "artifact":  "docs/evidence/m4-closure/cond1-3-handler-schema-renderer.txt",
+                           "sha256":  "00c593c11a06a438201d61bf4ed42576678f57f51882ce3888a8c31e13f8ca3e",
+                           "summary":  "TestPlanRunHandlers* (executionStarted:false contract + strict schema reject) + dist build scan: plan.run.spawn/join/tree only in CoordinationPlanPanel metadata calls"
+                       },
+                       {
+                           "id":  "cond4-5-db-seal-ipc",
+                           "artifact":  "docs/evidence/m4-closure/cond4-5-db-seal-and-ipc.txt",
+                           "sha256":  "8930328f355eb857f0fe440f3df35e960b4485d7e7074fd8094c3cb71b6ff961",
+                           "summary":  "TestScopeSeal*: live DB rejects any spawn record; idempotency layer rejects plan.run.spawn; drift detection guards the 0041 CHECK"
+                       }
+                   ],
+    "sealMigration":  {
+                          "path":  "migrations/0041_m5_scope_seal.sql",
+                          "sha256":  "ead9e044981a8dfd5950376827a348aea8319f35d8b7e1eb08574543a44cb768",
+                          "invariant":  "CHECK (parent_run_id IS NULL) on agent_plan_runs - never lifted by 0042..0069"
+                      },
+    "verdict":  "M4 frozen-exit per ADR-018 capability-level closure; production spawn calls are DB-refused with stable COORDINATION_* codes"
+}

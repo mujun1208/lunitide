@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mcp.health.schema.json",
+  "title": "mcp.health payload",
+  "x-method": "mcp.health",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "endpointId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": ["endpointId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "state": {
+        "type": "string",
+        "enum": ["ready", "degraded", "quarantined"]
+      },
+      "latencyMs": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "driftDetected": {
+        "type": "boolean"
+      },
+      "capabilityDigest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "checkedAt": {
+        "type": "string"
+      }
+    },
+    "required": ["state", "driftDetected", "checkedAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "endpointId": "mcp-01J8ZGB2V8X2B4C6D8F0G2H4J6"
+      }
+    ],
+    "negative": [
+      {
+        "endpointId": ""
+      }
+    ]
+  }
+}
