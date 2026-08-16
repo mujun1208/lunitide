@@ -145,6 +145,7 @@ DROP TABLE tool_call_quota;
 DROP TABLE tool_results;
 DROP TABLE mcp_endpoint_settings;
 DROP TABLE mcp_market_items;
+DROP TABLE memory_nominations;
 DROP TABLE memory_candidates;
 DROP TABLE memory_facts;
 DROP TABLE memory_source_leaves;
