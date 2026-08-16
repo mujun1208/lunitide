@@ -89,6 +89,22 @@ it('shows only attachments bound to the current session and cannot delete hidden
  expect(await screen.findByText('mine.txt')).toBeInTheDocument();expect(screen.queryByText('other.txt')).toBeNull();expect(screen.queryByText('shared.txt')).toBeNull();expect(screen.getAllByRole('button',{name:'删除'})).toHaveLength(1);expect(remove).not.toHaveBeenCalled()
 })
 
+it('switches models inside a reopened historical personal session',async()=>{
+ const second:ProviderDTO={...provider,id:'01ARZ3NDEKTSV4RRFFQ69G5FBA',name:'Second',models:[{modelId:'model-b',displayName:'Model B',isDefault:true}]}
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ const user=await open({personal:true,initialSession:session,providers:{list:vi.fn().mockResolvedValue({items:[provider,second]})} as unknown as ProviderBridge,chat:{start,approve:vi.fn(),dispose:vi.fn()} as ChatBridge,messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge})
+ const button=await screen.findByRole('button',{name:'已配置模型'})
+ expect(button).toHaveTextContent('Model')
+ await user.click(button)
+ await user.click(await screen.findByRole('menuitem',{name:/Model B/}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'已配置模型'})).toHaveTextContent('Model B'))
+ const input=screen.getByLabelText('向月汐提问，或描述你想完成的任务…')
+ await user.type(input,'你好')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(start.mock.calls[0][0]).toMatchObject({providerId:second.id,modelId:'model-b'})
+})
+
 it('does not expose chat for disabled, unconfigured, or model-less providers and rejects invalid initial selection',async()=>{
  const bad=[{...provider,status:'disabled' as const},{...provider,id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',credentialState:'missing' as const},{...provider,id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',models:[]}]
  const providerBridge={list:vi.fn().mockResolvedValue({items:bad})} as unknown as ProviderBridge,start=vi.fn(),chat={start,approve:vi.fn(),dispose:vi.fn()} as ChatBridge

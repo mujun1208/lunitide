@@ -44,6 +44,11 @@ type Runtime struct {
 	// fetchWeb is the SSRF-pinned web transport injected by the host
 	// (cmd/engine). nil keeps web.* tools unavailable (tests, offline).
 	fetchWeb func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
+	// fullAccessRoot resolves the user-selected workspace root (workspace-root.json,
+	// chosen via the host workspace picker). In full-access mode file tools
+	// read/write inside that root; every other mode stays sandboxed to
+	// <root>/<session>. nil or a resolver failure falls back to the sandbox.
+	fullAccessRoot func() (string, error)
 	// rulesMu guards commandRules for hot reload (SetCommandPolicyJSON
 	// swaps the slice; Execute copies the header under RLock).
 	rulesMu       sync.RWMutex
@@ -241,6 +246,43 @@ func (r *Runtime) SetCommandPolicyJSON(raw []byte) error {
 func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)) {
 	r.fetchWeb = f
 }
+
+// SetFullAccessRootResolver installs the user-workspace root resolver used by
+// full-access mode. The resolver is consulted per call so a changed root
+// selection takes effect immediately; failures fall back to the sandbox.
+func (r *Runtime) SetFullAccessRootResolver(f func() (string, error)) {
+	r.fullAccessRoot = f
+}
+
+// effectiveRoot returns the directory file tools operate in for this call.
+// Full-access rides the user-selected workspace root when one resolves;
+// everything else (and any resolver failure) keeps the per-session sandbox.
+func (r *Runtime) effectiveRoot(mode Mode, session string) (string, error) {
+	if mode == FullAccess && r.fullAccessRoot != nil {
+		if root, err := r.fullAccessRoot(); err == nil && root != "" {
+			if info, statErr := os.Lstat(root); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+				return root, nil
+			}
+		}
+	}
+	return r.sessionPath(session)
+}
+
+// FullAccessRootHint answers the currently resolvable user workspace root.
+// Used to tell the model where file tools actually operate.
+func (r *Runtime) FullAccessRootHint() (string, bool) {
+	if r.fullAccessRoot == nil {
+		return "", false
+	}
+	root, err := r.fullAccessRoot()
+	if err != nil || root == "" {
+		return "", false
+	}
+	if info, statErr := os.Lstat(root); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", false
+	}
+	return root, true
+}
 func (r *Runtime) ensureAudit() error {
 	r.auditMu.Lock()
 	defer r.auditMu.Unlock()
@@ -334,7 +376,17 @@ type Pending struct {
 var ErrPendingConsumed = errors.New("pending action already consumed")
 var ErrWorkspaceChanged = errors.New("workspace changed since approval request")
 
-func (r *Runtime) workspaceDigest(session string) (string, error) {
+func (r *Runtime) workspaceDigest(mode Mode, session string) (string, error) {
+	// Full-access over a user-selected root skips the tree walk: the root
+	// can be huge and the digest only guards pending approvals against
+	// workspace swaps, so hashing the resolved root path is enough.
+	if mode == FullAccess && r.fullAccessRoot != nil {
+		if root, err := r.fullAccessRoot(); err == nil && root != "" {
+			h := sha256.New()
+			h.Write([]byte("full-access:" + filepath.Clean(root)))
+			return hex.EncodeToString(h.Sum(nil)), nil
+		}
+	}
 	root, err := r.sessionPath(session)
 	if err != nil {
 		return "", err
@@ -403,7 +455,7 @@ func (r *Runtime) Prepare(ctx context.Context, runID, session, callID, name stri
 		}
 		return Pending{}, err
 	}
-	wd, err := r.workspaceDigest(session)
+	wd, err := r.workspaceDigest(mode, session)
 	if err != nil {
 		return Pending{}, err
 	}
@@ -527,7 +579,7 @@ func (r *Runtime) decide(ctx context.Context, session, callID, digest string, ap
 	if !approve {
 		return result("rejected by user"), nil
 	}
-	current, e := r.workspaceDigest(session)
+	current, e := r.workspaceDigest(Mode(mode), session)
 	if e != nil {
 		return r.finishDecision(ctx, session, callID, digest, Result{}, e)
 	}
@@ -553,7 +605,7 @@ func (r *Runtime) finishDecision(ctx context.Context, session, callID, digest st
 	}
 	return out, runErr
 }
-func (r *Runtime) path(session, rel string, write bool) (string, error) {
+func (r *Runtime) path(mode Mode, session, rel string, write bool) (string, error) {
 	if rel == "" || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 		return "", errors.New("relative path required")
 	}
@@ -561,7 +613,7 @@ func (r *Runtime) path(session, rel string, write bool) (string, error) {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
 		return "", errors.New("path traversal")
 	}
-	root, err := r.sessionPath(session)
+	root, err := r.effectiveRoot(mode, session)
 	if err != nil {
 		return "", err
 	}
@@ -659,7 +711,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if a.Path == "" {
 			a.Path = "."
 		}
-		p, e := r.path(session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false)
 		if e != nil {
 			return Result{}, e
 		}
@@ -684,7 +736,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false)
 		if e != nil {
 			return Result{}, e
 		}
@@ -706,7 +758,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" || len(a.Content) > maxFile {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(session, a.Path, true)
+		p, e := r.path(mode, session, a.Path, true)
 		if e != nil {
 			return Result{}, e
 		}
@@ -758,7 +810,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if max > 200 {
 			max = 200
 		}
-		hits, e := r.searchWorkspace(session, a.Path, a.Query, a.Regex, max)
+		hits, e := r.searchWorkspace(mode, session, a.Path, a.Query, a.Regex, max)
 		if e != nil {
 			return Result{}, e
 		}
@@ -773,7 +825,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" || a.OldText == "" || len(a.OldText) > maxFile || len(a.NewText) > maxFile {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false)
 		if e != nil {
 			return Result{}, e
 		}
@@ -852,8 +904,11 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if !ok {
 			return Result{}, errors.New("command denied")
 		}
-		root, e := r.sessionRoot(session)
+		root, e := r.effectiveRoot(mode, session)
 		if e != nil {
+			return Result{}, e
+		}
+		if e = os.MkdirAll(root, 0700); e != nil {
 			return Result{}, e
 		}
 		cctx, cancel := context.WithTimeout(ctx, rule.deadline)
@@ -947,7 +1002,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(session, a.Path, data, len(a.Sheets))
+		return r.writeGenerated(mode, session, a.Path, data, len(a.Sheets))
 	case "excel.parse":
 		var a struct {
 			Path string `json:"path"`
@@ -955,7 +1010,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false)
 		if e != nil {
 			return Result{}, e
 		}
@@ -984,7 +1039,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(session, a.Path, data, len(a.Blocks))
+		return r.writeGenerated(mode, session, a.Path, data, len(a.Blocks))
 	case "pptx.gen":
 		var a struct {
 			Path   string                  `json:"path"`
@@ -1001,7 +1056,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(session, a.Path, data, len(a.Slides))
+		return r.writeGenerated(mode, session, a.Path, data, len(a.Slides))
 	case "pdf.gen":
 		var a struct {
 			Path  string `json:"path"`
@@ -1018,7 +1073,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(session, a.Path, data, -1)
+		return r.writeGenerated(mode, session, a.Path, data, -1)
 	default:
 		return Result{}, errors.New("unknown tool")
 	}
@@ -1038,9 +1093,19 @@ func (r *Runtime) ReadWorkspaceFile(session, relPath string, max int64) ([]byte,
 	if max <= 0 || max > maxGeneratedBytes {
 		max = maxGeneratedBytes
 	}
-	p, err := r.path(session, relPath, false)
+	// Host-side previews do not know the execution mode that produced the
+	// artifact, so try the session sandbox first and fall back to the
+	// user-selected full-access root (read-only, same containment checks).
+	p, err := r.path(Approval, session, relPath, false)
 	if err != nil {
 		return nil, err
+	}
+	if _, statErr := os.Stat(p); statErr != nil && r.fullAccessRoot != nil {
+		if root, rootErr := r.fullAccessRoot(); rootErr == nil && root != "" {
+			if alt, altErr := r.containedRead(root, relPath); altErr == nil {
+				p = alt
+			}
+		}
 	}
 	f, err := os.Open(p)
 	if err != nil {
@@ -1053,16 +1118,38 @@ func (r *Runtime) ReadWorkspaceFile(session, relPath string, max int64) ([]byte,
 // WorkspaceRoot answers the runtime root (host-side export surfaces).
 func (r *Runtime) WorkspaceRoot() string { return r.root }
 
+// containedRead resolves relPath inside an arbitrary root with the same
+// traversal and symlink-escape discipline as path(); read-only.
+func (r *Runtime) containedRead(root, relPath string) (string, error) {
+	if relPath == "" || filepath.IsAbs(relPath) || filepath.VolumeName(relPath) != "" {
+		return "", errors.New("relative path required")
+	}
+	clean := filepath.Clean(relPath)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", errors.New("path traversal")
+	}
+	p := filepath.Join(root, clean)
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	relCheck, err := filepath.Rel(root, real)
+	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(os.PathSeparator)) {
+		return "", errors.New("symlink escape")
+	}
+	return real, nil
+}
+
 // maxGeneratedBytes bounds both generated and parsed Office payloads.
 const maxGeneratedBytes = 8 << 20
 
 // writeGenerated persists generated bytes into the session workspace with
 // the same atomic temp+rename discipline as workspace.write.
-func (r *Runtime) writeGenerated(session, relPath string, data []byte, count int) (Result, error) {
+func (r *Runtime) writeGenerated(mode Mode, session, relPath string, data []byte, count int) (Result, error) {
 	if len(data) > maxGeneratedBytes {
 		return Result{}, errors.New("generated file exceeds limit")
 	}
-	p, e := r.path(session, relPath, true)
+	p, e := r.path(mode, session, relPath, true)
 	if e != nil {
 		return Result{}, e
 	}
@@ -1145,8 +1232,8 @@ func truncateRunes(s string, limit int) string {
 // answers "path:line: text" hits for a literal or regex query. Binary
 // files (NUL byte in the first 8 KiB) and oversized files are skipped;
 // the walk stops as soon as max hits accumulate.
-func (r *Runtime) searchWorkspace(session, relPath, query string, regex bool, max int) ([]string, error) {
-	root, err := r.path(session, relPath, false)
+func (r *Runtime) searchWorkspace(mode Mode, session, relPath, query string, regex bool, max int) ([]string, error) {
+	root, err := r.path(mode, session, relPath, false)
 	if err != nil {
 		return nil, err
 	}

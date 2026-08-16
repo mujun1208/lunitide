@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -95,6 +97,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
 	}
 	instruction := executionModeInstruction(mode)
+	// Full-access workspace hint: tell the model where file tools actually
+	// operate (user-selected workspace root, or the sandbox when none resolves)
+	// so path answers match reality instead of a stale sandbox assumption.
+	if mode == executionModeFullAccess && e.tools != nil {
+		if root, ok := e.tools.FullAccessRootHint(); ok {
+			instruction += " File tools operate directly inside the user's workspace root " + root + "; relative paths resolve there. Keep every read and write inside that root and answer with real paths from it."
+		} else {
+			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
+		}
+	}
 	if mode != executionModePlan && e.delegation == delegationProactive {
 		instruction += delegationProactiveHint
 	}
@@ -821,7 +833,27 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		return rawSend(event)
 	}
-	err := e.withProviderLease(ctx, p, secretlease.OperationChat, func(op context.Context, credential []byte) error {
+	// Goroutine-wide panic guard: runStream runs detached (go e.runStream), so
+	// an unrecovered panic would kill the Engine process and sever the event
+	// pipe for every session. Degrade to a failed terminal event instead; the
+	// sequence counter lives in this closure so the terminal stays contiguous.
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("chat stream %s panicked: %v\n%s", id, rec, debug.Stack())
+			state.cancel()
+			_ = send(bridge.Event{Type: bridge.EventFailed, Error: &bridge.StreamError{Code: "ENGINE_STREAM_PANIC", Message: "内部处理错误，请重试", Retryable: true}})
+			e.finishTerminal(id, state)
+		}
+	}()
+	err := e.withProviderLease(ctx, p, secretlease.OperationChat, func(op context.Context, credential []byte) (cbErr error) {
+		// A panic anywhere in the streaming/tool loop must degrade to a
+		// failed stream, never take down the Engine process (which would
+		// sever the event pipe for every active session).
+		defer func() {
+			if rec := recover(); rec != nil {
+				cbErr = fmt.Errorf("chat stream panicked: %v", rec)
+			}
+		}()
 		a, adapterErr := e.adapter(op, p)
 		if adapterErr != nil {
 			return adapterErr

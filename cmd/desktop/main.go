@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -85,7 +86,44 @@ func run() error {
 	if err := command.Start(); err != nil {
 		return err
 	}
-	defer stopProcess(command)
+	// Engine watchdog: once the WebView host is up, an unexpected Engine exit
+	// (crash, OOM, external kill) must not leave a zombie UI whose every
+	// chat.start fails with ENGINE_EVENT_SOURCE_CLOSED. The watcher relaunches
+	// a fresh desktop instance (SQLite state survives) and lets this one exit
+	// through the normal shutdown path. Engine death before hostReady takes
+	// the normal startup-failure path instead, so a crashing engine cannot
+	// spawn a relaunch loop.
+	hostCtx, stopHost := context.WithCancel(context.Background())
+	defer stopHost()
+	hostReady := make(chan struct{})
+	engineDied := make(chan struct{})
+	shuttingDown := &atomic.Bool{}
+	go func() {
+		_ = command.Wait()
+		if !shuttingDown.Load() {
+			close(engineDied)
+		}
+	}()
+	go func() {
+		select {
+		case <-engineDied:
+			select {
+			case <-hostReady:
+				fmt.Fprintln(os.Stderr, "engine process exited unexpectedly; relaunching desktop")
+				if self, err := os.Executable(); err == nil {
+					relaunch := exec.Command(self, os.Args[1:]...)
+					_ = relaunch.Start()
+				}
+				stopHost()
+			default:
+			}
+		case <-hostCtx.Done():
+		}
+	}()
+	defer func() {
+		shuttingDown.Store(true)
+		stopEngine(command)
+	}()
 	if err := bootstrapReader.Close(); err != nil {
 		return err
 	}
@@ -212,8 +250,7 @@ func run() error {
 	}
 	themeHandler.Bind(host.SetTheme)
 	fmt.Printf("Lunitide %s: Engine health check passed; starting WebView2 host\n", buildinfo.Version)
-	hostCtx, stopHost := context.WithCancel(context.Background())
-	defer stopHost()
+	close(hostReady)
 	hostErr := make(chan error, 1)
 	go func() { hostErr <- host.Run(hostCtx) }()
 	select {
@@ -232,16 +269,11 @@ func zeroBytes(value []byte) {
 	}
 }
 
-func stopProcess(command *exec.Cmd) {
-	if command.Process == nil {
+// stopEngine terminates the engine child on shutdown. The watchdog goroutine
+// already reaps the process, so here we only kill a still-running one.
+func stopEngine(command *exec.Cmd) {
+	if command.Process == nil || command.ProcessState != nil {
 		return
 	}
-	done := make(chan struct{})
-	go func() { _ = command.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		_ = command.Process.Kill()
-		<-done
-	}
+	_ = command.Process.Kill()
 }

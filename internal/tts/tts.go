@@ -15,12 +15,37 @@ type Voice struct {
 }
 
 // SynthesizeInput carries one cleaned subtitle segment (<=500 chars)
-// plus the companion settings that steer SAPI (voice/rate/volume).
+// plus the companion settings that steer the selected engine.
 type SynthesizeInput struct {
 	Text    string
 	VoiceID string
-	Rate    int // SAPI rate in [-10,10]
+	Rate    int // SAPI rate in [-10,10]; other engines map it internally
 	Volume  int // SAPI volume in [0,100]
+
+	// Engine selects the router target ("" keeps the legacy SAPI path so
+	// old payloads stay valid).
+	Engine string
+	// Reference-timbre engine parameters: a local GPT-SoVITS api_v2
+	// compatible endpoint plus one reference audio file.
+	RefEndpoint   string
+	RefWavPath    string
+	RefPromptText string
+}
+
+// Engine selector values carried by tts.synthesize payloads.
+const (
+	EngineSapi = "sapi" // offline Windows SAPI (default)
+	EngineEdge = "edge" // Microsoft Edge online neural voices (free, natural)
+	EngineRef  = "ref"  // zero-shot reference-timbre cloning via local service
+)
+
+// ValidEngine reports whether the payload engine field is accepted.
+func ValidEngine(engine string) bool {
+	switch engine {
+	case "", EngineSapi, EngineEdge, EngineRef:
+		return true
+	}
+	return false
 }
 
 // SynthesizeResult is the payload body for tts.synthesize.
