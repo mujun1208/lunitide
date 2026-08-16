@@ -53,7 +53,7 @@ const speechRecognitionConstructor = () =>
   (window as typeof window & { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
 
 /** Errors after which restarting recognition can never succeed. */
-const PERMANENT_ERRORS = new Set(['not-allowed', 'service-not-allowed'])
+const PERMANENT_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported'])
 
 /** Probe the microphone permission so a hard denial never spins recognition. */
 async function microphoneDenied(): Promise<boolean> {
@@ -87,7 +87,9 @@ export function useWakeWord({ enabled, onWake }: { enabled: boolean; onWake: (pr
     let stopped = false
     let recognition: SpeechRecognitionLike | undefined
     let restartTimer = 0
-    let restarts = 0
+    let failures = 0
+    let armedAt = 0
+    let sawResult = false
     const stopRecognition = () => {
       try {
         recognition?.stop()
@@ -106,6 +108,7 @@ export function useWakeWord({ enabled, onWake }: { enabled: boolean; onWake: (pr
         recognition.interimResults = true
         recognition.onresult = event => {
           if (stopped) return
+          sawResult = true
           for (let i = 0; i < event.results.length; i++) {
             const result = event.results[i]
             const match = matchWakeWord(result[0].transcript)
@@ -128,22 +131,27 @@ export function useWakeWord({ enabled, onWake }: { enabled: boolean; onWake: (pr
         }
         recognition.onend = () => {
           if (stopped) return
-          // Backoff restart: idle timeouts fire constantly on a quiet home
-          // page, and a start() racing its own teardown throws
-          // InvalidStateError — retry a bounded number of times.
-          const delay = 200 + Math.min(restarts, 6) * 180
+          // Healthy sessions (produced a transcript or ran for a while)
+          // reset the failure count; sessions that die instantly never
+          // reached the speech service. Counting only those makes a
+          // fast-fail loop (missing language pack, speech service off)
+          // surface an error instead of spinning forever as fake
+          // "listening".
+          if (sawResult || Date.now() - armedAt >= 3000) failures = 0
+          else failures++
+          const delay = 200 + Math.min(failures, 6) * 180
           restartTimer = window.setTimeout(() => {
             if (stopped) return
-            restarts++
-            if (restarts > 40) {
+            if (failures > 8) {
               setState('error')
               return
             }
             arm()
           }, delay)
         }
+        armedAt = Date.now()
+        sawResult = false
         recognition.start()
-        restarts = 0
         setState('listening')
       } catch {
         setState('error')

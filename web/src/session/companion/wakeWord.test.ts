@@ -1,5 +1,6 @@
-import { expect, it } from 'vitest'
-import { matchWakeWord } from './wakeWord'
+import { act, renderHook } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import { matchWakeWord, useWakeWord } from './wakeWord'
 
 it('matches the canonical wake phrase with punctuation and spacing', () => {
   for (const phrase of ['你好，月汐！', '你好 月汐', '你好月汐', '你好，月汐。', '  你好，月汐！  ']) {
@@ -23,4 +24,98 @@ it('does not match ordinary speech or look-alike phrases', () => {
   for (const phrase of ['今天天气不错', '你好，世界', '月汐你好', '再见月汐', '你好月']) {
     expect(matchWakeWord(phrase)).toEqual({ hit: false, prompt: '' })
   }
+})
+
+type FakeEvent = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
+
+class FakeRecognition {
+  static instances: FakeRecognition[] = []
+  lang = ''
+  continuous = false
+  interimResults = false
+  onresult: ((event: FakeEvent) => void) | null = null
+  onerror: ((event?: { error?: string }) => void) | null = null
+  onend: (() => void) | null = null
+  start = vi.fn()
+  stop = vi.fn()
+  constructor() {
+    FakeRecognition.instances.push(this)
+  }
+}
+
+function installFakeRecognition() {
+  FakeRecognition.instances = []
+  Object.defineProperty(window, 'SpeechRecognition', { value: FakeRecognition, configurable: true })
+  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn() }, configurable: true })
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  delete (window as { SpeechRecognition?: unknown }).SpeechRecognition
+  delete (navigator as { mediaDevices?: unknown }).mediaDevices
+})
+
+it('reports unsupported when the runtime has no speech recognition', () => {
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  expect(view.result.current).toBe('unsupported')
+})
+
+it('fires onWake once when the phrase lands in an interim transcript', async () => {
+  installFakeRecognition()
+  const onWake = vi.fn()
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake }))
+  await act(async () => {}) // flush the microphone permission probe
+  expect(view.result.current).toBe('listening')
+  const first = FakeRecognition.instances.at(-1)!
+  act(() => {
+    first.onresult?.({ results: [{ 0: { transcript: '你好月汐今天天气怎么样' }, isFinal: false }] })
+  })
+  expect(onWake).toHaveBeenCalledExactlyOnceWith('今天天气怎么样')
+  expect(first.stop).toHaveBeenCalled()
+})
+
+it('keeps listening across healthy session restarts', async () => {
+  vi.useFakeTimers()
+  installFakeRecognition()
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  await act(async () => {})
+  const first = FakeRecognition.instances.at(-1)!
+  act(() => {
+    first.onresult?.({ results: [{ 0: { transcript: '今天天气不错' }, isFinal: true }] })
+    first.onend?.()
+  })
+  await act(async () => {
+    vi.advanceTimersByTime(400)
+  })
+  expect(view.result.current).toBe('listening')
+  expect(FakeRecognition.instances.length).toBe(2)
+})
+
+it('surfaces an error after repeated fast-fail sessions instead of spinning as fake listening', async () => {
+  vi.useFakeTimers()
+  installFakeRecognition()
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  await act(async () => {})
+  expect(view.result.current).toBe('listening')
+  for (let round = 0; round < 9; round++) {
+    const current = FakeRecognition.instances.at(-1)!
+    act(() => {
+      current.onerror?.({ error: 'network' })
+      current.onend?.() // dies instantly, no transcript — a fast-fail session
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(1500)
+    })
+  }
+  expect(view.result.current).toBe('error')
+})
+
+it('stops permanently on language-not-supported', async () => {
+  installFakeRecognition()
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  await act(async () => {})
+  act(() => {
+    FakeRecognition.instances.at(-1)!.onerror?.({ error: 'language-not-supported' })
+  })
+  expect(view.result.current).toBe('error')
 })
