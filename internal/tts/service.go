@@ -44,7 +44,10 @@ func (s *Service) Cancel() {
 }
 
 func cacheKey(in SynthesizeInput) string {
-	return in.Text + "\x00" + in.VoiceID + "\x00" +
+	// The engine and reference parameters join the key: the same text at
+	// the same rate is a different audio file per engine/reference.
+	return in.Text + "\x00" + in.Engine + "\x00" + in.VoiceID + "\x00" +
+		in.RefEndpoint + "\x00" + in.RefWavPath + "\x00" +
 		strconv.Itoa(in.Rate) + "\x00" + strconv.Itoa(in.Volume)
 }
 
