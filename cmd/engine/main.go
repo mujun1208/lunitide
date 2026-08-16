@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/agentrunapp"
@@ -79,6 +84,16 @@ func main() {
 		log.Fatal(err)
 	}
 	defer dataRoot.Close()
+	// Engine diagnostics land in a rotating file under <data>/logs. The
+	// desktop host is a GUI process, so pipe-inherited stdout/stderr are
+	// lost; without this file engine crashes leave no trace at all.
+	logsDir, err := dataRoot.PrepareSubdirectory("logs")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer logsDir.Close()
+	logFile := setupEngineLog(logsDir.Path())
+	defer logFile.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
@@ -193,10 +208,11 @@ func main() {
 		store.AgentRuntimeRepository().GateEvidence(),
 		m8core.WriteCollabBinding(),
 	))
-	// M9.5 Moon Companion: offline SAPI TTS runtime. Synthesis stays
-	// process-local (no network); machines without SAPI degrade to the
-	// M95-001 subtitle-only mode at the bridge layer.
-	engine.SetM9TtsService(tts.NewService(tts.NewPlatformEngine()))
+	// M9.5 Moon Companion TTS runtime: the router fans synthesis out to
+	// the offline SAPI engine, the free Edge natural-voice service and a
+	// local reference-timbre (voice-clone) service; machines without SAPI
+	// still expose the edge/ref engines.
+	engine.SetM9TtsService(tts.NewService(tts.NewRouterEngine(tts.NewPlatformEngine())))
 	// M9 slice-1: org foundation - the org-admin bridge service derives the
 	// verified org context from the persisted operator binding (ADR-011);
 	// payloads never carry an org scope.
@@ -241,6 +257,16 @@ func main() {
 	// fetch (plain HTTP allowed for public read-only content).
 	tools.SetWebFetcher(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
 		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}})
+	})
+	// Full-access file tools read/write inside the user-selected workspace
+	// root (same workspace-root.json the host picker writes). Re-resolved
+	// per call; any parse/validation failure falls back to the sandbox.
+	tools.SetFullAccessRootResolver(func() (string, error) {
+		path, err := dataRoot.FilePath("workspace-root.json")
+		if err != nil {
+			return "", err
+		}
+		return readWorkspaceRoot(path)
 	})
 	engine.SetToolRuntime(tools)
 	defer tools.Close()
@@ -319,7 +345,7 @@ func main() {
 	}
 	defer listener.Close()
 	go func() { <-ctx.Done(); listener.Close() }()
-	fmt.Println("lunitide-engine ready")
+	log.Printf("lunitide-engine %s ready on pipe %s", buildinfo.Version, *pipe)
 	sessions := ipc.NewSessionGate(8)
 	for {
 		conn, err := listener.Accept()
@@ -367,4 +393,72 @@ func shutdownAfterSession(err error, cancel context.CancelFunc) {
 	if errors.Is(err, ipc.ErrHandshakeACK) {
 		cancel()
 	}
+}
+
+// setupEngineLog redirects the standard logger into a dated file under
+// <data>/logs and prunes files older than the seven most recent. The
+// returned closer is owned by main.
+func setupEngineLog(dir string) io.Closer {
+	name := filepath.Join(dir, "engine-"+time.Now().Format("20060102-150405")+".log")
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		// Diagnostics must never block startup: keep the default stderr sink.
+		return nopCloser{}
+	}
+	log.SetOutput(f)
+	log.SetFlags(log.LstdFlags | log.LUTC)
+	pruneEngineLogs(dir, 7)
+	fmt.Fprintln(f, "lunitide-engine", buildinfo.Version, "starting")
+	return f
+}
+
+func pruneEngineLogs(dir string, keep int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "engine-") && strings.HasSuffix(e.Name(), ".log") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	for len(names) > keep {
+		_ = os.Remove(filepath.Join(dir, names[0]))
+		names = names[1:]
+	}
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }
+
+// readWorkspaceRoot parses the host-written workspace-root.json. The heavy
+// validation (fixed drive, no reparse point) already happened in the host
+// picker; here we re-check existence and directory-ness so a stale config
+// degrades to the sandbox instead of a confusing write error.
+func readWorkspaceRoot(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 4096 {
+		return "", errors.New("invalid workspace root config")
+	}
+	var c struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(data, &c); err != nil || c.Path == "" || len(c.Path) > 1024 {
+		return "", errors.New("invalid workspace root config")
+	}
+	clean := filepath.Clean(c.Path)
+	if !filepath.IsAbs(clean) || strings.HasPrefix(clean, `\\`) {
+		return "", errors.New("invalid workspace root path")
+	}
+	info, err := os.Lstat(clean)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("workspace root is not a plain directory")
+	}
+	return clean, nil
 }

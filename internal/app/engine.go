@@ -464,6 +464,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTtsVoices:                     handleTtsVoices,
 	bridge.MethodTtsSynthesize:                 handleTtsSynthesize,
 	bridge.MethodTtsCancel:                     handleTtsCancel,
+	bridge.MethodTtsRefAudios:                  handleTtsRefAudios,
 	bridge.MethodOrgSummary:                    handleOrgSummary,
 	bridge.MethodOrgCreate:                     handleOrgCreate,
 	bridge.MethodOrgSwitch:                     handleOrgSwitch,
@@ -1289,7 +1290,16 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 	if !allowed || handler == nil {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false)
 	}
-	return handler(e, ctx, request)
+	// Last-resort panic guard: a handler crash degrades to one failed
+	// request instead of killing the Engine process and the event pipe.
+	return func() (resp bridge.Response) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				resp = bridge.Failure(request.ID, request.TraceID, "ENGINE_HANDLER_PANIC", "内部处理错误，请重试", true)
+			}
+		}()
+		return handler(e, ctx, request)
+	}()
 }
 
 func handleSystemHealth(e *Engine, _ context.Context, request bridge.Request) bridge.Response {
