@@ -32,6 +32,7 @@ func handleToolsCommandPolicySet(e *Engine, _ context.Context, r bridge.Request)
 			MaxArgs   int      `json:"maxArgs,omitempty"`
 			TimeoutMS int64    `json:"timeoutMs,omitempty"`
 		} `json:"commands"`
+		FullAccess bool `json:"fullAccess,omitempty"`
 	}
 	if decodePayload(r.Payload, &doc) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tools.commandPolicy.set 参数无效", false)
