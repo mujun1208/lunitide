@@ -26,6 +26,17 @@ it('does not match ordinary speech or look-alike phrases', () => {
   }
 })
 
+it('matches common ASR homophone transcribes of the wake name', () => {
+  // Windows online ASR frequently returns 月希/月西/月溪/月熙/月惜/悦汐
+  // for the spoken 「月汐」— the cross-product phrase list must catch them.
+  for (const phrase of ['你好月希', '你好，月西', '嗨月溪', '您好月熙', '你好月惜', '你好悦汐', 'hello月希']) {
+    expect(matchWakeWord(phrase).hit).toBe(true)
+  }
+  // Homophones alone (without a greeting prefix) stay inert to avoid
+  // false wakes from ambient speech.
+  expect(matchWakeWord('月希今天天气').hit).toBe(false)
+})
+
 type FakeEvent = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
 
 class FakeRecognition {

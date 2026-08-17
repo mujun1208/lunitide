@@ -21,7 +21,12 @@ export interface WakeWordMatch {
   prompt: string
 }
 
-const WAKE_PHRASES = ['你好月汐', '嗨月汐', '哈喽月汐', 'hello月汐', 'hi月汐', '你好月夕', '嗨月夕']
+// Greeting × name cross product covers the homophones Windows ASR most
+// often returns for 「你好，月汐」 (月汐/月夕/月希/月西/月溪/月熙/月惜 and
+// 悦汐/悦希 — the exact-fit phrase list used to miss transcribes entirely).
+const WAKE_GREETINGS = ['你好', '您好', '嗨', '哈喽', 'hello', 'hi']
+const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '悦汐', '悦希']
+const WAKE_PHRASES = WAKE_GREETINGS.flatMap(greeting => WAKE_NAMES.map(name => greeting + name))
 
 // Strip whitespace, punctuation and symbols, then lowercase so「你好，月汐！」
 // and "Hello 月汐" both match. ASR transcripts mix full/half-width punctuation.
@@ -69,8 +74,11 @@ async function microphoneDenied(): Promise<boolean> {
 // useWakeWord listens continuously while enabled and fires onWake(prompt) once
 // per wake hit (listening stops after a hit; the companion stage owns the mic
 // afterwards). onend and transient errors restart recognition with backoff so
-// idle timeouts never disable the wake listener.
-export function useWakeWord({ enabled, onWake }: { enabled: boolean; onWake: (prompt: string) => void }): WakeWordState {
+// idle timeouts never disable the wake listener. Bumping `retry` re-arms a
+// listener that already fired (or died): entering the companion can fail
+// asynchronously, and without a retry the wake would stay dead until a
+// full remount.
+export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; retry?: number; onWake: (prompt: string) => void }): WakeWordState {
   const [state, setState] = useState<WakeWordState>('idle')
   const onWakeRef = useRef(onWake)
   onWakeRef.current = onWake
@@ -170,6 +178,6 @@ export function useWakeWord({ enabled, onWake }: { enabled: boolean; onWake: (pr
       window.clearTimeout(restartTimer)
       stopRecognition()
     }
-  }, [enabled])
+  }, [enabled, retry])
   return state
 }

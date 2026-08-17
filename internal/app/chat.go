@@ -211,19 +211,30 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			SafetyMargin:      1024,
 		}
 
-		// Priority 3: Latest accepted compaction checkpoint summary.
+		// Priority 3: Latest accepted compaction checkpoint summary. Stores
+		// that answer coverage (P2-2 hierarchical context) also tell the
+		// assembler which durable sequence the summary covers, so covered
+		// messages are projected once (as the summary) instead of twice.
 		if e.summaryReader != nil {
-			priorSummary, summaryErr := e.summaryReader.GetLatestCompactionSummary(ctx, p.SessionID)
+			var priorSummary string
+			var coverageEnd int64
+			var summaryErr error
+			if cr, ok := e.summaryReader.(compactionCoverageReader); ok {
+				priorSummary, coverageEnd, summaryErr = cr.GetLatestCompactionCheckpoint(ctx, p.SessionID)
+			} else {
+				priorSummary, summaryErr = e.summaryReader.GetLatestCompactionSummary(ctx, p.SessionID)
+			}
 			if summaryErr != nil {
 				return internalBridgeFailure(request, "CONTEXT_SUMMARY_READ_FAILED", "上下文摘要暂时不可用", true, summaryErr)
 			}
 			if priorSummary != "" {
 				envelope.AcceptedCheckpoint = &contextapp.ContextSource{
-					Type:       contextapp.SourceCompactionSummary,
-					ID:         "latest",
-					Authority:  contextapp.AuthorityEvidence,
-					Content:    priorSummary,
-					Provenance: "session:" + p.SessionID + ":checkpoint:latest",
+					Type:                contextapp.SourceCompactionSummary,
+					ID:                  "latest",
+					Authority:           contextapp.AuthorityEvidence,
+					Content:             priorSummary,
+					Provenance:          "session:" + p.SessionID + ":checkpoint:latest",
+					CoverageEndSequence: coverageEnd,
 				}
 			}
 		}
@@ -364,6 +375,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
 		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
+		req.Tools = append(req.Tools, e.skillToolDefinitions()...)
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -483,14 +495,17 @@ func (e *Engine) skillCatalogInjection(ctx context.Context) string {
 
 // skillCatalogLine renders one published skill as a single catalog line:
 //
-//   - name：one-sentence summary。当用户提到“t1、t2”时使用。
+//   - name：one-sentence summary。当用户提到“t1、t2”时使用。（skillId=ULID）
 //
-// The line carries metadata only - never the skill manifest body.
+// The skillId suffix lets the model call the skill.invoke tool without a
+// name→ID lookup round-trip. The line carries metadata only - never the
+// skill manifest body.
 func skillCatalogLine(sk skill.Skill) string {
+	suffix := "（skillId=" + sk.ID + "）\n"
 	if triggers := skillCatalogTriggers(sk.ManifestJSON); len(triggers) > 0 {
-		return "- " + sk.Name + "：" + skillCatalogSummary(sk.Description, sk.DisplayName) + "。当用户提到“" + strings.Join(triggers, "、") + "”时使用。\n"
+		return "- " + sk.Name + "：" + skillCatalogSummary(sk.Description, sk.DisplayName) + "。当用户提到“" + strings.Join(triggers, "、") + "”时使用。" + suffix
 	}
-	return "- " + sk.Name + "：" + skillCatalogSummary(sk.Description, sk.DisplayName) + "。\n"
+	return "- " + sk.Name + "：" + skillCatalogSummary(sk.Description, sk.DisplayName) + "。" + suffix
 }
 
 // skillCatalogSummary collapses a description to its first sentence (or the
@@ -568,10 +583,18 @@ func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefi
 // entry point; every other mode stays on the confined one. Subagent and
 // delegation paths call toolruntime Execute directly and never get here.
 func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, session, name string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.executeUserToolStreaming(ctx, mode, session, name, args, nil)
+}
+
+// executeUserToolStreaming is executeUserTool with an optional live
+// progress sink (P1-2): command.run pushes bounded output chunks to the
+// stream between tool_started and tool_completed so long-running commands
+// stop black-boxing.
+func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
 	if e.fullDiskChat(mode) {
-		return e.tools.ExecuteUnconfined(ctx, session, name, args, false)
+		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, false, progress)
 	}
-	return e.tools.Execute(ctx, toolruntime.Mode(mode), session, name, args, false)
+	return e.tools.ExecuteStreaming(ctx, toolruntime.Mode(mode), session, name, args, false, progress)
 }
 
 func engineToolDefinitions() []gateway.ToolDefinition {
@@ -616,6 +639,53 @@ func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
 		{Name: "cc.screen_capture", Description: "Capture the screen as a PNG image saved into the session workspace", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
 		{Name: "cc.get_active_window", Description: "Answer the foreground window title and process name", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
 	}
+}
+
+// skillToolDefinitions exposes published skills as one model-callable tool
+// (voice companion / ordinary chat alike). The catalog injected into the
+// system instruction carries each skill's skillId; the tool routes through
+// the governed skillapp Invoke/Execute pipeline (risk assessment, audit,
+// version pinning) rather than raw execution.
+func (e *Engine) skillToolDefinitions() []gateway.ToolDefinition {
+	if !skillServiceAvailable(e.skills) {
+		return nil
+	}
+	return []gateway.ToolDefinition{
+		{Name: "skill.invoke", Description: "Invoke one published skill by its skillId (see the [可用技能目录] section for IDs and trigger scenarios); input is the user's request text for the skill", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"skill ULID from the catalog"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"the user request passed to the skill"}},"required":["skillId","input"],"additionalProperties":false}`)},
+	}
+}
+
+// invokeSkillTool runs one model-initiated skill invocation through the
+// governed pipeline. Full-access conversations auto-approve (mirroring the
+// mode's no-approval semantics for every other tool); other modes keep the
+// skill's own risk gate — a requiresApproval skill answers a plain error
+// telling the model to ask the user to run it via the / command instead of
+// parking the stream in an approval flow the caller may not be able to
+// answer (voice companion).
+func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, session string, args json.RawMessage) (toolruntime.Result, error) {
+	var a struct {
+		SkillID string `json:"skillId"`
+		Input   string `json:"input"`
+	}
+	if json.Unmarshal(args, &a) != nil || !validCanonicalULID(a.SkillID) || strings.TrimSpace(a.Input) == "" {
+		return toolruntime.Result{}, errors.New("invalid skill.invoke arguments")
+	}
+	if len(a.Input) > 2048 {
+		return toolruntime.Result{}, errors.New("skill input too long (max 2048)")
+	}
+	inv, err := e.skills.Invoke(ctx, a.SkillID, session, a.Input, string(mode))
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	approved := mode == executionModeFullAccess
+	if inv.RequiresApproval && !approved {
+		return toolruntime.Result{}, fmt.Errorf("skill %s requires user approval (risk %s); ask the user to run it via the / command", a.SkillID, inv.Risk)
+	}
+	out, err := e.skills.Execute(ctx, inv.ID, session, approved)
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	return toolruntime.Result{Output: out.Output}, nil
 }
 
 // mcpToolPrefix namespaces merged MCP endpoint tools inside the model tool
@@ -1100,6 +1170,21 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						res := <-future
 						delete(parallelFutures, call.ID)
 						return res.result, res.err
+					}
+					// Model-initiated skill invocation rides the governed
+					// skillapp pipeline (never the raw toolruntime switch).
+					if call.Name == "skill.invoke" {
+						return e.invokeSkillTool(op, mode, sessionID, call.Arguments)
+					}
+					// P1-2: long-running commands stream bounded output chunks
+					// between started and completed. The runtime serializes
+					// progress callbacks, so the non-concurrent send closure
+					// stays safe.
+					if call.Name == "command.run" {
+						progress := func(chunk string) {
+							_ = send(bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: chunk}})
+						}
+						return e.executeUserToolStreaming(op, mode, sessionID, call.Name, call.Arguments, progress)
 					}
 					return e.executeUserTool(op, mode, sessionID, call.Name, call.Arguments)
 				}()
