@@ -31,6 +31,7 @@ import (
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/brapp"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcp6"
@@ -198,6 +199,9 @@ func main() {
 		log.Fatalf("prepare browser profile directory failed; engine not ready: %v", err)
 	}
 	engine.SetBrMultiModeService(brapp.New(store.AgentRuntimeRepository(), browserProfiles.Path()))
+	// M10 wave-4: computer control (cc.*) over the shared single-writer tx.
+	ccSvc := ccapp.New(store.AgentRuntimeRepository())
+	engine.SetCcControlService(ccSvc)
 	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
 	engine.SetMemoryOpsService(m8app.NewMemoryOpsService(store))
 	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the
@@ -291,6 +295,9 @@ func main() {
 	})
 	engine.SetToolRuntime(tools)
 	defer tools.Close()
+	// M10 wave-4: the six cc.* agent tools execute through the ccapp
+	// service (three-layer interception, risk gate, audit ledger).
+	tools.SetCcExecutor(ccSvc.ExecuteTool)
 	// stdio MCP sessions sandbox under the tool workspaces tree (M6-MCP-004
 	// gate opened 2026-08-16; per-endpoint subdirectory, per-call lifetime).
 	mcpStdioRoot, err := toolRoot.PrepareSubdirectory("mcp-stdio")

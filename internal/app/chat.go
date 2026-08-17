@@ -361,6 +361,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.Tools = append(engineToolDefinitions(), e.subagentToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
+		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -546,6 +547,31 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a .pptx slide deck (title slide content plus title+bullets slides) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
+	}
+}
+
+// ccToolDefinitions are the six M10 wave-4 computer-control tools. They
+// are appended to the model tool list only when the ccapp service is
+// wired and the operator enabled the domain (M10-CC-012 keeps them hidden
+// otherwise, and the armed emergency latch hides them too). Subagents
+// never see them: readOnlyEngineToolDefinitions stays file-read-only and
+// runs sub-sessions in FullAccess, which would bypass the confirmation
+// gate.
+func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
+	if e.ccctrl == nil {
+		return nil
+	}
+	settings, err := e.ccctrl.GetConfig(context.Background())
+	if err != nil || !settings.Enabled || settings.EmergencyStopped {
+		return nil
+	}
+	return []gateway.ToolDefinition{
+		{Name: "cc.mouse_move", Description: "Move the mouse cursor to absolute screen pixel coordinates", Schema: []byte(`{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},"required":["x","y"],"additionalProperties":false}`)},
+		{Name: "cc.mouse_click", Description: "Click the mouse at the current cursor position", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"}},"additionalProperties":false}`)},
+		{Name: "cc.keyboard_type", Description: "Type literal text through synthetic keyboard input (no control characters)", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096}},"required":["text"],"additionalProperties":false}`)},
+		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s); system-reserved combos are refused", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}}},"required":["keys"],"additionalProperties":false}`)},
+		{Name: "cc.screen_capture", Description: "Capture the screen as a PNG image saved into the session workspace", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+		{Name: "cc.get_active_window", Description: "Answer the foreground window title and process name", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
 	}
 }
 

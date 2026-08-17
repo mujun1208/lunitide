@@ -64,6 +64,10 @@ import {
   type BrPermissionRequestPayload, type BrPermissionRequestResult,
   type BrPermissionDecidePayload, type BrPermissionDecideResult,
   type BrPermissionPolicyPayload, type BrPermissionPolicyResult,
+  type CcGetConfigPayload, type CcGetConfigResult,
+  type CcUpdateConfigPayload, type CcUpdateConfigResult,
+  type CcGetAuditLogPayload, type CcGetAuditLogResult,
+  type CcEmergencyStopPayload, type CcEmergencyStopResult,
   type FeedbackRecordPayload, type FeedbackRecordResult, type FeedbackCandidatesPayload, type FeedbackCandidatesResult,
   type OntologyNodeGetPayload, type OntologyNodeGetResult, type OntologyNodeListPayload, type OntologyNodeListResult,
   type OntologyNodeSearchPayload, type OntologyNodeSearchResult, type OntologyEdgeListPayload, type OntologyEdgeListResult,
@@ -670,6 +674,32 @@ export const brBridge: BrBridge = {
   requestPermission: p => getBrBridge().requestPermission(p),
   decidePermission: p => getBrBridge().decidePermission(p),
   setPermissionPolicy: p => getBrBridge().setPermissionPolicy(p),
+}
+
+// M10 wave-4 computer-control bridge — the security configuration, the
+// append-only audit ledger and the emergency-stop latch.
+export interface CcBridge {
+  getConfig(payload?: CcGetConfigPayload): Promise<CcGetConfigResult>
+  updateConfig(payload: CcUpdateConfigPayload): Promise<CcUpdateConfigResult>
+  getAuditLog(payload?: CcGetAuditLogPayload): Promise<CcGetAuditLogResult>
+  emergencyStop(payload?: CcEmergencyStopPayload): Promise<CcEmergencyStopResult>
+}
+export function createCcBridge(transport: WebViewTransport, defaultDeadlineMs = 10_000): CcBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    getConfig: () => core.request('cc.getConfig', {}),
+    updateConfig: p => core.request('cc.updateConfig', p),
+    getAuditLog: p => core.request('cc.getAuditLog', p ?? {}),
+    emergencyStop: p => core.request('cc.emergencyStop', p ?? {}),
+  }
+}
+let ccSingleton: CcBridge | undefined
+export function getCcBridge(): CcBridge { return ccSingleton ??= createCcBridge(webview()) }
+export const ccBridge: CcBridge = {
+  getConfig: p => getCcBridge().getConfig(p),
+  updateConfig: p => getCcBridge().updateConfig(p),
+  getAuditLog: p => getCcBridge().getAuditLog(p),
+  emergencyStop: p => getCcBridge().emergencyStop(p),
 }
 
 export interface OntologyBridge {
