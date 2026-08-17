@@ -101,7 +101,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// operate (user-selected workspace root, or the sandbox when none resolves)
 	// so path answers match reality instead of a stale sandbox assumption.
 	if mode == executionModeFullAccess && e.tools != nil {
-		if root, ok := e.tools.FullAccessRootHint(); ok {
+		if e.fullDiskChat(mode) {
+			instruction += " Full-disk full-access is enabled: file tools accept absolute paths on any drive (Desktop, Documents, other drives) and command.run executes arbitrary commands on this machine. Use absolute paths for user folders; create missing parent directories with writes when needed."
+		} else if root, ok := e.tools.FullAccessRootHint(); ok {
 			instruction += " File tools operate directly inside the user's workspace root " + root + "; relative paths resolve there. Keep every read and write inside that root and answer with real paths from it."
 		} else {
 			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
@@ -358,7 +360,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	e.streamsMu.Unlock()
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1}
 	if mode != executionModePlan && e.tools != nil {
-		req.Tools = append(engineToolDefinitions(), e.subagentToolDefinitions(mode)...)
+		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
 		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
@@ -529,6 +531,47 @@ func skillCatalogTriggers(manifestJSON string) []string {
 		}
 	}
 	return triggers
+}
+
+// fullDiskChat answers whether this conversation runs with the persisted
+// full-disk opt-in: the user chose full-access mode AND command-policy.json
+// carries "fullAccess": true. Only then do absolute paths and unlisted
+// commands become available - and only through the user tool-call path.
+func (e *Engine) fullDiskChat(mode executionMode) bool {
+	return mode == executionModeFullAccess && e.tools != nil && e.tools.FullDiskEnabled()
+}
+
+// engineToolDefinitionsFor adapts the static tool descriptions to the
+// full-disk opt-in so the model knows absolute paths and arbitrary commands
+// are accepted in this conversation. Subagent read-only definitions keep
+// the sandbox wording (they stay confined at the runtime level).
+func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefinition {
+	defs := engineToolDefinitions()
+	if !e.fullDiskChat(mode) {
+		return defs
+	}
+	for i := range defs {
+		switch defs[i].Name {
+		case "command.run":
+			defs[i].Description = "Run any command on this machine (full-disk full-access is enabled); prefer PowerShell/cmd executables by absolute name, argv max 16 items"
+		case "workspace.list", "workspace.read":
+			defs[i].Description += "; absolute paths on any drive are accepted (full-disk full-access is enabled)"
+		case "workspace.write", "workspace.edit", "workspace.search":
+			defs[i].Description += "; absolute paths on any drive are accepted and missing parent directories are created (full-disk full-access is enabled)"
+		}
+	}
+	return defs
+}
+
+// executeUserTool routes one user-conversation tool call. Full-access
+// conversations with the full-disk opt-in reach the unconfined runtime
+// entry point; every other mode stays on the confined one. Subagent and
+// delegation paths call toolruntime Execute directly and never get here.
+func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, session, name string, args json.RawMessage) (toolruntime.Result, error) {
+	if e.fullDiskChat(mode) {
+		return e.tools.ExecuteUnconfined(ctx, session, name, args, false)
+	}
+	return e.tools.Execute(ctx, toolruntime.Mode(mode), session, name, args, false)
 }
 
 func engineToolDefinitions() []gateway.ToolDefinition {
@@ -1028,7 +1071,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
 					continue
 				}
-				r, toolErr := e.tools.Execute(op, toolruntime.Mode(mode), sessionID, call.Name, call.Arguments, false)
+				r, toolErr := e.executeUserTool(op, mode, sessionID, call.Name, call.Arguments)
 				if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
 					if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 						return prepareErr
