@@ -996,6 +996,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			// overlap; each result is consumed in original call order
 			// below, keeping the event stream deterministic.
 			subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls)
+			// P0-1 parallel tools: same-turn MCP and read-only engine calls
+			// pre-start on bounded goroutines (chat_parallel.go documents
+			// the concurrency safety contract); mutating, cc.* and gated
+			// tools stay inline.
+			parallelFutures := startParallelToolFutures(op, e, mode, sessionID, result.Message.ToolCalls)
 			// Early returns below (duplicate call ID, invalid args, send
 			// failures) must not abandon pre-started spawn goroutines:
 			// drain unconsumed futures when the callback exits. The
@@ -1008,6 +1013,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return
 					}
 				}
+				drainParallelToolFutures(op, parallelFutures)
 			}()
 			for _, call := range result.Message.ToolCalls {
 				if seen[call.ID] {
@@ -1022,7 +1028,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return err
 				}
 				if endpointID, mcpTool, isMcp := parseMcpToolName(call.Name); isMcp {
-					summary, invokeErr := e.invokeMcpTool(op, endpointID, mcpTool, call.Arguments)
+					var summary string
+					var invokeErr error
+					if future, ok := parallelFutures[call.ID]; ok {
+						// Pre-started on a background goroutine; waiting here in
+						// original call order keeps the event stream identical
+						// to serial execution. Deleting the map entry keeps the
+						// end-of-turn drain from re-receiving the emptied
+						// channel (same contract as the subagent futures).
+						res := <-future
+						delete(parallelFutures, call.ID)
+						summary, invokeErr = res.summary, res.err
+					} else {
+						summary, invokeErr = e.invokeMcpTool(op, endpointID, mcpTool, call.Arguments)
+					}
 					if invokeErr != nil {
 						summary = invokeErr.Error()
 					}
@@ -1071,7 +1090,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
 					continue
 				}
-				r, toolErr := e.executeUserTool(op, mode, sessionID, call.Name, call.Arguments)
+				r, toolErr := func() (toolruntime.Result, error) {
+					if future, ok := parallelFutures[call.ID]; ok {
+						// Pre-started read-only call: consume the background
+						// result and drop the map entry (the end-of-turn drain
+						// must not re-receive the emptied channel).
+						// ErrApprovalRequired cannot occur on the parallel
+						// allowlist, so no approval path is bypassed.
+						res := <-future
+						delete(parallelFutures, call.ID)
+						return res.result, res.err
+					}
+					return e.executeUserTool(op, mode, sessionID, call.Name, call.Arguments)
+				}()
 				if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
 					if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 						return prepareErr

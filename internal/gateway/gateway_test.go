@@ -120,8 +120,10 @@ func TestAnthropicContractSystemAndStream(t *testing.T) {
 		t.Fatal("anthropic contract headers/path")
 	}
 	b, _ := io.ReadAll(r.Body)
-	if strings.Contains(string(b), `"role":"system"`) || !strings.Contains(string(b), `"system":"rules"`) {
-		t.Fatalf("system not lifted: %s", b)
+	// P0-2: system rides the block-array form so the trailing block can
+	// carry an ephemeral cache_control breakpoint.
+	if strings.Contains(string(b), `"role":"system"`) || !strings.Contains(string(b), `"system":[{"text":"rules","cache_control":{"type":"ephemeral"}}]`) {
+		t.Fatalf("system not lifted with cache breakpoint: %s", b)
 	}
 	d, _ := a.Discover(context.Background(), nil)
 	if !d.Unsupported || d.Warning == "" || len(d.Models) != 0 {

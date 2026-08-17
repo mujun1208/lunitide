@@ -19,32 +19,45 @@ type Anthropic struct {
 func NewAnthropic(c Connector, o Options) *Anthropic { return &Anthropic{c: c, o: defaults(o)} }
 
 type anthropicRequest struct {
-	Model     string             `json:"model"`
-	System    string             `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	MaxTokens int                `json:"max_tokens"`
-	Stream    bool               `json:"stream,omitempty"`
-	Tools     []anthropicTool    `json:"tools,omitempty"`
+	Model     string                 `json:"model"`
+	System    []anthropicSystemBlock `json:"system,omitempty"`
+	Messages  []anthropicMessage     `json:"messages"`
+	MaxTokens int                    `json:"max_tokens"`
+	Stream    bool                   `json:"stream,omitempty"`
+	Tools     []anthropicTool        `json:"tools,omitempty"`
 }
 type anthropicTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	InputSchema  json.RawMessage        `json:"input_schema"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
+type anthropicCacheControl struct {
+	Type string `json:"type"`
+}
+
+// ephemeralCache is the single cache_control flavor Anthropic supports.
+func ephemeralCache() *anthropicCacheControl { return &anthropicCacheControl{Type: "ephemeral"} }
+
+type anthropicSystemBlock struct {
+	Text         string                 `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 type anthropicMessage struct {
 	Role    Role `json:"role"`
 	Content any  `json:"content"`
 }
 type anthropicBlock struct {
-	Type      string                `json:"type"`
-	Text      string                `json:"text,omitempty"`
-	Thinking  string                `json:"thinking,omitempty"`
-	Source    *anthropicImageSource `json:"source,omitempty"`
-	ID        string                `json:"id,omitempty"`
-	Name      string                `json:"name,omitempty"`
-	Input     json.RawMessage       `json:"input,omitempty"`
-	ToolUseID string                `json:"tool_use_id,omitempty"`
-	Content   string                `json:"content,omitempty"`
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	Thinking     string                 `json:"thinking,omitempty"`
+	Source       *anthropicImageSource  `json:"source,omitempty"`
+	ID           string                 `json:"id,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	Input        json.RawMessage        `json:"input,omitempty"`
+	ToolUseID    string                 `json:"tool_use_id,omitempty"`
+	Content      string                 `json:"content,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 type anthropicImageSource struct {
 	Type      string `json:"type"`
@@ -78,15 +91,33 @@ type anthropicResponse struct {
 		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
 	Usage struct {
-		Input  int `json:"input_tokens"`
-		Output int `json:"output_tokens"`
+		Input         int `json:"input_tokens"`
+		Output        int `json:"output_tokens"`
+		CacheRead     int `json:"cache_read_input_tokens"`
+		CacheCreation int `json:"cache_creation_input_tokens"`
 	} `json:"usage"`
 }
 
+// anthropicBilledInput folds cache accounting into the metered input count:
+// Anthropic reports uncached tokens in input_tokens while cached reads and
+// writes arrive separately, so all three must sum for truthful totals.
+func (x anthropicResponse) anthropicBilledInput() int {
+	return x.Usage.Input + x.Usage.CacheRead + x.Usage.CacheCreation
+}
+
+// anthropicPayload builds the wire request. Three ephemeral cache
+// breakpoints are placed on the stable prefix (P0-2 prompt caching):
+// tools tail, system tail, and the last-but-one message tail. Anthropic
+// allows at most four; the prefix stays byte-identical across the
+// multi-step tool loop and across turns (history is append-only), so
+// subsequent requests re-hit the cache and prefill cost drops.
 func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 	p := anthropicRequest{Model: in.Model, MaxTokens: in.MaxTokens, Stream: stream}
 	for _, t := range in.Tools {
 		p.Tools = append(p.Tools, anthropicTool{Name: wn.wire(t.Name), Description: t.Description, InputSchema: t.Schema})
+	}
+	if n := len(p.Tools); n > 0 {
+		p.Tools[n-1].CacheControl = ephemeralCache()
 	}
 	if p.MaxTokens <= 0 {
 		p.MaxTokens = 1
@@ -127,8 +158,32 @@ func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 		blocks = append(blocks, anthropicBlock{Type: "text", Text: p.Messages[lastUser].Content.(string)})
 		p.Messages[lastUser].Content = blocks
 	}
-	p.System = strings.Join(sys, "\n\n")
+	for _, s := range sys {
+		p.System = append(p.System, anthropicSystemBlock{Text: s})
+	}
+	if n := len(p.System); n > 0 {
+		p.System[n-1].CacheControl = ephemeralCache()
+	}
+	// History-prefix breakpoint: everything except the final message is
+	// stable across the six-step tool loop and across turns, so marking
+	// the second-to-last message tail turns each follow-up into an
+	// incremental cache write/read.
+	if n := len(p.Messages); n >= 2 {
+		markAnthropicCacheBreakpoint(&p.Messages[n-2])
+	}
 	return p
+}
+
+// markAnthropicCacheBreakpoint stamps an ephemeral cache_control on the
+// trailing block of one message. String content is lifted into a single
+// text block first; cache_control is only expressible on content blocks.
+func markAnthropicCacheBreakpoint(m *anthropicMessage) {
+	switch c := m.Content.(type) {
+	case string:
+		m.Content = []anthropicBlock{{Type: "text", Text: c, CacheControl: ephemeralCache()}}
+	case []anthropicBlock:
+		c[len(c)-1].CacheControl = ephemeralCache()
+	}
 }
 func (a *Anthropic) Complete(ctx context.Context, s []byte, in Request) (Response, error) {
 	return a.run(ctx, s, in, false, nil)
@@ -187,7 +242,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 		if len(x.Content) == 0 {
 			return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream success omitted content")
 		}
-		if !validUsage(x.Usage.Input, x.Usage.Output, x.Usage.Input+x.Usage.Output) {
+		if !validUsage(x.anthropicBilledInput(), x.Usage.Output, x.anthropicBilledInput()+x.Usage.Output) {
 			return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream returned invalid fields")
 		}
 		var text, reasoning strings.Builder
@@ -203,7 +258,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 				calls = append(calls, ToolCall{ID: c.ID, Name: wn.original(c.Name), Arguments: c.Input})
 			}
 		}
-		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: normalizeUsage(x.Usage.Input, x.Usage.Output, 0), Reasoning: reasoning.String()}, nil
+		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: normalizeUsage(x.anthropicBilledInput(), x.Usage.Output, 0), Reasoning: reasoning.String()}, nil
 	}
 	return Response{}, safeError("RETRY_EXHAUSTED", StageConnect, 0, "upstream unavailable")
 }
@@ -284,9 +339,10 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 			}
 		}
 		if typ == "message_start" || typ == "message_delta" {
-			u := normalizeUsage(x.Usage.Input, x.Usage.Output, 0)
-			if x.Usage.Input > 0 {
-				out.Usage.InputTokens = x.Usage.Input
+			billed := x.anthropicBilledInput()
+			u := normalizeUsage(billed, x.Usage.Output, 0)
+			if billed > 0 {
+				out.Usage.InputTokens = billed
 			}
 			if x.Usage.Output > 0 {
 				out.Usage.OutputTokens = x.Usage.Output
