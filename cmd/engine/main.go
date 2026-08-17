@@ -40,6 +40,7 @@ import (
 	"github.com/lunitide/lunitide/internal/planningapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/sessionapp"
@@ -185,6 +186,10 @@ func main() {
 	engine.SetM10NominationService(m8app.NewNominationService(store.AgentRuntimeRepository(), memorySvc))
 	// M10: expert scenario cards over the FR-19 expert core.
 	engine.SetM10ScenarioService(m8app.NewScenarioService(store.AgentRuntimeRepository()))
+	// M10: queued user input (run.queue*).
+	engine.SetQueueService(queueapp.New(store))
+	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
+	engine.SetMemoryOpsService(m8app.NewMemoryOpsService(store))
 	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the
 	// workflow bundle dispatch projection (single-writer transactions).
 	engine.SetM8SliceServices(
