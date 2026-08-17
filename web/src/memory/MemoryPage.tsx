@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { feedbackBridge, memoryBridge, nominationBridge, type FeedbackBridge, type MemoryBridge, type NominationBridge } from '../bridge/client'
 import type { MemoryDTO, MemoryLayer, MemoryScope, MemoryNominationListResult } from '../generated/bridge'
+import { MemoryOpsPanel } from './MemoryOpsPanel'
 
 type PendingCandidate = { candidateId: string; content: string; scopeId: string; confirmationToken: string; createdAt: string; expiresAt: string }
 type NominationItem = MemoryNominationListResult['items'][number]
 
-type MemoryTab = 'overview' | 'inbox' | 'history'
+type MemoryTab = 'overview' | 'inbox' | 'history' | 'ops'
 
-const TAB_LABELS: Record<MemoryTab, string> = { overview: '记忆总览', inbox: '提名收件箱', history: '处理历史' }
+const TAB_LABELS: Record<MemoryTab, string> = { overview: '记忆总览', inbox: '提名收件箱', history: '处理历史', ops: '记忆运营' }
 const NOM_STATE_LABELS: Record<string, string> = { nominated: '待处理', decided: '已处理', withdrawn: '已撤回' }
 
 const LAYER_LABELS: Record<MemoryLayer, string> = {
@@ -327,6 +328,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
           )}
         </section>
       )}
+      {tab === 'ops' && <MemoryOpsPanel />}
     </div>
   )
 }

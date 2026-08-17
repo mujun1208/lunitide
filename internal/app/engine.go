@@ -36,6 +36,7 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/scheduler"
@@ -165,8 +166,12 @@ type Engine struct {
 	m8memory *m8app.MemoryService
 	// M10: memory nomination workflow over the slice-1 core.
 	m10nomination *m8app.NominationService
+	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
+	memoryOps *m8app.MemoryOpsService
 	// M10: expert scenario cards over the FR-19 expert core.
 	m10scenario *m8app.ScenarioService
+	// M10: queued user input (run.queue* handlers).
+	queue *queueapp.Service
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
 	// M8 slice-3/5: handoff, tombstone and device sync.
@@ -258,6 +263,10 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMcpInvoke:                     handleMcpInvoke,
 	bridge.MethodRunSend:                       handleRunSend,
 	bridge.MethodRunCancel:                     handleRunCancel,
+	bridge.MethodRunQueueInput:                 handleRunQueueInput,
+	bridge.MethodRunQueueList:                  handleRunQueueList,
+	bridge.MethodRunQueueWithdraw:              handleRunQueueWithdraw,
+	bridge.MethodRunQueueConsume:               handleRunQueueConsume,
 	bridge.MethodWorkspaceConvert:              handleWorkspaceConvert,
 	bridge.MethodExtensionSearch:               handleExtensionSearch,
 	bridge.MethodExtensionInstall:              handleExtensionInstall,
@@ -439,9 +448,19 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSubagentSpawn:                 handleSubagentSpawn,
 	bridge.MethodSubagentTree:                  handleSubagentTree,
 	bridge.MethodMemoryConfirmCandidate:        handleMemoryConfirmCandidate,
+	bridge.MethodMemoryExport:                  handleMemoryExport,
+	bridge.MethodMemoryFactsFlag:               handleMemoryFactsFlag,
+	bridge.MethodMemoryFactsList:               handleMemoryFactsList,
+	bridge.MethodMemoryGrowthDecide:            handleMemoryGrowthDecide,
+	bridge.MethodMemoryGrowthList:              handleMemoryGrowthList,
 	bridge.MethodMemoryNominate:                handleMemoryNominate,
 	bridge.MethodMemoryNominationList:          handleMemoryNominationList,
 	bridge.MethodMemoryNominationWithdraw:      handleMemoryNominationWithdraw,
+	bridge.MethodMemoryPurge:                   handleMemoryPurge,
+	bridge.MethodMemorySettingsGet:             handleMemorySettingsGet,
+	bridge.MethodMemorySettingsUpdate:          handleMemorySettingsUpdate,
+	bridge.MethodMemoryStats:                   handleMemoryOpsStats,
+	bridge.MethodMemoryTracesList:              handleMemoryTracesList,
 	bridge.MethodRecallQuery:                   handleRecallQuery,
 	bridge.MethodFeedbackRecord:                handleFeedbackRecord,
 	bridge.MethodFeedbackCandidates:            handleFeedbackCandidates,
@@ -1239,9 +1258,19 @@ func (e *Engine) SetM10NominationService(nominationSvc *m8app.NominationService)
 	e.m10nomination = nominationSvc
 }
 
+// SetMemoryOpsService wires the M10 memory-operations service.
+func (e *Engine) SetMemoryOpsService(opsSvc *m8app.MemoryOpsService) {
+	e.memoryOps = opsSvc
+}
+
 // SetM10ScenarioService wires the M10 expert scenario cards.
 func (e *Engine) SetM10ScenarioService(scenarioSvc *m8app.ScenarioService) {
 	e.m10scenario = scenarioSvc
+}
+
+// SetQueueService wires the M10 queued-input service.
+func (e *Engine) SetQueueService(queueSvc *queueapp.Service) {
+	e.queue = queueSvc
 }
 
 // SetM8SliceServices wires the M8 slice-2/3/4/5 services (KB, handoff/

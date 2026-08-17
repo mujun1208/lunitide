@@ -28,6 +28,20 @@ import {
   type MemoryNominatePayload, type MemoryNominateResult,
   type MemoryNominationListPayload, type MemoryNominationListResult,
   type MemoryNominationWithdrawPayload, type MemoryNominationWithdrawResult,
+  type MemoryStatsPayload, type MemoryStatsResult,
+  type MemoryFactsListPayload, type MemoryFactsListResult,
+  type MemoryFactsFlagPayload, type MemoryFactsFlagResult,
+  type MemoryTracesListPayload, type MemoryTracesListResult,
+  type MemoryGrowthListPayload, type MemoryGrowthListResult,
+  type MemoryGrowthDecidePayload, type MemoryGrowthDecideResult,
+  type MemorySettingsGetPayload, type MemorySettingsGetResult,
+  type MemorySettingsUpdatePayload, type MemorySettingsUpdateResult,
+  type MemoryExportPayload, type MemoryExportResult,
+  type MemoryPurgePayload, type MemoryPurgeResult,
+  type RunQueueInputPayload, type RunQueueInputResult,
+  type RunQueueListPayload, type RunQueueListResult,
+  type RunQueueWithdrawPayload, type RunQueueWithdrawResult,
+  type RunQueueConsumePayload, type RunQueueConsumeResult,
   type FeedbackRecordPayload, type FeedbackRecordResult, type FeedbackCandidatesPayload, type FeedbackCandidatesResult,
   type OntologyNodeGetPayload, type OntologyNodeGetResult, type OntologyNodeListPayload, type OntologyNodeListResult,
   type OntologyNodeSearchPayload, type OntologyNodeSearchResult, type OntologyEdgeListPayload, type OntologyEdgeListResult,
@@ -485,6 +499,62 @@ export function createNominationBridge(transport: WebViewTransport, defaultDeadl
 let nominationSingleton: NominationBridge | undefined
 export function getNominationBridge(): NominationBridge { return nominationSingleton ??= createNominationBridge(webview()) }
 export const nominationBridge: NominationBridge = { nominate: p => getNominationBridge().nominate(p), list: p => getNominationBridge().list(p), withdraw: p => getNominationBridge().withdraw(p) }
+
+export interface MemoryOpsBridge {
+  stats(payload: MemoryStatsPayload): Promise<MemoryStatsResult>
+  listFacts(payload: MemoryFactsListPayload): Promise<MemoryFactsListResult>
+  flagFact(payload: MemoryFactsFlagPayload, options?: MutationOptions<MemoryFactsFlagPayload>): Promise<MemoryFactsFlagResult>
+  listTraces(payload: MemoryTracesListPayload): Promise<MemoryTracesListResult>
+  listGrowth(payload: MemoryGrowthListPayload): Promise<MemoryGrowthListResult>
+  decideGrowth(payload: MemoryGrowthDecidePayload, options?: MutationOptions<MemoryGrowthDecidePayload>): Promise<MemoryGrowthDecideResult>
+  getSettings(payload: MemorySettingsGetPayload): Promise<MemorySettingsGetResult>
+  updateSettings(payload: MemorySettingsUpdatePayload, options?: MutationOptions<MemorySettingsUpdatePayload>): Promise<MemorySettingsUpdateResult>
+  export(payload: MemoryExportPayload): Promise<MemoryExportResult>
+  purge(payload: MemoryPurgePayload, options?: MutationOptions<MemoryPurgePayload>): Promise<MemoryPurgeResult>
+}
+export function createMemoryOpsBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): MemoryOpsBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    stats: p => core.request('memory.stats', p),
+    listFacts: p => core.request('memory.facts.list', p),
+    flagFact: (p, o) => core.request('memory.facts.flag', p, defaultDeadlineMs, o?.attempt),
+    listTraces: p => core.request('memory.traces.list', p),
+    listGrowth: p => core.request('memory.growth.list', p),
+    decideGrowth: (p, o) => core.request('memory.growth.decide', p, defaultDeadlineMs, o?.attempt),
+    getSettings: p => core.request('memory.settings.get', p),
+    updateSettings: (p, o) => core.request('memory.settings.update', p, defaultDeadlineMs, o?.attempt),
+    export: p => core.request('memory.export', p),
+    purge: (p, o) => core.request('memory.purge', p, defaultDeadlineMs, o?.attempt),
+  }
+}
+let memoryOpsSingleton: MemoryOpsBridge | undefined
+export function getMemoryOpsBridge(): MemoryOpsBridge { return memoryOpsSingleton ??= createMemoryOpsBridge(webview()) }
+export const memoryOpsBridge: MemoryOpsBridge = {
+  stats: p => getMemoryOpsBridge().stats(p),
+  listFacts: p => getMemoryOpsBridge().listFacts(p),
+  flagFact: (p, o) => getMemoryOpsBridge().flagFact(p, o),
+  listTraces: p => getMemoryOpsBridge().listTraces(p),
+  listGrowth: p => getMemoryOpsBridge().listGrowth(p),
+  decideGrowth: (p, o) => getMemoryOpsBridge().decideGrowth(p, o),
+  getSettings: p => getMemoryOpsBridge().getSettings(p),
+  updateSettings: (p, o) => getMemoryOpsBridge().updateSettings(p, o),
+  export: p => getMemoryOpsBridge().export(p),
+  purge: (p, o) => getMemoryOpsBridge().purge(p, o),
+}
+
+export interface RunQueueBridge {
+  input(payload: RunQueueInputPayload, options?: MutationOptions<RunQueueInputPayload>): Promise<RunQueueInputResult>
+  list(payload: RunQueueListPayload): Promise<RunQueueListResult>
+  withdraw(payload: RunQueueWithdrawPayload, options?: MutationOptions<RunQueueWithdrawPayload>): Promise<RunQueueWithdrawResult>
+  consume(payload: RunQueueConsumePayload): Promise<RunQueueConsumeResult>
+}
+export function createRunQueueBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): RunQueueBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return { input: (p, o) => core.request('run.queueInput', p, defaultDeadlineMs, o?.attempt), list: p => core.request('run.queueList', p), withdraw: (p, o) => core.request('run.queueWithdraw', p, defaultDeadlineMs, o?.attempt), consume: p => core.request('run.queueConsume', p) }
+}
+let runQueueSingleton: RunQueueBridge | undefined
+export function getRunQueueBridge(): RunQueueBridge { return runQueueSingleton ??= createRunQueueBridge(webview()) }
+export const runQueueBridge: RunQueueBridge = { input: (p, o) => getRunQueueBridge().input(p, o), list: p => getRunQueueBridge().list(p), withdraw: (p, o) => getRunQueueBridge().withdraw(p, o), consume: p => getRunQueueBridge().consume(p) }
 
 export interface OntologyBridge {
   getNode(payload: OntologyNodeGetPayload): Promise<OntologyNodeGetResult>
