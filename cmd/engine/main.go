@@ -30,6 +30,8 @@ import (
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
+	"github.com/lunitide/lunitide/internal/brapp"
+	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/memoryapp"
@@ -188,6 +190,14 @@ func main() {
 	engine.SetM10ScenarioService(m8app.NewScenarioService(store.AgentRuntimeRepository()))
 	// M10: queued user input (run.queue*).
 	engine.SetQueueService(queueapp.New(store))
+	// M10 wave-3: MCP market (mc.*) over the shared single-writer tx.
+	engine.SetMcMarketService(mcapp.New(store.AgentRuntimeRepository()))
+	// M10 wave-3: browser multi-mode (br.*) with the CDP profile root.
+	browserProfiles, err := dataRoot.PrepareSubdirectory("browser-profiles")
+	if err != nil {
+		log.Fatalf("prepare browser profile directory failed; engine not ready: %v", err)
+	}
+	engine.SetBrMultiModeService(brapp.New(store.AgentRuntimeRepository(), browserProfiles.Path()))
 	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
 	engine.SetMemoryOpsService(m8app.NewMemoryOpsService(store))
 	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the

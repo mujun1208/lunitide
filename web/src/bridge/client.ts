@@ -42,6 +42,28 @@ import {
   type RunQueueListPayload, type RunQueueListResult,
   type RunQueueWithdrawPayload, type RunQueueWithdrawResult,
   type RunQueueConsumePayload, type RunQueueConsumeResult,
+  type McMarketListPayload, type McMarketListResult,
+  type McMarketDetailPayload, type McMarketDetailResult,
+  type McConfigValidatePayload, type McConfigValidateResult,
+  type McConfirmTokenPayload, type McConfirmTokenResult,
+  type McConnectorInstallPayload, type McConnectorInstallResult,
+  type McConnectorUninstallPayload, type McConnectorUninstallResult,
+  type McConnectorUpdatePayload, type McConnectorUpdateResult,
+  type McConnectorUsagePayload, type McConnectorUsageResult,
+  type McTombstoneCheckResult,
+  type BrSettingsGetPayload, type BrSettingsGetResult,
+  type BrSettingsUpdatePayload, type BrSettingsUpdateResult,
+  type BrModeDetectPayload, type BrModeDetectResult,
+  type BrSessionConnectPayload, type BrSessionConnectResult,
+  type BrSessionListPayload, type BrSessionListResult,
+  type BrSessionDisconnectPayload, type BrSessionDisconnectResult,
+  type BrNavigatePayload, type BrNavigateResult,
+  type BrDataUsagePayload, type BrDataUsageResult,
+  type BrDataClearPayload, type BrDataClearResult,
+  type BrPermissionListPayload, type BrPermissionListResult,
+  type BrPermissionRequestPayload, type BrPermissionRequestResult,
+  type BrPermissionDecidePayload, type BrPermissionDecideResult,
+  type BrPermissionPolicyPayload, type BrPermissionPolicyResult,
   type FeedbackRecordPayload, type FeedbackRecordResult, type FeedbackCandidatesPayload, type FeedbackCandidatesResult,
   type OntologyNodeGetPayload, type OntologyNodeGetResult, type OntologyNodeListPayload, type OntologyNodeListResult,
   type OntologyNodeSearchPayload, type OntologyNodeSearchResult, type OntologyEdgeListPayload, type OntologyEdgeListResult,
@@ -118,7 +140,7 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'session.create'|'session.update'|'session.delete'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'
+export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'session.create'|'session.update'|'session.delete'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -555,6 +577,100 @@ export function createRunQueueBridge(transport: WebViewTransport, defaultDeadlin
 let runQueueSingleton: RunQueueBridge | undefined
 export function getRunQueueBridge(): RunQueueBridge { return runQueueSingleton ??= createRunQueueBridge(webview()) }
 export const runQueueBridge: RunQueueBridge = { input: (p, o) => getRunQueueBridge().input(p, o), list: p => getRunQueueBridge().list(p), withdraw: (p, o) => getRunQueueBridge().withdraw(p, o), consume: p => getRunQueueBridge().consume(p) }
+
+// M10 wave-3 MCP-market bridge — catalog browse, 8-rule validation chain,
+// single-use confirmation tokens, endpoint lifecycle and usage statistics.
+export interface McBridge {
+  marketList(payload?: McMarketListPayload): Promise<McMarketListResult>
+  marketDetail(payload: McMarketDetailPayload): Promise<McMarketDetailResult>
+  configValidate(payload: McConfigValidatePayload): Promise<McConfigValidateResult>
+  confirmToken(payload: McConfirmTokenPayload, options?: MutationOptions<McConfirmTokenPayload>): Promise<McConfirmTokenResult>
+  install(payload: McConnectorInstallPayload, options?: MutationOptions<McConnectorInstallPayload>): Promise<McConnectorInstallResult>
+  uninstall(payload: McConnectorUninstallPayload, options?: MutationOptions<McConnectorUninstallPayload>): Promise<McConnectorUninstallResult>
+  update(payload: McConnectorUpdatePayload, options?: MutationOptions<McConnectorUpdatePayload>): Promise<McConnectorUpdateResult>
+  usage(payload?: McConnectorUsagePayload): Promise<McConnectorUsageResult>
+  tombstoneCheck(): Promise<McTombstoneCheckResult>
+}
+export function createMcBridge(transport: WebViewTransport, defaultDeadlineMs = 12_000): McBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    marketList: p => core.request('mc.market.list', p ?? {}),
+    marketDetail: p => core.request('mc.market.detail', p),
+    configValidate: p => core.request('mc.config.validate', p),
+    confirmToken: (p, o) => core.request('mc.confirm.token', p, defaultDeadlineMs, o?.attempt),
+    install: (p, o) => core.request('mc.connector.install', p, 30_000, o?.attempt),
+    uninstall: (p, o) => core.request('mc.connector.uninstall', p, defaultDeadlineMs, o?.attempt),
+    update: (p, o) => core.request('mc.connector.update', p, 30_000, o?.attempt),
+    usage: p => core.request('mc.connector.usage', p ?? {}),
+    tombstoneCheck: () => core.request('mc.tombstone.check', {}, 15_000),
+  }
+}
+let mcSingleton: McBridge | undefined
+export function getMcBridge(): McBridge { return mcSingleton ??= createMcBridge(webview()) }
+export const mcBridge: McBridge = {
+  marketList: p => getMcBridge().marketList(p),
+  marketDetail: p => getMcBridge().marketDetail(p),
+  configValidate: p => getMcBridge().configValidate(p),
+  confirmToken: (p, o) => getMcBridge().confirmToken(p, o),
+  install: (p, o) => getMcBridge().install(p, o),
+  uninstall: (p, o) => getMcBridge().uninstall(p, o),
+  update: (p, o) => getMcBridge().update(p, o),
+  usage: p => getMcBridge().usage(p),
+  tombstoneCheck: () => getMcBridge().tombstoneCheck(),
+}
+
+// M10 wave-3 browser multi-mode bridge — 5-mode connection settings, CDP
+// session lifecycle, navigation policy, data usage and permission queue.
+export interface BrBridge {
+  getSettings(payload?: BrSettingsGetPayload): Promise<BrSettingsGetResult>
+  updateSettings(payload: BrSettingsUpdatePayload): Promise<BrSettingsUpdateResult>
+  detectModes(payload?: BrModeDetectPayload): Promise<BrModeDetectResult>
+  connect(payload: BrSessionConnectPayload): Promise<BrSessionConnectResult>
+  listSessions(payload?: BrSessionListPayload): Promise<BrSessionListResult>
+  disconnect(payload: BrSessionDisconnectPayload): Promise<BrSessionDisconnectResult>
+  navigate(payload: BrNavigatePayload): Promise<BrNavigateResult>
+  dataUsage(payload?: BrDataUsagePayload): Promise<BrDataUsageResult>
+  clearData(payload: BrDataClearPayload): Promise<BrDataClearResult>
+  listPermissions(payload?: BrPermissionListPayload): Promise<BrPermissionListResult>
+  requestPermission(payload: BrPermissionRequestPayload): Promise<BrPermissionRequestResult>
+  decidePermission(payload: BrPermissionDecidePayload): Promise<BrPermissionDecideResult>
+  setPermissionPolicy(payload: BrPermissionPolicyPayload): Promise<BrPermissionPolicyResult>
+}
+export function createBrBridge(transport: WebViewTransport, defaultDeadlineMs = 10_000): BrBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    getSettings: () => core.request('br.settings.get', {}),
+    updateSettings: p => core.request('br.settings.update', p),
+    detectModes: () => core.request('br.mode.detect', {}),
+    connect: p => core.request('br.session.connect', p, 12_000),
+    listSessions: () => core.request('br.session.list', {}),
+    disconnect: p => core.request('br.session.disconnect', p),
+    navigate: p => core.request('br.navigate', p),
+    dataUsage: p => core.request('br.data.usage', p ?? {}),
+    clearData: p => core.request('br.data.clear', p ?? {}, 15_000),
+    listPermissions: p => core.request('br.permission.list', p ?? {}),
+    requestPermission: p => core.request('br.permission.request', p),
+    decidePermission: p => core.request('br.permission.decide', p),
+    setPermissionPolicy: p => core.request('br.permission.policy', p),
+  }
+}
+let brSingleton: BrBridge | undefined
+export function getBrBridge(): BrBridge { return brSingleton ??= createBrBridge(webview()) }
+export const brBridge: BrBridge = {
+  getSettings: p => getBrBridge().getSettings(p),
+  updateSettings: p => getBrBridge().updateSettings(p),
+  detectModes: p => getBrBridge().detectModes(p),
+  connect: p => getBrBridge().connect(p),
+  listSessions: p => getBrBridge().listSessions(p),
+  disconnect: p => getBrBridge().disconnect(p),
+  navigate: p => getBrBridge().navigate(p),
+  dataUsage: p => getBrBridge().dataUsage(p),
+  clearData: p => getBrBridge().clearData(p),
+  listPermissions: p => getBrBridge().listPermissions(p),
+  requestPermission: p => getBrBridge().requestPermission(p),
+  decidePermission: p => getBrBridge().decidePermission(p),
+  setPermissionPolicy: p => getBrBridge().setPermissionPolicy(p),
+}
 
 export interface OntologyBridge {
   getNode(payload: OntologyNodeGetPayload): Promise<OntologyNodeGetResult>
