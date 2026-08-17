@@ -1,4 +1,4 @@
-package toolruntime
+﻿package toolruntime
 
 import (
 	"bytes"
@@ -50,10 +50,14 @@ type Runtime struct {
 	// read/write inside that root; every other mode stays sandboxed to
 	// <root>/<session>. nil or a resolver failure falls back to the sandbox.
 	fullAccessRoot func() (string, error)
-	// rulesMu guards commandRules for hot reload (SetCommandPolicyJSON
-	// swaps the slice; Execute copies the header under RLock).
-	rulesMu       sync.RWMutex
-	commandRules  []commandRule
+	// rulesMu guards commandRules and fullDisk for hot reload
+	// (SetCommandPolicyJSON swaps both; Execute copies under RLock).
+	rulesMu      sync.RWMutex
+	commandRules []commandRule
+	// fullDisk is the user opt-in "full-disk full-access" switch persisted in
+	// command-policy.json. When true, full-access mode accepts absolute paths
+	// on any drive for file tools and runs commands without the allowlist.
+	fullDisk     bool
 	userRulesPath string
 	// hooksMu guards hookRules for hot reload (SetHooksPolicyJSON).
 	hooksMu        sync.RWMutex
@@ -140,10 +144,15 @@ func (r *Runtime) loadUserCommandPolicy() error {
 	if err != nil {
 		return err
 	}
+	var doc userPolicyDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
 	rules := builtinCommandRules()
 	rules = append(rules, userRules...)
 	r.rulesMu.Lock()
 	r.commandRules = rules
+	r.fullDisk = doc.FullAccess
 	r.rulesMu.Unlock()
 	return nil
 }
@@ -156,6 +165,10 @@ type userPolicyDoc struct {
 		MaxArgs   int      `json:"maxArgs,omitempty"`
 		TimeoutMS int64    `json:"timeoutMs,omitempty"`
 	} `json:"commands"`
+	// FullAccess is the opt-in "full-disk full-access" switch: with it on,
+	// full-access mode runs any command and accepts absolute paths on any
+	// drive. Off keeps the whitelist plus workspace-root confinement.
+	FullAccess bool `json:"fullAccess,omitempty"`
 }
 
 // buildUserRules validates one whitelist document and renders it into
@@ -228,6 +241,10 @@ func (r *Runtime) SetCommandPolicyJSON(raw []byte) error {
 	if err != nil {
 		return err
 	}
+	var doc userPolicyDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
 	tmp := r.userRulesPath + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0600); err != nil {
 		return err
@@ -242,8 +259,17 @@ func (r *Runtime) SetCommandPolicyJSON(raw []byte) error {
 	rules = append(rules, userRules...)
 	r.rulesMu.Lock()
 	r.commandRules = rules
+	r.fullDisk = doc.FullAccess
 	r.rulesMu.Unlock()
 	return nil
+}
+
+// FullDiskEnabled answers whether the user opted into full-disk full-access
+// (command-policy.json "fullAccess": true).
+func (r *Runtime) FullDiskEnabled() bool {
+	r.rulesMu.RLock()
+	defer r.rulesMu.RUnlock()
+	return r.fullDisk
 }
 
 // SetWebFetcher installs the SSRF-pinned fetch transport for web.* tools.
@@ -615,7 +641,24 @@ func (r *Runtime) finishDecision(ctx context.Context, session, callID, digest st
 	}
 	return out, runErr
 }
-func (r *Runtime) path(mode Mode, session, rel string, write bool) (string, error) {
+func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (string, error) {
+	// Full-disk opt-in lifts the confinement for user conversations: absolute
+	// paths on any drive resolve to themselves (still cleaned and
+	// length-bounded), so the model can touch Desktop, other drives and any
+	// user-writable location. Subagent paths pass unconfined=false and stay
+	// confined to the workspace root.
+	if unconfined && r.FullDiskEnabled() && rel != "" && (filepath.IsAbs(rel) || filepath.VolumeName(rel) != "") {
+		clean := filepath.Clean(rel)
+		if len(clean) > 4096 || strings.ContainsRune(clean, 0) {
+			return "", errors.New("invalid path")
+		}
+		if write {
+			if err := os.MkdirAll(filepath.Dir(clean), 0700); err != nil {
+				return "", err
+			}
+		}
+		return clean, nil
+	}
 	if rel == "" || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 		return "", errors.New("relative path required")
 	}
@@ -677,7 +720,23 @@ func (r *Runtime) path(mode Mode, session, rel string, write bool) (string, erro
 	}
 	return p, nil
 }
+// Execute runs one tool call for the given conversation mode. Subagent and
+// delegation paths must stay on this entry point: it never lifts the
+// command allowlist or the path confinement, whatever the persisted policy
+// says.
 func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (out Result, err error) {
+	return r.execute(ctx, mode, session, name, args, approved, false)
+}
+
+// ExecuteUnconfined is the user-conversation-only entry point that honors
+// the full-disk opt-in: commands skip the allowlist and file tools accept
+// absolute paths on any drive. It is reserved for chat tool calls made in
+// full-access mode while command-policy.json has "fullAccess": true.
+func (r *Runtime) ExecuteUnconfined(ctx context.Context, session, name string, args json.RawMessage, approved bool) (out Result, err error) {
+	return r.execute(ctx, FullAccess, session, name, args, approved, true)
+}
+
+func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool) (out Result, err error) {
 	switch mode {
 	case Approval, AutoEdit, Plan, FullAccess:
 	default:
@@ -721,7 +780,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if a.Path == "" {
 			a.Path = "."
 		}
-		p, e := r.path(mode, session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -746,7 +805,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(mode, session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -768,7 +827,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" || len(a.Content) > maxFile {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(mode, session, a.Path, true)
+		p, e := r.path(mode, session, a.Path, true, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -820,7 +879,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if max > 200 {
 			max = 200
 		}
-		hits, e := r.searchWorkspace(mode, session, a.Path, a.Query, a.Regex, max)
+		hits, e := r.searchWorkspace(mode, session, a.Path, a.Query, a.Regex, max, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -835,7 +894,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" || a.OldText == "" || len(a.OldText) > maxFile || len(a.NewText) > maxFile {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(mode, session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -904,15 +963,25 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		var a struct {
 			Argv []string `json:"argv"`
 		}
-		if strict(args, &a) != nil {
+		if strict(args, &a) != nil || len(a.Argv) == 0 || len(a.Argv) > commandMaxArgv {
 			return Result{}, errors.New("command denied")
 		}
-		r.rulesMu.RLock()
-		rules := r.commandRules
-		r.rulesMu.RUnlock()
-		rule, ok := matchCommandRule(rules, a.Argv)
-		if !ok {
-			return Result{}, errors.New("command denied")
+		// Full-disk opt-in lifts the whitelist for user conversations that
+		// came in through ExecuteUnconfined: any argv runs with the max
+		// deadline; every other path keeps matching the built-in plus user
+		// allowlist.
+		var deadline time.Duration
+		if unconfined && r.FullDiskEnabled() {
+			deadline = commandDeadlineMax
+		} else {
+			r.rulesMu.RLock()
+			rules := r.commandRules
+			r.rulesMu.RUnlock()
+			rule, ok := matchCommandRule(rules, a.Argv)
+			if !ok {
+				return Result{}, errors.New("command denied")
+			}
+			deadline = rule.deadline
 		}
 		root, e := r.effectiveRoot(mode, session)
 		if e != nil {
@@ -921,7 +990,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e = os.MkdirAll(root, 0700); e != nil {
 			return Result{}, e
 		}
-		cctx, cancel := context.WithTimeout(ctx, rule.deadline)
+		cctx, cancel := context.WithTimeout(ctx, deadline)
 		defer cancel()
 		cmd := exec.CommandContext(cctx, a.Argv[0], a.Argv[1:]...)
 		cmd.Dir = root
@@ -1012,7 +1081,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, len(a.Sheets))
+		return r.writeGenerated(mode, session, a.Path, data, len(a.Sheets), unconfined)
 	case "excel.parse":
 		var a struct {
 			Path string `json:"path"`
@@ -1020,7 +1089,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(mode, session, a.Path, false)
+		p, e := r.path(mode, session, a.Path, false, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -1049,7 +1118,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, len(a.Blocks))
+		return r.writeGenerated(mode, session, a.Path, data, len(a.Blocks), unconfined)
 	case "pptx.gen":
 		var a struct {
 			Path   string                  `json:"path"`
@@ -1066,7 +1135,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, len(a.Slides))
+		return r.writeGenerated(mode, session, a.Path, data, len(a.Slides), unconfined)
 	case "pdf.gen":
 		var a struct {
 			Path  string `json:"path"`
@@ -1083,10 +1152,10 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, -1)
+		return r.writeGenerated(mode, session, a.Path, data, -1, unconfined)
 	case "cc.mouse_move", "cc.mouse_click", "cc.keyboard_type",
 		"cc.keyboard_shortcut", "cc.screen_capture", "cc.get_active_window":
-		return r.runCcTool(ctx, mode, session, name, args, approved)
+		return r.runCcTool(ctx, mode, session, name, args, approved, unconfined)
 	default:
 		return Result{}, errors.New("unknown tool")
 	}
@@ -1096,7 +1165,7 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 // service. Plan mode never reaches here (tools are globally disabled); the
 // ccapp confirmation gate maps onto the standard approval flow so
 // high/critical operations pause for a manual decision.
-func (r *Runtime) runCcTool(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (Result, error) {
+func (r *Runtime) runCcTool(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool) (Result, error) {
 	if r.ccExec == nil {
 		return Result{}, errors.New("computer control unavailable (M10-CC-010)")
 	}
@@ -1110,7 +1179,7 @@ func (r *Runtime) runCcTool(ctx context.Context, mode Mode, session, name string
 	res := result(outcome.Summary)
 	if len(outcome.CapturePNG) > 0 {
 		rel := fmt.Sprintf("screen-capture-%s.png", r.now().UTC().Format("20060102T150405.000000000"))
-		p, e := r.path(mode, session, rel, true)
+		p, e := r.path(mode, session, rel, true, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
@@ -1140,7 +1209,7 @@ func (r *Runtime) ReadWorkspaceFile(session, relPath string, max int64) ([]byte,
 	// Host-side previews do not know the execution mode that produced the
 	// artifact, so try the session sandbox first and fall back to the
 	// user-selected full-access root (read-only, same containment checks).
-	p, err := r.path(Approval, session, relPath, false)
+	p, err := r.path(Approval, session, relPath, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1189,11 +1258,11 @@ const maxGeneratedBytes = 8 << 20
 
 // writeGenerated persists generated bytes into the session workspace with
 // the same atomic temp+rename discipline as workspace.write.
-func (r *Runtime) writeGenerated(mode Mode, session, relPath string, data []byte, count int) (Result, error) {
+func (r *Runtime) writeGenerated(mode Mode, session, relPath string, data []byte, count int, unconfined bool) (Result, error) {
 	if len(data) > maxGeneratedBytes {
 		return Result{}, errors.New("generated file exceeds limit")
 	}
-	p, e := r.path(mode, session, relPath, true)
+	p, e := r.path(mode, session, relPath, true, unconfined)
 	if e != nil {
 		return Result{}, e
 	}
@@ -1276,8 +1345,8 @@ func truncateRunes(s string, limit int) string {
 // answers "path:line: text" hits for a literal or regex query. Binary
 // files (NUL byte in the first 8 KiB) and oversized files are skipped;
 // the walk stops as soon as max hits accumulate.
-func (r *Runtime) searchWorkspace(mode Mode, session, relPath, query string, regex bool, max int) ([]string, error) {
-	root, err := r.path(mode, session, relPath, false)
+func (r *Runtime) searchWorkspace(mode Mode, session, relPath, query string, regex bool, max int, unconfined bool) ([]string, error) {
+	root, err := r.path(mode, session, relPath, false, unconfined)
 	if err != nil {
 		return nil, err
 	}

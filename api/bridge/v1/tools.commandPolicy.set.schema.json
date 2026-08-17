@@ -40,6 +40,10 @@
           "prefix"
         ]
       }
+    },
+    "fullAccess": {
+      "type": "boolean",
+      "description": "Opt-in full-disk full-access: when true, full-access conversations may run any command and use absolute paths on any drive; the whitelist keeps governing approval and auto-edit modes."
     }
   },
   "required": [
@@ -63,6 +67,10 @@
     "positive": [
       {
         "commands": []
+      },
+      {
+        "commands": [],
+        "fullAccess": true
       },
       {
         "commands": [

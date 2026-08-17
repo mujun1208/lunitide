@@ -1425,6 +1425,7 @@ function CollabGatePanel(): React.JSX.Element {
 interface PolicyEntry { prefix: string; maxArgs: number; timeoutMs: number }
 export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: ToolsPolicyBridge }): React.JSX.Element {
   const [entries, setEntries] = useState<PolicyEntry[]>([])
+  const [fullAccess, setFullAccess] = useState(false)
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -1438,11 +1439,30 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
       try {
         const r = await bridge.getCommandPolicy()
         setEntries(r.commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
+        setFullAccess(r.fullAccess ?? false)
         setLoaded(true)
       } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单读取失败') } finally { setBusy(false) }
     }
     void load()
   }, [])
+
+  const toggleFullAccess = async (on: boolean) => {
+    setFullAccess(on); setStatus('')
+    try {
+      const commands = entries.map(e => {
+        const prefix = parsePrefix(e.prefix)
+        const doc: { prefix: string[]; maxArgs?: number; timeoutMs?: number } = { prefix }
+        if (e.maxArgs > 0) doc.maxArgs = e.maxArgs
+        if (e.timeoutMs > 0) doc.timeoutMs = e.timeoutMs
+        return doc
+      }).filter(c => c.prefix.length > 0)
+      await bridge.setCommandPolicy({ commands, fullAccess: on })
+      setStatus(on ? '全盘完全访问已开启并热生效。' : '全盘完全访问已关闭并热生效。')
+    } catch (e) {
+      setFullAccess(!on)
+      setStatus(e instanceof Error ? e.message : '全盘访问开关保存失败（现运行规则不变）')
+    }
+  }
 
   const save = async () => {
     setBusy(true); setStatus('')
@@ -1454,7 +1474,7 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
         if (e.timeoutMs > 0) doc.timeoutMs = e.timeoutMs
         return doc
       }).filter(c => c.prefix.length > 0)
-      const r = await bridge.setCommandPolicy({ commands })
+      const r = await bridge.setCommandPolicy(fullAccess ? { commands, fullAccess: true } : { commands })
       setStatus(`已保存并热生效：${r.applied} 条用户规则（叠加内置 git/go 只读集）。`)
       setEntries(commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
     } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单保存失败（文档被整体拒绝，现运行规则不变）') } finally { setBusy(false) }
@@ -1463,8 +1483,15 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
   return (
     <div className="setting-group">
       <div className="setting-group-title">命令白名单（command.run）</div>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr auto', alignItems: 'center', background: fullAccess ? 'rgba(194,65,12,.08)' : undefined, borderRadius: 8, padding: '4px 12px' }}>
+        <div>
+          <div className="setting-label" style={{ color: fullAccess ? 'var(--warn, #c2410c)' : undefined }}>全盘完全访问</div>
+          <div className="setting-desc">开启后：聊天选择「完全访问」模式时，AI 可执行任意命令并读写所有盘符的任意路径（含桌面、文档、其他硬盘）。审批/自动编辑模式仍走白名单；子代理始终受限。<strong>请仅在信任模型输出时开启，风险自负。</strong></div>
+        </div>
+        <Toggle on={fullAccess} onChange={v => void toggleFullAccess(v)} label="全盘完全访问" />
+      </div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">聊天中 command.run 仅允许白名单内的只读命令。内置 git/go 只读集恒生效；下方为用户附加规则，保存即校验并热生效，非法文档整体拒绝（fail-closed）。超时范围 1s–300s，argv 总长上限 16。</div>
+        <div className="setting-desc">聊天中 command.run 仅允许白名单内的只读命令（完全访问 + 上方开关开启时除外）。内置 git/go 只读集恒生效；下方为用户附加规则，保存即校验并热生效，非法文档整体拒绝（fail-closed）。超时范围 1s–300s，argv 总长上限 16。</div>
       </div>
       {entries.map((entry, i) => (
         <div className="setting-row" key={i} style={{ gridTemplateColumns: '1fr auto' }}>

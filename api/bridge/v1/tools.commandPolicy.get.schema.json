@@ -44,6 +44,10 @@
             "prefix"
           ]
         }
+      },
+      "fullAccess": {
+        "type": "boolean",
+        "description": "Echo of the persisted full-disk opt-in flag."
       }
     },
     "required": [
