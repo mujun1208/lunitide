@@ -940,6 +940,12 @@
           "minLength": 2,
           "maxLength": 65536
         },
+        "category": {
+          "$ref": "#/$defs/SkillCategory"
+        },
+        "categorySource": {
+          "$ref": "#/$defs/SkillCategorySource"
+        },
         "signature": {
           "type": "string",
           "maxLength": 1024
@@ -970,8 +976,34 @@
         "permissions",
         "entryPoint",
         "manifestJson",
+        "category",
+        "categorySource",
         "createdAt",
         "updatedAt"
+      ]
+    },
+    "SkillCategory": {
+      "description": "M10 skill-center taxonomy: the 12 fixed categories. Resolution priority manual > manifest > keyword with an other fallback.",
+      "enum": [
+        "efficiency",
+        "writing",
+        "development",
+        "data",
+        "design",
+        "research",
+        "lifestyle",
+        "education",
+        "business",
+        "automation",
+        "security",
+        "other"
+      ]
+    },
+    "SkillCategorySource": {
+      "enum": [
+        "manifest",
+        "keyword",
+        "manual"
       ]
     },
     "SkillMatchDTO": {

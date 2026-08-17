@@ -28,6 +28,42 @@ type SkillService interface {
 	Execute(context.Context, string, string, bool) (skillapp.Execution, error)
 }
 
+// SkillCategorySupport is the optional M10 category surface of the skill
+// service (manual assignment + stored mappings). Services without it still
+// resolve categories deterministically from manifest/keyword rules.
+type SkillCategorySupport interface {
+	SetCategory(context.Context, string, skill.Category) (skill.CategoryMap, error)
+	ListWithCategories(context.Context, skill.SkillStatus) ([]skillapp.SkillCategoryView, error)
+	CategoryFor(context.Context, skill.Skill) (skillapp.CategoryResolution, error)
+}
+
+// skillCategorySupport returns the category surface when implemented and
+// non-nil, mirroring the skillServiceAvailable nil-guard.
+func skillCategorySupport(svc SkillService) SkillCategorySupport {
+	if !skillServiceAvailable(svc) {
+		return nil
+	}
+	c, ok := svc.(SkillCategorySupport)
+	if !ok {
+		return nil
+	}
+	if v := reflect.ValueOf(c); v.Kind() == reflect.Ptr && v.IsNil() {
+		return nil
+	}
+	return c
+}
+
+// skillCategoryFor resolves one skill's category, degrading to the pure
+// manifest/keyword resolution when the mapping store is unavailable.
+func (e *Engine) skillCategoryFor(ctx context.Context, sk skill.Skill) skillapp.CategoryResolution {
+	if c := skillCategorySupport(e.skills); c != nil {
+		if r, err := c.CategoryFor(ctx, sk); err == nil {
+			return r
+		}
+	}
+	return skillapp.ResolveCategory(sk, nil)
+}
+
 func handleSkillInvoke(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{ SkillID, SessionID, Input, ExecutionMode string }
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SkillID) || !validCanonicalULID(p.SessionID) || strings.TrimSpace(p.Input) == "" {
@@ -71,6 +107,8 @@ type skillDTO struct {
 	Permissions      []skill.PermissionLevel `json:"permissions"`
 	EntryPoint       string                  `json:"entryPoint"`
 	ManifestJSON     string                  `json:"manifestJson"`
+	Category         skill.Category          `json:"category"`
+	CategorySource   skill.CategorySource    `json:"categorySource"`
 	Signature        *string                 `json:"signature,omitempty"`
 	PublisherID      *string                 `json:"publisherId,omitempty"`
 	MinEngineVersion *string                 `json:"minEngineVersion,omitempty"`
@@ -85,7 +123,7 @@ type skillMatchDTO struct {
 	MatchID string   `json:"matchId"`
 }
 
-func newSkillDTO(s skill.Skill) skillDTO {
+func newSkillDTO(s skill.Skill, cat skillapp.CategoryResolution) skillDTO {
 	return skillDTO{
 		ID:               s.ID,
 		Name:             s.Name,
@@ -96,6 +134,8 @@ func newSkillDTO(s skill.Skill) skillDTO {
 		Permissions:      s.Permissions,
 		EntryPoint:       s.EntryPoint,
 		ManifestJSON:     s.ManifestJSON,
+		Category:         cat.Category,
+		CategorySource:   cat.Source,
 		Signature:        s.Signature,
 		PublisherID:      s.PublisherID,
 		MinEngineVersion: s.MinEngineVersion,
@@ -104,9 +144,9 @@ func newSkillDTO(s skill.Skill) skillDTO {
 	}
 }
 
-func newSkillMatchDTO(m skill.SkillMatch) skillMatchDTO {
+func newSkillMatchDTO(m skill.SkillMatch, cat skillapp.CategoryResolution) skillMatchDTO {
 	return skillMatchDTO{
-		Skill:   newSkillDTO(m.Skill),
+		Skill:   newSkillDTO(m.Skill, cat),
 		Score:   m.Score,
 		Reason:  m.Reason,
 		MatchID: m.MatchID,
@@ -135,7 +175,7 @@ func handleSkillGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSkillDTO(*s))
+	return bridge.Success(r.ID, newSkillDTO(*s, e.skillCategoryFor(ctx, *s)))
 }
 
 func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -168,7 +208,7 @@ func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSkillDTO(s))
+	return bridge.Success(r.ID, newSkillDTO(s, e.skillCategoryFor(ctx, s)))
 }
 
 func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -192,7 +232,7 @@ func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSkillDTO(*s))
+	return bridge.Success(r.ID, newSkillDTO(*s, e.skillCategoryFor(ctx, *s)))
 }
 
 func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -230,8 +270,18 @@ func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return skillFailure(r, err)
 	}
 	dtos := make([]skillDTO, len(items))
+	if c := skillCategorySupport(e.skills); c != nil {
+		if views, vErr := c.ListWithCategories(ctx, p.Status); vErr == nil && len(views) == len(items) {
+			for i := range views {
+				dtos[i] = newSkillDTO(views[i].Skill, skillapp.CategoryResolution{Category: views[i].Category, Source: views[i].Source})
+			}
+			return bridge.Success(r.ID, struct {
+				Items []skillDTO `json:"items"`
+			}{Items: dtos})
+		}
+	}
 	for i := range items {
-		dtos[i] = newSkillDTO(items[i])
+		dtos[i] = newSkillDTO(items[i], e.skillCategoryFor(ctx, items[i]))
 	}
 	return bridge.Success(r.ID, struct {
 		Items []skillDTO `json:"items"`
@@ -254,7 +304,7 @@ func handleSkillMatch(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	dtos := make([]skillMatchDTO, len(items))
 	for i := range items {
-		dtos[i] = newSkillMatchDTO(items[i])
+		dtos[i] = newSkillMatchDTO(items[i], e.skillCategoryFor(ctx, items[i].Skill))
 	}
 	return bridge.Success(r.ID, struct {
 		Items []skillMatchDTO `json:"items"`
@@ -307,6 +357,37 @@ func handleSkillDisable(e *Engine, ctx context.Context, r bridge.Request) bridge
 		return skillFailure(r, err)
 	}
 	return bridge.Success(r.ID, map[string]any{"disabled": true})
+}
+
+// handleSkillCategorySet manually assigns one of the 12 fixed M10
+// categories (skill.category.set). Manual mappings always override manifest
+// declarations and keyword rules.
+func handleSkillCategorySet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		SkillID  string `json:"skillId"`
+		Category string `json:"category"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SkillID) || !skill.ValidCategory(p.Category) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.category.set 参数无效", false)
+	}
+	c := skillCategorySupport(e.skills)
+	if c == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能分类存储暂时不可用", true)
+	}
+	m, err := c.SetCategory(ctx, p.SkillID, skill.Category(p.Category))
+	if err != nil {
+		switch {
+		case errors.Is(err, skillapp.ErrSkillNotFound):
+			return bridge.Failure(r.ID, r.TraceID, "SKILL_NOT_FOUND", "技能不存在", false)
+		case errors.Is(err, skillapp.ErrCategoryStoreUnavailable):
+			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能分类存储暂时不可用", true)
+		case errors.Is(err, skillapp.ErrCategoryInvalid):
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.category.set 参数无效", false)
+		default:
+			return skillFailure(r, err)
+		}
+	}
+	return bridge.Success(r.ID, m)
 }
 
 func skillFailure(r bridge.Request, err error) bridge.Response {

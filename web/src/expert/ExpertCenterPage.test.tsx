@@ -1,0 +1,89 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import type { ExpertBridge, ProjectBridge } from '../bridge/client'
+import { ExpertCenterPage } from './ExpertCenterPage'
+
+afterEach(cleanup)
+const now = '2026-01-01T00:00:00Z'
+const expertList = {
+  experts: [{
+    expertId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', subjectId: 'subj-1', name: '数据库优化专家',
+    division: 'engineering', source: 'local', semver: '1.0.0', state: 'enabled',
+    versionCount: 1, mountedPhaseCount: 0, createdAt: now, updatedAt: now,
+  }],
+  total: 1,
+}
+const detail = {
+  expert: { expertId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', name: '数据库优化专家', division: 'engineering', description: '索引与查询调优', semver: '1.0.0' },
+  versions: [{ versionId: '01ARZ3NDEKTSV4RRFFQ69G5FAB', semver: '1.0.0', sixSectionDigest: 'a'.repeat(64), changeNote: '', createdAt: now }],
+  sixSection: { identity: 'i', mission: 'm', rules: 'r', workflow: 'w', deliverableTemplate: 'd', successMetrics: 's' },
+}
+const scenarioCard = {
+  scenarioCardId: '01ARZ3NDEKTSV4RRFFQ69G5FAX', expertId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+  title: '数据库慢查询处置', summary: '针对慢查询的处置剧本', phaseKey: 'DEVELOPMENT_CHANGE',
+  state: 'active', createdAt: now, updatedAt: now,
+}
+const expertApi = (o: Partial<ExpertBridge> = {}): ExpertBridge => ({
+  list: vi.fn().mockResolvedValue(expertList),
+  detail: vi.fn().mockResolvedValue(detail),
+  create: vi.fn(), update: vi.fn(), toggle: vi.fn(), archive: vi.fn(), mount: vi.fn(),
+  mountingGet: vi.fn().mockRejectedValue(new Error('unavailable')),
+  scenarioCreate: vi.fn().mockResolvedValue({ scenarioCardId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', expertId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', title: '新场景', phaseKey: 'ARCHITECTURE_PLAN', digest: 'b'.repeat(64) }),
+  scenarioList: vi.fn().mockResolvedValue({ items: [scenarioCard] }),
+  scenarioDelete: vi.fn().mockResolvedValue({ scenarioCardId: scenarioCard.scenarioCardId, state: 'archived' }),
+  ...o,
+})
+const projects: ProjectBridge = { list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn(), update: vi.fn(), publish: vi.fn(), close: vi.fn(), reopen: vi.fn(), delete: vi.fn() }
+
+it('renders scenario cards of the selected expert', async () => {
+  const bridge = expertApi()
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  expect(await screen.findByText('数据库慢查询处置')).toBeInTheDocument()
+  expect(bridge.scenarioList).toHaveBeenCalledWith({ expertId: expertList.experts[0].expertId, state: 'active' })
+})
+
+it('creates a scenario card through the form', async () => {
+  const bridge = expertApi({ scenarioList: vi.fn().mockResolvedValue({ items: [] }) })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findByText('暂无活跃场景卡')
+  fireEvent.change(screen.getByLabelText('标题'), { target: { value: '新场景' } })
+  fireEvent.change(screen.getByLabelText('摘要'), { target: { value: '场景摘要' } })
+  fireEvent.click(screen.getByRole('button', { name: '创建场景卡' }))
+  await waitFor(() => expect(bridge.scenarioCreate).toHaveBeenCalledOnce())
+  expect(vi.mocked(bridge.scenarioCreate).mock.calls[0][0]).toMatchObject({
+    expertId: expertList.experts[0].expertId, title: '新场景', summary: '场景摘要',
+    phaseKey: 'DEVELOPMENT_CHANGE', scenario: { steps: [] },
+  })
+})
+
+it('rejects invalid scenario JSON before calling the bridge', async () => {
+  const bridge = expertApi({ scenarioList: vi.fn().mockResolvedValue({ items: [] }) })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findByText('暂无活跃场景卡')
+  fireEvent.change(screen.getByLabelText('标题'), { target: { value: '新场景' } })
+  fireEvent.change(screen.getByLabelText('摘要'), { target: { value: '场景摘要' } })
+  fireEvent.change(screen.getByLabelText('场景 JSON'), { target: { value: 'not-json' } })
+  fireEvent.click(screen.getByRole('button', { name: '创建场景卡' }))
+  expect(await screen.findByText('场景 JSON 需为合法对象')).toBeInTheDocument()
+  expect(bridge.scenarioCreate).not.toHaveBeenCalled()
+})
+
+it('archives a scenario card from the list', async () => {
+  const bridge = expertApi()
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findByText('数据库慢查询处置')
+  fireEvent.click(screen.getByRole('button', { name: '归档此场景卡' }))
+  await waitFor(() => expect(bridge.scenarioDelete).toHaveBeenCalledWith(
+    { scenarioCardId: scenarioCard.scenarioCardId }, expect.objectContaining({ attempt: expect.any(Object) })))
+})
+
+it('switches between active and archived scenario tabs', async () => {
+  const scenarioList = vi.fn().mockImplementation(async (_p: { state?: string }) =>
+    ({ items: _p?.state === 'archived' ? [{ ...scenarioCard, state: 'archived' as const }] : [scenarioCard] }))
+  const bridge = expertApi({ scenarioList })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findByText('数据库慢查询处置')
+  fireEvent.click(screen.getByRole('tab', { name: '已归档' }))
+  await waitFor(() => expect(scenarioList).toHaveBeenLastCalledWith({ expertId: expertList.experts[0].expertId, state: 'archived' }))
+  expect(bridge.scenarioList).toHaveBeenCalled()
+})

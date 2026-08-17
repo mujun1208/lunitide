@@ -1,8 +1,9 @@
 import React,{useCallback,useEffect,useState}from'react'
 import{createMutationAttempt,expertBridge,projectBridge,type ExpertBridge,type ProjectBridge}from'../bridge/client'
-import type{ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertMountingGetResult,ProjectDTO}from'../generated/bridge'
+import type{ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertMountingGetResult,ExpertScenarioListResult,ProjectDTO}from'../generated/bridge'
 
 type ExpertItem=ExpertListResult['experts'][number]
+type ScenarioItem=ExpertScenarioListResult['items'][number]
 type PhaseKey=import('../generated/bridge').ExpertMountPayload['phaseKey']
 type Division=import('../generated/bridge').ExpertCreatePayload['frontmatter']['division']
 type ExpertState=Extract<ExpertItem['state'],'enabled'|'disabled'|'archived'>
@@ -35,6 +36,8 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge}:{b
  const[archiveConfirm,setArchiveConfirm]=useState<{token:string}|null>(null)
  const[projectItems,setProjectItems]=useState<ProjectDTO[]>([]),[mountProjectId,setMountProjectId]=useState('')
  const[matrix,setMatrix]=useState<ExpertMountingGetResult>()
+ const[scenarios,setScenarios]=useState<ScenarioItem[]>([]),[scenarioState,setScenarioState]=useState<'active'|'archived'>('active')
+ const[scenarioForm,setScenarioForm]=useState({title:'',summary:'',phaseKey:'DEVELOPMENT_CHANGE' as PhaseKey,scenarioJson:'{\n  "steps": []\n}'})
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??''))}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge])
  useEffect(()=>{void load()},[load])
@@ -67,6 +70,17 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge}:{b
  const mount=async(phaseKey:PhaseKey,action:'mount'|'unmount')=>{if(!selected||!mountProjectId)return;setBusy(true);setError('');try{const base={projectId:mountProjectId,phaseKey,expertId:selected.expertId,action},attempt=createMutationAttempt('expert.mount',base);const result=await bridge.mount(base,{attempt});setNotice(`已${result.state==='mounted'?'挂载':'卸载'}「${selected.name}」→ ${PHASES.find(phase=>phase.key===phaseKey)?.label}`);await load();setMatrix(await bridge.mountingGet({projectId:mountProjectId}))}catch(e){setError(e instanceof Error?e.message:'挂载操作失败')}finally{setBusy(false)}}
  const mountedIds=(phaseKey:PhaseKey)=>matrix?.matrix.find(row=>row.phaseKey===phaseKey)?.mountings.filter(m=>m.state==='mounted').map(m=>m.expertId)??[]
 
+ const loadScenarios=useCallback(async(expertId:string,state:'active'|'archived')=>{if(!expertId){setScenarios([]);return}try{const result=await bridge.scenarioList({expertId,state});setScenarios(result.items)}catch{setScenarios([])}},[bridge])
+ useEffect(()=>{void loadScenarios(selected?.expertId??'',scenarioState)},[selected?.expertId,scenarioState,loadScenarios])
+ const createScenario=async()=>{if(!selected)return
+  let scenario:object;try{const parsed:unknown=JSON.parse(scenarioForm.scenarioJson);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw new Error('not object');scenario=parsed as object}catch{setError('场景 JSON 需为合法对象');return}
+  if(scenarioForm.title.trim().length<1||scenarioForm.title.length>128){setError('场景卡标题需为 1–128 个字符');return}
+  if(scenarioForm.summary.trim().length<1||scenarioForm.summary.length>2048){setError('场景卡摘要需为 1–2048 个字符');return}
+  setBusy(true);setError('')
+  try{const base={expertId:selected.expertId,title:scenarioForm.title.trim(),summary:scenarioForm.summary.trim(),phaseKey:scenarioForm.phaseKey,scenario},attempt=createMutationAttempt('expert.scenario.create',base);const result=await bridge.scenarioCreate(base,{attempt});setNotice(`场景卡「${result.title}」已创建（摘要 ${result.digest.slice(0,12)}…）`);setScenarioForm({...scenarioForm,title:'',summary:''});setScenarioState('active');await loadScenarios(selected.expertId,'active')}
+  catch(e){setError(e instanceof Error?e.message:'场景卡创建失败')}finally{setBusy(false)}}
+ const deleteScenario=async(scenarioCardId:string)=>{if(!selected)return;setBusy(true);setError('');try{const base={scenarioCardId},attempt=createMutationAttempt('expert.scenario.delete',base);await bridge.scenarioDelete(base,{attempt});setNotice('场景卡已归档');await loadScenarios(selected.expertId,scenarioState)}catch(e){setError(e instanceof Error?e.message:'场景卡归档失败')}finally{setBusy(false)}}
+
  return <main className="skill-center"><header className="skill-center-header"><div><h1>专家中心</h1><p>{items.length} 位专家 · {items.filter(item=>item.state==='enabled').length} 位启用 · 挂载 {items.reduce((sum,item)=>sum+item.mountedPhaseCount,0)} 处</p><small>六段式专家画像与九阶段挂载矩阵（M8 FR-19）。</small></div><button className="primary skill-chat-create" aria-label="新建本地专家" onClick={beginCreate}>＋ 新建专家</button></header>
   <section className="skill-center-toolbar"><div className="skill-status-tabs" role="tablist" aria-label="专家条线"><button type="button" role="tab" aria-selected={divisionFilter===''} onClick={()=>setDivisionFilter('')}>全部</button>{(Object.keys(DIVISIONS) as Division[]).map(division=><button type="button" role="tab" aria-selected={divisionFilter===division} key={division} onClick={()=>setDivisionFilter(division)}>{DIVISIONS[division]}</button>)}</div><label className="skill-search">搜索专家<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="名称"/></label><select aria-label="状态过滤" value={stateFilter} onChange={e=>setStateFilter(e.target.value as ExpertState|'')}><option value="">全部状态</option>{(Object.keys(STATES) as ExpertState[]).map(state=><option key={state} value={state}>{STATES[state]}</option>)}</select><button aria-label="刷新专家" onClick={()=>void load()} disabled={loading}>↻</button></section>
   {error&&<p className="skill-center-error" role="alert">{error}</p>}
@@ -93,6 +107,10 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge}:{b
       <h3>九阶段挂载</h3>
       <label>项目<select value={mountProjectId} onChange={e=>setMountProjectId(e.target.value)}>{projectItems.length?projectItems.map(project=><option key={project.id} value={project.id}>{project.name}</option>):<option value="">（暂无项目）</option>}</select></label>
       {matrix?PHASES.map(phase=>{const ids=mountedIds(phase.key),mounted=ids.includes(selected.expertId);return<div className="skill-path" key={phase.key}><b>{phase.label}</b><span>{ids.length?`已挂 ${ids.length} 位`:'默认'}</span>{selected.state==='enabled'&&(mounted?<button type="button" disabled={busy||!mountProjectId} onClick={()=>void mount(phase.key,'unmount')}>卸载</button>:<button type="button" disabled={busy||!mountProjectId} onClick={()=>void mount(phase.key,'mount')}>挂载此专家</button>)}</div>}):<p role="status">正在载入挂载矩阵…</p>}
+      <h3>场景卡</h3>
+      <div className="skill-status-tabs" role="tablist" aria-label="场景卡状态"><button type="button" role="tab" aria-selected={scenarioState==='active'} onClick={()=>setScenarioState('active')}>活跃</button><button type="button" role="tab" aria-selected={scenarioState==='archived'} onClick={()=>setScenarioState('archived')}>已归档</button></div>
+      {scenarios.length?scenarios.map(card=><details key={card.scenarioCardId}><summary><b>{card.title}</b> <small>{PHASES.find(phase=>phase.key===card.phaseKey)?.label}</small></summary><p>{card.summary}</p><p><small>{card.createdAt} · {card.updatedAt}</small></p>{card.state==='active'&&<div className="skill-detail-actions"><button disabled={busy} onClick={()=>void deleteScenario(card.scenarioCardId)}>归档此场景卡</button></div>}</details>):<p>{scenarioState==='active'?'暂无活跃场景卡':'暂无已归档场景卡'}</p>}
+      {selected.source==='local'&&selected.state!=='archived'&&<form onSubmit={e=>{e.preventDefault();void createScenario()}} aria-label="新建场景卡"><label>标题<input value={scenarioForm.title} maxLength={128} onChange={e=>setScenarioForm({...scenarioForm,title:e.target.value})} placeholder="如：数据库慢查询处置"/></label><label>摘要<textarea value={scenarioForm.summary} maxLength={2048} onChange={e=>setScenarioForm({...scenarioForm,summary:e.target.value})} placeholder="该场景要解决的问题与产出"/></label><label>适用阶段<select value={scenarioForm.phaseKey} onChange={e=>setScenarioForm({...scenarioForm,phaseKey:e.target.value as PhaseKey})}>{PHASES.map(phase=><option key={phase.key} value={phase.key}>{phase.label}</option>)}</select></label><label>场景 JSON<textarea className="skill-manifest-editor" value={scenarioForm.scenarioJson} maxLength={65536} onChange={e=>setScenarioForm({...scenarioForm,scenarioJson:e.target.value})}/></label><button className="primary" disabled={busy}>{busy?'保存中…':'创建场景卡'}</button></form>}
       <div className="skill-detail-actions">
        <button onClick={beginUpdate} disabled={busy||selected.source!=='local'||selected.state==='archived'}>编辑新版本</button>
        {selected.state==='enabled'?<button onClick={()=>void toggle()} disabled={busy}>停用</button>:selected.state==='disabled'?<button onClick={()=>void toggle()} disabled={busy}>启用</button>:null}

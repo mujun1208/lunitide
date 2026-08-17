@@ -86,7 +86,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     window.addEventListener('keydown', unlock, { once: true })
     let cancelled = false
     getTtsBridge()
-      .voices()
+      .voices({ engine: stored.engine })
       .then(result => {
         if (cancelled) return
         setVoices(result.voices)
@@ -183,7 +183,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       })
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
-      player.configure(voiceId, settings.rate, settings.volume)
+      player.configure(voiceId, settings.rate, settings.volume, settings)
       setCircuitBroken(false)
       void player.speak(segments, { ...settings, voiceId }, {
         onSegmentStart: index => {
@@ -497,10 +497,10 @@ function StreamChars({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-const COMPANION_STARS = Array.from({ length: 46 }, (_, index) => {
+const COMPANION_STARS = Array.from({ length: 140 }, (_, index) => {
   const seed = (index * 2654435761) % 1000
   const x = `${(seed % 100).toFixed(1)}%`
   const y = `${((seed / 7) % 100).toFixed(1)}%`
   const s = `${1 + (seed % 3) * 0.6}px`
-  return { x, y, s, d: `${(seed % 40) / 10}s`, t: `${3 + (seed % 30) / 10}s`, bright: seed % 7 === 0 }
+  return { x, y, s, d: `${(seed % 40) / 10}s`, t: `${2.4 + (seed % 30) / 10}s`, bright: seed % 5 === 0 }
 })

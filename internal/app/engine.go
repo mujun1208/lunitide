@@ -163,6 +163,10 @@ type Engine struct {
 
 	// M8 slice-1: governed long-term memory core.
 	m8memory *m8app.MemoryService
+	// M10: memory nomination workflow over the slice-1 core.
+	m10nomination *m8app.NominationService
+	// M10: expert scenario cards over the FR-19 expert core.
+	m10scenario *m8app.ScenarioService
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
 	// M8 slice-3/5: handoff, tombstone and device sync.
@@ -377,6 +381,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSkillInvoke:                   handleSkillInvoke,
 	bridge.MethodSkillExecute:                  handleSkillExecute,
 	bridge.MethodSkillList:                     handleSkillList,
+	bridge.MethodSkillCategorySet:              handleSkillCategorySet,
 	bridge.MethodSkillMatch:                    handleSkillMatch,
 	bridge.MethodSkillCreate:                   handleSkillCreate,
 	bridge.MethodSkillUpdate:                   handleSkillUpdate,
@@ -434,6 +439,9 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSubagentSpawn:                 handleSubagentSpawn,
 	bridge.MethodSubagentTree:                  handleSubagentTree,
 	bridge.MethodMemoryConfirmCandidate:        handleMemoryConfirmCandidate,
+	bridge.MethodMemoryNominate:                handleMemoryNominate,
+	bridge.MethodMemoryNominationList:          handleMemoryNominationList,
+	bridge.MethodMemoryNominationWithdraw:      handleMemoryNominationWithdraw,
 	bridge.MethodRecallQuery:                   handleRecallQuery,
 	bridge.MethodFeedbackRecord:                handleFeedbackRecord,
 	bridge.MethodFeedbackCandidates:            handleFeedbackCandidates,
@@ -458,6 +466,9 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodExpertArchive:                 handleExpertArchive,
 	bridge.MethodExpertMount:                   handleExpertMount,
 	bridge.MethodExpertMountingGet:             handleExpertMountingGet,
+	bridge.MethodExpertScenarioCreate:          handleExpertScenarioCreate,
+	bridge.MethodExpertScenarioList:            handleExpertScenarioList,
+	bridge.MethodExpertScenarioDelete:          handleExpertScenarioDelete,
 	bridge.MethodCollabGateEvaluate:            handleCollabGateEvaluate,
 	bridge.MethodCollabGateStatus:              handleCollabGateStatus,
 	bridge.MethodCollabGateConfirm:             handleCollabGateConfirm,
@@ -1221,6 +1232,16 @@ func (e *Engine) SetM7RuntimeServices(subagentSvc *m7app.SubagentService, toolga
 // SetM8MemoryServices wires the M8 slice-1 governed long-term memory core.
 func (e *Engine) SetM8MemoryServices(memorySvc *m8app.MemoryService) {
 	e.m8memory = memorySvc
+}
+
+// SetM10NominationService wires the M10 memory nomination workflow.
+func (e *Engine) SetM10NominationService(nominationSvc *m8app.NominationService) {
+	e.m10nomination = nominationSvc
+}
+
+// SetM10ScenarioService wires the M10 expert scenario cards.
+func (e *Engine) SetM10ScenarioService(scenarioSvc *m8app.ScenarioService) {
+	e.m10scenario = scenarioSvc
 }
 
 // SetM8SliceServices wires the M8 slice-2/3/4/5 services (KB, handoff/

@@ -209,6 +209,8 @@ var manifest = []struct{ name, checksum string }{
 	{"0069_m9_org_foundation.sql", "2c3b93f0a47a944c506cd56241ce69a142acad87434e0d691d2327119e01cde1"},
 	{"0070_m7_project_lifecycle.sql", "6d770e3c76938832fa1056ee75a424db0f5b0a1e224ba5790d934953bf1d4c59"},
 	{"0071_m10_memory_nomination.sql", "ef1f79ac1ad53933a4728a526f46486d01293d948b9d3acb9e223d82b1c1ffb6"},
+	{"0072_m10_expert_scenario.sql", "4782133b65271cff26a7d769f830f86ab4278a0c77dac7a804e6519ae004c6f8"},
+	{"0073_m10_skill_category.sql", "a76b9229b17713b6eb9ada8da36eb38e77989d0ff99eeae355a5707c556ad9f0"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1229,6 +1231,9 @@ var expectedSchemaSQL = map[string]string{
 	// M10 (migration 0071+).
 	"index:idx_nom_state":        "CREATE INDEX idx_nom_state ON memory_nominations(state, created_at)",
 	"table:memory_nominations":   "CREATE TABLE memory_nominations (\n    nomination_id TEXT PRIMARY KEY CHECK (length(nomination_id) = 26 AND substr(nomination_id, 1, 1) GLOB '[0-7]' AND nomination_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    candidate_id TEXT NOT NULL REFERENCES memory_candidates(candidate_id),\n    nominator TEXT NOT NULL CHECK (length(nominator) BETWEEN 1 AND 128),\n    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 2048),\n    source_session_id TEXT CHECK (source_session_id IS NULL OR (length(source_session_id) = 26 AND substr(source_session_id, 1, 1) GLOB '[0-7]' AND source_session_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*')),\n    state TEXT NOT NULL DEFAULT 'nominated' CHECK (state IN ('nominated','decided','withdrawn')),\n    decided_at TEXT,\n    created_at TEXT NOT NULL,\n    UNIQUE (candidate_id)\n)",
+	"index:idx_esc_expert":       "CREATE INDEX idx_esc_expert ON expert_scenario_cards(expert_id, state)",
+	"table:expert_scenario_cards": "CREATE TABLE expert_scenario_cards (\n    scenario_card_id TEXT PRIMARY KEY CHECK (length(scenario_card_id) = 26 AND substr(scenario_card_id, 1, 1) GLOB '[0-7]' AND scenario_card_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    expert_id TEXT NOT NULL REFERENCES expert_catalog(expert_id),\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 128),\n    summary TEXT NOT NULL CHECK (length(summary) BETWEEN 1 AND 2048),\n    phase_key TEXT NOT NULL CHECK (phase_key IN ('INITIATION_BOUNDARY','RESEARCH_EVIDENCE','REQUIREMENT_DEFINITION','SOLUTION_EXPERIENCE','ARCHITECTURE_PLAN','DEVELOPMENT_CHANGE','VERIFICATION_ACCEPTANCE','RELEASE_DELIVERY','OPERATIONS_RETROSPECTIVE')),\n    scenario_json TEXT NOT NULL CHECK (length(scenario_json) BETWEEN 2 AND 65536),\n    scenario_digest TEXT NOT NULL CHECK (length(scenario_digest) = 64 AND scenario_digest NOT GLOB '*[^0-9a-f]*'),\n    state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    UNIQUE (expert_id, title)\n)",
+	"table:sk_category_map": "CREATE TABLE sk_category_map (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    skill_id TEXT NOT NULL CHECK (length(skill_id) = 26 AND substr(skill_id, 1, 1) GLOB '[0-7]' AND skill_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    category TEXT NOT NULL CHECK (category IN ('efficiency','writing','development','data','design','research','lifestyle','education','business','automation','security','other')),\n    match_source TEXT NOT NULL CHECK (match_source IN ('manifest','keyword','manual')),\n    updated_at TEXT NOT NULL,\n    UNIQUE (skill_id)\n)",
 }
 
 type columnSpec struct {
