@@ -7,8 +7,9 @@
 // auto re-listen — so talking to 月汐 feels like a chat. Replies are
 // announced through a visually-hidden aria-live log; the degradation
 // chain (M95-001 banner, 3-failure circuit breaker with retry,
-// cancel-receipt tolerance) is preserved. Esc interrupts (speaking)
-// or exits; Space/Enter toggles the microphone; focus returns to the
+// cancel-receipt tolerance) is preserved. Esc exits at any moment
+// (window-level, even mid-speech); Space/Enter toggles the microphone;
+// finished turns fade away after a short linger; focus returns to the
 // entry element on unmount.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, getTtsBridge, type TtsVoice } from '../../bridge/client'
@@ -53,6 +54,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const [rounds, setRounds] = useState<SubtitleRound[]>([])
   const [listenSeconds, setListenSeconds] = useState(0)
   const [hintVisible, setHintVisible] = useState(false)
+  const [retiring, setRetiring] = useState(false)
   const [localError, setLocalError] = useState<BridgeClientError>()
   const rootRef = useRef<HTMLDivElement>(null)
   const subtitleListRef = useRef<HTMLDivElement>(null)
@@ -352,6 +354,21 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     onExit()
   }, [interrupt, onExit])
 
+  // Window-level Esc: exit works no matter where focus sits (a clicked
+  // button, the document body…) and even mid-speech — the user asked for
+  // an unconditional escape hatch.
+  const exitRef = useRef(exit)
+  exitRef.current = exit
+  useEffect(() => {
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      exitRef.current()
+    }
+    window.addEventListener('keydown', onWindowKeyDown)
+    return () => window.removeEventListener('keydown', onWindowKeyDown)
+  }, [])
+
   const retrySegment = () => {
     setCircuitBroken(false)
     const last = rounds[rounds.length - 1]
@@ -371,15 +388,35 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     if (box.scrollHeight - box.scrollTop - box.clientHeight < 48) box.scrollTop = box.scrollHeight
   }, [rounds])
 
-  // Keyboard contract: Esc = interrupt (speaking) or exit; Space/Enter
-  // = microphone (unless focused on an interactive element).
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      if (stateRef.current === 'speaking') interrupt()
-      else exit()
+  // A finished turn lingers briefly, then fades away so the stage
+  // returns to its clean moon vista (the aria-live log already carries
+  // the history). Any new activity (streaming, thinking, speaking)
+  // cancels the fade.
+  useEffect(() => {
+    if (!rounds.length) {
+      setRetiring(false)
       return
     }
+    if (chatStatus === 'streaming' || machine.state === 'thinking' || machine.state === 'speaking') {
+      setRetiring(false)
+      return
+    }
+    const linger = window.setTimeout(() => setRetiring(true), 2400)
+    const clear = window.setTimeout(() => {
+      setRounds([])
+      setRetiring(false)
+    }, 2400 + 800)
+    return () => {
+      window.clearTimeout(linger)
+      window.clearTimeout(clear)
+    }
+  }, [chatStatus, machine.state, rounds.length])
+
+  // Keyboard contract: Esc = exit (handled solely by the window-level
+  // listener — a stage-level branch would double-fire because the same
+  // keydown bubbles to window); Space/Enter = microphone (unless
+  // focused on an interactive element).
+  const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === ' ' || event.key === 'Enter') {
       const target = event.target as HTMLElement
       if (target.closest('button,input,textarea,select,a')) return
@@ -401,6 +438,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       onKeyDown={onKeyDown}
       style={{ '--moon-gain': gain } as React.CSSProperties}
     >
+      {/* 移除背景水印，星空由 CSS 处理 */}
       <div className="companion-stars" aria-hidden="true">
         {COMPANION_STARS.map((star, index) => (
           <i key={index} style={{ left: star.x, top: star.y, width: star.s, height: star.s, animationDelay: star.d, animationDuration: star.t }} className={star.bright ? 'bright' : undefined} />
@@ -444,9 +482,10 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         </p>
       )}
       {/* Live subtitle strip: the current turn streams here character by
-          character (wind-blown sand feel) and retires when the next turn
-          starts; the aria-live log still announces every round. */}
-      <div className="companion-subtitles" aria-label="对话记录">
+          character (wind-blown sand feel), lingers briefly once the turn
+          ends and then fades away; the aria-live log still announces
+          every round. */}
+      <div className={`companion-subtitles${retiring ? ' retiring' : ''}`} aria-label="对话记录">
         <div className="companion-subtitle-list" aria-live="polite" role="log" ref={subtitleListRef}>
           {rounds.map((round, index) => (
             <SubtitleRow key={index} round={round} />

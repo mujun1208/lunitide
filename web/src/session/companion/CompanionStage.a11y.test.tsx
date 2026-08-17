@@ -1,7 +1,8 @@
 // CompanionStage.a11y.test.tsx pins the MC-06 acceptance (T-9.5.3.4
 // automatable slice) for the pure-moon voice stage: the full companion
 // conversation is operable with zero mouse (stage Space/Enter mic
-// shortcut, moon click, Esc interrupt-then-exit), every dynamic region
+// shortcut, moon click, moon-click interrupt vs unconditional Esc exit),
+// every dynamic region
 // announces through aria-live (status pill + visually-hidden live log),
 // the hands-free loop auto-opens on entry and re-listens after each
 // reply, and each machine state stays distinguishable without
@@ -220,7 +221,7 @@ describe('MC-06 hands-free auto conversation', () => {
 })
 
 describe('MC-06 state distinguishability + live announcements', () => {
-  test('full round: Space → final transcript → thinking → speaking with the female voice → Esc interrupts, hands-free re-listens, Esc exits', async () => {
+  test('full round: Space → final transcript → thinking → speaking with the female voice → moon-click interrupt re-listens, Esc exits', async () => {
     const onSend = vi.fn()
     const onExit = vi.fn()
     speech.start.mockResolvedValue({ stop: speech.stop })
@@ -267,16 +268,15 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(tts.configuredWith).toContain('zh-female')
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在说话，点击打断朗读')
-    // 5. Esc during speaking interrupts playback — it must NOT exit.
-    fireEvent.keyDown(stage(container), { key: 'Escape' })
-    await waitFor(() => expect(stateOf(container)).toBe('idle'))
-    expect(tts.interrupts).toBe(1)
+    // 5. Moon click during speaking interrupts playback — it must NOT exit.
+    fireEvent.click(moonBody(container))
+    await waitFor(() => expect(tts.interrupts).toBe(1))
     expect(onExit).not.toHaveBeenCalled()
     // 6. Hands-free loop re-opens the mic by itself…
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
-    // 7. …and Esc from listening exits the stage.
+    // 7. …and Esc exits unconditionally, even mid-listen.
     fireEvent.keyDown(stage(container), { key: 'Escape' })
-    await waitFor(() => expect(onExit).toHaveBeenCalled())
+    await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1))
   })
 
   test('unavailable chat config announces the error via role=alert and stays idle', async () => {

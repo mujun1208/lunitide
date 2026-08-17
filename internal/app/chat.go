@@ -75,6 +75,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
+		Companion bool `json:"companion"` // Added to detect Moon Companion requests
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -96,6 +97,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !validMode {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
 	}
+
+	// Moon Companion mode: automatically upgrade to FullAccess if the caller
+	// is the companion interface, so the eyes-free persona can execute commands,
+	// ccapp, workspace tools, etc. without pausing for visual approval.
+	if p.Companion {
+		mode = executionModeFullAccess
+	}
+
 	instruction := executionModeInstruction(mode)
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)

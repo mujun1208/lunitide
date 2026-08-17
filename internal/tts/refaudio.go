@@ -1,10 +1,11 @@
 // refaudio.go implements the "ref" Moon Companion engine: zero-shot
 // reference-timbre synthesis through a local GPT-SoVITS api_v2
-// compatible service (works with api_v2, api.py descendants and most
-// forks: POST {endpoint}/tts with ref_audio_path + prompt_text). The
-// reference audio stays on the same machine as the service, so the
-// server-local path is passed through untouched. It also owns the
-// reference-directory browser for tts.refAudios.
+// compatible service (POST {endpoint}/tts with ref_audio_path +
+// prompt_text). The reference audio stays on the same machine as the
+// service, so the server-local path is passed through untouched. It
+// also owns the reference-directory browser for tts.refAudios. The
+// built-in 18-voice character catalogue (refpack: IDs, default
+// endpoint and pack folder) lives in refcatalog.go.
 package tts
 
 import (
@@ -44,40 +45,41 @@ func NewRefEngine() Engine {
 	return &refEngine{client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-// RefVoices is the pseudo voice list for tts.voices(engine=ref).
-func RefVoices() []Voice {
-	return []Voice{{
-		VoiceID:     "ref",
-		DisplayName: "参考音色（跟随所选参考音频）",
-		Gender:      "neutral",
-		Lang:        "zh-CN",
-	}}
-}
-
 func (r *refEngine) Voices() ([]Voice, error) { return RefVoices(), nil }
 
 func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
-	if !strings.HasPrefix(in.RefEndpoint, "http://") && !strings.HasPrefix(in.RefEndpoint, "https://") {
+	endpoint := in.RefEndpoint
+	if endpoint == "" {
+		endpoint = DefaultRefEndpoint
+	}
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务地址无效", ErrSynthesisFailed)
 	}
-	if in.RefWavPath == "" {
+	refWav := in.RefWavPath
+	if path, ok := RefResolveVoice(in.VoiceID, ""); ok {
+		refWav = path // refpack:<file> beats an explicit path
+	}
+	if refWav == "" {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 未选择参考音频", ErrSynthesisFailed)
 	}
-	if info, err := os.Stat(in.RefWavPath); err != nil || info.IsDir() {
+	if info, err := os.Stat(refWav); err != nil || info.IsDir() {
+		if IsRefPresetVoiceID(in.VoiceID) {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 音色包文件不存在（%s）", ErrSynthesisFailed, DefaultRefPackDir)
+		}
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音频文件不存在", ErrSynthesisFailed)
 	}
 	body, _ := json.Marshal(map[string]any{
-		"text":             in.Text,
-		"text_lang":        "zh",
-		"ref_audio_path":   in.RefWavPath,
-		"prompt_text":      in.RefPromptText,
-		"prompt_lang":      "zh",
+		"text":              in.Text,
+		"text_lang":         "zh",
+		"ref_audio_path":    refWav,
+		"prompt_text":       in.RefPromptText,
+		"prompt_lang":       "zh",
 		"text_split_method": "cut0", // segments are already split upstream
-		"media_type":       "wav",
-		"streaming_mode":   false,
+		"media_type":        "wav",
+		"streaming_mode":    false,
+		"speed_factor":      refSpeedFactor(in.Rate),
 	})
-	endpoint := strings.TrimRight(in.RefEndpoint, "/") + "/tts"
-	resp, err := r.client.Post(endpoint, "application/json", bytes.NewReader(body))
+	resp, err := r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接参考音色服务（%v）", ErrSynthesisFailed, err)
 	}

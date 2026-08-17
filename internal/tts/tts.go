@@ -6,12 +6,15 @@ package tts
 
 import "errors"
 
-// Voice is one SAPI speech token exposed via tts.voices.
+// Voice is one speech token exposed via tts.voices. SAPI engines leave
+// Group empty; the GPT-SoVITS preset catalogue fills it so the settings
+// page can group the 18 role voices by style.
 type Voice struct {
 	VoiceID     string `json:"voice_id"`
 	DisplayName string `json:"display_name"`
 	Gender      string `json:"gender"`
 	Lang        string `json:"lang"`
+	Group       string `json:"group,omitempty"`
 }
 
 // SynthesizeInput carries one cleaned subtitle segment (<=500 chars)

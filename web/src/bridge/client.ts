@@ -875,11 +875,13 @@ export function createLocalWorkspaceBridge(transport:WebViewTransport=webview())
 // tts.synthesize / tts.cancel / tts.refAudios). Voices and synthesis take
 // an engine selector (sapi | edge | ref); the reference engine browses
 // local audio collections via tts.refAudios. Synthesis deadline stays
-// generous: a 500-char segment is well under 15s on every engine.
+// generous for GPT-SoVITS: a cold first segment can take 20s+ on the
+// local service, so tts.synthesize gets its own 40s core.
 export type TtsVoice=TtsVoicesResult['voices'][number]
-export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsVoicesPayload,TtsRefAudiosPayload,TtsRefAudiosResult}
+export type TtsRefMeta=NonNullable<TtsVoicesResult['ref_meta']>
+export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult}
 export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>}
-export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>core.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir})}}
+export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir})}}
 let ttsSingleton:TtsBridge|undefined
 export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()}
 

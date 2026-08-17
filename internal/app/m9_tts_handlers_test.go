@@ -121,8 +121,12 @@ func TestTtsVoicesPerEngine(t *testing.T) {
 	if !ref.OK {
 		t.Fatalf("tts.voices ref = %+v, want ok", ref)
 	}
-	if got := ref.Payload.(map[string]any)["voices"].([]tts.Voice)[0].VoiceID; got != "ref" {
-		t.Fatalf("ref voices = %v", got)
+	refVoices := ref.Payload.(map[string]any)["voices"].([]tts.Voice)
+	if len(refVoices) != 18 || refVoices[0].VoiceID != tts.RefDefaultVoiceID() || refVoices[0].Group == "" {
+		t.Fatalf("ref voices = %+v, want 18 grouped presets", refVoices)
+	}
+	if _, ok := ref.Payload.(map[string]any)["ref_meta"].(tts.RefMeta); !ok {
+		t.Fatalf("tts.voices ref payload missing ref_meta: %+v", ref.Payload)
 	}
 
 	bad := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"mega"}`))
@@ -190,14 +194,24 @@ func TestTtsSynthesizeRefValidation(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(nil, nil)))
 
-	noFile := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","refEndpoint":"http://127.0.0.1:9880"}`))
+	// A custom (non-refpack) voice without a reference file stays
+	// schema-invalid; empty voiceId now means the default preset.
+	noFile := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","voiceId":"HKEY_LOCAL_MACHINE_X","refEndpoint":"http://127.0.0.1:9880"}`))
 	if noFile.OK || noFile.Error == nil || noFile.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("ref without file = %+v, want schema invalid", noFile)
 	}
 
-	badEndpoint := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","refWavPath":"x.wav"}`))
+	badEndpoint := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","refWavPath":"x.wav","refEndpoint":"ftp://x"}`))
 	if badEndpoint.OK || badEndpoint.Error == nil || badEndpoint.Error.Code != "BRIDGE_SCHEMA_INVALID" {
-		t.Fatalf("ref without endpoint = %+v, want schema invalid", badEndpoint)
+		t.Fatalf("ref with bad endpoint = %+v, want schema invalid", badEndpoint)
+	}
+
+	// Preset voices skip the path checks (the engine resolves the pack
+	// folder), so validation passes and the nil ref engine answers
+	// M95-001 — proving the request really reached the router.
+	preset := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","voiceId":"refpack:甜心少女.wav"}`))
+	if preset.OK || preset.Error == nil || preset.Error.Code != "M95-001" {
+		t.Fatalf("ref preset = %+v, want M95-001 from nil engine", preset)
 	}
 }
 

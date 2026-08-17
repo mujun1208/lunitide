@@ -20,7 +20,7 @@ let sharedAudioContext: AudioContext | null = null
 
 /** Engine routing extras carried alongside voiceId/rate/volume so the
  * prefetch synthesizer replays the exact same engine payload. */
-export type SynthExtras = Pick<CompanionSettings, 'engine'>
+export type SynthExtras = Pick<CompanionSettings, 'engine' | 'refEndpoint'>
 
 function buildSynthPayload(
   text: string,
@@ -35,6 +35,7 @@ function buildSynthPayload(
     rate,
     volume,
     engine: extras.engine,
+    refEndpoint: extras.engine === 'ref' && extras.refEndpoint ? extras.refEndpoint : undefined,
   }
 }
 
@@ -178,7 +179,7 @@ export class TtsPlayer {
   private currentVoiceId = ''
   private currentRate = 0
   private currentVolume = 80
-  private currentExtras: SynthExtras = { engine: 'natural' }
+  private currentExtras: SynthExtras = { engine: 'natural', refEndpoint: '' }
 
   /** Remember the synthesis parameters so prefetches reuse them. */
   configure(voiceId: string, rate: number, volume: number, extras?: SynthExtras): void {
