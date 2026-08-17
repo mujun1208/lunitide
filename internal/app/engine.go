@@ -37,6 +37,7 @@ import (
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/brapp"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -178,6 +179,8 @@ type Engine struct {
 	mcmarket *mcapp.Service
 	// M10 wave-3: browser multi-mode surface (br.* handlers).
 	brmulti *brapp.Service
+	// M10 wave-4: computer-control surface (cc.* handlers + agent tools).
+	ccctrl *ccapp.Service
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
 	// M8 slice-3/5: handoff, tombstone and device sync.
@@ -295,6 +298,10 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodBrPermissionRequest:           handleBrPermissionRequest,
 	bridge.MethodBrPermissionDecide:            handleBrPermissionDecide,
 	bridge.MethodBrPermissionPolicy:            handleBrPermissionPolicy,
+	bridge.MethodCcGetConfig:                   handleCcGetConfig,
+	bridge.MethodCcUpdateConfig:                handleCcUpdateConfig,
+	bridge.MethodCcGetAuditLog:                 handleCcGetAuditLog,
+	bridge.MethodCcEmergencyStop:               handleCcEmergencyStop,
 	bridge.MethodWorkspaceConvert:              handleWorkspaceConvert,
 	bridge.MethodExtensionSearch:               handleExtensionSearch,
 	bridge.MethodExtensionInstall:              handleExtensionInstall,
@@ -1309,6 +1316,11 @@ func (e *Engine) SetMcMarketService(mcSvc *mcapp.Service) {
 // SetBrMultiModeService wires the M10 wave-3 browser multi-mode service.
 func (e *Engine) SetBrMultiModeService(brSvc *brapp.Service) {
 	e.brmulti = brSvc
+}
+
+// SetCcControlService wires the M10 wave-4 computer-control service.
+func (e *Engine) SetCcControlService(ccSvc *ccapp.Service) {
+	e.ccctrl = ccSvc
 }
 
 // SetM8SliceServices wires the M8 slice-2/3/4/5 services (KB, handoff/

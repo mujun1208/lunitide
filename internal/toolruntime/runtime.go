@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/webfetch"
@@ -61,6 +62,9 @@ type Runtime struct {
 	// auditMu makes the lazy ensureAudit open exactly one SQLite handle
 	// even under concurrent callers.
 	auditMu sync.Mutex
+	// ccExec runs the six cc.* computer-control tools through the ccapp
+	// service (injected by the host; nil keeps them unavailable).
+	ccExec func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
 }
 type Result struct {
 	Output   string    `json:"output"`
@@ -245,6 +249,12 @@ func (r *Runtime) SetCommandPolicyJSON(raw []byte) error {
 // SetWebFetcher installs the SSRF-pinned fetch transport for web.* tools.
 func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)) {
 	r.fetchWeb = f
+}
+
+// SetCcExecutor installs the computer-control executor backing the six
+// cc.* agent tools (ccapp.Service.ExecuteTool).
+func (r *Runtime) SetCcExecutor(f func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)) {
+	r.ccExec = f
 }
 
 // SetFullAccessRootResolver installs the user-workspace root resolver used by
@@ -1074,9 +1084,43 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		return r.writeGenerated(mode, session, a.Path, data, -1)
+	case "cc.mouse_move", "cc.mouse_click", "cc.keyboard_type",
+		"cc.keyboard_shortcut", "cc.screen_capture", "cc.get_active_window":
+		return r.runCcTool(ctx, mode, session, name, args, approved)
 	default:
 		return Result{}, errors.New("unknown tool")
 	}
+}
+
+// runCcTool executes one computer-control tool through the injected ccapp
+// service. Plan mode never reaches here (tools are globally disabled); the
+// ccapp confirmation gate maps onto the standard approval flow so
+// high/critical operations pause for a manual decision.
+func (r *Runtime) runCcTool(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (Result, error) {
+	if r.ccExec == nil {
+		return Result{}, errors.New("computer control unavailable (M10-CC-010)")
+	}
+	outcome, err := r.ccExec(ctx, session, name, args, approved)
+	if err != nil {
+		if errors.Is(err, ccapp.ErrCcConfirmRequired) {
+			return Result{}, ErrApprovalRequired
+		}
+		return Result{}, fmt.Errorf("%s: %v", ccapp.Code(err), err)
+	}
+	res := result(outcome.Summary)
+	if len(outcome.CapturePNG) > 0 {
+		rel := fmt.Sprintf("screen-capture-%s.png", r.now().UTC().Format("20060102T150405.000000000"))
+		p, e := r.path(mode, session, rel, true)
+		if e != nil {
+			return Result{}, e
+		}
+		if e = os.WriteFile(p, outcome.CapturePNG, 0600); e != nil {
+			return Result{}, e
+		}
+		res.Artifact = &Artifact{Kind: "image", Path: rel}
+		res.Output = fmt.Sprintf("%s (saved %s)", outcome.Summary, rel)
+	}
+	return res, nil
 }
 
 // officeGenTools are the P2-1 generators: they mutate the session
