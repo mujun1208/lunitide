@@ -36,6 +36,8 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/brapp"
+	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -172,6 +174,10 @@ type Engine struct {
 	m10scenario *m8app.ScenarioService
 	// M10: queued user input (run.queue* handlers).
 	queue *queueapp.Service
+	// M10 wave-3: MCP market surface (mc.* handlers).
+	mcmarket *mcapp.Service
+	// M10 wave-3: browser multi-mode surface (br.* handlers).
+	brmulti *brapp.Service
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
 	// M8 slice-3/5: handoff, tombstone and device sync.
@@ -267,6 +273,28 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodRunQueueList:                  handleRunQueueList,
 	bridge.MethodRunQueueWithdraw:              handleRunQueueWithdraw,
 	bridge.MethodRunQueueConsume:               handleRunQueueConsume,
+	bridge.MethodMcMarketList:                  handleMcMarketList,
+	bridge.MethodMcMarketDetail:                handleMcMarketDetail,
+	bridge.MethodMcConfigValidate:              handleMcConfigValidate,
+	bridge.MethodMcConfirmToken:                handleMcConfirmToken,
+	bridge.MethodMcConnectorInstall:            handleMcConnectorInstall,
+	bridge.MethodMcConnectorUninstall:          handleMcConnectorUninstall,
+	bridge.MethodMcConnectorUpdate:             handleMcConnectorUpdate,
+	bridge.MethodMcConnectorUsage:              handleMcConnectorUsage,
+	bridge.MethodMcTombstoneCheck:              handleMcTombstoneCheck,
+	bridge.MethodBrSettingsGet:                 handleBrSettingsGet,
+	bridge.MethodBrSettingsUpdate:              handleBrSettingsUpdate,
+	bridge.MethodBrModeDetect:                  handleBrModeDetect,
+	bridge.MethodBrSessionConnect:              handleBrSessionConnect,
+	bridge.MethodBrSessionList:                 handleBrSessionList,
+	bridge.MethodBrSessionDisconnect:           handleBrSessionDisconnect,
+	bridge.MethodBrNavigate:                    handleBrNavigate,
+	bridge.MethodBrDataUsage:                   handleBrDataUsage,
+	bridge.MethodBrDataClear:                   handleBrDataClear,
+	bridge.MethodBrPermissionList:              handleBrPermissionList,
+	bridge.MethodBrPermissionRequest:           handleBrPermissionRequest,
+	bridge.MethodBrPermissionDecide:            handleBrPermissionDecide,
+	bridge.MethodBrPermissionPolicy:            handleBrPermissionPolicy,
 	bridge.MethodWorkspaceConvert:              handleWorkspaceConvert,
 	bridge.MethodExtensionSearch:               handleExtensionSearch,
 	bridge.MethodExtensionInstall:              handleExtensionInstall,
@@ -1271,6 +1299,16 @@ func (e *Engine) SetM10ScenarioService(scenarioSvc *m8app.ScenarioService) {
 // SetQueueService wires the M10 queued-input service.
 func (e *Engine) SetQueueService(queueSvc *queueapp.Service) {
 	e.queue = queueSvc
+}
+
+// SetMcMarketService wires the M10 wave-3 MCP-market service.
+func (e *Engine) SetMcMarketService(mcSvc *mcapp.Service) {
+	e.mcmarket = mcSvc
+}
+
+// SetBrMultiModeService wires the M10 wave-3 browser multi-mode service.
+func (e *Engine) SetBrMultiModeService(brSvc *brapp.Service) {
+	e.brmulti = brSvc
 }
 
 // SetM8SliceServices wires the M8 slice-2/3/4/5 services (KB, handoff/
