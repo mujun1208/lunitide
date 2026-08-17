@@ -102,22 +102,28 @@ func mcpGatewayDescribe(ctx context.Context, e *mcp6.Endpoint) (map[string]mcp6.
 	return out, nil
 }
 
+// mcpStdioPool keeps persistent stdio sessions per endpoint (P1-1):
+// dial-per-call paid process spawn + handshake on every invoke. Pool
+// calls are serialized per endpoint, redialed after failures and reaped
+// when idle. Probes/health checks intentionally stay dial-per-call so a
+// flaky probe never poisons a pooled session.
+var mcpStdioPool = mcp.NewStdioPool(mcp.StdioPoolDefaultMax, mcp.StdioPoolDefaultIdle)
+
 // mcpGatewayInvoke executes one read-only GET invocation and flattens the
 // response body into the mcp6 result map. An upstream 401 maps to
 // ErrCredentialRevoked so the registry lifecycle stays wired. stdio
-// endpoints run one isolated tools/call session instead.
+// endpoints run through the persistent session pool.
 func mcpGatewayInvoke(ctx context.Context, e *mcp6.Endpoint, tool string, args map[string]any, _ []byte) (map[string]any, error) {
 	if e.Transport == "stdio" {
-		s, err := mcpStdioSession(ctx, e)
-		if err != nil {
-			return nil, err
-		}
-		defer s.Close()
 		argsJSON, err := json.Marshal(args)
 		if err != nil {
 			return nil, fmt.Errorf("mcp6: arguments not serialisable: %w", err)
 		}
-		out, err := s.CallTool(ctx, tool, argsJSON)
+		out, err := mcpStdioPool.Invoke(ctx, "stdio:"+e.ID, func(ctx context.Context) (mcp.StdioConn, error) {
+			return mcpStdioSession(ctx, e)
+		}, func(s mcp.StdioConn) (mcp.StdioCallResult, error) {
+			return s.CallTool(ctx, tool, argsJSON)
+		})
 		if err != nil {
 			return nil, err
 		}

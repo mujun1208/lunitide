@@ -1,6 +1,7 @@
-﻿package toolruntime
+package toolruntime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -57,7 +58,7 @@ type Runtime struct {
 	// fullDisk is the user opt-in "full-disk full-access" switch persisted in
 	// command-policy.json. When true, full-access mode accepts absolute paths
 	// on any drive for file tools and runs commands without the allowlist.
-	fullDisk     bool
+	fullDisk      bool
 	userRulesPath string
 	// hooksMu guards hookRules for hot reload (SetHooksPolicyJSON).
 	hooksMu        sync.RWMutex
@@ -66,6 +67,12 @@ type Runtime struct {
 	// auditMu makes the lazy ensureAudit open exactly one SQLite handle
 	// even under concurrent callers.
 	auditMu sync.Mutex
+	// P2-1 FTS workspace-search index: wsFTSReady flips true once the
+	// trigram virtual table exists on this handle; wsIdxMu/wsRootMu
+	// serialize per-root index refresh against concurrent searches.
+	wsFTSReady bool
+	wsIdxMu    sync.Mutex
+	wsRootMu   map[string]*sync.Mutex
 	// ccExec runs the six cc.* computer-control tools through the ccapp
 	// service (injected by the host; nil keeps them unavailable).
 	ccExec func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
@@ -113,6 +120,11 @@ const (
 	commandDeadlineMin     = time.Second
 	commandDeadlineMax     = 5 * time.Minute
 	commandMaxArgv         = 16
+	// toolProgressMaxChunks bounds how many incremental output chunks one
+	// command.run invocation may push to the live stream (P1-2). Chunks
+	// beyond the cap still land in the final combined result; only the
+	// live feed stops, keeping the event pipe flood-safe.
+	toolProgressMaxChunks = 40
 )
 
 // builtinCommandRules is the fixed read-only observation set. git runs only
@@ -720,12 +732,22 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 	}
 	return p, nil
 }
+
 // Execute runs one tool call for the given conversation mode. Subagent and
 // delegation paths must stay on this entry point: it never lifts the
 // command allowlist or the path confinement, whatever the persisted policy
 // says.
 func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool) (out Result, err error) {
-	return r.execute(ctx, mode, session, name, args, approved, false)
+	return r.execute(ctx, mode, session, name, args, approved, false, nil)
+}
+
+// ExecuteStreaming runs one tool with an optional progress sink receiving
+// bounded incremental output chunks while the tool runs (P1-2). Only
+// command.run emits progress today; other tools simply complete as usual.
+// progress may be called from background goroutines but is serialized by
+// the runtime, so a non-concurrent-safe sink is fine.
+func (r *Runtime) ExecuteStreaming(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool, progress func(chunk string)) (out Result, err error) {
+	return r.execute(ctx, mode, session, name, args, approved, false, progress)
 }
 
 // ExecuteUnconfined is the user-conversation-only entry point that honors
@@ -733,10 +755,15 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 // absolute paths on any drive. It is reserved for chat tool calls made in
 // full-access mode while command-policy.json has "fullAccess": true.
 func (r *Runtime) ExecuteUnconfined(ctx context.Context, session, name string, args json.RawMessage, approved bool) (out Result, err error) {
-	return r.execute(ctx, FullAccess, session, name, args, approved, true)
+	return r.execute(ctx, FullAccess, session, name, args, approved, true, nil)
 }
 
-func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool) (out Result, err error) {
+// ExecuteUnconfinedStreaming is the full-disk variant of ExecuteStreaming.
+func (r *Runtime) ExecuteUnconfinedStreaming(ctx context.Context, session, name string, args json.RawMessage, approved bool, progress func(chunk string)) (out Result, err error) {
+	return r.execute(ctx, FullAccess, session, name, args, approved, true, progress)
+}
+
+func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool, progress func(chunk string)) (out Result, err error) {
 	switch mode {
 	case Approval, AutoEdit, Plan, FullAccess:
 	default:
@@ -995,6 +1022,63 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		cmd := exec.CommandContext(cctx, a.Argv[0], a.Argv[1:]...)
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0")
+		// P1-2: with a progress sink the pipes are read live so long
+		// running commands stream bounded stdout/stderr chunks to the
+		// caller instead of black-boxing until exit. The final result
+		// keeps the legacy combined-output shape (64 KiB cap, error text
+		// carried in the failure message); line scanning only normalizes
+		// CRLF tails away.
+		if progress != nil {
+			stdoutPipe, e := cmd.StdoutPipe()
+			if e != nil {
+				return Result{}, fmt.Errorf("command failed: %s", e)
+			}
+			stderrPipe, e := cmd.StderrPipe()
+			if e != nil {
+				return Result{}, fmt.Errorf("command failed: %s", e)
+			}
+			if e = cmd.Start(); e != nil {
+				return Result{}, fmt.Errorf("command failed: %s", e)
+			}
+			var mu sync.Mutex
+			var combined []byte
+			emitted := 0
+			scan := func(r io.Reader, done chan<- struct{}) {
+				sc := bufio.NewScanner(r)
+				sc.Buffer(make([]byte, 0, 64*1024), 256*1024)
+				for sc.Scan() {
+					line := sc.Text()
+					mu.Lock()
+					if len(combined) < 64<<10 {
+						combined = append(combined, line...)
+						combined = append(combined, '\n')
+					}
+					emit := emitted < toolProgressMaxChunks
+					if emit {
+						emitted++
+					}
+					mu.Unlock()
+					if emit {
+						progress(truncateRunes(line, 400))
+					}
+				}
+				done <- struct{}{}
+			}
+			doneOut, doneErr := make(chan struct{}), make(chan struct{})
+			go scan(stdoutPipe, doneOut)
+			go scan(stderrPipe, doneErr)
+			<-doneOut
+			<-doneErr
+			waitErr := cmd.Wait()
+			out := combined
+			if len(out) > 64<<10 {
+				out = out[:64<<10]
+			}
+			if waitErr != nil {
+				return Result{}, fmt.Errorf("command failed: %s", out)
+			}
+			return result(string(out)), nil
+		}
 		out, e := cmd.CombinedOutput()
 		if len(out) > 64<<10 {
 			out = out[:64<<10]
@@ -1357,8 +1441,21 @@ func (r *Runtime) searchWorkspace(mode Mode, session, relPath, query string, reg
 			return nil, fmt.Errorf("invalid regex: %w", err)
 		}
 	}
+	// P2-1 fast path: literal queries of 3+ runes ride the trigram index;
+	// any index-side miss or error falls back to the linear scan below.
+	if re == nil && wsFTSEligible(query, false) {
+		if fts, ok, ferr := r.searchFTS(root, query, max); ferr == nil && ok {
+			return fts, nil
+		}
+	}
+	return searchLinear(root, re, query, max)
+}
+
+// searchLinear is the original scan: walk the subtree, read each
+// candidate file and match line by line (regex or literal substring).
+func searchLinear(root string, re *regexp.Regexp, query string, max int) ([]string, error) {
 	var hits []string
-	err = filepath.WalkDir(root, func(p string, d os.DirEntry, e error) error {
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, e error) error {
 		if e != nil || d.IsDir() || len(hits) >= max {
 			if e != nil {
 				return e

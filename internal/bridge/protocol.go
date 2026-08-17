@@ -40,10 +40,16 @@ type Response struct {
 type EventType string
 
 const (
-	EventDelta            EventType = "delta"
-	EventThinking         EventType = "thinking"
-	EventUsage            EventType = "usage"
-	EventToolStarted      EventType = "tool_started"
+	EventDelta       EventType = "delta"
+	EventThinking    EventType = "thinking"
+	EventUsage       EventType = "usage"
+	EventToolStarted EventType = "tool_started"
+	// EventToolOutput streams incremental stdout/stderr lines of a running
+	// tool (P1-2): Summary carries one bounded output chunk between
+	// tool_started and tool_completed. Purely additive; consumers that do
+	// not know the type ignore it and see only the legacy start/complete
+	// pair.
+	EventToolOutput       EventType = "tool_output"
 	EventToolCompleted    EventType = "tool_completed"
 	EventApprovalRequired EventType = "approval_required"
 	EventCompleted        EventType = "completed"

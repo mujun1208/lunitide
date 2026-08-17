@@ -76,6 +76,13 @@ type ContextSource struct {
 	// Deleted is true when the underlying source has been logically deleted.
 	// AssembleEnvelope must fail-closed: a deleted source is never included.
 	Deleted bool
+	// CoverageEndSequence is set for SourceCompactionSummary sources: the
+	// durable sequence through which the summary covers the session.
+	// P2-2 hierarchical context: messages with Sequence <= this value are
+	// represented by the summary and are excluded from verbatim projection
+	// (the latest user turn stays protected regardless). Zero means
+	// coverage unknown — every message projects as before.
+	CoverageEndSequence int64
 }
 
 // TokenCost returns the token cost of this source, computing it lazily if

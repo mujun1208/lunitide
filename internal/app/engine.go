@@ -94,6 +94,15 @@ type credentialLifecycleService interface {
 type CompactionSummaryReader interface {
 	GetLatestCompactionSummary(ctx context.Context, sessionID string) (string, error)
 }
+
+// compactionCoverageReader is the P2-2 hierarchical-context extension:
+// implementers also answer the checkpoint's coverage end sequence so the
+// assembler can stop projecting messages the summary already represents.
+// Stores that do not implement it keep the flat (summary + full history)
+// projection.
+type compactionCoverageReader interface {
+	GetLatestCompactionCheckpoint(ctx context.Context, sessionID string) (string, int64, error)
+}
 type electronCredentialMigrationService interface {
 	PlanElectronCredentials(context.Context, []providerapp.ElectronCredentialTuple) ([]providerapp.ElectronCredentialPlan, error)
 	AdoptElectronCredential(context.Context, string, providerapp.ElectronCredentialAdoption) (string, error)
