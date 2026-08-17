@@ -1,4 +1,9 @@
 /* ===== Lunitide 月汐 — Moon & Tide Theme ===== */
+/* ==========================================================================
+   M11: White Theme Override (Using Native CSS Variables Instead of Hardcoded Colors)
+   We use the robust CSS variables defined at the top of the file so everything
+   (sidebar, main panel, settings, assets list, messages) adapts automatically.
+   ========================================================================== */
 :root{
   --bg:#000; --bg2:#080b10; --bg3:#0d1118;
   --ink:#eaf3ff; --muted:#8fa3bf;
@@ -12,6 +17,80 @@
   --serif:var(--sans);
   font-family:var(--sans); color:var(--ink); background:var(--bg); color-scheme:dark;
 }
+html[data-theme="light"] {
+  --bg:#f8fcff; --bg2:#f2f9ff; --bg3:#eaf5ff;
+  --ink:#14243b; --muted:#55708e;
+  --rule:rgba(44,93,135,.15); --line:rgba(44,93,135,.25);
+  --moon:#0a1a2e; --moon2:#1b3652;
+  --glow:#2d8cbe; --glow2:#1b6a9c;
+  --tide1:#008ac5; --tide2:#5036d0; --tide3:#00997c;
+  color-scheme:light;
+}
+html[data-theme="light"] body { background: var(--bg); color: var(--ink); }
+html[data-theme="light"] .sidebar { background: var(--bg2); border-color: var(--rule); }
+html[data-theme="light"] .s-item.on { background: rgba(0, 138, 197, 0.08); border-left-color: var(--tide1); }
+html[data-theme="light"] .topbar { background: rgba(248, 252, 255, 0.85); border-color: var(--rule); }
+html[data-theme="light"] .tb-mode span.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,0.1); border: 1px solid var(--rule); }
+html[data-theme="light"] .settings-top { background: rgba(248, 252, 255, 0.95); border-color: var(--rule); }
+html[data-theme="light"] .setting-group { background: #fff; border-color: var(--rule); box-shadow: 0 2px 10px rgba(44,93,135,0.05); }
+html[data-theme="light"] .setting-group-title { background: var(--bg2); border-color: var(--rule); }
+html[data-theme="light"] .setting-row { border-color: var(--rule); }
+html[data-theme="light"] .about-info>div { background: var(--bg2); }
+
+/* ===== Component Level Light Theme Overrides (Tables, Assets, M5 Workflows) ===== */
+html[data-theme="light"] .asset-manager-panel,
+html[data-theme="light"] .m5-task-center,
+html[data-theme="light"] .m5-action-card,
+html[data-theme="light"] .m5-artifacts,
+html[data-theme="light"] .m5-diff-review,
+html[data-theme="light"] .m5-convert-wizard,
+html[data-theme="light"] .plan-card,
+html[data-theme="light"] .artifact-panel {
+  background: var(--bg);
+  border-color: var(--rule);
+  box-shadow: 0 2px 10px rgba(44,93,135,0.05);
+}
+
+html[data-theme="light"] .asset-manager-list button,
+html[data-theme="light"] .m5-task-card,
+html[data-theme="light"] .m5-diff-card,
+html[data-theme="light"] .m5-artifact-card,
+html[data-theme="light"] .m5-convert-step,
+html[data-theme="light"] .artifact-item {
+  background: var(--bg2);
+  border-color: var(--rule);
+}
+html[data-theme="light"] .asset-manager-list button[aria-selected="true"],
+html[data-theme="light"] .asset-manager-list button:hover {
+  background: rgba(0, 138, 197, 0.08);
+}
+
+html[data-theme="light"] .m5-run-header,
+html[data-theme="light"] .artifact-preview {
+  background: var(--bg2);
+  border-color: var(--rule);
+}
+html[data-theme="light"] .m5-argv,
+html[data-theme="light"] .m5-log-tail,
+html[data-theme="light"] .m5-diff-lines,
+html[data-theme="light"] .m5-ws {
+  background: var(--bg3);
+  border-color: var(--line);
+  color: var(--muted);
+}
+html[data-theme="light"] table { background: var(--bg); }
+html[data-theme="light"] tr:nth-child(even) { background: var(--bg2); }
+html[data-theme="light"] th { background: var(--bg2); color: var(--muted); }
+html[data-theme="light"] td { color: var(--ink); border-color: var(--rule); }
+html[data-theme="light"] .diagnostic,
+html[data-theme="light"] .error,
+html[data-theme="light"] .warning,
+html[data-theme="light"] .conflict,
+html[data-theme="light"] .notice,
+html[data-theme="light"] .model-list>div {
+  background: var(--bg2);
+}
+
 *{box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 body{margin:0;min-width:320px;min-height:100vh;
@@ -28,17 +107,17 @@ body{margin:0;min-width:320px;min-height:100vh;
   background:radial-gradient(circle,rgba(244,246,255,.16) 0%,rgba(207,224,255,.07) 34%,transparent 62%);
   filter:blur(2px)}
 .moon{position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;pointer-events:none;
-  background:radial-gradient(circle at 50% 72%,#ffffff 0 10%,#f4fafa 26%,#c9d2d8 48%,#a8b3bb 70%,#8c949a 88%,#6d8195 100%);
-  box-shadow:0 0 5px 1px rgba(253,254,255,.5),0 0 24px 8px rgba(160,213,241,.28),0 0 70px 26px rgba(71,121,161,.14);
+  background:radial-gradient(circle at 50% 50%,#ffffff 0 30%,#e0efff 50%,#b0c8d6 80%,#6d8195 100%);
+  box-shadow:0 0 10px 2px rgba(255,255,255,.8),0 0 30px 10px rgba(135,206,250,.5),0 0 80px 30px rgba(71,121,161,.3);
   animation:moonFloat 9s ease-in-out infinite}
-.moon::before{content:"";position:absolute;inset:14px 18px 22px 20px;border-radius:50%;
-  background:radial-gradient(circle at 30% 30%,rgba(78,100,122,.26),transparent 60%);filter:blur(2px)}
-.moon::after{content:"";position:absolute;inset:30px 40px 38px 34px;border-radius:50%;
-  background:radial-gradient(circle at 60% 40%,rgba(121,131,140,.22),transparent 70%)}
+.moon::before{content:"";position:absolute;inset:8px 12px 16px 14px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,rgba(78,100,122,.15),transparent 55%);filter:blur(3px)}
+.moon::after{content:"";position:absolute;inset:20px 30px 28px 24px;border-radius:50%;
+  background:radial-gradient(circle at 65% 45%,rgba(121,131,140,.1),transparent 60%)}
 @keyframes moonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
-.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.6}
-.stars i{position:absolute;border-radius:50%;background:#cfe0ff;animation:twinkle 4s infinite}
-@keyframes twinkle{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+.stars{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.8}
+.stars i{position:absolute;border-radius:50%;background:#ffffff;box-shadow:0 0 4px 1px rgba(207,224,255,0.8);animation:twinkle 4s infinite}
+@keyframes twinkle{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
 
 button,input,select,textarea{font:inherit}
 button{color:inherit;border:1px solid var(--line);background:var(--bg3);padding:.6rem .9rem;border-radius:10px;cursor:pointer;transition:.18s}
@@ -435,12 +514,24 @@ html[data-theme="light"] .atmosphere .sky::before{top:18%;left:8%}html[data-them
 html[data-theme="light"] .atmosphere .ambient-moon{top:60px;right:7vw;opacity:1;background:#ffd45b;box-shadow:0 0 50px 16px rgba(255,211,73,.45),0 0 110px 45px rgba(255,228,120,.22)}
 html[data-theme="light"] .atmosphere .ambient-moon i,html[data-theme="light"] .atmosphere .ambient-moon b,html[data-theme="light"] .atmosphere .ambient-moon span,html[data-theme="light"] .atmosphere .stars,html[data-theme="light"] .atmosphere .nebula,html[data-theme="light"] .atmosphere .moon-glow{display:none}
 html[data-theme="light"] .atmosphere .vignette{background:linear-gradient(180deg,transparent 55%,rgba(255,255,255,.28))}
-html[data-theme="light"] .launch-sidebar{border-color:rgba(44,93,135,.18);background:rgba(246,252,255,.9);box-shadow:8px 0 30px rgba(42,100,144,.08)}
-html[data-theme="light"] .launch-content{border-color:rgba(44,93,135,.15);background:rgba(247,252,255,.72)}
-html[data-theme="light"] .launch-brand b,html[data-theme="light"] .launch-brand em,html[data-theme="light"] .launch-center h1,html[data-theme="light"] .launch-actions b{color:#152c47}
-html[data-theme="light"] .primary-actions>button,html[data-theme="light"] .launch-nav button,html[data-theme="light"] .launch-bottom button{color:#365775}html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active{background:rgba(53,139,204,.12);color:#123b60}
-html[data-theme="light"] .launch-composer{border-color:rgba(49,111,160,.25);background:rgba(255,255,255,.9);box-shadow:0 24px 70px rgba(40,105,150,.15)}html[data-theme="light"] .launch-composer textarea{color:#152c47}html[data-theme="light"] .launch-menu{background:rgba(250,253,255,.98);box-shadow:0 24px 60px rgba(44,91,128,.22)}html[data-theme="light"] .launch-menu>button{color:#294a68}
-html[data-theme="light"] .launch-nav h2,html[data-theme="light"] .launch-nav p,html[data-theme="light"] .launch-composer textarea::placeholder,html[data-theme="light"] .launch-lead,html[data-theme="light"] .launch-actions span,html[data-theme="light"] .launch-notice{color:#496985}html[data-theme="light"] .primary-actions kbd,html[data-theme="light"] .launch-menu small,html[data-theme="light"] .launch-menu p{color:#55708e}html[data-theme="light"] .composer-tools>button,html[data-theme="light"] .menu-anchor>button{background:rgba(239,248,255,.92);border-color:rgba(49,111,160,.28);color:#294f70}
+
+/* ==========================================================================
+   M11: White Theme Override (Using Native CSS Variables Instead of Hardcoded Colors)
+   We use the robust CSS variables defined at the top of the file so everything
+   (sidebar, main panel, settings, assets list, messages) adapts automatically.
+   ========================================================================== */
+html[data-theme="light"] .launch-sidebar{border-color:var(--rule);background:var(--bg2);box-shadow:8px 0 30px rgba(42,100,144,.04)}
+html[data-theme="light"] .launch-content{border-color:var(--rule);background:var(--bg)}
+html[data-theme="light"] .launch-brand b,html[data-theme="light"] .launch-brand em,html[data-theme="light"] .launch-center h1,html[data-theme="light"] .launch-actions b{color:var(--ink)}
+html[data-theme="light"] .primary-actions>button,html[data-theme="light"] .launch-nav button,html[data-theme="light"] .launch-bottom button{color:var(--muted)}
+html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active{background:rgba(0,138,197,.08);color:var(--tide1)}
+html[data-theme="light"] .launch-composer{border-color:var(--rule);background:#fff;box-shadow:0 10px 40px rgba(44,93,135,.08)}
+html[data-theme="light"] .launch-composer textarea{color:var(--ink)}
+html[data-theme="light"] .launch-menu{background:#fff;box-shadow:0 14px 40px rgba(44,93,135,.15);border:1px solid var(--rule)}
+html[data-theme="light"] .launch-menu>button{color:var(--ink)}
+html[data-theme="light"] .launch-nav h2,html[data-theme="light"] .launch-nav p,html[data-theme="light"] .launch-composer textarea::placeholder,html[data-theme="light"] .launch-lead,html[data-theme="light"] .launch-actions span,html[data-theme="light"] .launch-notice{color:var(--muted)}
+html[data-theme="light"] .primary-actions kbd,html[data-theme="light"] .launch-menu small,html[data-theme="light"] .launch-menu p{color:var(--muted)}
+html[data-theme="light"] .composer-tools>button,html[data-theme="light"] .menu-anchor>button{background:var(--bg2);border-color:var(--rule);color:var(--ink)}
 
 .launch-main{position:relative;display:flex;min-height:100%;padding:clamp(54px,8vh,86px) clamp(24px,5%,72px) 42px;align-items:center;overflow:visible}.launch-main::before{content:"";position:absolute;width:900px;height:520px;top:12%;left:50%;transform:translateX(-50%);background:radial-gradient(circle,rgba(98,96,201,.10),rgba(52,98,178,.03) 43%,transparent 70%);filter:blur(14px);pointer-events:none}
 .launch-center{position:relative;display:flex;width:100%;min-width:0;margin:0 auto;flex-direction:column;align-items:center;text-align:center}.launch-center>.real-moon{width:42px;height:42px;margin:0 auto 16px}.launch-center h1{width:100%;margin:0 0 7px;text-align:center;font:650 clamp(25px,2.5vw,36px)/1.2 var(--sans);letter-spacing:-.025em;color:#edf3ff}.launch-lead{width:100%;max-width:620px;margin:0 auto clamp(28px,5vh,52px);text-align:center;color:#92a2ba;font-size:14px}.launch-center .launch-composer,.launch-center .launch-actions{width:100%;text-align:left}
@@ -468,10 +559,7 @@ html[data-theme="light"] .chat-content>.main,html[data-theme="light"] .personal-
 .message-input.is-dragging,.launch-composer.is-dragging{border-color:var(--tide1)!important;background:rgba(63,214,255,.08)!important;box-shadow:0 0 0 2px rgba(63,214,255,.22),0 8px 26px rgba(0,0,0,.24)!important}
 .composer-attach{width:30px;height:30px;padding:0!important;border-radius:8px!important;font-size:17px!important}.pending-files{display:flex;gap:6px;flex-wrap:wrap;padding:0 9px 8px}.pending-files>span{display:flex;align-items:center;gap:5px;max-width:220px;padding:4px 7px;border:1px solid var(--line);border-radius:7px;background:var(--bg2);color:var(--ink);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pending-files button{width:17px;height:17px;padding:0;border:0;background:transparent;color:var(--muted)}
 html[data-theme="light"] .message-input.is-dragging,html[data-theme="light"] .launch-composer.is-dragging{background:#eaf8ff!important;box-shadow:0 0 0 2px rgba(45,140,190,.18),0 8px 28px rgba(45,92,135,.12)!important}
-html[data-theme="light"] .settings-shell,html[data-theme="light"] .settings-nav,html[data-theme="light"] .settings-top{background:#f8fcff;color:var(--ink)}
-html[data-theme="light"] .shell,html[data-theme="light"] .provider-route,html[data-theme="light"] .project-page,html[data-theme="light"] .main:not(.personal-chat-page),html[data-theme="light"] .project-create,html[data-theme="light"] .project-list,html[data-theme="light"] .session-list-panel,html[data-theme="light"] .message-panel{background:rgba(248,252,255,.96);color:var(--ink)}
-html[data-theme="light"] .brand,html[data-theme="light"] .project-card,html[data-theme="light"] .provider-card,html[data-theme="light"] .session-item,html[data-theme="light"] .model-list>div,html[data-theme="light"] dl div{background:#fff;color:var(--ink)}
-html[data-theme="light"] .topbar,html[data-theme="light"] .pipeline,html[data-theme="light"] .message-input{background:#f2f9ff;color:var(--ink)}
+/* These hardcoded background lines are removed to rely on variables */
 html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data-theme="light"] .moon-dialog{background:#fff;color:var(--ink);box-shadow:0 30px 90px rgba(45,92,135,.25)}html[data-theme="light"] .moon-dialog>p{color:var(--muted)}html[data-theme="light"] .moon-dialog label{color:var(--ink)}html[data-theme="light"] .moon-dialog input{background:#f8fcff;color:var(--ink)}
 
 /* Unified ordinary-chat workspace */
@@ -530,15 +618,15 @@ html.companion-active .drawer-toggle{display:none}
 .companion-moon{position:relative;width:38vmin;height:38vmin;flex:none;animation:companionMoonEnter 1s cubic-bezier(.2,.85,.3,1.08) both}
 /* 进入月伴：月亮由小缓缓放大就位 */
 @keyframes companionMoonEnter{from{transform:scale(.78);opacity:0}to{transform:scale(1);opacity:1}}
-.companion-moon-halo{position:absolute;inset:-18%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(253,254,255,.5) 0%,rgba(160,213,241,.32) 20%,rgba(112,170,207,.18) 36%,rgba(37,70,96,.1) 56%,transparent 74%);opacity:.55}
+.companion-moon-halo{position:absolute;inset:-18%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(255,255,255,.6) 0%,rgba(135,206,250,.4) 20%,rgba(71,121,161,.2) 40%,transparent 70%);opacity:.8}
 /* 参考图月光：白心→亮蓝→深蓝的单层柔和辉光，无圈线、无涟漪 */
 /* 待机时隐约忽闪的白光：不规则明暗步进模拟月光闪烁 */
 .companion-moon .companion-moon-halo{animation:companionFlicker 6.4s linear infinite}
 /* 聆听：光晕随麦克风音量呼吸（本身就是忽闪），月面再加一层轻微亮度闪烁 */
 .companion-moon.state-listening .companion-moon-halo{animation:none;opacity:calc(.42 + var(--moon-level,0) * .45);transition:opacity .18s linear}
 .companion-moon.state-thinking .companion-moon-halo{animation:none;opacity:.25}
-/* 月汐说话：光晕随朗读音量波动放大，像月亮呼吸发亮 */
-.companion-moon.state-speaking .companion-moon-halo{animation:companionHaloPulse 1.8s ease-in-out infinite;opacity:calc(.45 + var(--moon-gain) * .55)}
+/* 月汐说话：光晕随朗读音量波动放大，像月亮呼吸发亮（声波光环忽闪，移除涟漪圈线） */
+.companion-moon.state-speaking .companion-moon-halo{animation:companionHaloPulse 1.8s ease-in-out infinite;opacity:calc(.45 + var(--moon-gain) * .55); box-shadow: 0 0 calc(20px + var(--moon-gain) * 40px) calc(10px + var(--moon-gain) * 20px) rgba(160,213,241,calc(.2 + var(--moon-gain) * .3)); border: none;}
 @keyframes companionHaloPulse{0%,100%{transform:scale(1)}50%{transform:scale(calc(1.05 + var(--moon-gain,0) * .08))}}
 /* 聆听时月面轻微忽闪（不规则亮度步进，与待机 flicker 同族但更轻） */
 .companion-moon.state-listening .companion-moon-body svg{animation:companionGlowFlicker 3.7s linear infinite}
@@ -566,7 +654,9 @@ html.companion-active .drawer-toggle{display:none}
 .reduce-motion .companion-stage .companion-stars i{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
 /* 当前一轮对话的字幕条：宽度随内容收缩，高度封顶后内部滚动，完整显示长句 */
-.companion-subtitles{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(720px,86vw);max-height:190px;padding:4px 16px;border:1px solid rgba(143,170,216,.16);border-radius:999px;background:rgba(6,11,20,.55);backdrop-filter:blur(6px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+.companion-subtitles{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(720px,86vw);max-height:190px;padding:4px 16px;border:1px solid rgba(143,170,216,.16);border-radius:999px;background:rgba(6,11,20,.55);backdrop-filter:blur(6px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;transition:opacity .8s ease,transform .8s ease}
+/* 回合结束后的退场：字幕条整体淡出下滑，舞台回到纯月面 */
+.companion-subtitles.retiring{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
 .companion-subtitles:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
 .companion-subtitle-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(143,170,216,.4) transparent;padding:2px 6px 2px 0}
 .companion-subtitle-hint{margin:1px 0;color:var(--muted);font-size:11.5px;text-align:center;white-space:nowrap}
@@ -595,17 +685,20 @@ html.companion-active .drawer-toggle{display:none}
 @keyframes companionMicPulse{0%,100%{box-shadow:0 0 0 3px rgba(63,214,255,.14),0 0 18px rgba(63,214,255,.24)}50%{box-shadow:0 0 0 6px rgba(63,214,255,.2),0 0 30px rgba(63,214,255,.4)}}
 .companion-mic.state-thinking{opacity:.55}
 .companion-tts-toggle,.companion-type-toggle,.companion-exit{padding:9px 14px!important;border-radius:999px!important;background:rgba(14,24,40,.9)!important;color:var(--ink)!important;font-size:12.5px}
+/* 退出按钮固定在左上角：脱离流式布局，永远不被字幕条/月亮遮挡，Esc 同效 */
+.companion-exit{position:absolute;top:22px;left:26px;z-index:5;border:1px solid rgba(143,170,216,.35)!important}
+.companion-exit:hover{border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
 .companion-tts-toggle:disabled{opacity:.45}
 .reduce-motion .companion-mic.state-listening{animation:none}
 .companion-entry{width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:16px!important;color:var(--moon)!important;text-shadow:0 0 10px rgba(127,180,255,.55)}
 .companion-entry:hover{border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
 .companion-entry[aria-expanded="true"]{border-color:var(--tide3)!important;box-shadow:0 0 12px rgba(47,214,181,.4)}
 @media(max-width:900px){.companion-moon{width:44vmin;height:44vmin}.companion-subtitles{bottom:168px;max-width:88vw}.companion-controls{gap:9px}.companion-mic{width:56px;height:56px}}
-html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,html[data-theme="light"] .skill-detail,html[data-theme="light"] .files-panel{background:#f8fcff;color:var(--ink)}html[data-theme="light"] .skill-status-tabs{background:#edf6fc}html[data-theme="light"] .skill-row:hover,html[data-theme="light"] .skill-row.active{background:rgba(49,139,205,.09)}
+html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,html[data-theme="light"] .skill-detail,html[data-theme="light"] .files-panel{background:var(--bg);color:var(--ink)}html[data-theme="light"] .skill-status-tabs{background:var(--bg2)}html[data-theme="light"] .skill-row:hover,html[data-theme="light"] .skill-row.active{background:rgba(49,139,205,.09)}
 @media(max-width:1050px){.skill-center-layout{grid-template-columns:1fr}.skill-detail{min-height:320px}.skill-center-toolbar{flex-wrap:wrap}.skill-search{margin-left:0}}@media(max-width:680px){.skill-center{padding:66px 14px 20px}.skill-center-header{align-items:flex-start;flex-direction:column}.skill-status-tabs{max-width:100%;overflow-x:auto}.skill-center-layout{display:block}.skill-detail{margin-top:12px}.skill-table-head{display:none}.skill-row{grid-template-columns:1fr auto}.skill-row>code:last-child,.skill-row>.skill-status{display:none}}
 
 /* P3-2 skill market: catalog cards reuse the skill center look. */
-.skill-market{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;padding-bottom:24px}.skill-market-card{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}.skill-market-card>header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.skill-market-card>header code{color:var(--muted);font-size:10px}.skill-market-card>p{flex:1;margin:0;color:var(--muted);font-size:12px}.skill-market-card>footer{display:flex;justify-content:space-between;align-items:center;gap:8px}.skill-market-card>footer small{color:var(--muted);font-family:var(--mono)}.skill-market-card.is-installed{border-color:rgba(47,214,181,.4)}.skill-market-installed{color:var(--ok);font-size:11px}html[data-theme="light"] .skill-market-card{background:#f8fcff}
+.skill-market{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;padding-bottom:24px}.skill-market-card{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}.skill-market-card>header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.skill-market-card>header code{color:var(--muted);font-size:10px}.skill-market-card>p{flex:1;margin:0;color:var(--muted);font-size:12px}.skill-market-card>footer{display:flex;justify-content:space-between;align-items:center;gap:8px}.skill-market-card>footer small{color:var(--muted);font-family:var(--mono)}.skill-market-card.is-installed{border-color:rgba(47,214,181,.4)}.skill-market-installed{color:var(--ok);font-size:11px}html[data-theme="light"] .skill-market-card{background:var(--bg)}
 
 /* M10 wave-3 connector market: grid, validation chain and confirm dialogs. */
 .mc-market-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;padding-bottom:24px}.mc-market-card{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}.mc-market-card>div:first-child{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.mc-market-card>div:first-child code{color:var(--muted);font-size:10px}.mc-market-card>p{flex:1;margin:0;color:var(--muted);font-size:12px}.mc-market-card>small{color:var(--muted);font-family:var(--mono);font-size:10px}.mc-check-chain{display:grid;gap:5px;margin:8px 0;padding:0;list-style:none;font-size:11.5px}.mc-check-chain li{display:grid;gap:2px;padding:6px 9px;border:1px solid var(--rule);border-radius:7px;background:var(--bg2)}.mc-check-chain li.passed b{color:var(--ok)}.mc-check-chain li.failed{border-color:rgba(235,90,110,.45)}.mc-check-chain li.failed b{color:var(--red)}.mc-check-chain small{color:var(--muted)}.mc-manual{display:grid;gap:10px;max-width:640px}.mc-config-preview{max-height:220px;padding:10px;overflow:auto;border:1px solid var(--rule);border-radius:8px;background:var(--bg2);white-space:pre-wrap;font:11px var(--mono)}.mc-detail-dialog{display:grid;gap:10px;width:min(680px,92vw);margin:48px auto;padding:20px;border:1px solid var(--rule);border-radius:12px;background:var(--bg)}html[data-theme="light"] .mc-market-card,html[data-theme="light"] .mc-check-chain li,html[data-theme="light"] .mc-config-preview{background:#f8fcff}html[data-theme="light"] .mc-detail-dialog{background:#f8fcff}

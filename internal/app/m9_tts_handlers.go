@@ -20,7 +20,8 @@ import (
 
 func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Engine string `json:"engine"`
+		Engine      string `json:"engine"`
+		RefEndpoint string `json:"refEndpoint"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.voices 参数无效", false)
@@ -29,7 +30,10 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref", false)
 	}
 	if p.Engine == tts.EngineRef {
-		return bridge.Success(r.ID, map[string]any{"voices": tts.RefVoices()})
+		return bridge.Success(r.ID, map[string]any{
+			"voices":   tts.RefVoices(),
+			"ref_meta": tts.RefPackMeta(p.RefEndpoint),
+		})
 	}
 	// natural / legacy edge / sapi: one local catalogue — OneCore natural
 	// voices first, classic desktop voices after.
@@ -67,14 +71,21 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref", false)
 	}
 	if p.Engine == tts.EngineRef {
-		if !strings.HasPrefix(p.RefEndpoint, "http://") && !strings.HasPrefix(p.RefEndpoint, "https://") {
+		if p.VoiceID == "" {
+			p.VoiceID = tts.RefDefaultVoiceID()
+		}
+		if p.RefEndpoint != "" && !strings.HasPrefix(p.RefEndpoint, "http://") && !strings.HasPrefix(p.RefEndpoint, "https://") {
 			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
 		}
-		if strings.TrimSpace(p.RefWavPath) == "" {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
-		}
-		if _, err := os.Stat(p.RefWavPath); err != nil {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
+		if !tts.IsRefPresetVoiceID(p.VoiceID) {
+			// Custom reference audio keeps the strict payload checks;
+			// preset refpack: voices resolve against the built-in pack.
+			if strings.TrimSpace(p.RefWavPath) == "" {
+				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
+			}
+			if _, err := os.Stat(p.RefWavPath); err != nil {
+				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
+			}
 		}
 	}
 	if e.m9tts == nil {

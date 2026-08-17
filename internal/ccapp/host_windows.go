@@ -97,6 +97,7 @@ type keyEvent struct {
 	Time  uint32
 	_     uint32
 	Info  uintptr
+	_     uint64 // padding to match sizeof(INPUT) = 40 on x64
 }
 
 // virtualKeyCodes maps the portable key vocabulary onto virtual-key codes.

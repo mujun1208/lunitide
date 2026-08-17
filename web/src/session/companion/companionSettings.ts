@@ -1,10 +1,12 @@
 // companionSettings.ts persists the M9.5 Moon Companion settings under
 // the existing lunitide:localStorage namespace (zero new tables, zero
 // migrations). The engine family picks the synthesis route: "natural"
-// (local OneCore neural voices, default) or "sapi" (classic desktop
-// voices). Legacy "edge"/"ref" values stored by pre-1.0 builds fall
-// back to "natural".
-export type CompanionEngine = 'natural' | 'sapi'
+// (local OneCore neural voices, default), "sapi" (classic desktop
+// voices) or "ref" (GPT-SoVITS local service cloning the built-in 18
+// character voices). Legacy "edge" values stored by pre-1.0 builds fall
+// back to "natural". refEndpoint overrides the GPT-SoVITS api_v2
+// address (empty = backend default http://127.0.0.1:9880).
+export type CompanionEngine = 'natural' | 'sapi' | 'ref'
 
 export interface CompanionSettings {
   enabled: boolean
@@ -14,6 +16,7 @@ export interface CompanionSettings {
   rate: number
   volume: number
   engine: CompanionEngine
+  refEndpoint: string
 }
 
 const STORAGE_KEY = 'lunitide:companion'
@@ -26,6 +29,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   rate: 0,
   volume: 80,
   engine: 'natural',
+  refEndpoint: '',
 })
 
 export function loadCompanionSettings(): CompanionSettings {
@@ -42,6 +46,7 @@ export function loadCompanionSettings(): CompanionSettings {
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),
       engine: isEngine(parsed.engine) ? parsed.engine : fallback.engine,
+      refEndpoint: typeof parsed.refEndpoint === 'string' ? parsed.refEndpoint : '',
     }
   } catch {
     return fallback
@@ -57,7 +62,7 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 }
 
 function isEngine(value: unknown): value is CompanionEngine {
-  return value === 'natural' || value === 'sapi'
+  return value === 'natural' || value === 'sapi' || value === 'ref'
 }
 
 function clampInt(value: unknown, lo: number, hi: number): number {

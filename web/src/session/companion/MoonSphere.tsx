@@ -54,14 +54,13 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
       >
         <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
           <defs>
-            {/* Reference-art moon: bright white lower face fading into a
-                cold blue-grey upper hemisphere with a dark limb. */}
-            <radialGradient id="companion-moon-gradient" cx="50%" cy="74%" r="84%">
+            {/* Reference-art moon: bright white central face fading into a
+                cold blue-grey limb. Adjusted to match reference glow. */}
+            <radialGradient id="companion-moon-gradient" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="20%" stopColor="#f4fafa" />
-              <stop offset="46%" stopColor="#c9d2d8" />
-              <stop offset="70%" stopColor="#a8b3bb" />
-              <stop offset="88%" stopColor="#8c949a" />
+              <stop offset="40%" stopColor="#f4fafa" />
+              <stop offset="65%" stopColor="#d1e0eb" />
+              <stop offset="85%" stopColor="#a8b3bb" />
               <stop offset="100%" stopColor="#6d8195" />
             </radialGradient>
           </defs>
@@ -75,8 +74,8 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
             <ellipse cx="43" cy="24" rx="4.5" ry="3.5" fill="#79838c" opacity=".5" />
             <ellipse cx="29" cy="52" rx="5" ry="4" fill="#4e647a" opacity=".34" />
           </g>
-          {/* Near-white rim line — the reference art's signature stroke. */}
-          <circle cx="50" cy="50" r="47.1" fill="none" stroke="#fdfeff" strokeWidth="1.3" opacity=".92" />
+          {/* Bright white rim line — the reference art's signature glowing edge. */}
+          <circle cx="50" cy="50" r="48" fill="none" stroke="#ffffff" strokeWidth="2.5" opacity="0.9" style={{ filter: 'drop-shadow(0 0 6px #a0d5f1)' }} />
         </svg>
       </button>
       <span className="companion-ring-value" role="status">{`音量 ${Math.round(ringAverage * 100)}%`}</span>
