@@ -26,7 +26,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   autoSpeak: true,
   wakeWord: true,
   voiceId: '',
-  rate: 0,
+  rate: 4,
   volume: 80,
   engine: 'natural',
   refEndpoint: '',

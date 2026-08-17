@@ -68,7 +68,7 @@ func New(ctx context.Context, rawBase, apiPath string, o Options) (*Connector, e
 	if r == nil {
 		r = SystemResolver{}
 	}
-	ips, err := resolveAllowed(ctx, r, host)
+	ips, err := resolveAllowed(ctx, r, host, o.Policy)
 	if err != nil {
 		return nil, err
 	}

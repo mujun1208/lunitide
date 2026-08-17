@@ -41,7 +41,7 @@ interface GeneralSettings {
   timezone: string
   enterToSend: boolean
   autoTitle: boolean
-  defaultMode: 'auto' | 'collab' | 'code'
+  defaultMode: 'auto' | 'collab' | 'code' | 'full-access'
 }
 
 interface AppearanceSettings {
@@ -59,7 +59,7 @@ const DEFAULT_GENERAL: GeneralSettings = {
   timezone: 'Asia/Shanghai',
   enterToSend: true,
   autoTitle: true,
-  defaultMode: 'auto',
+  defaultMode: 'full-access', // 默认提升为完全访问权限
 }
 
 const DEFAULT_APPEARANCE: AppearanceSettings = {

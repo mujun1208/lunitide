@@ -99,7 +99,7 @@ func NormalizeBaseURL(raw string) (string, error) {
 		return "", errors.New("provider origin is invalid")
 	}
 	u, err := url.Parse(input)
-	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || (!strings.EqualFold(u.Scheme, "https") && !strings.EqualFold(u.Scheme, "http")) || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", errors.New("provider origin is invalid")
 	}
 	hostname := u.Hostname()
@@ -116,9 +116,15 @@ func NormalizeBaseURL(raw string) (string, error) {
 			return "", errors.New("provider origin is invalid")
 		}
 	}
-	u.Scheme = "https"
+	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
-	if port == "443" {
+	if port == "443" && u.Scheme == "https" {
+		u.Host = u.Hostname()
+		if strings.Contains(u.Host, ":") {
+			u.Host = "[" + u.Host + "]"
+		}
+	}
+	if port == "80" && u.Scheme == "http" {
 		u.Host = u.Hostname()
 		if strings.Contains(u.Host, ":") {
 			u.Host = "[" + u.Host + "]"

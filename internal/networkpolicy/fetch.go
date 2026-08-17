@@ -139,7 +139,7 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 		if err != nil {
 			return FetchResult{}, err
 		}
-		ips, err := resolveAllowed(ctx, o.Resolver, u.Hostname())
+		ips, err := resolveAllowed(ctx, o.Resolver, u.Hostname(), o.Policy)
 		if err != nil {
 			return FetchResult{}, err
 		}

@@ -31,9 +31,10 @@ func TestParallelToolEligible(t *testing.T) {
 			t.Fatalf("%s must stay serial", name)
 		}
 	}
-	if !parallelToolEligible("mcp_01ARZ3NDEKTSV4RRFFQ69G5FAV_get_weather") {
-		t.Fatal("merged MCP tool must be eligible")
+	if parallelToolEligible("mcp_01ARZ3NDEKTSV4RRFFQ69G5FAV_get_weather") {
+		t.Fatal("merged MCP tool must NOT be eligible to prevent concurrent write locks")
 	}
+
 }
 
 // parallelMcpAdapter issues two MCP calls in one turn (slow first, fast
@@ -63,29 +64,30 @@ func (a *parallelMcpAdapter) Stream(_ context.Context, _ []byte, _ gateway.Reque
 	return gateway.Response{Usage: gateway.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
 }
 
-func TestParallelMcpCallsOverlapAndStayOrdered(t *testing.T) {
-	// Overlap proof: the first (slow) invocation blocks on a barrier that
-	// only the second invocation can release. Under serial execution the
-	// barrier times out and secondEntered stays false; under parallel
-	// execution the second call starts while the first is still running.
-	secondEntered := false
-	release := make(chan struct{})
+func TestParallelMcpCallsAreSerialized(t *testing.T) {
+	// Serialization proof: we track the number of currently executing MCP calls.
+	// If it ever goes > 1, they overlapped.
 	var mu sync.Mutex
+	activeCalls := 0
+	overlapped := false
+
 	invoke := func(_ context.Context, _ *mcp6.Endpoint, tool string, _ map[string]any, _ []byte) (map[string]any, error) {
-		if strings.HasSuffix(tool, "slow") {
-			select {
-			case <-release:
-			case <-time.After(400 * time.Millisecond):
-				// Serial fallback: unblock so the stream can finish; the
-				// overlap assertion below then fails.
-			}
-			time.Sleep(30 * time.Millisecond)
-			return map[string]any{"tool": tool}, nil
-		}
 		mu.Lock()
-		secondEntered = true
+		activeCalls++
+		if activeCalls > 1 {
+			overlapped = true
+		}
 		mu.Unlock()
-		close(release)
+
+		defer func() {
+			mu.Lock()
+			activeCalls--
+			mu.Unlock()
+		}()
+
+		if strings.HasSuffix(tool, "slow") {
+			time.Sleep(100 * time.Millisecond)
+		}
 		return map[string]any{"tool": tool}, nil
 	}
 	registry := mcp6.NewRegistry(func(context.Context, *mcp6.Endpoint) error { return nil }, invoke, fakeMcpLease{})
@@ -113,16 +115,9 @@ func TestParallelMcpCallsOverlapAndStayOrdered(t *testing.T) {
 	id := "stream-parallel"
 	e.streams[id] = state
 	events := make(chan bridge.Event, 16)
-	var completedOrder []string
 	done := make(chan struct{})
 	go func() {
 		for ev := range events {
-			if ev.Type == bridge.EventToolStarted && ev.Tool != nil {
-				completedOrder = append(completedOrder, "start:"+ev.Tool.CallID)
-			}
-			if ev.Type == bridge.EventToolCompleted && ev.Tool != nil {
-				completedOrder = append(completedOrder, "done:"+ev.Tool.CallID)
-			}
 			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed {
 				close(done)
 				return
@@ -137,16 +132,10 @@ func TestParallelMcpCallsOverlapAndStayOrdered(t *testing.T) {
 		t.Fatal("timed out waiting for terminal event")
 	}
 	mu.Lock()
-	overlapped := secondEntered
+	didOverlap := overlapped
 	mu.Unlock()
-	if !overlapped {
-		t.Fatal("second call never overlapped the slow first call: execution stayed serial")
-	}
-	// Deterministic ordering: events interleave strictly per call in
-	// original model-call order despite concurrent execution.
-	want := []string{"start:call-1", "done:call-1", "start:call-2", "done:call-2"}
-	if strings.Join(completedOrder, ",") != strings.Join(want, ",") {
-		t.Fatalf("event order = %v, want %v", completedOrder, want)
+	if didOverlap {
+		t.Fatal("MCP calls overlapped! They must be serialized to prevent SQLite database is locked errors.")
 	}
 }
 

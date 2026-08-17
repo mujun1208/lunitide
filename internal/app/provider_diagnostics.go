@@ -148,11 +148,16 @@ func (e *Engine) adapter(ctx context.Context, p provider.Provider) (gateway.Adap
 	if e.adapterFactory != nil {
 		return e.adapterFactory(ctx, p)
 	}
+	// Provider connections are user-configured endpoints. Allow HTTP and
+	// localhost so that local model servers (LM Studio, Ollama, etc.) are
+	// reachable. The SSRF policy still applies to web fetch/search paths.
+	network := e.network
+	network.Policy = networkpolicy.Policy{AllowHTTP: true, AllowLocalhost: true}
 	switch p.Protocol {
 	case provider.ProtocolOpenAICompatible:
-		return gateway.OpenAIEndpoint(ctx, p.BaseURL, e.network, e.gateway)
+		return gateway.OpenAIEndpoint(ctx, p.BaseURL, network, e.gateway)
 	case provider.ProtocolAnthropic:
-		return gateway.AnthropicEndpoint(ctx, p.BaseURL, e.network, e.gateway)
+		return gateway.AnthropicEndpoint(ctx, p.BaseURL, network, e.gateway)
 	default:
 		return nil, errors.New("invalid stored protocol")
 	}

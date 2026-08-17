@@ -162,7 +162,13 @@ func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 		p.System = append(p.System, anthropicSystemBlock{Text: s})
 	}
 	if n := len(p.System); n > 0 {
-		p.System[n-1].CacheControl = ephemeralCache()
+		// 严格分离静态区与动态区缓存：
+		// 第一个 system block 通常为静态规则，加上 cache_control 提高命中率。
+		p.System[0].CacheControl = ephemeralCache()
+		if n > 1 {
+			// 最后一个 system block 包含动态状态，加 cache_control 作为历史前缀断点。
+			p.System[n-1].CacheControl = ephemeralCache()
+		}
 	}
 	// History-prefix breakpoint: everything except the final message is
 	// stable across the six-step tool loop and across turns, so marking

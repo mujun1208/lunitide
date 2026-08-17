@@ -107,7 +107,7 @@ body{margin:0;min-width:320px;min-height:100vh;
   background:radial-gradient(circle,rgba(244,246,255,.16) 0%,rgba(207,224,255,.07) 34%,transparent 62%);
   filter:blur(2px)}
 .moon{position:fixed;top:64px;right:96px;width:120px;height:120px;border-radius:50%;z-index:-1;pointer-events:none;
-  background:radial-gradient(circle at 50% 50%,#ffffff 0 30%,#e0efff 50%,#b0c8d6 80%,#6d8195 100%);
+  background:radial-gradient(circle at 50% 50%,#ffffff 0%,#f4fafa 40%,#d1e0eb 65%,#a8b3bb 85%,#6d8195 100%);
   box-shadow:0 0 10px 2px rgba(255,255,255,.8),0 0 30px 10px rgba(135,206,250,.5),0 0 80px 30px rgba(71,121,161,.3);
   animation:moonFloat 9s ease-in-out infinite}
 .moon::before{content:"";position:absolute;inset:8px 12px 16px 14px;border-radius:50%;
@@ -482,7 +482,7 @@ body{background:#03060c;overflow-x:hidden}
 .atmosphere .ambient-moon{position:absolute;z-index:4;top:70px;right:8vw;width:116px;height:116px;opacity:.38}
 @keyframes starTwinkle{0%,100%{opacity:.2;transform:scale(.76)}48%{opacity:1;transform:scale(1.18)}55%{opacity:.78;transform:scale(1)}}
 
-.real-moon,.ambient-moon{display:block;position:relative;border-radius:50%;background:radial-gradient(circle at 50% 74%,#ffffff 0 10%,#f4fafa 26%,#c9d2d8 48%,#a8b3bb 70%,#8c949a 88%,#6d8195 100%);box-shadow:inset -8px -10px 18px rgba(77,100,122,.26),inset 4px 5px 10px rgba(253,254,255,.55),0 0 5px 1px rgba(253,254,255,.45),0 0 20px 6px rgba(160,213,241,.3),0 0 56px 18px rgba(71,121,161,.15);overflow:hidden}
+.real-moon,.ambient-moon{display:block;position:relative;border-radius:50%;background:radial-gradient(circle at 50% 50%,#ffffff 0%,#f4fafa 40%,#d1e0eb 65%,#a8b3bb 85%,#6d8195 100%);box-shadow:inset -8px -10px 18px rgba(77,100,122,.26),inset 4px 5px 10px rgba(253,254,255,.55),0 0 5px 1px rgba(253,254,255,.45),0 0 20px 6px rgba(160,213,241,.3),0 0 56px 18px rgba(71,121,161,.15);overflow:hidden}
 .real-moon{width:68px;height:68px;margin:0 auto 34px;animation:moonFloat 8s ease-in-out infinite}
 .real-moon.small{width:40px;height:40px;margin:0;animation:none;box-shadow:inset -5px -6px 10px rgba(77,100,122,.24),inset 3px 3px 7px rgba(253,254,255,.55),0 0 4px 1px rgba(253,254,255,.4),0 0 14px 4px rgba(160,213,241,.28),0 0 38px 12px rgba(71,121,161,.14)}
 .real-moon::after,.ambient-moon::after{content:"";position:absolute;inset:0;border-radius:50%;border:1px solid rgba(253,254,255,.5);box-shadow:inset 0 0 8px rgba(253,254,255,.3)}
@@ -568,8 +568,8 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 @media(max-width:520px){.workspace-browser-toolbar{grid-template-columns:auto minmax(0,1fr)}.workspace-browser-actions{grid-column:1/-1;justify-content:flex-end}.workspace-browser-meta small{display:none}}
 @media(max-width:760px){.workspace-layout.workspace-is-open{display:block}.workspace-resizer{display:none}.workspace-column{position:absolute;z-index:9;inset:0 0 0 auto;width:min(86vw,520px)!important;min-width:0;box-shadow:-12px 0 32px rgba(0,0,0,.32)}.workspace-column>.workspace{width:100%}}
 
-.terminal-panel{display:flex;flex:1;min-height:0;flex-direction:column;background:#111418;color:#d8dee9;overflow:hidden}.terminal-tabstrip{display:flex;align-items:center;gap:7px;min-height:48px;padding:7px 10px;border-bottom:1px solid #2a2e35;background:#17191d}.terminal-tabstrip>button{width:30px;height:30px;padding:0;border:0;background:transparent}.terminal-tab{display:flex;align-items:center;gap:8px;height:34px;padding:0 13px;border:1px solid #3a3f48;border-radius:9px;background:#24272c;color:#f1f3f6}.terminal-tab>span{font-family:var(--mono);color:#a9dff0}.terminal-tab b{font-size:13px}.terminal-sandbox-badge{margin-left:auto;padding:4px 8px;border:1px solid rgba(104,223,202,.2);border-radius:999px;background:rgba(104,223,202,.07);color:#79d7c8;font-size:10px}.terminal-toolbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #282d35;background:#1a1d22;color:#d8dee9}.terminal-actions{display:flex;gap:6px}.terminal-actions button{padding:5px 9px;border-color:#343b45;background:#22262c;font-size:11px}.terminal-toolbar>span{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:#8997a9}.terminal-toolbar>span i{width:7px;height:7px;border-radius:50%;background:#697586}.terminal-toolbar>span[data-status="running"] i{background:#5de0b5;box-shadow:0 0 8px rgba(93,224,181,.7)}.terminal-viewport{position:relative;display:flex;flex:1;min-height:0;margin:10px;border:1px solid #2a2f36;border-radius:9px;background:#151719;overflow:hidden;box-shadow:inset 0 1px rgba(255,255,255,.02)}.terminal-host{position:relative;z-index:2;flex:1;min-height:0;padding:12px}.terminal-host .xterm{height:100%}.terminal-watermark{position:absolute;right:14px;bottom:10px;color:rgba(255,255,255,.025);font:700 22px var(--mono);letter-spacing:.16em}.terminal-empty{position:absolute;z-index:3;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;padding:24px;text-align:center;color:#738092;pointer-events:none}.terminal-empty>span{font:24px var(--mono);color:#9bcfe0}.terminal-empty b{color:#cfd7e2}.terminal-empty p{max-width:330px;margin:0;font-size:12px;line-height:1.7}
-.terminal-activities{display:grid;gap:6px;max-height:38%;margin:0;padding:10px 12px;overflow:auto;list-style:none;border-bottom:1px solid var(--rule)}.terminal-activities li{display:grid;grid-template-columns:auto auto;gap:4px 10px;padding:8px;border:1px solid var(--rule);border-radius:7px;background:#0b0e13}.terminal-activities span{justify-self:end;color:var(--text-2);font-size:11px}.terminal-activities code{grid-column:1/-1;white-space:pre-wrap;overflow-wrap:anywhere;color:#d8dee9}
+.terminal-panel{display:flex;flex:1;min-height:0;flex-direction:column;background:#000000;color:#cccccc;overflow:hidden}.terminal-tabstrip{display:flex;align-items:center;gap:7px;min-height:36px;padding:4px 10px;border-bottom:1px solid #333333;background:#1e1e1e}.terminal-tabstrip>button{width:30px;height:30px;padding:0;border:0;background:transparent}.terminal-tab{display:flex;align-items:center;gap:8px;height:28px;padding:0 13px;background:#000000;color:#cccccc;border-top:1px solid #333333;border-left:1px solid #333333;border-right:1px solid #333333;border-bottom:none;border-radius:4px 4px 0 0;}.terminal-tab>span{font-family:Consolas, monospace;color:#cccccc}.terminal-tab b{font-size:12px;font-family:Consolas, monospace;font-weight:normal}.terminal-sandbox-badge{margin-left:auto;padding:2px 6px;border:1px solid #333;border-radius:4px;background:#1e1e1e;color:#888;font-size:10px}.terminal-toolbar{display:none;}.terminal-viewport{position:relative;display:flex;flex:1;min-height:0;margin:0;border:none;background:#000000;overflow:hidden;}.terminal-host{position:relative;z-index:2;flex:1;min-height:0;padding:4px 8px;font-family:Consolas, monospace}.terminal-host .xterm{height:100%}.terminal-watermark{display:none;}.terminal-empty{display:none;}
+.terminal-activities{display:none;}
 
 .coordination-plan{min-height:0;overflow:auto;padding:18px}.coordination-plan>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--rule)}.coordination-plan>header div{display:grid;gap:3px}.coordination-plan>header strong{font-size:16px}.coordination-plan>header small,.plan-summary-list small{color:var(--muted);font-size:11px}.coordination-plan>header select{max-width:48%;padding:6px 8px}.plan-summary-list{display:grid;gap:3px;margin:12px 0 24px;padding:0;list-style:none}.plan-summary-item{display:grid;width:100%;grid-template-columns:22px minmax(0,1fr);gap:8px;padding:10px;border-radius:8px;color:var(--ink)}.plan-summary-item>span:first-child{color:var(--muted);font-size:17px}.plan-summary-list .status-succeeded .plan-summary-item>span:first-child{color:var(--ok)}.plan-summary-item>span:last-child{display:grid;gap:3px}.plan-summary-list b{font-size:13px;font-weight:550}.plan-summary-list em{color:var(--muted);font-size:12px;font-style:normal;line-height:1.5}.plan-empty{padding:28px 0;color:var(--muted);text-align:center}
 
@@ -618,15 +618,15 @@ html.companion-active .drawer-toggle{display:none}
 .companion-moon{position:relative;width:38vmin;height:38vmin;flex:none;animation:companionMoonEnter 1s cubic-bezier(.2,.85,.3,1.08) both}
 /* 进入月伴：月亮由小缓缓放大就位 */
 @keyframes companionMoonEnter{from{transform:scale(.78);opacity:0}to{transform:scale(1);opacity:1}}
-.companion-moon-halo{position:absolute;inset:-18%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(255,255,255,.6) 0%,rgba(135,206,250,.4) 20%,rgba(71,121,161,.2) 40%,transparent 70%);opacity:.8}
-/* 参考图月光：白心→亮蓝→深蓝的单层柔和辉光，无圈线、无涟漪 */
+/* 参考图月光：柔和弥散辉光，无圈线、无涟漪、无可见圆形边界 */
+.companion-moon-halo{position:absolute;inset:-18%;border-radius:50%;pointer-events:none;background:transparent;opacity:.8;box-shadow:0 0 30px 14px rgba(160,213,241,.1),0 0 60px 28px rgba(135,206,250,.05),0 0 90px 44px rgba(100,160,200,.03);filter:blur(8px)}
 /* 待机时隐约忽闪的白光：不规则明暗步进模拟月光闪烁 */
 .companion-moon .companion-moon-halo{animation:companionFlicker 6.4s linear infinite}
 /* 聆听：光晕随麦克风音量呼吸（本身就是忽闪），月面再加一层轻微亮度闪烁 */
-.companion-moon.state-listening .companion-moon-halo{animation:none;opacity:calc(.42 + var(--moon-level,0) * .45);transition:opacity .18s linear}
+.companion-moon.state-listening .companion-moon-halo{animation:none;opacity:calc(.42 + var(--moon-level,0) * .45);box-shadow:0 0 calc(30px + var(--moon-level,0) * 20px) calc(14px + var(--moon-level,0) * 10px) rgba(160,213,241,calc(.1 + var(--moon-level,0) * .08)),0 0 calc(60px + var(--moon-level,0) * 30px) calc(28px + var(--moon-level,0) * 14px) rgba(135,206,250,calc(.05 + var(--moon-level,0) * .04));transition:opacity .18s linear}
 .companion-moon.state-thinking .companion-moon-halo{animation:none;opacity:.25}
-/* 月汐说话：光晕随朗读音量波动放大，像月亮呼吸发亮（声波光环忽闪，移除涟漪圈线） */
-.companion-moon.state-speaking .companion-moon-halo{animation:companionHaloPulse 1.8s ease-in-out infinite;opacity:calc(.45 + var(--moon-gain) * .55); box-shadow: 0 0 calc(20px + var(--moon-gain) * 40px) calc(10px + var(--moon-gain) * 20px) rgba(160,213,241,calc(.2 + var(--moon-gain) * .3)); border: none;}
+/* 月汐说话：声波光环忽闪——光晕随朗读音量波动，像月光呼吸发亮，无圈线、无涟漪 */
+.companion-moon.state-speaking .companion-moon-halo{animation:companionHaloPulse 1.8s ease-in-out infinite;opacity:calc(.45 + var(--moon-gain) * .55);box-shadow:0 0 calc(30px + var(--moon-gain) * 40px) calc(14px + var(--moon-gain) * 20px) rgba(160,213,241,calc(.12 + var(--moon-gain) * .22)),0 0 calc(60px + var(--moon-gain) * 60px) calc(28px + var(--moon-gain) * 30px) rgba(135,206,250,calc(.06 + var(--moon-gain) * .12)),0 0 calc(90px + var(--moon-gain) * 80px) calc(44px + var(--moon-gain) * 40px) rgba(100,160,200,calc(.03 + var(--moon-gain) * .08));border:none}
 @keyframes companionHaloPulse{0%,100%{transform:scale(1)}50%{transform:scale(calc(1.05 + var(--moon-gain,0) * .08))}}
 /* 聆听时月面轻微忽闪（不规则亮度步进，与待机 flicker 同族但更轻） */
 .companion-moon.state-listening .companion-moon-body svg{animation:companionGlowFlicker 3.7s linear infinite}
@@ -642,9 +642,7 @@ html.companion-active .drawer-toggle{display:none}
 /* 月亮始终缓缓自转（忽闪的晕圈随它一起呼吸）；思考时转得快一点 */
 .companion-moon.state-thinking .companion-moon-face{animation-duration:8s}
 @keyframes companionSpin{to{transform:rotate(360deg)}}
-.companion-ring-value{display:none;position:absolute;left:50%;bottom:-2.4vmin;transform:translateX(-50%);color:var(--muted);font:11px var(--mono)}
 .reduce-motion .companion-moon-face{animation:none!important}
-.reduce-motion .companion-ring-value{display:block}
 .reduce-motion .companion-moon{animation:none!important}
 .reduce-motion .companion-moon.state-listening .companion-moon-body svg{animation:none}
 .reduce-motion .companion-moon.state-speaking .companion-moon-halo{animation:none}

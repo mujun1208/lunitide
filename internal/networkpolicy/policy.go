@@ -24,7 +24,10 @@ func (r SystemResolver) LookupNetIP(ctx context.Context, network, host string) (
 	return r.Resolver.LookupNetIP(ctx, network, host)
 }
 
-type Policy struct{ AllowHTTP bool }
+type Policy struct {
+	AllowHTTP      bool
+	AllowLocalhost bool
+}
 
 var forbiddenPrefixes = mustPrefixes(
 	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
@@ -77,12 +80,14 @@ func validateAndJoin(rawBase, apiPath string, policy Policy) (*url.URL, error) {
 	return u, nil
 }
 
-func resolveAllowed(ctx context.Context, resolver Resolver, host string) ([]netip.Addr, error) {
-	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
-		return nil, &Error{Code: CodeSSRFBlocked, Op: "resolve host"}
+func resolveAllowed(ctx context.Context, resolver Resolver, host string, policy Policy) ([]netip.Addr, error) {
+	if !policy.AllowLocalhost {
+		if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+			return nil, &Error{Code: CodeSSRFBlocked, Op: "resolve host"}
+		}
 	}
 	if literal, err := netip.ParseAddr(host); err == nil {
-		if !allowedIP(literal) {
+		if !policy.AllowLocalhost && !allowedIP(literal) {
 			return nil, &Error{Code: CodeSSRFBlocked, Op: "resolve host"}
 		}
 		return []netip.Addr{literal}, nil
@@ -98,7 +103,7 @@ func resolveAllowed(ctx context.Context, resolver Resolver, host string) ([]neti
 		return nil, &Error{Code: CodeDNSError, Op: "resolve host", Err: fmt.Errorf("no addresses")}
 	}
 	for _, ip := range ips { // Mixed answers fail closed.
-		if !allowedIP(ip) {
+		if !policy.AllowLocalhost && !allowedIP(ip) {
 			return nil, &Error{Code: CodeSSRFBlocked, Op: "resolve host"}
 		}
 	}

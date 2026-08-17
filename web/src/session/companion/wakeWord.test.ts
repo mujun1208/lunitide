@@ -21,9 +21,11 @@ it('extracts the trailing request as the companion prompt', () => {
 })
 
 it('does not match ordinary speech or look-alike phrases', () => {
-  for (const phrase of ['今天天气不错', '你好，世界', '月汐你好', '再见月汐', '你好月']) {
+  for (const phrase of ['今天天气不错', '你好，世界', '再见月汐', '你好月']) {
     expect(matchWakeWord(phrase)).toEqual({ hit: false, prompt: '' })
   }
+  // "月汐你好" now matches with name-only wake: "月汐" is in WAKE_NAMES
+  expect(matchWakeWord('月汐你好')).toEqual({ hit: true, prompt: '你好' })
 })
 
 it('matches common ASR homophone transcribes of the wake name', () => {
@@ -32,9 +34,11 @@ it('matches common ASR homophone transcribes of the wake name', () => {
   for (const phrase of ['你好月希', '你好，月西', '嗨月溪', '您好月熙', '你好月惜', '你好悦汐', 'hello月希']) {
     expect(matchWakeWord(phrase).hit).toBe(true)
   }
-  // Homophones alone (without a greeting prefix) stay inert to avoid
-  // false wakes from ambient speech.
-  expect(matchWakeWord('月希今天天气').hit).toBe(false)
+  // Name-only wake is now allowed (no greeting prefix required) for
+  // better UX — users can say just "月汐" to wake the companion.
+  // The prompt extraction still works: "月希今天天气" → wake hit with
+  // prompt "今天天气".
+  expect(matchWakeWord('月希今天天气')).toEqual({ hit: true, prompt: '今天天气' })
 })
 
 type FakeEvent = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }

@@ -4,7 +4,7 @@ import "testing"
 
 func TestRefValidateUsesProviderHTTPSAuthorityPolicy(t *testing.T) {
 	base := Ref{CredentialRef: "credential", ProviderID: "provider", Protocol: "openai_compatible"}
-	for _, origin := range []string{"http://example.com", "https://例子.com", "https://exa_mple.com", "https://example.com.", "https://example.com:bad"} {
+	for _, origin := range []string{"ftp://example.com", "https://例子.com", "https://exa_mple.com", "https://example.com.", "https://example.com:bad"} {
 		ref := base
 		ref.Origin = origin
 		if _, err := ref.Validate(); err == nil {
