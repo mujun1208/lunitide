@@ -23,11 +23,13 @@ const orderedMessages=(v:MessageDTO[])=>[...new Map(v.map(x=>[x.id,x])).values()
 const validText=(v:string)=>v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 type Retained={signature:string;attempt:MutationAttempt<SessionCreatePayload>};type MessageAttempt={signature:string;attempt:MutationAttempt<MessageAppendPayload>}
 const STAGE_LABELS=['需求与调研','架构','方案','UI','数据库与接口','开发','系统测试','集成验收','CR发布部署']
-export type ExecutionMode='approval'|'auto-edit'|'plan'|'full-access'
+export type ExecutionMode='approval'|'auto-edit'|'full-access'
 const modeKey=(sessionId:string)=>`lunitide:execution-mode:${sessionId}`
-export const isExecutionMode=(value:unknown):value is ExecutionMode=>value==='approval'||value==='auto-edit'||value==='plan'||value==='full-access'
-export const persistedExecutionMode=(value:unknown):ExecutionMode=>isExecutionMode(value)?value:'approval'
-export const MODE_INFO:Record<ExecutionMode,{label:string;description:string}>={approval:{label:'请求批准',description:'只读自动执行；写入和命令先请求你批准。'},'auto-edit':{label:'自动编辑',description:'会话沙箱内可自动写文件；受限命令仍需批准。'},plan:{label:'计划',description:'只分析并给出计划；工具和文件修改均被禁用。'},'full-access':{label:'完全访问',description:'免审批，文件工具直接读写你在工作区设置中选择的工作区根目录；其他模式仍限制在会话沙箱。'}}
+// Legacy "plan" values stored in localStorage or older sessions are mapped
+// to "approval" (plan mode is now system-automatic via complexity routing).
+export const isExecutionMode=(value:unknown):value is ExecutionMode=>value==='approval'||value==='auto-edit'||value==='full-access'
+export const persistedExecutionMode=(value:unknown):ExecutionMode=>isExecutionMode(value)?value:(value==='plan'?'approval':'full-access')
+export const MODE_INFO:Record<ExecutionMode,{label:string;description:string}>={approval:{label:'手动审批',description:'工具和命令需要你逐项批准后执行。'},'auto-edit':{label:'自动审批',description:'自动执行常规操作，高风险操作仍需你确认。'},'full-access':{label:'完全访问',description:'免审批，直接操作电脑文件、命令和工具。'}}
 type SpeechRecognitionEventLike={results:ArrayLike<{0:{transcript:string};isFinal:boolean}>}
 type SpeechRecognitionLike={lang:string;continuous:boolean;interimResults:boolean;onresult:((event:SpeechRecognitionEventLike)=>void)|null;onerror:((event?:{error?:string})=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void}
 const speechRecognitionConstructor=()=>((window as typeof window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike}).SpeechRecognition??(window as typeof window&{webkitSpeechRecognition?:new()=>SpeechRecognitionLike}).webkitSpeechRecognition)

@@ -68,6 +68,35 @@ export function segmentForSpeech(cleaned: string): string[] {
   return segments
 }
 
-export function prepareSpeech(raw: string): string[] {
-  return segmentForSpeech(cleanForSpeech(raw))
+export function prepareSpeech(text: string): string[] {
+  const cleaned = cleanForSpeech(text)
+  const segments: string[] = []
+  
+  // 使用正向后瞻保留标点符号，避免 TTS 丢失语气停顿。
+  // 切分规则：句号、问号、叹号、换行等自然断句点。
+  const sentences = cleaned
+    .split(/(?<=[。？！；!?;:\n])/)
+    .map(part => part.trim())
+    .filter(Boolean)
+
+  for (const sentence of sentences) {
+    // 200字以内保持完整句子，朗读连贯自然
+    if (Array.from(sentence).length <= 200) {
+      segments.push(sentence)
+      continue
+    }
+    // 超长句子：在逗号处切分，每段不超过200字
+    let current = ''
+    for (const clause of sentence.split(/(?<=[，,、])/)) {
+      if (Array.from(current + clause).length > 200 && current) {
+        segments.push(current.trim())
+        current = clause
+      } else {
+        current += clause
+      }
+    }
+    if (current.trim()) segments.push(current.trim())
+  }
+
+  return segments.length ? segments : [cleaned].filter(Boolean)
 }

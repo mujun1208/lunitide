@@ -8,7 +8,9 @@
 // Robustness rules (the wake listener used to die on the first error):
 // - Microphone permission is probed first; a hard 'denied' surfaces the
 //   error state instead of a recognition that can never start.
-// - Interim transcripts are scanned too, so the wake feels instant.
+// - Non-continuous mode (continuous=false) auto-restarts after every
+//   result so the wake listener never dies on an idle timeout; many
+//   WebView2 runtimes reject continuous=true and silently drop results.
 // - Transient errors (no-speech / network / aborted / audio-capture) restart
 //   with backoff — an idle timeout never disables the listener.
 // - Permanent denials (not-allowed / service-not-allowed) stop cleanly.
@@ -25,8 +27,10 @@ export interface WakeWordMatch {
 // often returns for 「你好，月汐」 (月汐/月夕/月希/月西/月溪/月熙/月惜 and
 // 悦汐/悦希 — the exact-fit phrase list used to miss transcribes entirely).
 const WAKE_GREETINGS = ['你好', '您好', '嗨', '哈喽', 'hello', 'hi']
-const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '悦汐', '悦希']
-const WAKE_PHRASES = WAKE_GREETINGS.flatMap(greeting => WAKE_NAMES.map(name => greeting + name))
+const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '悦汐', '悦希', 'yuxi']
+const WAKE_PHRASES = WAKE_GREETINGS.flatMap(g => WAKE_NAMES.map(n => g + n))
+// Allow calling the name directly without greeting for better UX
+WAKE_PHRASES.push(...WAKE_NAMES)
 
 // Strip whitespace, punctuation and symbols, then lowercase so「你好，月汐！」
 // and "Hello 月汐" both match. ASR transcripts mix full/half-width punctuation.
@@ -36,7 +40,9 @@ export function matchWakeWord(transcript: string): WakeWordMatch {
   const normalized = normalize(transcript)
   for (const phrase of WAKE_PHRASES) {
     const at = normalized.indexOf(phrase)
-    if (at >= 0) return { hit: true, prompt: normalized.slice(at + phrase.length) }
+    // Only match at the beginning of the utterance to avoid
+    // false wakes from ambient speech ("再见月汐" etc.).
+    if (at === 0) return { hit: true, prompt: normalized.slice(phrase.length) }
   }
   return { hit: false, prompt: '' }
 }
@@ -73,11 +79,10 @@ async function microphoneDenied(): Promise<boolean> {
 
 // useWakeWord listens continuously while enabled and fires onWake(prompt) once
 // per wake hit (listening stops after a hit; the companion stage owns the mic
-// afterwards). onend and transient errors restart recognition with backoff so
-// idle timeouts never disable the wake listener. Bumping `retry` re-arms a
-// listener that already fired (or died): entering the companion can fail
-// asynchronously, and without a retry the wake would stay dead until a
-// full remount.
+// afterwards). Non-continuous mode auto-restarts after every result so the
+// listener never dies on an idle timeout. Bumping `retry` re-arms a listener
+// that already fired (or died): entering the companion can fail asynchronously,
+// and without a retry the wake would stay dead until a full remount.
 export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; retry?: number; onWake: (prompt: string) => void }): WakeWordState {
   const [state, setState] = useState<WakeWordState>('idle')
   const onWakeRef = useRef(onWake)
@@ -110,9 +115,12 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
       try {
         recognition = new Recognition()
         recognition.lang = 'zh-CN'
-        recognition.continuous = true
-        // Interim results make the wake feel instant: the phrase usually
-        // lands in an interim transcript long before the final one.
+        // Non-continuous mode: recognition auto-stops after a result
+        // (or no-speech timeout), then onend restarts it. Many
+        // WebView2 runtimes silently drop continuous=true results,
+        // making the wake listener appear dead even when the service
+        // is running.
+        recognition.continuous = false
         recognition.interimResults = true
         recognition.onresult = event => {
           if (stopped) return

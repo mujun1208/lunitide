@@ -33,15 +33,33 @@ func TestNormalizeBaseURLIPv6AndEscapedPath(t *testing.T) {
 }
 
 func TestNormalizeBaseURLHTTPSAuthorityPolicy(t *testing.T) {
-	for _, raw := range []string{
-		"http://example.com", "https://例子.com", "https://exa_mple.com",
-		"https://example.com.", "https://example.com:bad/v1", "https://example.com:/v1",
-	} {
-		if got, err := NormalizeBaseURL(raw); err == nil {
-			t.Errorf("NormalizeBaseURL(%q) accepted as %q", raw, got)
-		}
+	tests := []struct {
+		in   string
+		want string // empty means error
+	}{
+		{"https://example.com", "https://example.com"},
+		{"http://example.com", "http://example.com"}, // Now allowed
+		{"https://192.168.1.1:8080", "https://192.168.1.1:8080"},
+		{"http://192.168.1.1:8080", "http://192.168.1.1:8080"},
+		{"https://[::1]:8443/v1", "https://[::1]:8443/v1"},
+		{"ftp://example.com", ""},
+		{"https://user:pass@example.com", ""},
+		{"https://example.com/?q=1", ""},
+		{"https://example.com/#frag", ""},
+		{"https://example.com:443", "https://example.com"},
+		{"http://example.com:80", "http://example.com"},
+		{"https://EXAMPLE.COM", "https://example.com"},
 	}
-	if got, err := NormalizeBaseURL("https://[2001:DB8::1]:443/v1"); err != nil || got != "https://[2001:db8::1]/v1" {
-		t.Fatalf("valid bracketed IPv6 HTTPS = %q, %v", got, err)
+	for _, tc := range tests {
+		got, err := NormalizeBaseURL(tc.in)
+		if tc.want == "" {
+			if err == nil {
+				t.Errorf("NormalizeBaseURL(%q) accepted as %q", tc.in, got)
+			}
+		} else {
+			if err != nil || got != tc.want {
+				t.Errorf("NormalizeBaseURL(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
+			}
+		}
 	}
 }

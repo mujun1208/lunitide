@@ -78,7 +78,6 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
           <circle cx="50" cy="50" r="48" fill="none" stroke="#ffffff" strokeWidth="2.5" opacity="0.9" style={{ filter: 'drop-shadow(0 0 6px #a0d5f1)' }} />
         </svg>
       </button>
-      <span className="companion-ring-value" role="status">{`音量 ${Math.round(ringAverage * 100)}%`}</span>
-    </div>
+      </div>
   )
 }

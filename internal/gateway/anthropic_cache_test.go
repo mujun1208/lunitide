@@ -44,8 +44,8 @@ func TestAnthropicCacheBreakpoints(t *testing.T) {
 	if strings.Contains(s, `{"name":"workspace_read","description":"d1","input_schema":{"type":"object"},"cache_control"`) {
 		t.Fatalf("non-tail tool must stay unmarked: %s", s)
 	}
-	// System tail: block-array form with the breakpoint on the last block.
-	if !strings.Contains(s, `"system":[{"text":"rules part one"},{"text":"rules part two","cache_control":{"type":"ephemeral"}}]`) {
+	// System tail: block-array form with the breakpoint on the first and last blocks.
+	if !strings.Contains(s, `"system":[{"text":"rules part one","cache_control":{"type":"ephemeral"}},{"text":"rules part two","cache_control":{"type":"ephemeral"}}]`) {
 		t.Fatalf("system-tail breakpoint missing: %s", s)
 	}
 	// History prefix: the second-to-last message ("answer one") is lifted
@@ -57,8 +57,8 @@ func TestAnthropicCacheBreakpoints(t *testing.T) {
 	if strings.Contains(s, `"text":"question two","cache_control"`) {
 		t.Fatalf("final message must stay unmarked: %s", s)
 	}
-	if n := countBreakpoints(s); n != 3 {
-		t.Fatalf("breakpoint count = %d, want 3 (budget 4)", n)
+	if n := countBreakpoints(s); n != 4 {
+		t.Fatalf("breakpoint count = %d, want 4 (budget 4)", n)
 	}
 }
 

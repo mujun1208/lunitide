@@ -3,9 +3,9 @@ import{automationBridge,type AutomationBridge}from'../bridge/client'
 import type{AutomationJobListResult,AutomationRunListResult,AutomationStatusResult}from'../generated/bridge'
 type Job=AutomationJobListResult['jobs'][number]
 type Run=AutomationRunListResult['runs'][number]
-type Draft={id?:string;name:string;cron:string;prompt:string;providerId:string;modelId:string;sessionId:string;executionMode:'approval'|'auto-edit'|'plan'|'full-access';webhookUrl:string;enabled:boolean}
+type Draft={id?:string;name:string;cron:string;prompt:string;providerId:string;modelId:string;sessionId:string;executionMode:'approval'|'auto-edit'|'full-access';webhookUrl:string;enabled:boolean}
 const EMPTY_DRAFT:Draft={name:'',cron:'30 8 * * *',prompt:'',providerId:'',modelId:'',sessionId:'',executionMode:'auto-edit',webhookUrl:'',enabled:true}
-const MODE_LABEL:Record<Draft['executionMode'],string>={approval:'审批模式', 'auto-edit':'自动编辑','plan':'计划模式','full-access':'完全访问'}
+const MODE_LABEL:Record<Draft['executionMode'],string>={approval:'手动审批', 'auto-edit':'自动审批','full-access':'完全访问'}
 const fmtTime=(iso?:string)=>{if(!iso)return'—';try{const d=new Date(iso);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}catch{return iso}}
 const STATE_LABEL:Record<string,string>={running:'执行中',succeeded:'成功',failed:'失败'}
 export function AutomationPanel({sessionId,providerId,modelId,bridge=automationBridge,executionMode='auto-edit'}:{sessionId:string;providerId:string;modelId:string;bridge?:AutomationBridge;executionMode?:Draft['executionMode']}):React.JSX.Element{

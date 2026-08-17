@@ -50,8 +50,10 @@ func parallelToolEligible(name string) bool {
 	if parallelReadOnlyTools[name] {
 		return true
 	}
-	_, _, isMcp := parseMcpToolName(name)
-	return isMcp
+	// 严格遵循读写分离：
+	// 对于 MCP 工具或未知的本地工具，由于无法在分发层判定其是否包含写操作（例如并发写文件、执行命令），
+	// 为避免 SQLite 写锁冲突 (database is locked) 或产生脏写，强制降级为串行执行。
+	return false
 }
 
 // parallelToolFuture carries one background tool outcome to the main loop.

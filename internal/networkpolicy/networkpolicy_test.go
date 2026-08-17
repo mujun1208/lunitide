@@ -113,6 +113,35 @@ func TestResolveFailClosedAndRebinding(t *testing.T) {
 	}
 }
 
+func TestAllowLocalhost(t *testing.T) {
+	// localhost hostname should be allowed with AllowLocalhost
+	_, err := New(context.Background(), "http://localhost:1234", "v1", Options{
+		Policy:   Policy{AllowHTTP: true, AllowLocalhost: true},
+		Resolver: publicResolver(),
+	})
+	if err != nil {
+		t.Fatalf("localhost with AllowLocalhost: %v", err)
+	}
+
+	// loopback IP should be allowed with AllowLocalhost
+	_, err = New(context.Background(), "http://127.0.0.1:1234", "v1", Options{
+		Policy:   Policy{AllowHTTP: true, AllowLocalhost: true},
+		Resolver: publicResolver(),
+	})
+	if err != nil {
+		t.Fatalf("127.0.0.1 with AllowLocalhost: %v", err)
+	}
+
+	// localhost should still be blocked without AllowLocalhost
+	_, err = New(context.Background(), "http://localhost:1234", "v1", Options{
+		Policy:   Policy{AllowHTTP: true},
+		Resolver: publicResolver(),
+	})
+	if ErrorCode(err) != CodeSSRFBlocked {
+		t.Fatalf("localhost without AllowLocalhost code=%q", ErrorCode(err))
+	}
+}
+
 func TestTransportSecurityDefaults(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
 	c, err := New(context.Background(), "https://example.test", "v1", Options{Resolver: publicResolver()})

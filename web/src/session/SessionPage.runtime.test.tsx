@@ -47,9 +47,9 @@ it('encodes the maximum safe attachment payload and rejects larger files',async(
 },25_000)
 
 it('falls back for invalid persisted execution modes',()=>{
- expect(persistedExecutionMode('plan')).toBe('plan')
- expect(persistedExecutionMode('corrupted')).toBe('approval')
- expect(persistedExecutionMode(null)).toBe('approval')
+ expect(persistedExecutionMode('plan')).toBe('approval')
+ expect(persistedExecutionMode('corrupted')).toBe('full-access')
+ expect(persistedExecutionMode(null)).toBe('full-access')
 })
 
 it('blocks Enter re-entry after chat.start resolves, retains one stream, and cancels it',async()=>{
@@ -113,17 +113,17 @@ it('does not expose chat for disabled, unconfigured, or model-less providers and
  expect(await screen.findByText(/配置并启用至少一个模型/)).toBeInTheDocument();expect(screen.queryByRole('button',{name:'↑ 发送并对话'})).toBeNull();expect(start).not.toHaveBeenCalled()
 })
 
-it('preserves near-limit user text and sends planning mode only through chat.start',async()=>{
+it('preserves near-limit user text and sends auto-edit mode through chat.start',async()=>{
  const append=vi.fn().mockResolvedValue({}),start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),messages={list:vi.fn().mockResolvedValue(page()),append} as MessageBridge
  const user=await open({messages,chat:{start,approve:vi.fn(),dispose:vi.fn()},providers,personal:true,initialSession:session})
  expect(await screen.findByRole('button',{name:'已配置模型'})).toHaveTextContent('Model')
  const providerCalls=vi.mocked(providers.list).mock.calls.length;await user.click(screen.getByRole('button',{name:'已配置模型'}));await waitFor(()=>expect(vi.mocked(providers.list).mock.calls.length).toBeGreaterThan(providerCalls));await user.click(screen.getByRole('button',{name:'已配置模型'}))
  expect(screen.queryByLabelText('供应商')).toBeNull();expect(screen.queryByLabelText('模型')).toBeNull()
- await user.click(screen.getByRole('button',{name:'执行模式'}));await user.click(screen.getByRole('button',{name:/计划 只分析/}))
- expect(localStorage.getItem(`lunitide:execution-mode:${S}`)).toBe('plan')
+ await user.click(screen.getByRole('button',{name:'执行模式'}));await user.click(screen.getByRole('button',{name:/自动审批/}))
+ expect(localStorage.getItem(`lunitide:execution-mode:${S}`)).toBe('auto-edit')
  const raw='界'.repeat(2048);fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:raw}})
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
- await waitFor(()=>expect(start).toHaveBeenCalled());expect(vi.mocked(append).mock.calls[0][0].text).toBe(raw);expect(start.mock.calls[0][0]).toMatchObject({sessionId:S,executionMode:'plan'})
+ await waitFor(()=>expect(start).toHaveBeenCalled());expect(vi.mocked(append).mock.calls[0][0].text).toBe(raw);expect(start.mock.calls[0][0]).toMatchObject({sessionId:S,executionMode:'auto-edit'})
 })
 
 it('offers personal composer context actions',async()=>{

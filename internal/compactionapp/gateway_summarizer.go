@@ -31,7 +31,10 @@ func DefaultGatewaySummarizerConfig(model string) GatewaySummarizerConfig {
 		SystemPrompt: `You are a conversation summarizer. Summarize the following conversation segment.
 If a PRIOR SUMMARY is provided, incorporate it into a new rolling summary that preserves
 all critical facts from both the prior summary and the new messages.
-Preserve all critical facts: ULIDs, file paths, code snippets, quoted text, decisions, and action items.
+CRITICAL RULES FOR CODE:
+1. NEVER summarize or alter code blocks.
+2. If code is present, extract its exact function signatures, struct definitions, or the verbatim code block to retain 100% precision.
+3. Only summarize conversational text and reasoning processes.
 Output a JSON object with these fields:
 {
   "summary": "concise plain-text summary of the conversation",
