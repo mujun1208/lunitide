@@ -20,7 +20,7 @@ let sharedAudioContext: AudioContext | null = null
 
 /** Engine routing extras carried alongside voiceId/rate/volume so the
  * prefetch synthesizer replays the exact same engine payload. */
-export type SynthExtras = Pick<CompanionSettings, 'engine' | 'refEndpoint' | 'refWavPath' | 'refPromptText'>
+export type SynthExtras = Pick<CompanionSettings, 'engine'>
 
 function buildSynthPayload(
   text: string,
@@ -29,19 +29,13 @@ function buildSynthPayload(
   volume: number,
   extras: SynthExtras,
 ): Parameters<ReturnType<typeof getTtsBridge>['synthesize']>[0] {
-  const payload: Parameters<ReturnType<typeof getTtsBridge>['synthesize']>[0] = {
+  return {
     text,
     voiceId: voiceId || undefined,
     rate,
     volume,
     engine: extras.engine,
   }
-  if (extras.engine === 'ref') {
-    payload.refEndpoint = extras.refEndpoint
-    payload.refWavPath = extras.refWavPath
-    payload.refPromptText = extras.refPromptText
-  }
-  return payload
 }
 
 export class TtsPlayer {
@@ -184,7 +178,7 @@ export class TtsPlayer {
   private currentVoiceId = ''
   private currentRate = 0
   private currentVolume = 80
-  private currentExtras: SynthExtras = { engine: 'sapi', refEndpoint: '', refWavPath: '', refPromptText: '' }
+  private currentExtras: SynthExtras = { engine: 'natural' }
 
   /** Remember the synthesis parameters so prefetches reuse them. */
   configure(voiceId: string, rate: number, volume: number, extras?: SynthExtras): void {

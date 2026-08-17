@@ -1,10 +1,10 @@
 // companionSettings.ts persists the M9.5 Moon Companion settings under
-// the existing lunitide: localStorage namespace (zero new tables, zero
-// migrations). The engine family picks the synthesis route: "edge" (free
-// natural neural voices, default), "sapi" (offline Windows) or "ref"
-// (zero-shot timbre cloning from a local reference audio via a
-// GPT-SoVITS api_v2 compatible service).
-export type CompanionEngine = 'edge' | 'sapi' | 'ref'
+// the existing lunitide:localStorage namespace (zero new tables, zero
+// migrations). The engine family picks the synthesis route: "natural"
+// (local OneCore neural voices, default) or "sapi" (classic desktop
+// voices). Legacy "edge"/"ref" values stored by pre-1.0 builds fall
+// back to "natural".
+export type CompanionEngine = 'natural' | 'sapi'
 
 export interface CompanionSettings {
   enabled: boolean
@@ -14,19 +14,9 @@ export interface CompanionSettings {
   rate: number
   volume: number
   engine: CompanionEngine
-  /** Reference-timbre engine: local api_v2 compatible service address. */
-  refEndpoint: string
-  /** Reference-timbre engine: one reference audio file path. */
-  refWavPath: string
-  /** Reference-timbre engine: transcript of the reference audio. */
-  refPromptText: string
-  /** Last browsed reference directory (picker convenience). */
-  refDir: string
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-
-export const DEFAULT_REF_ENDPOINT = 'http://127.0.0.1:9880'
 
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
@@ -35,11 +25,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   voiceId: '',
   rate: 0,
   volume: 80,
-  engine: 'edge',
-  refEndpoint: DEFAULT_REF_ENDPOINT,
-  refWavPath: '',
-  refPromptText: '',
-  refDir: '',
+  engine: 'natural',
 })
 
 export function loadCompanionSettings(): CompanionSettings {
@@ -56,10 +42,6 @@ export function loadCompanionSettings(): CompanionSettings {
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),
       engine: isEngine(parsed.engine) ? parsed.engine : fallback.engine,
-      refEndpoint: typeof parsed.refEndpoint === 'string' && parsed.refEndpoint ? parsed.refEndpoint : fallback.refEndpoint,
-      refWavPath: typeof parsed.refWavPath === 'string' ? parsed.refWavPath : '',
-      refPromptText: typeof parsed.refPromptText === 'string' ? parsed.refPromptText : '',
-      refDir: typeof parsed.refDir === 'string' ? parsed.refDir : '',
     }
   } catch {
     return fallback
@@ -75,7 +57,7 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 }
 
 function isEngine(value: unknown): value is CompanionEngine {
-  return value === 'edge' || value === 'sapi' || value === 'ref'
+  return value === 'natural' || value === 'sapi'
 }
 
 function clampInt(value: unknown, lo: number, hi: number): number {

@@ -4,8 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode } from './SessionPage'
+import { resetLiveChatForTests } from './liveChat'
 
-afterEach(()=>{cleanup();localStorage.removeItem('lunitide:microphone-device-id')})
+afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
 const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}

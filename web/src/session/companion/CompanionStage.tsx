@@ -55,6 +55,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const [hintVisible, setHintVisible] = useState(false)
   const [localError, setLocalError] = useState<BridgeClientError>()
   const rootRef = useRef<HTMLDivElement>(null)
+  const subtitleListRef = useRef<HTMLDivElement>(null)
   const entryFocusRef = useRef<Element | null>(null)
   const speechHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
@@ -362,6 +363,14 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     }
   }
 
+  // Keep the fixed-height subtitle pill pinned to the newest text unless the
+  // user scrolled up to re-read earlier turns.
+  useEffect(() => {
+    const box = subtitleListRef.current
+    if (!box) return
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 48) box.scrollTop = box.scrollHeight
+  }, [rounds])
+
   // Keyboard contract: Esc = interrupt (speaking) or exit; Space/Enter
   // = microphone (unless focused on an interactive element).
   const onKeyDown = (event: React.KeyboardEvent) => {
@@ -438,7 +447,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
           character (wind-blown sand feel) and retires when the next turn
           starts; the aria-live log still announces every round. */}
       <div className="companion-subtitles" aria-label="对话记录">
-        <div className="companion-subtitle-list" aria-live="polite" role="log">
+        <div className="companion-subtitle-list" aria-live="polite" role="log" ref={subtitleListRef}>
           {rounds.map((round, index) => (
             <SubtitleRow key={index} round={round} />
           ))}
