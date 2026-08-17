@@ -1,12 +1,12 @@
 // MoonSphere.tsx is the M9.5 moon avatar (T-9.5.2.2): a pure SVG moon
 // with CSS-layered visuals for the four companion states. It consumes
-// only data-state and --moon-gain/--moon-level/--moon-wave plus the
-// 12-bin listening levels — no business logic. Listening and speaking
-// both render as breathing light ripples (no radial equalizer bars):
-// --moon-wave is the mic average while listening and the playback gain
-// while speaking. Colors reference the frozen theme variables
-// (--moon/--glow/--tide1~3) and every animation collapses under the
-// global .reduce-motion downgrade.
+// only data-state and --moon-gain/--moon-level — no business logic.
+// The look follows the frozen reference art: a cold blue-grey moon with
+// a bright lower face, dark crater blotches pinned to the upper half, a
+// near-white rim line and a soft blue glow that flickers with the mic
+// level (listening) or playback gain (speaking) — no ripple rings.
+// Colors reference the frozen theme variables and every animation
+// collapses under the global .reduce-motion downgrade.
 import type { CompanionState } from './useCompanionMachine'
 
 export const MOON_RING_BINS = 12
@@ -37,21 +37,13 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
   const rawLevels = state === 'listening' ? levels : idleLevels
   const ringLevels = Array.from({ length: MOON_RING_BINS }, (_, i) => rawLevels[i] ?? 0)
   const ringAverage = ringLevels.reduce((sum, level) => sum + level, 0) / MOON_RING_BINS
-  // One wave variable drives the ripple rings in both live states: the mic
-  // level while listening, the playback gain while speaking.
-  const wave = state === 'listening' ? Math.max(ringAverage, 0.08) : gain
   return (
     <div
       className={`companion-moon state-${state}`}
       data-state={state}
-      style={{ '--moon-gain': gain, '--moon-level': ringAverage, '--moon-wave': wave } as React.CSSProperties}
+      style={{ '--moon-gain': gain, '--moon-level': ringAverage } as React.CSSProperties}
     >
       <div className="companion-moon-halo" aria-hidden="true" />
-      <div className="companion-moon-ripples" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </div>
       <button
         type="button"
         className="companion-moon-body"
@@ -62,21 +54,29 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
       >
         <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
           <defs>
-            <radialGradient id="companion-moon-gradient" cx="36%" cy="30%" r="86%">
+            {/* Reference-art moon: bright white lower face fading into a
+                cold blue-grey upper hemisphere with a dark limb. */}
+            <radialGradient id="companion-moon-gradient" cx="50%" cy="74%" r="84%">
               <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="30%" stopColor="#f6faff" />
-              <stop offset="60%" stopColor="#dfeefc" />
-              <stop offset="84%" stopColor="#c0d6f6" />
-              <stop offset="100%" stopColor="#a2bfe6" />
+              <stop offset="20%" stopColor="#f4fafa" />
+              <stop offset="46%" stopColor="#c9d2d8" />
+              <stop offset="70%" stopColor="#a8b3bb" />
+              <stop offset="88%" stopColor="#8c949a" />
+              <stop offset="100%" stopColor="#6d8195" />
             </radialGradient>
           </defs>
           <circle cx="50" cy="50" r="48" fill="url(#companion-moon-gradient)" />
+          {/* Crater blotches ride the slowly spinning face group and stay
+              in the upper hemisphere (lower face stays the bright zone). */}
           <g className="companion-moon-face">
-            <ellipse cx="36" cy="52" rx="11" ry="8" fill="rgba(108,128,168,.16)" />
-            <ellipse cx="66" cy="34" rx="6.5" ry="6" fill="rgba(105,126,166,.15)" />
-            <ellipse cx="60" cy="70" rx="8" ry="6" fill="rgba(113,133,171,.14)" transform="rotate(-18 60 70)" />
-            <ellipse cx="44" cy="26" rx="4.5" ry="3.6" fill="rgba(108,128,168,.12)" />
+            <ellipse cx="34" cy="34" rx="10" ry="7.5" fill="#4e647a" opacity=".5" />
+            <ellipse cx="62" cy="27" rx="6" ry="5" fill="#79838c" opacity=".55" />
+            <ellipse cx="68" cy="48" rx="8" ry="6" fill="#4e647a" opacity=".4" transform="rotate(-14 68 48)" />
+            <ellipse cx="43" cy="24" rx="4.5" ry="3.5" fill="#79838c" opacity=".5" />
+            <ellipse cx="29" cy="52" rx="5" ry="4" fill="#4e647a" opacity=".34" />
           </g>
+          {/* Near-white rim line — the reference art's signature stroke. */}
+          <circle cx="50" cy="50" r="47.1" fill="none" stroke="#fdfeff" strokeWidth="1.3" opacity=".92" />
         </svg>
       </button>
       <span className="companion-ring-value" role="status">{`音量 ${Math.round(ringAverage * 100)}%`}</span>
