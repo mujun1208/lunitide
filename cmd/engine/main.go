@@ -20,9 +20,10 @@ import (
 	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/app"
 	"github.com/lunitide/lunitide/internal/artifactreview"
-	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
+	"github.com/lunitide/lunitide/internal/brapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
@@ -30,10 +31,8 @@ import (
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
-	"github.com/lunitide/lunitide/internal/brapp"
-	"github.com/lunitide/lunitide/internal/ccapp"
-	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/m9app"
+	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
@@ -44,6 +43,7 @@ import (
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
+	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/sessionapp"
@@ -181,6 +181,11 @@ func main() {
 	mcp6Registry := mcp6.NewRegistry(mcpGatewayProbe, mcpGatewayInvoke, mcpEmptyLease{})
 	mcp6Registry.SetDescribeFunc(mcpGatewayDescribe)
 	engine.SetM6Services(nil, mcp6Registry, nil)
+	// P1-1: persistent stdio MCP sessions. The idle reaper runs until
+	// shutdown; pooled children die with the engine process anyway (5B
+	// job object), the reaper just bounds live servers while running.
+	mcpStdioPool.Start(ctx)
+	defer mcpStdioPool.Close()
 	// M8 slice 1: the governed long-term memory core (candidate/fact/
 	// source-leaf/recall on the shared single-writer transaction).
 	memorySvc := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")

@@ -100,3 +100,24 @@ func (s *Store) GetLatestCompactionSummary(ctx context.Context, sessionID string
 	}
 	return summary, nil
 }
+
+// GetLatestCompactionCheckpoint returns the human-readable summary plus the
+// coverage end sequence (source_end_seq) of the latest succeeded activated
+// checkpoint. P2-2 hierarchical context: messages with sequence <= the
+// coverage end are represented by the summary and must not also be
+// projected verbatim. Empty summary with endSeq 0 means no active checkpoint.
+func (s *Store) GetLatestCompactionCheckpoint(ctx context.Context, sessionID string) (string, int64, error) {
+	var summary string
+	var endSeq int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT c.human_summary, c.source_end_seq FROM compaction_activations a
+		 JOIN compaction_checkpoints c ON c.id=a.checkpoint_id
+		 WHERE a.session_id=? AND c.status='succeeded'`, sessionID).Scan(&summary, &endSeq)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", 0, nil
+		}
+		return "", 0, fmt.Errorf("get latest compaction checkpoint: %w", err)
+	}
+	return summary, endSeq, nil
+}

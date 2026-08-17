@@ -223,13 +223,36 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		Provenance: fmt.Sprintf("session:%s:message:%s", sessionID, latestUser.ID),
 	})
 
+	// P2-2 hierarchical context: messages covered by the accepted
+	// checkpoint (sequence <= coverage end) are already represented by
+	// the Prior Summary preamble. Projecting them verbatim as well would
+	// duplicate context, so they are excluded here — free of budget —
+	// while the latest user turn keeps its priority-6 protection above.
+	var checkpointCoverageEnd int64
+	if env.AcceptedCheckpoint != nil {
+		checkpointCoverageEnd = env.AcceptedCheckpoint.CoverageEndSequence
+	}
+
 	for i := 0; i < len(allMessages); i++ {
 		if selectedSet[i] {
 			continue
 		}
+		msg := allMessages[i]
+		if checkpointCoverageEnd > 0 && msg.Sequence > 0 && msg.Sequence <= checkpointCoverageEnd && i != latestUserIdx {
+			selectedSet[i] = true
+			trace.Entries = append(trace.Entries, SelectionTraceEntry{
+				SourceType:   SourceRecentMessage,
+				SourceID:     msg.ID,
+				Authority:    AuthorityRecent,
+				TokenCost:    msg.TokenCount,
+				Selected:     false,
+				RejectReason: "covered_by_checkpoint",
+				Provenance:   fmt.Sprintf("session:%s:message:%s", sessionID, msg.ID),
+			})
+			continue
+		}
 		if remaining <= 0 {
 			// Record remaining candidates as rejected due to budget.
-			msg := allMessages[i]
 			if !selectedSet[i] {
 				trace.Entries = append(trace.Entries, SelectionTraceEntry{
 					SourceType:   SourceRecentMessage,
@@ -243,8 +266,6 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 			}
 			continue
 		}
-
-		msg := allMessages[i]
 
 		// Tool result: atomic pairing with preceding assistant tool_call.
 		if msg.Role == "tool" {
