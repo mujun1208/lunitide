@@ -34,15 +34,16 @@ type SynthesizeInput struct {
 
 // Engine selector values carried by tts.synthesize payloads.
 const (
-	EngineSapi = "sapi" // offline Windows SAPI (default)
-	EngineEdge = "edge" // Microsoft Edge online neural voices (free, natural)
-	EngineRef  = "ref"  // zero-shot reference-timbre cloning via local service
+	EngineSapi    = "sapi"    // offline Windows SAPI desktop voices
+	EngineNatural = "natural" // local OneCore natural neural voices (default)
+	EngineEdge    = "edge"    // legacy alias of natural (pre-1.0 settings)
+	EngineRef     = "ref"     // zero-shot reference-timbre cloning via local service
 )
 
 // ValidEngine reports whether the payload engine field is accepted.
 func ValidEngine(engine string) bool {
 	switch engine {
-	case "", EngineSapi, EngineEdge, EngineRef:
+	case "", EngineSapi, EngineNatural, EngineEdge, EngineRef:
 		return true
 	}
 	return false

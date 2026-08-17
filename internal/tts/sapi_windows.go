@@ -19,14 +19,19 @@ import (
 	"syscall"
 	"unsafe"
 
+	"golang.org/x/sys/windows/registry"
+
 	"github.com/zzl/go-com/com"
 	"github.com/zzl/go-com/ole"
 	"github.com/zzl/go-win32api/v2/win32"
 )
 
 const (
-	progIDSpVoice      = "SAPI.SpVoice"
-	progIDSpFileStream = "SAPI.SpFileStream"
+	progIDSpVoice        = "SAPI.SpVoice"
+	progIDSpFileStream   = "SAPI.SpFileStream"
+	progIDSpObjectToken  = "SAPI.SpObjectToken"
+	oneCoreVoiceRootPath = `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens\`
+	oneCoreVoiceRegPath  = `SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens`
 
 	// SpeechAudioFormatType: SAFT16kHz16BitMono = 18 (16kHz, 16-bit, mono).
 	saft16k16BitMono = 18
@@ -39,6 +44,56 @@ const (
 	wavBytesPerSample   = 2
 	wavHeaderBytes      = 44
 )
+
+// OneCore voices are the natural neural pool shipped with Windows 10/11
+// (Huihui/Kangkang/Yaoyao…). They are hidden from classic SAPI
+// enumeration and can only be driven through ISpObjectToken, whose
+// minimal IDispatch exposes just SetId/Id — so SetId and SetVoice go
+// through raw vtable calls (apartment-safe: same locked STA thread as
+// the IDispatch calls around them).
+//
+// Vtable indices (from sapi.idl): ISpObjectToken = IUnknown(3) +
+// ISpDataKey(12) + SetId → 15; ISpVoice = IUnknown(3) +
+// ISpNotifySource(7) + ISpEventSource(3) + SetVoice → 18.
+// IID_ISpObjectToken {14056589-E16C-11D2-BB90-00C04F8EE6C0}
+var iidISpObjectToken = syscall.GUID{
+	Data1: 0x14056589, Data2: 0xE16C, Data3: 0x11D2,
+	Data4: [8]byte{0xBB, 0x90, 0x00, 0xC0, 0x4F, 0x8E, 0xE6, 0xC0},
+}
+
+// IID_ISpVoice {6C44DF74-72B9-4992-A1EC-EF996E0422D4}
+var iidISpVoice = syscall.GUID{
+	Data1: 0x6C44DF74, Data2: 0x72B9, Data3: 0x4992,
+	Data4: [8]byte{0xA1, 0xEC, 0xEF, 0x99, 0x6E, 0x04, 0x22, 0xD4},
+}
+
+const (
+	vtblSetId     = 15
+	vtblSetVoice  = 18
+	vtblRelease   = 2
+	vtblQueryFace = 0
+)
+
+func vtblEntry(self unsafe.Pointer, idx int) uintptr {
+	vtbl := *(**[64]uintptr)(self)
+	return vtbl[idx]
+}
+
+func queryInterface(self unsafe.Pointer, iid *syscall.GUID) (unsafe.Pointer, int32) {
+	var out unsafe.Pointer
+	hr, _, _ := syscall.SyscallN(vtblEntry(self, vtblQueryFace),
+		uintptr(self), uintptr(unsafe.Pointer(iid)), uintptr(unsafe.Pointer(&out)))
+	return out, int32(hr)
+}
+
+func comRelease(self unsafe.Pointer) {
+	_, _, _ = syscall.SyscallN(vtblEntry(self, vtblRelease), uintptr(self))
+}
+
+// isOneCoreVoice reports whether voiceId is an OneCore registry token path.
+func isOneCoreVoice(voiceID string) bool {
+	return strings.HasPrefix(voiceID, oneCoreVoiceRootPath)
+}
 
 // sapiEngine is a stateless Engine; each call builds its own COM objects.
 type sapiEngine struct{}
@@ -126,8 +181,111 @@ func propGetByName(c *ole.OleClient, name string, reqArgs ...interface{}) (*ole.
 	return c.PropGet(id, reqArgs)
 }
 
-// Voices enumerates installed SAPI voices (M95-001 when nothing usable).
+// oneCoreVoices reads the natural neural voice pool from the OneCore
+// token registry. VoiceID doubles as the SpObjectToken SetId path used
+// at synthesis time, so enumeration and synthesis share one identity.
+func oneCoreVoices() []Voice {
+	root, err := registry.OpenKey(registry.LOCAL_MACHINE, oneCoreVoiceRegPath,
+		registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return nil
+	}
+	defer root.Close()
+	names, err := root.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil
+	}
+	voices := make([]Voice, 0, len(names))
+	for _, name := range names {
+		attr, err := registry.OpenKey(root, name+`\Attributes`, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		display, _, verr := attr.GetStringValue("Name")
+		gender, _, _ := attr.GetStringValue("Gender")
+		lang, _, _ := attr.GetStringValue("Language")
+		attr.Close()
+		if verr != nil || strings.TrimSpace(display) == "" {
+			continue
+		}
+		v := Voice{
+			VoiceID:     oneCoreVoiceRootPath + name,
+			DisplayName: strings.TrimSpace(display) + "（自然语音）",
+			Lang:        normalizeLang(strings.TrimSpace(lang)),
+		}
+		switch strings.ToLower(strings.TrimSpace(gender)) {
+		case "female":
+			v.Gender = "female"
+		case "male":
+			v.Gender = "male"
+		default:
+			v.Gender = "neutral"
+		}
+		voices = append(voices, v)
+	}
+	return voices
+}
+
+// setOneCoreVoice binds voice to the OneCore token identified by its
+// registry path via raw ISpObjectToken/ISpVoice vtable calls.
+func setOneCoreVoice(voice *ole.OleClient, tokenPath string) error {
+	token, err := createDispatch(progIDSpObjectToken)
+	if err != nil {
+		return err
+	}
+	defer token.Release()
+
+	tokIface, hr := queryInterface(unsafe.Pointer(token.IDispatch), &iidISpObjectToken)
+	if win32.FAILED(hr) {
+		return fmt.Errorf("QI ISpObjectToken: 0x%08X", uint32(hr))
+	}
+	defer comRelease(tokIface)
+
+	pathPtr, err := syscall.UTF16PtrFromString(tokenPath)
+	if err != nil {
+		return err
+	}
+	// SetId(categoryId=NULL, tokenId, fCreateIfNotExist=FALSE).
+	rc, _, _ := syscall.SyscallN(vtblEntry(tokIface, vtblSetId),
+		uintptr(tokIface), 0, uintptr(unsafe.Pointer(pathPtr)), 0)
+	if win32.FAILED(int32(rc)) {
+		return fmt.Errorf("SetId: 0x%08X", uint32(rc))
+	}
+
+	voiceIface, hr2 := queryInterface(unsafe.Pointer(voice.IDispatch), &iidISpVoice)
+	if win32.FAILED(hr2) {
+		return fmt.Errorf("QI ISpVoice: 0x%08X", uint32(hr2))
+	}
+	defer comRelease(voiceIface)
+
+	rc, _, _ = syscall.SyscallN(vtblEntry(voiceIface, vtblSetVoice),
+		uintptr(voiceIface), uintptr(tokIface))
+	if win32.FAILED(int32(rc)) {
+		return fmt.Errorf("SetVoice: 0x%08X", uint32(rc))
+	}
+	return nil
+}
+
+// Voices enumerates the OneCore natural pool plus the classic desktop
+// SAPI voices (M95-001 when nothing usable).
 func (sapiEngine) Voices() ([]Voice, error) {
+	voices := oneCoreVoices()
+	desktop, err := desktopVoices()
+	if err == nil {
+		voices = append(voices, desktop...)
+	}
+	if len(voices) == 0 {
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, err)
+		}
+		return nil, fmt.Errorf("%w: no voices enumerated", ErrEngineUnavailable)
+	}
+	return voices, nil
+}
+
+// desktopVoices enumerates the voices classic SAPI exposes (the
+// HKLM Speech\Tokens tree: Desktop 11.0 voices etc.).
+func desktopVoices() ([]Voice, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	uninit, err := comInit()
@@ -167,9 +325,6 @@ func (sapiEngine) Voices() ([]Voice, error) {
 		if v.VoiceID != "" {
 			voices = append(voices, v)
 		}
-	}
-	if len(voices) == 0 {
-		return nil, fmt.Errorf("%w: no voices enumerated", ErrEngineUnavailable)
 	}
 	return voices, nil
 }
@@ -259,7 +414,14 @@ func (sapiEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error)
 	defer voice.Release()
 
 	voiceFallback := false
-	if in.VoiceID != "" {
+	switch {
+	case isOneCoreVoice(in.VoiceID):
+		// OneCore natural voice: invisible to classic GetVoices, so it is
+		// bound through the ISpObjectToken vtable bridge.
+		if oerr := setOneCoreVoice(voice, in.VoiceID); oerr != nil {
+			voiceFallback = true // M95-004: fall back to the default voice
+		}
+	case in.VoiceID != "":
 		tokVar, terr := findTokenByID(voice, in.VoiceID)
 		if terr != nil || tokVar == nil {
 			voiceFallback = true // M95-004: fall back to the default voice
@@ -267,6 +429,14 @@ func (sapiEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error)
 			defer tokVar.Clear()
 			if id, derr := dispID(voice, "Voice"); derr == nil {
 				_ = voice.PropPutRef(id, []interface{}{tokVar.IDispatch()})
+			}
+		}
+	default:
+		// "默认音色" keeps the natural engines natural: prefer an OneCore
+		// voice when the pool exists, otherwise the SAPI default stays.
+		if in.Engine == EngineNatural || in.Engine == EngineEdge {
+			if ones := oneCoreVoices(); len(ones) > 0 {
+				_ = setOneCoreVoice(voice, ones[0].VoiceID)
 			}
 		}
 	}

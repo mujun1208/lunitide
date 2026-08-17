@@ -1,4 +1,4 @@
-﻿// m9_tts_handlers_test.go pins the MC-05 real-machine degradation
+// m9_tts_handlers_test.go pins the MC-05 real-machine degradation
 // acceptance: a Windows N / stripped-install / broken-COM machine must
 // surface M95-001 on every tts.* method while the chat pipeline itself
 // keeps working (subtitle-only degradation, never a hard failure).
@@ -7,6 +7,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -101,15 +102,19 @@ func (failingSynthEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResu
 
 func TestTtsVoicesPerEngine(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
-	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(nil, nil, nil)))
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(&okSapiEngine{}, nil)))
 
-	edge := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"edge"}`))
-	if !edge.OK {
-		t.Fatalf("tts.voices edge = %+v, want ok", edge)
-	}
-	voices := edge.Payload.(map[string]any)["voices"].([]tts.Voice)
-	if len(voices) == 0 || voices[0].VoiceID != "zh-CN-XiaoxiaoNeural" {
-		t.Fatalf("edge voices = %+v", voices)
+	// natural and legacy edge share the platform catalogue.
+	for _, engine := range []string{"natural", "edge", "sapi", ""} {
+		payload := fmt.Sprintf(`{"engine":%q}`, engine)
+		resp := e.Handle(context.Background(), validRequest("tts.voices", payload))
+		if !resp.OK {
+			t.Fatalf("tts.voices %q = %+v, want ok", engine, resp)
+		}
+		voices := resp.Payload.(map[string]any)["voices"].([]tts.Voice)
+		if len(voices) == 0 || voices[0].VoiceID != "v" {
+			t.Fatalf("tts.voices %q voices = %+v", engine, voices)
+		}
 	}
 
 	ref := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"ref"}`))
@@ -124,8 +129,11 @@ func TestTtsVoicesPerEngine(t *testing.T) {
 	if bad.OK || bad.Error == nil || bad.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("tts.voices bogus engine = %+v, want schema invalid", bad)
 	}
+}
 
-	// SAPI stays M95-001 on this engine-less machine.
+func TestTtsVoicesEnginelessIsM95_001(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(nil, nil)))
 	sapiResp := e.Handle(context.Background(), validRequest("tts.voices", `{}`))
 	if sapiResp.OK || sapiResp.Error == nil || sapiResp.Error.Code != "M95-001" {
 		t.Fatalf("tts.voices sapi = %+v, want M95-001", sapiResp)
@@ -180,7 +188,7 @@ func TestTtsRefAudios(t *testing.T) {
 
 func TestTtsSynthesizeRefValidation(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
-	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(nil, nil, nil)))
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(nil, nil)))
 
 	noFile := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","refEndpoint":"http://127.0.0.1:9880"}`))
 	if noFile.OK || noFile.Error == nil || noFile.Error.Code != "BRIDGE_SCHEMA_INVALID" {
@@ -193,23 +201,6 @@ func TestTtsSynthesizeRefValidation(t *testing.T) {
 	}
 }
 
-func TestTtsSynthesizeEdgeFallsBackToSapi(t *testing.T) {
-	e := NewEngine(providerRepositoryStub{}, "test")
-	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(&okSapiEngine{}, &failingSynthEngine{}, nil)))
-
-	resp := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"网断段","engine":"edge"}`))
-	if !resp.OK {
-		t.Fatalf("tts.synthesize edge fallback = %+v, want ok with notice", resp)
-	}
-	body := resp.Payload.(map[string]any)
-	if body["notice"] != "TTS_ENGINE_FALLBACK" {
-		t.Fatalf("notice = %v, want TTS_ENGINE_FALLBACK", body["notice"])
-	}
-	if body["wav_base64"] != "sapi-wav" {
-		t.Fatalf("fallback audio = %v", body["wav_base64"])
-	}
-}
-
 type okSapiEngine struct{}
 
 func (okSapiEngine) Voices() ([]tts.Voice, error) {
@@ -217,6 +208,25 @@ func (okSapiEngine) Voices() ([]tts.Voice, error) {
 }
 func (okSapiEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResult, bool, error) {
 	return tts.SynthesizeResult{WavBase64: "sapi-wav", DurationHint: 1}, false, nil
+}
+
+func TestTtsSynthesizeNaturalRoutesToPlatform(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(&failingSynthEngine{}, &okSapiEngine{})))
+
+	// natural and legacy edge both land on the platform engine; a
+	// synthesis failure there is a plain M95-002, no engine fallback
+	// (the ok ref engine proves the router does not silently reroute).
+	for _, engine := range []string{"natural", "edge"} {
+		payload := fmt.Sprintf(`{"text":"段","engine":%q}`, engine)
+		resp := e.Handle(context.Background(), validRequest("tts.synthesize", payload))
+		if resp.OK {
+			t.Fatalf("tts.synthesize %q = %+v, want failure", engine, resp)
+		}
+		if resp.Error == nil || resp.Error.Code != "M95-002" {
+			t.Fatalf("tts.synthesize %q code = %+v, want M95-002", engine, resp.Error)
+		}
+	}
 }
 
 func quoteJSON(value string) string {

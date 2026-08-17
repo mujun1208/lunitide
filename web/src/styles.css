@@ -574,11 +574,12 @@ html.companion-active .drawer-toggle{display:none}
 .reduce-motion .companion-moon.state-thinking .companion-moon-halo{opacity:.25}
 .reduce-motion .companion-stage .companion-stars i{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
-/* 当前一轮对话的单行字幕条：宽度随内容收缩，长句省略号截断，整框保持一行高 */
-.companion-subtitles{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(720px,86vw);padding:4px 16px;border:1px solid rgba(143,170,216,.16);border-radius:999px;background:rgba(6,11,20,.55);backdrop-filter:blur(6px)}
+/* 当前一轮对话的字幕条：宽度随内容收缩，高度封顶后内部滚动，完整显示长句 */
+.companion-subtitles{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(720px,86vw);max-height:190px;padding:4px 16px;border:1px solid rgba(143,170,216,.16);border-radius:999px;background:rgba(6,11,20,.55);backdrop-filter:blur(6px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
 .companion-subtitles:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
+.companion-subtitle-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(143,170,216,.4) transparent;padding:2px 6px 2px 0}
 .companion-subtitle-hint{margin:1px 0;color:var(--muted);font-size:11.5px;text-align:center;white-space:nowrap}
-.companion-line{margin:2px 0;font-size:13.5px;line-height:1.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.companion-line{margin:2px 0;font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
 /* 流式字幕：新字符像风吹沙一样淡淡飘入（虚化→清晰、轻位移→归位） */
 .stream-chars .sand{display:inline-block;opacity:0;filter:blur(3px);transform:translate(5px,3px);animation:companionSandIn .55s ease-out forwards}
 @keyframes companionSandIn{55%{filter:blur(.6px);transform:translate(1px,.5px)}to{opacity:1;filter:blur(0);transform:none}}
