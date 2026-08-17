@@ -944,18 +944,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	// 让 thinking 内容更快到达前端，用户感知延迟降低 ~50%。
 	const thinkingFlushBytes = 512
 	const thinkingFlushInterval = 8 * time.Millisecond
-	// 10x 优化：delta 批量化 — 不每个 token 都单独 emit（避免 JSON 序列化 +
-	// Named Pipe 写的开销），而是累积到一定量再批量发送。对于 50 tokens/s
-	// 的模型，这能减少 3-5 倍的 IPC 事件数。
-	const deltaBatchBytes = 256
-	const deltaBatchInterval = 32 * time.Millisecond
 	var seq uint64
 	var assistantText strings.Builder
 	var thinkingText strings.Builder
 	var pendingThinking string
 	var pendingThinkingSince time.Time
-	var pendingDelta strings.Builder
-	var pendingDeltaSince time.Time
 	var streamResult gateway.Response
 	mode := executionModeApproval
 	if len(modes) > 0 {
@@ -987,20 +980,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		return nil
 	}
-	// flushDelta emits accumulated delta text as a single event, reducing
-	// per-token IPC overhead by 3-5x for typical streaming speeds.
-	flushDelta := func(force bool) error {
-		if pendingDelta.Len() == 0 {
-			return nil
-		}
-		if !force && pendingDelta.Len() < deltaBatchBytes && time.Since(pendingDeltaSince) < deltaBatchInterval {
-			return nil
-		}
-		text := pendingDelta.String()
-		pendingDelta.Reset()
-		pendingDeltaSince = time.Now()
-		return rawSend(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: text}})
-	}
 	send := func(event bridge.Event) error {
 		// Keep flushing and event emission on the stream callback goroutine: emit
 		// may be synchronous, and this preserves thinking-before-answer ordering.
@@ -1008,19 +987,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			if err := flushThinking(true); err != nil {
 				return err
 			}
-		}
-		if event.Type == bridge.EventDelta {
-			// Delta events are batched: accumulate and flush when threshold
-			// or interval is reached. Non-delta events flush the pending
-			// batch first to preserve ordering.
-			if err := flushDelta(false); err != nil {
-				return err
-			}
-			return nil
-		}
-		// Non-delta events flush any pending delta batch first.
-		if err := flushDelta(true); err != nil {
-			return err
 		}
 		return rawSend(event)
 	}
@@ -1069,14 +1035,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if d.Text != "" {
 					assistantText.WriteString(d.Text)
-					// 10x 优化：delta 批量化 — 累积文本到 pendingDelta，
-					// 由 send() 在阈值/间隔触发时批量 emit，减少 IPC 事件数。
-					if pendingDelta.Len() == 0 {
-						pendingDeltaSince = time.Now()
-					}
-					pendingDelta.WriteString(d.Text)
-					force := !pendingDeltaSince.IsZero() && time.Since(pendingDeltaSince) >= deltaBatchInterval
-					if err := flushDelta(force); err != nil {
+					if err := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: d.Text}}); err != nil {
 						return err
 					}
 				}
