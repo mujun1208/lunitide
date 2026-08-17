@@ -9,7 +9,7 @@ const now = '2025-01-01T00:00:00Z'
 const skill: SkillDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', name: 'code-review', displayName: '代码审查', description: '审查代码',
   version: '1.0.0', status: 'draft', permissions: ['read_only'], entryPoint: 'skills/cr/index.js',
-  manifestJson: '{}', createdAt: now, updatedAt: now,
+  manifestJson: '{}', category: 'development', categorySource: 'keyword', createdAt: now, updatedAt: now,
 }
 const api = (o: Partial<SkillBridge> = {}): SkillBridge => ({
   get: vi.fn(), list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn().mockResolvedValue(skill),

@@ -1,7 +1,7 @@
 // refaudio.go implements the "ref" Moon Companion engine: zero-shot
 // reference-timbre synthesis through a local GPT-SoVITS api_v2
 // compatible service (works with api_v2, api.py descendants and most
-// forks: POST {endpoint}/tts with refer_wav_path + prompt_text). The
+// forks: POST {endpoint}/tts with ref_audio_path + prompt_text). The
 // reference audio stays on the same machine as the service, so the
 // server-local path is passed through untouched. It also owns the
 // reference-directory browser for tts.refAudios.
@@ -69,7 +69,7 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 	body, _ := json.Marshal(map[string]any{
 		"text":             in.Text,
 		"text_lang":        "zh",
-		"refer_wav_path":   in.RefWavPath,
+		"ref_audio_path":   in.RefWavPath,
 		"prompt_text":      in.RefPromptText,
 		"prompt_lang":      "zh",
 		"text_split_method": "cut0", // segments are already split upstream

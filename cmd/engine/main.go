@@ -129,6 +129,7 @@ func main() {
 	memoryService := memoryapp.New(store, store)
 	ontologyService := ontologyapp.New(store, store, store, store)
 	skillService := skillapp.New(store, store)
+	skillService.SetCategoryStore(store, store)
 	engine := app.NewEngineWithP3P4(providerService, projectService, sessionService, messageService, stageService, planningService, governanceService, memoryService, ontologyService, skillService, store.ContextReader(), store, buildinfo.Version, leaseClient)
 	coordinator, err := agentorchestration.New(store.AgentOrchestrationRepository(), agentorchestration.Limits{MaxDepth: 8, MaxConcurrency: 64}, nil)
 	if err != nil {
@@ -178,7 +179,12 @@ func main() {
 	engine.SetM6Services(nil, mcp6Registry, nil)
 	// M8 slice 1: the governed long-term memory core (candidate/fact/
 	// source-leaf/recall on the shared single-writer transaction).
-	engine.SetM8MemoryServices(m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user"))
+	memorySvc := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")
+	engine.SetM8MemoryServices(memorySvc)
+	// M10: the memory nomination workflow over the slice-1 core.
+	engine.SetM10NominationService(m8app.NewNominationService(store.AgentRuntimeRepository(), memorySvc))
+	// M10: expert scenario cards over the FR-19 expert core.
+	engine.SetM10ScenarioService(m8app.NewScenarioService(store.AgentRuntimeRepository()))
 	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the
 	// workflow bundle dispatch projection (single-writer transactions).
 	engine.SetM8SliceServices(

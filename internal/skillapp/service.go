@@ -62,6 +62,8 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 type Service struct {
 	read        SkillReader
 	write       SkillWriter
+	catRead     CategoryReader
+	catWrite    CategoryWriter
 	clock       Clock
 	invMu       sync.Mutex
 	invocations map[string]*Invocation
@@ -229,7 +231,14 @@ func (s *Service) Create(ctx context.Context, sk skill.Skill) (skill.Skill, erro
 	sk.Status = skill.SkillStatusDraft
 	sk.CreatedAt = now
 	sk.UpdatedAt = now
-	return s.write.CreateSkill(ctx, sk)
+	created, err := s.write.CreateSkill(ctx, sk)
+	if err != nil {
+		return created, err
+	}
+	// M10: seed the computed category mapping (manifest > keyword); manual
+	// rows are never overwritten (INSERT OR IGNORE).
+	s.seedCategoryFor(ctx, created)
+	return created, nil
 }
 
 // UpdateFields updates the mutable fields of a skill with optimistic concurrency control.

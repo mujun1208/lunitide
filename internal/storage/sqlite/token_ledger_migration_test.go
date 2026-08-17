@@ -176,6 +176,8 @@ DROP TABLE plugin_capability_bindings;
 DROP TABLE expert_catalog;
 DROP TABLE expert_versions;
 DROP TABLE project_phase_expert_mounting;
+DROP TABLE expert_scenario_cards;
+DROP TABLE sk_category_map;
 DROP TABLE identity_events;
 DROP TABLE role_bindings;
 DROP TABLE principals;

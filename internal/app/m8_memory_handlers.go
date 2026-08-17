@@ -62,6 +62,12 @@ func handleMemoryConfirmCandidate(e *Engine, ctx context.Context, r bridge.Reque
 	if res.Fact != nil {
 		out.Fact = &m8ConfirmFactRef{FactID: res.Fact.FactID, Version: res.Fact.Version}
 	}
+	// M10 handler-side settlement: the settled candidate closes its nomination
+	// (if any) as decided. Plain candidates never had a nomination row and the
+	// call is silently ignored — the 0061 service itself stays zero-touch.
+	if e.m10nomination != nil {
+		_ = e.m10nomination.MarkDecided(ctx, res.CandidateID)
+	}
 	return bridge.Success(r.ID, out)
 }
 

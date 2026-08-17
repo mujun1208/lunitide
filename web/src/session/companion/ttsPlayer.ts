@@ -18,6 +18,32 @@ export interface TtsPlayerCallbacks {
 
 let sharedAudioContext: AudioContext | null = null
 
+/** Engine routing extras carried alongside voiceId/rate/volume so the
+ * prefetch synthesizer replays the exact same engine payload. */
+export type SynthExtras = Pick<CompanionSettings, 'engine' | 'refEndpoint' | 'refWavPath' | 'refPromptText'>
+
+function buildSynthPayload(
+  text: string,
+  voiceId: string,
+  rate: number,
+  volume: number,
+  extras: SynthExtras,
+): Parameters<ReturnType<typeof getTtsBridge>['synthesize']>[0] {
+  const payload: Parameters<ReturnType<typeof getTtsBridge>['synthesize']>[0] = {
+    text,
+    voiceId: voiceId || undefined,
+    rate,
+    volume,
+    engine: extras.engine,
+  }
+  if (extras.engine === 'ref') {
+    payload.refEndpoint = extras.refEndpoint
+    payload.refWavPath = extras.refWavPath
+    payload.refPromptText = extras.refPromptText
+  }
+  return payload
+}
+
 export class TtsPlayer {
   private audio: HTMLAudioElement | null = null
   private analyser: AnalyserNode | null = null
@@ -51,12 +77,9 @@ export class TtsPlayer {
         this.prefetch = null
       } else {
         try {
-          const result = await bridge.synthesize({
-            text: segments[index],
-            voiceId: settings.voiceId || undefined,
-            rate: settings.rate,
-            volume: settings.volume,
-          })
+          const result = await bridge.synthesize(
+            buildSynthPayload(segments[index], settings.voiceId || '', settings.rate, settings.volume, settings),
+          )
           if (result.discarded || generation !== this.generation) return
           if (!result.wav_base64) return
           wavBase64 = result.wav_base64
@@ -148,7 +171,9 @@ export class TtsPlayer {
     if (!text || index < 0 || this.prefetch) return
     this.prefetchIndex = index
     this.prefetch = getTtsBridge()
-      .synthesize({ text, voiceId: this.currentVoiceId, rate: this.currentRate, volume: this.currentVolume })
+      .synthesize(
+        buildSynthPayload(text, this.currentVoiceId, this.currentRate, this.currentVolume, this.currentExtras),
+      )
       .then(result => {
         if (generation !== this.generation || result.discarded) return ''
         return result.wav_base64
@@ -159,12 +184,14 @@ export class TtsPlayer {
   private currentVoiceId = ''
   private currentRate = 0
   private currentVolume = 80
+  private currentExtras: SynthExtras = { engine: 'sapi', refEndpoint: '', refWavPath: '', refPromptText: '' }
 
   /** Remember the synthesis parameters so prefetches reuse them. */
-  configure(voiceId: string, rate: number, volume: number): void {
+  configure(voiceId: string, rate: number, volume: number, extras?: SynthExtras): void {
     this.currentVoiceId = voiceId
     this.currentRate = rate
     this.currentVolume = volume
+    if (extras) this.currentExtras = extras
   }
 
   private ensureAudio(): HTMLAudioElement {

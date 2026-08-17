@@ -261,10 +261,13 @@ func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string) error 
 	return mapWriteError(err)
 }
 
-// DeleteSkill deletes a skill by ID.
+// DeleteSkill deletes a skill by ID and its M10 category mapping.
 func (s *Store) DeleteSkill(ctx context.Context, id string) error {
 	err := s.execWithAudit(ctx, "skill.deleted", id, "engine", nil,
 		func(tx *sql.Tx) error {
+			if err := s.DeleteSkillCategoryRow(ctx, tx, id); err != nil {
+				return err
+			}
 			_, err := tx.ExecContext(ctx, `DELETE FROM skills WHERE id=?`, id)
 			return err
 		})
