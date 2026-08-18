@@ -22,6 +22,10 @@
     "executionMode": {
       "enum": ["approval", "auto-edit", "plan", "full-access"]
     },
+    "companion": {
+      "type": "boolean",
+      "description": "Moon Companion (月伴) voice request; engine upgrades executionMode to full-access and applies the spoken-style system instruction."
+    },
     "contextRefs": {
       "type": "array", "maxItems": 32,
       "items": {
@@ -94,6 +98,12 @@
         "modelId": "x",
         "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
         "executionMode": "plan"
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "companion": true
       }
     ],
     "negative": [
