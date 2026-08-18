@@ -71,7 +71,7 @@ it('orders by updatedAt DESC, filters by query, and enters the workbench from an
  const beta={...active,id:'01ARZ3NDEKTSV4RRFFQ69G5FAZ',name:'Beta',projectCode:'ITM00009'}
  const onSelect=vi.fn(),user=userEvent.setup(),{container}=render(<ProjectPage bridge={api({list:vi.fn().mockResolvedValue({items:[older,beta,newer]})})} onSelect={onSelect}/>)
  await screen.findByText('Older')
- expect([...container.querySelectorAll('.pm-row .pm-project-cell b')].map(node=>node.textContent)).toEqual(['Newer','Beta','Older'])
+ expect([...container.querySelectorAll('.pm-list .pm-item-title b')].map(node=>node.textContent)).toEqual(['Newer','Beta','Older'])
  await user.type(screen.getByLabelText('搜索项目'),'bet')
  expect(screen.queryByText('Older')).not.toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:'进入工作台'}))

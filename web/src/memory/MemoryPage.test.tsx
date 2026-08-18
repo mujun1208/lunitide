@@ -23,24 +23,29 @@ const nominationApi = (o: Partial<NominationBridge> = {}): NominationBridge => (
   list: vi.fn().mockResolvedValue({ items: [] }), ...o,
 })
 
-it('renders empty state and loads memories for the project', async () => {
+it('renders the four-layer grid and loads memories for the project', async () => {
   const bridge = api()
-  render(<MemoryPage projectId={P} bridge={bridge} />)
-  expect(await screen.findByText('暂无记忆')).toBeInTheDocument()
+  const { container } = render(<MemoryPage projectId={P} bridge={bridge} />)
+  // 层名称同时出现在筛选按钮与层级卡片标题中，用卡片标题断言四层网格
+  await waitFor(() => expect(container.querySelectorAll('.mem-layer .ml-name')).toHaveLength(4))
+  expect([...container.querySelectorAll('.mem-layer .ml-name')].map(n => n.textContent))
+    .toEqual(['当前任务', '会话记忆', '长期记忆', '项目知识'])
+  expect(screen.getByText(/仅当前项目/)).toBeInTheDocument()
   expect(bridge.list).toHaveBeenCalledWith({ projectId: P })
 })
 
-it('renders memory items from bridge.list', async () => {
+it('renders memory items grouped into their design layer', async () => {
   const bridge = api({ list: vi.fn().mockResolvedValue({ items: [memory] }) })
   render(<MemoryPage projectId={P} bridge={bridge} />)
-  expect(await screen.findByText('架构决策')).toBeInTheDocument()
+  expect(await screen.findByText('采用 React 架构')).toBeInTheDocument()
+  expect(screen.getByText(/结构化知识 · 1 条/)).toBeInTheDocument()
 })
 
-it('creates a memory via the create form', async () => {
+it('creates a memory via the add-memory form', async () => {
   const create = vi.fn().mockResolvedValue(memory), bridge = api({ create })
   render(<MemoryPage projectId={P} bridge={bridge} />)
-  await screen.findByText('暂无记忆')
-  fireEvent.click(screen.getByText('新建记忆'))
+  await screen.findByText('当前任务')
+  fireEvent.click(screen.getByRole('button', { name: '＋ 添加记忆' }))
   fireEvent.change(screen.getByLabelText('键名'), { target: { value: '新决策' } })
   fireEvent.change(screen.getByLabelText('内容'), { target: { value: '采用 TypeScript' } })
   fireEvent.click(screen.getByRole('button', { name: '创建记忆' }))
@@ -58,6 +63,7 @@ it('confirms a pending preference candidate and removes it from the list', async
   const bridge = api({ confirmCandidate })
   const feedback = feedbackApi({ candidates: vi.fn().mockResolvedValue({ items: [pendingItem] }) })
   render(<MemoryPage projectId={P} bridge={bridge} feedback={feedback} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /偏好与提名/ }))
   expect(await screen.findByText('回答默认使用中文')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '确认沉淀' }))
   await waitFor(() => expect(confirmCandidate).toHaveBeenCalledOnce())
@@ -70,16 +76,18 @@ it('rejects a pending preference candidate', async () => {
   const bridge = api({ confirmCandidate })
   const feedback = feedbackApi({ candidates: vi.fn().mockResolvedValue({ items: [pendingItem] }) })
   render(<MemoryPage projectId={P} bridge={bridge} feedback={feedback} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /偏好与提名/ }))
   await screen.findByText('回答默认使用中文')
   fireEvent.click(screen.getByRole('button', { name: '拒绝' }))
   await waitFor(() => expect(confirmCandidate).toHaveBeenCalledWith(expect.objectContaining({ action: 'reject' })))
   await waitFor(() => expect(screen.queryByText('回答默认使用中文')).not.toBeInTheDocument())
 })
 
-it('hides the confirmation section when no candidates are pending', async () => {
+it('shows no pending block when no candidates are pending', async () => {
   render(<MemoryPage projectId={P} bridge={api()} feedback={feedbackApi()} />)
-  await screen.findByText('暂无记忆')
-  expect(screen.queryByLabelText('偏好确认')).not.toBeInTheDocument()
+  await screen.findByText('当前任务')
+  fireEvent.click(screen.getByRole('tab', { name: /偏好与提名/ }))
+  expect(screen.queryByText(/偏好确认（/)).not.toBeInTheDocument()
 })
 
 const nomination = {
@@ -92,8 +100,8 @@ it('shows nominated items in the inbox tab with the pending count', async () => 
   const nominations = nominationApi({ list: vi.fn().mockImplementation((p: { state: string }) =>
     Promise.resolve({ items: p.state === 'nominated' ? [nomination] : [] })) })
   render(<MemoryPage projectId={P} bridge={api()} feedback={feedbackApi()} nominations={nominations} />)
-  await screen.findByRole('tab', { name: '提名收件箱（1）' })
-  fireEvent.click(screen.getByRole('tab', { name: '提名收件箱（1）' }))
+  const tab = await screen.findByRole('tab', { name: /偏好与提名 · 1/ })
+  fireEvent.click(tab)
   expect(await screen.findByText('偏好简洁回答')).toBeInTheDocument()
   expect(screen.getByText(/连续三次会话提及/)).toBeInTheDocument()
 })
@@ -104,7 +112,7 @@ it('confirms a nomination through the 0061 confirm path and reloads', async () =
     Promise.resolve({ items: p.state === 'nominated' ? [nomination] : [] }))
   const nominations = nominationApi({ list })
   render(<MemoryPage projectId={P} bridge={api({ confirmCandidate })} feedback={feedbackApi()} nominations={nominations} />)
-  fireEvent.click(screen.getByRole('tab', { name: /提名收件箱/ }))
+  fireEvent.click(await screen.findByRole('tab', { name: /偏好与提名/ }))
   await screen.findByText('偏好简洁回答')
   fireEvent.click(screen.getAllByRole('button', { name: '确认沉淀' })[0]!)
   await waitFor(() => expect(confirmCandidate).toHaveBeenCalledOnce())
@@ -117,7 +125,7 @@ it('withdraws a nomination and moves it out of the inbox', async () => {
     Promise.resolve({ items: p.state === 'nominated' ? [nomination] : [] }))
   const nominations = nominationApi({ list, withdraw })
   render(<MemoryPage projectId={P} bridge={api()} feedback={feedbackApi()} nominations={nominations} />)
-  fireEvent.click(screen.getByRole('tab', { name: /提名收件箱/ }))
+  fireEvent.click(await screen.findByRole('tab', { name: /偏好与提名/ }))
   await screen.findByText('偏好简洁回答')
   fireEvent.click(screen.getByRole('button', { name: '撤回提名' }))
   await waitFor(() => expect(withdraw).toHaveBeenCalledWith({ nominationId: nomination.nominationId }))
@@ -129,7 +137,7 @@ it('lists decided and withdrawn nominations in the history tab', async () => {
       : p.state === 'withdrawn' ? [{ ...nomination, nominationId: '01ARZ3NDEKTSV4RRFFQ69G5FAF', state: 'withdrawn' as const, decidedAt: now }] : [],
   }))
   render(<MemoryPage projectId={P} bridge={api()} feedback={feedbackApi()} nominations={nominationApi({ list })} />)
-  fireEvent.click(screen.getByRole('tab', { name: '处理历史' }))
-  expect(await screen.findByText(/已处理/)).toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('tab', { name: '处理历史' }))
+  expect(await screen.findByText(/已处理 ·/)).toBeInTheDocument()
   expect(screen.getAllByText(/已撤回/).length).toBeGreaterThan(0)
 })
