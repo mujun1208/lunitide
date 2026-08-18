@@ -409,6 +409,11 @@ func main() {
 			}
 			shutdownAfterSession(err, cancel)
 			if authenticated {
+				// The engine is single-use per desktop host: when the host's
+				// RPC client hangs up (clean EOF or transport failure) the
+				// engine exits code=0 by design. Logging the cause pairs the
+				// engine exit with the host-side poison reason in host-*.log.
+				log.Printf("authenticated RPC session ended (err=%v); engine exiting with its host", err)
 				cancel()
 			}
 		}()

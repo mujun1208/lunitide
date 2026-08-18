@@ -99,6 +99,10 @@ func run() error {
 	hostReady := make(chan struct{})
 	engineDied := make(chan struct{})
 	shuttingDown := &atomic.Bool{}
+	// engineClient lets the watchdog distinguish root causes: engine crash
+	// (client still healthy) vs client-side RPC failure (poison reason is
+	// logged via engineclient.DiagnosticsSink) vs our own shutdown.
+	var engineClient atomic.Pointer[engineclient.Client]
 	go func() {
 		waitErr := command.Wait()
 		if !shuttingDown.Load() {
@@ -115,7 +119,15 @@ func run() error {
 					code = exitErr.ExitCode()
 				}
 			}
-			hostLog("engine exited unexpectedly: code=%d (%s)", code, detail)
+			if c := engineClient.Load(); c != nil {
+				if broken := c.Broken(); broken != nil {
+					hostLog("engine exited after RPC client failure: code=%d (%s); rpc: %v", code, detail, broken)
+				} else {
+					hostLog("engine exited unexpectedly while RPC client healthy: code=%d (%s)", code, detail)
+				}
+			} else {
+				hostLog("engine exited unexpectedly before RPC connect: code=%d (%s)", code, detail)
+			}
 			close(engineDied)
 		}
 	}()
@@ -201,7 +213,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	// Forensics: the desktop is a GUI process whose stderr is lost. Route the
+	// first RPC poison reason and the first WebView2 host failure into
+	// host-*.log so "engine exited code=0, app relaunched" incidents carry
+	// their root cause (stalled consumer, sequence mismatch, write failure,
+	// renderer delivery failure, ...).
+	engineclient.DiagnosticsSink = func(reason string) { hostLog("%s", reason) }
+	webviewhost.HostDiagnosticsSink = func(message string) { hostLog("%s", message) }
+	engineClient.Store(client)
+	// Shutdown ordering: the watchdog treats "engine exited while not
+	// shutting down" as an unexpected death and relaunches the desktop.
+	// client.Close() makes the engine exit code=0 by design (single-use
+	// session), so the flag MUST be stored BEFORE the connection closes —
+	// otherwise a normal exit races the watchdog into a spurious relaunch.
+	defer func() {
+		shuttingDown.Store(true)
+		_ = client.Close()
+	}()
 	resolver := credentialsubmission.RPCResolver{Engine: client}
 	coordinator, err := credentialsubmission.New(dataRoot, secretService, resolver, resolver)
 	if err != nil {

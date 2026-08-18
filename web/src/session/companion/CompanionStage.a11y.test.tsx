@@ -26,6 +26,7 @@ const speech = vi.hoisted(() => ({
 
 const tts = vi.hoisted(() => ({
   speakCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
+  enqueueCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
   configuredWith: [] as string[],
   interrupts: 0,
 }))
@@ -63,6 +64,14 @@ vi.mock('./ttsPlayer', () => ({
     }
     async speak(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
       tts.speakCalls.push({ segments, callbacks })
+    }
+    enqueue(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
+      tts.enqueueCalls.push({ segments, callbacks })
+    }
+    async flush(_callbacks: TtsPlayerCallbacks) {
+      // Playback stays "ongoing" in these tests — the real flush only
+      // resolves once the queue drains (interrupt/PLAYBACK_ENDED paths
+      // are driven by the stage, not by this stub).
     }
     interrupt() {
       tts.interrupts++
@@ -102,6 +111,7 @@ beforeEach(() => {
   speech.start.mockReset()
   speech.start.mockRejectedValue(new Error('麦克风不可用'))
   tts.speakCalls = []
+  tts.enqueueCalls = []
   tts.configuredWith = []
   tts.interrupts = 0
   vi.mocked(baseProps.onSend).mockClear()
@@ -251,8 +261,11 @@ describe('MC-06 state distinguishability + live announcements', () => {
       />,
     )
     expect(liveLog(container).textContent).toContain('今晚是满月，适合抬头。')
-    expect(stateOf(container)).toBe('thinking')
-    // 4. done + autoSpeak → speaking with the default female voice.
+    // P0-1 streaming TTS: the first complete sentence enqueues playback
+    // right away, so the stage leaves thinking as soon as it arrives.
+    expect(stateOf(container)).toBe('speaking')
+    // 4. done + autoSpeak: the reply round was enqueued with the default
+    // female voice (streaming enqueue, then flush at done).
     rerender(
       <CompanionStage
         {...baseProps}
@@ -264,7 +277,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     )
     await waitFor(() => expect(stateOf(container)).toBe('speaking'))
     expect(statusRegion(container).textContent).toContain('说话中')
-    expect(tts.speakCalls.length).toBe(1)
+    expect(tts.enqueueCalls.length).toBe(1)
     expect(tts.configuredWith).toContain('zh-female')
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在说话，点击打断朗读')

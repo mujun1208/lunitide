@@ -248,8 +248,13 @@ func TestRunStreamAggregatesFragmentedThinkingAndPreservesOrder(t *testing.T) {
 			answerIndex = i
 		}
 	}
-	if thought != strings.Repeat("x", 5000) || thinkingEvents > 2 {
-		t.Fatalf("thinking bytes=%d events=%d", len(thought), thinkingEvents)
+	// Aggregation bound follows the live flush threshold: fragments below
+	// thinkingFlushBytes coalesce, so 5000 one-byte fragments may emit at
+	// most 5000/thinkingFlushBytes threshold flushes plus one trailing
+	// force flush — never one event per fragment.
+	maxThinkingEvents := 5000/thinkingFlushBytes + 2
+	if thought != strings.Repeat("x", 5000) || thinkingEvents > maxThinkingEvents {
+		t.Fatalf("thinking bytes=%d events=%d (max %d)", len(thought), thinkingEvents, maxThinkingEvents)
 	}
 	if answerIndex < 1 || events[answerIndex-1].Type != bridge.EventThinking || events[len(events)-1].Type != bridge.EventCompleted {
 		t.Fatalf("unexpected ordering: %#v", events)

@@ -68,6 +68,18 @@ var (
 	postMessage         = user32Menu.NewProc("PostMessageW")
 )
 
+// HostDiagnosticsSink persists WebView2 host failures. The desktop host is a
+// GUI process whose stderr is lost, so without this sink the first-failure
+// cause behind an "app vanished" incident left no forensic trace. The
+// desktop main wires it to host-*.log; nil keeps stderr-only behavior.
+var HostDiagnosticsSink func(message string)
+
+func logHostDiagnostic(format string, args ...any) {
+	if HostDiagnosticsSink != nil {
+		HostDiagnosticsSink(fmt.Sprintf(format, args...))
+	}
+}
+
 // enableHighResolutionRendering opts the process into per-monitor-v2 DPI
 // awareness BEFORE any window exists. Without this, Windows renders the whole
 // window at 96 DPI and bitmap-stretches it on scaled displays (125%/150%),
@@ -705,10 +717,14 @@ func (h *Host) cancelRun() {
 }
 func (h *Host) recordDispatchError(err error) {
 	h.mu.Lock()
-	if h.runErr == nil {
+	first := h.runErr == nil
+	if first {
 		h.runErr = err
 	}
 	h.mu.Unlock()
+	if first {
+		logHostDiagnostic("WebView2 dispatch error: %v", err)
+	}
 }
 func (h *Host) drain() {
 	h.mu.Lock()
@@ -719,8 +735,17 @@ func (h *Host) drain() {
 	}
 }
 func (h *Host) fail(err error) {
-	if h.runErr == nil {
+	h.mu.Lock()
+	first := h.runErr == nil
+	if first {
 		h.runErr = err
+	}
+	h.mu.Unlock()
+	if first {
+		// The desktop is a GUI process: log.Printf goes to lost stderr and
+		// "app vanished" left no trace. Persist the first failure cause via
+		// the host diagnostics sink before the window is torn down.
+		logHostDiagnostic("WebView2 host failure: %v", err)
 	}
 	log.Printf("WebView2 host failure: %v", err)
 	win32.DestroyWindow(h.hwnd)

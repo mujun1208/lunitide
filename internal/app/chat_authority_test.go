@@ -34,10 +34,17 @@ func TestExecutionModeDefaultsValidatesAndProducesEngineOwnedPolicy(t *testing.T
 }
 
 func TestPlanExecutionModeStrictlyForbidsExecutionAndMutationClaims(t *testing.T) {
-	instruction := executionModeInstruction(executionModePlan)
-	for _, required := range []string{"Planning only", "Do not invoke tools", "execute commands", "create, edit, or delete files", "Do not claim"} {
+	// Legacy "plan" mode was replaced by system-automatic complexity routing:
+	// it must normalize to approval, whose instruction still forbids claiming
+	// mutations that never happened.
+	mode, ok := normalizeExecutionMode(executionModePlan)
+	if !ok || mode != executionModeApproval {
+		t.Fatalf("legacy plan mode must map to approval, got %q (ok=%v)", mode, ok)
+	}
+	instruction := executionModeInstruction(mode)
+	for _, required := range []string{"Execution mode: approval", "obtain explicit user approval", "never claim that a command ran"} {
 		if !strings.Contains(instruction, required) {
-			t.Fatalf("plan instruction lacks %q: %s", required, instruction)
+			t.Fatalf("approval instruction lacks %q: %s", required, instruction)
 		}
 	}
 }

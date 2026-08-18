@@ -104,12 +104,15 @@ func (h *RefHost) resolveScript() string {
 	return ""
 }
 
-// refLiveness probes {endpoint}/docs once (any FastAPI 200 = alive).
+// refLiveness probes {endpoint}/docs once (any FastAPI 200 = alive). The
+// budget must tolerate GPT-SoVITS saturating the CPU mid-synthesis: a 900ms
+// probe times out while the model is legitimately busy and the host would
+// misread a healthy server as dead.
 func refLiveness(endpoint string) bool {
 	if endpoint == "" {
 		endpoint = DefaultRefEndpoint
 	}
-	client := &http.Client{Timeout: 900 * time.Millisecond}
+	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(strings.TrimRight(endpoint, "/") + "/docs")
 	if err != nil {
 		return false
@@ -156,10 +159,19 @@ func (h *RefHost) Status(endpoint string) (state, script string) {
 	return state, script
 }
 
+// busyGrace bounds how long EnsureRunning re-probes a server it believed
+// online before concluding the tree really died. GPT-SoVITS on CPU can pin
+// all cores for tens of seconds per synthesis; without this grace window a
+// single missed probe spawns a SECOND model server (2× memory, port 9880
+// conflict) and destabilizes the whole machine.
+const busyGrace = 15 * time.Second
+
 // EnsureRunning brings the api_v2 service up. Fast path: /docs already
 // answers. Otherwise it spawns the launcher script once (concurrent
 // callers wait on the same launch) and polls /docs until ready or the
-// wait budget runs out.
+// wait budget runs out. A probe failure against a server we recently saw
+// online is treated as transient CPU contention and re-probed through the
+// grace window — never as a reason to spawn a second model tree.
 func (h *RefHost) EnsureRunning(endpoint string, wait time.Duration) error {
 	if refLiveness(endpoint) {
 		h.mu.Lock()
@@ -178,10 +190,32 @@ func (h *RefHost) EnsureRunning(endpoint string, wait time.Duration) error {
 	}
 
 	h.mu.Lock()
+	state := h.state
+	h.mu.Unlock()
+	if state == RefHostOnline {
+		// We saw /docs answer recently: the failed probe is most likely the
+		// server being busy synthesizing, not dead. Re-probe through the
+		// grace window before considering a respawn.
+		if h.awaitReady(endpoint, busyGrace) == nil {
+			return nil
+		}
+		// A concurrent caller may have just recovered or re-spawned the
+		// service while we probed without the lock; verify once more so we
+		// never spawn a second tree over a live server.
+		if refLiveness(endpoint) {
+			return nil
+		}
+	}
+
+	h.mu.Lock()
 	if h.state == RefHostLaunching && time.Since(h.startedAt) < 3*time.Minute {
 		// Adopt the in-flight launch instead of spawning a second tree.
 		h.mu.Unlock()
 		return h.awaitReady(endpoint, wait)
+	}
+	if h.state == RefHostOnline {
+		h.state = RefHostOffline
+		h.lastErr = "service stopped answering"
 	}
 	if err := h.spawnLocked(script); err != nil {
 		h.state = RefHostOffline
@@ -198,6 +232,12 @@ func (h *RefHost) EnsureRunning(endpoint string, wait time.Duration) error {
 
 // spawnLocked starts the launcher hidden; caller must hold h.mu.
 func (h *RefHost) spawnLocked(script string) error {
+	// A previous tree that stopped answering must not survive the respawn:
+	// it would keep port 9880 bound and leak across app restarts.
+	if h.cmd != nil && h.cmd.Process != nil {
+		_ = exec.Command("taskkill", "/PID", fmt.Sprint(h.cmd.Process.Pid), "/T", "/F").Run()
+		h.cmd = nil
+	}
 	// cmd /c is required for .bat launchers; /T tree-kill on Stop.
 	cmd := exec.Command("cmd", "/c", script)
 	cmd.Dir = filepath.Dir(script)

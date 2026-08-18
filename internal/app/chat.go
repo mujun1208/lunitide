@@ -1007,13 +1007,17 @@ func (e *Engine) persistApprovedToolResult(ctx context.Context, sessionID, callI
 	_, _ = e.messages.Append(ctx, key, "engine", minimalReq, value)
 }
 
+// 10x 优化：thinking flush 间隔从 16ms 降到 8ms，阈值从 1KB 降到 512B，
+// 让 thinking 内容更快到达前端，用户感知延迟降低 ~50%。包级常量让
+// stream_state_test 可以按实际阈值推导聚合断言上界，而不是硬编码历史值。
+const (
+	thinkingFlushBytes    = 512
+	thinkingFlushInterval = 8 * time.Millisecond
+)
+
 func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
 	const maxThinkingChunkBytes = 16 * 1024
 	const maxThinkingTotalBytes = 256 * 1024
-	// 10x 优化：thinking flush 间隔从 16ms 降到 8ms，阈值从 1KB 降到 512B，
-	// 让 thinking 内容更快到达前端，用户感知延迟降低 ~50%。
-	const thinkingFlushBytes = 512
-	const thinkingFlushInterval = 8 * time.Millisecond
 	var seq uint64
 	var assistantText strings.Builder
 	var thinkingText strings.Builder
