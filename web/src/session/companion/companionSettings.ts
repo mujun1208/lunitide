@@ -2,10 +2,11 @@
 // the existing lunitide:localStorage namespace (zero new tables, zero
 // migrations). The engine family picks the synthesis route: "natural"
 // (local OneCore neural voices, default), "sapi" (classic desktop
-// voices) or "ref" (GPT-SoVITS local service cloning the built-in 18
-// character voices). Legacy "edge" values stored by pre-1.0 builds fall
-// back to "natural". refEndpoint overrides the GPT-SoVITS api_v2
-// address (empty = backend default http://127.0.0.1:9880).
+// voices) or "ref" (GPT-SoVITS local service cloning the built-in 50
+// preset voices; the backend auto-hosts the model server when the
+// default endpoint is down). Legacy "edge" values stored by pre-1.0
+// builds fall back to "natural". refEndpoint overrides the GPT-SoVITS
+// api_v2 address (empty = backend default http://127.0.0.1:9880).
 export type CompanionEngine = 'natural' | 'sapi' | 'ref'
 
 export interface CompanionSettings {

@@ -98,6 +98,11 @@ func main() {
 	defer logsDir.Close()
 	logFile := setupEngineLog(logsDir.Path())
 	defer logFile.Close()
+	// The hosted GPT-SoVITS launcher (ref auto-host) writes its python
+	// startup output next to the engine logs; the tree is killed when
+	// the engine exits so no orphaned model server survives.
+	tts.DefaultRefHost.SetLogDir(logsDir.Path())
+	defer tts.DefaultRefHost.Stop()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)

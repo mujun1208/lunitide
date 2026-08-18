@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,8 +124,9 @@ func TestTtsVoicesPerEngine(t *testing.T) {
 		t.Fatalf("tts.voices ref = %+v, want ok", ref)
 	}
 	refVoices := ref.Payload.(map[string]any)["voices"].([]tts.Voice)
-	if len(refVoices) != 18 || refVoices[0].VoiceID != tts.RefDefaultVoiceID() || refVoices[0].Group == "" {
-		t.Fatalf("ref voices = %+v, want 18 grouped presets", refVoices)
+	// 18 role-play presets + 32 hot-pack presets = 50 selectable timbres.
+	if len(refVoices) != 50 || refVoices[0].VoiceID != tts.RefDefaultVoiceID() || refVoices[0].Group == "" {
+		t.Fatalf("ref voices = %d entries, want 50 grouped presets (first = %+v)", len(refVoices), refVoices[0])
 	}
 	if _, ok := ref.Payload.(map[string]any)["ref_meta"].(tts.RefMeta); !ok {
 		t.Fatalf("tts.voices ref payload missing ref_meta: %+v", ref.Payload)
@@ -142,6 +145,37 @@ func TestTtsVoicesEnginelessIsM95_001(t *testing.T) {
 	if sapiResp.OK || sapiResp.Error == nil || sapiResp.Error.Code != "M95-001" {
 		t.Fatalf("tts.voices sapi = %+v, want M95-001", sapiResp)
 	}
+}
+
+func TestTtsEnsureRefEngine(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	// A live /docs stub makes the host report online without spawning
+	// anything; the endpoint is deliberately not the default so the
+	// auto-host never touches a real launcher.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	resp := e.Handle(context.Background(), validRequest("tts.ensureRefEngine", `{"refEndpoint":`+quoteJSON(srv.URL)+`}`))
+	if !resp.OK {
+		t.Fatalf("tts.ensureRefEngine = %+v, want ok", resp)
+	}
+	body := resp.Payload.(map[string]any)
+	if body["state"] != tts.RefHostOnline {
+		t.Fatalf("state = %v, want online", body["state"])
+	}
+	if body["endpoint"] != srv.URL {
+		t.Fatalf("endpoint = %v", body["endpoint"])
+	}
+
+	bad := e.Handle(context.Background(), validRequest("tts.ensureRefEngine", `{"refEndpoint":123}`))
+	if bad.OK || bad.Error == nil || bad.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("tts.ensureRefEngine bad payload = %+v, want schema invalid", bad)
+	}
+	// NOTE: no default-endpoint case here — on a dev machine with a real
+	// E:\GPT-SoVITS install the launch path would spawn the actual model
+	// server from inside the test process.
 }
 
 func TestTtsRefAudios(t *testing.T) {
