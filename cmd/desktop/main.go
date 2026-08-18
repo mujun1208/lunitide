@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -99,8 +100,22 @@ func run() error {
 	engineDied := make(chan struct{})
 	shuttingDown := &atomic.Bool{}
 	go func() {
-		_ = command.Wait()
+		waitErr := command.Wait()
 		if !shuttingDown.Load() {
+			// Capture the exit code: 2 means a Go runtime fatal error (concurrent
+			// map write, OOM, deadlock) whose traceback now lands in the engine
+			// log thanks to the engine-side stderr rebinding; 0xC0000005 would be
+			// a native access violation; 1 is log.Fatal. This is the primary
+			// forensic record for the "engine dies, desktop relaunches" symptom.
+			code, detail := 0, "clean exit"
+			if waitErr != nil {
+				detail = waitErr.Error()
+				var exitErr *exec.ExitError
+				if errors.As(waitErr, &exitErr) {
+					code = exitErr.ExitCode()
+				}
+			}
+			hostLog("engine exited unexpectedly: code=%d (%s)", code, detail)
 			close(engineDied)
 		}
 	}()
@@ -109,6 +124,7 @@ func run() error {
 		case <-engineDied:
 			select {
 			case <-hostReady:
+				hostLog("engine death detected after host ready; relaunching desktop")
 				fmt.Fprintln(os.Stderr, "engine process exited unexpectedly; relaunching desktop")
 				if self, err := os.Executable(); err == nil {
 					relaunch := exec.Command(self, os.Args[1:]...)
@@ -276,4 +292,38 @@ func stopEngine(command *exec.Cmd) {
 		return
 	}
 	_ = command.Process.Kill()
+}
+
+// hostLogMu guards the lazily-opened host log file. The desktop is a GUI
+// process whose stdout/stderr are lost, so watchdog events (notably the
+// engine exit code) are persisted to a rotating file under <data>/logs
+// alongside the engine's own diagnostics.
+var (
+	hostLogMu   sync.Mutex
+	hostLogFile *os.File
+)
+
+// hostLog appends a timestamped line to host-<launch>.log under the
+// production data root. Failures are silent: diagnostics must never block
+// the UI or the watchdog path.
+func hostLog(format string, args ...any) {
+	hostLogMu.Lock()
+	defer hostLogMu.Unlock()
+	if hostLogFile == nil {
+		root, rootErr := datadir.PrepareProduction()
+		if rootErr == nil {
+			if logs, logsErr := root.PrepareSubdirectory("logs"); logsErr == nil {
+				path := filepath.Join(logs.Path(), "host-"+time.Now().Format("20060102-150405")+".log")
+				if f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
+					hostLogFile = f
+				}
+				_ = logs.Close()
+			}
+			_ = root.Close()
+		}
+	}
+	if hostLogFile == nil {
+		return
+	}
+	fmt.Fprintf(hostLogFile, "%s %s\n", time.Now().UTC().Format("2006/01/02 15:04:05"), fmt.Sprintf(format, args...))
 }
