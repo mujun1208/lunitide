@@ -938,10 +938,22 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 			h.drain()
 		}
 		return 0
+	case win32.WM_SYSCOMMAND:
+		// A title-bar X click carries the mouse key state in HIWORD(wParam);
+		// keep its familiar hide-to-tray behavior. Keyboard Alt+F4 and the
+		// taskbar context-menu "关闭窗口" arrive without mouse state and fall
+		// through to DefWindowProc, which routes them to WM_CLOSE below for a
+		// real exit.
+		if uint32(wParam)&0xFFF0 == win32.SC_CLOSE && uint32(wParam)>>16 != 0 {
+			win32.ShowWindow(hwnd, win32.SW_HIDE)
+			return 0
+		}
+		return win32.DefWindowProc(hwnd, message, wParam, lParam)
 	case win32.WM_CLOSE:
-		// Minimize to tray instead of closing.
-		// The user can exit via the tray context menu "退出".
-		win32.ShowWindow(hwnd, win32.SW_HIDE)
+		// Reached from Alt+F4, the taskbar "关闭窗口" command, and the tray
+		// exit menu — destroy the window so the message loop ends and the
+		// process truly exits (WM_DESTROY removes the tray icon).
+		win32.DestroyWindow(hwnd)
 		return 0
 	case trayMessage:
 		// Tray icon callback: right-click context menu
