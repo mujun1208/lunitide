@@ -3,12 +3,11 @@ import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
-import{OrgAdminPage}from'../org/OrgAdminPage'
 import{MemoryPage}from'../memory/MemoryPage'
 import{OntologyPage}from'../ontology/OntologyPage'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'org' | 'data' | 'security' | 'mcp' | 'browser' | 'computer' | 'plugins' | 'collab' | 'diagnostics' | 'about'
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'data' | 'security' | 'mcp' | 'browser' | 'computer' | 'plugins' | 'collab' | 'diagnostics' | 'about'
 
 // sha256Hex mirrors m8core.DigestOf for bridge confirm tokens (hex, 64).
 const sha256Hex = async (value: string): Promise<string> => {
@@ -21,7 +20,6 @@ const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'appearance', icon: '◐', label: '外观' },
   { id: 'providers', icon: '◈', label: '模型与供应商' },
   { id: 'voice', icon: '◉', label: '语音与麦克风' },
-  { id: 'org', icon: '⬡', label: '组织管理' },
   { id: 'data', icon: '❖', label: '数据与记忆' },
   { id: 'security', icon: '⛨', label: '安全与治理' },
   { id: 'mcp', icon: '⧉', label: 'MCP 服务器' },
@@ -139,7 +137,6 @@ export function SettingsPage({ onNavigateProviders, onBack, initialCategory = 'g
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
           {category === 'voice' && <VoicePanel />}
-          {category === 'org' && <OrgAdminPage />}
           {category === 'data' && <ProjectScopedTabs tabs={[{ id: 'memory', label: '记忆', render: pid => <MemoryPage projectId={pid} /> }, { id: 'ontology', label: '本体', render: pid => <OntologyPage projectId={pid} /> }]} />}
           {category === 'security' && <>
             <CommandPolicyPanel />
