@@ -440,6 +440,12 @@ func setupEngineLog(dir string) io.Closer {
 	}
 	log.SetOutput(f)
 	log.SetFlags(log.LstdFlags | log.LUTC)
+	// Runtime fatal errors (concurrent map write, OOM, deadlock) bypass the
+	// log package and print straight to the OS stderr handle. The desktop host
+	// is a GUI process with no usable console, so without rebinding both the
+	// Go-level and Win32-level stderr handles those crashes leave no trace.
+	os.Stderr = f
+	redirectStderr(f)
 	pruneEngineLogs(dir, 7)
 	fmt.Fprintln(f, "lunitide-engine", buildinfo.Version, "starting")
 	return f
