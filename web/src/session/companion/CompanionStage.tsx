@@ -114,21 +114,35 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         setTtsAvailable(false)
         setDegraded(true)
       })
-    // P0-3: Warm up GPT-SoVITS when using ref engine — send a short
-    // synthesis request to load the model into GPU so the first real
-    // segment is fast. The result is discarded (not played).
+    // P0-3: Warm up GPT-SoVITS when using ref engine. First ask the
+    // backend to auto-host the model server (non-blocking spawn when
+    // 9880 is down), then send a short silent synthesis so the model
+    // finishes loading before the first real segment. Retries cover the
+    // 30-90s cold-load window; the result is discarded (not played).
     if (stored.engine === 'ref' && stored.autoSpeak) {
       const warmupVoiceId = stored.voiceId || ''
-      getTtsBridge()
-        .synthesize({
-          text: '嗯',
-          voiceId: warmupVoiceId || undefined,
-          rate: stored.rate,
-          volume: 0, // volume 0 so even if it somehow plays, it's silent
-          engine: 'ref',
-          refEndpoint: stored.refEndpoint || undefined,
-        })
-        .catch(() => {}) // fire-and-forget: warm-up failure is non-fatal
+      const warmup = async (attempt: number) => {
+        try {
+          await getTtsBridge().synthesize({
+            text: '嗯',
+            voiceId: warmupVoiceId || undefined,
+            rate: stored.rate,
+            volume: 0, // volume 0 so even if it somehow plays, it's silent
+            engine: 'ref',
+            refEndpoint: stored.refEndpoint || undefined,
+          })
+        } catch (error) {
+          // "语音引擎启动中" → the hosted server is still loading:
+          // keep waiting instead of giving up on the warm-up.
+          const starting =
+            error instanceof Error && (error as { code?: unknown }).code === 'M95-001' && /启动中/.test(error.message)
+          if (starting && attempt < 10 && !cancelled) setTimeout(() => void warmup(attempt + 1), 8000)
+        }
+      }
+      void getTtsBridge()
+        .ensureRefEngine({ refEndpoint: stored.refEndpoint || undefined })
+        .catch(() => {})
+      void warmup(0)
     }
     return () => {
       cancelled = true
@@ -467,7 +481,9 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
 
   // Hands-free loop: once armed, every return to idle (reply played,
   // interrupted, silence timeout) automatically re-opens the mic so
-  // the user just keeps talking.
+  // the user just keeps talking. The 150ms bridge keeps the turn-taking
+  // feeling instant (Doubao-style) while still letting the mic hardware
+  // settle after playback.
   useEffect(() => {
     if (machine.state !== 'idle' || !autoLoopRef.current || exitedRef.current) return
     const timer = window.setTimeout(() => {
@@ -479,7 +495,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         return
       }
       startListening(true)
-    }, 800)
+    }, 150)
     return () => window.clearTimeout(timer)
   }, [machine.state, startListening])
 

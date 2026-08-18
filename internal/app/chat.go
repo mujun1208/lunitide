@@ -107,12 +107,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	instruction := executionModeInstruction(mode)
-	// P1-2: Moon Companion voice style — encourage short, colloquial
-	// sentences for natural speech synthesis. The model is informed that
-	// its output will be read aloud by a TTS engine, so it should avoid
-	// markdown, lists, code blocks, and long paragraphs.
+	// P1-2: Moon Companion voice style — Doubao-style continuous speech
+	// flow. The reply is pipelined sentence-by-sentence into the TTS
+	// engine, so the first sentence must be answer-fast (≤15 chars) and
+	// each following paragraph (comma-linked clauses ending in one 。？！)
+	// runs 40-100 chars: long enough that synthesis always overlaps
+	// playback (gapless timeline), short enough to stay easy to follow.
+	// Frequent full stops would shatter the rhythm — commas carry it.
 	if p.Companion {
-		instruction += "\n\n你正在通过语音与用户对话（月伴模式）。你的回答会被 TTS 引擎朗读出来。请严格遵守以下规则：\n- 用口语化短句作答，每句不超过 30 字，便于朗读和听懂\n- 禁止使用 Markdown、代码块、表格、列表等格式\n- 像朋友聊天一样自然回应，不要像在写文档\n- 先简短回应再展开，首句控制在 15 字以内\n- 语气亲切自然，适当使用语气词（如「嗯」「哦」「好的」）"
+		instruction += "\n\n你正在通过语音与用户对话（月伴模式）。你的回答会被 TTS 引擎实时朗读出来。请严格遵守以下规则：\n- 首句必须极简有力，15 字以内直接回应问题，不要任何铺垫\n- 之后用逗号、顿号串联短句自然展开，像说话的语流一样连贯，每 3-5 个短句（合计 40-100 字）才用一个句号收尾\n- 少用句号多用逗号：句号会把语流切碎，逗号让朗读一气呵成\n- 禁止使用 Markdown、代码块、表格、列表等格式\n- 像朋友聊天一样自然回应，语气亲切，可适当用语气词（「嗯」「哦」「好的」）\n- 总长度尽量精炼，一段说完就停，让用户能接话"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
