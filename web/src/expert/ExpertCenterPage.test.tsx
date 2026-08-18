@@ -68,6 +68,35 @@ it('rejects invalid scenario JSON before calling the bridge', async () => {
   expect(bridge.scenarioCreate).not.toHaveBeenCalled()
 })
 
+it('filters by state through the memory tabs and disables AgentPack import as concept', async () => {
+  const bridge = expertApi()
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  expect(await screen.findByRole('tab', { name: /全部 · 1/ })).toBeInTheDocument()
+  const pack = screen.getByRole('button', { name: '导入 AgentPack' })
+  expect(pack).toBeDisabled()
+  expect(pack.getAttribute('title')).toMatch(/概念预览/)
+  fireEvent.click(screen.getByRole('tab', { name: /已停用 · 0/ }))
+  await waitFor(() => expect(screen.getByText('暂无专家')).toBeInTheDocument())
+})
+
+it('renders the nine-phase mounting matrix table with defaults and limits', async () => {
+  const bridge = expertApi({
+    mountingGet: vi.fn().mockResolvedValue({
+      matrix: [
+        { phaseKey: 'INITIATION_BOUNDARY', defaults: [{ expertId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', division: 'engineering' }], mountings: [{ mountingId: '01ARZ3NDEKTSV4RRFFQ69G5FAC', expertId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', versionId: '01ARZ3NDEKTSV4RRFFQ69G5FAB', semver: '1.0.0', state: 'mounted', expertState: 'enabled' }] },
+        { phaseKey: 'OPERATIONS_RETROSPECTIVE', defaults: [], mountings: [] },
+      ],
+    }),
+  })
+  const withProject: ProjectBridge = { ...projects, list: vi.fn().mockResolvedValue({ items: [{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAZ', name: '在线商城系统', createdAt: now, updatedAt: now, status: 'active' }] }) }
+  render(<ExpertCenterPage bridge={bridge} projects={withProject} />)
+  expect(await screen.findByText('默认推荐（M7 映射）')).toBeInTheDocument()
+  expect(screen.getAllByText('数据库优化专家').length).toBeGreaterThanOrEqual(2)
+  expect(screen.getByText('1 / 4')).toBeInTheDocument()
+  expect(screen.getByText('同默认（0 名）')).toBeInTheDocument()
+  expect(screen.getByText('只读派发 · 无权限载荷')).toBeInTheDocument()
+})
+
 it('archives a scenario card from the list', async () => {
   const bridge = expertApi()
   render(<ExpertCenterPage bridge={bridge} projects={projects} />)
