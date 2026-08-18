@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -164,10 +165,49 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, tts.ErrEngineUnavailable):
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+	case errors.Is(err, tts.ErrRefEngineStarting):
+		// The hosted GPT-SoVITS service is loading (retryable M95-001
+		// family): the player waits and retries instead of breaking.
+		return bridge.Failure(r.ID, r.TraceID, "M95-001", "语音引擎启动中，请稍候", true)
 	case errors.Is(err, tts.ErrSynthesisFailed):
 		return bridge.Failure(r.ID, r.TraceID, "M95-002", "该段语音合成失败", false)
 	default:
 		log.Printf("tts bridge failure: %v", err)
 		return bridge.Failure(r.ID, r.TraceID, "M95-002", "该段语音合成失败", false)
 	}
+}
+
+// handleTtsEnsureRefEngine triggers the auto-host launch of the local
+// GPT-SoVITS api_v2 service (non-blocking) and returns the live host
+// state. The Moon Companion stage and the settings page call it on
+// engine/ref selection so the model loads while the user reads.
+func handleTtsEnsureRefEngine(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		RefEndpoint string `json:"refEndpoint"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.ensureRefEngine 参数无效", false)
+	}
+	endpoint := p.RefEndpoint
+	if endpoint == "" {
+		endpoint = tts.DefaultRefEndpoint
+	}
+	state, script := tts.DefaultRefHost.Status(endpoint)
+	if state != tts.RefHostOnline {
+		// Fire-and-forget: the caller polls tts.voices / retries this
+		// method for progress instead of blocking the bridge round-trip
+		// through a 30-90s CPU model load.
+		go func() {
+			if err := tts.DefaultRefHost.EnsureRunning(endpoint, 120*time.Second); err != nil {
+				log.Printf("tts.ensureRefEngine launch: %v", err)
+			}
+		}()
+		state, _ = tts.DefaultRefHost.Status(endpoint)
+	}
+	return bridge.Success(r.ID, map[string]any{
+		"state":        state,
+		"host_script":  script,
+		"endpoint":     endpoint,
+		"last_error":   tts.DefaultRefHost.LastErr(),
+	})
 }

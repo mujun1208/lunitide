@@ -16,8 +16,10 @@ import (
 )
 
 func TestRefPresetCatalogIntegrity(t *testing.T) {
-	if len(refPresets) != 18 {
-		t.Fatalf("preset count = %d, want 18", len(refPresets))
+	// 18 role-play presets + 32 hot-pack presets = 50 timbres across
+	// 10 style groups (4 role-play + 6 hot).
+	if len(refPresets) != 50 {
+		t.Fatalf("preset count = %d, want 50", len(refPresets))
 	}
 	seen := map[string]bool{}
 	groups := map[string]bool{}
@@ -31,13 +33,13 @@ func TestRefPresetCatalogIntegrity(t *testing.T) {
 		}
 		groups[p.Group] = true
 	}
-	if len(groups) != 4 {
-		t.Fatalf("style groups = %d, want 4 (%v)", len(groups), groups)
+	if len(groups) != 10 {
+		t.Fatalf("style groups = %d, want 10 (%v)", len(groups), groups)
 	}
 
 	voices := RefVoices()
-	if len(voices) != 18 {
-		t.Fatalf("RefVoices len = %d, want 18", len(voices))
+	if len(voices) != 50 {
+		t.Fatalf("RefVoices len = %d, want 50", len(voices))
 	}
 	for _, v := range voices {
 		if !IsRefPresetVoiceID(v.VoiceID) || v.Group == "" || v.Lang != "zh-CN" {
@@ -81,7 +83,7 @@ func TestRefPackMetaProbesEndpointAndPack(t *testing.T) {
 	if !meta.ServerOnline {
 		t.Fatal("probe must see the test server online")
 	}
-	if meta.Endpoint != srv.URL || meta.PackDir != DefaultRefPackDir {
+	if meta.Endpoint != srv.URL || meta.PackDir != DefaultRefPackDir+" + "+DefaultRefPackDirHot {
 		t.Fatalf("meta echo = %+v", meta)
 	}
 

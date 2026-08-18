@@ -14,6 +14,7 @@ const bridge = {
   synthesize: vi.fn(),
   cancel: vi.fn(),
   refAudios: vi.fn(),
+  ensureRefEngine: vi.fn(),
 } satisfies Record<keyof TtsBridge, ReturnType<typeof vi.fn>>
 
 vi.mock('../../bridge/client', () => ({ getTtsBridge: () => bridge }))

@@ -81,7 +81,24 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 	})
 	resp, err := r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接参考音色服务（%v）", ErrSynthesisFailed, err)
+		// Connection refused on the default local endpoint → auto-host
+		// the GPT-SoVITS service (spawn + wait for the model to load),
+		// then retry once. Custom endpoints (LAN/remote services) and
+		// test stubs never trigger a spawn. This is what makes the
+		// 50-preset catalogue work without the user ever launching the
+		// model server by hand.
+		if endpoint == DefaultRefEndpoint {
+			if hostErr := DefaultRefHost.EnsureRunning(endpoint, 25*time.Second); hostErr == nil {
+				resp, err = r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
+			} else {
+				return SynthesizeResult{}, false, fmt.Errorf("%w: %v", ErrSynthesisFailed, hostErr)
+			}
+			if err != nil {
+				return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接参考音色服务（%v）", ErrSynthesisFailed, err)
+			}
+		} else {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接参考音色服务（%v）", ErrSynthesisFailed, err)
+		}
 	}
 	defer resp.Body.Close()
 	wav, err := io.ReadAll(io.LimitReader(resp.Body, refMaxAudio))

@@ -165,6 +165,11 @@ type RefMeta struct {
 	ServerOnline bool     `json:"server_online"`
 	PackExists   bool     `json:"pack_exists"`
 	MissingFiles []string `json:"missing_files"`
+	// HostState reports the auto-host lifecycle (online / launching /
+	// offline / not_configured) and HostScript the detected launcher.
+	HostState   string `json:"host_state"`
+	HostScript  string `json:"host_script"`
+	HostLastErr string `json:"host_last_err,omitempty"`
 }
 
 // RefPackMeta probes the api_v2 service (any HTTP answer counts as
@@ -181,6 +186,13 @@ func RefPackMeta(endpoint string) RefMeta {
 	if resp, err := client.Get(strings.TrimRight(endpoint, "/") + "/docs"); err == nil {
 		_ = resp.Body.Close()
 		meta.ServerOnline = resp.StatusCode == http.StatusOK
+	}
+	// Auto-host state feeds the settings-page badge ("引擎在线 / 启动中 /
+	// 未检测到 GPT-SoVITS") — the 50-preset list stays selectable in
+	// every state.
+	meta.HostState, meta.HostScript = DefaultRefHost.Status(endpoint)
+	if meta.HostState == RefHostOffline || meta.HostState == RefHostNotConfigured {
+		meta.HostLastErr = DefaultRefHost.LastErr()
 	}
 	meta.PackExists = true
 	for _, p := range refPresets {

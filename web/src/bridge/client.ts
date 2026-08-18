@@ -117,7 +117,7 @@ import {
   type ExpertListPayload,type ExpertListResult,type ExpertDetailPayload,type ExpertDetailResult,type ExpertCreatePayload,type ExpertCreateResult,type ExpertUpdatePayload,type ExpertUpdateResult,type ExpertTogglePayload,type ExpertToggleResult,type ExpertArchivePayload,type ExpertArchiveResult,type ExpertMountPayload,type ExpertMountResult,type ExpertMountingGetPayload,type ExpertMountingGetResult,type ExpertScenarioCreatePayload,type ExpertScenarioCreateResult,type ExpertScenarioListPayload,type ExpertScenarioListResult,type ExpertScenarioDeletePayload,type ExpertScenarioDeleteResult,
   type OrgSummaryPayload,type OrgSummaryResult,type OrgCreatePayload,type OrgCreateResult,type OrgSwitchPayload,type OrgSwitchResult,type OrgActivatePayload,type OrgActivateResult,type OrgSuspendPayload,type OrgSuspendResult,type OrgSpaceListPayload,type OrgSpaceListResult,type OrgSpaceCreatePayload,type OrgSpaceCreateResult,type OrgMemberListPayload,type OrgMemberListResult,type OrgMemberInvitePayload,type OrgMemberInviteResult,type OrgMemberRevokePayload,type OrgMemberRevokeResult,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
-  type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,
+  type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
   type CollabGateStatusPayload,type CollabGateStatusResult,type CollabGateEvaluatePayload,type CollabGateEvaluateResult,type CollabGateConfirmPayload,type CollabGateConfirmResult,
   type DiagnosticsExportPayload,type DiagnosticsExportResult,
@@ -879,9 +879,9 @@ export function createLocalWorkspaceBridge(transport:WebViewTransport=webview())
 // local service, so tts.synthesize gets its own 40s core.
 export type TtsVoice=TtsVoicesResult['voices'][number]
 export type TtsRefMeta=NonNullable<TtsVoicesResult['ref_meta']>
-export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult}
-export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>}
-export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir})}}
+export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult,TtsEnsureRefEnginePayload,TtsEnsureRefEngineResult}
+export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>;ensureRefEngine(payload?:TtsEnsureRefEnginePayload):Promise<TtsEnsureRefEngineResult>}
+export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir}),ensureRefEngine:payload=>core.request('tts.ensureRefEngine',payload??{})}}
 let ttsSingleton:TtsBridge|undefined
 export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()}
 
