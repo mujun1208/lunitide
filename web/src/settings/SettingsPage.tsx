@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getPluginBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getPluginBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,mcBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
@@ -370,7 +370,7 @@ function CompanionSection():React.JSX.Element{
  // engine returns the built-in 18-voice character pack plus service
  // health in ref_meta.
  const refEndpointPayload=companion.engine==='ref'&&companion.refEndpoint?companion.refEndpoint:undefined
- useEffect(()=>{let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);setEngineState(r.voices.length?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,refEndpointPayload])
+ useEffect(()=>{let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);let available=r.voices.length>0;if(companion.engine==='ref'&&r.ref_meta&&(!r.ref_meta.server_online||!r.ref_meta.pack_exists)){available=false}setEngineState(available?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,refEndpointPayload])
  const save=(next:CompanionSettings)=>{setCompanion(next);saveCompanionSettings(next);setStatus('设置已保存，立即生效。')}
  const preview=async()=>{
   setBusy(true);setStatus('正在合成试听…')
@@ -383,7 +383,7 @@ function CompanionSection():React.JSX.Element{
    setStatus(result.notice==='TTS_VOICE_NOT_FOUND'?'所选音色不可用，已回退默认音色（M95-004）。':'试听播放中…')
   }catch(e){setStatus(e instanceof Error?`试听失败：${e.message}`:'试听失败，请检查引擎配置')}finally{setBusy(false)}
  }
- const refDesc=refMeta?(refMeta.server_online?(refMeta.pack_exists?`角色音色 ${voices.length} 个（GPT-SoVITS 本地克隆，服务在线，按角色风格分组）`:`服务在线，但音色包目录缺失（${refMeta.pack_dir}），请检查音色文件`):`未检测到 GPT-SoVITS 服务（${refMeta.endpoint}）——请先启动 GPT-SoVITS 的 api_v2 服务（默认端口 9880，WebUI 的 9874 端口不提供合成 API）`):'正在检测 GPT-SoVITS 服务…'
+ const refDesc=refMeta?(refMeta.server_online?(refMeta.pack_exists?(refMeta.missing_files&&refMeta.missing_files.length>0?`角色音色 ${voices.length} 个，但 ${refMeta.missing_files.length} 个参考音频缺失（${refMeta.missing_files.slice(0,3).join('、')}${refMeta.missing_files.length>3?'…':''}），请检查音色包目录`:`角色音色 ${voices.length} 个（GPT-SoVITS 本地克隆，服务在线，按角色风格分组）`):`服务在线，但音色包目录缺失（${refMeta.pack_dir}），请检查音色文件`):`未检测到 GPT-SoVITS 服务（${refMeta.endpoint}）——请先启动 GPT-SoVITS 的 api_v2 服务（默认端口 9880，WebUI 的 9874 端口不提供合成 API）`):'正在检测 GPT-SoVITS 服务…'
  const engineDesc=companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
  const voiceDisabled=engineState!=='available'
  // Voice grouping: ref-engine presets carry an explicit group from the
@@ -422,35 +422,34 @@ function AboutPanel(): React.JSX.Element {
   )
 }
 
-// M7 T-7.8.5 — MCP 服务器设置页：列表启停、健康检查、手动添加（风险确认）、市场搜索。
+// M7 T-7.8.5 + M10 — MCP 连接器设置页：已安装端点管理、市场目录浏览、
+// 手动配置（含 8 规则校验链与确认令牌）、预置服务器一键注册。
+// 整合了原「连接器市场」独立页面，统一入口。
 function McpPanel(): React.JSX.Element {
   const bridge = getMcpBridge()
+  const [tab, setTab] = useState<'market' | 'manual' | 'installed'>('installed')
   const [endpoints, setEndpoints] = useState<Array<{ endpointId: string; transport: 'stdio' | 'https'; state: string; enabled: boolean; origin?: string; lastHealthAt?: string }>>([])
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
-  const [json, setJson] = useState('')
+  const [json, setJson] = useState('{"transport":"stdio","command":"npx","args":["-y","some-mcp-server"]}')
   const [riskConfirmed, setRiskConfirmed] = useState(false)
   const [marketQuery, setMarketQuery] = useState('')
   const [marketItems, setMarketItems] = useState<Array<{ itemId: string; name: string; publisher: string; description: string; transportHint: string; signed: boolean }>>([])
+  const [tombstone, setTombstone] = useState<{ fresh: boolean; revoked: Array<{ marketItemId: string; name: string; endpointIds: string[] }>; drifted: Array<{ marketItemId: string; name: string; cachedDigest: string; registryDigest: string }> }>()
+  const [uninstallTarget, setUninstallTarget] = useState<string>('')
 
   const refresh = async () => {
     setBusy(true)
-    try {
-      const r = await bridge.list()
-      setEndpoints(r.endpoints)
-      setStatus('')
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : 'MCP 列表加载失败')
-    } finally { setBusy(false) }
+    try { const r = await bridge.list(); setEndpoints(r.endpoints); setStatus('') }
+    catch (e) { setStatus(e instanceof Error ? e.message : 'MCP 列表加载失败') }
+    finally { setBusy(false) }
   }
   useEffect(() => { void refresh() }, [])
 
   const toggle = async (endpointId: string, enabled: boolean) => {
     setBusy(true); setStatus('')
-    try {
-      await bridge.toggle({ endpointId, enabled })
-      await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '启停失败') } finally { setBusy(false) }
+    try { await bridge.toggle({ endpointId, enabled }); await refresh() }
+    catch (e) { setStatus(e instanceof Error ? e.message : '启停失败') } finally { setBusy(false) }
   }
   const health = async (endpointId: string) => {
     setBusy(true); setStatus('')
@@ -485,38 +484,72 @@ function McpPanel(): React.JSX.Element {
       await refresh()
     } catch (e) { setStatus(e instanceof Error ? e.message : '市场添加失败') } finally { setBusy(false) }
   }
+  const runTombstone = async () => {
+    setBusy(true); setStatus('')
+    try { setTombstone(await mcBridge.tombstoneCheck()) }
+    catch (e) { setStatus(e instanceof Error ? e.message : '墓碑检测失败') } finally { setBusy(false) }
+  }
+  const requestUninstall = async () => {
+    if (!uninstallTarget) return
+    setBusy(true); setStatus('')
+    try {
+      const token = await mcBridge.confirmToken({ method: 'mc.connector.uninstall', target: uninstallTarget })
+      const base = { endpointId: uninstallTarget, confirmToken: token.confirmToken }
+      await mcBridge.uninstall(base)
+      setStatus(`端点 ${uninstallTarget.slice(0, 12)}… 已吊销`)
+      setUninstallTarget('')
+      await refresh()
+    } catch (e) { setStatus(e instanceof Error ? e.message : '卸载失败') } finally { setBusy(false) }
+  }
 
   return (
     <div className="setting-group">
-      <div className="setting-group-title">MCP 服务器</div>
+      <div className="setting-group-title">MCP 连接器</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">stdio/HTTPS 双通道；能力 pin 漂移 fail-closed；凭据覆盖式更新、零回显。当前 {endpoints.length} 个端点。</div>
+        <div className="setting-desc">stdio/HTTPS 双通道；能力 pin 漂移 fail-closed；8 规则校验链；确认令牌与端点生命周期。当前 {endpoints.length} 个端点。</div>
       </div>
-      {endpoints.map(e => (
-        <div className="setting-row" key={e.endpointId}>
-          <div>
-            <div className="setting-label">{e.endpointId.slice(0, 12)}… · {e.transport}{e.origin ? ` · ${e.origin === 'market' ? '市场' : '手动'}` : ''}</div>
-            <div className="setting-desc">状态 {e.state}{e.lastHealthAt ? ` · 上次检查 ${new Date(e.lastHealthAt).toLocaleString()}` : ''}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button disabled={busy} onClick={() => void health(e.endpointId)}>检查</button>
-            <button disabled={busy} aria-pressed={e.enabled} onClick={() => void toggle(e.endpointId, !e.enabled)}>{e.enabled ? '停用' : '启用'}</button>
-          </div>
+
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="skill-status-tabs" role="tablist" aria-label="MCP 视图">
+          <button type="button" role="tab" aria-selected={tab === 'installed'} onClick={() => setTab('installed')}>已安装（{endpoints.length}）</button>
+          <button type="button" role="tab" aria-selected={tab === 'market'} onClick={() => setTab('market')}>市场</button>
+          <button type="button" role="tab" aria-selected={tab === 'manual'} onClick={() => setTab('manual')}>手动配置</button>
         </div>
-      ))}
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-group-title" style={{ marginTop: 8 }}>手动添加（JSON）</div>
-        <textarea className="setting-textarea" style={{ width: '100%', minHeight: 84, fontFamily: 'var(--mono)', fontSize: 12 }} placeholder='{"transport":"stdio","command":"npx","args":["-y","some-mcp-server"]}' value={json} onChange={ev => setJson(ev.target.value)} aria-label="MCP 服务器 JSON" />
-        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--muted)' }}>
-          <input type="checkbox" checked={riskConfirmed} onChange={ev => setRiskConfirmed(ev.target.checked)} /> 我确认信任此服务器来源，理解其工具将进入本机沙箱执行
-        </label>
-        <div><button disabled={busy || !json.trim() || !riskConfirmed} onClick={() => void addManual()}>添加服务器</button></div>
       </div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-group-title" style={{ marginTop: 8 }}>市场</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="setting-input" style={{ flex: 1 }} placeholder="搜索 MCP 服务器" value={marketQuery} onChange={ev => setMarketQuery(ev.target.value)} aria-label="市场搜索" />
-          <button disabled={busy || !marketQuery.trim()} onClick={() => void searchMarket()}>搜索</button>
+
+      {tab === 'installed' && <>
+        {endpoints.map(e => (
+          <div className="setting-row" key={e.endpointId}>
+            <div>
+              <div className="setting-label">{e.endpointId.slice(0, 12)}… · {e.transport}{e.origin ? ` · ${e.origin === 'market' ? '市场' : '手动'}` : ''}</div>
+              <div className="setting-desc">状态 {e.state}{e.lastHealthAt ? ` · 上次检查 ${new Date(e.lastHealthAt).toLocaleString()}` : ''}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button disabled={busy} onClick={() => void health(e.endpointId)}>检查</button>
+              <button disabled={busy} aria-pressed={e.enabled} onClick={() => void toggle(e.endpointId, !e.enabled)}>{e.enabled ? '停用' : '启用'}</button>
+              <button disabled={busy} className="danger" onClick={() => setUninstallTarget(e.endpointId)}>卸载</button>
+            </div>
+          </div>
+        ))}
+        {endpoints.length === 0 && <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}><div className="setting-desc">暂无已安装端点，从市场或手动配置添加第一个 MCP 连接器。</div></div>}
+        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button disabled={busy} onClick={() => void runTombstone()}>墓碑检测</button>
+          </div>
+          {tombstone && <div style={{ marginTop: 8 }}>
+            {tombstone.revoked.length > 0 && <div className="setting-desc" style={{ color: '#ff9ba4' }}>发现 {tombstone.revoked.length} 个已撤销条目：{tombstone.revoked.map(item => item.name).join('、')}，建议卸载。</div>}
+            {tombstone.drifted.length > 0 && <div className="setting-desc">发现 {tombstone.drifted.length} 个上游摘要漂移：{tombstone.drifted.map(item => item.name).join('、')}，建议更新。</div>}
+            {tombstone.revoked.length === 0 && tombstone.drifted.length === 0 && <div className="setting-desc">无已撤销或漂移条目。</div>}
+          </div>}
+        </div>
+      </>}
+
+      {tab === 'market' && <>
+        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="setting-input" style={{ flex: 1 }} placeholder="搜索 MCP 服务器（名称 / 发布者 / 描述）" value={marketQuery} onChange={ev => setMarketQuery(ev.target.value)} aria-label="市场搜索" />
+            <button disabled={busy || !marketQuery.trim()} onClick={() => void searchMarket()}>搜索</button>
+          </div>
         </div>
         {marketItems.map(m => (
           <div className="setting-row" key={m.itemId} style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
@@ -527,9 +560,30 @@ function McpPanel(): React.JSX.Element {
             <button disabled={busy} onClick={() => void addFromMarket(m.itemId)}>添加</button>
           </div>
         ))}
-      </div>
+        {marketItems.length === 0 && <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}><div className="setting-desc">输入关键词搜索 MCP 市场目录，或切换到「预置服务器」查看免费官方推荐。</div></div>}
+      </>}
+
+      {tab === 'manual' && <>
+        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+          <div className="setting-group-title" style={{ marginTop: 0 }}>手动配置（JSON）</div>
+          <textarea className="setting-textarea" style={{ width: '100%', minHeight: 84, fontFamily: 'var(--mono)', fontSize: 12 }} placeholder='{"transport":"stdio","command":"npx","args":["-y","some-mcp-server"]}' value={json} onChange={ev => setJson(ev.target.value)} aria-label="MCP 连接器 JSON" />
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--muted)' }}>
+            <input type="checkbox" checked={riskConfirmed} onChange={ev => setRiskConfirmed(ev.target.checked)} /> 我确认信任此服务器来源，理解其工具将进入本机沙箱执行
+          </label>
+          <div><button disabled={busy || !json.trim() || !riskConfirmed} onClick={() => void addManual()}>添加连接器</button></div>
+        </div>
+      </>}
+
       <McpPresetsSection />
       {status && <p role="status" className="notice">{status}</p>}
+
+      {uninstallTarget && <div className="model-manager-overlay" role="dialog" aria-modal="true" aria-label="确认卸载连接器">
+        <div className="mc-detail-dialog">
+          <div className="skill-detail-title"><h2>卸载连接器</h2><button type="button" onClick={() => setUninstallTarget('')}>取消</button></div>
+          <p>端点 <code>{uninstallTarget}</code> 将被吊销：停用并进入终态，用量统计保留。操作需要签发一次性确认令牌。</p>
+          <div className="skill-detail-actions"><button className="danger" disabled={busy} onClick={() => void requestUninstall()}>{busy ? '卸载中…' : '签发令牌并卸载'}</button><button disabled={busy} onClick={() => setUninstallTarget('')}>取消</button></div>
+        </div>
+      </div>}
     </div>
   )
 }

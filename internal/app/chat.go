@@ -18,6 +18,7 @@ import (
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
@@ -106,6 +107,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	instruction := executionModeInstruction(mode)
+	// P1-2: Moon Companion voice style — encourage short, colloquial
+	// sentences for natural speech synthesis. The model is informed that
+	// its output will be read aloud by a TTS engine, so it should avoid
+	// markdown, lists, code blocks, and long paragraphs.
+	if p.Companion {
+		instruction += "\n\n你正在通过语音与用户对话（月伴模式）。你的回答会被 TTS 引擎朗读出来。请严格遵守以下规则：\n- 用口语化短句作答，每句不超过 30 字，便于朗读和听懂\n- 禁止使用 Markdown、代码块、表格、列表等格式\n- 像朋友聊天一样自然回应，不要像在写文档\n- 先简短回应再展开，首句控制在 15 字以内\n- 语气亲切自然，适当使用语气词（如「嗯」「哦」「好的」）"
+	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
 	// so path answers match reality instead of a stale sandbox assumption.
@@ -378,13 +386,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	state := &streamState{cancel: cancel}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
-	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1}
+	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1, DisableReasoning: p.Companion}
 	if e.tools != nil {
 		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
 		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
 		req.Tools = append(req.Tools, e.skillToolDefinitions()...)
+		req.Tools = append(req.Tools, e.expertToolDefinitions()...)
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -603,10 +612,11 @@ func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, sessio
 // stream between tool_started and tool_completed so long-running commands
 // stop black-boxing.
 func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+	approved := mode == executionModeFullAccess
 	if e.fullDiskChat(mode) {
-		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, false, progress)
+		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, approved, progress)
 	}
-	return e.tools.ExecuteStreaming(ctx, toolruntime.Mode(mode), session, name, args, false, progress)
+	return e.tools.ExecuteStreaming(ctx, toolruntime.Mode(mode), session, name, args, approved, progress)
 }
 
 func engineToolDefinitions() []gateway.ToolDefinition {
@@ -625,6 +635,18 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a .pptx slide deck (title slide content plus title+bullets slides) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
+	}
+}
+
+// expertToolDefinitions exposes the expert.create tool when the expert
+// service is wired. The model can create a six-section expert profile
+// directly from the conversation.
+func (e *Engine) expertToolDefinitions() []gateway.ToolDefinition {
+	if e.m8expert == nil {
+		return nil
+	}
+	return []gateway.ToolDefinition{
+		{Name: "expert.create", Description: "Create a six-section expert profile (name, division, description, and six-section body: identity, mission, rules, workflow, deliverableTemplate, successMetrics). The expert is immediately available for mounting to projects.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"Expert display name"},"division":{"type":"string","enum":["engineering","design","product","project-management","testing","security","operations","data"],"description":"Expert domain"},"description":{"type":"string","minLength":1,"maxLength":2000,"description":"Short description of the expert"},"semver":{"type":"string","description":"Semantic version like 1.0.0"},"identity":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert identity prompt section"},"mission":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert mission prompt section"},"rules":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert rules prompt section"},"workflow":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert workflow prompt section"},"deliverableTemplate":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert deliverable template prompt section"},"successMetrics":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert success metrics prompt section"}},"required":["name","division","description","semver","identity","mission","rules","workflow","deliverableTemplate","successMetrics"],"additionalProperties":false}`)},
 	}
 }
 
@@ -698,6 +720,51 @@ func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, sessio
 		return toolruntime.Result{}, err
 	}
 	return toolruntime.Result{Output: out.Output}, nil
+}
+
+// invokeExpertCreateTool routes a model-initiated expert.create call through
+// the M8 expert service. The expert is immediately available for mounting.
+func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	if e.m8expert == nil {
+		return toolruntime.Result{}, errors.New("expert service unavailable")
+	}
+	var a struct {
+		Name               string `json:"name"`
+		Division           string `json:"division"`
+		Description        string `json:"description"`
+		Semver             string `json:"semver"`
+		Identity           string `json:"identity"`
+		Mission            string `json:"mission"`
+		Rules              string `json:"rules"`
+		Workflow           string `json:"workflow"`
+		DeliverableTemplate string `json:"deliverableTemplate"`
+		SuccessMetrics     string `json:"successMetrics"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return toolruntime.Result{}, errors.New("invalid expert.create arguments")
+	}
+	if strings.TrimSpace(a.Name) == "" || len(a.Name) > 128 {
+		return toolruntime.Result{}, errors.New("expert name must be 1-128 characters")
+	}
+	res, err := e.m8expert.Create(ctx, m8app.CreateInput{
+		Source: "local",
+		Frontmatter: m8core.Frontmatter{
+			Name: a.Name, Division: a.Division,
+			Description: a.Description, Semver: a.Semver,
+		},
+		SixSection: m8core.SixSection{
+			Identity: a.Identity, Mission: a.Mission,
+			Rules: a.Rules, Workflow: a.Workflow,
+			DeliverableTemplate: a.DeliverableTemplate,
+			SuccessMetrics:     a.SuccessMetrics,
+		},
+		RequestID: ulid.Make().String(),
+	})
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	b, _ := json.Marshal(res)
+	return toolruntime.Result{Output: "专家「" + a.Name + "」已创建成功。\n" + string(b)}, nil
 }
 
 // mcpToolPrefix namespaces merged MCP endpoint tools inside the model tool
@@ -1021,7 +1088,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		toolsFallbackUsed := false
 		for step := 0; step < 6; step++ {
 			result, streamErr = a.Stream(op, credential, req, func(d gateway.Delta) error {
-				if d.Reasoning != "" && thinkingText.Len() < maxThinkingTotalBytes {
+				if d.Reasoning != "" && thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
 					reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
 					thinkingText.WriteString(reasoning)
 					if pendingThinking == "" && reasoning != "" {
@@ -1193,6 +1260,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// skillapp pipeline (never the raw toolruntime switch).
 					if call.Name == "skill.invoke" {
 						return e.invokeSkillTool(op, mode, sessionID, call.Arguments)
+					}
+					// Model-initiated expert creation routes through the
+					// M8 expert service (never the raw toolruntime switch).
+					if call.Name == "expert.create" {
+						return e.invokeExpertCreateTool(op, sessionID, call.Arguments)
 					}
 					// P1-2: long-running commands stream bounded output chunks
 					// between started and completed. The runtime serializes

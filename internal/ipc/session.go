@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -268,9 +269,25 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 			}
 			var response bridge.Response
 			if streaming, ok := handler.(StreamingHandler); ok {
-				response = streaming.HandleStreaming(sessionCtx, request, emit)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("ENGINE PANIC recovered in streaming handler: %v (request %s)", r, request.ID)
+							response = bridge.Failure(request.ID, request.TraceID, "ENGINE_INTERNAL_ERROR", "引擎内部错误，已自动恢复", false)
+						}
+					}()
+					response = streaming.HandleStreaming(sessionCtx, request, emit)
+				}()
 			} else {
-				response = handler.Handle(sessionCtx, request)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("ENGINE PANIC recovered in handler: %v (request %s)", r, request.ID)
+							response = bridge.Failure(request.ID, request.TraceID, "ENGINE_INTERNAL_ERROR", "引擎内部错误，已自动恢复", false)
+						}
+					}()
+					response = handler.Handle(sessionCtx, request)
+				}()
 			}
 			eventMu.Lock()
 			if preResponseError != nil {

@@ -447,3 +447,51 @@ func TestAnthropicToolNamesRoundTrip(t *testing.T) {
 		t.Fatalf("anthropic wire name wrong: %s", b1)
 	}
 }
+
+func TestLocalTrustHost(t *testing.T) {
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{
+		{"localhost", true}, {"LOCALHOST", true},
+		{"127.0.0.1", true}, {"::1", true},
+		{"192.168.31.100", true}, {"10.1.2.3", true}, {"172.16.0.9", true},
+		{"fd00::1", true},
+		{"8.8.8.8", false}, {"1.1.1.1", false},
+		{"api.deepseek.com", false}, {"my-nas.local", false}, {"", false},
+	} {
+		if got := localTrustHost(tc.host); got != tc.want {
+			t.Errorf("localTrustHost(%q)=%v want %v", tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestDoWithSecretHTTPPrivateHostAllowed(t *testing.T) {
+	fc := &fakeConnector{responses: []*http.Response{}}
+	for _, tc := range []struct {
+		url         string
+		wantBlocked bool
+	}{
+		{"http://192.168.31.100:1234/v1/chat/completions", false},
+		{"http://localhost:1234/v1/chat/completions", false},
+		{"http://127.0.0.1:11434/v1/chat/completions", false},
+		{"http://8.8.8.8:1234/v1/chat/completions", true},
+		{"http://api.example.com:1234/v1/chat/completions", true},
+		{"https://api.example.com/v1/chat/completions", false},
+	} {
+		req, err := http.NewRequest(http.MethodPost, tc.url, strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fc.responses = []*http.Response{response(200, "{}")}
+		before := len(fc.requests)
+		_, err = doWithSecret(fc, req, "Authorization", "Bearer ", []byte("k"))
+		blocked := err != nil && strings.Contains(err.Error(), "credentials require HTTPS")
+		if blocked != tc.wantBlocked {
+			t.Errorf("url=%s blocked=%v want %v (err=%v)", tc.url, blocked, tc.wantBlocked, err)
+		}
+		if sent := len(fc.requests) - before; !tc.wantBlocked && sent != 1 {
+			t.Errorf("url=%s was not sent (requests=%d)", tc.url, sent)
+		}
+	}
+}

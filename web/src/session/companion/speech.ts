@@ -26,6 +26,8 @@ const speechRecognitionConstructor = () =>
 export interface CompanionSpeechCallbacks {
   /** A final transcript arrived — sent straight to ChatBridge by the stage. */
   onFinal: (transcript: string) => void
+  /** Interim transcript (real-time, throttled ~100ms) — shown as grey subtitle. */
+  onInterim?: (transcript: string) => void
   /** Error mapped to the frozen microphone/speech error codes. */
   onError: (error: BridgeClientError) => void
   /** 12 normalized ring levels, ~30fps while listening. */
@@ -99,16 +101,34 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
     recognition = rec
     rec.lang = 'zh-CN'
     rec.continuous = true
-    rec.interimResults = false
+    // P0-3: enable interim results for real-time transcription display.
+    // The user sees grey text appearing as they speak, eliminating the
+    // "dead air" feeling during the 0.3–0.8s silence-detection window.
+    // Only final transcripts trigger onSend — semantics are unchanged.
+    rec.interimResults = true
+    let lastInterimAt = 0
     rec.onresult = event => {
-      let transcript = ''
-      for (let i = 0; i < event.results.length; i++) if (event.results[i].isFinal) transcript += event.results[i][0].transcript
-      const trimmed = transcript.trim()
-      if (!trimmed || finished) return
-      finished = true
-      rec.stop()
-      teardown()
-      callbacks.onFinal(trimmed)
+      let finalTranscript = ''
+      let interimTranscript = ''
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript
+        else interimTranscript += event.results[i][0].transcript
+      }
+      const trimmedFinal = finalTranscript.trim()
+      if (trimmedFinal && !finished) {
+        finished = true
+        rec.stop()
+        teardown()
+        callbacks.onFinal(trimmedFinal)
+        return
+      }
+      // Throttle interim updates to ~100ms to avoid excessive React re-renders
+      // while still feeling instantaneous to the user.
+      const now = performance.now()
+      if (interimTranscript && now - lastInterimAt >= 100) {
+        lastInterimAt = now
+        callbacks.onInterim?.(interimTranscript.trim())
+      }
     }
     rec.onerror = event => {
       if (finished) return

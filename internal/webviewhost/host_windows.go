@@ -24,7 +24,48 @@ import (
 const (
 	windowClass     = "LunitideWebView2Host"
 	uiMessage       = win32.WM_APP + 1
+	trayMessage     = win32.WM_APP + 2
+	trayIconID      = 1
 	hostWindowStyle = win32.WS_OVERLAPPEDWINDOW
+)
+
+// Shell notify icon constants and structs
+const (
+	nimAdd     = 0
+	nimDelete  = 2
+	nifMessage = 0x00000001
+	nifIcon    = 0x00000002
+	nifTip     = 0x00000004
+)
+
+type notifyIconData struct {
+	cbSize           uint32
+	hWnd             win32.HWND
+	uID              uint32
+	uFlags           uint32
+	uCallbackMessage uint32
+	hIcon            win32.HICON
+	szTip            [128]uint16
+	dwState          uint32
+	dwStateMask      uint32
+	szInfo           [256]uint16
+	uVersion         uint32
+	szInfoTitle      [64]uint16
+	dwInfoFlags      uint32
+	guidItem         [16]byte
+	hBalloonIcon     win32.HICON
+}
+
+var (
+	shell32             = syscall.NewLazyDLL("shell32.dll")
+	shellNotifyIcon     = shell32.NewProc("Shell_NotifyIconW")
+	user32Menu          = syscall.NewLazyDLL("user32.dll")
+	createPopupMenu     = user32Menu.NewProc("CreatePopupMenu")
+	appendMenuW         = user32Menu.NewProc("AppendMenuW")
+	trackPopupMenu      = user32Menu.NewProc("TrackPopupMenuEx")
+	destroyMenu         = user32Menu.NewProc("DestroyMenu")
+	setForegroundWindow = user32Menu.NewProc("SetForegroundWindow")
+	postMessage         = user32Menu.NewProc("PostMessageW")
 )
 
 // enableHighResolutionRendering opts the process into per-monitor-v2 DPI
@@ -81,6 +122,9 @@ type Host struct {
 	closed      bool
 	generation  uint64
 	postMessage func(win32.HWND, uint32, win32.WPARAM, win32.LPARAM) (win32.BOOL, win32.WIN32_ERROR)
+
+	appIcon   win32.HICON
+	trayAdded bool
 }
 
 type frameRegistration struct {
@@ -195,6 +239,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if hIcon := loadAppIcon(); hIcon != 0 {
 		wc.HIcon = hIcon
 		wc.HIconSm = hIcon
+		h.appIcon = hIcon
 	}
 	if atom, _ := win32.RegisterClassEx(&wc); atom == 0 {
 		return errors.New("RegisterClassEx failed")
@@ -212,6 +257,7 @@ func (h *Host) Run(ctx context.Context) error {
 	hosts.Store(h.hwnd, h)
 	win32.ShowWindow(h.hwnd, win32.SW_SHOW)
 	win32.UpdateWindow(h.hwnd)
+	h.addTrayIcon()
 	if err := h.createWebView(); err != nil {
 		return err
 	}
@@ -794,6 +840,76 @@ func (h *Host) closeSTA() {
 	}
 }
 
+// addTrayIcon adds a notification area (system tray) icon.
+func (h *Host) addTrayIcon() {
+	if h.appIcon == 0 {
+		return
+	}
+	nid := notifyIconData{
+		cbSize:           uint32(unsafe.Sizeof(notifyIconData{})),
+		hWnd:             h.hwnd,
+		uID:              trayIconID,
+		uFlags:           nifIcon | nifMessage | nifTip,
+		uCallbackMessage: trayMessage,
+		hIcon:            h.appIcon,
+	}
+	copy(nid.szTip[:], syscall.StringToUTF16("Lunitide 月汐"))
+	shellNotifyIcon.Call(uintptr(nimAdd), uintptr(unsafe.Pointer(&nid)))
+	h.trayAdded = true
+}
+
+// removeTrayIcon removes the notification area icon.
+func (h *Host) removeTrayIcon() {
+	if !h.trayAdded {
+		return
+	}
+	nid := notifyIconData{
+		cbSize: uint32(unsafe.Sizeof(notifyIconData{})),
+		hWnd:   h.hwnd,
+		uID:    trayIconID,
+	}
+	shellNotifyIcon.Call(uintptr(nimDelete), uintptr(unsafe.Pointer(&nid)))
+	h.trayAdded = false
+}
+
+// showTrayMenu displays the right-click context menu for the tray icon.
+func (h *Host) showTrayMenu(hwnd win32.HWND) {
+	setForegroundWindow.Call(uintptr(hwnd))
+	menu, _, _ := createPopupMenu.Call()
+	if menu == 0 {
+		return
+	}
+	defer destroyMenu.Call(menu)
+
+	showLabel, _ := syscall.UTF16PtrFromString("显示窗口")
+	exitLabel, _ := syscall.UTF16PtrFromString("退出")
+
+	const mfString = 0x00000000
+	const mfSeparator = 0x0000800
+	const cmdShow = 1001
+	const cmdExit = 1002
+
+	appendMenuW.Call(menu, mfString, uintptr(cmdShow), uintptr(unsafe.Pointer(showLabel)))
+	appendMenuW.Call(menu, mfSeparator, 0, 0)
+	appendMenuW.Call(menu, mfString, uintptr(cmdExit), uintptr(unsafe.Pointer(exitLabel)))
+
+	var pt win32.POINT
+	win32.GetCursorPos(&pt)
+	const tpmReturnCmd = 0x0100
+	const tpmLeftAlign = 0x0000
+	cmd, _, _ := trackPopupMenu.Call(menu, uintptr(tpmReturnCmd|tpmLeftAlign), uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hwnd), 0)
+
+	switch cmd {
+	case cmdShow:
+		win32.ShowWindow(hwnd, win32.SW_SHOW)
+		win32.SetForegroundWindow(hwnd)
+	case cmdExit:
+		postMessage.Call(uintptr(hwnd), uintptr(win32.WM_CLOSE), 0, 0)
+		h.removeTrayIcon()
+		win32.DestroyWindow(hwnd)
+	}
+}
+
 func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win32.LPARAM) win32.LRESULT {
 	value, _ := hosts.Load(hwnd)
 	h, _ := value.(*Host)
@@ -822,7 +938,28 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 			h.drain()
 		}
 		return 0
+	case win32.WM_CLOSE:
+		// Minimize to tray instead of closing.
+		// The user can exit via the tray context menu "退出".
+		win32.ShowWindow(hwnd, win32.SW_HIDE)
+		return 0
+	case trayMessage:
+		// Tray icon callback: right-click context menu
+		if uint32(lParam) == win32.WM_RBUTTONUP || uint32(lParam) == win32.WM_CONTEXTMENU {
+			if h != nil {
+				h.showTrayMenu(hwnd)
+			}
+		}
+		// Left double-click restores the window
+		if uint32(lParam) == win32.WM_LBUTTONDBLCLK {
+			win32.ShowWindow(hwnd, win32.SW_SHOW)
+			win32.SetForegroundWindow(hwnd)
+		}
+		return 0
 	case win32.WM_DESTROY:
+		if h != nil {
+			h.removeTrayIcon()
+		}
 		hosts.Delete(hwnd)
 		win32.PostQuitMessage(0)
 		return 0

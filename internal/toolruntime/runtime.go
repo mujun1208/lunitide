@@ -148,6 +148,12 @@ func (r *Runtime) loadUserCommandPolicy() error {
 	raw, err := os.ReadFile(r.userRulesPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// No policy file means the user hasn't explicitly opted out
+			// of full-disk access. Default to full-disk so that FullAccess
+			// mode works as the user expects without extra configuration.
+			r.rulesMu.Lock()
+			r.fullDisk = true
+			r.rulesMu.Unlock()
 			return nil
 		}
 		return err

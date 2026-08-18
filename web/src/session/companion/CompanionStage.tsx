@@ -41,6 +41,11 @@ const STATE_LABELS: Record<CompanionState, string> = { idle: '待机', listening
 const idleLevels = Array.from({ length: MOON_RING_BINS }, () => 0)
 /** Re-listen guard: stop the hands-free loop after this many silent auto-restarts in a row. */
 const MAX_SILENT_RESTARTS = 3
+/** P0-1: Minimum characters before a sentence is sent to the TTS queue during
+ *  streaming. Shorter for the first sentence (quick feedback), longer for
+ *  subsequent ones (avoid too-frequent synthesis round-trips). */
+const STREAMING_FIRST_SENTENCE_MIN = 4
+const STREAMING_SUBSEQUENT_SENTENCE_MIN = 12
 
 export function CompanionStage({ chatStatus, assistantText, error, chatReady, onSend, onExit }: CompanionStageProps): React.JSX.Element {
   const machine = useCompanionMachine()
@@ -52,6 +57,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const [gain, setGain] = useState(0)
   const [levels, setLevels] = useState<number[]>(idleLevels)
   const [rounds, setRounds] = useState<SubtitleRound[]>([])
+  const [interimText, setInterimText] = useState('')
   const [listenSeconds, setListenSeconds] = useState(0)
   const [hintVisible, setHintVisible] = useState(false)
   const [retiring, setRetiring] = useState(false)
@@ -73,6 +79,9 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const spokenUpToRef = useRef(0)
   /** Streaming TTS: whether we are currently speaking (streaming or final). */
   const speakingRef = useRef(false)
+  /** P0-1: Incremented when a streaming chunk finishes, forcing the streaming
+   *  useEffect to re-evaluate even if assistantText hasn't changed. */
+  const [streamTick, setStreamTick] = useState(0)
 
   // Mount: load settings, probe the TTS engine, unlock audio playback,
   // lock body scroll, remember the entry element for focus return.
@@ -105,6 +114,22 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         setTtsAvailable(false)
         setDegraded(true)
       })
+    // P0-3: Warm up GPT-SoVITS when using ref engine — send a short
+    // synthesis request to load the model into GPU so the first real
+    // segment is fast. The result is discarded (not played).
+    if (stored.engine === 'ref' && stored.autoSpeak) {
+      const warmupVoiceId = stored.voiceId || ''
+      getTtsBridge()
+        .synthesize({
+          text: '嗯',
+          voiceId: warmupVoiceId || undefined,
+          rate: stored.rate,
+          volume: 0, // volume 0 so even if it somehow plays, it's silent
+          engine: 'ref',
+          refEndpoint: stored.refEndpoint || undefined,
+        })
+        .catch(() => {}) // fire-and-forget: warm-up failure is non-fatal
+    }
     return () => {
       cancelled = true
       exitedRef.current = true
@@ -142,31 +167,56 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   // Streaming TTS: start speaking as soon as a complete sentence arrives,
   // instead of waiting for the entire LLM response. This dramatically reduces
   // perceived latency — the user hears the first sentence 3-10x faster.
-  // 10x 优化：最小句子长度从 15 降到 8 字符，让短句（如"好的。"、"明白了。"）
-  // 立即开始朗读，而不是等待更多内容累积。同时增加逗号作为辅助断句边界，
-  // 在长句中更快触发首次朗读。
+  // P0-1: Uses enqueue so sentences flow continuously into the TTS queue
+  // without blocking. streamTick ensures we re-check after each chunk finishes.
   useEffect(() => {
     if (chatStatus !== 'streaming') return
     if (!ttsAvailable || !settings.autoSpeak) return
-    if (speakingRef.current) return
     const text = assistantText.slice(spokenUpToRef.current)
+    const isFirstSentence = spokenUpToRef.current === 0
     // Find the first complete sentence (ends with 。？！\n)
-    // Also try comma/dunhao boundaries for faster first-speak in long sentences
     const sentenceMatch = text.match(/^([\s\S]*?[。？！\n])/)
+    // Also try comma/dunhao boundaries for faster first-speak
     const commaMatch = !sentenceMatch ? text.match(/^([\s\S]*?[，,、])/) : null
     const match = sentenceMatch || commaMatch
     if (!match) return
     // Don't speak very short fragments — wait for more content
-    // 10x 优化：阈值从 15 降到 8，短句立即朗读
-    if (match[1].length < 8) return
+    const minChars = isFirstSentence ? STREAMING_FIRST_SENTENCE_MIN : STREAMING_SUBSEQUENT_SENTENCE_MIN
+    if (match[1].length < minChars) return
 
     spokenUpToRef.current += match[1].length
-    speakingRef.current = true
     if (stateRef.current === 'thinking') {
       machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
     }
-    speakChunk(match[1])
-  }, [assistantText, chatStatus, ttsAvailable, settings.autoSpeak])
+    const player = ensurePlayer()
+    const voiceId = activeVoiceId()
+    player.configure(voiceId, settings.rate, settings.volume, settings)
+    const segments = prepareSpeech(match[1])
+    player.enqueue(segments, { ...settings, voiceId }, {
+      onSegmentStart: index => {
+        setRounds(current => {
+          const last = current[current.length - 1]
+          if (last?.role !== 'assistant') return current
+          return [...current.slice(0, -1), { ...last, activeIndex: index }]
+        })
+      },
+      onGain: value => setGain(value),
+      onFinished: reason => {
+        setGain(0)
+        if (reason === 'engine-unavailable') {
+          setTtsAvailable(false)
+          setDegraded(true)
+        } else if (reason === 'circuit-broken') {
+          setCircuitBroken(true)
+        }
+        // Force re-check for more queued text
+        setStreamTick(t => t + 1)
+      },
+      onSegmentFailed: (index, consecutive) => {
+        if (consecutive >= 3) setCircuitBroken(true)
+      },
+    })
+  }, [assistantText, chatStatus, ttsAvailable, settings.autoSpeak, streamTick])
 
   // Terminal chat states drive the machine (TTS on → speaking).
   useEffect(() => {
@@ -177,23 +227,53 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     if (chatStatus === 'done' && !handledReplyRef.current && assistantText.trim()) {
       handledReplyRef.current = true
       const speakable = Boolean(ttsAvailable) && settings.autoSpeak
-      // If we already started speaking during streaming, just speak the remainder.
-      // Otherwise speak the full text.
+      // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
+      // then flush the queue and transition the machine.
       const remaining = assistantText.slice(spokenUpToRef.current)
-      if (remaining.trim()) {
-        if (!speakingRef.current && speakable) {
+      if (remaining.trim() && speakable) {
+        if (stateRef.current === 'thinking') {
           machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
         }
-        if (speakable) {
-          speakChunk(remaining)
-        }
-      } else if (!speakingRef.current) {
-        if (speakable) {
-          machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
-          speak(assistantText)
-        } else {
-          machine.dispatch({ type: 'REPLY_TERMINAL' })
-        }
+        const player = ensurePlayer()
+        const voiceId = activeVoiceId()
+        player.configure(voiceId, settings.rate, settings.volume, settings)
+        const segments = prepareSpeech(remaining)
+        player.enqueue(segments, { ...settings, voiceId }, {
+          onSegmentStart: index => {
+            setRounds(current => {
+              const last = current[current.length - 1]
+              if (last?.role !== 'assistant') return current
+              return [...current.slice(0, -1), { ...last, activeIndex: index }]
+            })
+          },
+          onGain: value => setGain(value),
+          onFinished: () => {
+            setGain(0)
+            machine.dispatch({ type: 'PLAYBACK_ENDED' })
+          },
+          onSegmentFailed: (index, consecutive) => {
+            if (consecutive >= 3) setCircuitBroken(true)
+          },
+        })
+        void player.flush({
+          onFinished: () => {
+            setGain(0)
+            speakingRef.current = false
+            if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
+          },
+        })
+      } else if (!remaining.trim() && speakable) {
+        // All text was already consumed during streaming — wait for queue to finish
+        const player = ensurePlayer()
+        void player.flush({
+          onFinished: () => {
+            setGain(0)
+            speakingRef.current = false
+            if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
+          },
+        })
+      } else if (!speakable) {
+        machine.dispatch({ type: 'REPLY_TERMINAL' })
       }
       return
     }
@@ -312,6 +392,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     setGain(0)
     speakingRef.current = false
     setCircuitBroken(false)
+    setStreamTick(0)
     if (stateRef.current === 'speaking') machine.dispatch({ type: 'INTERRUPT' })
   }, [machine])
 
@@ -334,13 +415,19 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
 
   const startListening = useCallback((auto: boolean) => {
     setLocalError(undefined)
+    setInterimText('')
     unlockTtsAudio()
     void startCompanionSpeech({
+      onInterim: transcript => setInterimText(transcript),
       onFinal: transcript => {
         speechHandleRef.current = undefined
         silentRestartsRef.current = 0
         spokenUpToRef.current = 0
         speakingRef.current = false
+        setStreamTick(0)
+        setInterimText('')
+        // Interrupt any ongoing TTS from the previous turn
+        playerRef.current?.interrupt()
         // A new turn retires the previous one: only this user line stays,
         // the assistant reply streams in below it and both fade away with
         // the next question.
@@ -581,10 +668,17 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
           every round. */}
       <div className={`companion-subtitles${retiring ? ' retiring' : ''}`} aria-label="对话记录">
         <div className="companion-subtitle-list" aria-live="polite" role="log" ref={subtitleListRef}>
+          {interimText && machine.state === 'listening' && (
+            <p className="companion-line interim">
+              <span className="who" aria-hidden="true">我</span>
+              <span className="interim-text">{interimText}</span>
+              <span className="interim-cursor" aria-hidden="true">|</span>
+            </p>
+          )}
           {rounds.map((round, index) => (
             <SubtitleRow key={index} round={round} />
           ))}
-          {!rounds.length && <p className="companion-subtitle-hint">开启麦克风后，你说的话和月汐的回答都会在这里播报。</p>}
+          {!rounds.length && !interimText && <p className="companion-subtitle-hint">开启麦克风后，你说的话和月汐的回答都会在这里播报。</p>}
         </div>
       </div>
       <button type="button" className="companion-exit" aria-label="退出月伴对话（Esc）" onClick={exit}>

@@ -16,7 +16,7 @@
 // - Permanent denials (not-allowed / service-not-allowed) stop cleanly.
 import { useEffect, useRef, useState } from 'react'
 
-export type WakeWordState = 'idle' | 'listening' | 'unsupported' | 'error'
+export type WakeWordState = 'idle' | 'probing' | 'listening' | 'unsupported' | 'error'
 
 export interface WakeWordMatch {
   hit: boolean
@@ -100,9 +100,11 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
     let stopped = false
     let recognition: SpeechRecognitionLike | undefined
     let restartTimer = 0
+    let probingTimer = 0
     let failures = 0
     let armedAt = 0
     let sawResult = false
+    let firstResult = false
     const stopRecognition = () => {
       try {
         recognition?.stop()
@@ -125,6 +127,11 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
         recognition.onresult = event => {
           if (stopped) return
           sawResult = true
+          if (!firstResult) {
+            firstResult = true
+            window.clearTimeout(probingTimer)
+            setState('listening')
+          }
           for (let i = 0; i < event.results.length; i++) {
             const result = event.results[i]
             const match = matchWakeWord(result[0].transcript)
@@ -168,7 +175,18 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
         armedAt = Date.now()
         sawResult = false
         recognition.start()
-        setState('listening')
+        // If we haven't gotten a result yet, show probing; after first
+        // result, onresult transitions to 'listening'.
+        if (!firstResult) setState('probing')
+        // Safety: if no result within 12s while probing, show error
+        // with a specific message about the Chinese speech pack.
+        if (!firstResult) {
+          window.clearTimeout(probingTimer)
+          probingTimer = window.setTimeout(() => {
+            if (stopped || firstResult) return
+            setState('error')
+          }, 12000)
+        }
       } catch {
         setState('error')
       }
@@ -184,6 +202,7 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
     return () => {
       stopped = true
       window.clearTimeout(restartTimer)
+      window.clearTimeout(probingTimer)
       stopRecognition()
     }
   }, [enabled, retry])
