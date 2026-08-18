@@ -23,6 +23,7 @@ const speech = vi.hoisted(() => ({
 
 const tts = vi.hoisted(() => ({
   speakCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
+  enqueueCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
 }))
 
 const automation = vi.hoisted(() => ({
@@ -60,6 +61,13 @@ vi.mock('./ttsPlayer', () => ({
     configure(): void {}
     async speak(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
       tts.speakCalls.push({ segments, callbacks })
+    }
+    enqueue(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
+      tts.enqueueCalls.push({ segments, callbacks })
+    }
+    async flush(_callbacks: TtsPlayerCallbacks) {
+      // Reply playback stays "ongoing" — the busy stage must keep
+      // dropping broadcasts until a real queue drain would end it.
     }
     interrupt(): void {}
     dispose(): void {}
@@ -101,6 +109,7 @@ beforeEach(() => {
   speech.start.mockReset()
   speech.start.mockRejectedValue(new Error('麦克风不可用'))
   tts.speakCalls = []
+  tts.enqueueCalls = []
   automation.runs = []
   localStorage.clear()
 })
@@ -158,10 +167,10 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('speaking')
-  expect(tts.speakCalls.length).toBe(1)
+  expect(tts.enqueueCalls.length).toBe(1) // the reply round flows through the streaming enqueue
 
   automation.runs = [run({ id: '01ARZ3NDEKTSV4RRFFQ69G5F98', jobName: '并发任务' }), ...automation.runs]
   await flush(30_000)
-  const broadcasts = tts.speakCalls.filter(call => call.segments.join('').includes('自动化任务'))
+  const broadcasts = [...tts.speakCalls, ...tts.enqueueCalls].filter(call => call.segments.join('').includes('自动化任务'))
   expect(broadcasts.length).toBe(0)
 })

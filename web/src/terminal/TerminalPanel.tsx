@@ -22,8 +22,8 @@ export function TerminalPanel({projectId,sessionId,bridge,toolActivities=[],exec
     terminal.loadAddon(fit);
     terminal.open(host.current);
     fit.fit();
-    const api = bridge ?? getTerminalBridge();
     try {
+      const api = bridge ?? getTerminalBridge();
       const session = await api.start({ projectId, sessionId, cols: terminal.cols, rows: terminal.rows }, event => {
         if (event.type === 'output') terminal.write(event.data);
         else {

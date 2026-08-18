@@ -114,6 +114,8 @@ func TestChatStartInjectsSkillCatalog(t *testing.T) {
 }
 
 func TestChatStartInjectsSkillCatalogInPlanMode(t *testing.T) {
+	// Legacy "plan" mode normalizes to approval (complexity routing replaced
+	// it); the skill catalog must still be injected on that legacy path.
 	stub := &skillCatalogStub{items: []skill.Skill{
 		catalogTestSkill("plan-skill", "规划辅助。", `{"triggers":["规划"]}`),
 	}}
@@ -122,8 +124,8 @@ func TestChatStartInjectsSkillCatalogInPlanMode(t *testing.T) {
 		t.Fatalf("chat.start failed: %#v", response)
 	}
 	sys := capturedSkillChatSystem(t, requests)
-	if !strings.HasPrefix(sys, "Execution mode: plan.") {
-		t.Fatalf("plan instruction missing:\n%s", sys)
+	if !strings.HasPrefix(sys, "Execution mode: approval.") {
+		t.Fatalf("legacy plan mode must fall back to the approval instruction:\n%s", sys)
 	}
 	if !strings.Contains(sys, "[可用技能目录]") || !strings.Contains(sys, "plan-skill") {
 		t.Fatalf("skill catalog missing in plan mode:\n%s", sys)

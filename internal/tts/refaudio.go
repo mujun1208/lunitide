@@ -40,9 +40,13 @@ const refMaxAudio = 32 << 20 // 32 MiB response cap
 
 type refEngine struct{ client *http.Client }
 
-// NewRefEngine returns the reference-timbre engine.
+// NewRefEngine returns the reference-timbre engine. The 120s budget matters:
+// GPT-SoVITS on CPU serializes concurrent segment syntheses (the companion
+// double-prefetch fires two POSTs), so a queued segment can legitimately wait
+// 30s+ before its own ~30s inference — a 30s client timeout cut requests off
+// exactly at that boundary and surfaced as synthesis failures.
 func NewRefEngine() Engine {
-	return &refEngine{client: &http.Client{Timeout: 30 * time.Second}}
+	return &refEngine{client: &http.Client{Timeout: 120 * time.Second}}
 }
 
 func (r *refEngine) Voices() ([]Voice, error) { return RefVoices(), nil }

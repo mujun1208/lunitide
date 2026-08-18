@@ -80,11 +80,15 @@ it('fires onWake once when the phrase lands in an interim transcript', async () 
   const onWake = vi.fn()
   const view = renderHook(() => useWakeWord({ enabled: true, onWake }))
   await act(async () => {}) // flush the microphone permission probe
-  expect(view.result.current).toBe('listening')
+  // Probing until the first transcript arrives: the permission probe
+  // passed and recognition is armed, but no result has landed yet.
+  expect(view.result.current).toBe('probing')
   const first = FakeRecognition.instances.at(-1)!
   act(() => {
     first.onresult?.({ results: [{ 0: { transcript: '你好月汐今天天气怎么样' }, isFinal: false }] })
   })
+  // The first transcript flips probing → listening, then the wake hit fires.
+  expect(view.result.current).toBe('listening')
   expect(onWake).toHaveBeenCalledExactlyOnceWith('今天天气怎么样')
   expect(first.stop).toHaveBeenCalled()
 })
@@ -111,7 +115,9 @@ it('surfaces an error after repeated fast-fail sessions instead of spinning as f
   installFakeRecognition()
   const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
   await act(async () => {})
-  expect(view.result.current).toBe('listening')
+  // No transcript ever lands, so the hook stays in probing (not fake
+  // listening) while the fast-fail sessions burn through retries.
+  expect(view.result.current).toBe('probing')
   for (let round = 0; round < 9; round++) {
     const current = FakeRecognition.instances.at(-1)!
     act(() => {

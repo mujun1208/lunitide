@@ -78,7 +78,10 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
     // speak loop exited without playing the second segment.
     await vi.advanceTimersByTimeAsync(3100)
     await speaking
-    expect(bridge.synthesize).toHaveBeenCalledTimes(1) // 第二段被丢弃
+    // P0-2 double prefetch: segment N+1 ('第二段被丢弃') was already
+    // synthesized in the background before the interrupt — its wav is
+    // discarded with the prefetch queue and never played.
+    expect(bridge.synthesize).toHaveBeenCalledTimes(2)
   })
 
   test('interrupt during synthesis drops the in-flight segment without playback', async () => {

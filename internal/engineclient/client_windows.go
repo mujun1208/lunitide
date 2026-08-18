@@ -47,6 +47,12 @@ type streamProgress struct {
 	nextSequence uint64
 }
 
+// DiagnosticsSink receives the reason every time the Engine RPC connection
+// is poisoned. The desktop host redirects this into host-*.log because the
+// GUI process stderr is lost; without it, "engine exited code=0 after the
+// client hung up" left no forensic trace of WHY the client hung up.
+var DiagnosticsSink func(reason string)
+
 type callResult struct {
 	response bridge.Response
 	err      error
@@ -170,6 +176,16 @@ func (c *Client) cancelPending(id string, responseCh chan callResult) {
 }
 
 func (c *Client) Events() <-chan bridge.Event { return c.events }
+
+// Broken reports the error that first made the connection unusable, or nil
+// while the connection is healthy. The desktop watchdog uses it to tell
+// "engine died and took the connection down" from "connection died first
+// and the engine exited by design (code=0) after its session ended".
+func (c *Client) Broken() error {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.broken
+}
 func (c *Client) addTombstoneLocked(id string) {
 	if c.tombstones == nil {
 		c.tombstones = make(map[string]time.Time)
@@ -371,7 +387,8 @@ func ulidValid(s string) bool { _, err := ulid.ParseStrict(s); return err == nil
 
 func (c *Client) poison(err error) error {
 	c.stateMu.Lock()
-	if c.broken == nil {
+	first := c.broken == nil
+	if first {
 		c.broken = fmt.Errorf("Engine RPC connection is unusable: %w", err)
 	}
 	broken := c.broken
@@ -382,6 +399,11 @@ func (c *Client) poison(err error) error {
 	clear(c.streams)
 	clear(c.streamTerminals)
 	c.stateMu.Unlock()
+	if first && DiagnosticsSink != nil {
+		// First transition into the broken state carries the root cause;
+		// subsequent poisons are just downstream noise.
+		DiagnosticsSink(fmt.Sprintf("engine RPC connection poisoned: %v", err))
+	}
 	if c.done != nil {
 		c.doneOnce.Do(func() { close(c.done) })
 	}
