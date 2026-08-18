@@ -8,12 +8,27 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 )
+
+// localTrustHost reports whether the connector target is a loopback or
+// RFC1918/ULA literal the user explicitly configured, meaning credentials
+// over plain HTTP stay inside the trusted local network.
+func localTrustHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
+}
 
 func marshalBounded(v any, max int) (*bytes.Reader, error) {
 	b, err := json.Marshal(v)
@@ -314,13 +329,24 @@ func (wn *wireNames) original(name string) string {
 }
 
 func doWithSecret(c Connector, req *http.Request, name, prefix string, secret []byte) (*http.Response, error) {
-	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
+	if req == nil || req.URL == nil {
+		return nil, safeError("MALFORMED_REQUEST", StageConnect, 0, "malformed request")
+	}
+	// When no secret is configured (e.g. local model servers like LM Studio,
+	// Ollama that run on HTTP without an API key), allow plain HTTP.
+	// A non-empty secret still requires HTTPS for transport security —
+	// except on loopback/private hosts the user explicitly configured
+	// (LM Studio / Ollama / vLLM on a LAN box): the credential never
+	// leaves the trusted network. Public HTTP endpoints keep failing closed.
+	if len(secret) > 0 && !strings.EqualFold(req.URL.Scheme, "https") && !localTrustHost(req.URL.Hostname()) {
 		return nil, safeError("HTTPS_REQUIRED", StageConnect, 0, "credentials require HTTPS")
 	}
 	// Go strings cannot be guaranteed to be zeroed. Minimize lifetime and remove
 	// the header immediately after Do returns.
-	req.Header.Set(name, prefix+string(secret))
-	defer req.Header.Del(name)
+	if len(secret) > 0 {
+		req.Header.Set(name, prefix+string(secret))
+		defer req.Header.Del(name)
+	}
 	return c.Do(req)
 }
 

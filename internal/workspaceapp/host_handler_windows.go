@@ -301,10 +301,32 @@ func failure(r bridge.Request, code, message string, retryable bool) bridge.Resp
 	return bridge.Failure(r.ID, r.TraceID, code, message, retryable)
 }
 func selectFolder(ctx context.Context) (string, error) {
-	script := `$s=(New-Object -ComObject Shell.Application).BrowseForFolder(0,'选择 Lunitide 工作区',0,0);if($s){[Console]::OutputEncoding=[Text.Encoding]::UTF8;$s.Self.Path}`
+	// Use System.Windows.Forms.FolderBrowserDialog instead of Shell.Application.BrowseForFolder.
+	// The latter passes 0 as the parent HWND, causing the dialog to appear behind the main window
+	// on some Windows configurations (e.g. when the app is not the foreground window).
+	// FolderBrowserDialog creates a proper modal dialog that stays on top of its owner.
+	script := `
+Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = '选择 Lunitide 工作区'
+$d.ShowNewFolderButton = $true
+if ($d.ShowDialog() -eq 'OK') {
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    $d.SelectedPath
+}`
 	out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script).Output()
 	if err != nil {
-		return "", err
+		// Fallback: if .NET Forms is unavailable, try the legacy COM approach
+		legacy := `$s=(New-Object -ComObject Shell.Application).BrowseForFolder(0,'选择 Lunitide 工作区',0,0);if($s){[Console]::OutputEncoding=[Text.Encoding]::UTF8;$s.Self.Path}`
+		out2, err2 := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", legacy).Output()
+		if err2 != nil {
+			return "", err2
+		}
+		path := strings.TrimSpace(string(out2))
+		if path == "" {
+			return "", errors.New("cancelled")
+		}
+		return path, nil
 	}
 	path := strings.TrimSpace(string(out))
 	if path == "" {

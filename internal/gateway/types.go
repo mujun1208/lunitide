@@ -50,13 +50,14 @@ type Usage struct {
 }
 
 type Request struct {
-	Model          string
-	Messages       []Message
-	Images         []Image
-	MaxTokens      int
-	MaxAttempts    int
-	IdempotencyKey string
-	Tools          []ToolDefinition
+	Model            string
+	Messages         []Message
+	Images           []Image
+	MaxTokens        int
+	MaxAttempts      int
+	IdempotencyKey   string
+	Tools            []ToolDefinition
+	DisableReasoning bool // 月伴模式：跳过推理/思考内容，直接流式输出文本
 }
 
 type Response struct {

@@ -26,7 +26,7 @@ const archiveToken=async(expertId:string):Promise<string>=>{
  return Array.from(new Uint8Array(digest)).map(byte=>byte.toString(16).padStart(2,'0')).join('')
 }
 
-export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge}:{bridge?:ExpertBridge;projects?:ProjectBridge}):React.JSX.Element{
+export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onCreateInChat}:{bridge?:ExpertBridge;projects?:ProjectBridge;onCreateInChat?:()=>void}):React.JSX.Element{
  const[items,setItems]=useState<ExpertItem[]>([]),[selectedId,setSelectedId]=useState(''),[divisionFilter,setDivisionFilter]=useState<Division|''>(''),[stateFilter,setStateFilter]=useState<ExpertState|''>(''),[query,setQuery]=useState('')
  const[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
  const[detail,setDetail]=useState<ExpertDetailResult>()
@@ -81,7 +81,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge}:{b
   catch(e){setError(e instanceof Error?e.message:'场景卡创建失败')}finally{setBusy(false)}}
  const deleteScenario=async(scenarioCardId:string)=>{if(!selected)return;setBusy(true);setError('');try{const base={scenarioCardId},attempt=createMutationAttempt('expert.scenario.delete',base);await bridge.scenarioDelete(base,{attempt});setNotice('场景卡已归档');await loadScenarios(selected.expertId,scenarioState)}catch(e){setError(e instanceof Error?e.message:'场景卡归档失败')}finally{setBusy(false)}}
 
- return <main className="skill-center"><header className="skill-center-header"><div><h1>专家中心</h1><p>{items.length} 位专家 · {items.filter(item=>item.state==='enabled').length} 位启用 · 挂载 {items.reduce((sum,item)=>sum+item.mountedPhaseCount,0)} 处</p><small>六段式专家画像与九阶段挂载矩阵（M8 FR-19）。</small></div><button className="primary skill-chat-create" aria-label="新建本地专家" onClick={beginCreate}>＋ 新建专家</button></header>
+ return <main className="skill-center"><header className="skill-center-header"><div><h1>专家中心</h1><p>{items.length} 位专家 · {items.filter(item=>item.state==='enabled').length} 位启用 · 挂载 {items.reduce((sum,item)=>sum+item.mountedPhaseCount,0)} 处</p><small>六段式专家画像与九阶段挂载矩阵（M8 FR-19）。</small></div><div className="skill-center-header-actions">{onCreateInChat&&<button className="primary skill-chat-create" aria-label="通过对话创建专家" onClick={onCreateInChat}>✦ 通过对话创建专家</button>}<button className="skill-chat-create" aria-label="新建本地专家" onClick={beginCreate}>＋ 新建专家</button></div></header>
   <section className="skill-center-toolbar"><div className="skill-status-tabs" role="tablist" aria-label="专家条线"><button type="button" role="tab" aria-selected={divisionFilter===''} onClick={()=>setDivisionFilter('')}>全部</button>{(Object.keys(DIVISIONS) as Division[]).map(division=><button type="button" role="tab" aria-selected={divisionFilter===division} key={division} onClick={()=>setDivisionFilter(division)}>{DIVISIONS[division]}</button>)}</div><label className="skill-search">搜索专家<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="名称"/></label><select aria-label="状态过滤" value={stateFilter} onChange={e=>setStateFilter(e.target.value as ExpertState|'')}><option value="">全部状态</option>{(Object.keys(STATES) as ExpertState[]).map(state=><option key={state} value={state}>{STATES[state]}</option>)}</select><button aria-label="刷新专家" onClick={()=>void load()} disabled={loading}>↻</button></section>
   {error&&<p className="skill-center-error" role="alert">{error}</p>}
   {notice&&<p role="status">{notice}</p>}

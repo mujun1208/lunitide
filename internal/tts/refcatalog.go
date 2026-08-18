@@ -18,17 +18,23 @@ import (
 // so the dedicated api_v2 service on 9880 is the integration target.
 const DefaultRefEndpoint = "http://127.0.0.1:9880"
 
-// DefaultRefPackDir points at the shipped character-voice collection.
-// A var (not const) so tests can point it at fixtures.
+// DefaultRefPackDir points at the shipped character-voice collection
+// (role-play voices). A var (not const) so tests can point it at fixtures.
 var DefaultRefPackDir = `E:\AI电影漫剧\800+音色合集\逗哥音色整理合集\角色扮演`
+
+// DefaultRefPackDirHot is the second voice pack directory (popular timbres
+// across age groups). Bundled presets from this directory use hotPackDir
+// as their implicit base.
+var DefaultRefPackDirHot = `E:\AI电影漫剧\800+音色合集\不同年龄人群音色\热门音色`
 
 // RefPresetVoiceIDPrefix marks catalog voice IDs ("refpack:甜心少女.wav").
 const RefPresetVoiceIDPrefix = "refpack:"
 
 type refPreset struct {
-	File   string
-	Gender string
-	Group  string
+	File    string
+	Gender  string
+	Group   string
+	PackDir string // empty → DefaultRefPackDir; "hot" → DefaultRefPackDirHot
 }
 
 // refPresets picks 18 distinct role timbres across four style groups so
@@ -36,24 +42,69 @@ type refPreset struct {
 // reference WAV must stay inside GPT-SoVITS's 3–10s clone window (all
 // entries verified: 3.1s–6s at 24kHz mono).
 var refPresets = []refPreset{
-	{"甜心少女.wav", "female", "甜美女声 · 萝莉 / 萌妹"},
-	{"甜美萌妹.wav", "female", "甜美女声 · 萝莉 / 萌妹"},
-	{"超嗲萌妹.wav", "female", "甜美女声 · 萝莉 / 萌妹"},
-	{"软糯萝莉.wav", "female", "甜美女声 · 萝莉 / 萌妹"},
-	{"娇媚萝莉.wav", "female", "甜美女声 · 萝莉 / 萌妹"},
-	{"阳光甜心.wav", "female", "甜美女声 · 萝莉 / 萌妹"},
-	{"开朗妹妹.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜"},
-	{"温暖御姐.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜"},
-	{"知性御姐.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜"},
-	{"俏皮姐姐.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜"},
-	{"稚嫩少女.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜"},
-	{"傲娇女王.wav", "female", "气场女声 · 女王 / 女神"},
-	{"冰山女王.wav", "female", "气场女声 · 女王 / 女神"},
-	{"娇媚女神.wav", "female", "气场女声 · 女王 / 女神"},
-	{"青春女神.wav", "female", "气场女声 · 女王 / 女神"},
-	{"阳光少年.wav", "male", "个性男声 · 少年 / 男神 / 大爷"},
-	{"冷面霸总.wav", "male", "个性男声 · 少年 / 男神 / 大爷"},
-	{"唠嗑大爷.wav", "male", "个性男声 · 少年 / 男神 / 大爷"},
+	{"甜心少女.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
+	{"甜美萌妹.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
+	{"超嗲萌妹.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
+	{"软糯萝莉.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
+	{"娇媚萝莉.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
+	{"阳光甜心.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
+	{"开朗妹妹.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜", ""},
+	{"温暖御姐.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜", ""},
+	{"知性御姐.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜", ""},
+	{"俏皮姐姐.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜", ""},
+	{"稚嫩少女.wav", "female", "温柔女声 · 妹妹 / 御姐 / 闺蜜", ""},
+	{"傲娇女王.wav", "female", "气场女声 · 女王 / 女神", ""},
+	{"冰山女王.wav", "female", "气场女声 · 女王 / 女神", ""},
+	{"娇媚女神.wav", "female", "气场女声 · 女王 / 女神", ""},
+	{"青春女神.wav", "female", "气场女声 · 女王 / 女神", ""},
+	{"阳光少年.wav", "male", "个性男声 · 少年 / 男神 / 大爷", ""},
+	{"冷面霸总.wav", "male", "个性男声 · 少年 / 男神 / 大爷", ""},
+	{"唠嗑大爷.wav", "male", "个性男声 · 少年 / 男神 / 大爷", ""},
+
+	// --- 32 popular timbres from 热门音色 (hot pack) ---
+	// 甜美 / 少女 (female, 7)
+	{"云甜甜.wav", "female", "热门音色 · 甜美少女", "hot"},
+	{"偏萝莉的少女音.wav", "female", "热门音色 · 甜美少女", "hot"},
+	{"可爱小萝莉.wav", "female", "热门音色 · 甜美少女", "hot"},
+	{"甜美少女音.wav", "female", "热门音色 · 甜美少女", "hot"},
+	{"撒娇小师妹.wav", "female", "热门音色 · 甜美少女", "hot"},
+	{"萌小音（11岁 女）.wav", "female", "热门音色 · 甜美少女", "hot"},
+	{"蛋黄（8岁 女孩）.wav", "female", "热门音色 · 甜美少女", "hot"},
+
+	// 温柔 / 御姐 (female, 7)
+	{"叶子温柔师姐-中文.wav", "female", "热门音色 · 温柔御姐", "hot"},
+	{"御姐.wav", "female", "热门音色 · 温柔御姐", "hot"},
+	{"温柔御妈.wav", "female", "热门音色 · 温柔御姐", "hot"},
+	{"温软姐姐 柔和质感.wav", "female", "热门音色 · 温柔御姐", "hot"},
+	{"女-温柔、冷酷、亦正亦邪.wav", "female", "热门音色 · 温柔御姐", "hot"},
+	{"纯欲狐狸精.wav", "female", "热门音色 · 温柔御姐", "hot"},
+	{"中音磁性女声旁白.wav", "female", "热门音色 · 温柔御姐", "hot"},
+
+	// 气场 / 古风 (female, 4)
+	{"病娇反派女声.wav", "female", "热门音色 · 气场古风", "hot"},
+	{"青灯古佛皇后.wav", "female", "热门音色 · 气场古风", "hot"},
+	{"邻家婶子.wav", "female", "热门音色 · 气场古风", "hot"},
+	{"奶奶中文.wav", "female", "热门音色 · 气场古风", "hot"},
+
+	// 磁性 / 叔音 (male, 6)
+	{"中年男声（45岁±）.wav", "male", "热门音色 · 磁性男声", "hot"},
+	{"大叔.wav", "male", "热门音色 · 磁性男声", "hot"},
+	{"大羊磁性舒适音.wav", "male", "热门音色 · 磁性男声", "hot"},
+	{"磁性男声.wav", "male", "热门音色 · 磁性男声", "hot"},
+	{"质感叔音.wav", "male", "热门音色 · 磁性男声", "hot"},
+	{"纪录片宣传片高质男音.wav", "male", "热门音色 · 磁性男声", "hot"},
+
+	// 少年 / 青年 (male, 5)
+	{"少年侠客.wav", "male", "热门音色 · 少年青年", "hot"},
+	{"温柔青年音.wav", "male", "热门音色 · 少年青年", "hot"},
+	{"阳光有趣的学霸小哥.wav", "male", "热门音色 · 少年青年", "hot"},
+	{"奶爸中文.wav", "male", "热门音色 · 少年青年", "hot"},
+	{"若三夜（北京口音.wav", "male", "热门音色 · 少年青年", "hot"},
+
+	// 权威 / 霸总 (male, 3)
+	{"掌门师叔、帝王高管.wav", "male", "热门音色 · 权威霸总", "hot"},
+	{"霸总.wav", "male", "热门音色 · 权威霸总", "hot"},
+	{"老年人旁白（男）.wav", "male", "热门音色 · 权威霸总", "hot"},
 }
 
 // RefVoices returns the built-in preset catalogue for tts.voices.
@@ -80,27 +131,29 @@ func IsRefPresetVoiceID(voiceID string) bool {
 }
 
 // RefResolveVoice maps a preset voice ID onto the reference WAV under
-// packDir (DefaultRefPackDir when empty). The second result is false for
-// non-preset IDs or unknown files.
+// its pack directory (DefaultRefPackDir for role-play, DefaultRefPackDirHot
+// for hot-pack presets). The second result is false for non-preset IDs or
+// unknown files.
 func RefResolveVoice(voiceID, packDir string) (string, bool) {
 	if !IsRefPresetVoiceID(voiceID) {
 		return "", false
 	}
 	file := strings.TrimPrefix(voiceID, RefPresetVoiceIDPrefix)
-	known := false
 	for _, p := range refPresets {
 		if p.File == file {
-			known = true
-			break
+			dir := packDir
+			if dir == "" {
+				switch p.PackDir {
+				case "hot":
+					dir = DefaultRefPackDirHot
+				default:
+					dir = DefaultRefPackDir
+				}
+			}
+			return filepath.Join(dir, file), true
 		}
 	}
-	if !known {
-		return "", false
-	}
-	if packDir == "" {
-		packDir = DefaultRefPackDir
-	}
-	return filepath.Join(packDir, file), true
+	return "", false
 }
 
 // RefMeta is the tts.voices(engine=ref) health block for the settings
@@ -115,25 +168,32 @@ type RefMeta struct {
 }
 
 // RefPackMeta probes the api_v2 service (any HTTP answer counts as
-// online — the api_v2 root answers 200 with its landing page) and
-// checks the preset files on disk. MissingFiles stays empty when the
-// pack folder itself is absent (pack_exists=false says it already).
+// online — the api_v2 /docs answers 200 when the service is alive) and
+// checks the preset files on disk across both pack directories.
+// MissingFiles stays empty when a pack folder itself is absent.
 func RefPackMeta(endpoint string) RefMeta {
 	if endpoint == "" {
 		endpoint = DefaultRefEndpoint
 	}
-	meta := RefMeta{Endpoint: endpoint, PackDir: DefaultRefPackDir, MissingFiles: []string{}}
+	meta := RefMeta{Endpoint: endpoint, PackDir: DefaultRefPackDir + " + " + DefaultRefPackDirHot, MissingFiles: []string{}}
 	client := &http.Client{Timeout: 800 * time.Millisecond}
-	if resp, err := client.Get(strings.TrimRight(endpoint, "/") + "/"); err == nil {
+	// FastAPI api_v2 has no root handler; /docs is the reliable liveness probe.
+	if resp, err := client.Get(strings.TrimRight(endpoint, "/") + "/docs"); err == nil {
 		_ = resp.Body.Close()
-		meta.ServerOnline = true
+		meta.ServerOnline = resp.StatusCode == http.StatusOK
 	}
-	if info, err := os.Stat(DefaultRefPackDir); err == nil && info.IsDir() {
-		meta.PackExists = true
-		for _, p := range refPresets {
-			if _, err := os.Stat(filepath.Join(DefaultRefPackDir, p.File)); err != nil {
-				meta.MissingFiles = append(meta.MissingFiles, p.File)
-			}
+	meta.PackExists = true
+	for _, p := range refPresets {
+		dir := DefaultRefPackDir
+		if p.PackDir == "hot" {
+			dir = DefaultRefPackDirHot
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			meta.PackExists = false
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, p.File)); err != nil {
+			meta.MissingFiles = append(meta.MissingFiles, p.File)
 		}
 	}
 	return meta
