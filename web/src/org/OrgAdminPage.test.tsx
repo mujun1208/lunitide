@@ -21,6 +21,7 @@ const api = (o: Partial<OrgBridge> = {}): OrgBridge => ({
   spaceCreate: vi.fn(), memberList: vi.fn().mockResolvedValue({ members: [] }), memberInvite: vi.fn(), memberRevoke: vi.fn(),
   ...o,
 })
+const gotoTab = (label: string) => fireEvent.click(screen.getByRole('button', { name: new RegExp(label) }))
 
 it('renders empty state when no org exists', async () => {
   const bridge = api()
@@ -49,7 +50,9 @@ it('loads scoped spaces and members only for the bound org', async () => {
     memberList: vi.fn().mockResolvedValue({ members: [memberA] }),
   })
   render(<OrgAdminPage bridge={bridge} />)
+  gotoTab('TeamSpace')
   expect(await screen.findByText('航线维修空间')).toBeInTheDocument()
+  gotoTab('成员与身份')
   expect(screen.getByText('张工')).toBeInTheDocument()
   expect(screen.getByText(/组织管理员/)).toBeInTheDocument()
   expect(bridge.spaceList).toHaveBeenCalledOnce()
@@ -66,6 +69,7 @@ it('revoking a member reloads member list immediately (role changes take effect 
     memberRevoke: vi.fn().mockResolvedValue({ principalId: memberA.principal.principalId, state: 'revoked', bindingVersion: 3 }),
   })
   render(<OrgAdminPage bridge={bridge} />)
+  gotoTab('成员与身份')
   expect(await screen.findByText('张工')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '撤销' }))
   fireEvent.click(screen.getByRole('button', { name: '确认撤销' }))
@@ -81,11 +85,14 @@ it('switching org clears previous scoped data and reloads from the new org only'
   const spaceList = vi.fn().mockResolvedValueOnce({ spaces: [spaceA] }).mockResolvedValueOnce({ spaces: [] })
   const bridge = api({ summary, spaceList, switch: vi.fn().mockResolvedValue({ ...orgDetail, ...orgB }) })
   render(<OrgAdminPage bridge={bridge} />)
+  gotoTab('TeamSpace')
   expect(await screen.findByText('航线维修空间')).toBeInTheDocument()
+  gotoTab('组织概览')
   fireEvent.click(screen.getByRole('button', { name: /组织乙/ }))
   await waitFor(() => expect(bridge.switch).toHaveBeenCalledWith({ orgId: orgB.orgId }, expect.anything()))
   // 旧组织空间数据被清除，仅按新绑定重新加载（跨组织数据零出现）
   await waitFor(() => expect(spaceList).toHaveBeenCalledTimes(2))
+  gotoTab('TeamSpace')
   await waitFor(() => expect(screen.queryByText('航线维修空间')).not.toBeInTheDocument())
 })
 
@@ -120,10 +127,24 @@ it('activates a draft org through the lifecycle action', async () => {
 it('keeps invite and space actions disabled until required input is provided', async () => {
   const bridge = api({ summary: vi.fn().mockResolvedValue({ boundOrgId: orgA.orgId, org: orgDetail, orgs: [orgA] }) })
   render(<OrgAdminPage bridge={bridge} />)
+  gotoTab('成员与身份')
   await screen.findByPlaceholderText('成员名称')
   expect(screen.getByRole('button', { name: '邀请成员' })).toBeDisabled()
+  gotoTab('TeamSpace')
   expect(screen.getByRole('button', { name: '创建空间' })).toBeDisabled()
+  gotoTab('成员与身份')
   fireEvent.change(screen.getByPlaceholderText('成员名称'), { target: { value: '王工' } })
   fireEvent.click(screen.getByRole('button', { name: '邀请成员' }))
   await waitFor(() => expect(bridge.memberInvite).toHaveBeenCalledWith({ displayName: '王工' }, expect.anything()))
+})
+
+it('planned governance tabs render concept contracts without enableable controls', async () => {
+  const bridge = api({ summary: vi.fn().mockResolvedValue({ boundOrgId: orgA.orgId, org: orgDetail, orgs: [orgA] }) })
+  render(<OrgAdminPage bridge={bridge} />)
+  gotoTab('PolicyCenter')
+  expect(await screen.findByText(/依赖 M9 切片决策冻结/)).toBeInTheDocument()
+  expect(document.querySelector('.screen-route[data-route="/org/:orgId/policies"]')).not.toBeNull()
+  gotoTab('运营中心')
+  expect(document.querySelector('.screen-route[data-route="/org/:orgId/operations"]')).not.toBeNull()
+  expect(screen.getByText('low-sample')).toBeInTheDocument()
 })
