@@ -1165,6 +1165,8 @@ func (e *Engine) persistApprovedToolResult(ctx context.Context, sessionID, callI
 const (
 	thinkingFlushBytes    = 512
 	thinkingFlushInterval = 8 * time.Millisecond
+	streamDeltaMaxBytes   = 16 * 1024
+	toolSummaryMaxBytes   = 4096
 )
 
 func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
@@ -1261,7 +1263,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if d.Text != "" {
 					assistantText.WriteString(d.Text)
-					if err := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: d.Text}}); err != nil {
+					if err := sendDeltaChunks(send, d.Text); err != nil {
 						return err
 					}
 				}
@@ -1346,9 +1348,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if invokeErr != nil {
 						summary = invokeErr.Error()
 					}
-					if len(summary) > 4096 {
-						summary = summary[:4096]
-					}
+					summary = clipToolSummary(summary)
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 						return err
 					}
@@ -1360,9 +1360,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if invokeErr != nil {
 						summary = invokeErr.Error()
 					}
-					if len(summary) > 4096 {
-						summary = summary[:4096]
-					}
+					summary = clipToolSummary(summary)
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 						return err
 					}
@@ -1387,9 +1385,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if invokeErr != nil {
 						summary = invokeErr.Error()
 					}
-					if len(summary) > 4096 {
-						summary = summary[:4096]
-					}
+					summary = clipToolSummary(summary)
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 						return err
 					}
@@ -1409,9 +1405,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if invokeErr != nil {
 						summary = invokeErr.Error()
 					}
-					if len(summary) > 4096 {
-						summary = summary[:4096]
-					}
+					summary = clipToolSummary(summary)
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 						return err
 					}
@@ -1423,9 +1417,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if invokeErr != nil {
 						summary = invokeErr.Error()
 					}
-					if len(summary) > 4096 {
-						summary = summary[:4096]
-					}
+					summary = clipToolSummary(summary)
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 						return err
 					}
@@ -1484,9 +1476,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if toolErr != nil {
 					summary = toolErr.Error()
 				}
-				if len(summary) > 4096 {
-					summary = summary[:4096]
-				}
+				summary = clipToolSummary(summary)
 				toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
 				if toolErr == nil && r.Artifact != nil {
 					if k := r.Artifact.Kind; k == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
@@ -1555,6 +1545,24 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		state.cancel()
 	}
 	e.finishTerminal(id, state)
+}
+
+func sendDeltaChunks(send func(bridge.Event) error, text string) error {
+	for text != "" {
+		chunk := truncateUTF8Bytes(text, streamDeltaMaxBytes)
+		if chunk == "" {
+			return nil
+		}
+		if err := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: chunk}}); err != nil {
+			return err
+		}
+		text = text[len(chunk):]
+	}
+	return nil
+}
+
+func clipToolSummary(summary string) string {
+	return truncateUTF8Bytes(summary, toolSummaryMaxBytes)
 }
 
 func truncateUTF8Bytes(text string, limit int) string {

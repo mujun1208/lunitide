@@ -252,14 +252,13 @@ func (c *Client) readPump() {
 			}
 			ch <- callResult{response: response}
 		case "event":
-			var event bridge.Event
-			if decodeStrict(raw, &event) != nil || validateEvent(event) != nil {
-				c.poison(errors.New("invalid Engine event"))
-				return
-			}
-			if err := c.acceptEvent(event); err != nil {
+			event, drop, err := c.decodeEngineEvent(raw)
+			if err != nil {
 				c.poison(err)
 				return
+			}
+			if drop {
+				continue
 			}
 			select {
 			case c.events <- event:
@@ -273,6 +272,46 @@ func (c *Client) readPump() {
 			c.poison(errors.New("unknown Engine frame"))
 			return
 		}
+	}
+}
+
+// decodeEngineEvent parses one Engine event frame. Framing/sequence errors
+// still poison the RPC (the cursor would otherwise desync). Payload-shape
+// bugs — the class that used to log "invalid Engine event" and relaunch the
+// whole desktop after a successful tool such as mkdir — are dropped (or
+// rewritten to a failed terminal) so the connection stays up.
+func (c *Client) decodeEngineEvent(raw []byte) (bridge.Event, bool, error) {
+	var event bridge.Event
+	if err := decodeStrict(raw, &event); err != nil {
+		return bridge.Event{}, false, fmt.Errorf("invalid Engine event: decode: %w", err)
+	}
+	if err := validateEvent(event); err != nil {
+		c.diagnose(fmt.Sprintf("dropping invalid Engine event type=%s stream=%s seq=%d: %v", event.Type, event.StreamID, event.Sequence, err))
+		if accErr := c.acceptEvent(event); accErr != nil {
+			return bridge.Event{}, false, accErr
+		}
+		if !terminalEventType(event.Type) {
+			return bridge.Event{}, true, nil
+		}
+		event.Type = bridge.EventFailed
+		event.Delta = nil
+		event.Thinking = nil
+		event.Usage = nil
+		event.Completed = nil
+		event.Tool = nil
+		event.Terminal = nil
+		event.Error = &bridge.StreamError{Code: "ENGINE_EVENT_INVALID", Message: "流事件无效", Retryable: true}
+		return event, false, nil
+	}
+	if err := c.acceptEvent(event); err != nil {
+		return bridge.Event{}, false, err
+	}
+	return event, false, nil
+}
+
+func (c *Client) diagnose(msg string) {
+	if DiagnosticsSink != nil {
+		DiagnosticsSink(msg)
 	}
 }
 
@@ -339,7 +378,11 @@ func validateEvent(e bridge.Event) error {
 			return errors.New("invalid thinking event")
 		}
 	case bridge.EventUsage:
-		if e.Delta != nil || e.Thinking != nil || e.Usage == nil || e.Error != nil || e.Usage.InputTokens < 0 || e.Usage.OutputTokens < 0 || e.Usage.TotalTokens < 0 || e.Usage.TotalTokens != e.Usage.InputTokens+e.Usage.OutputTokens {
+		// Compatible providers often bill cached/reasoning tokens into
+		// total_tokens, so total != prompt+completion. Treating that as a
+		// protocol violation poisoned the Engine RPC and relaunched the
+		// desktop after an otherwise successful tool call.
+		if e.Delta != nil || e.Thinking != nil || e.Usage == nil || e.Error != nil || e.Usage.InputTokens < 0 || e.Usage.OutputTokens < 0 || e.Usage.TotalTokens < 0 {
 			return errors.New("invalid usage event")
 		}
 	case bridge.EventToolStarted, bridge.EventToolCompleted, bridge.EventApprovalRequired, bridge.EventToolOutput:
@@ -370,8 +413,8 @@ func validateEvent(e bridge.Event) error {
 				return errors.New("invalid tool output event")
 			}
 		case bridge.EventToolCompleted:
-			if tool.Artifact != nil && (tool.Artifact.Kind != "html" || len(tool.Artifact.Path) == 0 || len(tool.Artifact.Path) > 4096 || len(tool.Artifact.Content) > 180<<10) {
-				return errors.New("invalid tool artifact")
+			if err := validStreamArtifact(tool.Artifact); err != nil {
+				return err
 			}
 		}
 	case bridge.EventCompleted, bridge.EventCancelled:
@@ -387,6 +430,26 @@ func validateEvent(e bridge.Event) error {
 	}
 	return nil
 }
+func validStreamArtifact(a *bridge.ArtifactEvent) error {
+	if a == nil {
+		return nil
+	}
+	if len(a.Path) == 0 || len(a.Path) > 4096 || len(a.Content) > 180<<10 {
+		return errors.New("invalid tool artifact")
+	}
+	switch a.Kind {
+	case "html":
+		return nil
+	case "xlsx", "docx", "pptx", "pdf":
+		if a.Content != "" {
+			return errors.New("invalid tool artifact")
+		}
+		return nil
+	default:
+		return errors.New("invalid tool artifact")
+	}
+}
+
 func ulidValid(s string) bool { _, err := ulid.ParseStrict(s); return err == nil }
 
 func (c *Client) poison(err error) error {

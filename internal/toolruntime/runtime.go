@@ -1062,11 +1062,12 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 					emit := emitted < toolProgressMaxChunks
 					if emit {
 						emitted++
-					}
-					mu.Unlock()
-					if emit {
+						// Hold the lock across progress so stdout/stderr
+						// scanners cannot interleave send() and race the
+						// chat stream sequence cursor.
 						progress(truncateRunes(line, 400))
 					}
+					mu.Unlock()
 				}
 				done <- struct{}{}
 			}
