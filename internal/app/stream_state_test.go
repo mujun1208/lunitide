@@ -278,3 +278,56 @@ func TestRunStreamFlushesSlowFragmentedThinkingPromptly(t *testing.T) {
 		t.Fatalf("slow fragments were not flushed before answer: %#v", events)
 	}
 }
+
+type oversizedDeltaAdapter struct{}
+
+func (oversizedDeltaAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	return gateway.Response{}, errors.New("not used")
+}
+func (oversizedDeltaAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, errors.New("not used")
+}
+func (oversizedDeltaAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+	if err := emit(gateway.Delta{Text: strings.Repeat("a", streamDeltaMaxBytes+1024)}); err != nil {
+		return gateway.Response{}, err
+	}
+	return gateway.Response{Usage: gateway.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 22}}, nil
+}
+
+func TestRunStreamSplitsOversizedDeltaAndKeepsProviderUsageTotals(t *testing.T) {
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return oversizedDeltaAdapter{}, nil
+	})
+	_, cancel := context.WithCancel(context.Background())
+	state := &streamState{cancel: cancel, state: streamRunning}
+	e.streams["stream"] = state
+	var events []bridge.Event
+	e.runStream(context.Background(), "stream", state, provider.Provider{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
+		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
+	}, gateway.Request{}, func(event bridge.Event) error {
+		events = append(events, event)
+		return nil
+	}, "")
+	var deltas []string
+	var usage *bridge.UsageEvent
+	for _, event := range events {
+		switch event.Type {
+		case bridge.EventDelta:
+			if len(event.Delta.Text) == 0 || len(event.Delta.Text) > streamDeltaMaxBytes {
+				t.Fatalf("delta chunk out of bounds: %d", len(event.Delta.Text))
+			}
+			deltas = append(deltas, event.Delta.Text)
+		case bridge.EventUsage:
+			usage = event.Usage
+		}
+	}
+	joined := strings.Join(deltas, "")
+	if len(deltas) < 2 || joined != strings.Repeat("a", streamDeltaMaxBytes+1024) {
+		t.Fatalf("oversized delta was not split: chunks=%d bytes=%d", len(deltas), len(joined))
+	}
+	if usage == nil || usage.InputTokens != 10 || usage.OutputTokens != 4 || usage.TotalTokens != 22 {
+		t.Fatalf("provider billed usage was not forwarded: %#v", usage)
+	}
+}

@@ -413,7 +413,7 @@ function AboutPanel(): React.JSX.Element {
           </div>
         </div>
         <dl className="about-info">
-          <div><dt>版本</dt><dd>0.3.0-dev</dd></div>
+          <div><dt>版本</dt><dd>0.3.22</dd></div>
           <div><dt>架构</dt><dd>Go Core Engine + WebView2 Host + React/TypeScript Renderer</dd></div>
           <div><dt>存储</dt><dd>SQLite WAL + Windows DPAPI</dd></div>
           <div><dt>协议族</dt><dd>OpenAI-compatible · Anthropic</dd></div>
@@ -1703,7 +1703,7 @@ function DiagnosticsPanel(): React.JSX.Element {
   const check = async () => {
     setBusy(true); setStatus('正在检查更新…')
     try {
-      const r = await bridge.check({ channel, currentVersion: '0.3.0-dev' })
+      const r = await bridge.check({ channel, currentVersion: '0.3.22' })
       if (!r.updateId) { setUpdate(undefined); setStatus('已是最新版本。') }
       else { setUpdate({ updateId: r.updateId, version: r.version, digest: r.digest, mandatory: r.mandatory }); setStatus(`发现新版本 ${r.version}${r.mandatory ? '（强制更新）' : ''}`) }
     } catch (e) { setStatus(e instanceof Error ? e.message : '检查更新失败') } finally { setBusy(false) }

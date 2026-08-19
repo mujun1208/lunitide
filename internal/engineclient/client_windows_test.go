@@ -352,10 +352,10 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventUsage
 			e.Usage = &bridge.UsageEvent{InputTokens: 2, OutputTokens: 3, TotalTokens: 5}
 		}, true},
-		{"usage sum", func(e *bridge.Event) {
+		{"usage billed total with reasoning", func(e *bridge.Event) {
 			e.Type = bridge.EventUsage
-			e.Usage = &bridge.UsageEvent{InputTokens: 2, OutputTokens: 3, TotalTokens: 4}
-		}, false},
+			e.Usage = &bridge.UsageEvent{InputTokens: 2, OutputTokens: 3, TotalTokens: 20}
+		}, true},
 		{"tool started", func(e *bridge.Event) {
 			e.Type = bridge.EventToolStarted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}
@@ -364,6 +364,14 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventToolCompleted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.write", ArgsDigest: strings.Repeat("b", 64), Summary: "done", Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "site/index.html", Content: "<h1>ok</h1>"}}
 		}, true},
+		{"tool completed office artifact", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "xlsx.gen", ArgsDigest: strings.Repeat("b", 64), Summary: "wrote report.xlsx", Artifact: &bridge.ArtifactEvent{Kind: "xlsx", Path: "report.xlsx"}}
+		}, true},
+		{"tool completed office artifact with body", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "xlsx.gen", ArgsDigest: strings.Repeat("b", 64), Summary: "wrote report.xlsx", Artifact: &bridge.ArtifactEvent{Kind: "xlsx", Path: "report.xlsx", Content: "binary"}}
+		}, false},
 		{"approval required", func(e *bridge.Event) {
 			e.Type = bridge.EventApprovalRequired
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("c", 64), Summary: "approval required"}
@@ -420,6 +428,48 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 				t.Fatalf("validity mismatch: %#v", e)
 			}
 		})
+	}
+}
+
+func TestInvalidNonTerminalEventIsDroppedWithoutPoison(t *testing.T) {
+	client, server := newPipedClient(t)
+	streamID := ulid.Make().String()
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 1, Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: "before"}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 2, Type: "nope"})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 3, Type: bridge.EventCompleted})
+	if event := <-client.Events(); event.Type != bridge.EventDelta || event.Delta.Text != "before" {
+		t.Fatalf("first event = %#v", event)
+	}
+	select {
+	case event := <-client.Events():
+		if event.Type != bridge.EventCompleted {
+			t.Fatalf("expected completed after dropped junk, got %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("completed event after dropped junk stalled")
+	}
+	if err := client.brokenError(); err != nil {
+		t.Fatalf("payload-shape bug poisoned RPC: %v", err)
+	}
+}
+
+func TestInvalidTerminalEventBecomesFailedWithoutPoison(t *testing.T) {
+	client, server := newPipedClient(t)
+	streamID := ulid.Make().String()
+	writeJSONFrame(t, server, bridge.Event{
+		Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 1,
+		Type: bridge.EventCompleted, Error: &bridge.StreamError{Code: "x", Message: "x"},
+	})
+	select {
+	case event := <-client.Events():
+		if event.Type != bridge.EventFailed || event.Error == nil || event.Error.Code != "ENGINE_EVENT_INVALID" {
+			t.Fatalf("invalid terminal = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("rewritten terminal stalled")
+	}
+	if err := client.brokenError(); err != nil {
+		t.Fatalf("invalid terminal poisoned RPC: %v", err)
 	}
 }
 

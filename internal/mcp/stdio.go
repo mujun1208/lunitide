@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/stdioworker"
 )
 
@@ -159,7 +160,7 @@ func (s *StdioSession) initialize(ctx context.Context) error {
 	if err := s.roundtrip(ctx, "initialize", map[string]any{
 		"protocolVersion": StdioProtocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "lunitide", "version": "0.3.6"},
+		"clientInfo":      map[string]any{"name": "lunitide", "version": buildinfo.Version},
 	}, &answer); err != nil {
 		return err
 	}
