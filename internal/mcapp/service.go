@@ -85,7 +85,7 @@ type Tx interface {
 	FindMcpMarketItemByName(name string) (m7flow.McpMarketItem, error)
 	PutMcpMarketItem(m7flow.McpMarketItem) error
 	GetMcpEndpoint(id string) (m7flow.McpEndpointConfig, error)
-	FindMcpEndpointByFingerprint(transport, command, urlRef string) (m7flow.McpEndpointConfig, error)
+	FindMcpEndpointByFingerprint(transport, command, urlRef, argsJSON string) (m7flow.McpEndpointConfig, error)
 	ListMcpEndpoints(transport string) ([]m7flow.McpEndpointConfig, error)
 	CountMcpEndpoints() (int, error)
 	PutMcpEndpoint(m7flow.McpEndpointConfig) error
@@ -216,7 +216,9 @@ func (s *Service) SetProber(p m7app.McpProber) { s.prober = p }
 func (s *Service) SetVerifier(fn func(m7flow.McpMarketItem) bool) { s.verifier = fn }
 
 // SetRegistry substitutes the market registry fetcher (tests).
-func (s *Service) SetRegistry(fn func(context.Context) ([]m7flow.McpMarketItem, error)) { s.registry = fn }
+func (s *Service) SetRegistry(fn func(context.Context) ([]m7flow.McpMarketItem, error)) {
+	s.registry = fn
+}
 
 type systemClock struct{}
 
@@ -485,7 +487,8 @@ func (s *Service) checkQuota(ctx context.Context, cfg ConfigInput, selfID string
 			check.Reason = fmt.Sprintf("endpoint cap reached (%d)", m7app.McpMaxEndpoints)
 			return nil
 		}
-		if existing, err := tx.FindMcpEndpointByFingerprint(transport, cfg.Command, cfg.URL); err == nil {
+		argsJSON, _ := json.Marshal(cfg.Args)
+		if existing, err := tx.FindMcpEndpointByFingerprint(transport, cfg.Command, cfg.URL, string(argsJSON)); err == nil {
 			if existing.EndpointID != selfID {
 				check.Passed = false
 				check.Reason = "transport target already registered: " + existing.EndpointID
@@ -569,12 +572,12 @@ func (s *Service) IssueConfirmToken(ctx context.Context, method, target, digest 
 	token := hex.EncodeToString(raw)
 	sum := sha256.Sum256([]byte(token))
 	row := ConfirmTokenRow{
-		TokenHash:  hex.EncodeToString(sum[:]),
-		Method:     method,
-		Target:     target,
-		Digest:     digest,
-		IssuedAt:   now.Format(time.RFC3339),
-		ExpiresAt:  now.Add(McConfirmTTL).Format(time.RFC3339),
+		TokenHash: hex.EncodeToString(sum[:]),
+		Method:    method,
+		Target:    target,
+		Digest:    digest,
+		IssuedAt:  now.Format(time.RFC3339),
+		ExpiresAt: now.Add(McConfirmTTL).Format(time.RFC3339),
 	}
 	err := s.uow.TransactMc(ctx, func(tx Tx) error {
 		if err := tx.PutConfirmToken(row); err != nil {
@@ -722,7 +725,7 @@ func (s *Service) Install(ctx context.Context, in InstallInput) (InstallResult, 
 			return err
 		}
 		// idempotent re-install answers the original endpoint
-		if existing, err := tx.FindMcpEndpointByFingerprint(transport, cfg.Command, cfg.URL); err == nil {
+		if existing, err := tx.FindMcpEndpointByFingerprint(transport, cfg.Command, cfg.URL, string(argsJSON)); err == nil {
 			out = InstallResult{EndpointID: existing.EndpointID, State: existing.State, CapabilityDigest: existing.CapabilityDigest}
 			return nil
 		} else if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, m7flow.ErrNotFound) {
@@ -893,7 +896,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (InstallResult, Va
 		_, err := tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "mc.connector.updated",
 			ResourceType: "mcp_endpoint", ResourceID: in.EndpointID,
-			Actor: actorOr(in.Actor),
+			Actor:        actorOr(in.Actor),
 			BeforeDigest: fingerprintDigest(ep.Transport, ep.Command, ep.URL),
 			AfterDigest:  fingerprintDigest(ep.Transport, ep.Command, pickNonEmpty(targetURL, ep.URL)),
 			CreatedAt:    ts,
@@ -998,8 +1001,8 @@ type TombstoneReport struct {
 // RevokedSuspect links a cached-but-delisted catalog item to installed
 // endpoints matching its install fingerprint.
 type RevokedSuspect struct {
-	MarketItemID string `json:"marketItemId"`
-	Name         string `json:"name"`
+	MarketItemID string   `json:"marketItemId"`
+	Name         string   `json:"name"`
 	EndpointIDs  []string `json:"endpointIds"`
 }
 

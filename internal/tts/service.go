@@ -32,9 +32,30 @@ func NewService(engine Engine) *Service {
 
 // Voices forwards the enumeration under the engine lock.
 func (s *Service) Voices() ([]Voice, error) {
+	return s.VoicesFor("")
+}
+
+// VoicesFor returns the catalogue for one engine selector (edge hits
+// the cloud list; everything else stays on the platform engine).
+func (s *Service) VoicesFor(engine string) ([]Voice, error) {
+	// Edge catalogue is an HTTPS fetch — do not hold the single-flight
+	// lock across the network, or a settings probe would stall speech.
+	if engine == EngineEdge {
+		s.mu.Lock()
+		eng := s.engine
+		s.mu.Unlock()
+		return voicesFor(eng, engine)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.engine.Voices()
+	return voicesFor(s.engine, engine)
+}
+
+func voicesFor(eng Engine, engine string) ([]Voice, error) {
+	if r, ok := eng.(*RouterEngine); ok {
+		return r.VoicesFor(engine)
+	}
+	return eng.Voices()
 }
 
 // Cancel bumps the epoch: every synthesize call that has not produced

@@ -6,7 +6,7 @@
 // and never surfaces a dialog.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { TtsBridge, TtsSynthesizePayload, TtsSynthesizeResult } from '../../bridge/client'
-import { TtsPlayer } from './ttsPlayer'
+import { TtsPlayer, speechAudioBounds } from './ttsPlayer'
 import { defaultCompanionSettings } from './companionSettings'
 
 const bridge = {
@@ -140,5 +140,36 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
     expect(bridge.synthesize).toHaveBeenCalledTimes(1)
     expect(failures).toHaveLength(1)
     expect(failures[0]).toEqual([-1, -1])
+  })
+})
+
+describe('speechAudioBounds', () => {
+  test('trims leading and trailing silence while keeping an 8ms pad', () => {
+    const sampleRate = 1000
+    const channel = new Float32Array(200)
+    for (let i = 50; i < 120; i++) channel[i] = 0.5
+    const { start, length } = speechAudioBounds(channel, sampleRate)
+    expect(start).toBe(42)
+    expect(start + length).toBe(128)
+  })
+
+  test('keeps the full buffer when the audible span is shorter than 40ms', () => {
+    const sampleRate = 1000
+    const channel = new Float32Array(200)
+    channel[80] = 0.5
+    const { start, length } = speechAudioBounds(channel, sampleRate)
+    expect(start).toBe(0)
+    expect(length).toBe(200)
+  })
+})
+
+describe('TtsPlayer streaming prefetch', () => {
+  test('enqueue synthesizes later segments while the first clip is still playing', async () => {
+    const player = new TtsPlayer()
+    player.enqueue(['一句。', '两句。', '三句。'], defaultCompanionSettings(), {})
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() => expect(playEvents.length).toBe(1))
+    bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
+    player.interrupt()
   })
 })

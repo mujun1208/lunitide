@@ -238,3 +238,54 @@ func TestMcpToolsFallbackSchemaWithoutDescribe(t *testing.T) {
 		t.Fatalf("fallback schema = %s", merged[0].Schema)
 	}
 }
+
+func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
+	found := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "browser.act" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("browser.act missing from engine tools")
+	}
+	for _, d := range readOnlyEngineToolDefinitions() {
+		if d.Name == "browser.act" {
+			t.Fatal("subagents must not receive browser.act")
+		}
+	}
+}
+
+func TestMcpToolDefinitionsSwitchToSearchWhenCatalogIsLarge(t *testing.T) {
+	digests := map[string]string{}
+	schemas := map[string]mcp6.ToolSchema{}
+	for i := 0; i < mcpDirectToolCap+1; i++ {
+		name := "tool_" + string(rune('a'+i))
+		digests[name] = strings.Repeat("b", 64)
+		schemas[name] = mcp6.ToolSchema{Description: "lookup " + name, InputSchema: []byte(`{"type":"object"}`)}
+	}
+	registry := mcp6.NewRegistry(func(context.Context, *mcp6.Endpoint) error { return nil }, nil, fakeMcpLease{})
+	registry.SetDescribeFunc(func(context.Context, *mcp6.Endpoint) (map[string]mcp6.ToolSchema, error) {
+		return schemas, nil
+	})
+	if _, err := registry.Register(context.Background(), mcp6.EndpointInput{
+		Transport: "https", URL: "https://mcp.example.com", AuthRef: "secretref:ref",
+		Pin: mcp6.CapabilityPin{ServerIdentityDigest: strings.Repeat("a", 64), ToolSchemaDigests: digests},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetM6Services(nil, registry, nil)
+	merged := e.mcpToolDefinitions()
+	if len(merged) != 2 || merged[0].Name != "mcp.search" || merged[1].Name != "mcp.call" {
+		t.Fatalf("want search gateway, got %+v", merged)
+	}
+	out, err := e.searchMcpTools([]byte(`{"query":"lookup tool_a"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "tool_a") {
+		t.Fatalf("search miss: %s", out)
+	}
+}

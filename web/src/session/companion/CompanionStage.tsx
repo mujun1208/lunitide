@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, getTtsBridge, type TtsVoice } from '../../bridge/client'
 import { defaultCompanionSettings, loadCompanionSettings, saveCompanionSettings, type CompanionSettings } from './companionSettings'
-import { prepareSpeech } from './companionText'
+import { cleanForSpeech, prepareSpeech, takeSpeakableChunk } from './companionText'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
 import { startCompanionSpeech, type CompanionSpeechHandle } from './speech'
 import { TtsPlayer, unlockTtsAudio } from './ttsPlayer'
@@ -41,11 +41,6 @@ const STATE_LABELS: Record<CompanionState, string> = { idle: '待机', listening
 const idleLevels = Array.from({ length: MOON_RING_BINS }, () => 0)
 /** Re-listen guard: stop the hands-free loop after this many silent auto-restarts in a row. */
 const MAX_SILENT_RESTARTS = 3
-/** P0-1: Minimum characters before a sentence is sent to the TTS queue during
- *  streaming. Shorter for the first sentence (quick feedback), longer for
- *  subsequent ones (avoid too-frequent synthesis round-trips). */
-const STREAMING_FIRST_SENTENCE_MIN = 4
-const STREAMING_SUBSEQUENT_SENTENCE_MIN = 12
 
 export function CompanionStage({ chatStatus, assistantText, error, chatReady, onSend, onExit }: CompanionStageProps): React.JSX.Element {
   const machine = useCompanionMachine()
@@ -143,6 +138,16 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         .ensureRefEngine({ refEndpoint: stored.refEndpoint || undefined })
         .catch(() => {})
       void warmup(0)
+    } else if (stored.autoSpeak) {
+      void Promise.resolve(
+        getTtsBridge().synthesize({
+          text: '嗯',
+          voiceId: stored.voiceId || undefined,
+          rate: stored.rate,
+          volume: 0,
+          engine: stored.engine,
+        }),
+      ).catch(() => {})
     }
     return () => {
       cancelled = true
@@ -178,35 +183,29 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     })
   }, [assistantText, chatStatus])
 
-  // Streaming TTS: start speaking as soon as a complete sentence arrives,
-  // instead of waiting for the entire LLM response. This dramatically reduces
-  // perceived latency — the user hears the first sentence 3-10x faster.
-  // P0-1: Uses enqueue so sentences flow continuously into the TTS queue
-  // without blocking. streamTick ensures we re-check after each chunk finishes.
+  // Streaming TTS: speak complete sentences as they land (Doubao-style),
+  // never a short comma clause. Chunks are enqueued as whole utterances
+  // so the player can prefetch and join them on one timeline.
   useEffect(() => {
     if (chatStatus !== 'streaming') return
     if (!ttsAvailable || !settings.autoSpeak) return
-    const text = assistantText.slice(spokenUpToRef.current)
-    const isFirstSentence = spokenUpToRef.current === 0
-    // Find the first complete sentence (ends with 。？！\n)
-    const sentenceMatch = text.match(/^([\s\S]*?[。？！\n])/)
-    // Also try comma/dunhao boundaries for faster first-speak
-    const commaMatch = !sentenceMatch ? text.match(/^([\s\S]*?[，,、])/) : null
-    const match = sentenceMatch || commaMatch
-    if (!match) return
-    // Don't speak very short fragments — wait for more content
-    const minChars = isFirstSentence ? STREAMING_FIRST_SENTENCE_MIN : STREAMING_SUBSEQUENT_SENTENCE_MIN
-    if (match[1].length < minChars) return
-
-    spokenUpToRef.current += match[1].length
+    const batch: string[] = []
+    while (true) {
+      const pending = assistantText.slice(spokenUpToRef.current)
+      const chunk = takeSpeakableChunk(pending, spokenUpToRef.current === 0)
+      if (!chunk) break
+      spokenUpToRef.current += chunk.consumed
+      const cleaned = cleanForSpeech(chunk.text)
+      if (cleaned) batch.push(cleaned)
+    }
+    if (!batch.length) return
     if (stateRef.current === 'thinking') {
       machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
     }
     const player = ensurePlayer()
     const voiceId = activeVoiceId()
     player.configure(voiceId, settings.rate, settings.volume, settings)
-    const segments = prepareSpeech(match[1])
-    player.enqueue(segments, { ...settings, voiceId }, {
+    player.enqueue(batch, { ...settings, voiceId }, {
       onSegmentStart: index => {
         setRounds(current => {
           const last = current[current.length - 1]
@@ -223,7 +222,6 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         } else if (reason === 'circuit-broken') {
           setCircuitBroken(true)
         }
-        // Force re-check for more queued text
         setStreamTick(t => t + 1)
       },
       onSegmentFailed: (index, consecutive) => {
@@ -291,8 +289,15 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       }
       return
     }
-    if ((chatStatus === 'failed' || chatStatus === 'cancelled') && stateRef.current === 'thinking') {
-      machine.dispatch({ type: 'REPLY_TERMINAL' })
+    if (chatStatus === 'failed' || chatStatus === 'cancelled') {
+      if (stateRef.current === 'thinking') {
+        machine.dispatch({ type: 'REPLY_TERMINAL' })
+      } else if (stateRef.current === 'speaking') {
+        playerRef.current?.interrupt()
+        speakingRef.current = false
+        setGain(0)
+        machine.dispatch({ type: 'INTERRUPT' })
+      }
     }
   }, [chatStatus, assistantText, ttsAvailable, settings.autoSpeak])
 
@@ -481,7 +486,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
 
   // Hands-free loop: once armed, every return to idle (reply played,
   // interrupted, silence timeout) automatically re-opens the mic so
-  // the user just keeps talking. The 150ms bridge keeps the turn-taking
+  // the user just keeps talking. The 80ms bridge keeps the turn-taking
   // feeling instant (Doubao-style) while still letting the mic hardware
   // settle after playback.
   useEffect(() => {
@@ -495,7 +500,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         return
       }
       startListening(true)
-    }, 150)
+    }, 80)
     return () => window.clearTimeout(timer)
   }, [machine.state, startListening])
 

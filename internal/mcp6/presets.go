@@ -80,7 +80,7 @@ var presets = []Preset{
 		Description: "结构化多步推理：拆解问题、修正思路并保留思维轨迹",
 		Transport:   "stdio",
 		Command:     "npx",
-		Args:        []string{"-y", "@modelcontextprotocol/server-sequentialthinking"},
+		Args:        []string{"-y", "@modelcontextprotocol/server-sequential-thinking"},
 		Category:    "推理",
 	},
 	{
@@ -111,6 +111,15 @@ var presets = []Preset{
 		Transport:   "stdio",
 		Command:     "npx",
 		Args:        []string{"-y", "@modelcontextprotocol/server-puppeteer"},
+		Category:    "浏览器",
+	},
+	{
+		ID:          "playwright",
+		Name:        "Playwright",
+		Description: "微软开源浏览器自动化（免费直连，首次会拉取 Chromium）",
+		Transport:   "stdio",
+		Command:     "npx",
+		Args:        []string{"-y", "@playwright/mcp"},
 		Category:    "浏览器",
 	},
 	{

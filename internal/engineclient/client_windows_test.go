@@ -368,6 +368,14 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventApprovalRequired
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("c", 64), Summary: "approval required"}
 		}, true},
+		{"tool output", func(e *bridge.Event) {
+			e.Type = bridge.EventToolOutput
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("d", 64), Summary: "go: downloading"}
+		}, true},
+		{"tool output empty summary", func(e *bridge.Event) {
+			e.Type = bridge.EventToolOutput
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("d", 64)}
+		}, false},
 		{"tool with delta", func(e *bridge.Event) {
 			e.Type = bridge.EventToolStarted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}

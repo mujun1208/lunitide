@@ -41,6 +41,18 @@ export interface CompanionSpeechHandle {
   stop: () => void
 }
 
+/** Commit the utterance after this much silence once we already have text.
+ *  ~400ms matches cloud voice agents (Doubao / realtime): faster than
+ *  waiting for the OS SpeechRecognition isFinal (often 0.8–1.5s). */
+export const UTTERANCE_SILENCE_MS = 400
+
+/** Energy above this (0–1 peak) counts as voice for endpointing. */
+const VOICE_PEAK = 0.13
+
+export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
+  return hasText && silentForMs >= silenceMs
+}
+
 export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promise<CompanionSpeechHandle> {
   const Recognition = speechRecognitionConstructor()
   if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
@@ -73,6 +85,29 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       } else throw error
     }
     stream = media
+    let finals = ''
+    let interim = ''
+    let lastVoiceAt = performance.now()
+    let vadEnabled = false
+    const assembled = () => {
+      const f = finals.trim()
+      const i = interim.trim()
+      if (!i) return f
+      if (!f) return i
+      if (f.includes(i)) return f
+      return `${f}${i}`
+    }
+    const commit = (text: string) => {
+      if (finished || !text) return
+      finished = true
+      recognition?.stop()
+      teardown()
+      callbacks.onFinal(text)
+    }
+    const tryCommitFromSilence = (voiceAt: number, silenceMs = UTTERANCE_SILENCE_MS) => {
+      if (!vadEnabled || finished) return
+      if (shouldCommitUtterance(Boolean(assembled()), performance.now() - voiceAt, silenceMs)) commit(assembled())
+    }
     try {
       const AudioContextClass = window.AudioContext
       context = new AudioContextClass()
@@ -82,29 +117,30 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       context.createMediaStreamSource(media).connect(analyser)
       const samples = new Uint8Array(analyser.frequencyBinCount)
       const bucket = Math.max(1, Math.floor(samples.length / MOON_RING_BINS))
+      vadEnabled = true
       const meter = () => {
         analyser.getByteFrequencyData(samples)
         const levels: number[] = []
+        let rawPeak = 0
         for (let index = 0; index < MOON_RING_BINS; index++) {
           let peak = 0
           for (let i = index * bucket; i < Math.min(samples.length, (index + 1) * bucket); i++) peak = Math.max(peak, samples[i])
+          rawPeak = Math.max(rawPeak, peak)
           levels.push(Math.max(0.06, peak / 255))
         }
+        if (rawPeak / 255 >= VOICE_PEAK) lastVoiceAt = performance.now()
+        else tryCommitFromSilence(lastVoiceAt)
         callbacks.onLevels?.(levels)
         frame = requestAnimationFrame(meter)
       }
       meter()
     } catch {
-      // Visual-only loss: recognition still works without the ring.
+      // Visual-only loss: recognition still works; commit on isFinal / onend.
     }
     const rec: SpeechRecognitionLike = new Recognition()
     recognition = rec
     rec.lang = 'zh-CN'
     rec.continuous = true
-    // P0-3: enable interim results for real-time transcription display.
-    // The user sees grey text appearing as they speak, eliminating the
-    // "dead air" feeling during the 0.3–0.8s silence-detection window.
-    // Only final transcripts trigger onSend — semantics are unchanged.
     rec.interimResults = true
     let lastInterimAt = 0
     rec.onresult = event => {
@@ -114,21 +150,23 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
         if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript
         else interimTranscript += event.results[i][0].transcript
       }
-      const trimmedFinal = finalTranscript.trim()
-      if (trimmedFinal && !finished) {
-        finished = true
-        rec.stop()
-        teardown()
-        callbacks.onFinal(trimmedFinal)
+      finals = finalTranscript
+      interim = interimTranscript
+      if (interimTranscript) {
+        const now = performance.now()
+        if (now - lastInterimAt >= 100) {
+          lastInterimAt = now
+          callbacks.onInterim?.(interimTranscript.trim())
+        }
+      }
+      // Without an analyser, keep the previous "first final wins" path so
+      // a machine that cannot VAD still sends. With VAD, keep listening
+      // until silence so a multi-phrase utterance is one ChatBridge turn.
+      if (!vadEnabled && finalTranscript.trim()) {
+        commit(assembled())
         return
       }
-      // Throttle interim updates to ~100ms to avoid excessive React re-renders
-      // while still feeling instantaneous to the user.
-      const now = performance.now()
-      if (interimTranscript && now - lastInterimAt >= 100) {
-        lastInterimAt = now
-        callbacks.onInterim?.(interimTranscript.trim())
-      }
+      tryCommitFromSilence(lastVoiceAt, 280)
     }
     rec.onerror = event => {
       if (finished) return
@@ -147,6 +185,11 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
     }
     rec.onend = () => {
       if (finished) return
+      const text = assembled()
+      if (text) {
+        commit(text)
+        return
+      }
       finished = true
       teardown()
       callbacks.onEndWithoutFinal?.()

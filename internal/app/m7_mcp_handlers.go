@@ -21,16 +21,16 @@ import (
 
 func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Origin         string            `json:"origin"`
-		Transport      string            `json:"transport"`
-		Command        string            `json:"command"`
-		Args           []string          `json:"args"`
-		URL            string            `json:"url"`
-		EnvSecretRefs  map[string]string `json:"envSecretRefs"`
-		MarketItemID   string            `json:"marketItemId"`
-		RiskConfirmed  bool              `json:"riskConfirmed"`
-		RequestID      string            `json:"requestId"`
-		Actor          string            `json:"actor"`
+		Origin        string            `json:"origin"`
+		Transport     string            `json:"transport"`
+		Command       string            `json:"command"`
+		Args          []string          `json:"args"`
+		URL           string            `json:"url"`
+		EnvSecretRefs map[string]string `json:"envSecretRefs"`
+		MarketItemID  string            `json:"marketItemId"`
+		RiskConfirmed bool              `json:"riskConfirmed"`
+		RequestID     string            `json:"requestId"`
+		Actor         string            `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil ||
 		(p.Origin != m7flow.McpOriginMarket && p.Origin != m7flow.McpOriginManual) ||
@@ -59,6 +59,15 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	if err != nil {
 		return m7McpFailure(r, err, "mcp.add")
 	}
+	e.admitSettingsMcp(ctx, m7flow.McpEndpointConfig{
+		EndpointID: res.EndpointID,
+		Transport:  p.Transport,
+		Command:    p.Command,
+		URL:        p.URL,
+		ArgsJSON:   mustJSONArgs(p.Args),
+		Enabled:    true,
+		State:      res.State,
+	})
 	return bridge.Success(r.ID, struct {
 		EndpointID       string `json:"endpointId"`
 		State            string `json:"state"`
@@ -123,6 +132,11 @@ func handleMcpToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	ep, err := e.m7mcp.Toggle(ctx, p.EndpointID, *p.Enabled, p.Actor)
 	if err != nil {
 		return m7McpFailure(r, err, "mcp.toggle")
+	}
+	if ep.Enabled {
+		e.admitSettingsMcp(ctx, ep)
+	} else {
+		e.dropSettingsMcp(ep.EndpointID)
 	}
 	return bridge.Success(r.ID, struct {
 		EndpointID string `json:"endpointId"`

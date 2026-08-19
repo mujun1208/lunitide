@@ -103,6 +103,7 @@ func TestChatStartInjectsSkillCatalog(t *testing.T) {
 		"- manual-parser：解析 AMM/IPC/SRM 手册章节并抽取工卡字段。当用户提到“手册解析、工卡抽取”时使用。",
 		"- report-writer：生成合规检查报告。当用户提到“生成报告、检查报告”时使用。",
 		"使用规则：当用户请求与某技能触发场景匹配时，先声明“将使用技能 X”，再执行。",
+		"[内置工作流]",
 	} {
 		if !strings.Contains(sys, want) {
 			t.Fatalf("system instruction missing %q:\n%s", want, sys)

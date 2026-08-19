@@ -56,7 +56,7 @@ const (
 type McpTx interface {
 	PutMcpEndpoint(m7flow.McpEndpointConfig) error
 	GetMcpEndpoint(id string) (m7flow.McpEndpointConfig, error)
-	FindMcpEndpointByFingerprint(transport, command, urlRef string) (m7flow.McpEndpointConfig, error)
+	FindMcpEndpointByFingerprint(transport, command, urlRef, argsJSON string) (m7flow.McpEndpointConfig, error)
 	ListMcpEndpoints(transport string) ([]m7flow.McpEndpointConfig, error)
 	CountMcpEndpoints() (int, error)
 	UpdateMcpEndpointState(id, from, to string, capabilityDigest *string, checkedAt time.Time) error
@@ -89,9 +89,9 @@ func (LocalMcpProber) Probe(_ context.Context, ep m7flow.McpEndpointConfig) (str
 
 // McpRuntimeService implements the five settings-plane methods.
 type McpRuntimeService struct {
-	uow     McpUnitOfWork
-	clock   Clock
-	prober  McpProber
+	uow      McpUnitOfWork
+	clock    Clock
+	prober   McpProber
 	verifier func(item m7flow.McpMarketItem) bool
 	registry func(ctx context.Context) ([]m7flow.McpMarketItem, error)
 }
@@ -115,22 +115,24 @@ func (s *McpRuntimeService) SetProber(p McpProber) { s.prober = p }
 func (s *McpRuntimeService) SetVerifier(fn func(m7flow.McpMarketItem) bool) { s.verifier = fn }
 
 // SetRegistry substitutes the market registry fetcher (tests).
-func (s *McpRuntimeService) SetRegistry(fn func(context.Context) ([]m7flow.McpMarketItem, error)) { s.registry = fn }
+func (s *McpRuntimeService) SetRegistry(fn func(context.Context) ([]m7flow.McpMarketItem, error)) {
+	s.registry = fn
+}
 
 // ── mcp.add ─────────────────────────────────────────────────────────────────
 
 // McpAddInput is the mcp.add command.
 type McpAddInput struct {
-	Origin           string
-	Transport        string
-	Command          string
-	Args             []string
-	URL              string
-	EnvSecretRefs    map[string]string
-	MarketItemID     string
-	RiskConfirmed    bool
-	Actor            string
-	IdempotencyKey   string
+	Origin         string
+	Transport      string
+	Command        string
+	Args           []string
+	URL            string
+	EnvSecretRefs  map[string]string
+	MarketItemID   string
+	RiskConfirmed  bool
+	Actor          string
+	IdempotencyKey string
 }
 
 // McpAddResult answers the endpoint identity and post-probe state.
@@ -211,7 +213,7 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 	var out McpAddResult
 	err := s.uow.TransactMcp(ctx, func(tx McpTx) error {
 		// idempotent re-add answers the original endpoint
-		if existing, err := tx.FindMcpEndpointByFingerprint(transport, in.Command, in.URL); err == nil {
+		if existing, err := tx.FindMcpEndpointByFingerprint(transport, in.Command, in.URL, string(argsJSON)); err == nil {
 			out = McpAddResult{EndpointID: existing.EndpointID, State: existing.State, CapabilityDigest: existing.CapabilityDigest}
 			return nil
 		} else if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, m7flow.ErrNotFound) {

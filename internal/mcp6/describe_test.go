@@ -71,8 +71,65 @@ func TestSnapshotExcludesRevoked(t *testing.T) {
 	}
 }
 
-// The schema cache is display-only: invoking a tool whose cached schema
-// exists but whose pin digest is missing must still answer drift.
+func TestBootstrapPinPromotesDescribeCatalogue(t *testing.T) {
+	r := newTestRegistry(func(context.Context, *Endpoint) error { return nil }, nil)
+	r.SetDescribeFunc(func(context.Context, *Endpoint) (map[string]ToolSchema, error) {
+		return map[string]ToolSchema{
+			"remember": {Description: "Store a fact", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		}, nil
+	})
+	e, err := r.Register(context.Background(), EndpointInput{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Transport: "https",
+		URL: "https://ok.example.com/mcp", AuthRef: "secretref:pool/a",
+		Pin: BootstrapPin("seed"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.ID != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("id = %s", e.ID)
+	}
+	snap := r.ReadyToolSnapshot()
+	if len(snap) != 1 || snap[0].Tool != "remember" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if isBootstrapPin(e.Pin) {
+		t.Fatal("bootstrap pin was not promoted")
+	}
+}
+
+func TestRegisterReplacesRevokedSameID(t *testing.T) {
+	r := newTestRegistry(func(context.Context, *Endpoint) error { return nil }, nil)
+	r.SetDescribeFunc(func(context.Context, *Endpoint) (map[string]ToolSchema, error) {
+		return map[string]ToolSchema{
+			"remember": {Description: "Store a fact", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		}, nil
+	})
+	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if _, err := r.Register(context.Background(), EndpointInput{
+		ID: id, Transport: "https", URL: "https://ok.example.com/mcp",
+		AuthRef: "secretref:pool/a", Pin: BootstrapPin("seed"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Revoke(id, ReasonManual); err != nil {
+		t.Fatal(err)
+	}
+	e, err := r.Register(context.Background(), EndpointInput{
+		ID: id, Transport: "https", URL: "https://ok.example.com/mcp",
+		AuthRef: "secretref:pool/a", Pin: BootstrapPin("seed"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.State != StateReady {
+		t.Fatalf("state = %s", e.State)
+	}
+	snap := r.ReadyToolSnapshot()
+	if len(snap) != 1 || snap[0].Tool != "remember" {
+		t.Fatalf("snapshot after re-admit = %+v", snap)
+	}
+}
 func TestSchemaCacheCannotBypassPin(t *testing.T) {
 	r := newTestRegistry(func(context.Context, *Endpoint) error { return nil }, nil)
 	r.SetDescribeFunc(func(context.Context, *Endpoint) (map[string]ToolSchema, error) {

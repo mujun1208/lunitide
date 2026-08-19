@@ -477,6 +477,25 @@ func TestMcpAddListToggleHealthFlow(t *testing.T) {
 	}
 }
 
+func TestMcpAddTwoStdioNpxServersStayDistinct(t *testing.T) {
+	e, _, _ := newM7RuntimeEngineHarness(t)
+	ctx := context.Background()
+	first := e.Handle(ctx, m7Request(bridge.MethodMcpAdd,
+		`{"origin":"manual","transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-memory"],`+
+			`"riskConfirmed":true,"requestId":"npx-1"}`, "idem-npx-1"))
+	second := e.Handle(ctx, m7Request(bridge.MethodMcpAdd,
+		`{"origin":"manual","transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-sequential-thinking"],`+
+			`"riskConfirmed":true,"requestId":"npx-2"}`, "idem-npx-2"))
+	var a, b struct {
+		EndpointID string `json:"endpointId"`
+	}
+	m7Decode(t, first, &a)
+	m7Decode(t, second, &b)
+	if a.EndpointID == "" || a.EndpointID == b.EndpointID {
+		t.Fatalf("stdio npx fingerprints collided: %q %q", a.EndpointID, b.EndpointID)
+	}
+}
+
 func TestMcpAddGuardFamily(t *testing.T) {
 	e, _, _ := newM7RuntimeEngineHarness(t)
 	ctx := context.Background()
@@ -486,7 +505,7 @@ func TestMcpAddGuardFamily(t *testing.T) {
 		payload string
 		code    string
 	}{
-		{"noconfirm", `{"origin":"manual","url":"https://mcp.example.com/sse",`+
+		{"noconfirm", `{"origin":"manual","url":"https://mcp.example.com/sse",` +
 			`"requestId":"g1"}`, "M7-MCP-002"},
 		{"marketmissing", `{"origin":"market","marketItemId":"` + ulid.Make().String() + `",` +
 			`"transport":"stdio","command":"npx","args":["-y","mcp-demo"],"requestId":"g2"}`, "M7-MCP-002"},

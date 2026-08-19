@@ -14,7 +14,9 @@ import (
 	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/artifactreview"
 	"github.com/lunitide/lunitide/internal/attachmentapp"
+	"github.com/lunitide/lunitide/internal/brapp"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
@@ -32,17 +34,15 @@ import (
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/m9app"
+	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
-	"github.com/lunitide/lunitide/internal/brapp"
-	"github.com/lunitide/lunitide/internal/ccapp"
-	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
+	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
-	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/lunitide/lunitide/internal/tts"
@@ -133,6 +133,9 @@ type Engine struct {
 	network            networkpolicy.Options
 	gateway            gateway.Options
 	adapterFactory     func(context.Context, provider.Provider) (gateway.Adapter, error)
+	adapterCacheMu     sync.Mutex
+	adapterCache       map[string]gateway.Adapter
+	browserLastURL     sync.Map
 	streamsMu          sync.Mutex
 	streams            map[string]*streamState
 	maxStreams         int
@@ -327,7 +330,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodWorkspaceArtifactReviewAppend: handleWorkspaceArtifactReviewAppend,
 	bridge.MethodWorkspaceArtifactReviewList:   handleWorkspaceArtifactReviewList,
 	bridge.MethodWorkspaceArtifactPreview:      handleWorkspaceArtifactPreview,
-	bridge.MethodWorkspaceArtifactExport:      handleWorkspaceArtifactExport,
+	bridge.MethodWorkspaceArtifactExport:       handleWorkspaceArtifactExport,
 	bridge.MethodAutomationJobList:             handleAutomationJobList,
 	bridge.MethodAutomationJobSet:              handleAutomationJobSet,
 	bridge.MethodAutomationJobDelete:           handleAutomationJobDelete,
@@ -581,7 +584,7 @@ type providerDTO struct {
 }
 
 func NewEngine(providers ProviderService, version string) *Engine {
-	return &Engine{providers: providers, version: version, streams: make(map[string]*streamState), maxStreams: 32}
+	return &Engine{providers: providers, version: version, streams: make(map[string]*streamState), maxStreams: 32, adapterCache: make(map[string]gateway.Adapter)}
 }
 
 func NewEngineWithProjects(providers ProviderService, projects ProjectService, version string, leases LeaseClient) *Engine {
@@ -1147,7 +1150,7 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
-	return &Engine{providers: providers, version: version, leases: leases, streams: make(map[string]*streamState), maxStreams: 32,
+	return &Engine{providers: providers, version: version, leases: leases, streams: make(map[string]*streamState), maxStreams: 32, adapterCache: make(map[string]gateway.Adapter),
 		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, DisableOverallTimeout: true, IdleReadTimeout: 90 * time.Second, MaxResponseBytes: 1 << 20},
 		gateway: gateway.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20}}
 }

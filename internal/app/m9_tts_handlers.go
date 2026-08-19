@@ -36,12 +36,10 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 			"ref_meta": tts.RefPackMeta(p.RefEndpoint),
 		})
 	}
-	// natural / legacy edge / sapi: one local catalogue — OneCore natural
-	// voices first, classic desktop voices after.
 	if e.m9tts == nil {
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
 	}
-	voices, err := e.m9tts.Voices()
+	voices, err := e.m9tts.VoicesFor(p.Engine)
 	if err != nil {
 		return ttsFailure(r, err)
 	}
@@ -164,7 +162,11 @@ func handleTtsRefAudios(e *Engine, ctx context.Context, r bridge.Request) bridge
 func ttsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, tts.ErrEngineUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+		msg := "本机无可用语音合成引擎"
+		if strings.Contains(err.Error(), "云端") || strings.Contains(err.Error(), "联网") {
+			msg = "无法连接微软云端语音（需联网）"
+		}
+		return bridge.Failure(r.ID, r.TraceID, "M95-001", msg, true)
 	case errors.Is(err, tts.ErrRefEngineStarting):
 		// The hosted GPT-SoVITS service is loading (retryable M95-001
 		// family): the player waits and retries instead of breaking.
@@ -205,9 +207,9 @@ func handleTtsEnsureRefEngine(e *Engine, ctx context.Context, r bridge.Request) 
 		state, _ = tts.DefaultRefHost.Status(endpoint)
 	}
 	return bridge.Success(r.ID, map[string]any{
-		"state":        state,
-		"host_script":  script,
-		"endpoint":     endpoint,
-		"last_error":   tts.DefaultRefHost.LastErr(),
+		"state":       state,
+		"host_script": script,
+		"endpoint":    endpoint,
+		"last_error":  tts.DefaultRefHost.LastErr(),
 	})
 }

@@ -317,7 +317,7 @@ func validateEvent(e bridge.Event) error {
 	if e.Type != bridge.EventThinking && e.Thinking != nil {
 		return errors.New("thinking payload on non-thinking event")
 	}
-	if e.Type != bridge.EventToolStarted && e.Type != bridge.EventToolCompleted && e.Type != bridge.EventApprovalRequired && e.Tool != nil {
+	if e.Type != bridge.EventToolStarted && e.Type != bridge.EventToolCompleted && e.Type != bridge.EventApprovalRequired && e.Type != bridge.EventToolOutput && e.Tool != nil {
 		return errors.New("tool payload on non-tool event")
 	}
 	const maxText = 16 * 1024
@@ -342,7 +342,7 @@ func validateEvent(e bridge.Event) error {
 		if e.Delta != nil || e.Thinking != nil || e.Usage == nil || e.Error != nil || e.Usage.InputTokens < 0 || e.Usage.OutputTokens < 0 || e.Usage.TotalTokens < 0 || e.Usage.TotalTokens != e.Usage.InputTokens+e.Usage.OutputTokens {
 			return errors.New("invalid usage event")
 		}
-	case bridge.EventToolStarted, bridge.EventToolCompleted, bridge.EventApprovalRequired:
+	case bridge.EventToolStarted, bridge.EventToolCompleted, bridge.EventApprovalRequired, bridge.EventToolOutput:
 		if e.Tool == nil || e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Terminal != nil {
 			return errors.New("invalid tool event payload")
 		}
@@ -364,6 +364,10 @@ func validateEvent(e bridge.Event) error {
 		case bridge.EventApprovalRequired:
 			if tool.Summary == "" || tool.Artifact != nil {
 				return errors.New("invalid approval event")
+			}
+		case bridge.EventToolOutput:
+			if tool.Summary == "" || tool.Artifact != nil {
+				return errors.New("invalid tool output event")
 			}
 		case bridge.EventToolCompleted:
 			if tool.Artifact != nil && (tool.Artifact.Kind != "html" || len(tool.Artifact.Path) == 0 || len(tool.Artifact.Path) > 4096 || len(tool.Artifact.Content) > 180<<10) {

@@ -148,6 +148,31 @@ func (e *Engine) adapter(ctx context.Context, p provider.Provider) (gateway.Adap
 	if e.adapterFactory != nil {
 		return e.adapterFactory(ctx, p)
 	}
+	key := p.ID + "\x00" + p.BaseURL + "\x00" + string(p.Protocol)
+	e.adapterCacheMu.Lock()
+	if e.adapterCache == nil {
+		e.adapterCache = make(map[string]gateway.Adapter)
+	}
+	if cached, ok := e.adapterCache[key]; ok {
+		e.adapterCacheMu.Unlock()
+		return cached, nil
+	}
+	e.adapterCacheMu.Unlock()
+	created, err := e.newProductionAdapter(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	e.adapterCacheMu.Lock()
+	if existing, ok := e.adapterCache[key]; ok {
+		e.adapterCacheMu.Unlock()
+		return existing, nil
+	}
+	e.adapterCache[key] = created
+	e.adapterCacheMu.Unlock()
+	return created, nil
+}
+
+func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) (gateway.Adapter, error) {
 	// Provider connections are user-configured endpoints. Allow HTTP and
 	// localhost so that local model servers (LM Studio, Ollama, etc.) are
 	// reachable. The SSRF policy still applies to web fetch/search paths.

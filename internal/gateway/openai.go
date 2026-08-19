@@ -26,6 +26,14 @@ type openAIRequest struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options,omitempty"`
 	Tools []openAITool `json:"tools,omitempty"`
+	// Disable-reasoning hints accepted by Volcengine/Qwen-compatible
+	// OpenAI endpoints. Unknown fields are ignored by strict OpenAI;
+	// a 400 strips them and retries once.
+	Thinking       *openAIThinking `json:"thinking,omitempty"`
+	EnableThinking *bool           `json:"enable_thinking,omitempty"`
+}
+type openAIThinking struct {
+	Type string `json:"type"`
 }
 type openAITool struct {
 	Type     string `json:"type"`
@@ -110,6 +118,11 @@ func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) 
 func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
 	wn := buildWireNames(in.Tools, openAIToolNameMax)
 	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn), MaxTokens: in.MaxTokens, Stream: stream}
+	if in.DisableReasoning {
+		disabled := false
+		p.EnableThinking = &disabled
+		p.Thinking = &openAIThinking{Type: "disabled"}
+	}
 	for _, t := range in.Tools {
 		x := openAITool{Type: "function"}
 		x.Function.Name, x.Function.Description, x.Function.Parameters = wn.wire(t.Name), t.Description, t.Schema
@@ -123,6 +136,7 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 	var last error
 	maxAttempts := attempts(a.o, in, stream)
 	sanitized := false
+	strippedThinking := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		body, err := marshalBounded(p, a.o.MaxRequestBytes)
 		if err != nil {
@@ -155,6 +169,13 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			// ...). On a 400 with tools attached, retry exactly once with
 			// sanitized schemas before giving up; the chat layer then
 			// falls back to plain dialogue with this reason surfaced.
+			if resp.StatusCode == http.StatusBadRequest && in.DisableReasoning && !strippedThinking && (p.Thinking != nil || p.EnableThinking != nil) {
+				strippedThinking = true
+				p.Thinking = nil
+				p.EnableThinking = nil
+				attempt--
+				continue
+			}
 			if resp.StatusCode == http.StatusBadRequest && len(p.Tools) > 0 && !sanitized {
 				sanitized = true
 				for i := range p.Tools {

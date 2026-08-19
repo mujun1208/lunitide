@@ -92,6 +92,36 @@ func TestOpenAIContractAndDiscovery(t *testing.T) {
 	}
 }
 
+func TestDisableReasoningHints(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{response(200, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)}}
+	_, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, DisableReasoning: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(f.requests[0].Body)
+	if !strings.Contains(string(body), `"type":"disabled"`) || !strings.Contains(string(body), `"enable_thinking":false`) {
+		t.Fatalf("disable-reasoning body=%s", body)
+	}
+}
+
+func TestDisableReasoningHint400IsStripped(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{
+		response(400, `unknown field thinking`),
+		response(200, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`),
+	}}
+	_, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, DisableReasoning: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.requests) != 2 {
+		t.Fatalf("requests=%d, want 2", len(f.requests))
+	}
+	second, _ := io.ReadAll(f.requests[1].Body)
+	if strings.Contains(string(second), "enable_thinking") || strings.Contains(string(second), `"thinking"`) {
+		t.Fatalf("stripped retry still has thinking hints: %s", second)
+	}
+}
+
 func TestOpenAIConnectionTestAcceptsAny2xxBodyButPreservesAuthFailures(t *testing.T) {
 	f := &fakeConnector{responses: []*http.Response{response(200, `not a chat completion`), response(401, `ignored secret body`)}}
 	a := NewOpenAI(f, Options{})

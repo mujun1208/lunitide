@@ -174,3 +174,25 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   const broadcasts = [...tts.speakCalls, ...tts.enqueueCalls].filter(call => call.segments.join('').includes('自动化任务'))
   expect(broadcasts.length).toBe(0)
 })
+
+test('returns to idle when chat fails while the stage is speaking', async () => {
+  speech.start.mockResolvedValue({ stop: speech.stop })
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  expect(stateOf(utils.container)).toBe('listening')
+  await act(async () => {
+    speech.callbacks!.onFinal('你好')
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('thinking')
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} chatStatus="done" assistantText="这是答复内容。" />)
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('speaking')
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} chatStatus="failed" assistantText="这是答复内容。" error={undefined} />)
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('idle')
+})

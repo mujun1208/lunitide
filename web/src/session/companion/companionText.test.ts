@@ -4,7 +4,7 @@
 // with the 500-char comma re-split and the 20-segment truncation
 // notice.
 import { describe, expect, test } from 'vitest'
-import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, prepareSpeech, segmentForSpeech } from './companionText'
+import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, prepareSpeech, segmentForSpeech, takeSpeakableChunk } from './companionText'
 
 describe('cleanForSpeech', () => {
   test('replaces code fences and inline code with the spoken notice', () => {
@@ -58,5 +58,32 @@ describe('prepareSpeech', () => {
   test('cleans before segmenting so code bodies are never read aloud', () => {
     const segments = prepareSpeech('```\nsecret()\n```\n好的。')
     expect(segments).toEqual(['代码已省略', '好的。'])
+  })
+})
+
+describe('takeSpeakableChunk', () => {
+  test('waits for a complete sentence instead of speaking a short comma clause', () => {
+    expect(takeSpeakableChunk('今晚是满月，', true)).toBeNull()
+    expect(takeSpeakableChunk('今晚是满月，适合抬头。', true)).toEqual({
+      text: '今晚是满月，适合抬头。',
+      consumed: '今晚是满月，适合抬头。'.length,
+    })
+  })
+
+  test('starts the first utterance once enough unpunctuated text has arrived', () => {
+    const pending = '今晚天气怎么样啊'
+    expect(Array.from(pending).length).toBeGreaterThanOrEqual(8)
+    const taken = takeSpeakableChunk(pending, true)
+    expect(taken).not.toBeNull()
+    expect(Array.from(taken!.text).length).toBeGreaterThanOrEqual(8)
+    expect(pending.slice(0, taken!.consumed)).toBe(taken!.text)
+  })
+
+  test('keeps later chunks as whole sentences so playback is not chopped', () => {
+    expect(takeSpeakableChunk('然后我再给你建议', false)).toBeNull()
+    expect(takeSpeakableChunk('然后我再给你建议。最后总结。', false)).toEqual({
+      text: '然后我再给你建议。',
+      consumed: '然后我再给你建议。'.length,
+    })
   })
 })

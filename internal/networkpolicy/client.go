@@ -96,6 +96,10 @@ func New(ctx context.Context, rawBase, apiPath string, o Options) (*Connector, e
 		TLSClientConfig:       tlsConfig,
 		ResponseHeaderTimeout: o.ResponseHeaderTimeout,
 		DialContext:           pinnedDial(dialer, ips, authority, o.IdleReadTimeout),
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
+		ForceAttemptHTTP2:     true,
 	}
 	c := &Connector{BaseURL: u.String(), scheme: scheme, host: host, port: port, authority: authority, maxBody: o.MaxResponseBytes, maxLine: o.MaxSSELineBytes, maxEvent: o.MaxSSEEventBytes, basePath: u.EscapedPath()}
 	c.Client = &http.Client{Transport: tr, Timeout: o.OverallTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {

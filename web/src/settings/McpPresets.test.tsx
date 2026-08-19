@@ -14,7 +14,7 @@ function api(overrides: Partial<McpBridge> = {}): McpBridge {
   return {
     list: vi.fn(),
     add: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', state: 'probe' }),
-    toggle: vi.fn(),
+    toggle: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', enabled: true, state: 'probe' }),
     health: vi.fn(),
     marketSearch: vi.fn(),
     presets: vi.fn().mockResolvedValue({ items: catalog }),
@@ -47,7 +47,9 @@ it('registers a no-args preset with one click through mcp.add', async () => {
     riskConfirmed: true,
   })
   expect(typeof payload.requestId).toBe('string')
-  expect(await screen.findByRole('status')).toHaveTextContent('已注册 Everything，进入 probe 探测。')
+  await waitFor(() => expect(bridge.toggle).toHaveBeenCalledOnce())
+  expect(vi.mocked(bridge.toggle).mock.calls[0][0]).toMatchObject({ endpointId: 'mcp-1', enabled: true })
+  expect(await screen.findByRole('status')).toHaveTextContent('已启用 Everything，对话里可直接调用其工具。')
 })
 
 it('collects the placeholder value, normalizes windows separators and then registers', async () => {

@@ -158,6 +158,12 @@ func TestTransportSecurityDefaults(t *testing.T) {
 	if tr.TLSClientConfig.ServerName != "example.test" {
 		t.Fatalf("SNI=%q", tr.TLSClientConfig.ServerName)
 	}
+	if tr.ForceAttemptHTTP2 != true {
+		t.Fatal("HTTP/2 not attempted")
+	}
+	if tr.MaxIdleConnsPerHost != 8 {
+		t.Fatalf("MaxIdleConnsPerHost=%d", tr.MaxIdleConnsPerHost)
+	}
 	if err := c.Client.CheckRedirect(nil, nil); ErrorCode(err) != CodeRedirectBlocked {
 		t.Fatalf("redirect code=%q", ErrorCode(err))
 	}
