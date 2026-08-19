@@ -46,6 +46,9 @@ vi.mock('../../bridge/client', async importOriginal => {
       synthesize: vi.fn(),
       cancel: vi.fn(),
     }),
+    automationBridge: {
+      listRuns: () => Promise.resolve({ runs: [] }),
+    },
   }
 })
 
@@ -244,12 +247,12 @@ describe('MC-06 state distinguishability + live announcements', () => {
       speech.callbacks!.onFinal('今晚月色如何')
     })
     expect(stateOf(container)).toBe('thinking')
-    expect(statusRegion(container).textContent).toContain('思考中')
+    expect(statusRegion(container).textContent).toContain('回应中')
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
     // Thinking disables the moon.
     expect(moonBody(container).disabled).toBe(true)
-    expect(moonBody(container).getAttribute('aria-label')).toBe('月亮思考中')
+    expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在回应')
     // 3. Streaming reply is announced through the same live log.
     rerender(
       <CompanionStage

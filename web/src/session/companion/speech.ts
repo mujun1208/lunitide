@@ -6,6 +6,7 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
+import { unlockTtsAudio } from './ttsPlayer'
 
 type SpeechRecognitionEventLike = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
 type SpeechRecognitionLike = {
@@ -73,6 +74,13 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
   }
   return (async () => {
     let constraints = microphoneConstraints()
+    const withEcho = (value: MediaStreamConstraints): MediaStreamConstraints => {
+      const audio = value.audio
+      if (audio === false) return value
+      const extra = { echoCancellation: true as const, noiseSuppression: true as const }
+      return { audio: audio === true || audio == null ? extra : { ...audio, ...extra } }
+    }
+    constraints = withEcho(constraints)
     let media: MediaStream
     try {
       media = await navigator.mediaDevices.getUserMedia(constraints)
@@ -80,11 +88,12 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       const name = error instanceof DOMException ? error.name : ''
       if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
         saveMicrophoneId('')
-        constraints = { audio: true }
+        constraints = withEcho({ audio: true })
         media = await navigator.mediaDevices.getUserMedia(constraints)
       } else throw error
     }
     stream = media
+    void unlockTtsAudio()
     let finals = ''
     let interim = ''
     let lastVoiceAt = performance.now()

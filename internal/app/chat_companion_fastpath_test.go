@@ -9,9 +9,10 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
-func TestCompanionFastPathCapsTokensAndSkipsCatalog(t *testing.T) {
+func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	requests := make(chan gateway.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused catalog", `{}`)}}
@@ -34,11 +35,46 @@ func TestCompanionFastPathCapsTokensAndSkipsCatalog(t *testing.T) {
 		t.Fatalf("messages = %#v", req.Messages)
 	}
 	system := req.Messages[0].Content
-	if strings.Contains(system, "可用技能目录") || strings.Contains(system, "内置工作流") {
-		t.Fatalf("companion injected skill catalog: %q", system)
+	if strings.Contains(system, "内置工作流") {
+		t.Fatalf("companion injected bundled workflows: %q", system)
 	}
-	if !strings.Contains(system, "第一句") {
+	if !strings.Contains(system, "第一句") || !strings.Contains(system, "闲聊立刻回答") || !strings.Contains(system, "调用对应工具") {
 		t.Fatalf("companion voice instruction missing: %q", system)
+	}
+	if !strings.Contains(system, "可用技能目录") {
+		t.Fatalf("companion skipped skill catalog: %q", system)
+	}
+}
+
+func TestCompanionAttachesFullToolset(t *testing.T) {
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { tools.Close() })
+	e.SetToolRuntime(tools)
+	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused", `{}`)}}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"executionMode":"full-access","messages":[{"role":"user","content":"打开网页"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("companion chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	want := map[string]bool{"web.search": false, "web.fetch": false, "workspace.write": false, "command.run": false, "browser.act": false, "skill.invoke": false}
+	for _, def := range req.Tools {
+		if _, ok := want[def.Name]; ok {
+			want[def.Name] = true
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("companion tools missing %s: %#v", name, req.Tools)
+		}
 	}
 }
 

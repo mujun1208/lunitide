@@ -3,7 +3,7 @@
 // dispatch entry. Guards reject every transition outside the frozen
 // matrix (M95-005 COMPANION_STATE_INVALID) while keeping the current
 // state and leaving an audit trail in the console.
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useMemo, useReducer, useRef } from 'react'
 
 export type CompanionState = 'idle' | 'listening' | 'thinking' | 'speaking'
 
@@ -73,5 +73,8 @@ export function useCompanionMachine(): CompanionMachine {
     return transitionTable[snapshotRef.current.state][event.type] === undefined
   }, [])
 
-  return { state: snapshot.state, rejected: snapshot.rejected, dispatch, wouldReject }
+  return useMemo(
+    () => ({ state: snapshot.state, rejected: snapshot.rejected, dispatch, wouldReject }),
+    [snapshot.state, snapshot.rejected, dispatch, wouldReject],
+  )
 }

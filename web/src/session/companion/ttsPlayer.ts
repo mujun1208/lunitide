@@ -141,7 +141,9 @@ export class TtsPlayer {
    *  join sounds like one take rather than two readings. */
   private scheduleBuffer(buffer: AudioBuffer, callbacks: TtsPlayerCallbacks): boolean {
     const ctx = this.ensureGraph()
-    if (!ctx || !this.gainNode) return false
+    // A suspended context "plays" without sound. Voice wake never grants a
+    // click gesture, so skip Web Audio until resume() actually succeeds.
+    if (!ctx || ctx.state !== 'running' || !this.gainNode) return false
     const playable = trimSilence(ctx, buffer) ?? buffer
     const source = ctx.createBufferSource()
     source.buffer = playable
@@ -239,7 +241,9 @@ export class TtsPlayer {
       audio.src = this.blobUrl
       this.activeCleanup = cleanup
       this.startGainLoop(callbacks)
-      void audio.play().catch(() => cleanup())
+      const tryPlay = () =>
+        audio.play().catch(() => unlockTtsAudio().then(() => audio.play()).catch(() => cleanup()))
+      void tryPlay()
     })
     void generation
   }
@@ -250,7 +254,16 @@ export class TtsPlayer {
 
   /** Play one prepared segment. Returns false when both paths fail. */
   private async playSegment(seg: ReadySegment, generation: number, queueGeneration: number | undefined, callbacks: TtsPlayerCallbacks): Promise<boolean> {
+    await unlockTtsAudio()
+    const ctx = this.ensureGraph()
+    if (ctx?.state === 'suspended') await ctx.resume().catch(() => {})
     if (seg.buffer && this.scheduleBuffer(seg.buffer, callbacks)) return true
+    try {
+      await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
+      return true
+    } catch {
+      return false
+    }
     try {
       await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
       return true
@@ -632,13 +645,14 @@ export class TtsPlayer {
  * when the context is actually running — a suspended context would
  * swallow the sound entirely.
  */
-export function unlockTtsAudio(): void {
+export function unlockTtsAudio(): Promise<void> {
   try {
     sharedAudioContext = sharedAudioContext ?? new AudioContext()
-    if (sharedAudioContext.state === 'suspended') void sharedAudioContext.resume().catch(() => {})
+    if (sharedAudioContext.state === 'suspended') return sharedAudioContext.resume().then(() => undefined).catch(() => {})
   } catch {
     sharedAudioContext = null
   }
+  return Promise.resolve()
 }
 
 function isEngineUnavailable(error: unknown): boolean {

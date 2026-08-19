@@ -49,7 +49,7 @@ type executionMode string
 const (
 	preferenceInjectMaxItems = 8
 	preferenceInjectMaxBytes = 2048
-	companionMaxTokens       = 512
+	companionMaxTokens       = 2048
 	companionMaxMessages     = 24
 )
 
@@ -115,12 +115,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// sentences stay short so synthesis overlaps playback. Tools stay
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在通过语音与用户对话（月伴模式）。回答会被逐句合成并连续朗读。请严格遵守：\n- 第一句 8–20 字，必须以。？！结尾，直接回应，不要铺垫\n- 之后每句 20–40 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表；像朋友聊天一样说完就停\n- 能直接回答就不要调用工具；只有用户明确要查资料或读本地文件时才用工具，且开口第一句仍先应答\n- 全文尽量不超过 120 字"
+		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 搜网页/查火车航班：web.search；打开页面或播歌：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
 	// so path answers match reality instead of a stale sandbox assumption.
-	if mode == executionModeFullAccess && e.tools != nil && !p.Companion {
+	if mode == executionModeFullAccess && e.tools != nil {
 		if e.fullDiskChat(mode) {
 			instruction += " Full-disk full-access is enabled: file tools accept absolute paths on any drive (Desktop, Documents, other drives) and command.run executes arbitrary commands on this machine. Use absolute paths for user folders; create missing parent directories with writes when needed."
 		} else if root, ok := e.tools.FullAccessRootHint(); ok {
@@ -134,8 +134,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	// Overlap provider lookup with preference/skill injection (Cursor-style
-	// TTFT): they share no data. Companion skips catalog/memory to keep
-	// the first-token path on the conversation only.
+	// TTFT): they share no data. Companion still gets memory prefs and the
+	// skill catalog so voice can invoke the same skills as ordinary chat.
 	var (
 		item    provider.Provider
 		getErr  error
@@ -148,7 +148,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		defer prep.Done()
 		item, getErr = e.providers.Get(ctx, p.ProviderID)
 	}()
-	if !p.Companion && e.m8memory != nil {
+	if e.m8memory != nil {
 		prep.Add(1)
 		go func() {
 			defer prep.Done()
@@ -157,7 +157,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		}()
 	}
-	if !p.Companion {
+	{
 		prep.Add(1)
 		go func() {
 			defer prep.Done()
@@ -428,16 +428,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.MaxTokens = companionMaxTokens
 	}
 	if e.tools != nil {
-		if p.Companion {
-			req.Tools = e.companionVoiceTools()
-		} else {
-			req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
-			req.Tools = append(req.Tools, planToolDefinitions(mode)...)
-			req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
-			req.Tools = append(req.Tools, e.ccToolDefinitions()...)
-			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
-			req.Tools = append(req.Tools, e.expertToolDefinitions()...)
-		}
+		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
+		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
+		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
+		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
+		req.Tools = append(req.Tools, e.skillToolDefinitions()...)
+		req.Tools = append(req.Tools, e.expertToolDefinitions()...)
+		req.Tools = append(req.Tools, e.settingsPlaneToolDefinitions()...)
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -641,22 +638,6 @@ func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefi
 		}
 	}
 	return defs
-}
-
-// companionVoiceTools is the Doubao-like voice subset: lookup only, no
-// mutation/MCP/plan/subagent schemas on the first-token path.
-func (e *Engine) companionVoiceTools() []gateway.ToolDefinition {
-	if e.tools == nil {
-		return nil
-	}
-	want := map[string]bool{"web.search": true, "web.fetch": true, "workspace.read": true}
-	var out []gateway.ToolDefinition
-	for _, def := range e.engineToolDefinitionsFor(executionModeFullAccess) {
-		if want[def.Name] {
-			out = append(out, def)
-		}
-	}
-	return out
 }
 
 // executeUserTool routes one user-conversation tool call. Full-access
@@ -1342,6 +1323,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest}}); err != nil {
 					return err
+				}
+				if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
+					summary, invokeErr := e.invokeSettingsPlaneTool(op, call.Name, call.Arguments)
+					if invokeErr != nil {
+						summary = invokeErr.Error()
+					}
+					summary = clipToolSummary(summary)
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
 				}
 				if call.Name == "mcp.search" {
 					summary, invokeErr := e.searchMcpTools(call.Arguments)
