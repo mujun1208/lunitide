@@ -26,3 +26,5 @@ await waitFor(()=>expect(setJob).toHaveBeenCalledWith(expect.objectContaining({n
 it('renders run history with expandable succeeded summary and failed error',async()=>{const{b}=bridge({runs:[run(),run({id:'run-2',state:'failed',trigger:'manual',summary:undefined,error:'无头执行失败 (AUTOMATION_RUN_FAILED)'})]});render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>)
 const rows=await screen.findAllByRole('button',{name:/日报|失败|成功/});fireEvent.click(rows[0]);expect(await screen.findByText('日报完成')).toBeInTheDocument()
 fireEvent.click(rows[1]);expect(await screen.findByRole('alert')).toHaveTextContent('AUTOMATION_RUN_FAILED');expect(screen.getByText(/手动/)).toBeInTheDocument()})
+it('runs mode shows history without the job editor',async()=>{const{b}=bridge({runs:[run()]});render(<AutomationPanel mode="runs" bridge={b}/>)
+expect(await screen.findByText('运行中心')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'新建任务'})).toBeNull();expect(screen.getByText('日报')).toBeInTheDocument();expect(screen.getByText('成功')).toBeInTheDocument()})

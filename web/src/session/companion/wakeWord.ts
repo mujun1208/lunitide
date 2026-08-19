@@ -8,13 +8,17 @@
 // Robustness rules (the wake listener used to die on the first error):
 // - Microphone permission is probed first; a hard 'denied' surfaces the
 //   error state instead of a recognition that can never start.
-// - Non-continuous mode (continuous=false) auto-restarts after every
-//   result so the wake listener never dies on an idle timeout; many
-//   WebView2 runtimes reject continuous=true and silently drop results.
+// - getUserMedia uses the same microphone constraints as in-companion
+//   speech so WebView2 actually grants the mic.
+// - Continuous mode matches the companion stage (Edge still ends after
+//   silence — onend restarts). If start() rejects continuous=true, fall
+//   back to one-shot sessions with the same restart loop.
 // - Transient errors (no-speech / network / aborted / audio-capture) restart
 //   with backoff — an idle timeout never disables the listener.
 // - Permanent denials (not-allowed / service-not-allowed) stop cleanly.
 import { useEffect, useRef, useState } from 'react'
+import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
+import { unlockTtsAudio } from './ttsPlayer'
 
 export type WakeWordState = 'idle' | 'probing' | 'listening' | 'unsupported' | 'error'
 
@@ -26,23 +30,25 @@ export interface WakeWordMatch {
 // Greeting × name cross product covers the homophones Windows ASR most
 // often returns for 「你好，月汐」 (月汐/月夕/月希/月西/月溪/月熙/月惜 and
 // 悦汐/悦希 — the exact-fit phrase list used to miss transcribes entirely).
-const WAKE_GREETINGS = ['你好', '您好', '嗨', '哈喽', 'hello', 'hi']
-const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '悦汐', '悦希', 'yuxi']
+const WAKE_GREETINGS = ['你好', '您好', '嗨', '嘿', '哈喽', 'hello', 'hi']
+const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '悦汐', '悦希', '月伴', 'yuxi']
 const WAKE_PHRASES = WAKE_GREETINGS.flatMap(g => WAKE_NAMES.map(n => g + n))
-// Allow calling the name directly without greeting for better UX
-WAKE_PHRASES.push(...WAKE_NAMES)
+WAKE_PHRASES.push('进入月伴', '打开月伴', '进入月伴模式', '打开月伴模式', '进入月伴对话', '打开月伴对话')
+WAKE_PHRASES.sort((a, b) => b.length - a.length)
+const NAME_ONLY = [...WAKE_NAMES].sort((a, b) => b.length - a.length)
 
-// Strip whitespace, punctuation and symbols, then lowercase so「你好，月汐！」
-// and "Hello 月汐" both match. ASR transcripts mix full/half-width punctuation.
 const normalize = (value: string) => value.replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase()
 
 export function matchWakeWord(transcript: string): WakeWordMatch {
   const normalized = normalize(transcript)
+  if (!normalized) return { hit: false, prompt: '' }
   for (const phrase of WAKE_PHRASES) {
     const at = normalized.indexOf(phrase)
-    // Only match at the beginning of the utterance to avoid
-    // false wakes from ambient speech ("再见月汐" etc.).
-    if (at === 0) return { hit: true, prompt: normalized.slice(phrase.length) }
+    if (at >= 0) return { hit: true, prompt: normalized.slice(at + phrase.length) }
+  }
+  for (const name of NAME_ONLY) {
+    if (normalized === name) return { hit: true, prompt: '' }
+    if (normalized.startsWith(name)) return { hit: true, prompt: normalized.slice(name.length) }
   }
   return { hit: false, prompt: '' }
 }
@@ -63,26 +69,18 @@ const speechRecognitionConstructor = () =>
   (window as typeof window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition ??
   (window as typeof window & { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
 
-/** Errors after which restarting recognition can never succeed. */
 const PERMANENT_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported'])
 
-/** Probe the microphone permission so a hard denial never spins recognition. */
 async function microphoneDenied(): Promise<boolean> {
   try {
     if (!navigator.permissions?.query) return false
     const status = await navigator.permissions.query({ name: 'microphone' } as PermissionDescriptor)
     return status.state === 'denied'
   } catch {
-    return false // Permission name unsupported on this engine — just try.
+    return false
   }
 }
 
-// useWakeWord listens continuously while enabled and fires onWake(prompt) once
-// per wake hit (listening stops after a hit; the companion stage owns the mic
-// afterwards). Non-continuous mode auto-restarts after every result so the
-// listener never dies on an idle timeout. Bumping `retry` re-arms a listener
-// that already fired (or died): entering the companion can fail asynchronously,
-// and without a retry the wake would stay dead until a full remount.
 export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; retry?: number; onWake: (prompt: string) => void }): WakeWordState {
   const [state, setState] = useState<WakeWordState>('idle')
   const onWakeRef = useRef(onWake)
@@ -100,11 +98,10 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
     let stopped = false
     let recognition: SpeechRecognitionLike | undefined
     let restartTimer = 0
-    let probingTimer = 0
     let failures = 0
     let armedAt = 0
     let sawResult = false
-    let firstResult = false
+    let media: MediaStream | undefined
     const stopRecognition = () => {
       try {
         recognition?.stop()
@@ -112,26 +109,21 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
         /* already stopped */
       }
     }
+    const releaseMedia = () => {
+      media?.getTracks().forEach(track => track.stop())
+      media = undefined
+    }
     const arm = () => {
       if (stopped) return
       try {
         recognition = new Recognition()
         recognition.lang = 'zh-CN'
-        // Non-continuous mode: recognition auto-stops after a result
-        // (or no-speech timeout), then onend restarts it. Many
-        // WebView2 runtimes silently drop continuous=true results,
-        // making the wake listener appear dead even when the service
-        // is running.
-        recognition.continuous = false
+        recognition.continuous = true
         recognition.interimResults = true
         recognition.onresult = event => {
           if (stopped) return
           sawResult = true
-          if (!firstResult) {
-            firstResult = true
-            window.clearTimeout(probingTimer)
-            setState('listening')
-          }
+          setState('listening')
           for (let i = 0; i < event.results.length; i++) {
             const result = event.results[i]
             const match = matchWakeWord(result[0].transcript)
@@ -149,17 +141,9 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
             stopped = true
             setState('error')
           }
-          // Transient errors (no-speech, network, aborted, audio-capture)
-          // leave the restart to onend, which always follows.
         }
         recognition.onend = () => {
           if (stopped) return
-          // Healthy sessions (produced a transcript or ran for a while)
-          // reset the failure count; sessions that die instantly never
-          // reached the speech service. Counting only those makes a
-          // fast-fail loop (missing language pack, speech service off)
-          // surface an error instead of spinning forever as fake
-          // "listening".
           if (sawResult || Date.now() - armedAt >= 3000) failures = 0
           else failures++
           const delay = 200 + Math.min(failures, 6) * 180
@@ -174,36 +158,52 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
         }
         armedAt = Date.now()
         sawResult = false
-        recognition.start()
-        // If we haven't gotten a result yet, show probing; after first
-        // result, onresult transitions to 'listening'.
-        if (!firstResult) setState('probing')
-        // Safety: if no result within 12s while probing, show error
-        // with a specific message about the Chinese speech pack.
-        if (!firstResult) {
-          window.clearTimeout(probingTimer)
-          probingTimer = window.setTimeout(() => {
-            if (stopped || firstResult) return
-            setState('error')
-          }, 12000)
+        try {
+          recognition.start()
+        } catch {
+          recognition.continuous = false
+          recognition.start()
         }
+        setState('listening')
       } catch {
         setState('error')
       }
     }
-    void microphoneDenied().then(denied => {
+    setState('probing')
+    void (async () => {
       if (stopped) return
-      if (denied) {
+      if (await microphoneDenied()) {
         setState('error')
         return
       }
+      try {
+        let constraints = microphoneConstraints()
+        try {
+          media = await navigator.mediaDevices.getUserMedia(constraints)
+        } catch (error) {
+          const name = error instanceof DOMException ? error.name : ''
+          if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
+            saveMicrophoneId('')
+            constraints = { audio: true }
+            media = await navigator.mediaDevices.getUserMedia(constraints)
+          } else throw error
+        }
+      } catch {
+        if (!stopped) setState('error')
+        return
+      }
+      if (stopped) {
+        releaseMedia()
+        return
+      }
+      unlockTtsAudio()
       arm()
-    })
+    })()
     return () => {
       stopped = true
       window.clearTimeout(restartTimer)
-      window.clearTimeout(probingTimer)
       stopRecognition()
+      releaseMedia()
     }
   }, [enabled, retry])
   return state

@@ -7,9 +7,9 @@
 export const MAX_SEGMENT_CHARS = 500
 export const MAX_SEGMENTS = 20
 /** First audible chunk: a short complete sentence, else this many characters. */
-export const FIRST_SPEAK_CHARS = 8
-/** Later chunks wait for a real sentence so TTS is not chopped into clauses. */
-export const FOLLOW_SPEAK_CHARS = 24
+export const FIRST_SPEAK_CHARS = 6
+/** Later chunks prefer a sentence, but do not stall the voice for long unpunctuated runs. */
+export const FOLLOW_SPEAK_CHARS = 14
 
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
@@ -92,12 +92,12 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean): { text: s
     return { text: sentence[1], consumed: sentence[1].length }
   }
   const forceAt = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
-  if (Array.from(pending).length < forceAt) return null
-  const minClause = isFirst ? 10 : 18
+  const minClause = isFirst ? 4 : 12
   const clause = /^([\s\S]*?[，,、；;])/.exec(pending)
   if (clause && Array.from(clause[1]).length >= minClause) {
     return { text: clause[1], consumed: clause[1].length }
   }
+  if (Array.from(pending).length < forceAt) return null
   const prefix = Array.from(pending).slice(0, forceAt).join('')
   return { text: prefix, consumed: prefix.length }
 }

@@ -3,6 +3,9 @@ import{projectBridge}from'../bridge/client'
 import type{ProjectDTO}from'../generated/bridge'
 import{MemoryPage}from'../memory/MemoryPage'
 import{MemoryOpsPanel}from'../memory/MemoryOpsPanel'
+import{AutomationPanel}from'../workspace/AutomationPanel'
+import{HandoffConsole}from'./HandoffConsole'
+import{PrivacyConsole}from'./PrivacyConsole'
 
 // M8 个人长期智能控制台（对齐设计文档 06-完整UI界面设计 · M8 原型：lunitide://personal-intelligence）
 type M8Tab='inbox'|'facts'|'knowledge'|'handoff'|'automation'|'runs'|'sync'|'privacy'|'experts'
@@ -10,21 +13,17 @@ const NAV:Array<{id:M8Tab;icon:string;label:string;live:boolean}>=[
  {id:'inbox',icon:'◌',label:'记忆收件箱',live:true},
  {id:'facts',icon:'◆',label:'已确认事实',live:true},
  {id:'knowledge',icon:'▤',label:'KnowledgeBase',live:false},
- {id:'handoff',icon:'⇥',label:'Handoff',live:false},
- {id:'automation',icon:'⚡',label:'自动化',live:false},
- {id:'runs',icon:'◷',label:'运行中心',live:false},
+ {id:'handoff',icon:'⇥',label:'Handoff',live:true},
+ {id:'automation',icon:'⚡',label:'自动化',live:true},
+ {id:'runs',icon:'◷',label:'运行中心',live:true},
  {id:'sync',icon:'⇄',label:'同步冲突',live:false},
- {id:'privacy',icon:'⌾',label:'隐私与设备',live:false},
+ {id:'privacy',icon:'⌾',label:'隐私与设备',live:true},
  {id:'experts',icon:'✧',label:'专家中心',live:true},
 ]
-// 概念合同（设计文档规定：无公开 RPC 的画板主操作必须禁用并标"概念预览"）
+// 概念合同（设计文档规定：无公开 list RPC 的画板主操作必须禁用并标"概念预览"）
 const PLANNED:Record<string,{route:string;desc:string;overlays:Array<[string,string]>;states:string[]}>={
- knowledge:{route:'/knowledge',desc:'集合、文档、索引、引用及 indexing、stale、redacted 状态。',overlays:[['索引','集合、文档与引用追溯'],['状态','indexing / stale / redacted']],states:['indexing','stale','redacted']},
- handoff:{route:'/handoffs/new',desc:'接收人、明确清单、裁剪差异、有效期和接受状态；发送二次确认。',overlays:[['发送','明确清单 + 二次确认'],['裁剪','差异预览与有效期']],states:['draft','sent','accepted','expired']},
- automation:{route:'/automations/:id/edit',desc:'触发器、步骤、权限、预算、试运行与版本差异。',overlays:[['试运行','先试跑再启用'],['预算','步骤级额度与版本差异']],states:['draft','trial','enabled','versioned']},
- runs:{route:'/automations/runs',desc:'waiting、running、compensating、quarantined、done。',overlays:[['补偿','失败步骤补偿回滚'],['隔离','quarantined 人工处置']],states:['waiting','running','compensating','quarantined','done']},
- sync:{route:'/sync/conflicts',desc:'本机、远端、自定义的字段级合并和最终预览。',overlays:[['字段级合并','本机 / 远端 / 自定义'],['最终预览','合并结果先行预览']],states:['local','remote','merged']},
- privacy:{route:'/privacy/devices',desc:'设备信任、同步、导出、吊销、清除及删除证明进度。',overlays:[['设备吊销','与清除数据分开确认'],['删除证明','设备回执和证明编号']],states:['trusted','revoked','erasing','proven']},
+ knowledge:{route:'/knowledge',desc:'集合、文档、索引、引用及 indexing、stale、redacted 状态。现有 kb.upsertDocument 无法支撑列表控制台。',overlays:[['索引','集合、文档与引用追溯'],['状态','indexing / stale / redacted']],states:['indexing','stale','redacted']},
+ sync:{route:'/sync/conflicts',desc:'本机、远端、自定义的字段级合并和最终预览。现有 sync.push 无法支撑冲突列表。',overlays:[['字段级合并','本机 / 远端 / 自定义'],['最终预览','合并结果先行预览']],states:['local','remote','merged']},
 }
 
 export function PersonalIntelligencePage({onNavigateExpert}:{onNavigateExpert?:()=>void}):React.JSX.Element{
@@ -50,6 +49,16 @@ export function PersonalIntelligencePage({onNavigateExpert}:{onNavigateExpert?:(
     <div className="overlay-strip"><span><b>六段式专家</b>身份 / 使命 / 规则 / 流程 / 交付模板 / 成功指标</span><span><b>只读派发</b>personaRef 不携带授权，结果物化 Evidence</span><span><b>版本链</b>append-only，修订须填 change_note</span><span><b>挂载矩阵</b>默认 M7 映射，可逐阶段调整</span></div>
     <div className="org-form" style={{marginTop:12}}><button className="primary" onClick={onNavigateExpert}>前往专家中心 →</button></div>
    </div>}
+   {tab==='handoff'&&<HandoffConsole/>}
+   {tab==='automation'&&<div className="org-section" style={{marginTop:6}}>
+    <p className="view-meta">任务列表、启停、立即运行走 automation.job.*。新建任务需要会话与模型；步骤级预算和独立试运行 RPC 仍未开放。</p>
+    <AutomationPanel/>
+   </div>}
+   {tab==='runs'&&<div className="org-section" style={{marginTop:6}}>
+    <p className="view-meta">运行历史来自 automation.run.list。补偿 / 隔离状态机尚无独立查询，不在此伪装。</p>
+    <AutomationPanel mode="runs"/>
+   </div>}
+   {tab==='privacy'&&<PrivacyConsole/>}
    {planned&&<>
     <div className="blocked-banner" role="status">⚠ 概念预览 —— 该子域的 M8 RPC 未开放（FR 对应切片待实现），主操作禁用，仅展示界面合同。</div>
     <article className="screen-route" data-route={planned.route}><b>{activeNav.label}</b><p>{planned.desc}</p></article>

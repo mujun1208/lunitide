@@ -62,20 +62,19 @@ describe('prepareSpeech', () => {
 })
 
 describe('takeSpeakableChunk', () => {
-  test('waits for a complete sentence instead of speaking a short comma clause', () => {
-    expect(takeSpeakableChunk('今晚是满月，', true)).toBeNull()
-    expect(takeSpeakableChunk('今晚是满月，适合抬头。', true)).toEqual({
-      text: '今晚是满月，适合抬头。',
-      consumed: '今晚是满月，适合抬头。'.length,
+  test('starts the first utterance on a short comma clause so the voice does not wait for a period', () => {
+    expect(takeSpeakableChunk('今晚是满月，', true)).toEqual({
+      text: '今晚是满月，',
+      consumed: '今晚是满月，'.length,
     })
   })
 
   test('starts the first utterance once enough unpunctuated text has arrived', () => {
     const pending = '今晚天气怎么样啊'
-    expect(Array.from(pending).length).toBeGreaterThanOrEqual(8)
+    expect(Array.from(pending).length).toBeGreaterThanOrEqual(6)
     const taken = takeSpeakableChunk(pending, true)
     expect(taken).not.toBeNull()
-    expect(Array.from(taken!.text).length).toBeGreaterThanOrEqual(8)
+    expect(Array.from(taken!.text).length).toBeGreaterThanOrEqual(6)
     expect(pending.slice(0, taken!.consumed)).toBe(taken!.text)
   })
 

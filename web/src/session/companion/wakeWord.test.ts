@@ -20,24 +20,27 @@ it('extracts the trailing request as the companion prompt', () => {
   expect(matchWakeWord('你好月汐')).toEqual({ hit: true, prompt: '' })
 })
 
+it('matches a wake phrase even when ASR prepends filler', () => {
+  expect(matchWakeWord('那个你好月汐')).toEqual({ hit: true, prompt: '' })
+  expect(matchWakeWord('嗯你好月汐打开网页')).toEqual({ hit: true, prompt: '打开网页' })
+})
+
+it('matches 月伴 entry phrases', () => {
+  expect(matchWakeWord('进入月伴').hit).toBe(true)
+  expect(matchWakeWord('打开月伴模式搜周杰伦')).toEqual({ hit: true, prompt: '搜周杰伦' })
+})
+
 it('does not match ordinary speech or look-alike phrases', () => {
   for (const phrase of ['今天天气不错', '你好，世界', '再见月汐', '你好月']) {
     expect(matchWakeWord(phrase)).toEqual({ hit: false, prompt: '' })
   }
-  // "月汐你好" now matches with name-only wake: "月汐" is in WAKE_NAMES
   expect(matchWakeWord('月汐你好')).toEqual({ hit: true, prompt: '你好' })
 })
 
 it('matches common ASR homophone transcribes of the wake name', () => {
-  // Windows online ASR frequently returns 月希/月西/月溪/月熙/月惜/悦汐
-  // for the spoken 「月汐」— the cross-product phrase list must catch them.
   for (const phrase of ['你好月希', '你好，月西', '嗨月溪', '您好月熙', '你好月惜', '你好悦汐', 'hello月希']) {
     expect(matchWakeWord(phrase).hit).toBe(true)
   }
-  // Name-only wake is now allowed (no greeting prefix required) for
-  // better UX — users can say just "月汐" to wake the companion.
-  // The prompt extraction still works: "月希今天天气" → wake hit with
-  // prompt "今天天气".
   expect(matchWakeWord('月希今天天气')).toEqual({ hit: true, prompt: '今天天气' })
 })
 
@@ -61,7 +64,10 @@ class FakeRecognition {
 function installFakeRecognition() {
   FakeRecognition.instances = []
   Object.defineProperty(window, 'SpeechRecognition', { value: FakeRecognition, configurable: true })
-  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn() }, configurable: true })
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) },
+    configurable: true,
+  })
 }
 
 afterEach(() => {
@@ -79,16 +85,13 @@ it('fires onWake once when the phrase lands in an interim transcript', async () 
   installFakeRecognition()
   const onWake = vi.fn()
   const view = renderHook(() => useWakeWord({ enabled: true, onWake }))
-  await act(async () => {}) // flush the microphone permission probe
-  // Probing until the first transcript arrives: the permission probe
-  // passed and recognition is armed, but no result has landed yet.
-  expect(view.result.current).toBe('probing')
+  await act(async () => {})
+  expect(view.result.current).toBe('listening')
   const first = FakeRecognition.instances.at(-1)!
+  expect(first.continuous).toBe(true)
   act(() => {
     first.onresult?.({ results: [{ 0: { transcript: '你好月汐今天天气怎么样' }, isFinal: false }] })
   })
-  // The first transcript flips probing → listening, then the wake hit fires.
-  expect(view.result.current).toBe('listening')
   expect(onWake).toHaveBeenCalledExactlyOnceWith('今天天气怎么样')
   expect(first.stop).toHaveBeenCalled()
 })
@@ -115,14 +118,12 @@ it('surfaces an error after repeated fast-fail sessions instead of spinning as f
   installFakeRecognition()
   const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
   await act(async () => {})
-  // No transcript ever lands, so the hook stays in probing (not fake
-  // listening) while the fast-fail sessions burn through retries.
-  expect(view.result.current).toBe('probing')
+  expect(view.result.current).toBe('listening')
   for (let round = 0; round < 9; round++) {
     const current = FakeRecognition.instances.at(-1)!
     act(() => {
       current.onerror?.({ error: 'network' })
-      current.onend?.() // dies instantly, no transcript — a fast-fail session
+      current.onend?.()
     })
     await act(async () => {
       vi.advanceTimersByTime(1500)

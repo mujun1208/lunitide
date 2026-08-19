@@ -111,7 +111,7 @@ function LaunchHome({projects,providers,sessions,attachments,onCreated,onSelect,
  const[text,setText]=useState(''),[providerItems,setProviders]=useState<ProviderDTO[]>([]),[provider,setProvider]=useState<ProviderDTO>(),[model,setModel]=useState(''),[mode,setMode]=useState<ExecutionMode>(()=>persistedExecutionMode(localStorage.getItem('lunitide:execution-mode') ?? 'full-access')),[menu,setMenu]=useState<'model'|'mode'|'add'|null>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[files,setFiles]=useState<File[]>([]),[dragging,setDragging]=useState(false),fileRef=useRef<HTMLInputElement>(null),folderRef=useRef<HTMLInputElement>(null),dragDepth=useRef(0)
  const zh=language==='zh-CN'
  const companionSettings=loadCompanionSettings()
- const wakeEnabled=zh&&companionSettings.enabled&&companionSettings.wakeWord
+ const wakeEnabled=companionSettings.enabled&&companionSettings.wakeWord
  const wake=useWakeWord({enabled:wakeEnabled,retry:wakeRetry,onWake:prompt=>onCompanion(prompt)})
  useEffect(()=>{providers.list().then(r=>{const ready=r.items.filter(x=>x.status==='enabled'&&x.credentialState==='configured');setProviders(ready);const first=ready[0];if(first){setProvider(first);setModel(first.models.find(m=>m.isDefault)?.modelId??first.models[0]?.modelId??'')}}).catch(()=>{})},[providers])
  useEffect(()=>{const close=()=>setMenu(null);window.addEventListener('click',close);return()=>window.removeEventListener('click',close)},[])

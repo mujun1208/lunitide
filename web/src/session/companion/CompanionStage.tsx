@@ -37,7 +37,7 @@ interface SubtitleRound {
   activeIndex?: number
 }
 
-const STATE_LABELS: Record<CompanionState, string> = { idle: '待机', listening: '聆听中', thinking: '思考中', speaking: '说话中' }
+const STATE_LABELS: Record<CompanionState, string> = { idle: '待机', listening: '聆听中', thinking: '回应中', speaking: '说话中' }
 const idleLevels = Array.from({ length: MOON_RING_BINS }, () => 0)
 /** Re-listen guard: stop the hands-free loop after this many silent auto-restarts in a row. */
 const MAX_SILENT_RESTARTS = 3
@@ -96,19 +96,29 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     window.addEventListener('pointerdown', unlock, { once: true })
     window.addEventListener('keydown', unlock, { once: true })
     let cancelled = false
-    getTtsBridge()
-      .voices({ engine: stored.engine })
-      .then(result => {
+    const probeEngines: CompanionSettings['engine'][] =
+      stored.engine === 'ref' ? ['ref', 'edge', 'natural', 'sapi'] : stored.engine === 'edge' ? ['edge', 'natural', 'sapi'] : [stored.engine, 'edge', 'natural', 'sapi']
+    void (async () => {
+      for (const engine of [...new Set(probeEngines)]) {
         if (cancelled) return
-        setVoices(result.voices)
-        setTtsAvailable(result.voices.length > 0)
-        if (!result.voices.length) setDegraded(true)
-      })
-      .catch(() => {
-        if (cancelled) return
+        try {
+          const result = await getTtsBridge().voices({ engine })
+          if (cancelled) return
+          if (result.voices.length) {
+            setVoices(result.voices)
+            setTtsAvailable(true)
+            if (engine !== stored.engine) setSettings(current => ({ ...current, engine }))
+            return
+          }
+        } catch {
+          /* try the next engine so a cloud-voice outage still speaks */
+        }
+      }
+      if (!cancelled) {
         setTtsAvailable(false)
         setDegraded(true)
-      })
+      }
+    })()
     // P0-3: Warm up GPT-SoVITS when using ref engine. First ask the
     // backend to auto-host the model server (non-blocking spawn when
     // 9880 is down), then send a short silent synthesis so the model
@@ -164,24 +174,23 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     }
   }, [])
 
-  // Streaming reply → live subtitle text for the assistant round.
-  // Throttled to ~30fps: each delta event from the LLM triggers a React
-  // re-render if unthrottled, which wastes GPU cycles on unchanged frames.
-  const lastRoundUpdateRef = useRef(0)
+  // Streaming reply → live subtitle text. Update on every delta so the
+  // user sees characters as they land; first token leaves "thinking".
   useEffect(() => {
     if (chatStatus !== 'streaming') return
-    const now = performance.now()
-    if (now - lastRoundUpdateRef.current < 33) return // ~30fps throttle
-    lastRoundUpdateRef.current = now
     const text = assistantText
+    if (text.trim() && stateRef.current === 'thinking') {
+      machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
+    }
     setRounds(current => {
       const last = current[current.length - 1]
       if (last?.role === 'assistant' && last.segments === undefined) {
+        if (last.text === text) return current
         return [...current.slice(0, -1), { ...last, text }]
       }
       return [...current, { role: 'assistant', text }]
     })
-  }, [assistantText, chatStatus])
+  }, [assistantText, chatStatus, machine.dispatch])
 
   // Streaming TTS: speak complete sentences as they land (Doubao-style),
   // never a short comma clause. Chunks are enqueued as whole utterances
@@ -199,9 +208,6 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       if (cleaned) batch.push(cleaned)
     }
     if (!batch.length) return
-    if (stateRef.current === 'thinking') {
-      machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
-    }
     const player = ensurePlayer()
     const voiceId = activeVoiceId()
     player.configure(voiceId, settings.rate, settings.volume, settings)
@@ -676,7 +682,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         <span className={`companion-status-dot state-${machine.state}`} aria-hidden="true" />
         {STATE_LABELS[machine.state]}
         {machine.state === 'listening' && <time>{`${Math.floor(listenSeconds / 60)}:${String(listenSeconds % 60).padStart(2, '0')}`}</time>}
-        {machine.state === 'thinking' && <span className="companion-status-sub">月汐思考中…</span>}
+        {machine.state === 'thinking' && <span className="companion-status-sub">马上开口…</span>}
       </div>
       {hintVisible && machine.state === 'idle' && (
         <p className="companion-hint" aria-live="polite">
@@ -746,7 +752,7 @@ function StreamChars({ text }: { text: string }): React.JSX.Element {
   return (
     <span className="stream-chars">
       {Array.from(text).map((char, index) => (
-        <span key={index} className="sand" style={{ animationDelay: `${Math.min(index * 10, 260)}ms` }}>
+        <span key={index} className="sand">
           {char === ' ' ? '\u00A0' : char}
         </span>
       ))}
