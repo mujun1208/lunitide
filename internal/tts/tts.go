@@ -1,5 +1,6 @@
-// Package tts implements the M9.5 Moon Companion local text-to-speech
-// runtime: offline Windows SAPI synthesis with a single-flight queue,
+// Package tts implements the M9.5 Moon Companion text-to-speech
+// runtime: free Microsoft cloud neural voices, offline Windows SAPI /
+// OneCore, and local GPT-SoVITS cloning, with a single-flight queue,
 // session-scoped cancellation, segment de-duplication and a graceful
 // non-Windows fallback (M95-001 semantics, subtitle-only degradation).
 package tts
@@ -39,7 +40,7 @@ type SynthesizeInput struct {
 const (
 	EngineSapi    = "sapi"    // offline Windows SAPI desktop voices
 	EngineNatural = "natural" // local OneCore natural neural voices (default)
-	EngineEdge    = "edge"    // legacy alias of natural (pre-1.0 settings)
+	EngineEdge    = "edge"    // free Microsoft cloud neural voices (晓晓等)
 	EngineRef     = "ref"     // zero-shot reference-timbre cloning via local service
 )
 

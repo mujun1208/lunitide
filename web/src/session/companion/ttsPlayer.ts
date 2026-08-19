@@ -1,14 +1,14 @@
 // ttsPlayer.ts drives the M9.5 speech pipeline with a gapless Web Audio
 // scheduler: every synthesized wav is decoded to an AudioBuffer the
-// moment it arrives (decode overlaps playback), then queued on one
-// AudioContext timeline — segment N+1 starts exactly at segment N's end
-// (sample-accurate `start(when)`), so speech sounds continuous like a
-// human talking, never segment-by-segment. A GainNode finally applies
-// the volume setting; the Analyser keeps feeding the moon glow.
+// moment it arrives (decode overlaps playback), silence-padded engine
+// tails are trimmed, then clips are queued on one AudioContext timeline
+// with a ~28ms overlap so speech sounds like one take. A GainNode
+// applies volume; the Analyser keeps feeding the moon glow.
 // Environments without AudioContext (jsdom) fall back to the legacy
 // HTMLAudioElement path so tests keep running unchanged.
-// Also: streaming enqueue (P0-1), double prefetch (P0-2), immediate
-// interruption, and the 3-consecutive-failure circuit breaker.
+// Also: streaming enqueue (P0-1), triple prefetch that processQueue
+// actually consumes (P0-2), immediate interruption, and the
+// 3-consecutive-failure circuit breaker.
 import { getTtsBridge } from '../../bridge/client'
 import type { CompanionSettings } from './companionSettings'
 
@@ -68,7 +68,7 @@ export class TtsPlayer {
   private generation = 0
   private rafId = 0
   private lastGainAt = 0
-  /** P0-2: Double prefetch queue — up to 2 segments ahead, decoded. */
+  /** P0-2: Prefetch queue — up to 3 segments ahead, decoded. */
   private prefetchQueue: Array<{ index: number; promise: Promise<ReadySegment | null> }> = []
   /** P0-1: Streaming enqueue — segments queued while current playback is
    *  ongoing, processed FIFO without interrupting the active segment. */
@@ -79,7 +79,7 @@ export class TtsPlayer {
   private currentVoiceId = ''
   private currentRate = 0
   private currentVolume = 80
-  private currentExtras: SynthExtras = { engine: 'natural', refEndpoint: '' }
+  private currentExtras: SynthExtras = { engine: 'edge', refEndpoint: '' }
 
   /** Remember the synthesis parameters so prefetches reuse them. */
   configure(voiceId: string, rate: number, volume: number, extras?: SynthExtras): void {
@@ -136,16 +136,19 @@ export class TtsPlayer {
     }
   }
 
-  /** Schedule a decoded buffer on the gapless timeline: it starts exactly
-   *  at max(now+ε, previous segment's end) — no gap, no overlap. */
+  /** Schedule a decoded buffer on the gapless timeline. Leading/trailing
+   *  engine padding is trimmed, then the next clip overlaps 28ms so the
+   *  join sounds like one take rather than two readings. */
   private scheduleBuffer(buffer: AudioBuffer, callbacks: TtsPlayerCallbacks): boolean {
     const ctx = this.ensureGraph()
     if (!ctx || !this.gainNode) return false
+    const playable = trimSilence(ctx, buffer) ?? buffer
     const source = ctx.createBufferSource()
-    source.buffer = buffer
+    source.buffer = playable
     source.connect(this.gainNode)
-    const startAt = Math.max(ctx.currentTime + 0.03, this.timelineEnd)
-    this.timelineEnd = startAt + buffer.duration
+    const overlap = this.timelineEnd > ctx.currentTime + 0.08 ? 0.028 : 0
+    const startAt = this.timelineEnd > ctx.currentTime ? this.timelineEnd - overlap : ctx.currentTime
+    this.timelineEnd = startAt + playable.duration
     this.activeSources.add(source)
     source.onended = () => {
       this.activeSources.delete(source)
@@ -161,8 +164,9 @@ export class TtsPlayer {
     return true
   }
 
-  /** Wait until the scheduled timeline has fully sounded (or a newer
-   *  generation took over). */
+  /** Wait until the scheduled timeline has fully sounded, a newer
+   *  generation took over, or more segments were enqueued (so the next
+   *  clip can be scheduled onto the still-running timeline). */
   private waitForTimeline(generation: number, queueGeneration?: number): Promise<void> {
     return new Promise(resolve => {
       const check = () => {
@@ -170,7 +174,8 @@ export class TtsPlayer {
           queueGeneration !== undefined
             ? queueGeneration !== this.queueGeneration
             : generation !== this.generation
-        if (stale) return resolve() // interrupted: resolve immediately
+        if (stale) return resolve()
+        if (this.pendingSegments.length > 0) return resolve()
         if (!this.ctx || !this.timelineEnd || this.ctx.currentTime >= this.timelineEnd - 0.03) return resolve()
         setTimeout(check, 40)
       }
@@ -387,6 +392,7 @@ export class TtsPlayer {
     const startIndex = this.nextEnqueueIndex
     this.nextEnqueueIndex += segments.length
     this.pendingSegments.push(...segments.map((text, i) => ({ text, index: startIndex + i })))
+    this.fillPrefetch(this.queueProcessing ? this.queueGeneration : this.queueGeneration + 1)
     if (!this.queueProcessing) {
       void this.processQueue(callbacks)
     }
@@ -420,111 +426,124 @@ export class TtsPlayer {
     let startingRetries = 0
     let scheduledAny = false
 
-    while (this.pendingSegments.length > 0) {
-      if (gen !== this.queueGeneration) return
-      const { text, index } = this.pendingSegments.shift()!
-      let seg: ReadySegment | null
-      try {
-        const result = await bridge.synthesize(
-          buildSynthPayload(text, this.currentVoiceId, this.currentRate, this.currentVolume, this.currentExtras),
-        )
+    while (true) {
+      while (this.pendingSegments.length > 0) {
         if (gen !== this.queueGeneration) return
-        if (result.discarded || !result.wav_base64) continue
-        seg = { wavBase64: result.wav_base64, buffer: await this.decodeWav(result.wav_base64) }
-      } catch (error) {
-        if (gen !== this.queueGeneration) return
-        if (isRefEngineStarting(error) && startingRetries < 24) {
-          // Re-queue the segment and wait: the backend is still loading
-          // the hosted model server (no failure count, no break).
-          startingRetries++
-          this.pendingSegments.unshift({ text, index })
-          await sleep(5000)
+        this.fillPrefetch(gen)
+        const { text, index } = this.pendingSegments.shift()!
+        let seg: ReadySegment | null = null
+        const queued = this.prefetchQueue.find(q => q.index === index)
+        if (queued) {
+          this.prefetchQueue = this.prefetchQueue.filter(q => q !== queued)
+          seg = await queued.promise
           if (gen !== this.queueGeneration) return
+        }
+        if (!seg) {
+          try {
+            const result = await bridge.synthesize(
+              buildSynthPayload(text, this.currentVoiceId, this.currentRate, this.currentVolume, this.currentExtras),
+            )
+            if (gen !== this.queueGeneration) return
+            if (result.discarded || !result.wav_base64) continue
+            seg = { wavBase64: result.wav_base64, buffer: await this.decodeWav(result.wav_base64) }
+          } catch (error) {
+            if (gen !== this.queueGeneration) return
+            if (isRefEngineStarting(error) && startingRetries < 24) {
+              startingRetries++
+              this.pendingSegments.unshift({ text, index })
+              await sleep(5000)
+              if (gen !== this.queueGeneration) return
+              continue
+            }
+            if (isEngineUnavailable(error)) {
+              callbacks.onEngineUnavailable?.()
+              callbacks.onFinished?.('engine-unavailable')
+              this.queueProcessing = false
+              return
+            }
+            consecutiveFailures++
+            callbacks.onSegmentFailed?.(index, consecutiveFailures)
+            if (consecutiveFailures >= 3) {
+              callbacks.onFinished?.('circuit-broken')
+              this.queueProcessing = false
+              return
+            }
+            continue
+          }
+        }
+        if (gen !== this.queueGeneration) return
+        if (!seg) {
+          consecutiveFailures++
+          callbacks.onSegmentFailed?.(index, consecutiveFailures)
+          if (consecutiveFailures >= 3) {
+            callbacks.onFinished?.('circuit-broken')
+            this.queueProcessing = false
+            return
+          }
           continue
         }
-        if (isEngineUnavailable(error)) {
-          callbacks.onEngineUnavailable?.()
-          callbacks.onFinished?.('engine-unavailable')
-          this.queueProcessing = false
-          return
+        consecutiveFailures = 0
+        callbacks.onSegmentStart?.(index, this.nextEnqueueIndex)
+        this.fillPrefetch(gen)
+        const played = await this.playSegment(seg, this.generation, gen, callbacks)
+        if (!played) {
+          if (gen !== this.queueGeneration) return
+          consecutiveFailures++
+          callbacks.onSegmentFailed?.(index, consecutiveFailures)
+          if (consecutiveFailures >= 3) {
+            callbacks.onFinished?.('circuit-broken')
+            this.queueProcessing = false
+            return
+          }
+          continue
         }
-        consecutiveFailures++
-        callbacks.onSegmentFailed?.(index, consecutiveFailures)
-        if (consecutiveFailures >= 3) {
-          callbacks.onFinished?.('circuit-broken')
-          this.queueProcessing = false
-          return
-        }
-        continue
+        scheduledAny = true
       }
       if (gen !== this.queueGeneration) return
-      if (!seg) {
-        consecutiveFailures++
-        callbacks.onSegmentFailed?.(index, consecutiveFailures)
-        if (consecutiveFailures >= 3) {
-          callbacks.onFinished?.('circuit-broken')
-          this.queueProcessing = false
-          return
-        }
-        continue
-      }
-      consecutiveFailures = 0
-      callbacks.onSegmentStart?.(index, this.nextEnqueueIndex)
-      // P0-2: prefetch the next pending segment — synthesis + decode
-      // overlap the sounding timeline.
-      this.schedulePrefetchFromQueue(gen)
-      const played = await this.playSegment(seg, this.generation, gen, callbacks)
-      if (!played) {
-        if (gen !== this.queueGeneration) return
-        consecutiveFailures++
-        callbacks.onSegmentFailed?.(index, consecutiveFailures)
-        if (consecutiveFailures >= 3) {
-          callbacks.onFinished?.('circuit-broken')
-          this.queueProcessing = false
-          return
-        }
-        continue
-      }
-      scheduledAny = true
-    }
-    if (gen !== this.queueGeneration) return
-    // Timeline drain: wait until the last scheduled buffer has fully
-    // sounded before declaring completion (drives PLAYBACK_ENDED).
-    if (scheduledAny) await this.waitForTimeline(this.generation, gen)
-    if (gen === this.queueGeneration) {
+      // Drain or accept more streaming text: wake early when enqueue
+      // adds a clip so it can join the still-running timeline.
+      if (scheduledAny) await this.waitForTimeline(this.generation, gen)
+      if (gen !== this.queueGeneration) return
+      if (this.pendingSegments.length > 0) continue
       this.queueProcessing = false
+      if (this.pendingSegments.length > 0) {
+        void this.processQueue(callbacks)
+        return
+      }
       callbacks.onFinished?.('completed')
+      return
     }
   }
 
-  /** Prefetch the next pending segment for synthesis/playback overlap. */
-  private schedulePrefetchFromQueue(generation: number): void {
-    if (this.pendingSegments.length === 0) return
-    if (this.prefetchQueue.length >= 2) return
-    const next = this.pendingSegments[0]
-    if (this.prefetchQueue.some(q => q.index === next.index)) return
-    const synth = () =>
-      getTtsBridge().synthesize(
-        buildSynthPayload(next.text, this.currentVoiceId, this.currentRate, this.currentVolume, this.currentExtras),
-      )
-    const prepare = async (): Promise<ReadySegment | null> => {
-      const result = await synth()
-      if (result.discarded || !result.wav_base64) return null
-      return { wavBase64: result.wav_base64, buffer: await this.decodeWav(result.wav_base64) }
+  /** Prefetch up to 3 pending segments so synthesis overlaps playback. */
+  private fillPrefetch(generation: number): void {
+    for (const item of this.pendingSegments) {
+      if (this.prefetchQueue.length >= 3) return
+      if (this.prefetchQueue.some(q => q.index === item.index)) continue
+      const text = item.text
+      const synth = () =>
+        getTtsBridge().synthesize(
+          buildSynthPayload(text, this.currentVoiceId, this.currentRate, this.currentVolume, this.currentExtras),
+        )
+      const prepare = async (): Promise<ReadySegment | null> => {
+        const result = await synth()
+        if (result.discarded || !result.wav_base64) return null
+        return { wavBase64: result.wav_base64, buffer: await this.decodeWav(result.wav_base64) }
+      }
+      this.prefetchQueue.push({
+        index: item.index,
+        promise: prepare().catch(async (error: unknown) => {
+          if (!isRefEngineStarting(error)) return null
+          await sleep(5000)
+          if (generation !== this.queueGeneration) return null
+          try {
+            return await prepare()
+          } catch {
+            return null
+          }
+        }),
+      })
     }
-    this.prefetchQueue.push({
-      index: next.index,
-      promise: prepare().catch(async (error: unknown) => {
-        if (!isRefEngineStarting(error)) return null
-        await sleep(5000)
-        if (generation !== this.queueGeneration) return null
-        try {
-          return await prepare()
-        } catch {
-          return null
-        }
-      }),
-    })
   }
 
   /** Immediate interruption: silence now, cancel the engine, drop the rest. */
@@ -644,4 +663,36 @@ function isRefEngineStarting(error: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** Find the audible span of a mono/first channel, keeping 8ms of pad so
+ *  concatenated clips do not click. Used to strip SAPI/GPT-SoVITS
+ *  leading and trailing silence that otherwise becomes a pause between
+ *  sentences. */
+export function speechAudioBounds(channel: Float32Array, sampleRate: number): { start: number; length: number } {
+  const threshold = 0.012
+  const pad = Math.max(1, Math.floor(sampleRate * 0.008))
+  let start = 0
+  let end = channel.length - 1
+  while (start < channel.length && Math.abs(channel[start]) < threshold) start++
+  while (end > start && Math.abs(channel[end]) < threshold) end--
+  if (end - start < sampleRate * 0.04) return { start: 0, length: channel.length }
+  start = Math.max(0, start - pad)
+  end = Math.min(channel.length - 1, end + pad)
+  return { start, length: end - start + 1 }
+}
+
+function trimSilence(ctx: AudioContext, buffer: AudioBuffer): AudioBuffer | null {
+  try {
+    const channel = buffer.getChannelData(0)
+    const { start, length } = speechAudioBounds(channel, buffer.sampleRate)
+    if (start === 0 && length === buffer.length) return buffer
+    const trimmed = ctx.createBuffer(buffer.numberOfChannels, length, buffer.sampleRate)
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      trimmed.getChannelData(c).set(buffer.getChannelData(c).subarray(start, start + length))
+    }
+    return trimmed
+  } catch {
+    return null
+  }
 }

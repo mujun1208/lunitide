@@ -88,6 +88,31 @@ func manifestDigest(sk skill.Skill) string {
 	return digest(sk.Version + "\n" + sk.EntryPoint + "\n" + sk.ManifestJSON + "\n" + string(b))
 }
 
+func allowlistedSkillEntryPoint(ep string) bool {
+	switch ep {
+	case "builtin:summarize-input", "builtin:list-context":
+		return true
+	}
+	return strings.HasPrefix(ep, "builtin://") && len(ep) > len("builtin://")
+}
+
+func catalogSkillWorkingAgreement(sk skill.Skill, input string) string {
+	prompt := ""
+	var m map[string]any
+	if json.Unmarshal([]byte(sk.ManifestJSON), &m) == nil {
+		if p, ok := m["prompt"].(string); ok {
+			prompt = strings.TrimSpace(p)
+		}
+	}
+	if prompt == "" {
+		prompt = strings.TrimSpace(sk.Description)
+	}
+	if prompt == "" {
+		prompt = sk.DisplayName
+	}
+	return "技能工作约定（" + sk.DisplayName + "）：\n" + prompt + "\n\n用户输入：" + input + "\n请按约定直接调用已有工具完成，不必再次 skill.invoke。"
+}
+
 // Invoke freezes an immutable, short-lived execution proposal. It never runs code.
 func (s *Service) Invoke(ctx context.Context, skillID, sessionID, input, mode string) (Invocation, error) {
 	sk, err := s.Get(ctx, skillID)
@@ -97,7 +122,7 @@ func (s *Service) Invoke(ctx context.Context, skillID, sessionID, input, mode st
 	if sk.Status != skill.SkillStatusPublished {
 		return Invocation{}, ErrSkillNotPublished
 	}
-	if sk.EntryPoint != "builtin:summarize-input" && sk.EntryPoint != "builtin:list-context" {
+	if !allowlistedSkillEntryPoint(sk.EntryPoint) {
 		return Invocation{}, ErrUnknownEntryPoint
 	}
 	risk := sk.MaxRiskLevel()
@@ -154,16 +179,18 @@ func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, a
 		return Execution{}, ErrInvocationChanged
 	}
 	var output string
-	switch sk.EntryPoint {
-	case "builtin:summarize-input":
+	switch {
+	case sk.EntryPoint == "builtin:summarize-input":
 		trimmed := strings.Join(strings.Fields(inv.Input), " ")
 		r := []rune(trimmed)
 		if len(r) > 240 {
 			trimmed = string(r[:240]) + "…"
 		}
 		output = "输入摘要（只读 builtin）：" + trimmed
-	case "builtin:list-context":
+	case sk.EntryPoint == "builtin:list-context":
 		output = "上下文清单（只读 builtin）：session=" + sessionID + "；inputSha256=" + inv.InputDigest
+	case strings.HasPrefix(sk.EntryPoint, "builtin://"):
+		output = catalogSkillWorkingAgreement(*sk, inv.Input)
 	default:
 		return Execution{}, ErrUnknownEntryPoint
 	}

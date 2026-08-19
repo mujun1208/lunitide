@@ -10,15 +10,16 @@ import (
 	"log"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
@@ -48,6 +49,8 @@ type executionMode string
 const (
 	preferenceInjectMaxItems = 8
 	preferenceInjectMaxBytes = 2048
+	companionMaxTokens       = 512
+	companionMaxMessages     = 24
 )
 
 // Skill catalog injection budget (c4-skill): the installed-skill directory
@@ -107,20 +110,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	instruction := executionModeInstruction(mode)
-	// P1-2: Moon Companion voice style — Doubao-style continuous speech
-	// flow. The reply is pipelined sentence-by-sentence into the TTS
-	// engine, so the first sentence must be answer-fast (≤15 chars) and
-	// each following paragraph (comma-linked clauses ending in one 。？！)
-	// runs 40-100 chars: long enough that synthesis always overlaps
-	// playback (gapless timeline), short enough to stay easy to follow.
-	// Frequent full stops would shatter the rhythm — commas carry it.
+	// Moon Companion: Doubao-style voice. First audible sentence must
+	// land in TTS immediately (period-terminated, 8–20 chars). Later
+	// sentences stay short so synthesis overlaps playback. Tools stay
+	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在通过语音与用户对话（月伴模式）。你的回答会被 TTS 引擎实时朗读出来。请严格遵守以下规则：\n- 首句必须极简有力，15 字以内直接回应问题，不要任何铺垫\n- 之后用逗号、顿号串联短句自然展开，像说话的语流一样连贯，每 3-5 个短句（合计 40-100 字）才用一个句号收尾\n- 少用句号多用逗号：句号会把语流切碎，逗号让朗读一气呵成\n- 禁止使用 Markdown、代码块、表格、列表等格式\n- 像朋友聊天一样自然回应，语气亲切，可适当用语气词（「嗯」「哦」「好的」）\n- 总长度尽量精炼，一段说完就停，让用户能接话"
+		instruction += "\n\n你正在通过语音与用户对话（月伴模式）。回答会被逐句合成并连续朗读。请严格遵守：\n- 第一句 8–20 字，必须以。？！结尾，直接回应，不要铺垫\n- 之后每句 20–40 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表；像朋友聊天一样说完就停\n- 能直接回答就不要调用工具；只有用户明确要查资料或读本地文件时才用工具，且开口第一句仍先应答\n- 全文尽量不超过 120 字"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
 	// so path answers match reality instead of a stale sandbox assumption.
-	if mode == executionModeFullAccess && e.tools != nil {
+	if mode == executionModeFullAccess && e.tools != nil && !p.Companion {
 		if e.fullDiskChat(mode) {
 			instruction += " Full-disk full-access is enabled: file tools accept absolute paths on any drive (Desktop, Documents, other drives) and command.run executes arbitrary commands on this machine. Use absolute paths for user folders; create missing parent directories with writes when needed."
 		} else if root, ok := e.tools.FullAccessRootHint(); ok {
@@ -129,39 +129,63 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
 		}
 	}
-	if e.delegation == delegationProactive {
+	if e.delegation == delegationProactive && !p.Companion {
 		instruction += delegationProactiveHint
 	}
-	// Learning loop (P3-3): confirmed preferences ride at the end of the
-	// system instruction. Only explicitly confirmed candidates ever reach
-	// here and the snapshot is bounded (items + bytes) so preferences never
-	// crowd out the conversation. Snapshot failure is non-fatal - the chat
-	// proceeds without injection.
-	if e.m8memory != nil {
-		if prefs, perr := e.m8memory.ConfirmedSnapshot(ctx, m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); perr == nil && len(prefs) > 0 {
-			var b strings.Builder
-			b.WriteString(instruction)
-			b.WriteString("\n\n以下为用户已显式确认的偏好，回答时必须遵守：\n")
-			for _, pref := range prefs {
-				b.WriteString("- ")
-				b.WriteString(pref)
-				b.WriteString("\n")
+
+	// Overlap provider lookup with preference/skill injection (Cursor-style
+	// TTFT): they share no data. Companion skips catalog/memory to keep
+	// the first-token path on the conversation only.
+	var (
+		item    provider.Provider
+		getErr  error
+		prefs   []string
+		catalog string
+	)
+	var prep sync.WaitGroup
+	prep.Add(1)
+	go func() {
+		defer prep.Done()
+		item, getErr = e.providers.Get(ctx, p.ProviderID)
+	}()
+	if !p.Companion && e.m8memory != nil {
+		prep.Add(1)
+		go func() {
+			defer prep.Done()
+			if snapshot, perr := e.m8memory.ConfirmedSnapshot(ctx, m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); perr == nil {
+				prefs = snapshot
 			}
-			instruction = b.String()
-		}
+		}()
 	}
-	// c4-skill: append the installed-skill directory (metadata only) so the
-	// model knows which skills exist and when to reference them. Injected in
-	// every execution mode including plan - the catalog is read-only
-	// knowledge and does not conflict with the plan-mode no-tool rule.
-	if catalog := e.skillCatalogInjection(ctx); catalog != "" {
+	if !p.Companion {
+		prep.Add(1)
+		go func() {
+			defer prep.Done()
+			catalog = e.skillCatalogInjection(ctx)
+		}()
+	}
+	prep.Wait()
+	if len(prefs) > 0 {
+		var b strings.Builder
+		b.WriteString(instruction)
+		b.WriteString("\n\n以下为用户已显式确认的偏好，回答时必须遵守：\n")
+		for _, pref := range prefs {
+			b.WriteString("- ")
+			b.WriteString(pref)
+			b.WriteString("\n")
+		}
+		instruction = b.String()
+	}
+	if !p.Companion {
+		instruction += bundledWorkflowInjection()
+	}
+	if catalog != "" {
 		instruction += "\n\n" + catalog
 	}
 	trustedMessages := append([]gateway.Message{{Role: gateway.RoleSystem, Content: instruction}}, p.Messages...)
 
-	item, err := e.providers.Get(ctx, p.ProviderID)
-	if err != nil {
-		return providerFailure(request, err)
+	if getErr != nil {
+		return providerFailure(request, getErr)
 	}
 	if failure := providerReadyFailure(request, item); failure != nil {
 		return *failure
@@ -213,7 +237,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// the compaction (summary is available for assembly). The flow is:
 		// budget check → generate compaction candidate → validate → CAS activate
 		// → re-assemble → send request.
-		if e.compactionTrigger != nil && e.compactionExecutor != nil {
+		// ADR-005 §5: Synchronous pre-turn compaction. Companion voice
+		// turns skip this — a compaction LLM call would dominate TTFT.
+		if !p.Companion && e.compactionTrigger != nil && e.compactionExecutor != nil {
 			compactionResult := e.TriggerPreTurnCompaction(ctx, p.SessionID, item.ID, p.ModelID, tokenizerRevision, providerInfo.ContextWindow)
 			if compactionResult.Err != nil {
 				if errors.Is(compactionResult.Err, context.Canceled) || errors.Is(compactionResult.Err, context.DeadlineExceeded) {
@@ -230,12 +256,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			RecentUserReserve: 0, // Use default: max(512, budget/10)
 			SafetyMargin:      1024,
 		}
+		if p.Companion {
+			envelope.MaxMessages = companionMaxMessages
+		}
 
 		// Priority 3: Latest accepted compaction checkpoint summary. Stores
 		// that answer coverage (P2-2 hierarchical context) also tell the
 		// assembler which durable sequence the summary covers, so covered
 		// messages are projected once (as the summary) instead of twice.
-		if e.summaryReader != nil {
+		if !p.Companion && e.summaryReader != nil {
 			var priorSummary string
 			var coverageEnd int64
 			var summaryErr error
@@ -265,26 +294,28 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// authority but tagged with handoff provenance. Capsules whose source
 		// checkpoint was deleted (deletion propagation) are skipped
 		// fail-closed: their stale summary is never injected.
-		capsuleContexts, capsuleErr := e.ListImportedHandoffCapsuleContexts(ctx, p.SessionID)
-		if capsuleErr != nil {
-			return internalBridgeFailure(request, "HANDOFF_CONTEXT_READ_FAILED", "交接上下文暂时不可用", true, capsuleErr)
-		}
-		for _, cc := range capsuleContexts {
-			if cc.Checkpoint == nil {
-				// Source checkpoint deleted: fail-closed, skip.
-				continue
+		if !p.Companion {
+			capsuleContexts, capsuleErr := e.ListImportedHandoffCapsuleContexts(ctx, p.SessionID)
+			if capsuleErr != nil {
+				return internalBridgeFailure(request, "HANDOFF_CONTEXT_READ_FAILED", "交接上下文暂时不可用", true, capsuleErr)
 			}
-			summaryContent := cc.Checkpoint.HumanSummary
-			if summaryContent == "" {
-				summaryContent = cc.Checkpoint.SummaryJSON
+			for _, cc := range capsuleContexts {
+				if cc.Checkpoint == nil {
+					// Source checkpoint deleted: fail-closed, skip.
+					continue
+				}
+				summaryContent := cc.Checkpoint.HumanSummary
+				if summaryContent == "" {
+					summaryContent = cc.Checkpoint.SummaryJSON
+				}
+				envelope.HandoffCapsules = append(envelope.HandoffCapsules, contextapp.ContextSource{
+					Type:       contextapp.SourceHandoffCapsule,
+					ID:         cc.Capsule.ID,
+					Authority:  contextapp.AuthorityCheckpoint,
+					Content:    summaryContent,
+					Provenance: "handoff:capsule:" + cc.Capsule.ID + ":source-session:" + cc.Capsule.SourceSessionID,
+				})
 			}
-			envelope.HandoffCapsules = append(envelope.HandoffCapsules, contextapp.ContextSource{
-				Type:       contextapp.SourceHandoffCapsule,
-				ID:         cc.Capsule.ID,
-				Authority:  contextapp.AuthorityCheckpoint,
-				Content:    summaryContent,
-				Provenance: "handoff:capsule:" + cc.Capsule.ID + ":source-session:" + cc.Capsule.SourceSessionID,
-			})
 		}
 
 		// Attachment excerpts are opt-in per turn. Do not enumerate or resend
@@ -329,18 +360,21 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if assembleErr != nil {
 			return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
 		}
-		messages, err = combineDurableProviderMessages(result.Messages, trustedMessages, providerInfo)
-		if err != nil {
-			if errors.Is(err, errCombinedContextOverBudget) {
+		var combineErr error
+		messages, combineErr = combineDurableProviderMessages(result.Messages, trustedMessages, providerInfo)
+		if combineErr != nil {
+			if errors.Is(combineErr, errCombinedContextOverBudget) {
 				return bridge.Failure(request.ID, request.TraceID, "CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
 			}
-			return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, err)
+			return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, combineErr)
 		}
 		// P1-3 complexity.decide wiring: deterministic full-conversation
 		// scoring labels the tier; moderate+ conversations get an explicit
 		// nudge toward the planned path (plan.run) in the system message.
-		if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == gateway.RoleSystem {
-			messages[0].Content += tierHint
+		if !p.Companion {
+			if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == gateway.RoleSystem {
+				messages[0].Content += tierHint
+			}
 		}
 		// Images are expensive and model-dependent. Unlike parsed text, do not
 		// silently resend every historical image on every turn: only explicitly
@@ -390,13 +424,20 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1, DisableReasoning: p.Companion}
+	if p.Companion {
+		req.MaxTokens = companionMaxTokens
+	}
 	if e.tools != nil {
-		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
-		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
-		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
-		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
-		req.Tools = append(req.Tools, e.skillToolDefinitions()...)
-		req.Tools = append(req.Tools, e.expertToolDefinitions()...)
+		if p.Companion {
+			req.Tools = e.companionVoiceTools()
+		} else {
+			req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
+			req.Tools = append(req.Tools, planToolDefinitions(mode)...)
+			req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
+			req.Tools = append(req.Tools, e.ccToolDefinitions()...)
+			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
+			req.Tools = append(req.Tools, e.expertToolDefinitions()...)
+		}
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -602,6 +643,22 @@ func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefi
 	return defs
 }
 
+// companionVoiceTools is the Doubao-like voice subset: lookup only, no
+// mutation/MCP/plan/subagent schemas on the first-token path.
+func (e *Engine) companionVoiceTools() []gateway.ToolDefinition {
+	if e.tools == nil {
+		return nil
+	}
+	want := map[string]bool{"web.search": true, "web.fetch": true, "workspace.read": true}
+	var out []gateway.ToolDefinition
+	for _, def := range e.engineToolDefinitionsFor(executionModeFullAccess) {
+		if want[def.Name] {
+			out = append(out, def)
+		}
+	}
+	return out
+}
+
 // executeUserTool routes one user-conversation tool call. Full-access
 // conversations with the full-disk opt-in reach the unconfined runtime
 // entry point; every other mode stays on the confined one. Subagent and
@@ -638,6 +695,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a .pptx slide deck (title slide content plus title+bullets slides) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
+		{Name: "browser.act", Description: "Restricted public-page browser: op=navigate|read fetches through the SSRF-pinned channel; click/type/snapshot tell you to enable Playwright MCP or the workspace browser tab", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","read","click","type","snapshot"]},"url":{"type":"string","description":"required for navigate; read reuses the last navigated URL when omitted"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["op"],"additionalProperties":false}`)},
 	}
 }
 
@@ -732,16 +790,16 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 		return toolruntime.Result{}, errors.New("expert service unavailable")
 	}
 	var a struct {
-		Name               string `json:"name"`
-		Division           string `json:"division"`
-		Description        string `json:"description"`
-		Semver             string `json:"semver"`
-		Identity           string `json:"identity"`
-		Mission            string `json:"mission"`
-		Rules              string `json:"rules"`
-		Workflow           string `json:"workflow"`
+		Name                string `json:"name"`
+		Division            string `json:"division"`
+		Description         string `json:"description"`
+		Semver              string `json:"semver"`
+		Identity            string `json:"identity"`
+		Mission             string `json:"mission"`
+		Rules               string `json:"rules"`
+		Workflow            string `json:"workflow"`
 		DeliverableTemplate string `json:"deliverableTemplate"`
-		SuccessMetrics     string `json:"successMetrics"`
+		SuccessMetrics      string `json:"successMetrics"`
 	}
 	if json.Unmarshal(args, &a) != nil {
 		return toolruntime.Result{}, errors.New("invalid expert.create arguments")
@@ -759,7 +817,7 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 			Identity: a.Identity, Mission: a.Mission,
 			Rules: a.Rules, Workflow: a.Workflow,
 			DeliverableTemplate: a.DeliverableTemplate,
-			SuccessMetrics:     a.SuccessMetrics,
+			SuccessMetrics:      a.SuccessMetrics,
 		},
 		RequestID: ulid.Make().String(),
 	})
@@ -808,6 +866,8 @@ func parseMcpToolName(name string) (endpointID, tool string, ok bool) {
 // verbatim (after a JSON object sanity check); otherwise the tool falls
 // back to a pass-through object schema. Invoke still enforces pinning,
 // state and breaker per call regardless of which schema was advertised.
+const mcpDirectToolCap = 12
+
 func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
 	if e.mcp6Registry == nil {
 		return nil
@@ -815,6 +875,9 @@ func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
 	snapshot := e.mcp6Registry.ReadyToolSnapshot()
 	if len(snapshot) == 0 {
 		return nil
+	}
+	if len(snapshot) > mcpDirectToolCap {
+		return mcpGatewayToolDefinitions(len(snapshot))
 	}
 	defs := make([]gateway.ToolDefinition, 0, len(snapshot))
 	for _, t := range snapshot {
@@ -833,6 +896,13 @@ func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
 		defs = append(defs, gateway.ToolDefinition{Name: name, Description: description, Schema: schema})
 	}
 	return defs
+}
+
+func mcpGatewayToolDefinitions(n int) []gateway.ToolDefinition {
+	return []gateway.ToolDefinition{
+		{Name: "mcp.search", Description: fmt.Sprintf("Search the %d connected MCP tools by name or description; then call mcp.call with the returned name", n), Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "mcp.call", Description: "Invoke one MCP tool previously returned by mcp.search (name is mcp_<endpoint>_<tool>)", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64},"arguments":{"type":"object"}},"required":["name"],"additionalProperties":false}`)},
+	}
 }
 
 // invokeMcpTool executes one merged MCP tool call through the mcp6
@@ -859,11 +929,93 @@ func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, raw
 	if err != nil {
 		return "", err
 	}
-	payload, err := json.Marshal(result.Result)
-	if err != nil {
-		return "", err
+	b, _ := json.Marshal(result.Result)
+	return string(b), nil
+}
+
+func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, session string, raw json.RawMessage) (toolruntime.Result, error) {
+	var a struct {
+		Op  string `json:"op"`
+		URL string `json:"url"`
 	}
-	return string(payload), nil
+	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
+		return toolruntime.Result{}, errors.New("browser.act needs op")
+	}
+	switch a.Op {
+	case "click", "type", "snapshot":
+		return toolruntime.Result{Output: "交互式点击、输入或截图请在设置启用 Playwright MCP，或用工作区「浏览器」标签打开独立窗口。内置 browser.act 只提供公开页 navigate/read。"}, nil
+	case "navigate", "read":
+		u := strings.TrimSpace(a.URL)
+		if u == "" {
+			if prev, ok := e.browserLastURL.Load(session); ok {
+				u, _ = prev.(string)
+			}
+		}
+		if u == "" {
+			return toolruntime.Result{}, errors.New("browser.act navigate/read needs url")
+		}
+		args, _ := json.Marshal(map[string]string{"url": u})
+		out, err := e.executeUserTool(ctx, mode, session, "web.fetch", args)
+		if err == nil {
+			e.browserLastURL.Store(session, u)
+		}
+		return out, err
+	default:
+		return toolruntime.Result{}, errors.New("browser.act op must be navigate, read, click, type or snapshot")
+	}
+}
+
+func (e *Engine) searchMcpTools(raw json.RawMessage) (string, error) {
+	var a struct {
+		Query string `json:"query"`
+	}
+	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
+		return "", errors.New("mcp.search needs query")
+	}
+	if e.mcp6Registry == nil {
+		return "", errors.New("MCP gateway unavailable")
+	}
+	q := strings.ToLower(strings.TrimSpace(a.Query))
+	type hit struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	var hits []hit
+	for _, t := range e.mcp6Registry.ReadyToolSnapshot() {
+		name, ok := mcpToolName(t.EndpointID, t.Tool)
+		if !ok {
+			continue
+		}
+		blob := strings.ToLower(t.Tool + " " + t.Description + " " + name)
+		if !strings.Contains(blob, q) {
+			continue
+		}
+		hits = append(hits, hit{Name: name, Description: t.Description})
+		if len(hits) == 12 {
+			break
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"tools": hits})
+	return string(b), nil
+}
+
+func (e *Engine) callMcpToolByName(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if json.Unmarshal(raw, &a) != nil {
+		return "", errors.New("mcp.call needs name")
+	}
+	endpointID, tool, ok := parseMcpToolName(a.Name)
+	if !ok {
+		return "", errors.New("mcp.call name must be an mcp_<endpoint>_<tool> from mcp.search")
+	}
+	args, _ := json.Marshal(a.Arguments)
+	if a.Arguments == nil {
+		args = []byte(`{}`)
+	}
+	return e.invokeMcpTool(ctx, endpointID, tool, args)
 }
 
 func combineDurableProviderMessages(history []contextapp.Message, explicit []gateway.Message, info contextapp.ProviderInfo) ([]gateway.Message, error) {
@@ -1189,6 +1341,34 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest}}); err != nil {
 					return err
 				}
+				if call.Name == "mcp.search" {
+					summary, invokeErr := e.searchMcpTools(call.Arguments)
+					if invokeErr != nil {
+						summary = invokeErr.Error()
+					}
+					if len(summary) > 4096 {
+						summary = summary[:4096]
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
+				}
+				if call.Name == "mcp.call" {
+					summary, invokeErr := e.callMcpToolByName(op, call.Arguments)
+					if invokeErr != nil {
+						summary = invokeErr.Error()
+					}
+					if len(summary) > 4096 {
+						summary = summary[:4096]
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
+				}
 				if endpointID, mcpTool, isMcp := parseMcpToolName(call.Name); isMcp {
 					var summary string
 					var invokeErr error
@@ -1263,6 +1443,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						delete(parallelFutures, call.ID)
 						return res.result, res.err
 					}
+					if call.Name == "browser.act" {
+						return e.invokeBrowserAct(op, mode, sessionID, call.Arguments)
+					}
 					// Model-initiated skill invocation rides the governed
 					// skillapp pipeline (never the raw toolruntime switch).
 					if call.Name == "skill.invoke" {
@@ -1279,6 +1462,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// stays safe.
 					if call.Name == "command.run" {
 						progress := func(chunk string) {
+							if chunk == "" {
+								return
+							}
 							_ = send(bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: chunk}})
 						}
 						return e.executeUserToolStreaming(op, mode, sessionID, call.Name, call.Arguments, progress)

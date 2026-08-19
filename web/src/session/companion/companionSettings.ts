@@ -1,13 +1,11 @@
 // companionSettings.ts persists the M9.5 Moon Companion settings under
 // the existing lunitide:localStorage namespace (zero new tables, zero
-// migrations). The engine family picks the synthesis route: "natural"
-// (local OneCore neural voices, default), "sapi" (classic desktop
-// voices) or "ref" (GPT-SoVITS local service cloning the built-in 50
-// preset voices; the backend auto-hosts the model server when the
-// default endpoint is down). Legacy "edge" values stored by pre-1.0
-// builds fall back to "natural". refEndpoint overrides the GPT-SoVITS
-// api_v2 address (empty = backend default http://127.0.0.1:9880).
-export type CompanionEngine = 'natural' | 'sapi' | 'ref'
+// migrations). The engine family picks the synthesis route: "edge"
+// (free Microsoft cloud neural voices, default), "natural" (local
+// OneCore), "sapi" (classic desktop voices) or "ref" (GPT-SoVITS local
+// cloning). rev < 2 installs that used the old OneCore default are
+// moved onto the cloud engine once; an explicit later choice is kept.
+export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref'
 
 export interface CompanionSettings {
   enabled: boolean
@@ -21,6 +19,7 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
+const SETTINGS_REV = 2
 
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
@@ -29,7 +28,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   voiceId: '',
   rate: 4,
   volume: 80,
-  engine: 'natural',
+  engine: 'edge',
   refEndpoint: '',
 })
 
@@ -38,17 +37,26 @@ export function loadCompanionSettings(): CompanionSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return fallback
-    const parsed = JSON.parse(raw) as Partial<CompanionSettings>
-    return {
+    const parsed = JSON.parse(raw) as Partial<CompanionSettings> & { rev?: number }
+    let engine: CompanionEngine = isEngine(parsed.engine) ? parsed.engine : fallback.engine
+    let voiceId = typeof parsed.voiceId === 'string' ? parsed.voiceId : ''
+    const rev = typeof parsed.rev === 'number' ? parsed.rev : 0
+    if (rev < SETTINGS_REV && engine === 'natural') {
+      engine = 'edge'
+      if (voiceId.startsWith('HKEY_')) voiceId = ''
+    }
+    const next: CompanionSettings = {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
       autoSpeak: typeof parsed.autoSpeak === 'boolean' ? parsed.autoSpeak : fallback.autoSpeak,
       wakeWord: typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord,
-      voiceId: typeof parsed.voiceId === 'string' ? parsed.voiceId : '',
+      voiceId,
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),
-      engine: isEngine(parsed.engine) ? parsed.engine : fallback.engine,
+      engine,
       refEndpoint: typeof parsed.refEndpoint === 'string' ? parsed.refEndpoint : '',
     }
+    if (rev < SETTINGS_REV) saveCompanionSettings(next)
+    return next
   } catch {
     return fallback
   }
@@ -56,14 +64,14 @@ export function loadCompanionSettings(): CompanionSettings {
 
 export function saveCompanionSettings(settings: CompanionSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, rev: SETTINGS_REV }))
   } catch {
     // Storage unavailable (private mode etc.) — settings stay in-memory.
   }
 }
 
 function isEngine(value: unknown): value is CompanionEngine {
-  return value === 'natural' || value === 'sapi' || value === 'ref'
+  return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref'
 }
 
 function clampInt(value: unknown, lo: number, hi: number): number {

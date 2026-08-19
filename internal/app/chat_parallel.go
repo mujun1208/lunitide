@@ -1,9 +1,9 @@
 // M10+ efficiency wave (P0-1): parallel execution of independent tool calls
-// within one model turn. Same-turn MCP calls and read-only engine tools are
-// pre-started on bounded background goroutines (the proven subagent-futures
-// pattern from chat_subagent.go); the main loop still consumes results in
-// original call order, keeping the event stream and tool-message order
-// deterministic.
+// within one model turn. Read-only engine tools are pre-started on bounded
+// background goroutines (the proven subagent-futures pattern from
+// chat_subagent.go); MCP and mutating tools stay serial. The main loop
+// still consumes results in original call order, keeping the event stream
+// and tool-message order deterministic.
 //
 // Concurrency safety contract (verified 2026-08-17):
 //   - Read-only engine tools (workspace.list/read/search, web.fetch/search,

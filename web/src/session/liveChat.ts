@@ -80,6 +80,12 @@ export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): vo
       state.toolActivities = [...state.toolActivities.filter(x => x.callId !== next.callId), next]
       break
     }
+    case 'tool_output': {
+      const existing = state.toolActivities.find(x => x.callId === event.tool.callId)
+      const next = { callId: event.tool.callId, name: event.tool.name, argsDigest: event.tool.argsDigest, status: existing?.status ?? 'tool_started', summary: event.tool.summary, artifact: existing?.artifact }
+      state.toolActivities = [...state.toolActivities.filter(x => x.callId !== next.callId), next]
+      break
+    }
     case 'completed':
       state.chatStatus = 'done'
       entry.terminal = true

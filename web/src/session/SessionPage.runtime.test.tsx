@@ -48,7 +48,7 @@ it('encodes the maximum safe attachment payload and rejects larger files',async(
 
 it('falls back for invalid persisted execution modes',()=>{
  expect(persistedExecutionMode('plan')).toBe('approval')
- expect(persistedExecutionMode('corrupted')).toBe('full-access')
+ expect(persistedExecutionMode('corrupted')).toBe('approval')
  expect(persistedExecutionMode(null)).toBe('full-access')
 })
 

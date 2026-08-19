@@ -33,8 +33,8 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		if !m7flow.McpArgsSafe(p.Args) {
 			t.Fatalf("preset %s: template args contain metacharacters", p.ID)
 		}
-		if !strings.HasPrefix(p.Args[1], "@modelcontextprotocol/") {
-			t.Fatalf("preset %s: args[1] = %q, want an official reference server spec", p.ID, p.Args[1])
+		if !strings.HasPrefix(p.Args[1], "@modelcontextprotocol/") && p.Args[1] != "@playwright/mcp" {
+			t.Fatalf("preset %s: args[1] = %q, want an official free server spec", p.ID, p.Args[1])
 		}
 	}
 }
@@ -105,7 +105,7 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 	wantNeedsArgs := map[string]bool{
 		"everything": false, "filesystem": true, "fetch": false, "memory": false,
 		"sequentialthinking": false, "git": true, "github": false,
-		"puppeteer": false, "sqlite": true,
+		"puppeteer": false, "playwright": false, "sqlite": true,
 	}
 	for id, want := range wantNeedsArgs {
 		p, ok := PresetByID(id)

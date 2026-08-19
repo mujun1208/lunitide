@@ -252,7 +252,7 @@ func readOnlyEngineToolDefinitions() []gateway.ToolDefinition {
 	all := engineToolDefinitions()
 	out := make([]gateway.ToolDefinition, 0, len(all))
 	for _, d := range all {
-		if d.Name == "workspace.write" || d.Name == "workspace.edit" {
+		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "browser.act" {
 			continue
 		}
 		out = append(out, d)

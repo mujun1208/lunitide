@@ -6,6 +6,10 @@
 // sentences) and at most 20 segments per reply.
 export const MAX_SEGMENT_CHARS = 500
 export const MAX_SEGMENTS = 20
+/** First audible chunk: a short complete sentence, else this many characters. */
+export const FIRST_SPEAK_CHARS = 8
+/** Later chunks wait for a real sentence so TTS is not chopped into clauses. */
+export const FOLLOW_SPEAK_CHARS = 24
 
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
@@ -69,34 +73,31 @@ export function segmentForSpeech(cleaned: string): string[] {
 }
 
 export function prepareSpeech(text: string): string[] {
-  const cleaned = cleanForSpeech(text)
-  const segments: string[] = []
-  
-  // 使用正向后瞻保留标点符号，避免 TTS 丢失语气停顿。
-  // 切分规则：句号、问号、叹号、换行等自然断句点。
-  const sentences = cleaned
-    .split(/(?<=[。？！；!?;:\n])/)
-    .map(part => part.trim())
-    .filter(Boolean)
+  return segmentForSpeech(cleanForSpeech(text))
+}
 
-  for (const sentence of sentences) {
-    // 200字以内保持完整句子，朗读连贯自然
-    if (Array.from(sentence).length <= 200) {
-      segments.push(sentence)
-      continue
-    }
-    // 超长句子：在逗号处切分，每段不超过200字
-    let current = ''
-    for (const clause of sentence.split(/(?<=[，,、])/)) {
-      if (Array.from(current + clause).length > 200 && current) {
-        segments.push(current.trim())
-        current = clause
-      } else {
-        current += clause
-      }
-    }
-    if (current.trim()) segments.push(current.trim())
+/**
+ * Pick the next TTS utterance from a growing LLM stream.
+ * Offsets are in the raw `pending` string (same indexing as assistantText)
+ * so the caller can advance spokenUpTo without cleaning first.
+ *
+ * Doubao-style: prefer a complete sentence; never speak a 2–3 word
+ * comma fragment; only force a prefix when the model dumps a long
+ * unpunctuated run and the user would otherwise wait in silence.
+ */
+export function takeSpeakableChunk(pending: string, isFirst: boolean): { text: string; consumed: number } | null {
+  if (!pending.trim()) return null
+  const sentence = /^([\s\S]*?[。？！!?\n])/.exec(pending)
+  if (sentence && sentence[1].replace(/\s/g, '').length > 0) {
+    return { text: sentence[1], consumed: sentence[1].length }
   }
-
-  return segments.length ? segments : [cleaned].filter(Boolean)
+  const forceAt = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
+  if (Array.from(pending).length < forceAt) return null
+  const minClause = isFirst ? 10 : 18
+  const clause = /^([\s\S]*?[，,、；;])/.exec(pending)
+  if (clause && Array.from(clause[1]).length >= minClause) {
+    return { text: clause[1], consumed: clause[1].length }
+  }
+  const prefix = Array.from(pending).slice(0, forceAt).join('')
+  return { text: prefix, consumed: prefix.length }
 }

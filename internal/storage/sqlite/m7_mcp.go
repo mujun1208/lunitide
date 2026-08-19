@@ -91,11 +91,11 @@ func (t *agentRuntimeTx) GetMcpEndpoint(id string) (m7flow.McpEndpointConfig, er
 	return e, t.fail(err)
 }
 
-func (t *agentRuntimeTx) FindMcpEndpointByFingerprint(transport, command, urlRef string) (m7flow.McpEndpointConfig, error) {
+func (t *agentRuntimeTx) FindMcpEndpointByFingerprint(transport, command, urlRef, argsJSON string) (m7flow.McpEndpointConfig, error) {
 	e, err := scanMcpEndpoint(t.tx.QueryRowContext(t.ctx,
 		`SELECT `+mcpEndpointColumns+` FROM mcp_endpoint_settings
-		 WHERE transport=? AND ((command IS NOT NULL AND command=?) OR (url IS NOT NULL AND url=?))`,
-		transport, command, urlRef))
+		 WHERE transport=? AND IFNULL(command,'')=? AND IFNULL(url,'')=? AND IFNULL(args_json,'')=?`,
+		transport, command, urlRef, argsJSON))
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, m7flow.ErrNotFound
 	}

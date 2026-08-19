@@ -106,8 +106,9 @@ func TestTtsVoicesPerEngine(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(&okSapiEngine{}, nil)))
 
-	// natural and legacy edge share the platform catalogue.
-	for _, engine := range []string{"natural", "edge", "sapi", ""} {
+	// natural / sapi share the platform catalogue; edge is a separate
+	// cloud list (nil edge engine → M95-001).
+	for _, engine := range []string{"natural", "sapi", ""} {
 		payload := fmt.Sprintf(`{"engine":%q}`, engine)
 		resp := e.Handle(context.Background(), validRequest("tts.voices", payload))
 		if !resp.OK {
@@ -117,6 +118,11 @@ func TestTtsVoicesPerEngine(t *testing.T) {
 		if len(voices) == 0 || voices[0].VoiceID != "v" {
 			t.Fatalf("tts.voices %q voices = %+v", engine, voices)
 		}
+	}
+
+	edgeMissing := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"edge"}`))
+	if edgeMissing.OK || edgeMissing.Error == nil || edgeMissing.Error.Code != "M95-001" {
+		t.Fatalf("tts.voices edge without engine = %+v, want M95-001", edgeMissing)
 	}
 
 	ref := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"ref"}`))
@@ -262,18 +268,52 @@ func TestTtsSynthesizeNaturalRoutesToPlatform(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithEngines(&failingSynthEngine{}, &okSapiEngine{})))
 
-	// natural and legacy edge both land on the platform engine; a
-	// synthesis failure there is a plain M95-002, no engine fallback
-	// (the ok ref engine proves the router does not silently reroute).
-	for _, engine := range []string{"natural", "edge"} {
-		payload := fmt.Sprintf(`{"text":"段","engine":%q}`, engine)
-		resp := e.Handle(context.Background(), validRequest("tts.synthesize", payload))
-		if resp.OK {
-			t.Fatalf("tts.synthesize %q = %+v, want failure", engine, resp)
-		}
-		if resp.Error == nil || resp.Error.Code != "M95-002" {
-			t.Fatalf("tts.synthesize %q code = %+v, want M95-002", engine, resp.Error)
-		}
+	// natural lands on the platform engine; a synthesis failure there is
+	// a plain M95-002, no engine fallback (the ok ref engine proves the
+	// router does not silently reroute).
+	resp := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"natural"}`))
+	if resp.OK {
+		t.Fatalf("tts.synthesize natural = %+v, want failure", resp)
+	}
+	if resp.Error == nil || resp.Error.Code != "M95-002" {
+		t.Fatalf("tts.synthesize natural code = %+v, want M95-002", resp.Error)
+	}
+
+	// edge with a nil cloud engine is M95-001, not a silent SAPI hop.
+	edge := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"edge"}`))
+	if edge.OK || edge.Error == nil || edge.Error.Code != "M95-001" {
+		t.Fatalf("tts.synthesize edge = %+v, want M95-001", edge)
+	}
+}
+
+type okEdgeEngine struct{}
+
+func (okEdgeEngine) Voices() ([]tts.Voice, error) {
+	return []tts.Voice{{VoiceID: "zh-CN-XiaoxiaoNeural", DisplayName: "Xiaoxiao", Gender: "female", Lang: "zh-CN", Group: "云端中文 · 女声"}}, nil
+}
+func (okEdgeEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResult, bool, error) {
+	return tts.SynthesizeResult{WavBase64: "edge-wav", DurationHint: 1}, false, nil
+}
+
+func TestTtsVoicesAndSynthesizeEdgeRoutesToCloud(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithAll(&failingSynthEngine{}, nil, okEdgeEngine{})))
+
+	voices := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"edge"}`))
+	if !voices.OK {
+		t.Fatalf("tts.voices edge = %+v, want ok", voices)
+	}
+	list := voices.Payload.(map[string]any)["voices"].([]tts.Voice)
+	if len(list) == 0 || list[0].VoiceID != "zh-CN-XiaoxiaoNeural" {
+		t.Fatalf("edge voices = %+v", list)
+	}
+
+	synth := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"edge"}`))
+	if !synth.OK {
+		t.Fatalf("tts.synthesize edge = %+v, want ok", synth)
+	}
+	if synth.Payload.(map[string]any)["wav_base64"] != "edge-wav" {
+		t.Fatalf("payload = %+v", synth.Payload)
 	}
 }
 

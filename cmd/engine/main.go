@@ -29,6 +29,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/m9app"
@@ -186,6 +187,14 @@ func main() {
 	mcp6Registry := mcp6.NewRegistry(mcpGatewayProbe, mcpGatewayInvoke, mcpEmptyLease{})
 	mcp6Registry.SetDescribeFunc(mcpGatewayDescribe)
 	engine.SetM6Services(nil, mcp6Registry, nil)
+	// M6 S5C: skill-import + complexity routing share the agent-runtime
+	// single-writer transaction. Extension/catalog/delegation/merge stay
+	// unwired until their storage slices are enabled; those handlers
+	// nil-guard to STORAGE_UNAVAILABLE.
+	engine.SetM6GovernanceServices(
+		m6app.NewSkillImportService(store.AgentRuntimeRepository()),
+		m6app.NewRoutingService(store.AgentRuntimeRepository()),
+	)
 	// P1-1: persistent stdio MCP sessions. The idle reaper runs until
 	// shutdown; pooled children die with the engine process anyway (5B
 	// job object), the reaper just bounds live servers while running.
@@ -244,9 +253,9 @@ func main() {
 		m8core.WriteCollabBinding(),
 	))
 	// M9.5 Moon Companion TTS runtime: the router fans synthesis out to
-	// the offline SAPI engine, the free Edge natural-voice service and a
-	// local reference-timbre (voice-clone) service; machines without SAPI
-	// still expose the edge/ref engines.
+	// the free Microsoft Edge cloud neural voices, offline SAPI / OneCore,
+	// and a local reference-timbre (voice-clone) service. Machines without
+	// SAPI still expose the cloud and ref engines.
 	engine.SetM9TtsService(tts.NewService(tts.NewRouterEngine(tts.NewPlatformEngine())))
 	// M9 slice-1: org foundation - the org-admin bridge service derives the
 	// verified org context from the persisted operator binding (ADR-011);
@@ -316,6 +325,15 @@ func main() {
 	}
 	defer mcpStdioRoot.Close()
 	mcpGatewaySetStdioWorkDir(mcpStdioRoot.Path())
+	go func() {
+		if n, err := skillService.EnsureBundledSkills(ctx); err != nil {
+			log.Printf("bundled skills: %v", err)
+		} else if n > 0 {
+			log.Printf("bundled skills published: %d", n)
+		}
+		engine.SeedRecommendedMcpKit(ctx)
+		engine.HydrateMcpGatewayFromSettings(ctx)
+	}()
 	// P2-2 artifact acceptance log lives beside the tool workspaces
 	// (single-user, low-volume, atomic file persistence).
 	reviewRoot, err := dataRoot.PrepareSubdirectory("artifact-reviews")

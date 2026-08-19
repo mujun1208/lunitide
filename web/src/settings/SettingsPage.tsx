@@ -389,13 +389,13 @@ function CompanionSection():React.JSX.Element{
   }catch(e){setStatus(e instanceof Error?`试听失败：${e.message}`:'试听失败，请检查引擎配置')}finally{setBusy(false)}
  }
  const refDesc=refMeta?(refMeta.server_online?(refMeta.pack_exists?(refMeta.missing_files&&refMeta.missing_files.length>0?`音色 ${voices.length} 个，但 ${refMeta.missing_files.length} 个参考音频缺失（${refMeta.missing_files.slice(0,3).join('、')}${refMeta.missing_files.length>3?'…':''}），请检查音色包目录`:`音色 ${voices.length} 个（GPT-SoVITS 本地克隆，引擎在线，按风格分组）`):`引擎在线，但音色包目录缺失（${refMeta.pack_dir}），请检查音色文件`):refMeta.host_script?(hostLaunching?'语音引擎启动中…（首次加载模型约 30-90 秒，就绪后 50 种音色自动可用）':`检测到本机 GPT-SoVITS，服务未运行——已自动在后台启动语音引擎（首次加载模型约 30-90 秒）`):`未检测到 GPT-SoVITS 启动脚本（E:\GPT-SoVITS\start-api-cpu.bat）——请手动启动 api_v2 服务（默认端口 9880；WebUI 的 9874 端口不提供合成 API）`):'正在检测 GPT-SoVITS 服务…'
- const engineDesc=companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
+ const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`云端音色 ${voices.length} 个（微软 Edge 朗读 · 晓晓等神经网络音色，免密钥，需联网）`:'无法连接微软云端语音（需联网；可改选本机自然语音）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
  const voiceDisabled=engineState!=='available'
  // Voice grouping: ref-engine presets carry an explicit group from the
  // backend; SAPI/OneCore voices fall back to the gender/lang heuristic
  // (zh-CN splits by gender, other zh-* are dialects, rest is foreign).
  const voiceGroups=(()=>{const g=new Map<string,typeof voices>();for(const v of voices){const lang=v.lang||'';const grp=v.group||(lang==='zh-CN'?(v.gender==='male'?'男声 · 阳光少年 / 沉稳大叔':'女声 · 温柔 / 活泼 / 甜美'):lang.startsWith('zh-')?'方言 · 东北 / 陕西 / 粤语 / 台湾':'外语 · 英语 / 日语');const arr=g.get(grp)||[];arr.push(v);g.set(grp,arr)}return[...g.entries()]})()
- return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="语音唤醒（你好，月汐）" desc="在首页待命：说「你好，月汐」自动进入月伴对话，唤醒词后的话会作为提问直接回答；依赖 Windows 在线语音识别与麦克风权限。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="回复自动朗读" desc="回复完成后自动用本机语音朗读；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">自然语音为本机 OneCore 神经网络音色；本机语音为经典 SAPI 桌面音色；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动，无需手动开启。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine']})}><option value="natural">自然语音（本机 OneCore · 推荐）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（GPT-SoVITS · 50 种音色）</option></select></div>
+ return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="语音唤醒（你好，月汐）" desc="在首页待命：说「你好，月汐」自动进入月伴对话，唤醒词后的话会作为提问直接回答；依赖 Windows 在线语音识别与麦克风权限。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="回复自动朗读" desc="回复完成后自动朗读；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">云端免费走微软 Edge 朗读（晓晓等 Neural，免 API Key，需联网）；自然语音为本机 OneCore；本机语音为经典 SAPI；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine'],voiceId:''})}><option value="edge">云端免费（微软晓晓 · 推荐）</option><option value="natural">自然语音（本机 OneCore）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（GPT-SoVITS · 50 种音色）</option></select></div>
 {companion.engine==='ref'&&<div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880（api_v2 推理服务端口；9874 是 WebUI 端口，不提供合成 API）。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div>}<div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div>
  <div className="setting-row"><div><div className="setting-label">语速（rate -10~10）</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量（0~100）</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div>{status&&<p role="status" className="notice">{status}</p>}</>
 }
@@ -618,16 +618,34 @@ export function McpPresetsSection({ bridge = getMcpBridge() }: { bridge?: McpBri
   const register = async (preset: McpPresetItem, value?: string) => {
     setBusy(true); setStatus('')
     try {
-      await bridge.add({ origin: 'manual', transport: 'stdio', command: preset.command, args: resolveArgs(preset, value ?? ''), riskConfirmed: true, requestId: crypto.randomUUID() })
+      const added = await bridge.add({ origin: 'manual', transport: 'stdio', command: preset.command, args: resolveArgs(preset, value ?? ''), riskConfirmed: true, requestId: crypto.randomUUID() })
+      try { await bridge.toggle({ endpointId: added.endpointId, enabled: true }) } catch { /* still registered */ }
       setArgDraft(null)
-      setStatus(`已注册 ${preset.name}，进入 probe 探测。`)
+      setStatus(`已启用 ${preset.name}，对话里可直接调用其工具。`)
     } catch (e) { setStatus(e instanceof Error ? e.message : `${preset.name} 注册失败`) } finally { setBusy(false) }
+  }
+
+  const kitIds = new Set(['memory', 'sequentialthinking'])
+  const enableKit = async () => {
+    const kit = items.filter(p => kitIds.has(p.id) && !p.needsArgs)
+    if (!kit.length) return
+    setBusy(true); setStatus('')
+    try {
+      for (const preset of kit) {
+        const added = await bridge.add({ origin: 'manual', transport: 'stdio', command: preset.command, args: preset.args, riskConfirmed: true, requestId: crypto.randomUUID() })
+        try { await bridge.toggle({ endpointId: added.endpointId, enabled: true }) } catch { /* still registered */ }
+      }
+      setStatus('已启用推荐套件（记忆 + 结构化推理），对话可直接调用。')
+    } catch (e) { setStatus(e instanceof Error ? e.message : '推荐套件启用失败') } finally { setBusy(false) }
   }
 
   return (
     <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-      <div className="setting-group-title" style={{ marginTop: 8 }}>预置服务器（免费官方）</div>
-      <div className="setting-desc">官方 @modelcontextprotocol 参考 server，一键注册（stdio / npx），无需手填 URL 或命令。</div>
+      <div className="setting-group-title" style={{ marginTop: 8 }}>预置服务器（免费直连）</div>
+      <div className="setting-desc">官方 / 微软开源 MCP，npx 一键拉起，无需 API Key。注册后会自动启用并进入对话工具表。推荐套件不含要登录的 GitHub。</div>
+      <div style={{ margin: '8px 0' }}>
+        <button disabled={busy || items.length === 0} onClick={() => void enableKit()}>一键启用推荐套件</button>
+      </div>
       {items.map(p => (
         <div className="setting-row" key={p.id} style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
           <div style={{ minWidth: 0 }}>

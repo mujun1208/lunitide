@@ -17,6 +17,8 @@ package mcp6
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,6 +104,43 @@ func (p CapabilityPin) Validate() error {
 		}
 	}
 	return nil
+}
+
+// bootstrapPinTool is the single placeholder in a first-admit pin. After a
+// successful describe the live catalogue replaces it so settings-plane
+// registrations (which cannot know tool schemas up front) become callable.
+const bootstrapPinTool = "_pending"
+
+// BootstrapPin is a well-formed pin used when the catalogue is not known
+// yet (mcp.add from the settings UI). refreshToolbox promotes it to the
+// live tool list; a caller-supplied pin is never overwritten.
+func BootstrapPin(identitySeed string) CapabilityPin {
+	sum := sha256.Sum256([]byte("mcp6-bootstrap|" + identitySeed))
+	pending := sha256.Sum256([]byte(bootstrapPinTool))
+	return CapabilityPin{
+		ServerIdentityDigest: hex.EncodeToString(sum[:]),
+		ToolSchemaDigests:    map[string]string{bootstrapPinTool: hex.EncodeToString(pending[:])},
+	}
+}
+
+func isBootstrapPin(p CapabilityPin) bool {
+	if len(p.ToolSchemaDigests) != 1 {
+		return false
+	}
+	_, ok := p.ToolSchemaDigests[bootstrapPinTool]
+	return ok
+}
+
+func pinDigestsFromSchemas(schemas map[string]ToolSchema) map[string]string {
+	out := make(map[string]string, len(schemas))
+	for name, schema := range schemas {
+		if strings.TrimSpace(name) == "" || name == bootstrapPinTool {
+			continue
+		}
+		sum := sha256.Sum256(schema.InputSchema)
+		out[name] = hex.EncodeToString(sum[:])
+	}
+	return out
 }
 
 // Endpoint states mirror m6_mcp_endpoint.state (see domain/m6supply).
@@ -230,12 +269,19 @@ func (r *Registry) refreshToolbox(ctx context.Context, e *Endpoint) {
 	}
 	r.mu.Lock()
 	e.toolSchemas = schemas
+	if isBootstrapPin(e.Pin) {
+		if promoted := pinDigestsFromSchemas(schemas); len(promoted) > 0 {
+			e.Pin.ToolSchemaDigests = promoted
+		}
+	}
 	r.mu.Unlock()
 }
 
 // EndpointInput is the wire-shaped registration request shared by both
-// transports.
+// transports. ID is optional: settings-plane mcp.add reuses the same ULID
+// so chat tools stay addressable after a restart.
 type EndpointInput struct {
+	ID        string
 	Transport string
 	URL       string
 	AuthRef   string
@@ -278,8 +324,22 @@ func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, e
 		return nil, err
 	}
 
+	id := strings.TrimSpace(in.ID)
+	if id != "" {
+		r.mu.Lock()
+		if existing, ok := r.endpoint[id]; ok {
+			if existing.State != StateRevoked {
+				clone := *existing
+				r.mu.Unlock()
+				return &clone, nil
+			}
+			delete(r.endpoint, id)
+		}
+		r.mu.Unlock()
+	}
+
 	e := &Endpoint{
-		ID:        ulid.Make().String(),
+		ID:        id,
 		Transport: in.Transport,
 		URL:       in.URL,
 		Command:   in.Command,
@@ -289,6 +349,9 @@ func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, e
 		State:     StateRegistered,
 		Version:   1,
 	}
+	if e.ID == "" {
+		e.ID = ulid.Make().String()
+	}
 	r.mu.Lock()
 	r.endpoint[e.ID] = e
 	probe := r.probe
@@ -297,6 +360,7 @@ func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, e
 	e.State = StateProbe
 	if probe == nil {
 		e.State = StateReady
+		r.refreshToolbox(ctx, e)
 		return e, nil
 	}
 	if err := probe(ctx, e); err != nil {
@@ -344,6 +408,9 @@ func (r *Registry) ReadyToolSnapshot() []ReadyTool {
 			continue
 		}
 		for tool := range e.Pin.ToolSchemaDigests {
+			if tool == bootstrapPinTool {
+				continue
+			}
 			entry := ReadyTool{EndpointID: id, Tool: tool}
 			if cached, ok := e.toolSchemas[tool]; ok {
 				entry.Description = cached.Description
