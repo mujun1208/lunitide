@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -271,9 +274,31 @@ func handleMcp6PresetsList(e *Engine, ctx context.Context, r bridge.Request) bri
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.presets.list 参数无效", false)
 	}
+	items := mcp6.Presets()
+	for i := range items {
+		if !items[i].NeedsArgs {
+			continue
+		}
+		items[i].ArgDefault = mcp6.PrepareSandbox(items[i].ID)
+		if items[i].ID == "git" {
+			initGitSandbox(items[i].ArgDefault)
+		}
+	}
 	return bridge.Success(r.ID, struct {
 		Items []mcp6.Preset `json:"items"`
-	}{mcp6.Presets()})
+	}{items})
+}
+
+func initGitSandbox(dir string) {
+	if dir == "" {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return
+	}
+	cmd := exec.Command("git", "init")
+	cmd.Dir = filepath.FromSlash(dir)
+	_ = cmd.Run()
 }
 
 // m6ExtensionFailure maps extension-service errors onto wire codes.

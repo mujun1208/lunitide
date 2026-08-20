@@ -7,6 +7,7 @@ package m8app_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -359,5 +360,31 @@ func TestPluginDevCreateQuarantinedUntilReview(t *testing.T) {
 		Entrypoint:  "fn:x",
 	}); !errors.Is(err, m8app.ErrPluginManifestInvalid) {
 		t.Fatalf("invalid manifest err = %v, want ErrPluginManifestInvalid", err)
+	}
+}
+
+func TestPluginListItemJSONUsesCamelCase(t *testing.T) {
+	raw, err := json.Marshal(m8app.PluginListItem{
+		InstallID:    "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+		PluginID:     "web-search",
+		Semver:       "1.0.0",
+		Publisher:    "lunitide",
+		Kind:         "tool",
+		Origin:       "local",
+		State:        "enabled",
+		BindingCount: 2,
+		InstalledAt:  "2026-01-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, want := range []string{`"installId"`, `"pluginId"`, `"semver"`, `"publisher"`, `"kind"`, `"origin"`, `"state"`, `"bindingCount"`, `"installedAt"`} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %s in %s", want, s)
+		}
+	}
+	if strings.Contains(s, `"PluginID"`) || strings.Contains(s, `"InstallID"`) {
+		t.Fatalf("leaked PascalCase: %s", s)
 	}
 }

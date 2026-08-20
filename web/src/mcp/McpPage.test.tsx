@@ -51,6 +51,24 @@ it('renders MCP market cards and installs with plus', async () => {
   expect(await screen.findByRole('status')).toHaveTextContent('已安装「Everything」')
 })
 
+it('installs needsArgs presets with argDefault without a path picker', async () => {
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({
+      items: [{
+        ...catalog[1],
+        argDefault: 'C:/Users/demo/AppData/Local/Lunitide/mcp/filesystem',
+        argHint: '月汐会使用本机数据目录，无需手动填写',
+      }],
+    }),
+  })
+  render(<McpPage bridge={bridge} />)
+  await screen.findByText('Filesystem')
+  fireEvent.click(screen.getByRole('button', { name: '安装 Filesystem' }))
+  await waitFor(() => expect(bridge.add).toHaveBeenCalledOnce())
+  expect(vi.mocked(bridge.add).mock.calls[0][0].args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', 'C:/Users/demo/AppData/Local/Lunitide/mcp/filesystem'])
+  expect(screen.queryByLabelText('Filesystem 参数')).not.toBeInTheDocument()
+})
+
 it('expands placeholder input before installing a needsArgs preset', async () => {
   const bridge = api()
   render(<McpPage bridge={bridge} />)

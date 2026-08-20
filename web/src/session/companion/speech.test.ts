@@ -2,7 +2,7 @@
 // analyser silence or a stable Windows SR transcript, never on a short
 // pause or on an empty buffer.
 import { describe, expect, test } from 'vitest'
-import { UTTERANCE_SILENCE_MS, UTTERANCE_STABLE_MS, BARGE_IN_HOLD_MS, shouldCommitUtterance, shouldCommitStable, shouldBargeIn } from './speech'
+import { UTTERANCE_SILENCE_MS, UTTERANCE_STABLE_MS, BARGE_IN_HOLD_MS, shouldCommitUtterance, shouldCommitStable, shouldBargeIn, isPermanentSpeechError } from './speech'
 
 describe('shouldCommitUtterance', () => {
   test('waits for the silence window once speech is present', () => {
@@ -44,5 +44,21 @@ describe('shouldBargeIn', () => {
 
   test('never fires without assembled text', () => {
     expect(shouldBargeIn(false, BARGE_IN_HOLD_MS)).toBe(false)
+  })
+})
+
+describe('isPermanentSpeechError', () => {
+  test('treats permission and language failures as fatal', () => {
+    expect(isPermanentSpeechError('not-allowed')).toBe(true)
+    expect(isPermanentSpeechError('service-not-allowed')).toBe(true)
+    expect(isPermanentSpeechError('language-not-supported')).toBe(true)
+  })
+
+  test('treats network and silence as restartable', () => {
+    expect(isPermanentSpeechError('network')).toBe(false)
+    expect(isPermanentSpeechError('no-speech')).toBe(false)
+    expect(isPermanentSpeechError('aborted')).toBe(false)
+    expect(isPermanentSpeechError('audio-capture')).toBe(false)
+    expect(isPermanentSpeechError(undefined)).toBe(false)
   })
 })

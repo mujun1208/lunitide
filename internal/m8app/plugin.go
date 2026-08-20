@@ -404,15 +404,15 @@ func (s *PluginService) actor(in string) string {
 
 // PluginListItem is one plugin.list row (install joined with bundle).
 type PluginListItem struct {
-	InstallID    string
-	PluginID     string
-	Semver       string
-	Publisher    string
-	Kind         string
-	Origin       string
-	State        string
-	BindingCount int
-	InstalledAt  string
+	InstallID    string `json:"installId"`
+	PluginID     string `json:"pluginId"`
+	Semver       string `json:"semver"`
+	Publisher    string `json:"publisher"`
+	Kind         string `json:"kind"`
+	Origin       string `json:"origin"`
+	State        string `json:"state"`
+	BindingCount int    `json:"bindingCount"`
+	InstalledAt  string `json:"installedAt"`
 }
 
 // ListResult is the plugin.list outcome.

@@ -2,6 +2,8 @@ package mcp6
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
@@ -29,6 +31,7 @@ type Preset struct {
 	NeedsArgs      bool     `json:"needsArgs"`
 	ArgPlaceholder string   `json:"argPlaceholder,omitempty"`
 	ArgHint        string   `json:"argHint,omitempty"`
+	ArgDefault     string   `json:"argDefault,omitempty"`
 	Category       string   `json:"category"`
 }
 
@@ -47,13 +50,13 @@ var presets = []Preset{
 	{
 		ID:             "filesystem",
 		Name:           "Filesystem",
-		Description:    "读写指定目录内的文件与目录树（需提供挂载目录）",
+		Description:    "读写月汐为本机准备的文件目录（自动安装，无需选择路径）",
 		Transport:      "stdio",
 		Command:        "npx",
 		Args:           []string{"-y", "@modelcontextprotocol/server-filesystem", "{{dir}}"},
 		NeedsArgs:      true,
 		ArgPlaceholder: "{{dir}}",
-		ArgHint:        "要挂载的目录绝对路径，例如 E:/projects/myrepo",
+		ArgHint:        "月汐会使用本机数据目录，无需手动填写",
 		Category:       "文件",
 	},
 	{
@@ -86,13 +89,13 @@ var presets = []Preset{
 	{
 		ID:             "git",
 		Name:           "Git",
-		Description:    "查看仓库状态、diff、日志与提交等本地 Git 操作（需提供仓库路径）",
+		Description:    "查看月汐为本机准备的 Git 仓库状态、diff 与日志（自动安装）",
 		Transport:      "stdio",
 		Command:        "npx",
 		Args:           []string{"-y", "@modelcontextprotocol/server-git", "--repository", "{{repo}}"},
 		NeedsArgs:      true,
 		ArgPlaceholder: "{{repo}}",
-		ArgHint:        "本地 Git 仓库路径，例如 E:/projects/lunitide",
+		ArgHint:        "月汐会使用本机数据目录，无需手动填写",
 		Category:       "版本控制",
 	},
 	{
@@ -125,13 +128,13 @@ var presets = []Preset{
 	{
 		ID:             "sqlite",
 		Name:           "SQLite",
-		Description:    "查询与建表本地 SQLite 数据库（需提供数据库文件路径）",
+		Description:    "查询与建表月汐本机 SQLite 数据库（自动安装到数据目录）",
 		Transport:      "stdio",
 		Command:        "npx",
 		Args:           []string{"-y", "@modelcontextprotocol/server-sqlite", "--db-path", "{{db}}"},
 		NeedsArgs:      true,
 		ArgPlaceholder: "{{db}}",
-		ArgHint:        "数据库文件路径，例如 E:/data/app.db（不存在会自动创建）",
+		ArgHint:        "月汐会使用本机数据目录，无需手动填写",
 		Category:       "数据库",
 	},
 	{
@@ -221,6 +224,26 @@ func validatePreset(p Preset) error {
 		return fmt.Errorf("mcp6: preset %q must not carry a placeholder", p.ID)
 	}
 	return nil
+}
+
+// PrepareSandbox returns a metacharacter-free absolute path under the
+// Lunitide LocalAppData root so one-click MCP install never asks the user
+// for a directory. The directory is created if missing.
+func PrepareSandbox(id string) string {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			home = "C:/Users/Public"
+		}
+		base = filepath.Join(home, "AppData", "Local")
+	}
+	dir := filepath.Join(base, "Lunitide", "mcp", id)
+	_ = os.MkdirAll(dir, 0o755)
+	if id == "sqlite" {
+		return filepath.ToSlash(filepath.Join(dir, "lunitide.db"))
+	}
+	return filepath.ToSlash(dir)
 }
 
 // ValidatePresetCatalog validates every shipped row plus a benign

@@ -1,14 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
-import{MemoryPage}from'../memory/MemoryPage'
-import{OntologyPage}from'../ontology/OntologyPage'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'data' | 'security' | 'browser' | 'computer' | 'collab' | 'diagnostics' | 'about'
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'security' | 'browser' | 'computer' | 'collab' | 'diagnostics' | 'about'
 
 const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'general', icon: '◌', label: '常规' },
@@ -16,7 +14,6 @@ const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'providers', icon: '◈', label: '模型与供应商' },
   { id: 'voice', icon: '◉', label: '语音与麦克风' },
   { id: 'personal', icon: '✧', label: '个人智能' },
-  { id: 'data', icon: '❖', label: '数据与记忆' },
   { id: 'security', icon: '⛨', label: '安全与治理' },
   { id: 'browser', icon: '⬟', label: '浏览器' },
   { id: 'computer', icon: '⌖', label: '电脑控制' },
@@ -132,7 +129,6 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
           {category === 'voice' && <VoicePanel />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
-          {category === 'data' && <ProjectScopedTabs tabs={[{ id: 'memory', label: '记忆', render: pid => <MemoryPage projectId={pid} /> }, { id: 'ontology', label: '本体', render: pid => <OntologyPage projectId={pid} /> }]} />}
           {category === 'security' && <>
             <CommandPolicyPanel />
             <HooksPanel />
@@ -393,6 +389,10 @@ function CompanionSection():React.JSX.Element{
 }
 
 function AboutPanel(): React.JSX.Element {
+  const [version, setVersion] = useState('')
+  useEffect(() => {
+    getSystemHealthBridge().health().then(result => setVersion(result.version)).catch(() => setVersion(''))
+  }, [])
   return (
     <div className="setting-group">
       <div className="setting-group-title">关于 Lunitide 月汐</div>
@@ -405,14 +405,11 @@ function AboutPanel(): React.JSX.Element {
           </div>
         </div>
         <dl className="about-info">
-          <div><dt>版本</dt><dd>0.3.23</dd></div>
-          <div><dt>架构</dt><dd>Go Core Engine + WebView2 Host + React/TypeScript Renderer</dd></div>
-          <div><dt>存储</dt><dd>SQLite WAL + Windows DPAPI</dd></div>
-          <div><dt>协议族</dt><dd>OpenAI-compatible · Anthropic</dd></div>
-          <div><dt>里程碑</dt><dd>M1 Go 模型底座（已完成）</dd></div>
+          <div><dt>版本</dt><dd>{version || '—'}</dd></div>
+          <div><dt>作者</dt><dd>Lunitide 月汐</dd></div>
         </dl>
         <div className="about-links">
-          <span>产品定位：不只是一个"更好的界面"，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。</span>
+          <span>产品定位：不只是一个“更好的界面”，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。</span>
         </div>
       </div>
     </div>
@@ -1354,7 +1351,8 @@ function DiagnosticsPanel(): React.JSX.Element {
   const check = async () => {
     setBusy(true); setStatus('正在检查更新…')
     try {
-      const r = await bridge.check({ channel, currentVersion: '0.3.23' })
+      const health = await getSystemHealthBridge().health().catch(() => undefined)
+      const r = await bridge.check({ channel, currentVersion: health?.version || '0.0.0' })
       if (!r.updateId) { setUpdate(undefined); setStatus('已是最新版本。') }
       else { setUpdate({ updateId: r.updateId, version: r.version, digest: r.digest, mandatory: r.mandatory }); setStatus(`发现新版本 ${r.version}${r.mandatory ? '（强制更新）' : ''}`) }
     } catch (e) { setStatus(e instanceof Error ? e.message : '检查更新失败') } finally { setBusy(false) }
