@@ -221,3 +221,45 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 		t.Fatalf("reopen dto: %s (%v)", raw, err)
 	}
 }
+
+func TestProjectListOmitsEmptyCloseFieldsAndKeepsRFC3339NanoTimes(t *testing.T) {
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-list-shape.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+	create := validRequest("project.create", `{"name":"Shape Check"}`)
+	create.IdempotencyKey = "shape-create"
+	created := e.Handle(context.Background(), create)
+	if !created.OK {
+		t.Fatalf("create: %#v", created)
+	}
+	listed := e.Handle(context.Background(), validRequest("project.list", `{}`))
+	if !listed.OK {
+		t.Fatalf("list: %#v", listed)
+	}
+	encoded, err := json.Marshal(listed.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := payload["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("want 1 project, got %s", encoded)
+	}
+	item, _ := items[0].(map[string]any)
+	for _, key := range []string{"closeReason", "statusBeforeClose", "reopenReason"} {
+		if _, ok := item[key]; ok {
+			t.Fatalf("open project must omit empty %s: %s", key, encoded)
+		}
+	}
+	createdAt, _ := item["createdAt"].(string)
+	if !strings.HasSuffix(createdAt, "Z") || !strings.Contains(createdAt, "T") {
+		t.Fatalf("createdAt must be UTC RFC3339Nano, got %q", createdAt)
+	}
+}
+

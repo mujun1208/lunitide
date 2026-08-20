@@ -29,9 +29,9 @@ type projectDTO struct {
 	PlanStart         string         `json:"planStart"`
 	PlanEnd           string         `json:"planEnd"`
 	Remark            string         `json:"remark"`
-	CloseReason       string         `json:"closeReason"`
-	StatusBeforeClose project.Status `json:"statusBeforeClose"`
-	ReopenReason      string         `json:"reopenReason"`
+	CloseReason       string         `json:"closeReason,omitempty"`
+	StatusBeforeClose project.Status `json:"statusBeforeClose,omitempty"`
+	ReopenReason      string         `json:"reopenReason,omitempty"`
 	Status            project.Status `json:"status"`
 	OrgID             string         `json:"orgId,omitempty"`
 	SpaceID           string         `json:"spaceId,omitempty"`
