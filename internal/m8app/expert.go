@@ -286,15 +286,15 @@ type ExpertFilter struct {
 
 // ExpertListItem is one expert.list projection row.
 type ExpertListItem struct {
-	ExpertID          string
-	Name              string
-	Division          string
-	Source            string
-	Semver            string
-	State             string
-	VersionCount      int
-	MountedPhaseCount int
-	OriginBundleID    string
+	ExpertID          string `json:"expertId"`
+	Name              string `json:"name"`
+	Division          string `json:"division"`
+	Source            string `json:"source"`
+	Semver            string `json:"semver"`
+	State             string `json:"state"`
+	VersionCount      int    `json:"versionCount"`
+	MountedPhaseCount int    `json:"mountedPhaseCount"`
+	OriginBundleID    string `json:"originBundleId,omitempty"`
 }
 
 // ExpertListResult is the expert.list outcome.
@@ -439,11 +439,11 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 
 // UpdateInput is the expert.update command.
 type UpdateInput struct {
-	ExpertID         string
+	ExpertID          string
 	ExpectedVersionID string
-	SixSection       map[string]string
-	ChangeNote       string
-	Actor            string
+	SixSection        map[string]string
+	ChangeNote        string
+	Actor             string
 }
 
 // UpdateResult is the expert.update outcome.
@@ -714,12 +714,12 @@ type MountResult struct {
 
 // ExpertMountingView is one mounting.get matrix row projection.
 type ExpertMountingView struct {
-	MountingID string
-	ExpertID   string
-	VersionID  string
-	Semver     string
-	State      string
-	ExpertState string
+	MountingID  string `json:"mountingId"`
+	ExpertID    string `json:"expertId"`
+	VersionID   string `json:"versionId"`
+	Semver      string `json:"semver"`
+	State       string `json:"state"`
+	ExpertState string `json:"expertState"`
 }
 
 // Mount enacts the mounting transitions. mount demands the expert enabled

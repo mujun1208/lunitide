@@ -188,6 +188,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if catalog != "" {
 		instruction += "\n\n" + catalog
 	}
+	if persona := e.expertPersonaInjection(ctx, p.SessionID, p.Messages); persona != "" {
+		instruction += persona
+	}
 	if !p.Companion && hasSession {
 		instruction += e.unfinishedTurnInjection(p.SessionID, turnText)
 	}
@@ -825,7 +828,7 @@ func (e *Engine) skillToolDefinitions() []gateway.ToolDefinition {
 	}
 	return []gateway.ToolDefinition{
 		{Name: "skill.invoke", Description: "Invoke one published skill by its skillId (see the [可用技能目录] section for IDs and trigger scenarios); input is the user's request text for the skill", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"skill ULID from the catalog"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"the user request passed to the skill"}},"required":["skillId","input"],"additionalProperties":false}`)},
-		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill; batch many calls in the same turn. Do not stop after listing directories — keep creating until every requested skill is done, then summarize.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
+		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill. After it succeeds, write a short Chinese confirmation naming the skill and telling the user to install/publish it in Skill Center, then STOP — do not resume unfinished work.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
 	}
 }
 
@@ -1699,11 +1702,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		// text the user would see a completed stream with no answer.
 		// Surface a Chinese notice in both the live stream and the
 		// persisted assistant text (same pattern as the 400 fallback).
-		if streamErr == nil && len(result.Message.ToolCalls) > 0 && assistantText.Len() == 0 {
-			const notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
-			assistantText.WriteString(notice)
-			if sendErr := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); sendErr != nil {
-				return sendErr
+		if streamErr == nil && assistantText.Len() == 0 {
+			notice := createTurnClosingNotice(turn.LastTools)
+			if notice == "" && len(result.Message.ToolCalls) > 0 {
+				notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
+			}
+			if notice != "" {
+				assistantText.WriteString(notice)
+				if sendErr := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); sendErr != nil {
+					return sendErr
+				}
 			}
 		}
 		if streamErr == nil && result.Usage.TotalTokens > 0 {
@@ -1758,6 +1766,88 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		state.cancel()
 	}
 	e.finishTerminal(id, state)
+}
+
+func createTurnClosingNotice(tools []string) string {
+	for _, name := range tools {
+		if name == "skill.create" {
+			return "技能已创建并写入技能中心。请到技能中心安装并发布。\n"
+		}
+		if name == "expert.create" {
+			return "专家已创建。请到专家中心把它挂载到项目步骤。\n"
+		}
+	}
+	return ""
+}
+
+func extractExpertRefIDs(text string) []string {
+	const prefix = "[引用专家 "
+	var ids []string
+	rest := text
+	for {
+		i := strings.Index(rest, prefix)
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len(prefix):]
+		bar := strings.IndexByte(rest, '|')
+		end := strings.IndexByte(rest, ']')
+		if bar < 0 || end < 0 || bar >= end {
+			continue
+		}
+		id := rest[bar+1 : end]
+		if len(id) == 26 {
+			ids = append(ids, id)
+		}
+		if end+1 >= len(rest) {
+			break
+		}
+		rest = rest[end+1:]
+	}
+	return ids
+}
+
+func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, explicit []gateway.Message) string {
+	if e.m8expert == nil {
+		return ""
+	}
+	seen := map[string]bool{}
+	var ids []string
+	add := func(text string) {
+		for _, id := range extractExpertRefIDs(text) {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, m := range explicit {
+		add(m.Content)
+	}
+	if sessionID != "" && e.messageReader != nil {
+		add(e.peekLastUserMessage(ctx, sessionID))
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, id := range ids {
+		detail, err := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: id})
+		if err != nil {
+			continue
+		}
+		name, _ := detail.Expert["name"].(string)
+		if name == "" {
+			name = id
+		}
+		b.WriteString("\n\n请以专家「")
+		b.WriteString(name)
+		b.WriteString("」身份回答本轮问题。岗位说明书：\n")
+		b.Write(detail.SixSection)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func sendDeltaChunks(send func(bridge.Event) error, text string) error {

@@ -132,7 +132,16 @@ it('preserves near-limit user text and sends auto-edit mode through chat.start',
 it('offers personal composer context actions',async()=>{
  const user=await open({personal:true,providers,initialSession:session})
  await user.click(screen.getByRole('button',{name:'添加上下文'}));expect(screen.getByRole('button',{name:/附件 \/ 文件/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/上传文件夹/})).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:/选技能/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/选专家/})).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:/@ 上下文/}));expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('@')
+})
+
+it('closes composer popovers when clicking outside',async()=>{
+ const user=await open({personal:true,providers,initialSession:session})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ expect(screen.getByRole('button',{name:/选技能/})).toBeInTheDocument()
+ fireEvent.click(document.body)
+ expect(screen.queryByRole('button',{name:/选技能/})).toBeNull()
 })
 
 it('uploads multiple dropped files and a pasted screenshot from the composer',async()=>{
