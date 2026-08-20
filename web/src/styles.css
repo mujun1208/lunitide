@@ -689,7 +689,9 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 .skill-ref-tags span{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 9px;border:1px solid rgba(59,214,255,.3);border-radius:999px;background:rgba(59,214,255,.1);color:#bfe9ff;font-size:10px}
 .skill-ref-tags i{font-style:normal;color:var(--tide1)}
 .composer-candidates{position:relative;z-index:50;max-height:298px;overflow-y:auto;margin-bottom:6px;padding:6px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);box-shadow:0 14px 40px rgba(0,0,0,.32)}
-.composer-candidates-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:5px 8px 7px;color:var(--ink);font-size:11px;font-weight:600}
+.composer-candidates-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px 7px;color:var(--ink);font-size:11px;font-weight:600}
+.composer-candidates-head small{overflow:hidden;color:var(--muted);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.composer-candidates-back{flex:none;height:24px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg2);color:var(--ink);font-size:11px;cursor:pointer}
 .composer-candidates-head small{overflow:hidden;color:var(--muted);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap}
 .composer-candidates-empty{display:block;padding:14px 10px;color:var(--muted);font-size:11px;text-align:center}
 .composer-candidates button[role="option"]{display:grid;width:100%;grid-template-columns:minmax(0,1fr);gap:1px 10px;align-items:center;padding:8px 9px;border:0;border-radius:9px;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
@@ -796,6 +798,31 @@ html[data-theme="light"] .org-roadmap-card .screen-route{background:#fff}
 .memory-tab:hover{color:var(--ink)}
 .memory-tab.on{background:#202938;color:#fff}
 .expert-list .skill-table-head,.expert-list .skill-row{grid-template-columns:minmax(200px,1fr) 74px 92px 78px}
+.expert-card-list{flex:1;min-height:0;overflow:auto;display:grid;gap:10px;align-content:start;padding-right:4px}
+.expert-card{display:flex;align-items:center;gap:16px;padding:16px 18px;border:1px solid var(--rule);border-radius:14px;background:rgba(14,28,48,.55)}
+.expert-card:hover{border-color:rgba(59,214,255,.35)}
+.expert-card-main{flex:1;min-width:0}
+.expert-card-main b{display:block;font-size:16px;font-weight:600}
+.expert-card-main small{display:block;margin-top:6px;color:var(--muted);font-size:13px;line-height:1.5}
+.expert-card-actions{display:flex;gap:8px;flex:none}
+.expert-mount-form label{display:grid;gap:6px}
+.expert-mount-steps{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0;padding:0;border:0}
+.expert-mount-steps legend{margin-bottom:8px;color:var(--muted);font-size:12px}
+.expert-mount-step{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;cursor:pointer;background:rgba(10,18,32,.4)}
+.expert-mount-step:hover{border-color:rgba(59,214,255,.35)}
+.expert-mount-step b{font-size:13px;font-weight:600}
+.pi-page{width:100%;height:100%;min-height:0;overflow:auto;padding:28px 32px;box-sizing:border-box}
+.pi-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px;flex-wrap:wrap}
+.pi-head h1{margin:0 0 8px;font-size:28px}
+.pi-head p{margin:0;max-width:46em;color:var(--muted);font-size:14px;line-height:1.65}
+.pi-tabs{display:flex;gap:8px}
+.pi-tabs button{min-height:40px;padding:0 18px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2);color:var(--muted);font-size:14px;cursor:pointer}
+.pi-tabs button.on{border-color:rgba(59,214,255,.45);background:rgba(59,214,255,.12);color:var(--ink)}
+.pi-panel{border:1px solid var(--rule);border-radius:16px;padding:22px 24px;background:rgba(14,28,48,.42)}
+.pi-toolbar{margin-bottom:16px}
+.pi-toolbar select{min-width:220px;min-height:38px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--ink);font-size:14px}
+html[data-theme="light"] .expert-card,html[data-theme="light"] .expert-mount-step,html[data-theme="light"] .pi-panel{background:#fff}
+html[data-theme="light"] .pi-page{background:#f4f9ff}
 .expert-row .sn{display:grid;gap:3px;min-width:0;text-align:left}
 .expert-row .sn b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12px;font-weight:550}
 .expert-row .sn .desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10.5px}

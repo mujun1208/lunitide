@@ -82,7 +82,9 @@ func skillCreatorManifest() map[string]any {
 	body := stripYAMLFrontmatter(string(skillCreatorSkillMD))
 	lunitide := "\n\n--- Lunitide 集成 ---\n" +
 		"完成技能设计后，使用 skill.create 写入技能中心（name、displayName、description、permissions、entryPoint=SKILL.md、manifestJson 含 triggers 与 prompt）。\n" +
-		"可先用 workspace.read/write 在工作区起草 SKILL.md 与 scripts/；用户给出现成目录时直接读取并 skill.create。"
+		"可先用 workspace.read/write 在工作区起草 SKILL.md 与 scripts/；用户给出现成目录时直接读取并 skill.create。\n" +
+		"skill.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到技能中心安装并发布。然后停止本轮，不要继续未完成工作，不要再调用无关工具。\n" +
+		"失败时用中文说明原因（重名、权限、清单无效等），不要沉默结束。"
 	prompt := strings.TrimSpace(body) + lunitide
 	if len(prompt) > 60000 {
 		prompt = prompt[:60000]
@@ -97,7 +99,8 @@ func expertManagerManifest() map[string]any {
 	body := stripYAMLFrontmatter(string(expertManagerSkillMD))
 	lunitide := "\n\n--- Lunitide 集成 ---\n" +
 		"完成六段式岗位说明书后，调用 expert.create（source=local，frontmatter + sixSection，requestId=新 UUID）。\n" +
-		"不要用 skill.create。创建成功后提示用户到专家中心挂载到项目阶段。"
+		"不要用 skill.create。expert.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到专家中心挂载到项目步骤。然后停止本轮，不要继续未完成工作。\n" +
+		"失败时用中文说明原因，不要沉默结束。"
 	prompt := strings.TrimSpace(body) + lunitide
 	if len(prompt) > 60000 {
 		prompt = prompt[:60000]
@@ -117,18 +120,18 @@ var catalogTemplates = []CatalogTemplate{
 		Description: "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill.",
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionFileSystem, skill.PermissionShell},
-		EntryPoint: "builtin://skill-creator",
-		Manifest:   skillCreatorManifest(),
-		Featured: true, Bundled: true, Source: "月汐",
+		EntryPoint:  "builtin://skill-creator",
+		Manifest:    skillCreatorManifest(),
+		Featured:    true, Bundled: true, Source: "月汐",
 	},
 	{
 		ID: "expert-manager", Name: "expert-manager", DisplayName: "expert-manager",
 		Description: "Create and refine six-section expert profiles for Lunitide. Use when users want to create a new expert persona from industry experience or optimize an existing expert.",
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
-		EntryPoint: "builtin://expert-manager",
-		Manifest:   expertManagerManifest(),
-		Bundled: true, Source: "月汐",
+		EntryPoint:  "builtin://expert-manager",
+		Manifest:    expertManagerManifest(),
+		Bundled:     true, Source: "月汐",
 	},
 	{
 		ID: "meeting-minutes", Name: "tpl-meeting-minutes", DisplayName: "会议纪要助手",
@@ -287,7 +290,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-1", Name: "tpl-pm-phase-1", DisplayName: "需求架构规范助手",
 		Description: "指导完成阶段一需求架构规范交付物：范围、架构视图、约束与非功能需求清单。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://pm-phase-1",
 		Manifest: map[string]any{
 			"triggers": []string{"需求架构交付", "需求架构规范", "阶段一交付", "pm phase 1"},
@@ -297,7 +300,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-2", Name: "tpl-pm-phase-2", DisplayName: "方案和UI设计助手",
 		Description: "指导完成阶段二方案与 UI 设计交付物：交互流程、界面规范与方案说明。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://pm-phase-2",
 		Manifest: map[string]any{
 			"triggers": []string{"方案和UI设计", "方案设计", "UI设计交付", "阶段二交付"},
@@ -307,7 +310,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-3", Name: "tpl-pm-phase-3", DisplayName: "数据库设计助手",
 		Description: "指导完成阶段三数据库交付物：逻辑模型、表结构与数据字典。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://pm-phase-3",
 		Manifest: map[string]any{
 			"triggers": []string{"数据库交付", "数据库设计", "逻辑模型", "阶段三交付"},
@@ -317,7 +320,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-4", Name: "tpl-pm-phase-4", DisplayName: "接口设计助手",
 		Description: "指导完成阶段四接口交付物：API 契约、错误码与集成说明。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://pm-phase-4",
 		Manifest: map[string]any{
 			"triggers": []string{"接口交付", "API设计", "接口契约", "阶段四交付"},
@@ -327,7 +330,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-5", Name: "tpl-pm-phase-5", DisplayName: "开发实施助手",
 		Description: "指导完成阶段五开发交付物：实现说明、变更记录与代码审查要点。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
 		EntryPoint: "builtin://pm-phase-5",
 		Manifest: map[string]any{
 			"triggers": []string{"开发交付", "开发实施", "阶段五交付", "实现说明"},
@@ -337,7 +340,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-6", Name: "tpl-pm-phase-6", DisplayName: "测试验收助手",
 		Description: "指导完成阶段六测试交付物：用例、执行结果与缺陷闭环。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
 		EntryPoint: "builtin://pm-phase-6",
 		Manifest: map[string]any{
 			"triggers": []string{"测试交付", "测试验收", "用例执行", "阶段六交付"},
@@ -347,7 +350,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-7", Name: "tpl-pm-phase-7", DisplayName: "集成联调助手",
 		Description: "指导完成阶段七集成交付物：联调报告、环境差异与问题清单。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://pm-phase-7",
 		Manifest: map[string]any{
 			"triggers": []string{"集成交付", "联调报告", "系统集成", "阶段七交付"},
@@ -357,7 +360,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "pm-phase-8", Name: "tpl-pm-phase-8", DisplayName: "发布上线助手",
 		Description: "指导完成阶段八发布交付物：发布清单、回滚预案与上线验证。",
-		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://pm-phase-8",
 		Manifest: map[string]any{
 			"triggers": []string{"发布交付", "上线准备", "发布清单", "阶段八交付"},
@@ -367,7 +370,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "grill-me", Name: "tpl-grill-me", DisplayName: "深度追问",
 		Description: "在动手前把目标和边界问清楚：按设计树一轮一轮追问，直到没有默许的假设。",
-		Category: "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		Category:    "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
 		EntryPoint: "builtin://grill-me", Featured: true, Source: "工程实践",
 		Manifest: map[string]any{
 			"triggers": []string{"追问", "对齐需求", "grill", "先问清楚", "需求澄清"},
@@ -377,7 +380,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "tdd-loop", Name: "tpl-tdd-loop", DisplayName: "TDD 红绿循环",
 		Description: "先写失败测试再写刚好够用的实现：一次一条垂直切片，测公共接口而不是内部细节。",
-		Category: "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
 		EntryPoint: "builtin://tdd-loop", Source: "工程实践",
 		Manifest: map[string]any{
 			"triggers": []string{"TDD", "红绿重构", "test first", "先写测试"},
@@ -387,7 +390,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "session-handoff", Name: "tpl-session-handoff", DisplayName: "会话交接",
 		Description: "把当前对话收成一份交接说明，方便下一轮对话或另一个助手接着做。",
-		Category: "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://session-handoff", Source: "工程实践",
 		Manifest: map[string]any{
 			"triggers": []string{"交接", "handoff", "下轮继续", "会话摘要"},
@@ -397,7 +400,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "content-brief", Name: "tpl-content-brief", DisplayName: "内容选题策划",
 		Description: "按渠道策划选题、大纲与发布清单，适合公众号、短视频与知识帖。",
-		Category: "内容创作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionNetwork},
+		Category:    "内容创作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionNetwork},
 		EntryPoint: "builtin://content-brief", Featured: true, Source: "内容创作",
 		Manifest: map[string]any{
 			"triggers": []string{"选题", "内容策划", "公众号大纲", "短视频选题"},
@@ -407,7 +410,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "short-copy", Name: "tpl-short-copy", DisplayName: "爆款文案",
 		Description: "写短视频口播、标题和封面文案：钩子、冲突、行动号召，多版本对照。",
-		Category: "内容创作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		Category:    "内容创作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
 		EntryPoint: "builtin://short-copy", Source: "内容创作",
 		Manifest: map[string]any{
 			"triggers": []string{"爆款文案", "口播", "短视频文案", "标题党改写"},
@@ -417,7 +420,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "knowledge-qa", Name: "tpl-knowledge-qa", DisplayName: "知识库问答",
 		Description: "只根据工作区文档回答问题，并标注出处；找不到就说找不到，不编造。",
-		Category: "信息检索", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		Category:    "信息检索", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
 		EntryPoint: "builtin://knowledge-qa", Source: "月汐",
 		Manifest: map[string]any{
 			"triggers": []string{"根据文档回答", "知识库问答", "RAG", "引用出处"},
@@ -427,7 +430,7 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "subagent-coord", Name: "tpl-subagent-coord", DisplayName: "多智能体协作",
 		Description: "把大任务拆给子代理并行，再汇总冲突与结论，适合调研+写作+检查。",
-		Category: "自动化", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Category:    "自动化", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://subagent-coord", Source: "月汐",
 		Manifest: map[string]any{
 			"triggers": []string{"多智能体", "拆任务", "子代理", "并行调研"},
