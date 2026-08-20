@@ -11,6 +11,10 @@ export interface CompanionSettings {
   enabled: boolean
   autoSpeak: boolean
   wakeWord: boolean
+  /** Keep mic open between turns; listen while assistant speaks (AEC on). */
+  fullDuplex: boolean
+  /** Voice interrupt during assistant playback or slow replies. */
+  bargeIn: boolean
   voiceId: string
   rate: number
   volume: number
@@ -19,12 +23,14 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 2
+const SETTINGS_REV = 3
 
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
   autoSpeak: true,
   wakeWord: true,
+  fullDuplex: true,
+  bargeIn: true,
   voiceId: '',
   rate: 4,
   volume: 80,
@@ -49,6 +55,8 @@ export function loadCompanionSettings(): CompanionSettings {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
       autoSpeak: typeof parsed.autoSpeak === 'boolean' ? parsed.autoSpeak : fallback.autoSpeak,
       wakeWord: typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord,
+      fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
+      bargeIn: typeof parsed.bargeIn === 'boolean' ? parsed.bargeIn : fallback.bargeIn,
       voiceId,
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),

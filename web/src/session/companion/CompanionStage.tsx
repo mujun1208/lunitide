@@ -17,16 +17,20 @@ import { defaultCompanionSettings, loadCompanionSettings, saveCompanionSettings,
 import { cleanForSpeech, prepareSpeech, takeSpeakableChunk } from './companionText'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
 import { startCompanionSpeech, type CompanionSpeechHandle } from './speech'
-import { TtsPlayer, unlockTtsAudio } from './ttsPlayer'
+import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
 
 export interface CompanionStageProps {
   chatStatus: 'idle' | 'streaming' | 'done' | 'failed' | 'cancelled'
   assistantText: string
+  /** Short status while tools run before the first spoken token (e.g. "浏览文件中…"). */
+  activityStatus?: string
   error?: BridgeClientError
   chatReady: boolean
   onSend: (text: string) => void
+  /** Cancel the in-flight LLM stream (interrupt during thinking). */
+  onCancel?: () => void
   onExit: () => void
 }
 
@@ -42,7 +46,7 @@ const idleLevels = Array.from({ length: MOON_RING_BINS }, () => 0)
 /** Re-listen guard: stop the hands-free loop after this many silent auto-restarts in a row. */
 const MAX_SILENT_RESTARTS = 3
 
-export function CompanionStage({ chatStatus, assistantText, error, chatReady, onSend, onExit }: CompanionStageProps): React.JSX.Element {
+export function CompanionStage({ chatStatus, assistantText, activityStatus, error, chatReady, onSend, onCancel, onExit }: CompanionStageProps): React.JSX.Element {
   const machine = useCompanionMachine()
   const [settings, setSettings] = useState<CompanionSettings>(defaultCompanionSettings)
   const [ttsAvailable, setTtsAvailable] = useState<boolean | undefined>(undefined)
@@ -57,6 +61,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const [hintVisible, setHintVisible] = useState(false)
   const [retiring, setRetiring] = useState(false)
   const [localError, setLocalError] = useState<BridgeClientError>()
+  const [audioLocked, setAudioLocked] = useState(() => getTtsAudioState() !== 'running')
   const rootRef = useRef<HTMLDivElement>(null)
   const subtitleListRef = useRef<HTMLDivElement>(null)
   const entryFocusRef = useRef<Element | null>(null)
@@ -65,6 +70,8 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
   stateRef.current = machine.state
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   /** Hands-free loop armed after the first successful microphone activation. */
   const autoLoopRef = useRef(false)
   const autoStartTriedRef = useRef(false)
@@ -91,10 +98,13 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     // flag (html.companion-active) instead of relying on the overlay's z-index.
     document.documentElement.classList.add('companion-active')
     rootRef.current?.focus()
-    unlockTtsAudio()
-    const unlock = () => unlockTtsAudio()
+    unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
+    const unlock = () => {
+      void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
+    }
     window.addEventListener('pointerdown', unlock, { once: true })
     window.addEventListener('keydown', unlock, { once: true })
+    const audioPoll = window.setInterval(() => setAudioLocked(getTtsAudioState() !== 'running'), 1200)
     let cancelled = false
     const probeEngines: CompanionSettings['engine'][] =
       stored.engine === 'ref' ? ['ref', 'edge', 'natural', 'sapi'] : stored.engine === 'edge' ? ['edge', 'natural', 'sapi'] : [stored.engine, 'edge', 'natural', 'sapi']
@@ -161,6 +171,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     }
     return () => {
       cancelled = true
+      window.clearInterval(audioPoll)
       exitedRef.current = true
       autoLoopRef.current = false
       document.body.style.overflow = previousOverflow
@@ -421,6 +432,52 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     if (stateRef.current === 'speaking') machine.dispatch({ type: 'INTERRUPT' })
   }, [machine])
 
+  const cancelReply = useCallback(() => {
+    onCancel?.()
+    spokenUpToRef.current = 0
+    speakingRef.current = false
+    setStreamTick(0)
+    playerRef.current?.interrupt()
+    setGain(0)
+    if (stateRef.current === 'thinking') machine.dispatch({ type: 'INTERRUPT' })
+    else if (stateRef.current === 'speaking') machine.dispatch({ type: 'INTERRUPT' })
+  }, [machine, onCancel])
+
+  const syncSpeechModes = useCallback(() => {
+    const handle = speechHandleRef.current
+    if (!handle || !settingsRef.current.fullDuplex) return
+    const busy = stateRef.current === 'thinking' || stateRef.current === 'speaking'
+    handle.setCommitPaused(busy)
+    handle.setAssistantPlayback(stateRef.current === 'speaking')
+    handle.setBargeInActive(settingsRef.current.bargeIn && busy)
+  }, [])
+
+  useEffect(() => {
+    syncSpeechModes()
+  }, [machine.state, settings.fullDuplex, settings.bargeIn, syncSpeechModes])
+
+  const beginUserTurn = useCallback(
+    (transcript: string, viaBargeIn: boolean) => {
+      silentRestartsRef.current = 0
+      spokenUpToRef.current = 0
+      speakingRef.current = false
+      setStreamTick(0)
+      setInterimText('')
+      playerRef.current?.interrupt()
+      setRounds([{ role: 'user', text: transcript }])
+      if (viaBargeIn) {
+        onCancel?.()
+        if (stateRef.current === 'speaking' || stateRef.current === 'thinking') machine.dispatch({ type: 'BARGE_IN' })
+      } else if (stateRef.current === 'idle') {
+        machine.dispatch({ type: 'MIC_ACTIVATE' })
+      }
+      machine.dispatch({ type: 'RECOGNIZED_FINAL' })
+      onSend(transcript)
+      syncSpeechModes()
+    },
+    [machine, onCancel, onSend, syncSpeechModes],
+  )
+
   // P3-4 automation→TTS linkage: a run that finishes while the stage
   // sits idle is spoken like a proactive reply — re-using the
   // retrySegment dispatch chain so the frozen machine matrix holds.
@@ -442,25 +499,23 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     setLocalError(undefined)
     setInterimText('')
     unlockTtsAudio()
+    const duplex = settingsRef.current.fullDuplex
+    if (duplex && speechHandleRef.current) {
+      syncSpeechModes()
+      if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
+      autoLoopRef.current = true
+      setHintVisible(false)
+      return
+    }
     void startCompanionSpeech({
+      duplex,
+      bargeIn: settingsRef.current.bargeIn,
       onInterim: transcript => setInterimText(transcript),
       onFinal: transcript => {
-        speechHandleRef.current = undefined
-        silentRestartsRef.current = 0
-        spokenUpToRef.current = 0
-        speakingRef.current = false
-        setStreamTick(0)
-        setInterimText('')
-        // Interrupt any ongoing TTS from the previous turn
-        playerRef.current?.interrupt()
-        // A new turn retires the previous one: only this user line stays,
-        // the assistant reply streams in below it and both fade away with
-        // the next question.
-        setRounds([{ role: 'user', text: transcript }])
-        if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-        machine.dispatch({ type: 'RECOGNIZED_FINAL' })
-        onSend(transcript)
+        if (!duplex) speechHandleRef.current = undefined
+        beginUserTurn(transcript, false)
       },
+      onBargeIn: transcript => beginUserTurn(transcript, true),
       onError: issue => {
         speechHandleRef.current = undefined
         autoLoopRef.current = false
@@ -469,6 +524,10 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       },
       onLevels: setLevels,
       onEndWithoutFinal: () => {
+        if (duplex && speechHandleRef.current) {
+          if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
+          return
+        }
         speechHandleRef.current = undefined
         if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
       },
@@ -476,29 +535,29 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       .then(handle => {
         if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
         speechHandleRef.current = handle
+        syncSpeechModes()
         autoLoopRef.current = true
         setHintVisible(false)
       })
       .catch(issue => {
-        // Failed start disarms the loop (no infinite auto-retry);
-        // silent auto attempt keeps the stage clean and just invites
-        // the user to activate with Space / moon click — a gesture
-        // also unlocks mic permission prompts and audio playback.
         autoLoopRef.current = false
         if (auto) setHintVisible(true)
         else setLocalError(issue)
       })
-  }, [machine, onSend])
+  }, [beginUserTurn, machine, syncSpeechModes])
 
-  // Hands-free loop: once armed, every return to idle (reply played,
-  // interrupted, silence timeout) automatically re-opens the mic so
-  // the user just keeps talking. The 80ms bridge keeps the turn-taking
-  // feeling instant (Doubao-style) while still letting the mic hardware
-  // settle after playback.
+  // Hands-free loop: once armed, every return to idle automatically re-opens
+  // the mic. A short bridge lets playback tails finish without feeling sluggish.
   useEffect(() => {
     if (machine.state !== 'idle' || !autoLoopRef.current || exitedRef.current) return
     const timer = window.setTimeout(() => {
       if (stateRef.current !== 'idle' || !autoLoopRef.current || exitedRef.current) return
+      if (settingsRef.current.fullDuplex && speechHandleRef.current) {
+        silentRestartsRef.current = 0
+        syncSpeechModes()
+        machine.dispatch({ type: 'MIC_ACTIVATE' })
+        return
+      }
       if (++silentRestartsRef.current > MAX_SILENT_RESTARTS) {
         autoLoopRef.current = false
         silentRestartsRef.current = 0
@@ -506,9 +565,9 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
         return
       }
       startListening(true)
-    }, 80)
+    }, 30)
     return () => window.clearTimeout(timer)
-  }, [machine.state, startListening])
+  }, [machine.state, startListening, syncSpeechModes])
 
   // Auto-start attempt when the chat is ready: with microphone
   // permission already granted this opens the listening loop without
@@ -522,7 +581,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
     autoStartTriedRef.current = true
     const timer = window.setTimeout(() => {
       if (!exitedRef.current && stateRef.current === 'idle') startListeningRef.current(true)
-    }, 400)
+    }, 150)
     return () => window.clearTimeout(timer)
   }, [chatReady])
 
@@ -542,16 +601,22 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
       machine.dispatch({ type: 'MIC_CANCEL' })
       return
     }
-    if (state === 'thinking') return
+    if (state === 'thinking') {
+      cancelReply()
+      if (!settingsRef.current.fullDuplex || !speechHandleRef.current) startListening(false)
+      else syncSpeechModes()
+      return
+    }
     if (state === 'speaking') {
       playerRef.current?.interrupt()
       setGain(0)
       machine.dispatch({ type: 'MIC_CLICK_WHILE_SPEAKING' })
-      startListening(false)
+      if (!settingsRef.current.fullDuplex || !speechHandleRef.current) startListening(false)
+      else syncSpeechModes()
       return
     }
     startListening(false)
-  }, [chatReady, machine, startListening])
+  }, [chatReady, cancelReply, machine, startListening])
 
   const exit = useCallback(() => {
     exitedRef.current = true
@@ -652,6 +717,14 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
           <i key={index} style={{ left: star.x, top: star.y, width: star.s, height: star.s, animationDelay: star.d, animationDuration: star.t }} className={star.bright ? 'bright' : undefined} />
         ))}
       </div>
+      {audioLocked && settings.autoSpeak && ttsAvailable !== false && (
+        <div className="companion-banner warn" role="status">
+          轻点月亮或按空格，开启朗读声音
+          <button type="button" onClick={() => void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))}>
+            开启声音
+          </button>
+        </div>
+      )}
       {degraded && (
         <div className="companion-banner" role="status">
           本机无语音合成引擎，已切换字幕模式
@@ -677,12 +750,20 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
           <span>代码 {(localError ?? error)!.code}</span>
         </div>
       )}
-      <MoonSphere state={machine.state} gain={gain} levels={levels} interruptible={machine.state !== 'thinking'} onInterrupt={machine.state === 'speaking' ? interrupt : toggleMic} />
+      <MoonSphere
+        state={machine.state}
+        gain={gain}
+        levels={levels}
+        interruptible={machine.state !== 'listening'}
+        onInterrupt={machine.state === 'speaking' ? interrupt : machine.state === 'thinking' ? cancelReply : toggleMic}
+      />
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${machine.state}`} aria-hidden="true" />
         {STATE_LABELS[machine.state]}
         {machine.state === 'listening' && <time>{`${Math.floor(listenSeconds / 60)}:${String(listenSeconds % 60).padStart(2, '0')}`}</time>}
-        {machine.state === 'thinking' && <span className="companion-status-sub">马上开口…</span>}
+        {machine.state === 'thinking' && (
+          <span className="companion-status-sub">{activityStatus?.trim() || (assistantText.trim() ? '正在说…' : '马上开口…')}</span>
+        )}
       </div>
       {hintVisible && machine.state === 'idle' && (
         <p className="companion-hint" aria-live="polite">
@@ -695,7 +776,7 @@ export function CompanionStage({ chatStatus, assistantText, error, chatReady, on
           every round. */}
       <div className={`companion-subtitles${retiring ? ' retiring' : ''}`} aria-label="对话记录">
         <div className="companion-subtitle-list" aria-live="polite" role="log" ref={subtitleListRef}>
-          {interimText && machine.state === 'listening' && (
+          {interimText && (machine.state === 'listening' || (settings.fullDuplex && (machine.state === 'thinking' || machine.state === 'speaking'))) && (
             <p className="companion-line interim">
               <span className="who" aria-hidden="true">我</span>
               <span className="interim-text">{interimText}</span>

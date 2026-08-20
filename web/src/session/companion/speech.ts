@@ -27,6 +27,8 @@ const speechRecognitionConstructor = () =>
 export interface CompanionSpeechCallbacks {
   /** A final transcript arrived — sent straight to ChatBridge by the stage. */
   onFinal: (transcript: string) => void
+  /** User spoke over assistant playback or a slow reply (full-duplex barge-in). */
+  onBargeIn?: (transcript: string) => void
   /** Interim transcript (real-time, throttled ~100ms) — shown as grey subtitle. */
   onInterim?: (transcript: string) => void
   /** Error mapped to the frozen microphone/speech error codes. */
@@ -37,23 +39,45 @@ export interface CompanionSpeechCallbacks {
   onEndWithoutFinal?: () => void
 }
 
+export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
+  /** Keep mic + recognition alive between turns (phone-call loop). */
+  duplex?: boolean
+  /** Voice-triggered interrupt while assistant is playing or thinking. */
+  bargeIn?: boolean
+}
+
 export interface CompanionSpeechHandle {
   /** Stop recognition and release the microphone immediately. */
   stop: () => void
+  /** Assistant TTS active — raise barge-in threshold (AEC still on). */
+  setAssistantPlayback: (active: boolean) => void
+  /** Pause silence-based commit while thinking/speaking. */
+  setCommitPaused: (paused: boolean) => void
+  /** Enable voice barge-in detection (thinking or speaking). */
+  setBargeInActive: (active: boolean) => void
 }
 
 /** Commit the utterance after this much silence once we already have text.
- *  ~300ms is the Doubao-style endpoint; waiting for OS isFinal is 0.8–1.5s. */
-export const UTTERANCE_SILENCE_MS = 300
+ *  ~200ms keeps turn-taking snappy; waiting for OS isFinal is 0.8–1.5s. */
+export const UTTERANCE_SILENCE_MS = 200
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 const VOICE_PEAK = 0.13
+/** Stronger peak while assistant speaks — avoids TTS bleed despite AEC. */
+export const BARGE_IN_PEAK = 0.22
+/** Sustained voice before a barge-in fires. */
+export const BARGE_IN_HOLD_MS = 160
 
 export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
   return hasText && silentForMs >= silenceMs
 }
 
-export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promise<CompanionSpeechHandle> {
+export function shouldBargeIn(hasText: boolean, voiceForMs: number, holdMs = BARGE_IN_HOLD_MS): boolean {
+  return hasText && voiceForMs >= holdMs
+}
+
+export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
+  const { duplex = false, bargeIn = true, ...callbacks } = options
   const Recognition = speechRecognitionConstructor()
   if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
     return Promise.reject(new BridgeClientError('当前系统 WebView 不支持语音输入', 'SPEECH_RECOGNITION_UNAVAILABLE', false, 'renderer'))
@@ -64,9 +88,15 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
   let frame = 0
   let finished = false
   let recSilenceTimer = 0
+  let restartTimer = 0
+  let assistantPlayback = false
+  let bargeInActive = false
+  let commitPaused = false
+  let bargeVoiceSince = 0
   const teardown = () => {
     if (frame) cancelAnimationFrame(frame)
     window.clearTimeout(recSilenceTimer)
+    window.clearTimeout(restartTimer)
     stream?.getTracks().forEach(track => track.stop())
     stream = undefined
     void context?.close()
@@ -106,15 +136,54 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       if (f.includes(i)) return f
       return `${f}${i}`
     }
+    const restartRecognition = () => {
+      if (finished || !recognition) return
+      finals = ''
+      interim = ''
+      bargeVoiceSince = 0
+      callbacks.onInterim?.('')
+      try {
+        recognition.stop()
+      } catch {
+        /* engine may already be stopped */
+      }
+      restartTimer = window.setTimeout(() => {
+        if (finished || !recognition) return
+        try {
+          recognition.start()
+        } catch {
+          /* onend will recover or surface onError */
+        }
+      }, 60)
+    }
     const commit = (text: string) => {
       if (finished || !text) return
+      if (duplex) {
+        callbacks.onFinal(text)
+        restartRecognition()
+        return
+      }
       finished = true
       recognition?.stop()
       teardown()
       callbacks.onFinal(text)
     }
+    const tryBargeIn = (rawPeak: number) => {
+      if (finished || !duplex || !bargeIn || !bargeInActive || !callbacks.onBargeIn) return
+      const text = assembled()
+      if (!text) return
+      const peak = assistantPlayback ? BARGE_IN_PEAK : VOICE_PEAK + 0.04
+      if (rawPeak / 255 >= peak) {
+        if (!bargeVoiceSince) bargeVoiceSince = performance.now()
+        else if (shouldBargeIn(true, performance.now() - bargeVoiceSince)) {
+          bargeVoiceSince = 0
+          callbacks.onBargeIn(text)
+          restartRecognition()
+        }
+      } else bargeVoiceSince = 0
+    }
     const tryCommitFromSilence = (voiceAt: number, silenceMs = UTTERANCE_SILENCE_MS) => {
-      if (finished) return
+      if (finished || commitPaused || assistantPlayback) return
       if (shouldCommitUtterance(Boolean(assembled()), performance.now() - voiceAt, silenceMs)) commit(assembled())
     }
     try {
@@ -138,6 +207,7 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
         }
         if (rawPeak / 255 >= VOICE_PEAK) lastVoiceAt = performance.now()
         else tryCommitFromSilence(lastVoiceAt)
+        tryBargeIn(rawPeak)
         callbacks.onLevels?.(levels)
         frame = requestAnimationFrame(meter)
       }
@@ -196,6 +266,19 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
         commit(text)
         return
       }
+      if (duplex) {
+        restartTimer = window.setTimeout(() => {
+          if (finished || !recognition) return
+          try {
+            recognition.start()
+          } catch {
+            finished = true
+            teardown()
+            callbacks.onEndWithoutFinal?.()
+          }
+        }, 80)
+        return
+      }
       finished = true
       teardown()
       callbacks.onEndWithoutFinal?.()
@@ -207,6 +290,17 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
         finished = true
         recognition?.stop()
         teardown()
+      },
+      setAssistantPlayback: (active: boolean) => {
+        assistantPlayback = active
+        if (!active) bargeVoiceSince = 0
+      },
+      setCommitPaused: (paused: boolean) => {
+        commitPaused = paused
+      },
+      setBargeInActive: (active: boolean) => {
+        bargeInActive = active
+        if (!active) bargeVoiceSince = 0
       },
     }
   })().catch(error => {

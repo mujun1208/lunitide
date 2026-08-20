@@ -138,13 +138,15 @@ it('keeps invite and space actions disabled until required input is provided', a
   await waitFor(() => expect(bridge.memberInvite).toHaveBeenCalledWith({ displayName: '王工' }, expect.anything()))
 })
 
-it('planned governance tabs render concept contracts without enableable controls', async () => {
+it('planned governance roadmap renders concept contracts without enableable controls', async () => {
   const bridge = api({ summary: vi.fn().mockResolvedValue({ boundOrgId: orgA.orgId, org: orgDetail, orgs: [orgA] }) })
   render(<OrgAdminPage bridge={bridge} />)
-  gotoTab('PolicyCenter')
-  expect(await screen.findByText(/依赖 M9 切片决策冻结/)).toBeInTheDocument()
+  gotoTab('M9 路线图')
+  expect(await screen.findByText(/依赖 M9 切片 2\+/)).toBeInTheDocument()
   expect(document.querySelector('.screen-route[data-route="/org/:orgId/policies"]')).not.toBeNull()
-  gotoTab('运营中心')
   expect(document.querySelector('.screen-route[data-route="/org/:orgId/operations"]')).not.toBeNull()
   expect(screen.getByText('low-sample')).toBeInTheDocument()
+  expect(screen.getByText(/组织审批（SoD）/)).toBeInTheDocument()
+  expect(screen.getAllByText(/设置 → 安全 → 审批/).length).toBeGreaterThanOrEqual(1)
+  expect(screen.queryByRole('button', { name: /PolicyCenter规划/ })).toBeNull()
 })

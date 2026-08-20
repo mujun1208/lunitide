@@ -257,13 +257,7 @@ export class TtsPlayer {
     await unlockTtsAudio()
     const ctx = this.ensureGraph()
     if (ctx?.state === 'suspended') await ctx.resume().catch(() => {})
-    if (seg.buffer && this.scheduleBuffer(seg.buffer, callbacks)) return true
-    try {
-      await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
-      return true
-    } catch {
-      return false
-    }
+    if (seg.buffer && ctx?.state === 'running' && this.scheduleBuffer(seg.buffer, callbacks)) return true
     try {
       await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
       return true
@@ -635,6 +629,17 @@ export class TtsPlayer {
     this.samples = null
     this.ctx = null
     this.gainNode = null
+  }
+}
+
+/** Returns whether the shared Web Audio context can audibly play TTS. */
+export function getTtsAudioState(): 'running' | 'suspended' | 'unsupported' {
+  try {
+    if (!sharedAudioContext) return 'suspended'
+    if (sharedAudioContext.state === 'running') return 'running'
+    return 'suspended'
+  } catch {
+    return 'unsupported'
   }
 }
 

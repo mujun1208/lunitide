@@ -22,6 +22,12 @@ const speech = vi.hoisted(() => ({
   start: vi.fn(),
   callbacks: undefined as CapturedSpeech | undefined,
   stop: vi.fn(),
+  handle: () => ({
+    stop: speech.stop,
+    setAssistantPlayback: vi.fn(),
+    setCommitPaused: vi.fn(),
+    setBargeInActive: vi.fn(),
+  }),
 }))
 
 const tts = vi.hoisted(() => ({
@@ -60,7 +66,8 @@ vi.mock('./speech', () => ({
 }))
 
 vi.mock('./ttsPlayer', () => ({
-  unlockTtsAudio: vi.fn(),
+  unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure(voiceId: string) {
       tts.configuredWith.push(voiceId)
@@ -168,7 +175,7 @@ describe('MC-06 a11y skeleton', () => {
 
 describe('MC-06 zero-mouse operation', () => {
   test('Space on the stage toggles the mic; a second Space stops it; Esc exits from idle', async () => {
-    speech.start.mockResolvedValueOnce({ stop: speech.stop })
+    speech.start.mockResolvedValueOnce(speech.handle())
     const { container } = await renderStage()
     fireEvent.keyDown(stage(container), { key: ' ' })
     await waitFor(() => expect(stateOf(container)).toBe('listening'))
@@ -190,7 +197,7 @@ describe('MC-06 zero-mouse operation', () => {
   })
 
   test('clicking the moon in idle opens the microphone', async () => {
-    speech.start.mockResolvedValueOnce({ stop: speech.stop })
+    speech.start.mockResolvedValueOnce(speech.handle())
     const { container } = await renderStage()
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮：轻点开始说话')
     fireEvent.click(moonBody(container))
@@ -201,7 +208,7 @@ describe('MC-06 zero-mouse operation', () => {
 
 describe('MC-06 hands-free auto conversation', () => {
   test('auto-opens the microphone on entry when permission is granted', async () => {
-    speech.start.mockResolvedValue({ stop: speech.stop })
+    speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage()
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     expect(speech.start).toHaveBeenCalledTimes(1)
@@ -221,7 +228,7 @@ describe('MC-06 hands-free auto conversation', () => {
   })
 
   test('re-listens automatically after an interrupted reply', async () => {
-    speech.start.mockResolvedValue({ stop: speech.stop })
+    speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage()
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     // Manual pause disarms the loop…
@@ -237,7 +244,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
   test('full round: Space → final transcript → thinking → speaking with the female voice → moon-click interrupt re-listens, Esc exits', async () => {
     const onSend = vi.fn()
     const onExit = vi.fn()
-    speech.start.mockResolvedValue({ stop: speech.stop })
+    speech.start.mockResolvedValue(speech.handle())
     const { container, rerender } = await renderStage({ onSend, onExit })
     // 1. Voice round starts from the stage Space shortcut.
     fireEvent.keyDown(stage(container), { key: ' ' })
@@ -250,8 +257,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(statusRegion(container).textContent).toContain('回应中')
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
-    // Thinking disables the moon.
-    expect(moonBody(container).disabled).toBe(true)
+    // Thinking stays interruptible: moon click can cancel a slow reply.
+    expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在回应')
     // 3. Streaming reply is announced through the same live log.
     rerender(

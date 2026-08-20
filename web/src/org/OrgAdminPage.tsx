@@ -15,31 +15,25 @@ const ROLES:Record<Role,string>={'org-admin':'组织管理员','space-admin':'�
 const orgPill=(state:OrgState)=>`org-pill ${state}`
 
 // M9 组织控制台导航（与设计文档 06-完整UI界面设计 · M9 原型一致）
-type ConsoleTab='overview'|'spaces'|'members'|'policies'|'approvals'|'market'|'runners'|'budgets'|'audit'|'holds'|'operations'
+type ConsoleTab='overview'|'spaces'|'members'|'roadmap'
 const NAV:Array<{id:ConsoleTab;icon:string;label:string;live:boolean}>=[
  {id:'overview',icon:'⌂',label:'组织概览',live:true},
  {id:'spaces',icon:'◇',label:'TeamSpace',live:true},
  {id:'members',icon:'♙',label:'成员与身份',live:true},
- {id:'policies',icon:'⚖',label:'PolicyCenter',live:false},
- {id:'approvals',icon:'✓',label:'审批中心',live:false},
- {id:'market',icon:'✦',label:'能力市场',live:false},
- {id:'runners',icon:'◉',label:'Runner',live:false},
- {id:'budgets',icon:'¥',label:'预算中心',live:false},
- {id:'audit',icon:'▤',label:'审计与证据',live:false},
- {id:'holds',icon:'⚑',label:'Legal Hold',live:false},
- {id:'operations',icon:'⌁',label:'运营中心',live:false},
+ {id:'roadmap',icon:'◈',label:'M9 路线图',live:false},
 ]
 // 规划能力页合同（M9/03 UI · 路由契约 + 保护语义；未启用时仅展示概念，不得伪装可启用）
-const PLANNED:Record<string,{route:string;desc:string;badge?:string;overlays:Array<[string,string]>;states:string[]}>={
- policies:{route:'/org/:orgId/policies',desc:'继承、模拟、版本发布；放宽项阻断并定位父规则。',overlays:[['策略发布向导','编辑、模拟、独立审批、发布'],['策略冲突','逐条显示父/子值与来源']],states:['concept','blocked','published']},
- approvals:{route:'/org/:orgId/approvals',desc:'SoD、撤回与到期；请求者不得自批，无权者不见正文。',overlays:[['待审批','N-of-M、剩余有效票和到期'],['撤回','已执行事实不可反转']],states:['waiting','approved','revoked','expired']},
- market:{route:'/org/:orgId/marketplace',desc:'组织级安装、策略模拟、审批、版本钉住和撤回影响。',overlays:[['市场隔离','隐藏安装，显示撤回原因编号'],['安装','签名、权限、审核记录']],states:['concept','quarantined','active']},
- runners:{route:'/org/:orgId/runners',desc:'信任、驻留、能力、心跳、排空与隔离；UNKNOWN 不伪装健康。',overlays:[['Runner 隔离','复述对象并通过 SoD'],['失联','红色 UNKNOWN，显示最后证明和影响']],states:['active','draining','offline','unknown']},
- budgets:{route:'/org/:orgId/budgets',desc:'层级额度、预留、实耗、预测、币种和周期。',overlays:[['预算不足','展示层级余额与预留'],['硬门槛','不得先执行后补批']],states:['reserved','exceeded']},
- audit:{route:'/org/:orgId/audit',desc:'筛选、链校验、脱敏查看、导出再授权及访问记录。',overlays:[['审计导出','敏感证据二次授权'],['脱敏','正文脱敏，访问留痕']],states:['redacted','held']},
- holds:{route:'/org/:orgId/legal-holds',desc:'范围、依据、保管人、到期、双人创建与解除，始终与删除分离。',badge:'SOD',overlays:[['Legal Hold','锁定清除，显示受限提示'],['解除','与删除分离且强审计']],states:['held','released']},
- operations:{route:'/org/:orgId/operations',desc:'采用、失败、审批时延、Runner、预算、安全；小群组抑制，不下钻个人内容。',overlays:[['低样本抑制','运营指标不下钻个人内容'],['样本不足','k 阈值口径下不展示']],states:['low-sample','error']},
+const PLANNED:Record<string,{label:string;route:string;desc:string;badge?:string;overlays:Array<[string,string]>;states:string[]}>={
+ policies:{label:'PolicyCenter',route:'/org/:orgId/policies',desc:'继承、模拟、版本发布；放宽项阻断并定位父规则。',overlays:[['策略发布向导','编辑、模拟、独立审批、发布'],['策略冲突','逐条显示父/子值与来源']],states:['concept','blocked','published']},
+ approvals:{label:'组织审批（SoD）',route:'/org/:orgId/approvals',desc:'组织级 SoD、N-of-M 与到期；与「设置 → 安全 → 审批」的项目计划审阅不同。',overlays:[['待审批','N-of-M、剩余有效票和到期'],['撤回','已执行事实不可反转']],states:['waiting','approved','revoked','expired']},
+ market:{label:'能力市场',route:'/org/:orgId/marketplace',desc:'组织级安装、策略模拟、审批、版本钉住和撤回影响。',overlays:[['市场隔离','隐藏安装，显示撤回原因编号'],['安装','签名、权限、审核记录']],states:['concept','quarantined','active']},
+ runners:{label:'Runner',route:'/org/:orgId/runners',desc:'信任、驻留、能力、心跳、排空与隔离；UNKNOWN 不伪装健康。',overlays:[['Runner 隔离','复述对象并通过 SoD'],['失联','红色 UNKNOWN，显示最后证明和影响']],states:['active','draining','offline','unknown']},
+ budgets:{label:'预算中心',route:'/org/:orgId/budgets',desc:'层级额度、预留、实耗、预测、币种和周期。',overlays:[['预算不足','展示层级余额与预留'],['硬门槛','不得先执行后补批']],states:['reserved','exceeded']},
+ audit:{label:'审计与证据',route:'/org/:orgId/audit',desc:'筛选、链校验、脱敏查看、导出再授权及访问记录。',overlays:[['审计导出','敏感证据二次授权'],['脱敏','正文脱敏，访问留痕']],states:['redacted','held']},
+ holds:{label:'Legal Hold',route:'/org/:orgId/legal-holds',desc:'范围、依据、保管人、到期、双人创建与解除，始终与删除分离。',badge:'SOD',overlays:[['Legal Hold','锁定清除，显示受限提示'],['解除','与删除分离且强审计']],states:['held','released']},
+ operations:{label:'运营中心',route:'/org/:orgId/operations',desc:'采用、失败、审批时延、Runner、预算、安全；小群组抑制，不下钻个人内容。',overlays:[['低样本抑制','运营指标不下钻个人内容'],['样本不足','k 阈值口径下不展示']],states:['low-sample','error']},
 }
+const PLANNED_KEYS=Object.keys(PLANNED)
 
 export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.Element{
  const[tab,setTab]=useState<ConsoleTab>('overview')
@@ -146,7 +140,6 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
  }
 
  const activeNav=NAV.find(item=>item.id===tab)!
- const planned=PLANNED[tab]
  const headMeta=bound?`已绑定「${bound.name}」 · ${bound.orgId} · 保留 ${bound.retentionDays} 天 · ${ORG_STATES[bound.state]}`:gate?'未绑定组织 · 隔离门禁生效（M9-003）':'org / space / 身份 / 环境明确可见 · M9 capability 未启用时显示概念或阻断'
  const OrgList=<div className="org-section"><h4>组织（{summary?.orgs.length??0}）</h4><div className="org-card">{loading?<p role="status">正在载入组织…</p>:summary?.orgs.length?summary.orgs.map(org=><button type="button" className="org-row" key={org.orgId} onClick={()=>void switchOrg(org.orgId)} disabled={busy}><span><b>{org.name}</b><small>{org.orgId}</small></span><i className={orgPill(org.state)}>{ORG_STATES[org.state]}</i><code>{summary.boundOrgId===org.orgId?'● 当前':'切换'}</code></button>):<div className="empty"><b>暂无组织</b><span>点击「新建组织」创建第一个组织。</span></div>}</div></div>
 
@@ -177,11 +170,17 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
      {bound&&<div className="org-section"><h4>成员（{members?.length??0}）</h4><div className="org-card">{members===undefined?<p role="status">正在载入成员…</p>:members.length?members.map(member=><div className="org-row static" key={member.principal.principalId}><span><b>{member.principal.displayName}</b><small>{member.bindings.filter(b=>b.state==='active').map(b=>ROLES[b.role]).join('、')||'无有效角色'} · {member.principal.principalId}{member.principal.expiresAt?` · 至 ${member.principal.expiresAt.slice(0,10)}`:''}</small></span><i className={`org-pill ${member.principal.state}`}>{PRINCIPAL_STATES[member.principal.state]}</i><code>{member.principal.state==='active'?<button type="button" disabled={busy} onClick={()=>setRevokeTarget(member)}>撤销</button>:null}</code></div>):<div className="empty"><b>暂无成员</b><span>邀请的成员将出现在这里并继承组织策略。</span></div>}</div></div>}
      {revokeTarget&&<div className="skill-center-error" role="alert"><p>撤销成员「{revokeTarget.principal.displayName}」的全部角色绑定？撤销后即时生效、不可恢复。</p><div className="org-form"><button className="danger" disabled={busy} onClick={()=>void revoke()}>确认撤销</button><button disabled={busy} onClick={()=>setRevokeTarget(undefined)}>取消</button></div></div>}
     </>}
-    {planned&&<>
-     <div className="blocked-banner" role="status">⚠ 规划能力 · 待实现 —— 依赖 M9 切片决策冻结与任务卡（ADR-011 后续切片），当前仅展示概念合同，不提供可启用控件。</div>
-     <article className="screen-route" data-route={planned.route}>{planned.badge&&<span className="status-badge" style={{margin:'0 0 6px'}}>{planned.badge}</span>}<b>{activeNav.label}</b><p>{planned.desc}</p></article>
-     <div className="overlay-strip">{planned.overlays.map(([title,desc])=><span key={title}><b>{title}</b>{desc}</span>)}</div>
-     <div className="state-contract" aria-label="状态契约">{planned.states.map(state=><span key={state}>{state}</span>)}</div>
+    {tab==='roadmap'&&<>
+     <div className="blocked-banner" role="status">⚠ 规划能力 · 待实现 —— 依赖 M9 切片 2+ 决策冻结与任务卡（ADR-011 后续切片）。下方为路由与状态契约，不提供可启用控件。项目级计划审阅请用「设置 → 安全 → 审批」。</div>
+     <p className="view-meta">已实现：组织概览、TeamSpace、成员与身份（slice-1）。后续切片将逐项接入 Bridge API。</p>
+     {PLANNED_KEYS.map(key=>{
+      const planned=PLANNED[key]
+      return <section className="org-section org-roadmap-card" key={key}>
+       <article className="screen-route" data-route={planned.route}>{planned.badge&&<span className="status-badge" style={{margin:'0 0 6px'}}>{planned.badge}</span>}<b>{planned.label}</b><p>{planned.desc}</p></article>
+       <div className="overlay-strip">{planned.overlays.map(([title,desc])=><span key={title}><b>{title}</b>{desc}</span>)}</div>
+       <div className="state-contract" aria-label={`${planned.label} 状态契约`}>{planned.states.map(state=><span key={state}>{state}</span>)}</div>
+      </section>
+     })}
     </>}
    </main>
   </div>
