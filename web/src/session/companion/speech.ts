@@ -81,6 +81,9 @@ export function shouldBargeIn(hasText: boolean, voiceForMs: number, holdMs = BAR
   return hasText && voiceForMs >= holdMs
 }
 
+export const PERMANENT_SPEECH_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported'])
+export const isPermanentSpeechError = (error?: string) => !!error && PERMANENT_SPEECH_ERRORS.has(error)
+
 export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
   const { duplex = false, bargeIn = true, ...callbacks } = options
   const Recognition = speechRecognitionConstructor()
@@ -284,18 +287,25 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     rec.onerror = event => {
       if (finished) return
+      if (isPermanentSpeechError(event?.error)) {
+        finished = true
+        teardown()
+        const denied = event?.error === 'not-allowed'
+        const serviceDisabled = event?.error === 'service-not-allowed'
+        callbacks.onError(
+          new BridgeClientError(
+            denied ? '语音识别服务拒绝访问，请检查 Windows 在线语音识别设置' : serviceDisabled ? 'Windows 在线语音识别服务未启用或不可用' : '当前语言不受语音识别支持',
+            denied ? 'SPEECH_SERVICE_PERMISSION_DENIED' : serviceDisabled ? 'SPEECH_SERVICE_DISABLED' : 'SPEECH_RECOGNITION_FAILED',
+            false,
+            'renderer',
+          ),
+        )
+        return
+      }
+      if (duplex) return
       finished = true
       teardown()
-      const denied = event?.error === 'not-allowed'
-      const serviceDisabled = event?.error === 'service-not-allowed'
-      callbacks.onError(
-        new BridgeClientError(
-          denied ? '语音识别服务拒绝访问，请检查 Windows 在线语音识别设置' : serviceDisabled ? 'Windows 在线语音识别服务未启用或不可用' : '系统在线语音识别失败；请检查网络和语言设置',
-          denied ? 'SPEECH_SERVICE_PERMISSION_DENIED' : serviceDisabled ? 'SPEECH_SERVICE_DISABLED' : 'SPEECH_RECOGNITION_FAILED',
-          false,
-          'renderer',
-        ),
-      )
+      callbacks.onEndWithoutFinal?.()
     }
     rec.onend = () => {
       if (finished) return

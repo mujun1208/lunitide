@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -430,8 +431,11 @@ func TestMcp6PresetsList(t *testing.T) {
 			t.Fatalf("preset %s missing from bridge answer", id)
 		}
 	}
-	if fs := byID["filesystem"]; !fs.NeedsArgs || fs.ArgPlaceholder != "{{dir}}" || fs.ArgHint == "" {
+	if fs := byID["filesystem"]; !fs.NeedsArgs || fs.ArgPlaceholder != "{{dir}}" || fs.ArgHint == "" || fs.ArgDefault == "" || strings.Contains(fs.ArgDefault, `\`) {
 		t.Fatalf("filesystem preset placeholder contract broken: %+v", fs)
+	}
+	if sqlite := byID["sqlite"]; sqlite.ArgDefault == "" || !strings.HasSuffix(sqlite.ArgDefault, "lunitide.db") {
+		t.Fatalf("sqlite sandbox default missing: %+v", sqlite)
 	}
 
 	// End-to-end: each catalog row (placeholder resolved to a benign path)

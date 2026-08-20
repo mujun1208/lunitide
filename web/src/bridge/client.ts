@@ -126,7 +126,7 @@ import {
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
   type CollabGateStatusPayload,type CollabGateStatusResult,type CollabGateEvaluatePayload,type CollabGateEvaluateResult,type CollabGateConfirmPayload,type CollabGateConfirmResult,
-  type DiagnosticsExportPayload,type DiagnosticsExportResult,
+  type DiagnosticsExportPayload,type DiagnosticsExportResult,type SystemHealthResult,
   type ToolsCommandPolicyGetResult,type ToolsCommandPolicySetPayload,type ToolsCommandPolicySetResult,
   type ToolsHooksPolicyGetResult,type ToolsHooksPolicySetPayload,type ToolsHooksPolicySetResult,type ToolsHooksEventsListPayload,type ToolsHooksEventsListResult,
   type WorkspaceArtifactReviewListPayload,type WorkspaceArtifactReviewListResult,type WorkspaceArtifactReviewAppendPayload,type WorkspaceArtifactReviewAppendResult,type WorkspaceArtifactPreviewPayload,type WorkspaceArtifactPreviewResult,type WorkspaceArtifactExportPayload,type WorkspaceArtifactExportResult,
@@ -332,6 +332,15 @@ export function createDiagnosticsBridge(transport:WebViewTransport=webview()):Di
 let diagnosticsSingleton:DiagnosticsBridge|undefined
 export function getDiagnosticsBridge():DiagnosticsBridge{return diagnosticsSingleton??=createDiagnosticsBridge()}
 export const diagnosticsBridge:DiagnosticsBridge={exportDiagnostics:p=>{try{return getDiagnosticsBridge().exportDiagnostics(p)}catch(error){return Promise.reject(error)}}}
+
+export interface SystemHealthBridge{health():Promise<SystemHealthResult>}
+export function createSystemHealthBridge(transport:WebViewTransport=webview()):SystemHealthBridge{
+  const core=createSimpleBridge(transport,{},8_000)
+  return{health:()=>core.request('system.health',{})}
+}
+let systemHealthSingleton:SystemHealthBridge|undefined
+export function getSystemHealthBridge():SystemHealthBridge{return systemHealthSingleton??=createSystemHealthBridge()}
+export const systemHealthBridge:SystemHealthBridge={health:()=>{try{return getSystemHealthBridge().health()}catch(error){return Promise.reject(error)}}}
 
 // Tools command policy bridge — user-editable read-only command whitelist
 // (tools.commandPolicy.get/set, settings → security panel).

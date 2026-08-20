@@ -77,10 +77,11 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
 
  const resolveArgs=(preset:Preset,value:string)=>preset.args.map(item=>item===preset.argPlaceholder?value.trim().replaceAll('\\','/'):item)
  const installPreset=async(preset:Preset,value?:string)=>{
-  if(preset.needsArgs&&!value?.trim()){setArgDraft({id:preset.id,value:''});return}
+  const resolved=value?.trim()||preset.argDefault||''
+  if(preset.needsArgs&&!resolved){setArgDraft({id:preset.id,value:''});return}
   setBusy(preset.id);setError('');setNotice('')
   try{
-   const added=await bridge.add({origin:'manual',transport:'stdio',command:preset.command,args:resolveArgs(preset,value??''),riskConfirmed:true,requestId:crypto.randomUUID()})
+   const added=await bridge.add({origin:'manual',transport:'stdio',command:preset.command,args:resolveArgs(preset,resolved),riskConfirmed:true,requestId:crypto.randomUUID()})
    try{await bridge.toggle({endpointId:added.endpointId,enabled:true})}catch{/* still registered */}
    setArgDraft(null);setNotice(`已安装「${preset.name}」`);await load();setView('installed')
   }catch(e){setError(e instanceof Error?e.message:`${preset.name} 安装失败`)}finally{setBusy('')}
@@ -153,7 +154,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
        {installed?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>void installPreset(preset)}>{busy===preset.id?'…':'＋'}</button>}
       </header>
       <p>{preset.description}</p>
-      {argDraft?.id===preset.id&&<div className="mcp-arg-row"><input aria-label={`${preset.name} 参数`} placeholder={preset.argHint??'请输入参数'} value={argDraft.value} onChange={e=>setArgDraft({id:preset.id,value:e.target.value})}/><button className="primary" disabled={!argDraft.value.trim()||Boolean(busy)} onClick={()=>void installPreset(preset,argDraft.value)}>安装</button></div>}
+      {argDraft?.id===preset.id&&!preset.argDefault&&<div className="mcp-arg-row"><input aria-label={`${preset.name} 参数`} placeholder={preset.argHint??'请输入参数'} value={argDraft.value} onChange={e=>setArgDraft({id:preset.id,value:e.target.value})}/><button className="primary" disabled={!argDraft.value.trim()||Boolean(busy)} onClick={()=>void installPreset(preset,argDraft.value)}>安装</button></div>}
       <footer><small>{preset.args.join(' ')}</small></footer>
      </article>
     })}</div>:<div className="empty"><b>没有匹配的 MCP</b><span>换个分类或关键字再试。</span></div>}

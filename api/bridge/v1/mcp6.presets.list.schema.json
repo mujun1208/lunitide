@@ -67,6 +67,11 @@
               "minLength": 1,
               "maxLength": 128
             },
+            "argDefault": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
             "category": {
               "type": "string",
               "minLength": 1,

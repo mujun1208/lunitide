@@ -2,7 +2,7 @@ import React,{useCallback,useEffect,useMemo,useState}from'react'
 import{pluginBridge,type PluginBridge}from'../bridge/client'
 import type{PluginListResult}from'../generated/bridge'
 import{Dialog}from'../ui/Dialog'
-import{FILLER_PLUGIN,PLUGIN_MARKET,pluginTitle,type PluginCategory}from'./pluginMarket'
+import{FILLER_PLUGIN,PLUGIN_MARKET,pluginLogo,pluginTitle,type PluginCategory}from'./pluginMarket'
 
 type Plugin=PluginListResult['plugins'][number]
 type View='installed'|'market'
@@ -87,9 +87,10 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
    <section className="skill-market-shelf" aria-label="可安装插件">
     {visibleMarket.length?<div className="skill-market">{visibleMarket.map(entry=>{
      const hit=byId.get(entry.id);const on=hit?.state==='enabled';const failedInstall=hit?.state==='quarantined'
+     const logo=pluginLogo(entry.id)
      return <article className={`skill-market-card ${on?'is-installed':''}`} key={entry.id}>
       <header>
-       <span className="skill-market-glyph" aria-hidden="true">{entry.name.slice(0,1)}</span>
+       <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
        <div><b>{entry.name}</b><small>{entry.category} · {KIND_LABEL[entry.kind]}{failedInstall?' · 安装失败':''}</small></div>
        {on?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${entry.name}`} disabled={Boolean(busy)} onClick={()=>void enable(entry.id)}>{busy===entry.id?'…':'＋'}</button>}
       </header>
@@ -98,18 +99,25 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
      </article>
     })}</div>:<div className="empty"><b>没有匹配的插件</b><span>换个分类或关键字再试。</span></div>}
    </section>
-  </>:<section className="expert-card-list" aria-label="已安装插件">
-   {installedVisible.length?installedVisible.map(item=><article className="expert-card" key={item.installId}>
-    <div className="expert-card-main">
-     <b>{pluginTitle(item.pluginId)}</b>
-     <small>{KIND_LABEL[item.kind]??item.kind} · v{item.semver} · {item.publisher} · 绑定 {item.bindingCount} 项</small>
-    </div>
-    <i className={`skill-status status-${item.state==='enabled'?'published':item.state==='quarantined'?'deprecated':item.state==='disabled'?'disabled':'draft'}`}>{STATE_LABEL[item.state]}</i>
-    <div className="expert-card-actions">
-     {(item.state==='enabled'||item.state==='disabled'||item.state==='installed')&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(item.pluginId)}>{item.state==='enabled'?'停用':'启用'}</button>}
-     <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>
-    </div>
-   </article>):<div className="empty"><b>还没有安装插件</b><span>去「插件市场」点加号，或通过对话创建。</span></div>}
+  </>:<section className="skill-market-shelf" aria-label="已安装插件">
+   {installedVisible.length?<div className="skill-market">{installedVisible.map(item=>{
+    const logo=pluginLogo(item.pluginId)
+    const market=PLUGIN_MARKET.find(entry=>entry.id===item.pluginId)
+    return <article className={`skill-market-card ${item.state==='enabled'?'is-installed':''}`} key={item.installId}>
+     <header>
+      <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
+      <div><b>{pluginTitle(item.pluginId)}</b><small>{KIND_LABEL[item.kind]??item.kind} · {item.publisher||'local'} · 绑定 {item.bindingCount} 项</small></div>
+      <i className={`skill-status status-${item.state==='enabled'?'published':item.state==='quarantined'?'deprecated':item.state==='disabled'?'disabled':'draft'}`}>{STATE_LABEL[item.state]}</i>
+     </header>
+     <p>{market?.description??`插件标识 ${item.pluginId}`}</p>
+     <footer>
+      <small>v{item.semver} · {item.origin==='dev'?'对话创建':item.origin==='market'?'市场':'本机'}</small>
+      <div className="expert-card-actions">
+       {(item.state==='enabled'||item.state==='disabled'||item.state==='installed')&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(item.pluginId)}>{item.state==='enabled'?'停用':'启用'}</button>}
+       <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>
+      </div>
+     </footer>
+    </article>})}</div>:<div className="empty"><b>还没有安装插件</b><span>去「插件市场」点加号，或通过对话创建。</span></div>}
   </section>}
   <Dialog open={manualOpen} wide title="手动创建插件" description="填写 Harness 兼容的插件清单 JSON。保存后出现在已安装清单；校验失败会标成安装失败。" onClose={()=>{if(!busy)setManualOpen(false)}}>
    <form className="editor-dialog" onSubmit={e=>{e.preventDefault();void createManual()}}>

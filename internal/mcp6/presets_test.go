@@ -145,3 +145,19 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 		t.Fatal("unknown preset id resolved")
 	}
 }
+
+func TestPrepareSandboxUsesForwardSlashAppDir(t *testing.T) {
+	path := PrepareSandbox("filesystem")
+	if path == "" || strings.Contains(path, `\`) {
+		t.Fatalf("sandbox path must be non-empty forward slashes, got %q", path)
+	}
+	if !strings.Contains(path, "Lunitide/mcp/filesystem") && !strings.Contains(path, "Lunitide/mcp\\filesystem") {
+		if !strings.Contains(path, "/mcp/filesystem") {
+			t.Fatalf("sandbox path = %q, want Lunitide/mcp/filesystem", path)
+		}
+	}
+	sqlite := PrepareSandbox("sqlite")
+	if !strings.HasSuffix(sqlite, "lunitide.db") || strings.Contains(sqlite, `\`) {
+		t.Fatalf("sqlite sandbox = %q", sqlite)
+	}
+}
