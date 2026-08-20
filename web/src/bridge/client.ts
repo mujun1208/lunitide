@@ -13,6 +13,8 @@ import {
   type MessageAppendPayload, type MessageAppendResult, type MessageListPayload, type MessageListResult, type MessageRewindPayload, type MessageRewindResult,
   type StageCreatePayload, type StageCreateResult, type StageListPayload, type StageListResult, type StageUpdatePayload, type StageUpdateResult,
   type DeliverableListPayload, type DeliverableListResult, type DeliverableUpsertPayload, type DeliverableUpsertResult, type DeliverableConfirmGatePayload, type DeliverableConfirmGateResult,
+  type DbQueryPayload, type DbQueryResult, type OpenapiParsePayload, type OpenapiParseResult,
+  type ProjectAttachmentIngestPayload, type ProjectAttachmentIngestResult, type ProjectAttachmentListPayload, type ProjectAttachmentListResult,
   type ReleaseBuildPackagePayload, type ReleaseBuildPackageResult, type ReleaseCreateRevisionPayload, type ReleaseCreateRevisionResult, type ReleaseGetRevisionPayload, type ReleaseGetRevisionResult, type ReleaseGetPackagePayload, type ReleaseGetPackageResult,
   type SkillImportDiscoverPayload, type SkillImportDiscoverResult, type SkillImportInspectPayload, type SkillImportInspectResult, type SkillImportSubmitPayload, type SkillImportSubmitResult, type SkillImportApprovePayload, type SkillImportApproveResult, type SkillImportRejectPayload, type SkillImportRejectResult, type SkillImportRevokePayload, type SkillImportRevokeResult,
   type PlanGetPayload, type PlanGetResult, type PlanListPayload, type PlanListResult,
@@ -953,6 +955,42 @@ export const skillImportBridge: SkillImportBridge = {
   approve: (p, o) => getSkillImportBridge().approve(p, o),
   reject: (p, o) => getSkillImportBridge().reject(p, o),
   revoke: (p, o) => getSkillImportBridge().revoke(p, o),
+}
+
+export interface RegistryBridge {
+  parseOpenAPI(payload: OpenapiParsePayload): Promise<OpenapiParseResult>
+  queryDb(payload: DbQueryPayload): Promise<DbQueryResult>
+}
+export function createRegistryBridge(transport: WebViewTransport, defaultDeadlineMs = 12_000): RegistryBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    parseOpenAPI: p => core.request('openapi.parse', p),
+    queryDb: p => core.request('db.query', p, defaultDeadlineMs),
+  }
+}
+let registrySingleton: RegistryBridge | undefined
+export function getRegistryBridge(): RegistryBridge { return registrySingleton ??= createRegistryBridge(webview()) }
+export const registryBridge: RegistryBridge = {
+  parseOpenAPI: p => getRegistryBridge().parseOpenAPI(p),
+  queryDb: p => getRegistryBridge().queryDb(p),
+}
+
+export interface ProjectAttachmentBridge {
+  list(payload: ProjectAttachmentListPayload): Promise<ProjectAttachmentListResult>
+  ingest(payload: ProjectAttachmentIngestPayload): Promise<ProjectAttachmentIngestResult>
+}
+export function createProjectAttachmentBridge(transport: WebViewTransport, defaultDeadlineMs = 15_000): ProjectAttachmentBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    list: p => core.request('projectAttachment.list', p),
+    ingest: p => core.request('projectAttachment.ingest', p, 30_000),
+  }
+}
+let projectAttachmentSingleton: ProjectAttachmentBridge | undefined
+export function getProjectAttachmentBridge(): ProjectAttachmentBridge { return projectAttachmentSingleton ??= createProjectAttachmentBridge(webview()) }
+export const projectAttachmentBridge: ProjectAttachmentBridge = {
+  list: p => getProjectAttachmentBridge().list(p),
+  ingest: p => getProjectAttachmentBridge().ingest(p),
 }
 
 export function createTerminalBridge(transport:WebViewTransport,deadlineMs=8000):TerminalBridge{

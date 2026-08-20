@@ -58,16 +58,16 @@ export interface CompanionSpeechHandle {
 }
 
 /** Commit after this much silence once we already have text. */
-export const UTTERANCE_SILENCE_MS = 280
+export const UTTERANCE_SILENCE_MS = 220
 /** Commit when interim/final text stops changing (robust against room noise). */
-export const UTTERANCE_STABLE_MS = 420
+export const UTTERANCE_STABLE_MS = 320
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 const VOICE_PEAK = 0.13
 /** Stronger peak while assistant speaks — avoids TTS bleed despite AEC. */
-export const BARGE_IN_PEAK = 0.32
+export const BARGE_IN_PEAK = 0.27
 /** Sustained voice before a barge-in fires. */
-export const BARGE_IN_HOLD_MS = 160
+export const BARGE_IN_HOLD_MS = 120
 
 export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
   return hasText && silentForMs >= silenceMs

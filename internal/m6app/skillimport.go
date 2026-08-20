@@ -12,12 +12,15 @@ package m6app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/m6supply"
+	"github.com/lunitide/lunitide/internal/prompttpl"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/oklog/ulid/v2"
 )
@@ -31,6 +34,8 @@ var (
 	ErrSkillNotFound = errors.New("m6app: skill not found")
 	// ErrSkillVersionExists: the (skill, semver) version already pinned.
 	ErrSkillVersionExists = errors.New("m6app: skill version already pinned")
+	// ErrPromptBundleVersionExists: the (bundle, semver) version already pinned.
+	ErrPromptBundleVersionExists = errors.New("m6app: prompt bundle version already pinned")
 	// ErrSkillInstallNotFound: the install row does not exist.
 	ErrSkillInstallNotFound = errors.New("m6app: skill install not found")
 )
@@ -217,17 +222,28 @@ func (s *SkillImportService) Approve(ctx context.Context, in ApproveInput) (m6su
 	return s.step(ctx, in.CandidateID, in.ExpectedVersion, m6supply.ImportApproved,
 		m6supply.ImportEvidence{Approval: in.Approval},
 		func(tx Tx, cur, next m6supply.ImportCandidate) error {
-			if cur.AssetType != m6supply.AssetSkill {
+			switch cur.AssetType {
+			case m6supply.AssetSkill:
+				manifest, err := m6supply.ParseManifest(in.Manifest)
+				if err != nil {
+					return err
+				}
+				if manifest.Publisher != cur.Publisher {
+					return fmt.Errorf("m6app: manifest publisher %q does not match candidate publisher %q", manifest.Publisher, cur.Publisher)
+				}
+				return materializeSkill(tx, cur, manifest, s.clock.Now().UTC())
+			case m6supply.AssetPromptBundle:
+				manifest, err := m6supply.ParsePromptBundleManifest(in.Manifest)
+				if err != nil {
+					return err
+				}
+				if manifest.Publisher != cur.Publisher {
+					return fmt.Errorf("m6app: manifest publisher %q does not match candidate publisher %q", manifest.Publisher, cur.Publisher)
+				}
+				return materializePromptBundle(tx, cur, manifest, s.clock.Now().UTC())
+			default:
 				return nil
 			}
-			manifest, err := m6supply.ParseManifest(in.Manifest)
-			if err != nil {
-				return err
-			}
-			if manifest.Publisher != cur.Publisher {
-				return fmt.Errorf("m6app: manifest publisher %q does not match candidate publisher %q", manifest.Publisher, cur.Publisher)
-			}
-			return materializeSkill(tx, cur, manifest, s.clock.Now().UTC())
 		})
 }
 
@@ -285,6 +301,58 @@ func materializeSkill(tx Tx, c m6supply.ImportCandidate, m *m6supply.Manifest, n
 		}
 	}
 	return tx.SetM6SkillCurrentVersion(sk.ID, version.ID, now)
+}
+
+// materializePromptBundle writes the prompt bundle entity chain for an
+// approved prompt_bundle candidate: compile template + vars, then pin the
+// compiled version row.
+func materializePromptBundle(tx Tx, c m6supply.ImportCandidate, m *m6supply.PromptBundleManifest, now time.Time) error {
+	tpl, err := prompttpl.ResolveTemplate(m.Template, m.TemplateRef)
+	if err != nil {
+		return err
+	}
+	compiled, err := prompttpl.Compile(tpl, m.Vars)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte(compiled))
+	digest := hex.EncodeToString(sum[:])
+
+	pb, err := tx.FindM6PromptBundleByName(m.Name)
+	if errors.Is(err, m6supply.ErrNotFound) {
+		pb = m6supply.PromptBundle{
+			ID: ulid.Make().String(), Name: m.Name, Publisher: m.Publisher,
+			Status: m6supply.PromptBundleVerified, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.PutM6PromptBundle(pb); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.FindM6PromptBundleVersion(pb.ID, m.Version); err == nil {
+		return ErrPromptBundleVersionExists
+	} else if !errors.Is(err, m6supply.ErrNotFound) {
+		return err
+	}
+	templateRef := m.TemplateRef
+	if templateRef == "" {
+		templateRef = "inline"
+	}
+	version := m6supply.PromptBundleVersion{
+		ID: ulid.Make().String(), BundleID: pb.ID, Semver: m.Version,
+		ManifestRef: fmt.Sprintf("candidate://%s/%s", c.ID, c.ImmutableCommit),
+		TemplateRef: templateRef, PackageHash: c.ArchiveHash,
+		CompiledDigest: digest, CompiledBody: compiled,
+		SignatureStatus: m6supply.SignatureUnverified, CreatedAt: now,
+	}
+	if c.Signature != "" {
+		version.SignatureStatus = m6supply.SignatureVerified
+	}
+	if err := tx.PutM6PromptBundleVersion(version); err != nil {
+		return err
+	}
+	return tx.SetM6PromptBundleCurrentVersion(pb.ID, version.ID, now)
 }
 
 // InstallSkill binds an approved skill version into a workspace.

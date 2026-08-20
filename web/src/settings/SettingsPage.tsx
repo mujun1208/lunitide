@@ -383,7 +383,9 @@ function CompanionSection():React.JSX.Element{
    const voiceId=companion.voiceId&&(voices.some(v=>v.voice_id===companion.voiceId)?companion.voiceId:(setStatus('所选音色不可用，已回退默认音色。'),undefined))
    const result=await getTtsBridge().synthesize({text:'你好，我是月汐，很高兴与你同行。',voiceId,rate:companion.rate,volume:companion.volume,engine:companion.engine,refEndpoint:refEndpointPayload})
    if(result.discarded||!result.wav_base64){setStatus('试听已取消。');return}
-   const bytes=Uint8Array.from(atob(result.wav_base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}))
+   const bytes=Uint8Array.from(atob(result.wav_base64),c=>c.charCodeAt(0))
+   const mime=bytes[0]===0xff||(bytes[0]===0x49&&bytes[1]===0x44&&bytes[2]===0x33)?'audio/mpeg':'audio/wav'
+   const url=URL.createObjectURL(new Blob([bytes],{type:mime}))
    audioRef.current?.pause();const audio=new Audio(url);audioRef.current=audio;audio.onended=()=>URL.revokeObjectURL(url);await audio.play()
    setStatus(result.notice==='TTS_VOICE_NOT_FOUND'?'所选音色不可用，已回退默认音色（M95-004）。':'试听播放中…')
   }catch(e){setStatus(e instanceof Error?`试听失败：${e.message}`:'试听失败，请检查引擎配置')}finally{setBusy(false)}

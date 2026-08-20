@@ -228,8 +228,10 @@ type Engine struct {
 	automation *scheduler.Scheduler
 
 	// Asset template library and project deliverables (migration 0082).
-	assets       AssetTemplateStore
-	deliverables DeliverableStore
+	assets                 AssetTemplateStore
+	deliverables           DeliverableStore
+	projectAttachments     ProjectAttachmentStore
+	projectAttachmentFiles attachmentapp.FileStorage
 }
 type terminalOwner struct {
 	emit     EventEmitter
@@ -396,6 +398,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProjectClose:                  handleProjectClose,
 	bridge.MethodProjectReopen:                 handleProjectReopen,
 	bridge.MethodProjectAdvanceStatus:          handleProjectAdvanceStatus,
+	bridge.MethodProjectAttachmentIngest:       handleProjectAttachmentIngest,
+	bridge.MethodProjectAttachmentList:         handleProjectAttachmentList,
 	bridge.MethodSessionCreate:                 handleSessionCreate,
 	bridge.MethodSessionDelete:                 handleSessionDelete,
 	bridge.MethodSessionList:                   handleSessionList,

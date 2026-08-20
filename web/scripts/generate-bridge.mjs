@@ -266,6 +266,8 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'project.publish',
   'project.reopen',
   'project.update',
+  'projectAttachment.ingest',
+  'projectAttachment.list',
   'provider.create',
   'provider.credential.reveal',
   'provider.credential.submit',

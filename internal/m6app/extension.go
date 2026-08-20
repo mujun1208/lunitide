@@ -144,6 +144,14 @@ type Tx interface {
 	TransitionM6ImportCandidate(id string, expectedVersion int64, to string, evidence m6supply.ImportEvidence, at time.Time) (m6supply.ImportCandidate, error)
 	TransitionM6SkillState(id string, to string, at time.Time) (m6supply.Skill, error)
 
+	// Prompt bundle entity chain (0084).
+	FindM6PromptBundleByName(name string) (m6supply.PromptBundle, error)
+	FindM6PromptBundleVersion(bundleID, semver string) (m6supply.PromptBundleVersion, error)
+	GetM6PromptBundleVersion(id string) (m6supply.PromptBundleVersion, error)
+	PutM6PromptBundle(pb m6supply.PromptBundle) error
+	PutM6PromptBundleVersion(v m6supply.PromptBundleVersion) error
+	SetM6PromptBundleCurrentVersion(id, currentVersionID string, at time.Time) error
+
 	// Complexity routing, child manifests, bundles, synthesis (0053).
 	FindM6ComplexityDecision(inputDigest, routerVersion string) (m6supply.ComplexityDecision, error)
 	GetM6ChildManifestByDelegation(delegationID string) (m6supply.ChildContextManifest, error)

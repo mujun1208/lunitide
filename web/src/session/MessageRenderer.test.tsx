@@ -53,7 +53,7 @@ it('Message Renderer ignores an old session append response and does not refresh
 it('Message Renderer shows loading and error, then retries from latest page and recovers from an invalid cursor', async () => {
   let initialReject!: (error: unknown) => void
   const list = vi.fn().mockReturnValueOnce(new Promise((_r, reject) => { initialReject = reject })).mockResolvedValueOnce(page([message(2)], 'invalid-cursor')).mockRejectedValueOnce(new BridgeClientError('cursor invalid', 'INVALID_CURSOR', false, 'trace')).mockResolvedValueOnce(page([message(3)]))
-  const user = await open(messages({ list })); expect(screen.getByRole('status')).toHaveTextContent('正在载入消息')
+  const user = await open(messages({ list })); expect(screen.getAllByRole('status').some(node => /正在载入消息/.test(node.textContent ?? ''))).toBe(true)
   await act(async () => initialReject(new BridgeClientError('temporary', 'TEMPORARY', true, 'trace'))); expect(await screen.findByRole('alert')).toHaveTextContent('temporary')
   await user.click(screen.getByRole('button', { name: '从最新页重试' })); expect(await screen.findByText('message-2')).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: '加载更早' })); expect(await screen.findByRole('alert')).toHaveTextContent('cursor invalid')
   await user.click(screen.getByRole('button', { name: '从最新页重试' })); expect(await screen.findByText('message-3')).toBeInTheDocument(); expect(screen.queryByText('message-2')).toBeNull(); expect(list.mock.calls[3][0]).not.toHaveProperty('cursor')

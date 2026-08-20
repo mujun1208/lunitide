@@ -14,6 +14,9 @@ const sessionBridge:SessionBridge={list:vi.fn().mockResolvedValue({items:[sessio
 const page=(items:MessageDTO[]=[])=>({items,hasMore:false,nextCursor:null,snapshotSequence:items.length})
 const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Ready',protocol:'openai_compatible',baseUrl:'https://example.test',models:[{modelId:'model',displayName:'Model',isDefault:true}],status:'enabled',credentialState:'configured',createdAt:NOW,updatedAt:NOW,version:1}
 const providers={list:vi.fn().mockResolvedValue({items:[provider]})} as unknown as ProviderBridge
+const micBase={echoCancellation:true,noiseSuppression:true,autoGainControl:true}
+const micDefault={audio:micBase}
+const micDevice=(id:string)=>({audio:{...micBase,deviceId:{exact:id}}})
 
 async function open(props:Partial<React.ComponentProps<typeof SessionPage>>={}){
  const user=userEvent.setup()
@@ -40,8 +43,8 @@ it('encodes the maximum safe attachment payload and rejects larger files',async(
  expect(chunk.mock.calls[79][0]).toMatchObject({offset:ATTACHMENT_FILE_MAX-128*1024})
  const oversized=new File([new Uint8Array(ATTACHMENT_FILE_MAX+1)],'too-large.txt',{type:'text/plain'})
  await fireEvent.change(input,{target:{files:[oversized]}})
- expect(await screen.findByRole('status')).toHaveTextContent('已跳过 1 个')
- expect(screen.getByRole('status')).toHaveTextContent('0 个文件')
+ await waitFor(()=>expect(screen.getAllByRole('status').some(node=>/已跳过 1 个/.test(node.textContent??''))).toBe(true))
+ expect(screen.getAllByRole('status').some(node => /0 个文件/.test(node.textContent ?? ''))).toBe(true)
  expect(begin).toHaveBeenCalledOnce();expect(commit).toHaveBeenCalledOnce();expect(abort).not.toHaveBeenCalled()
  expect(input.value).toBe('')
 },25_000)
@@ -76,7 +79,7 @@ it('blocks Enter re-entry after chat.start resolves, retains one stream, and can
  expect(response.closest('.bubble')).toHaveTextContent('实时标题 第一项 第二项')
  expect(response.closest('.bubble')).toHaveClass('message-body')
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:stream.streamId,sequence:2,type:'cancelled'}))
- expect(screen.getByRole('status')).toHaveTextContent('已取消')
+ expect(screen.getAllByRole('status').some(node => /已取消/.test(node.textContent ?? ''))).toBe(true)
  expect(start).toHaveBeenCalledOnce()
  expect(dispose).not.toHaveBeenCalled()
 })
@@ -320,7 +323,7 @@ it('fills recognized speech into the composer and exposes recording state',async
  Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia}})
  ;(window as any).AudioContext=class{createAnalyser(){return{fftSize:0,smoothingTimeConstant:0,frequencyBinCount:16,getByteFrequencyData}}createMediaStreamSource(){return{connect:vi.fn()}}close=close}
  const user=await open({personal:true,providers,initialSession:session})
- const button=screen.getByRole('button',{name:'语音输入'});await user.click(button);expect(getUserMedia).toHaveBeenCalledWith({audio:true});expect(instance.start).toHaveBeenCalledOnce();expect(screen.getByRole('button',{name:'停止语音输入'})).toHaveAttribute('aria-pressed','true');expect(screen.getByRole('status',{name:'正在接收麦克风声音'})).toBeInTheDocument()
+ const button=screen.getByRole('button',{name:'语音输入'});await user.click(button);expect(getUserMedia).toHaveBeenCalledWith(micDefault);expect(instance.start).toHaveBeenCalledOnce();expect(screen.getByRole('button',{name:'停止语音输入'})).toHaveAttribute('aria-pressed','true');expect(screen.getByRole('status',{name:'正在接收麦克风声音'})).toBeInTheDocument()
  act(()=>instance.onresult({results:[{0:{transcript:'语音内容'},isFinal:true}]}));expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('语音内容')
  await user.click(screen.getByRole('button',{name:'停止语音输入'}));expect(instance.stop).toHaveBeenCalledOnce();expect(stop).toHaveBeenCalled();expect(close).toHaveBeenCalled();delete (window as any).SpeechRecognition;delete (window as any).AudioContext
 })
@@ -336,7 +339,7 @@ it('uses the selected microphone and keeps voice beside send',async()=>{
  const mic=screen.getByRole('button',{name:'语音输入'}),send=screen.getByRole('button',{name:'↑ 发送并对话'})
  expect(mic.closest('.composer-primary-actions')).toBe(send.closest('.composer-primary-actions'))
  await user.click(mic)
- expect(getUserMedia).toHaveBeenCalledWith({audio:{deviceId:{exact:'usb-mic'}}})
+ expect(getUserMedia).toHaveBeenCalledWith(micDevice('usb-mic'))
  delete (window as any).SpeechRecognition;delete (window as any).AudioContext
 })
 
@@ -361,7 +364,7 @@ it('falls back to the default microphone when the saved device disappears',async
  ;(window as any).AudioContext=class{createAnalyser(){return{fftSize:0,smoothingTimeConstant:0,frequencyBinCount:16,getByteFrequencyData:vi.fn()}}createMediaStreamSource(){return{connect:vi.fn()}}close(){return Promise.resolve()}}
  const user=await open({personal:true,providers,initialSession:session})
  await user.click(screen.getByRole('button',{name:'语音输入'}))
- expect(getUserMedia).toHaveBeenNthCalledWith(1,{audio:{deviceId:{exact:'missing-mic'}}})
+ expect(getUserMedia).toHaveBeenNthCalledWith(1,micDevice('missing-mic'))
  expect(getUserMedia).toHaveBeenNthCalledWith(2,{audio:true})
  expect(localStorage.getItem('lunitide:microphone-device-id')).toBeNull()
  expect(screen.getByRole('button',{name:'停止语音输入'})).toBeInTheDocument()
