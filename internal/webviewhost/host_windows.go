@@ -62,7 +62,7 @@ var (
 	user32Menu          = syscall.NewLazyDLL("user32.dll")
 	createPopupMenu     = user32Menu.NewProc("CreatePopupMenu")
 	appendMenuW         = user32Menu.NewProc("AppendMenuW")
-	trackPopupMenu      = user32Menu.NewProc("TrackPopupMenuEx")
+	trackPopupMenu      = user32Menu.NewProc("TrackPopupMenu")
 	destroyMenu         = user32Menu.NewProc("DestroyMenu")
 	setForegroundWindow = user32Menu.NewProc("SetForegroundWindow")
 	postMessage         = user32Menu.NewProc("PostMessageW")
@@ -881,6 +881,11 @@ func (h *Host) addTrayIcon() {
 	}
 	copy(nid.szTip[:], syscall.StringToUTF16("Lunitide 月汐"))
 	shellNotifyIcon.Call(uintptr(nimAdd), uintptr(unsafe.Pointer(&nid)))
+	// Version 4 delivers WM_CONTEXTMENU / NIN_SELECT with the event in
+	// LOWORD(lParam). Without SETVERSION some overflow-area clicks never
+	// reach the host, so the tray appears but has no usable menu.
+	nid.uVersion = notifyIconVersion4
+	shellNotifyIcon.Call(uintptr(nimSetVersion), uintptr(unsafe.Pointer(&nid)))
 	h.trayAdded = true
 }
 
@@ -911,25 +916,34 @@ func (h *Host) showTrayMenu(hwnd win32.HWND) {
 	exitLabel, _ := syscall.UTF16PtrFromString("退出")
 
 	const mfString = 0x00000000
-	const mfSeparator = 0x0000800
-	const cmdShow = 1001
-	const cmdExit = 1002
+	const mfSeparator = 0x00000800
 
-	appendMenuW.Call(menu, mfString, uintptr(cmdShow), uintptr(unsafe.Pointer(showLabel)))
+	appendMenuW.Call(menu, mfString, uintptr(trayCmdShow), uintptr(unsafe.Pointer(showLabel)))
 	appendMenuW.Call(menu, mfSeparator, 0, 0)
-	appendMenuW.Call(menu, mfString, uintptr(cmdExit), uintptr(unsafe.Pointer(exitLabel)))
+	appendMenuW.Call(menu, mfString, uintptr(trayCmdExit), uintptr(unsafe.Pointer(exitLabel)))
 
 	var pt win32.POINT
 	win32.GetCursorPos(&pt)
-	const tpmReturnCmd = 0x0100
-	const tpmLeftAlign = 0x0000
-	cmd, _, _ := trackPopupMenu.Call(menu, uintptr(tpmReturnCmd|tpmLeftAlign), uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hwnd), 0)
+	// TrackPopupMenu (not Ex): reserved=0, hwnd=owner, prcRect=NULL.
+	// A previous TrackPopupMenuEx call used this 7-arg layout, so hwnd was
+	// 0 and the menu never appeared.
+	cmd, _, _ := trackPopupMenu.Call(
+		menu,
+		uintptr(tpmReturnCmd|tpmLeftAlign|tpmRightButton|tpmBottomAlign),
+		uintptr(pt.X),
+		uintptr(pt.Y),
+		0,
+		uintptr(hwnd),
+		0,
+	)
+	// Lets the menu dismiss when the user clicks outside it.
+	postMessage.Call(uintptr(hwnd), uintptr(win32.WM_NULL), 0, 0)
 
 	switch cmd {
-	case cmdShow:
+	case trayCmdShow:
 		win32.ShowWindow(hwnd, win32.SW_SHOW)
 		win32.SetForegroundWindow(hwnd)
-	case cmdExit:
+	case trayCmdExit:
 		if h != nil {
 			h.forceQuit = true
 		}
@@ -989,14 +1003,14 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 		}
 		return 0
 	case trayMessage:
-		// Tray icon callback: right-click context menu
-		if uint32(lParam) == win32.WM_RBUTTONUP || uint32(lParam) == win32.WM_CONTEXTMENU {
+		event := trayCallbackEvent(lParam)
+		if isTrayContextMenu(event) {
 			if h != nil {
 				h.showTrayMenu(hwnd)
 			}
+			return 0
 		}
-		// Left click or double-click restores the window
-		if uint32(lParam) == win32.WM_LBUTTONUP || uint32(lParam) == win32.WM_LBUTTONDBLCLK {
+		if isTrayActivate(event) {
 			win32.ShowWindow(hwnd, win32.SW_SHOW)
 			win32.SetForegroundWindow(hwnd)
 		}
