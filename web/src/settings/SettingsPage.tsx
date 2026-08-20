@@ -1226,7 +1226,8 @@ function PluginsPanel(): React.JSX.Element {
   const [plugins, setPlugins] = useState<Array<{ installId: string; pluginId: string; semver: string; publisher: string; kind: string; origin: string; state: string; bindingCount: number }>>([])
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
-  const [query, setQuery] = useState('')
+ const[query, setQuery] = useState('')
+  const [pluginTab, setPluginTab] = useState<'config' | 'list'>('list')
   const [items, setItems] = useState<Array<{ itemId: string; pluginId: string; name: string; publisher: string; description: string; kind: string; semver: string; signed: boolean }>>([])
   // 三步安装确认（M8 P1）：1 详情 → 2 权限确认 → 3 安装
   const [wizard, setWizard] = useState<{ step: 1 | 2; item: { itemId: string; pluginId: string; name: string; publisher: string; description: string; kind: string; semver: string; signed: boolean }; detail?: { manifest: object; permissions: string[]; requires: object; signature: object; downloads: number }; grant: Record<string, string[]>; agreed: boolean } | null>(null)
@@ -1235,7 +1236,10 @@ function PluginsPanel(): React.JSX.Element {
   const [devWorkspace, setDevWorkspace] = useState('')
   const [devEntrypoint, setDevEntrypoint] = useState('')
   const [devManifest, setDevManifest] = useState('')
+  const [listQuery, setListQuery] = useState('')
   const quarantined = plugins.filter(p => p.state === 'quarantined')
+  const visiblePlugins = plugins.filter(p => !listQuery.trim() || `${p.pluginId} ${p.kind} ${p.state}`.toLowerCase().includes(listQuery.trim().toLowerCase()))
+  const enabledCount = plugins.filter(p => p.state === 'enabled').length
 
   const refresh = async () => {
     setBusy(true)
@@ -1305,17 +1309,34 @@ function PluginsPanel(): React.JSX.Element {
   return (
     <div className="setting-group">
       <div className="setting-group-title">插件</div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">签名验证 → 隔离安装 → 能力热注册（复用既有注册表，无插件专用 Runner）。当前 {plugins.length} 个。</div>
+      <div className="skill-status-tabs" role="tablist" aria-label="插件视图">
+        <button type="button" role="tab" aria-selected={pluginTab === 'config'} onClick={() => setPluginTab('config')}>插件配置</button>
+        <button type="button" role="tab" aria-selected={pluginTab === 'list'} onClick={() => setPluginTab('list')}>插件列表 · {plugins.length}</button>
       </div>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="setting-desc">内置能力按 Harness 方式挂进现有子系统（命令、搜索、工作区、会话）。已启用 {enabledCount} / {plugins.length}。</div>
+      </div>
+      {pluginTab === 'config' && (
+        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+          <details open><summary className="setting-label">终端</summary><div className="setting-desc">命令执行走 command.run 与命令白名单；Windows 默认启用 PowerShell、停用 Bash。</div></details>
+          <details><summary className="setting-label">Agent 循环</summary><div className="setting-desc">工具派发沿用现有引擎循环，可在插件列表启停 agent-loop / thinking。</div></details>
+          <details><summary className="setting-label">网页搜索</summary><div className="setting-desc">web.search 与 DeepSeek 搜索插件（web-search-deepseek）可在列表中单独启停。</div></details>
+        </div>
+      )}
       {quarantined.length > 0 && (
         <div className="setting-row" style={{ gridTemplateColumns: '1fr', border: '1px solid #f59e0b', borderRadius: 8, background: 'rgba(245, 158, 11, 0.08)' }} role="alert">
           <div className="setting-label">⛔ {quarantined.length} 个插件处于隔离状态</div>
           <div className="setting-desc">{quarantined.map(p => p.pluginId).join('、')} — 签名/哈希校验未通过，未注册任何能力；可卸载留存取证。</div>
         </div>
       )}
-      {plugins.map(p => (
-        <div className="setting-row" key={p.installId}>
+      {pluginTab === 'list' && (
+        <>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <input className="setting-input" placeholder="搜索已安装插件" value={listQuery} onChange={e => setListQuery(e.target.value)} aria-label="搜索已安装插件" />
+      </div>
+      <div className="plugin-card-grid">
+      {visiblePlugins.map(p => (
+        <div className="setting-row plugin-card" key={p.installId}>
           <div>
             <div className="setting-label">{p.pluginId} · v{p.semver} · {p.kind}{p.state === 'quarantined' ? ' · ⛔ 隔离' : ''}</div>
             <div className="setting-desc">{p.publisher} · {p.state} · 绑定 {p.bindingCount} 项 · {p.origin}</div>
@@ -1327,6 +1348,9 @@ function PluginsPanel(): React.JSX.Element {
           </div>
         </div>
       ))}
+      </div>
+        </>
+      )}
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div className="setting-group-title" style={{ marginTop: 8 }}>插件市场</div>
         <div style={{ display: 'flex', gap: 8 }}>

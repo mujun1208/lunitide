@@ -15,7 +15,7 @@
       "items": {
         "type": "array",
         "minItems": 0,
-        "maxItems": 64,
+        "maxItems": 128,
         "items": {
           "type": "object",
           "additionalProperties": false,
@@ -32,9 +32,11 @@
               "maxItems": 6,
               "items": { "enum": ["read_only", "read_write", "network", "file_system", "shell", "admin"] }
             },
-            "installed": { "type": "boolean" }
+            "installed": { "type": "boolean" },
+            "featured": { "type": "boolean" },
+            "source": { "type": "string", "minLength": 1, "maxLength": 64 }
           },
-          "required": ["id", "name", "displayName", "description", "category", "version", "permissions", "installed"]
+          "required": ["id", "name", "displayName", "description", "category", "version", "permissions", "installed", "featured", "source"]
         }
       }
     },

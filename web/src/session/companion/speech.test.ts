@@ -28,6 +28,11 @@ describe('shouldCommitStable', () => {
     expect(shouldCommitStable(true, UTTERANCE_STABLE_MS - 1)).toBe(false)
     expect(shouldCommitStable(true, UTTERANCE_STABLE_MS)).toBe(true)
   })
+
+  test('does not wait on analyser silence: Windows SR re-fires the same interim', () => {
+    expect(shouldCommitUtterance(true, 0)).toBe(false)
+    expect(shouldCommitStable(true, UTTERANCE_STABLE_MS)).toBe(true)
+  })
 })
 
 describe('shouldBargeIn', () => {

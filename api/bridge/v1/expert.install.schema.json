@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/expert.install.schema.json",
+  "title": "expert.install payload",
+  "x-method": "expert.install",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9-]+$" }
+  },
+  "required": ["id"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "usage": { "type": "string", "enum": ["chat", "project", "both"] },
+      "expertId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "skillId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "skillName": { "type": "string", "minLength": 1, "maxLength": 128 }
+    },
+    "required": ["id", "usage"]
+  },
+  "x-examples": {
+    "positive": [{ "id": "academic-anthropologist" }],
+    "negative": [{ "id": "Not Valid" }]
+  }
+}

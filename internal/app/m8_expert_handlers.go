@@ -62,6 +62,62 @@ func handleExpertCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 	return bridge.Success(r.ID, res)
 }
 
+func handleExpertCatalogList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	catalog := m8app.AgencyAgentsCatalog()
+	if len(catalog) == 0 {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家市场目录不可用", true)
+	}
+	expertNames := map[string]bool{}
+	if e.m8expert != nil {
+		listed, err := e.m8expert.List(ctx, m8app.ExpertFilter{})
+		if err == nil {
+			for _, row := range listed.Experts {
+				if row.State != m8core.ExpertArchived {
+					expertNames[row.Name] = true
+				}
+			}
+		}
+	}
+	var skills m8app.CatalogSkillStore
+	if store, ok := e.skills.(m8app.CatalogSkillStore); ok {
+		skills = store
+	}
+	items := make([]m8app.CatalogSummary, 0, len(catalog))
+	for _, item := range catalog {
+		installed := true
+		if item.NeedsProject() {
+			installed = expertNames[item.Name]
+		}
+		if installed && item.NeedsChat() {
+			if skills == nil {
+				installed = false
+			} else if _, err := skills.GetByNameVersion(ctx, item.SkillName(), item.Version); err != nil {
+				installed = false
+			}
+		}
+		items = append(items, item.Summary(installed))
+	}
+	return bridge.Success(r.ID, map[string]any{"items": items})
+}
+
+func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if decodePayload(r.Payload, &p) != nil || len(p.ID) < 1 || len(p.ID) > 64 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.install 参数无效", false)
+	}
+	var skills m8app.CatalogSkillStore
+	if store, ok := e.skills.(m8app.CatalogSkillStore); ok {
+		skills = store
+	}
+	res, err := m8app.InstallAgencyAgent(ctx, e.m8expert, skills, p.ID)
+	if err != nil {
+		return m8ExpertFailure(r, err)
+	}
+	return bridge.Success(r.ID, res)
+}
+
 func handleExpertList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		Division  string `json:"division"`
@@ -239,6 +295,10 @@ func m8ExpertFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_NOT_FOUND", "专家资源不存在", false)
 	case errors.Is(err, m8app.ErrExpertStateInvalid):
 		return bridge.Failure(r.ID, r.TraceID, "EXPERT_STATE_INVALID", "专家状态不允许该操作", false)
+	case errors.Is(err, m8app.ErrCatalogUnknown):
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_NOT_FOUND", "目录中没有该专家", false)
+	case errors.Is(err, m8app.ErrCatalogInstalled):
+		return bridge.Failure(r.ID, r.TraceID, "EXPERT_DUPLICATE", "该目录项已安装", false)
 	case errors.Is(err, m8app.ErrExpertDuplicate):
 		return bridge.Failure(r.ID, r.TraceID, "EXPERT_DUPLICATE", "同名专家已存在", false)
 	case errors.Is(err, m8app.ErrPayloadInvalid):

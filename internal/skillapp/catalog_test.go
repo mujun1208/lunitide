@@ -178,12 +178,21 @@ func TestSkillCreatorCatalogManifest(t *testing.T) {
 func TestEnsureBundledSkillsPublishesCatalog(t *testing.T) {
 	store := newMemSkillStore()
 	svc := New(store, store)
+	want := 0
+	for _, tpl := range Catalog() {
+		if tpl.Bundled {
+			want++
+		}
+	}
+	if want < 2 {
+		t.Fatalf("expected bundled templates, got %d", want)
+	}
 	n, err := svc.EnsureBundledSkills(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != len(Catalog()) {
-		t.Fatalf("published %d, want %d", n, len(Catalog()))
+	if n != want {
+		t.Fatalf("published %d, want %d", n, want)
 	}
 	again, err := svc.EnsureBundledSkills(context.Background())
 	if err != nil {
@@ -196,8 +205,11 @@ func TestEnsureBundledSkillsPublishesCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != len(Catalog()) {
-		t.Fatalf("listed %d published", len(listed))
+	if len(listed) != want {
+		t.Fatalf("listed %d published, want %d", len(listed), want)
+	}
+	if _, err := svc.GetByNameVersion(context.Background(), "tpl-grill-me", "1.0.0"); err == nil {
+		t.Fatal("market-only template should not auto-install")
 	}
 }
 

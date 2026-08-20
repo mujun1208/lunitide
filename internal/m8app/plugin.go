@@ -1,4 +1,4 @@
-﻿// M8 FR-18 application service (T-8.9.x): plugin.install / list / toggle /
+// M8 FR-18 application service (T-8.9.x): plugin.install / list / toggle /
 // upgrade / uninstall / dev.create.
 //
 // The install verification chain runs in order - signature/package hash

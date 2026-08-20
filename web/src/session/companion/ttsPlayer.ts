@@ -214,8 +214,8 @@ export class TtsPlayer {
     return audio
   }
 
-  private async playSegmentFallback(wavBase64: string, generation: number, callbacks: TtsPlayerCallbacks): Promise<void> {
-    await new Promise<void>(resolve => {
+  private async playSegmentFallback(wavBase64: string, generation: number, callbacks: TtsPlayerCallbacks): Promise<boolean> {
+    return new Promise<boolean>(resolve => {
       const audio = this.ensureAudio()
       const byteCharacters = atob(wavBase64)
       const bytes = new Uint8Array(new ArrayBuffer(byteCharacters.length))
@@ -223,7 +223,10 @@ export class TtsPlayer {
       if (this.blobUrl) URL.revokeObjectURL(this.blobUrl)
       this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: bytes[0] === 0xff || (bytes[0] === 0x49 && bytes[1] === 0x44) ? 'audio/mpeg' : 'audio/wav' }))
 
-      const cleanup = () => {
+      let settled = false
+      const finish = (ok: boolean) => {
+        if (settled) return
+        settled = true
         audio.removeEventListener('ended', onEnded)
         audio.removeEventListener('error', onError)
         this.stopGainLoop(callbacks)
@@ -232,20 +235,30 @@ export class TtsPlayer {
           this.blobUrl = null
         }
         if (this.activeCleanup === cleanup) this.activeCleanup = null
-        resolve()
+        resolve(ok)
       }
-      const onEnded = () => cleanup()
-      const onError = () => cleanup()
+      const cleanup = () => finish(true)
+      const onEnded = () => finish(true)
+      const onError = () => finish(false)
       audio.addEventListener('ended', onEnded)
       audio.addEventListener('error', onError)
       audio.src = this.blobUrl
       this.activeCleanup = cleanup
       this.startGainLoop(callbacks)
-      const tryPlay = () =>
-        audio.play().catch(() => unlockTtsAudio().then(() => audio.play()).catch(() => cleanup()))
-      void tryPlay()
+      void (async () => {
+        try {
+          await audio.play()
+        } catch {
+          await unlockTtsAudio()
+          try {
+            await audio.play()
+          } catch {
+            finish(false)
+          }
+        }
+      })()
+      void generation
     })
-    void generation
   }
 
   // ------------------------------------------------------------------
@@ -259,8 +272,7 @@ export class TtsPlayer {
     if (ctx?.state === 'suspended') await ctx.resume().catch(() => {})
     if (seg.buffer && ctx?.state === 'running' && this.scheduleBuffer(seg.buffer, callbacks)) return true
     try {
-      await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
-      return true
+      return await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
     } catch {
       return false
     }

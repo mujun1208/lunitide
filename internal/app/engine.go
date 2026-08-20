@@ -547,6 +547,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodPluginMarketSearch:            handlePluginMarketSearch,
 	bridge.MethodPluginMarketDetail:            handlePluginMarketDetail,
 	bridge.MethodExpertCreate:                  handleExpertCreate,
+	bridge.MethodExpertCatalogList:             handleExpertCatalogList,
+	bridge.MethodExpertInstall:                 handleExpertInstall,
 	bridge.MethodExpertList:                    handleExpertList,
 	bridge.MethodExpertDetail:                  handleExpertDetail,
 	bridge.MethodExpertUpdate:                  handleExpertUpdate,

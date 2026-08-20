@@ -439,6 +439,8 @@ func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) br
 		Version     string   `json:"version"`
 		Permissions []string `json:"permissions"`
 		Installed   bool     `json:"installed"`
+		Featured    bool     `json:"featured"`
+		Source      string   `json:"source"`
 	}
 	items := make([]entry, 0, len(skillapp.Catalog()))
 	for _, t := range skillapp.Catalog() {
@@ -446,16 +448,19 @@ func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) br
 		for _, p := range t.Permissions {
 			perms = append(perms, string(p))
 		}
+		source := t.Source
+		if source == "" {
+			source = "月汐"
+		}
 		items = append(items, entry{ID: t.ID, Name: t.Name, DisplayName: t.DisplayName,
 			Description: t.Description, Category: t.Category, Version: t.Version,
-			Permissions: perms, Installed: have[t.Name+"@"+t.Version]})
+			Permissions: perms, Installed: have[t.Name+"@"+t.Version], Featured: t.Featured, Source: source})
 	}
 	return bridge.Success(r.ID, map[string]any{"items": items})
 }
 
-// handleSkillInstall materializes one catalog template as a local draft
-// skill through the normal create pipeline (permissions review + publish
-// gate still apply).
+// handleSkillInstall materializes one catalog template and publishes it so
+// a market click is enough to use the skill in chat.
 func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		TemplateID string `json:"templateId"`
@@ -469,7 +474,13 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 	s, err := e.skills.InstallFromCatalog(ctx, p.TemplateID)
 	switch {
 	case err == nil:
-		return bridge.Success(r.ID, map[string]any{"skillId": s.ID, "name": s.Name, "status": string(s.Status)})
+		status := string(s.Status)
+		if s.Status == skill.SkillStatusDraft {
+			if perr := e.skills.Publish(ctx, s.ID); perr == nil {
+				status = string(skill.SkillStatusPublished)
+			}
+		}
+		return bridge.Success(r.ID, map[string]any{"skillId": s.ID, "name": s.Name, "status": status})
 	case errors.Is(err, skillapp.ErrTemplateUnknown):
 		return bridge.Failure(r.ID, r.TraceID, "SKILL_TEMPLATE_NOT_FOUND", "模板不存在", false)
 	case errors.Is(err, skillapp.ErrTemplateInstalled):

@@ -136,8 +136,10 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'evidence.attachTest',
   'evidence.list',
   'expert.archive',
+  'expert.catalog.list',
   'expert.create',
   'expert.detail',
+  'expert.install',
   'expert.list',
   'expert.mount',
   'expert.mounting.get',
@@ -376,6 +378,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'workspace.list',
   'workspace.read',
   'workspace.register',
+  'workspace.root.clear',
   'workspace.root.get',
   'workspace.root.select',
 ]), 'enabled method set drift')
@@ -386,7 +389,7 @@ for (const method of ['stage.create', 'stage.list', 'stage.update']) assert(ulid
 assert(required(methodSchema('stage.create')).has('phase') && required(methodSchema('stage.create')).has('title') && refEndsWith(methodSchema('stage.create')['x-result'], '#/$defs/StageDTO'), 'stage.create contract drift')
 assert(required(methodSchema('stage.update')).has('id') && required(methodSchema('stage.update')).has('status') && required(methodSchema('stage.update')).has('expectedVersion') && refEndsWith(methodSchema('stage.update')['x-result'], '#/$defs/StageDTO'), 'stage.update contract drift')
 assert(required(methodSchema('stage.list')).has('projectId') && methodSchema('stage.list')['x-result']?.properties?.items?.maxItems === 9, 'stage.list contract drift')
-assert(methodSchemas.every(schema => schema['x-owner'] === (['browser.close', 'browser.open', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.read', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
+assert(methodSchemas.every(schema => schema['x-owner'] === (['browser.close', 'browser.open', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.read', 'workspace.root.clear', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
 assert(refEndsWith(props(providerList).protocol, '#/$defs/ProviderProtocol'), 'provider.list protocol must explicitly reference ProviderProtocol')
 assert(props(methodSchema('system.health')['x-result']).protocol?.const === bridgeVersion, 'system.health result protocol must be the Bridge version')
 for (const method of ['provider.create', 'provider.update']) {

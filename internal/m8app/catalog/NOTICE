@@ -1,0 +1,6 @@
+Agency-agent catalog entries are adapted from
+https://github.com/jnMetaCode/agency-agents-zh (MIT License).
+
+They are rewritten into Lunitide's six-section expert / chat-skill shape
+and invoked through builtin:// paths. This is not a vendored copy of the
+upstream repository.
