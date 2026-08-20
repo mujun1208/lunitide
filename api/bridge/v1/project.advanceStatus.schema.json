@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://lunitide.local/schema/bridge/v1/project.advanceStatus.schema.json",
+  "title":"project.advanceStatus payload","x-method":"project.advanceStatus","x-owner":"engine","x-enabled":true,
+  "type":"object","additionalProperties":false,
+  "properties":{
+    "id":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},
+    "version":{"type":"integer","minimum":1},
+    "phase":{"type":"integer","minimum":1,"maximum":9}
+  },
+  "required":["id","version","phase"],
+  "x-result":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"},
+  "x-examples":{"positive":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","version":2,"phase":1}],"negative":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","version":2}]}
+}

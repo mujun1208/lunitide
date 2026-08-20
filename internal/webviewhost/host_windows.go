@@ -137,6 +137,7 @@ type Host struct {
 
 	appIcon   win32.HICON
 	trayAdded bool
+	forceQuit bool
 }
 
 type frameRegistration struct {
@@ -929,8 +930,9 @@ func (h *Host) showTrayMenu(hwnd win32.HWND) {
 		win32.ShowWindow(hwnd, win32.SW_SHOW)
 		win32.SetForegroundWindow(hwnd)
 	case cmdExit:
-		postMessage.Call(uintptr(hwnd), uintptr(win32.WM_CLOSE), 0, 0)
-		h.removeTrayIcon()
+		if h != nil {
+			h.forceQuit = true
+		}
 		win32.DestroyWindow(hwnd)
 	}
 }
@@ -964,21 +966,27 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 		}
 		return 0
 	case win32.WM_SYSCOMMAND:
-		// A title-bar X click carries the mouse key state in HIWORD(wParam);
-		// keep its familiar hide-to-tray behavior. Keyboard Alt+F4 and the
-		// taskbar context-menu "关闭窗口" arrive without mouse state and fall
-		// through to DefWindowProc, which routes them to WM_CLOSE below for a
-		// real exit.
-		if uint32(wParam)&0xFFF0 == win32.SC_CLOSE && uint32(wParam)>>16 != 0 {
-			win32.ShowWindow(hwnd, win32.SW_HIDE)
-			return 0
+		// Title-bar X also arrives here on some builds; hide instead of
+		// DefWindowProc so we do not destroy the host while the tray icon
+		// keeps the process alive (WorkBuddy-style close).
+		if uint32(wParam)&0xFFF0 == win32.SC_CLOSE {
+			switch h.dispositionForClose() {
+			case closeHide:
+				win32.ShowWindow(hwnd, win32.SW_HIDE)
+				return 0
+			case closeDestroy:
+				win32.DestroyWindow(hwnd)
+				return 0
+			}
 		}
 		return win32.DefWindowProc(hwnd, message, wParam, lParam)
 	case win32.WM_CLOSE:
-		// Reached from Alt+F4, the taskbar "关闭窗口" command, and the tray
-		// exit menu — destroy the window so the message loop ends and the
-		// process truly exits (WM_DESTROY removes the tray icon).
-		win32.DestroyWindow(hwnd)
+		switch h.dispositionForClose() {
+		case closeHide:
+			win32.ShowWindow(hwnd, win32.SW_HIDE)
+		case closeDestroy:
+			win32.DestroyWindow(hwnd)
+		}
 		return 0
 	case trayMessage:
 		// Tray icon callback: right-click context menu
@@ -987,8 +995,8 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 				h.showTrayMenu(hwnd)
 			}
 		}
-		// Left double-click restores the window
-		if uint32(lParam) == win32.WM_LBUTTONDBLCLK {
+		// Left click or double-click restores the window
+		if uint32(lParam) == win32.WM_LBUTTONUP || uint32(lParam) == win32.WM_LBUTTONDBLCLK {
 			win32.ShowWindow(hwnd, win32.SW_SHOW)
 			win32.SetForegroundWindow(hwnd)
 		}

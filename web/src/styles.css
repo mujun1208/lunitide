@@ -36,6 +36,16 @@ html[data-theme="light"] .setting-group { background: #fff; border-color: var(--
 html[data-theme="light"] .setting-group-title { background: var(--bg2); border-color: var(--rule); }
 html[data-theme="light"] .setting-row { border-color: var(--rule); }
 html[data-theme="light"] .about-info>div { background: var(--bg2); }
+html[data-theme="light"] .settings-shell { background: var(--bg); border-color: var(--rule); }
+html[data-theme="light"] .settings-nav { background: var(--bg2); border-color: var(--rule); }
+html[data-theme="light"] .settings-content { background: var(--bg); }
+html[data-theme="light"] .settings-item { color: var(--muted); }
+html[data-theme="light"] .settings-item:hover,
+html[data-theme="light"] .settings-item.on { color: var(--ink); background: rgba(0, 138, 197, 0.08); }
+html[data-theme="light"] .about-links { background: var(--bg2); color: var(--muted); }
+html[data-theme="light"] .drawer-toggle { background: rgba(255, 255, 255, 0.92); border-color: var(--rule); color: var(--ink); }
+html[data-theme="light"] .drawer-toggle:hover { background: var(--bg3); }
+@media(max-width:680px){html[data-theme="light"] .drawer-toggle{background:rgba(255,255,255,.96);border-color:var(--rule);color:var(--ink)}}
 
 /* ===== Component Level Light Theme Overrides (Tables, Assets, M5 Workflows) ===== */
 html[data-theme="light"] .asset-manager-panel,
@@ -202,6 +212,52 @@ button:disabled{opacity:.5}
 .dev-title{font-family:var(--serif);font-size:15px;font-weight:600;color:var(--ink)}
 .view-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(520px,55vw)}
 @media (max-width:900px){.project-workspace{grid-template-columns:1fr}.phase-nav{display:none}}
+
+/* PM workbench shell */
+.pm-workbench .pm-workbench-center.has-deliverable{width:calc(100% - var(--sidebar-width,288px) - var(--deliverable-width,360px));margin-right:var(--deliverable-width,360px)}
+.pm-workbench .pm-workbench-center .main{min-height:100vh;height:100vh}
+.pm-workbench .pm-workbench-center .phase-nav{display:none}
+.pm-phase-sidebar .pm-workbench-project{display:grid;gap:4px;padding:0 4px 14px;border-bottom:1px solid rgba(137,159,194,.12);margin-bottom:12px}
+.pm-phase-sidebar .pm-workbench-project b{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-phase-sidebar .pm-workbench-project span,.pm-phase-sidebar .pm-workbench-project small{color:var(--muted);font-size:11px}
+.pm-phase-nav-title{font:10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:0 10px 8px}
+.pm-phase-list{display:grid;gap:3px;overflow-y:auto;flex:1;min-height:0;padding:2px}
+.pm-phase-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#bdc9da;text-align:left;font-size:13px}
+.pm-phase-item.on,.pm-phase-item:hover{background:rgba(121,160,224,.12);color:#fff}
+.pm-phase-item.done .pm-phase-num{color:#5ce2c5}
+.pm-phase-item.run .pm-phase-num{color:#67c9ff}
+.pm-phase-num{width:22px;flex:none;text-align:center;font:11px var(--mono)}
+.pm-phase-note{margin:10px 10px 0;color:#8292aa;font-size:11px;line-height:1.45}
+.pm-deliverable-panel{position:fixed;z-index:55;top:0;right:0;width:var(--deliverable-width,360px);height:100vh;border-left:1px solid var(--rule);background:rgba(8,13,22,.98);display:flex;flex-direction:column;overflow:hidden}
+.deliverable-resizer{position:fixed;inset:0 var(--deliverable-width,360px) 0 auto;width:5px;z-index:56}
+.pm-deliverable-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:14px 14px 10px;border-bottom:1px solid var(--rule)}
+.pm-deliverable-head b{display:block;font-size:13px}
+.pm-deliverable-head small{color:var(--muted);font-size:11px}
+.deliverable-grid{flex:1;min-height:0;overflow:auto;padding:12px;display:grid;grid-template-columns:1fr;gap:8px;align-content:start}
+.deliverable-card{display:grid;gap:4px;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:rgba(14,28,48,.5);color:var(--ink);text-align:left;cursor:pointer}
+.deliverable-card.is-confirmed{border-color:rgba(92,226,197,.45);background:rgba(47,214,181,.08)}
+.deliverable-ordinal{font:10px var(--mono);color:var(--muted)}
+.deliverable-card b{font-size:12px;line-height:1.35}
+.deliverable-card small{color:var(--muted);font-size:10px}
+.pm-release-panel{position:fixed;z-index:55;top:0;right:0;width:var(--deliverable-width,360px);height:100vh;border-left:1px solid var(--rule);background:rgba(8,13,22,.98);display:flex;flex-direction:column;overflow:hidden}
+.release-panel-body{display:grid;gap:10px;padding:12px}
+.release-panel-body label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.release-panel-body input{padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:rgba(14,28,48,.6);color:var(--ink)}
+.release-result{font-size:12px;color:var(--tide1)}
+.release-result code{font-family:var(--mono);word-break:break-all}
+.skill-import-wizard{display:grid;gap:12px}
+.skill-import-wizard label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.skill-import-wizard input{padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:rgba(14,28,48,.6);color:var(--ink)}
+.read-only-banner{margin:0 18px 8px;padding:8px 12px;border:1px solid rgba(255,196,86,.35);border-radius:8px;background:rgba(255,196,86,.08);color:#ffd98a;font-size:12px}
+.pm-workbench.is-readonly .pm-deliverable-head .primary,.pm-workbench.is-readonly .release-panel-body .primary{opacity:.55;pointer-events:none}
+.triple-gate{display:grid;gap:12px}
+.triple-gate-list{margin:0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5}
+.confirm-triplet{display:grid;gap:6px;padding:10px;border:1px solid rgba(255,122,122,.28);border-radius:8px;background:rgba(255,75,90,.06);font-size:12px;line-height:1.45}
+.triple-gate-input{width:100%;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:rgba(14,28,48,.6);color:var(--ink)}
+.pm-item.status-chartered,.pm-item.status-req_architecture,.pm-item.status-req_assessment,.pm-item.status-in_progress,.pm-item.status-integration_test,.pm-item.status-go_live_prep,.pm-item.status-live{border-left:3px solid var(--tide1)}
+.pm-dot.status-chartered,.pm-dot.status-req_architecture,.pm-dot.status-req_assessment,.pm-dot.status-in_progress,.pm-dot.status-integration_test,.pm-dot.status-go_live_prep,.pm-dot.status-live{background:var(--tide1);box-shadow:0 0 7px rgba(63,214,255,.6)}
+@media(max-width:900px){.pm-workbench .pm-workbench-center.has-deliverable{width:100%;margin-right:0}.pm-deliverable-panel,.pm-release-panel{position:fixed;inset:auto 0 0 0;width:100%;height:min(52vh,420px);border-left:0;border-top:1px solid var(--rule)}.deliverable-resizer{display:none}}
+
 
 /* ===== Chat Area ===== */
 .chat-area{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:16px;gap:14px}
@@ -373,7 +429,7 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* Ordinary chat switches from the centered launcher to a full conversation view. */
-.chat-shell{position:relative;z-index:1}.chat-content{position:relative;z-index:2;overflow:hidden}.chat-content>.main{height:100%;min-height:0;background:rgba(4,9,17,.66);backdrop-filter:blur(9px)}
+.chat-shell{position:relative;z-index:1}.chat-content{position:relative;z-index:2;overflow:hidden;min-height:100vh;background:#000}.chat-shell.sidebar-collapsed .chat-content{width:100%;margin-left:0}.chat-content>.main{height:100%;min-height:0;background:rgba(4,9,17,.92)}.chat-content>.main.personal-chat-page{backdrop-filter:none;-webkit-backdrop-filter:none}.personal-chat-page .workspace-layout.workspace-is-open{grid-template-columns:minmax(280px,1fr) 5px var(--workspace-width,520px)}
 .personal-chat-page .topbar{height:46px;padding:6px 14px;gap:10px;background:rgba(7,12,20,.88)}
 .personal-chat-page .topbar>button{height:28px;padding:0 9px;border-color:rgba(143,163,191,.14);border-radius:7px;background:rgba(255,255,255,.025);font-size:11.5px}
 .personal-chat-page .tb-sep{height:14px}.personal-chat-page .tb-proj{font-size:13px}.personal-chat-page .tb-proj .dot{width:6px;height:6px}
@@ -561,7 +617,7 @@ html[data-theme="light"] .launch-sidebar{border-color:var(--rule);background:var
 html[data-theme="light"] .launch-content{border-color:var(--rule);background:var(--bg)}
 html[data-theme="light"] .launch-brand b,html[data-theme="light"] .launch-brand em,html[data-theme="light"] .launch-center h1,html[data-theme="light"] .launch-actions b{color:var(--ink)}
 html[data-theme="light"] .primary-actions>button,html[data-theme="light"] .launch-nav button,html[data-theme="light"] .launch-bottom button{color:var(--muted)}
-html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active{background:rgba(0,138,197,.08);color:var(--tide1)}
+html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active,html[data-theme="light"] .launch-bottom button.active{background:rgba(0,138,197,.08);color:var(--tide1)}
 html[data-theme="light"] .launch-composer{border-color:var(--rule);background:#fff;box-shadow:0 10px 40px rgba(44,93,135,.08)}
 html[data-theme="light"] .launch-composer textarea{color:var(--ink)}
 html[data-theme="light"] .launch-menu{background:#fff;box-shadow:0 14px 40px rgba(44,93,135,.15);border:1px solid var(--rule)}
@@ -595,7 +651,7 @@ html[data-theme="light"] .launch-content .skill-detail,html[data-theme="light"] 
 
 /* Polished personal composer and complete light surfaces. */
 .composer-popover-anchor{position:relative}.composer-popover-anchor>button{height:30px;padding:0 9px;border-color:var(--line);background:var(--bg2);font-size:11px}.composer-popover{position:absolute;z-index:80;left:0;right:auto;bottom:calc(100% + 8px);width:250px;max-width:min(290px,calc(100vw - 32px));max-height:min(60vh,420px);overflow-y:auto;padding:7px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);box-shadow:0 16px 45px rgba(0,0,0,.3)}.composer-popover button{display:block;width:100%;padding:9px;border:0;background:transparent;text-align:left}.composer-popover button:hover,.composer-popover button.selected{background:rgba(80,140,220,.12)}.composer-popover small{display:block;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}.mode-popover,.model-popover{width:290px}.mode-popover b,.model-popover b{display:block}.model-popover button{display:block;width:100%;padding:9px;border:0;background:transparent;text-align:left}.model-popover button:hover,.model-popover button.selected{background:rgba(80,140,220,.12)}.manage-models{padding:4px 7px!important;border:0!important;background:transparent!important;color:var(--glow)!important;font-size:11px!important}.personal-chat-page .mode-popover,.personal-chat-page .model-popover{left:0;right:auto}.personal-chat-page .message-actions{position:relative}
-html[data-theme="light"] .chat-content>.main,html[data-theme="light"] .personal-chat-page,html[data-theme="light"] .personal-chat-page .topbar{background:rgba(248,252,255,.94);color:var(--ink);backdrop-filter:none}html[data-theme="light"] .personal-chat-page .message-input{border-color:rgba(45,92,135,.25);background:#fff;box-shadow:0 8px 28px rgba(45,92,135,.12)}html[data-theme="light"] .personal-chat-page .message-input textarea,html[data-theme="light"] .personal-chat-page .message-list .msg.agent .bubble,html[data-theme="light"] .personal-chat-page .conversation-scroll>.chat-response .bubble{color:#14243b}html[data-theme="light"] .personal-chat-page .message-list .msg.user .bubble{border-color:rgba(45,92,135,.2);background:#e4f3ff;color:#14243b}html[data-theme="light"] .composer-popover{background:#fff;box-shadow:0 16px 45px rgba(45,92,135,.18)}html[data-theme="light"] .composer-popover button,html[data-theme="light"] .composer-popover b{color:#14243b}html[data-theme="light"] .launch-lead,html[data-theme="light"] .launch-actions span,html[data-theme="light"] .launch-notice,html[data-theme="light"] .launch-menu small,html[data-theme="light"] .launch-menu p{color:#496985}html[data-theme="light"] .composer-tools>button,html[data-theme="light"] .menu-anchor>button{background:#f6fbff;color:#294a68;border-color:rgba(45,92,135,.22)}html[data-theme="light"] .launch-actions button{background:rgba(255,255,255,.78);border-color:rgba(45,92,135,.2)}
+html[data-theme="light"] .chat-content>.main,html[data-theme="light"] .personal-chat-page,html[data-theme="light"] .personal-chat-page .topbar{background:rgba(248,252,255,.98);color:var(--ink);backdrop-filter:none}html[data-theme="light"] .chat-content,html[data-theme="light"] .chat-shell.sidebar-collapsed .chat-content{background:var(--bg)}html[data-theme="light"] .personal-chat-page .message-input{border-color:rgba(45,92,135,.25);background:#fff;box-shadow:0 8px 28px rgba(45,92,135,.12)}html[data-theme="light"] .personal-chat-page .message-input textarea,html[data-theme="light"] .personal-chat-page .message-list .msg.agent .bubble,html[data-theme="light"] .personal-chat-page .conversation-scroll>.chat-response .bubble{color:#14243b}html[data-theme="light"] .personal-chat-page .message-list .msg.user .bubble{border-color:rgba(45,92,135,.2);background:#e4f3ff;color:#14243b}html[data-theme="light"] .composer-popover{background:#fff;box-shadow:0 16px 45px rgba(45,92,135,.18)}html[data-theme="light"] .composer-popover button,html[data-theme="light"] .composer-popover b{color:#14243b}html[data-theme="light"] .launch-lead,html[data-theme="light"] .launch-actions span,html[data-theme="light"] .launch-notice,html[data-theme="light"] .launch-menu small,html[data-theme="light"] .launch-menu p{color:#496985}html[data-theme="light"] .composer-tools>button,html[data-theme="light"] .menu-anchor>button{background:#f6fbff;color:#294a68;border-color:rgba(45,92,135,.22)}html[data-theme="light"] .launch-actions button{background:rgba(255,255,255,.78);border-color:rgba(45,92,135,.2)}
 .upload-status:empty{display:none}.upload-status{color:var(--muted);font-size:11px}
 .message-input.is-dragging,.launch-composer.is-dragging{border-color:var(--tide1)!important;background:rgba(63,214,255,.08)!important;box-shadow:0 0 0 2px rgba(63,214,255,.22),0 8px 26px rgba(0,0,0,.24)!important}
 .composer-attach{width:30px;height:30px;padding:0!important;border-radius:8px!important;font-size:17px!important}.pending-files{display:flex;gap:6px;flex-wrap:wrap;padding:0 9px 8px}.pending-files>span{display:flex;align-items:center;gap:5px;max-width:220px;padding:4px 7px;border:1px solid var(--line);border-radius:7px;background:var(--bg2);color:var(--ink);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pending-files button{width:17px;height:17px;padding:0;border:0;background:transparent;color:var(--muted)}
@@ -771,6 +827,27 @@ html[data-theme="light"] .expert-detail .sd-title,html[data-theme="light"] .sd-d
 html[data-theme="light"] .ui-btn{background:#fff;border-color:rgba(45,92,135,.22);color:#14243b}
 
 /* ===== 项目管理紧凑清单（图3 风格）+ 宽对话框（保存按钮常驻） ===== */
+.pm-body{padding:24px 28px;border:1px solid var(--rule);border-radius:18px;background:rgba(10,16,27,.55)}
+.pm-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.pm-toolbar h2{margin:0;margin-right:auto;font-size:18px}
+.pm-toolbar>button{width:34px;height:34px;padding:0}
+.pm-search{display:flex;align-items:center;gap:7px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg2);min-width:min(280px,35vw)}
+.pm-search input{width:100%;height:auto;padding:0;border:0;background:transparent;outline:0;color:var(--ink)}
+.pm-filter{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;white-space:nowrap}
+.pm-filter select{border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--ink);padding:6px 8px;font-size:12px}
+.gate-note{margin:0 0 14px;padding:10px 12px;border:1px dashed rgba(245,183,74,.35);border-radius:9px;background:rgba(245,183,74,.06);color:var(--muted);font-size:11.5px;line-height:1.55}
+html[data-theme="light"] .project-hero{background:linear-gradient(135deg,#fff 0%,#eef7ff 58%,#e4f2ff 100%);border-color:var(--rule);box-shadow:0 2px 14px rgba(44,93,135,.06)}
+html[data-theme="light"] .project-hero h1,html[data-theme="light"] .project-hero p{color:var(--ink)}
+html[data-theme="light"] .project-hero-art{color:var(--muted)}
+html[data-theme="light"] .project-hero-art span{border-color:var(--line);background:rgba(0,138,197,.06)}
+html[data-theme="light"] .project-hero-art i{background:linear-gradient(90deg,transparent,var(--line) 14%,var(--line) 86%,transparent)}
+html[data-theme="light"] .pm-body{background:#fff;border-color:var(--rule);box-shadow:0 2px 10px rgba(44,93,135,.05)}
+html[data-theme="light"] .pm-item{background:#fff}
+html[data-theme="light"] .pm-item-open:not(:disabled):hover{background:rgba(0,138,197,.06)}
+html[data-theme="light"] .pm-chip.status-active{color:#007a62;background:rgba(0,153,124,.1)}
+html[data-theme="light"] .pm-chip.status-created{color:#55708e;background:rgba(85,112,142,.1)}
+html[data-theme="light"] .pm-chip.status-closed,html[data-theme="light"] .pm-chip.status-archived{color:#9a6b00;background:rgba(255,196,107,.14)}
+html[data-theme="light"] .gate-note{background:rgba(255,196,107,.1);border-color:rgba(255,196,107,.35)}
 .pm-list{margin:0;padding:0;list-style:none;display:grid;gap:7px}
 .pm-item{border:1px solid var(--rule);border-radius:11px;background:rgba(14,28,48,.42);transition:border-color .15s}
 .pm-item:hover{border-color:rgba(94,143,211,.45)}
@@ -904,9 +981,9 @@ html.companion-active .drawer-toggle{display:none}
 /* 进入月伴：月亮由小缓缓放大就位 */
 @keyframes companionMoonEnter{from{transform:scale(.78);opacity:0}to{transform:scale(1);opacity:1}}
 /* 月光韵：月缘实光向外虚化，无描边圆环、无 box-shadow spread */
-.companion-moon-halo{position:absolute;inset:-70%;border-radius:50%;pointer-events:none;box-shadow:none;opacity:.85;
-  background:radial-gradient(circle,transparent 36%,rgba(255,250,246,.55) 41.7%,rgba(236,244,255,.26) 46%,rgba(200,226,255,.1) 58%,rgba(160,210,255,.035) 72%,transparent 86%);
-  filter:blur(22px)}
+.companion-moon-halo{position:absolute;inset:-48%;border-radius:50%;pointer-events:none;box-shadow:none;opacity:.78;
+  background:radial-gradient(circle,transparent 44%,rgba(255,250,246,.32) 46.5%,rgba(236,244,255,.1) 48.5%,rgba(200,226,255,.05) 56%,rgba(160,210,255,.02) 68%,transparent 82%);
+  filter:blur(18px)}
 /* 待机时隐约忽闪的白光：不规则明暗步进模拟月光闪烁 */
 .companion-moon .companion-moon-halo{animation:companionFlicker 6.4s linear infinite}
 /* 聆听：光韵随麦克风音量变亮、变散，月面再加一层轻微亮度闪烁 */

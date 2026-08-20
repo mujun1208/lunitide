@@ -43,6 +43,7 @@ import (
 	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/stageapp"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/lunitide/lunitide/internal/tts"
@@ -59,6 +60,8 @@ type ProviderService interface {
 type ProjectService interface {
 	Create(context.Context, string, string, any, project.Project) (project.Project, error)
 	List(context.Context, project.Filter) ([]project.Project, error)
+	Get(context.Context, string) (project.Project, error)
+	HasArtifacts(context.Context, string) (bool, error)
 	Delete(context.Context, string) error
 	Mutate(context.Context, string, string, string, string, int64, func(*project.Project) error) (project.Project, error)
 }
@@ -78,6 +81,7 @@ type messageRewindService interface {
 }
 type StageService interface {
 	Create(context.Context, string, string, any, stage.Stage) (stage.Stage, error)
+	Update(context.Context, string, string, any, stageapp.UpdateInput) (stage.Stage, error)
 	List(context.Context, stage.Filter) ([]stage.Stage, error)
 }
 
@@ -222,6 +226,10 @@ type Engine struct {
 
 	// P2-3: resident cron automation scheduler.
 	automation *scheduler.Scheduler
+
+	// Asset template library and project deliverables (migration 0082).
+	assets       AssetTemplateStore
+	deliverables DeliverableStore
 }
 type terminalOwner struct {
 	emit     EventEmitter
@@ -387,6 +395,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProjectPublish:                handleProjectPublish,
 	bridge.MethodProjectClose:                  handleProjectClose,
 	bridge.MethodProjectReopen:                 handleProjectReopen,
+	bridge.MethodProjectAdvanceStatus:          handleProjectAdvanceStatus,
 	bridge.MethodSessionCreate:                 handleSessionCreate,
 	bridge.MethodSessionDelete:                 handleSessionDelete,
 	bridge.MethodSessionList:                   handleSessionList,
@@ -396,6 +405,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMessageRewind:                 handleMessageRewind,
 	bridge.MethodStageCreate:                   handleStageCreate,
 	bridge.MethodStageList:                     handleStageList,
+	bridge.MethodStageUpdate:                   handleStageUpdate,
 	bridge.MethodPlanGet:                       handlePlanGet,
 	bridge.MethodPlanList:                      handlePlanList,
 	bridge.MethodPlanCreate:                    handlePlanCreate,
@@ -454,6 +464,11 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTerminalInput:                 handleTerminalInput,
 	bridge.MethodTerminalResize:                handleTerminalResize,
 	bridge.MethodTerminalClose:                 handleTerminalClose,
+	bridge.MethodTemplateCreate:                handleTemplateCreate,
+	bridge.MethodTemplateDelete:                handleTemplateDelete,
+	bridge.MethodTemplateEnable:                handleTemplateEnable,
+	bridge.MethodTemplateList:                  handleTemplateList,
+	bridge.MethodTemplateVoid:                  handleTemplateVoid,
 	bridge.MethodWorkflowCaptureInput:          handleWorkflowCaptureInput,
 	bridge.MethodWorkflowCreateVersion:         handleWorkflowCreateVersion,
 	bridge.MethodWorkflowPublish:               handleWorkflowPublish,
@@ -482,6 +497,9 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodArchivePack:                   handleArchivePack,
 	bridge.MethodArchiveUnpack:                 handleArchiveUnpack,
 	bridge.MethodDbQuery:                       handleDbQuery,
+	bridge.MethodDeliverableConfirmGate:        handleDeliverableConfirmGate,
+	bridge.MethodDeliverableList:               handleDeliverableList,
+	bridge.MethodDeliverableUpsert:             handleDeliverableUpsert,
 	bridge.MethodDocumentParse:                 handleDocumentParse,
 	bridge.MethodGitRead:                       handleGitRead,
 	bridge.MethodHttpDownload:                  handleHttpDownload,

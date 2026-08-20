@@ -126,6 +126,7 @@ func main() {
 	providerService := providerapp.New(store, store)
 	projectService := projectapp.New(store, store)
 	sessionService := sessionapp.New(store, store)
+	projectService.SetArtifactChecker(store)
 	projectService.SetDeleter(store)
 	sessionService.SetDeleter(store)
 	messageService, err := messageapp.New(store, store, cursorKey)
@@ -239,10 +240,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("prepare persona directory failed; engine not ready: %v", err)
 	}
-	engine.SetM8ExpertService(m8app.NewExpertService(
+	expertSvc := m8app.NewExpertService(
 		store.AgentRuntimeRepository(), "local-user",
 		m8app.NewFilePersonaStore(personaRoot.Path()),
-	))
+	)
+	engine.SetM8ExpertService(expertSvc)
+	if err := m8app.EnsureBuiltinExperts(ctx, expertSvc); err != nil {
+		log.Printf("builtin expert seed: %v", err)
+	}
 	// M8 FR-17: the write-collaboration gate stays disabled through M8 -
 	// evaluate/status/confirm run the frozen-threshold evaluation and the
 	// one-time-token decision lifecycle over the M7 subagent audit and the
@@ -346,6 +351,8 @@ func main() {
 		log.Fatal(err)
 	}
 	engine.SetArtifactReviewStore(reviews)
+	engine.SetAssetStorage(store)
+	engine.SetDeliverableStorage(store)
 	// P2-3 resident automation: cron scheduler beside the tool workspaces.
 	// The headless executor is attached after the engine is fully wired so
 	// scheduled runs reuse the single durable chat kernel.

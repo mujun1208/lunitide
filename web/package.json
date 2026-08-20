@@ -8,6 +8,9 @@
     "verify:bridge": "node scripts/generate-bridge.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:bounded": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-tests-bounded.ps1",
+    "test:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-test-zombies.ps1",
+    "test:stop:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-test-zombies.ps1 -WhatIf",
     "build": "npm run generate:bridge && npm run typecheck && vite build"
   },
   "dependencies": {

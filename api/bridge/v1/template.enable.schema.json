@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/template.enable.schema.json",
+  "title": "template.enable payload",
+  "x-method": "template.enable",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["id", "expectedVersion"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "templateCode": { "type": "string" },
+      "name": { "type": "string" },
+      "templateType": { "enum": ["document", "scaffold"] },
+      "status": { "enum": ["enabled"] },
+      "version": { "type": "integer", "minimum": 1 }
+    },
+    "required": ["id", "templateCode", "name", "templateType", "status", "version"]
+  },
+  "x-examples": {
+    "positive": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedVersion": 1 }],
+    "negative": [{ "expectedVersion": 0 }]
+  }
+}

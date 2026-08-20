@@ -9,7 +9,7 @@ afterEach(cleanup)
 const now='2025-01-01T00:00:00Z'
 const created:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'<img src=x onerror=alert(1)>',projectCode:'ITM00001',type:'implementation',status:'created',description:'demo',client:'Acme',createdAt:now,updatedAt:now,version:1,planStart:'2026-01-01',planEnd:'2026-06-30'}
 const active:ProjectDTO={...created,id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Active',status:'active',version:2}
-const api=(overrides:Partial<ProjectBridge>={}):ProjectBridge=>({list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn().mockResolvedValue(created),update:vi.fn(),publish:vi.fn().mockImplementation(async payload=>({...created,id:payload.id,status:'active' as const,version:2})),close:vi.fn(),reopen:vi.fn(),delete:vi.fn().mockResolvedValue({deleted:true,id:created.id}),...overrides})
+const api=(overrides:Partial<ProjectBridge>={}):ProjectBridge=>({list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn().mockResolvedValue(created),update:vi.fn(),publish:vi.fn().mockImplementation(async payload=>({...created,id:payload.id,status:'chartered' as const,version:2})),close:vi.fn(),reopen:vi.fn(),advanceStatus:vi.fn(),delete:vi.fn().mockResolvedValue({deleted:true,id:created.id}),...overrides})
 const fillRequired=async(user:ReturnType<typeof userEvent.setup>,container:HTMLElement)=>{
  await user.type(screen.getByLabelText('C 项目名称',{exact:false}),'  Moon   Tide  ')
  await user.type(screen.getByLabelText('D 项目描述',{exact:false}),'A demo project')
@@ -81,7 +81,7 @@ it('orders by updatedAt DESC, filters by query, and enters the workbench from an
 it('saves an edited created project and publishes it into the workbench',async()=>{
  const saved={...created,name:'在线电商',version:2,client:'范德萨',amount:11,contractNo:'ht-222-06',description:'大范德萨',planStart:'2026-08-18',planEnd:'2026-12-18'}
  const update=vi.fn().mockResolvedValue(saved)
- const bridge=api({list:vi.fn().mockResolvedValue({items:[created]}),update,publish:vi.fn().mockImplementation(async payload=>({...saved,id:payload.id,status:'active' as const,version:3}))}),user=userEvent.setup()
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[created]}),update,publish:vi.fn().mockImplementation(async payload=>({...saved,id:payload.id,status:'chartered' as const,version:3}))}),user=userEvent.setup()
  render(<ProjectPage bridge={bridge}/>)
  await user.click(await screen.findByRole('button',{name:'修改'}))
  expect(screen.getByText('修改项目 · ITM00001')).toBeInTheDocument()
@@ -91,17 +91,17 @@ it('saves an edited created project and publishes it into the workbench',async()
  expect(await screen.findByText('项目已保存')).toBeInTheDocument()
 })
 
-it('gates lifecycle actions: publish confirm flips created to active and enables the workbench',async()=>{
+it('gates lifecycle actions: publish confirm flips created to chartered and enables the workbench',async()=>{
  const bridge=api({list:vi.fn().mockResolvedValue({items:[created]})}),user=userEvent.setup()
  render(<ProjectPage bridge={bridge}/>)
  await screen.findByText(created.name)
  expect(screen.queryByRole('button',{name:'进入工作台'})).not.toBeInTheDocument()
- await user.click(screen.getByRole('button',{name:'发布'}))
- expect(screen.getByText('发布项目 ITM00001')).toBeInTheDocument()
- await user.click(screen.getByRole('button',{name:'确认发布'}))
+ await user.click(screen.getByRole('button',{name:'立项'}))
+ expect(screen.getByText(`立项 ${created.projectCode}`)).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'确认立项'}))
  await waitFor(()=>expect(bridge.publish).toHaveBeenCalledOnce())
  expect(vi.mocked(bridge.publish).mock.calls[0][0]).toEqual({id:created.id,version:created.version})
- expect(await screen.findByText('已发布 ITM00001，现在可以进入工作台')).toBeInTheDocument()
+ expect(await screen.findByText('已立项 ITM00001，现在可以进入工作台')).toBeInTheDocument()
  expect(screen.getByRole('button',{name:'进入工作台'})).toBeInTheDocument()
 })
 

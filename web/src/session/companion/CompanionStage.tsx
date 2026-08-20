@@ -458,13 +458,28 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   const beginUserTurn = useCallback(
     (transcript: string, viaBargeIn: boolean) => {
+      const text = transcript.trim()
+      if (!text && viaBargeIn) {
+        silentRestartsRef.current = 0
+        spokenUpToRef.current = 0
+        speakingRef.current = false
+        setStreamTick(0)
+        setInterimText('')
+        playerRef.current?.interrupt()
+        setGain(0)
+        onCancel?.()
+        if (stateRef.current === 'speaking' || stateRef.current === 'thinking') machine.dispatch({ type: 'BARGE_IN' })
+        syncSpeechModes()
+        return
+      }
+      if (!text) return
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
       speakingRef.current = false
       setStreamTick(0)
       setInterimText('')
       playerRef.current?.interrupt()
-      setRounds([{ role: 'user', text: transcript }])
+      setRounds([{ role: 'user', text: text }])
       if (viaBargeIn) {
         onCancel?.()
         if (stateRef.current === 'speaking' || stateRef.current === 'thinking') machine.dispatch({ type: 'BARGE_IN' })
@@ -472,7 +487,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         machine.dispatch({ type: 'MIC_ACTIVATE' })
       }
       machine.dispatch({ type: 'RECOGNIZED_FINAL' })
-      onSend(transcript)
+      onSend(text)
       syncSpeechModes()
     },
     [machine, onCancel, onSend, syncSpeechModes],

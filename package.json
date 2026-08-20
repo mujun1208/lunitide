@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "generate:bridge": "npm --prefix web run generate:bridge",
     "verify:bridge": "npm --prefix web run verify:bridge",
+    "test:web": "npm --prefix web run test:bounded",
+    "test:web:stop": "npm --prefix web run test:stop",
     "setup:engine": "python -m venv .venv && .venv\\Scripts\\python.exe -m pip install --disable-pip-version-check -r engine/requirements-dev.txt",
     "test:engine": ".venv\\Scripts\\python.exe -m pytest engine/tests -q",
     "test:engine:smoke": ".venv\\Scripts\\python.exe engine/tests/smoke_process.py",

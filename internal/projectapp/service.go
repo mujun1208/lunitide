@@ -36,6 +36,10 @@ type UnitOfWork interface {
 }
 type Reader interface {
 	ListProjects(context.Context, project.Filter) ([]project.Project, error)
+	GetProject(context.Context, string) (project.Project, error)
+}
+type ArtifactChecker interface {
+	ProjectHasArtifacts(context.Context, string) (bool, error)
 }
 // Deleter removes a project and all its dependent records.
 type Deleter interface {
@@ -50,6 +54,7 @@ type Service struct {
 	read    Reader
 	uow     UnitOfWork
 	deleter Deleter
+	artifacts ArtifactChecker
 	clock   Clock
 }
 
@@ -60,6 +65,19 @@ func NewWithClock(read Reader, uow UnitOfWork, clock Clock) *Service {
 	return &Service{read: read, uow: uow, clock: clock}
 }
 func (s *Service) SetDeleter(d Deleter) { s.deleter = d }
+func (s *Service) SetArtifactChecker(c ArtifactChecker) { s.artifacts = c }
+func (s *Service) Get(ctx context.Context, id string) (project.Project, error) {
+	if s == nil || s.read == nil {
+		return project.Project{}, errors.New("project reader is unavailable")
+	}
+	return s.read.GetProject(ctx, id)
+}
+func (s *Service) HasArtifacts(ctx context.Context, id string) (bool, error) {
+	if s == nil || s.artifacts == nil {
+		return false, nil
+	}
+	return s.artifacts.ProjectHasArtifacts(ctx, id)
+}
 func (s *Service) Delete(ctx context.Context, id string) error {
 	if s == nil || s.deleter == nil {
 		return errors.New("project deleter unavailable")

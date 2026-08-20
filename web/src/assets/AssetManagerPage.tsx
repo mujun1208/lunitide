@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { attachmentBridge, projectBridge, type AttachmentBridge, type ProjectBridge } from '../bridge/client'
-import type { AttachmentGetResult, AttachmentListResult, ProjectDTO } from '../generated/bridge'
+import { attachmentBridge, projectBridge, templateBridge, type AttachmentBridge, type ProjectBridge, type TemplateBridge } from '../bridge/client'
+import type { AttachmentGetResult, AttachmentListResult, ProjectDTO, TemplateListResult } from '../generated/bridge'
 
 // ---- 分类与资产模型 ----
 type AssetCategory = 'all' | 'files' | 'deliverables' | 'phase_docs' | 'test_evidence' | 'releases' | 'templates'
@@ -54,6 +54,31 @@ const FILTER_TABS = ['全部', '需求架构', '方案和UI', '工程与发布']
 function fmtSize(n: number) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB` }
 
 // ---- 将后端 attachment 数据映射为 AssetRow ----
+function mapTemplate(item: TemplateListResult['items'][number]): AssetRow {
+  const status: AssetStatus =
+    item.status === 'enabled' ? 'enabled' :
+    item.status === 'draft' ? 'creating' : 'deprecated'
+  return {
+    id: item.id,
+    name: item.name,
+    filename: item.fileName || item.templateCode,
+    category: 'templates',
+    subCategory: item.templateType === 'scaffold' ? '脚手架模板' : '文档模板',
+    scope: 'organization',
+    source: 'template',
+    sourceLabel: item.documentType || item.templateType,
+    version: `v${item.version}.0`,
+    status,
+    description: item.description || `${item.templateCode} · ${item.templateType}`,
+    mime: item.mimeType || 'application/octet-stream',
+    size: 0,
+    sha256: '',
+    createdAt: item.createdAt?.slice(0, 10) ?? '',
+    references: 0,
+    projectName: item.client || '组织模板库',
+  }
+}
+
 function mapAttachment(item: AttachmentListResult['items'][number], projectName: string): AssetRow {
   return {
     id: item.attachmentId,
@@ -86,10 +111,11 @@ const MOCK_ASSETS: AssetRow[] = [
   { id: 'A005', name: 'Lunitide 2.0.0 测试包', filename: 'lunitide-win-x64.zip', category: 'releases', subCategory: '发布包 / 项目', scope: 'project', source: 'release', sourceLabel: '发布', version: 'rc.3', status: 'enabled', description: 'Windows x64 候选发布包。', mime: 'application/zip', size: 11534336, sha256: 'c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6', createdAt: '2026-08-13', references: 8, projectName: 'Lunitide' },
 ]
 
-export function AssetManagerPage({ attachments = attachmentBridge, projects = projectBridge }: { attachments?: AttachmentBridge; projects?: ProjectBridge }): React.JSX.Element {
+export function AssetManagerPage({ attachments = attachmentBridge, projects = projectBridge, templates = templateBridge }: { attachments?: AttachmentBridge; projects?: ProjectBridge; templates?: TemplateBridge }): React.JSX.Element {
   const [projectItems, setProjectItems] = useState<ProjectDTO[]>([])
   const [projectId, setProjectId] = useState('')
   const [backendItems, setBackendItems] = useState<AttachmentListResult['items']>([])
+  const [templateItems, setTemplateItems] = useState<TemplateListResult['items']>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -114,6 +140,13 @@ export function AssetManagerPage({ attachments = attachmentBridge, projects = pr
     return () => { alive = false }
   }, [projects])
 
+  // 加载组织模板库
+  useEffect(() => {
+    let alive = true
+    templates.list().then(result => { if (alive) setTemplateItems(result.items) }).catch(e => { if (alive) setError(e instanceof Error ? e.message : '模板载入失败') })
+    return () => { alive = false }
+  }, [templates])
+
   // 加载后端资产
   useEffect(() => {
     if (!projectId) return
@@ -125,12 +158,13 @@ export function AssetManagerPage({ attachments = attachmentBridge, projects = pr
     return () => { alive = false }
   }, [attachments, projectId])
 
-  // 合并后端资产与模拟数据
+  // 合并后端附件、模板库与演示数据（模板 tab 仅使用 template.list）
   const allAssets = useMemo(() => {
     const projectName = projectItems.find(p => p.id === projectId)?.name ?? '当前项目'
     const backend = backendItems.map(item => mapAttachment(item, projectName))
-    return [...MOCK_ASSETS, ...backend]
-  }, [backendItems, projectId, projectItems])
+    const tplRows = templateItems.map(mapTemplate)
+    return [...MOCK_ASSETS, ...backend, ...tplRows]
+  }, [backendItems, templateItems, projectId, projectItems])
 
   // 分类计数
   const categoryCounts = useMemo(() => {

@@ -17,7 +17,7 @@ func TestCatalogTemplatesWellFormed(t *testing.T) {
 		if tpl.ID == "" || tpl.Name == "" || tpl.DisplayName == "" || tpl.Category == "" {
 			t.Fatalf("template missing required identity fields: %+v", tpl)
 		}
-		if !strings.HasPrefix(tpl.Name, "tpl-") {
+		if !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" {
 			t.Fatalf("template name must use tpl- prefix: %q", tpl.Name)
 		}
 		if seen[tpl.ID] {
@@ -133,6 +133,46 @@ func (m *memSkillStore) UpdateSkillStatus(_ context.Context, id, status string) 
 func (m *memSkillStore) DeleteSkill(_ context.Context, id string) error {
 	delete(m.byID, id)
 	return nil
+}
+
+func TestExpertManagerCatalogManifest(t *testing.T) {
+	for _, tpl := range Catalog() {
+		if tpl.ID != "expert-manager" {
+			continue
+		}
+		if tpl.Name != "expert-manager" || tpl.DisplayName != "expert-manager" {
+			t.Fatalf("expert-manager identity = %#v", tpl)
+		}
+		raw := manifestFor(tpl)
+		if len(raw) < 500 {
+			t.Fatalf("manifest too short: %d", len(raw))
+		}
+		if len(raw) > 65536 {
+			t.Fatalf("manifest too long: %d", len(raw))
+		}
+		return
+	}
+	t.Fatal("expert-manager template missing from catalog")
+}
+
+func TestSkillCreatorCatalogManifest(t *testing.T) {
+	for _, tpl := range Catalog() {
+		if tpl.ID != "skill-creator" {
+			continue
+		}
+		if tpl.Name != "skill-creator" || tpl.DisplayName != "skill-creator" {
+			t.Fatalf("skill-creator identity = %#v", tpl)
+		}
+		raw := manifestFor(tpl)
+		if len(raw) < 1000 {
+			t.Fatalf("manifest too short: %d", len(raw))
+		}
+		if len(raw) > 65536 {
+			t.Fatalf("manifest too long: %d", len(raw))
+		}
+		return
+	}
+	t.Fatal("skill-creator template missing from catalog")
 }
 
 func TestEnsureBundledSkillsPublishesCatalog(t *testing.T) {
