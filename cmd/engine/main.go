@@ -233,7 +233,11 @@ func main() {
 	)
 	// M8 FR-18: unified plugin bundle runtime - capabilities hot-register
 	// into the existing registries through the verification chain.
-	engine.SetM8PluginService(m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user"))
+	pluginSvc := m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user")
+	engine.SetM8PluginService(pluginSvc)
+	if err := m8app.EnsureBuiltinPlugins(ctx, pluginSvc); err != nil {
+		log.Printf("builtin plugin seed: %v", err)
+	}
 	// M8 FR-19: expert center - the persona read-only directory holds the
 	// canonical six-section bodies addressed by persona_ref digest.
 	personaRoot, err := dataRoot.PrepareSubdirectory("personas")

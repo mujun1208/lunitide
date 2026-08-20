@@ -17,7 +17,7 @@
     "properties": {
       "skillId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
       "name": { "type": "string" },
-      "status": { "enum": ["draft"] }
+      "status": { "enum": ["draft", "published"] }
     },
     "required": ["skillId", "name", "status"]
   },

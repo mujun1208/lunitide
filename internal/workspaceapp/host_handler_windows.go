@@ -52,6 +52,14 @@ func (h *Handler) HandleHost(ctx context.Context, r bridge.Request) bridge.Respo
 			return failure(r, "WORKSPACE_ROOT_SAVE_FAILED", "无法保存工作区", true)
 		}
 		return bridge.Success(r.ID, map[string]any{"name": filepath.Base(path), "path": path})
+	case bridge.MethodWorkspaceRootClear:
+		h.mu.Lock()
+		err := os.Remove(h.configPath)
+		h.mu.Unlock()
+		if err != nil && !os.IsNotExist(err) {
+			return failure(r, "WORKSPACE_ROOT_CLEAR_FAILED", "无法清除工作区", true)
+		}
+		return bridge.Success(r.ID, map[string]any{"cleared": true})
 	case bridge.MethodWorkspaceRootGet:
 		root, err := h.root()
 		if err != nil {

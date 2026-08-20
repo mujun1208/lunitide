@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/expert.catalog.list.schema.json",
+  "title": "expert.catalog.list payload",
+  "x-method": "expert.catalog.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "minItems": 0,
+        "maxItems": 400,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9-]+$" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "description": { "type": "string", "maxLength": 280 },
+            "category": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "division": { "type": "string", "enum": ["engineering", "design", "product", "project-management", "testing", "security", "operations", "data"] },
+            "origin": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "usage": { "type": "string", "enum": ["chat", "project", "both"] },
+            "scene": { "type": "string", "maxLength": 64 },
+            "emoji": { "type": "string", "maxLength": 8 },
+            "version": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "installed": { "type": "boolean" }
+          },
+          "required": ["id", "name", "displayName", "description", "category", "division", "origin", "usage", "version", "installed"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

@@ -208,7 +208,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   // so the player can prefetch and join them on one timeline.
   useEffect(() => {
     if (chatStatus !== 'streaming') return
-    if (!ttsAvailable || !settings.autoSpeak) return
+    if (ttsAvailable === false || !settings.autoSpeak) return
     const batch: string[] = []
     while (true) {
       const pending = assistantText.slice(spokenUpToRef.current)
@@ -255,7 +255,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }
     if (chatStatus === 'done' && !handledReplyRef.current && assistantText.trim()) {
       handledReplyRef.current = true
-      const speakable = Boolean(ttsAvailable) && settings.autoSpeak
+      const speakable = ttsAvailable !== false && settings.autoSpeak
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
       // then flush the queue and transition the machine.
       const remaining = assistantText.slice(spokenUpToRef.current)
@@ -327,6 +327,20 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const timer = window.setInterval(() => setListenSeconds(value => value + 1), 1000)
     return () => window.clearInterval(timer)
   }, [machine.state])
+
+  // If a turn never streams (send dropped, provider hang), don't sit on
+  // “回应中” forever — drop back to listening like a missed phone sentence.
+  useEffect(() => {
+    if (machine.state !== 'thinking') return
+    const ms = chatStatus === 'streaming' ? 45000 : 12000
+    const timer = window.setTimeout(() => {
+      if (stateRef.current !== 'thinking') return
+      if (assistantText.trim()) return
+      onCancel?.()
+      machine.dispatch({ type: 'REPLY_TERMINAL' })
+    }, ms)
+    return () => window.clearTimeout(timer)
+  }, [machine.state, chatStatus, assistantText, machine, onCancel])
 
   const ensurePlayer = useCallback(() => {
     playerRef.current ??= new TtsPlayer()
@@ -553,6 +567,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         syncSpeechModes()
         autoLoopRef.current = true
         setHintVisible(false)
+        void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
       })
       .catch(issue => {
         autoLoopRef.current = false

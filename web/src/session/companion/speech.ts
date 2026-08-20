@@ -57,10 +57,10 @@ export interface CompanionSpeechHandle {
   setBargeInActive: (active: boolean) => void
 }
 
-/** Commit after this much silence once we already have text. */
-export const UTTERANCE_SILENCE_MS = 220
-/** Commit when interim/final text stops changing (robust against room noise). */
-export const UTTERANCE_STABLE_MS = 320
+/** Commit after this much analyser silence once we already have text. */
+export const UTTERANCE_SILENCE_MS = 280
+/** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
+export const UTTERANCE_STABLE_MS = 520
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 const VOICE_PEAK = 0.13
@@ -206,7 +206,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (!text) return
       const silentFor = performance.now() - voiceAt
       const stableFor = performance.now() - lastTextChangeAt
-      if (shouldCommitStable(true, stableFor) && silentFor >= Math.min(silenceMs, 220)) {
+      // Stable transcript is enough: Windows Speech Recognition keeps
+      // re-emitting the same interim, which used to look like "still talking".
+      if (shouldCommitStable(true, stableFor)) {
         commit(text)
         return
       }
@@ -215,6 +217,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     try {
       const AudioContextClass = window.AudioContext
       context = new AudioContextClass()
+      void context.resume().then(() => unlockTtsAudio())
       const analyser = context.createAnalyser()
       analyser.fftSize = 64
       analyser.smoothingTimeConstant = 0.4
@@ -261,7 +264,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       const now = performance.now()
       const next = assembled()
       if (next !== prev) lastTextChangeAt = now
-      if (next) lastVoiceAt = now
+      // Do not bump lastVoiceAt here. Recognition events are not energy;
+      // Windows will keep the same interim alive for tens of seconds.
       if (interimTranscript) {
         if (now - lastInterimAt >= 80) {
           lastInterimAt = now
@@ -274,7 +278,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         return
       }
       if (next) {
-        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), UTTERANCE_SILENCE_MS)
+        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), UTTERANCE_STABLE_MS)
       }
       tryCommitFromSilence(lastVoiceAt)
     }

@@ -1,0 +1,6 @@
+Market templates marked Source "工程实践" adapt practices from
+Matt Pocock's skills (https://github.com/mattpocock/skills), MIT License,
+Copyright (c) 2026 Matt Pocock.
+
+They are rewritten to Lunitide's builtin:// invoke path and tool names.
+They are not a vendored copy of the upstream repository.

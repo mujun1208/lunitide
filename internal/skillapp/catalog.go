@@ -30,6 +30,9 @@ var (
 )
 
 // CatalogTemplate is one installable entry in the product catalog.
+// Bundled templates are published at engine start; the rest stay in the
+// market until the user clicks install. Featured templates appear on the
+// market shelf. Source is a short provenance label for the card.
 type CatalogTemplate struct {
 	ID          string
 	Name        string
@@ -40,6 +43,9 @@ type CatalogTemplate struct {
 	Permissions []skill.PermissionLevel
 	EntryPoint  string
 	Manifest    map[string]any
+	Featured    bool
+	Bundled     bool
+	Source      string
 }
 
 // manifestFor builds the stored manifest JSON: the template fields plus the
@@ -113,6 +119,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionFileSystem, skill.PermissionShell},
 		EntryPoint: "builtin://skill-creator",
 		Manifest:   skillCreatorManifest(),
+		Featured: true, Bundled: true, Source: "月汐",
 	},
 	{
 		ID: "expert-manager", Name: "expert-manager", DisplayName: "expert-manager",
@@ -121,11 +128,13 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://expert-manager",
 		Manifest:   expertManagerManifest(),
+		Bundled: true, Source: "月汐",
 	},
 	{
 		ID: "meeting-minutes", Name: "tpl-meeting-minutes", DisplayName: "会议纪要助手",
 		Description: "把散落在会话里的讨论整理成结构化会议纪要：结论、待办、责任人、截止时间，可导出为 Word。",
 		Category:    "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Featured: true, Source: "月汐",
 		EntryPoint: "builtin://meeting-minutes",
 		Manifest: map[string]any{
 			"triggers": []string{"会议纪要", "整理会议", "meeting minutes", "纪要"},
@@ -146,6 +155,7 @@ var catalogTemplates = []CatalogTemplate{
 		ID: "excel-analyst", Name: "tpl-excel-analyst", DisplayName: "表格分析师",
 		Description: "解析工作区里的 xlsx 文件，回答数据问题并生成带图表的分析报告。",
 		Category:    "数据分析", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		Featured: true, Source: "月汐",
 		EntryPoint: "builtin://excel-analyst",
 		Manifest: map[string]any{
 			"triggers": []string{"分析表格", "excel 分析", "数据汇总", "xlsx"},
@@ -166,6 +176,7 @@ var catalogTemplates = []CatalogTemplate{
 		ID: "slide-builder", Name: "tpl-slide-builder", DisplayName: "演示文稿助手",
 		Description: "把主题或文档转成多页 PPTX 演示文稿：每页一个要点，标题+要点列表。",
 		Category:    "文档产出", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		Featured: true, Source: "月汐",
 		EntryPoint: "builtin://slide-builder",
 		Manifest: map[string]any{
 			"triggers": []string{"做 ppt", "演示文稿", "幻灯片", "pptx"},
@@ -186,6 +197,7 @@ var catalogTemplates = []CatalogTemplate{
 		ID: "web-researcher", Name: "tpl-web-researcher", DisplayName: "联网调研",
 		Description: "用 web.search 检索并 web.fetch 阅读网页，产出带来源链接的调研简报。",
 		Category:    "信息检索", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionNetwork},
+		Featured: true, Source: "月汐",
 		EntryPoint: "builtin://web-researcher",
 		Manifest: map[string]any{
 			"triggers": []string{"调研", "查资料", "最新", "search"},
@@ -352,6 +364,76 @@ var catalogTemplates = []CatalogTemplate{
 			"prompt":   "你是项目管理阶段八（发布）交付助手。核对发布窗口、变更清单、回滚步骤与值班安排；整理上线后验证项与监控关注点；确保发布相关交付物齐备后再建议项目晋级或关闭。",
 		},
 	},
+	{
+		ID: "grill-me", Name: "tpl-grill-me", DisplayName: "深度追问",
+		Description: "在动手前把目标和边界问清楚：按设计树一轮一轮追问，直到没有默许的假设。",
+		Category: "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://grill-me", Featured: true, Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"追问", "对齐需求", "grill", "先问清楚", "需求澄清"},
+			"prompt":   "你是深度追问助手（改编自 Matt Pocock grilling，MIT）。把当前任务画成设计树：每个决定会分出后续决定。每轮只问「现在就能回答、不依赖未决前提」的问题；编号、给出你的推荐答案，然后等待用户。事实用工具自己查，不要问用户本可检索的信息。树走完、用户确认共识之前，不要动手实现。",
+		},
+	},
+	{
+		ID: "tdd-loop", Name: "tpl-tdd-loop", DisplayName: "TDD 红绿循环",
+		Description: "先写失败测试再写刚好够用的实现：一次一条垂直切片，测公共接口而不是内部细节。",
+		Category: "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		EntryPoint: "builtin://tdd-loop", Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"TDD", "红绿重构", "test first", "先写测试"},
+			"prompt":   "你是 TDD 助手（改编自 Matt Pocock tdd，MIT）。先与用户确认要测的公共缝（seam）。每轮：①写一个会失败的测试 ②只写刚好让它通过的实现 ③用白名单 command.run 跑测试。禁止一次性写完全部测试再实现；禁止测私有实现。重构放到审查阶段，不塞进红绿循环。",
+		},
+	},
+	{
+		ID: "session-handoff", Name: "tpl-session-handoff", DisplayName: "会话交接",
+		Description: "把当前对话收成一份交接说明，方便下一轮对话或另一个助手接着做。",
+		Category: "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://session-handoff", Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"交接", "handoff", "下轮继续", "会话摘要"},
+			"prompt":   "你是会话交接助手（改编自 Matt Pocock handoff，MIT）。根据当前会话写交接文档：目标、已完成、未完成、关键决定、建议下一轮使用的技能。不要重复已有产物，用路径引用。脱敏密钥与个人信息。优先写入工作区 markdown；若平台提供上下文交接工具也可以使用。",
+		},
+	},
+	{
+		ID: "content-brief", Name: "tpl-content-brief", DisplayName: "内容选题策划",
+		Description: "按渠道策划选题、大纲与发布清单，适合公众号、短视频与知识帖。",
+		Category: "内容创作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionNetwork},
+		EntryPoint: "builtin://content-brief", Featured: true, Source: "内容创作",
+		Manifest: map[string]any{
+			"triggers": []string{"选题", "内容策划", "公众号大纲", "短视频选题"},
+			"prompt":   "你是内容策划助手。先确认渠道、受众与目标；必要时 web.search 看公开热点。产出：①选题（角度+为什么现在发）②大纲 ③标题备选 ④发布清单。不编造阅读数据；不确定的趋势要标明来源。",
+		},
+	},
+	{
+		ID: "short-copy", Name: "tpl-short-copy", DisplayName: "爆款文案",
+		Description: "写短视频口播、标题和封面文案：钩子、冲突、行动号召，多版本对照。",
+		Category: "内容创作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://short-copy", Source: "内容创作",
+		Manifest: map[string]any{
+			"triggers": []string{"爆款文案", "口播", "短视频文案", "标题党改写"},
+			"prompt":   "你是短内容文案助手。先问产品/观点/禁忌词。每条给出：3 秒钩子、正文结构、结尾行动号召；同时提供克制版与更冲的一版供选。不承诺播放量，不抄袭未授权作品。",
+		},
+	},
+	{
+		ID: "knowledge-qa", Name: "tpl-knowledge-qa", DisplayName: "知识库问答",
+		Description: "只根据工作区文档回答问题，并标注出处；找不到就说找不到，不编造。",
+		Category: "信息检索", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://knowledge-qa", Source: "月汐",
+		Manifest: map[string]any{
+			"triggers": []string{"根据文档回答", "知识库问答", "RAG", "引用出处"},
+			"prompt":   "你是知识库问答助手。只用 workspace.search/read 检索用户工作区；每条结论附文件路径。检索不到就明确说没有，禁止用训练记忆冒充文档内容。",
+		},
+	},
+	{
+		ID: "subagent-coord", Name: "tpl-subagent-coord", DisplayName: "多智能体协作",
+		Description: "把大任务拆给子代理并行，再汇总冲突与结论，适合调研+写作+检查。",
+		Category: "自动化", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://subagent-coord", Source: "月汐",
+		Manifest: map[string]any{
+			"triggers": []string{"多智能体", "拆任务", "子代理", "并行调研"},
+			"prompt":   "你是协作编排助手。把用户目标拆成可并行的子任务，用 subagent.spawn 派出、subagent.join 回收。汇总时列出共识、冲突与你的裁决理由；高风险步骤先征得用户同意。",
+		},
+	},
 }
 
 // InstallFromCatalog materializes one catalog template as a local draft
@@ -381,15 +463,18 @@ func (s *Service) InstallFromCatalog(ctx context.Context, templateID string) (sk
 	})
 }
 
-// EnsureBundledSkills installs every catalog template and publishes drafts
-// so ordinary chat can skill.invoke them without a market click. Already
-// published rows are left alone; install collisions just attempt publish.
+// EnsureBundledSkills installs and publishes only Bundled templates so
+// product flows (skill-creator, expert-manager) work on a fresh engine.
+// Market-only templates stay uninstalled until the user clicks install.
 func (s *Service) EnsureBundledSkills(ctx context.Context) (int, error) {
 	if s == nil || s.write == nil {
 		return 0, errors.New("skill writer unavailable")
 	}
 	published := 0
 	for _, tpl := range catalogTemplates {
+		if !tpl.Bundled {
+			continue
+		}
 		var sk skill.Skill
 		created, err := s.InstallFromCatalog(ctx, tpl.ID)
 		switch {

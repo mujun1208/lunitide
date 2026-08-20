@@ -90,7 +90,7 @@ import {
   type SkillCategorySetPayload,type SkillCategorySetResult,
   type UiThemeSetPayload, type UiThemeSetResult, type SystemSettingsOpenPayload, type SystemSettingsOpenResult,
   type BrowserOpenPayload, type BrowserOpenResult, type BrowserCloseResult,
-  type WorkspaceRootGetResult,type WorkspaceRootSelectResult,type WorkspaceListResult,type WorkspaceReadResult,
+  type WorkspaceRootGetResult,type WorkspaceRootSelectResult,type WorkspaceRootClearResult,type WorkspaceListResult,type WorkspaceReadResult,
   type ContextStatusPayload, type ContextStatusResult,
   type ContextCompactPreviewPayload, type ContextCompactPreviewResult,
   type ContextCompactCommitPayload, type ContextCompactCommitResult,
@@ -120,7 +120,7 @@ import {
   type OntologyNodeType, type OntologyEdgeType, type SkillStatus, type SkillPermission,
   type McpListPayload,type McpListResult,type McpAddPayload,type McpAddResult,type McpTogglePayload,type McpToggleResult,type McpHealthPayload,type McpHealthResult,type McpMarketSearchPayload,type McpMarketSearchResult,type Mcp6PresetsListPayload,type Mcp6PresetsListResult,
   type PluginListPayload,type PluginListResult,type PluginInstallPayload,type PluginInstallResult,type PluginTogglePayload,type PluginToggleResult,type PluginUninstallPayload,type PluginUninstallResult,type PluginUpgradePayload,type PluginUpgradeResult,type PluginMarketSearchPayload,type PluginMarketSearchResult,type PluginMarketDetailPayload,type PluginMarketDetailResult,type PluginDevCreatePayload,type PluginDevCreateResult,
-  type ExpertListPayload,type ExpertListResult,type ExpertDetailPayload,type ExpertDetailResult,type ExpertCreatePayload,type ExpertCreateResult,type ExpertUpdatePayload,type ExpertUpdateResult,type ExpertTogglePayload,type ExpertToggleResult,type ExpertArchivePayload,type ExpertArchiveResult,type ExpertMountPayload,type ExpertMountResult,type ExpertMountingGetPayload,type ExpertMountingGetResult,type ExpertScenarioCreatePayload,type ExpertScenarioCreateResult,type ExpertScenarioListPayload,type ExpertScenarioListResult,type ExpertScenarioDeletePayload,type ExpertScenarioDeleteResult,
+  type ExpertListPayload,type ExpertListResult,type ExpertDetailPayload,type ExpertDetailResult,type ExpertCreatePayload,type ExpertCreateResult,type ExpertUpdatePayload,type ExpertUpdateResult,type ExpertTogglePayload,type ExpertToggleResult,type ExpertArchivePayload,type ExpertArchiveResult,type ExpertMountPayload,type ExpertMountResult,type ExpertMountingGetPayload,type ExpertMountingGetResult,type ExpertScenarioCreatePayload,type ExpertScenarioCreateResult,type ExpertScenarioListPayload,type ExpertScenarioListResult,type ExpertScenarioDeletePayload,type ExpertScenarioDeleteResult,type ExpertCatalogListPayload,type ExpertCatalogListResult,type ExpertInstallPayload,type ExpertInstallResult,
   type OrgSummaryPayload,type OrgSummaryResult,type OrgCreatePayload,type OrgCreateResult,type OrgSwitchPayload,type OrgSwitchResult,type OrgActivatePayload,type OrgActivateResult,type OrgSuspendPayload,type OrgSuspendResult,type OrgSpaceListPayload,type OrgSpaceListResult,type OrgSpaceCreatePayload,type OrgSpaceCreateResult,type OrgMemberListPayload,type OrgMemberListResult,type OrgMemberInvitePayload,type OrgMemberInviteResult,type OrgMemberRevokePayload,type OrgMemberRevokeResult,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
@@ -138,7 +138,7 @@ export class BridgeClientError extends Error {
     super(message); this.name = 'BridgeClientError'
   }
 }
-export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>}
+export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>}
 export interface WebViewTransport {
   postMessage(value: unknown): void
   addEventListener(type: 'message', listener: (event: MessageEvent<BridgeResponse>) => void): void
@@ -1002,7 +1002,7 @@ export function createTerminalBridge(transport:WebViewTransport,deadlineMs=8000)
 let terminalSingleton:TerminalBridge|undefined
 export function getTerminalBridge(){return terminalSingleton??=createTerminalBridge(webview())}
 
-export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path})}}
+export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),clear:()=>core.request('workspace.root.clear',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path})}}
 
 // M9.5 Moon Companion TTS bridge — engine-routed synthesis (tts.voices /
 // tts.synthesize / tts.cancel / tts.refAudios). Voices and synthesis take
@@ -1069,14 +1069,16 @@ export interface ExpertBridge{
   scenarioCreate(payload:ExpertScenarioCreatePayload,options?:MutationOptions<ExpertScenarioCreatePayload>):Promise<ExpertScenarioCreateResult>
   scenarioList(payload:ExpertScenarioListPayload):Promise<ExpertScenarioListResult>
   scenarioDelete(payload:ExpertScenarioDeletePayload,options?:MutationOptions<ExpertScenarioDeletePayload>):Promise<ExpertScenarioDeleteResult>
+  catalogList?(payload?:ExpertCatalogListPayload):Promise<ExpertCatalogListResult>
+  install?(payload:ExpertInstallPayload):Promise<ExpertInstallResult>
 }
 export function createExpertBridge(transport:WebViewTransport=webview(),deadlineMs=12_000):ExpertBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
-  return{list:p=>core.request('expert.list',p??{}),detail:p=>core.request('expert.detail',p),create:(p,o)=>core.request('expert.create',p,20_000,o?.attempt),update:(p,o)=>core.request('expert.update',p,deadlineMs,o?.attempt),toggle:(p,o)=>core.request('expert.toggle',p,deadlineMs,o?.attempt),archive:(p,o)=>core.request('expert.archive',p,deadlineMs,o?.attempt),mount:(p,o)=>core.request('expert.mount',p,deadlineMs,o?.attempt),mountingGet:p=>core.request('expert.mounting.get',p),scenarioCreate:(p,o)=>core.request('expert.scenario.create',p,deadlineMs,o?.attempt),scenarioList:p=>core.request('expert.scenario.list',p),scenarioDelete:(p,o)=>core.request('expert.scenario.delete',p,deadlineMs,o?.attempt)}
+  return{list:p=>core.request('expert.list',p??{}),detail:p=>core.request('expert.detail',p),create:(p,o)=>core.request('expert.create',p,20_000,o?.attempt),update:(p,o)=>core.request('expert.update',p,deadlineMs,o?.attempt),toggle:(p,o)=>core.request('expert.toggle',p,deadlineMs,o?.attempt),archive:(p,o)=>core.request('expert.archive',p,deadlineMs,o?.attempt),mount:(p,o)=>core.request('expert.mount',p,deadlineMs,o?.attempt),mountingGet:p=>core.request('expert.mounting.get',p),scenarioCreate:(p,o)=>core.request('expert.scenario.create',p,deadlineMs,o?.attempt),scenarioList:p=>core.request('expert.scenario.list',p),scenarioDelete:(p,o)=>core.request('expert.scenario.delete',p,deadlineMs,o?.attempt),catalogList:p=>core.request('expert.catalog.list',p??{}),install:p=>core.request('expert.install',p,20_000)}
 }
 let expertSingleton:ExpertBridge|undefined
 export function getExpertBridge():ExpertBridge{return expertSingleton??=createExpertBridge()}
-export const expertBridge:ExpertBridge={list:p=>{try{return getExpertBridge().list(p)}catch(error){return Promise.reject(error)}},detail:p=>{try{return getExpertBridge().detail(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getExpertBridge().create(p,o)}catch(error){return Promise.reject(error)}},update:(p,o)=>{try{return getExpertBridge().update(p,o)}catch(error){return Promise.reject(error)}},toggle:(p,o)=>{try{return getExpertBridge().toggle(p,o)}catch(error){return Promise.reject(error)}},archive:(p,o)=>{try{return getExpertBridge().archive(p,o)}catch(error){return Promise.reject(error)}},mount:(p,o)=>{try{return getExpertBridge().mount(p,o)}catch(error){return Promise.reject(error)}},mountingGet:p=>{try{return getExpertBridge().mountingGet(p)}catch(error){return Promise.reject(error)}},scenarioCreate:(p,o)=>{try{return getExpertBridge().scenarioCreate(p,o)}catch(error){return Promise.reject(error)}},scenarioList:p=>{try{return getExpertBridge().scenarioList(p)}catch(error){return Promise.reject(error)}},scenarioDelete:(p,o)=>{try{return getExpertBridge().scenarioDelete(p,o)}catch(error){return Promise.reject(error)}}}
+export const expertBridge:ExpertBridge={list:p=>{try{return getExpertBridge().list(p)}catch(error){return Promise.reject(error)}},detail:p=>{try{return getExpertBridge().detail(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getExpertBridge().create(p,o)}catch(error){return Promise.reject(error)}},update:(p,o)=>{try{return getExpertBridge().update(p,o)}catch(error){return Promise.reject(error)}},toggle:(p,o)=>{try{return getExpertBridge().toggle(p,o)}catch(error){return Promise.reject(error)}},archive:(p,o)=>{try{return getExpertBridge().archive(p,o)}catch(error){return Promise.reject(error)}},mount:(p,o)=>{try{return getExpertBridge().mount(p,o)}catch(error){return Promise.reject(error)}},mountingGet:p=>{try{return getExpertBridge().mountingGet(p)}catch(error){return Promise.reject(error)}},scenarioCreate:(p,o)=>{try{return getExpertBridge().scenarioCreate(p,o)}catch(error){return Promise.reject(error)}},scenarioList:p=>{try{return getExpertBridge().scenarioList(p)}catch(error){return Promise.reject(error)}},scenarioDelete:(p,o)=>{try{return getExpertBridge().scenarioDelete(p,o)}catch(error){return Promise.reject(error)}},catalogList:p=>{try{return getExpertBridge().catalogList!(p)}catch(error){return Promise.reject(error)}},install:p=>{try{return getExpertBridge().install!(p)}catch(error){return Promise.reject(error)}}}
 
 // M9 slice-1 org-admin bridge — org foundation, isolation gate, spaces and
 // members (T-9.1.3 org.* data source).

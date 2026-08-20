@@ -1,10 +1,12 @@
 import React,{useCallback,useEffect,useState}from'react'
 import{createMutationAttempt,expertBridge,projectBridge,type ExpertBridge,type ProjectBridge}from'../bridge/client'
-import type{ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertMountingGetResult,ExpertScenarioListResult,ProjectDTO}from'../generated/bridge'
+import type{ExpertCatalogListResult,ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertMountingGetResult,ExpertScenarioListResult,ProjectDTO}from'../generated/bridge'
 import{Dialog}from'../ui/Dialog'
 import{usePanelResize}from'../ui/usePanelResize'
 
+type CatalogEntry=ExpertCatalogListResult['items'][number]
 type ExpertItem=ExpertListResult['experts'][number]
+const USAGE:Record<CatalogEntry['usage'],string>={chat:'对话技能',project:'项目专家',both:'对话+项目'}
 type ScenarioItem=ExpertScenarioListResult['items'][number]
 type PhaseKey=import('../generated/bridge').ExpertMountPayload['phaseKey']
 type Division=import('../generated/bridge').ExpertCreatePayload['frontmatter']['division']
@@ -30,6 +32,7 @@ const archiveToken=async(expertId:string):Promise<string>=>{
 
 export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onCreateInChat}:{bridge?:ExpertBridge;projects?:ProjectBridge;onCreateInChat?:()=>void}):React.JSX.Element{
  const[items,setItems]=useState<ExpertItem[]>([]),[selectedId,setSelectedId]=useState(''),[divisionFilter,setDivisionFilter]=useState<Division|''>(''),[stateFilter,setStateFilter]=useState<ExpertState|''>(''),[query,setQuery]=useState('')
+ const[view,setView]=useState<'library'|'market'>('library'),[catalog,setCatalog]=useState<CatalogEntry[]>([]),[marketQuery,setMarketQuery]=useState(''),[marketCategory,setMarketCategory]=useState(''),[marketBusy,setMarketBusy]=useState('')
  const[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
  const[detail,setDetail]=useState<ExpertDetailResult>()
  const[editing,setEditing]=useState<'create'|'update'|null>(null)
@@ -43,7 +46,9 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
  const[detailWidth,startDetailResize]=usePanelResize({storageKey:'lunitide:expert-detail-width',initial:380,min:280,max:()=>Math.min(560,Math.max(320,window.innerWidth-360)),reverse:true})
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??''))}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge])
+ const loadCatalog=useCallback(async()=>{if(!bridge.catalogList)return;try{const result=await bridge.catalogList({});setCatalog(result.items)}catch{/* 市场暂不可用时不阻塞专家库 */}},[bridge])
  useEffect(()=>{void load()},[load])
+ useEffect(()=>{void loadCatalog()},[loadCatalog])
  useEffect(()=>{try{projects.list().then(result=>{setProjectItems(result.items.filter(item=>!item.name.startsWith('⁣')));setMountProjectId(current=>current||result.items.find(item=>!item.name.startsWith('⁣'))?.id||'')}).catch(()=>{})}catch{/* bridge unavailable outside WebView2: mounting matrix stays hidden */}},[projects])
  const loadDetail=useCallback(async(expertId:string)=>{if(!expertId){setDetail(undefined);return}try{setDetail(await bridge.detail({expertId}))}catch(e){setError(e instanceof Error?e.message:'专家详情加载失败')}},[bridge])
  useEffect(()=>{void loadDetail(selectedId)},[selectedId,loadDetail])
@@ -83,16 +88,19 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
   catch(e){setError(e instanceof Error?e.message:'场景卡创建失败')}finally{setBusy(false)}}
  const deleteScenario=async(scenarioCardId:string)=>{if(!selected)return;setBusy(true);setError('');try{const base={scenarioCardId},attempt=createMutationAttempt('expert.scenario.delete',base);await bridge.scenarioDelete(base,{attempt});setNotice('场景卡已归档');await loadScenarios(selected.expertId,scenarioState)}catch(e){setError(e instanceof Error?e.message:'场景卡归档失败')}finally{setBusy(false)}}
 
+ const installCatalog=async(entry:CatalogEntry)=>{if(!bridge.install||marketBusy)return;setMarketBusy(entry.id);setError('');setNotice('');try{const result=await bridge.install({id:entry.id});setNotice(`已安装「${entry.displayName}」${result.usage==='chat'?'为对话技能':result.usage==='project'?'为项目专家':'（对话技能+项目专家）'}`);await Promise.all([loadCatalog(),load()])}catch(e){setError(e instanceof Error?e.message:'安装失败')}finally{setMarketBusy('')}}
+ const marketCategories=[...new Map(catalog.map(entry=>[entry.category,0] as const)).keys()].map(id=>[id,catalog.filter(entry=>entry.category===id).length] as [string,number])
+ const visibleCatalog=catalog.filter(entry=>(!marketCategory||entry.category===marketCategory)&&(!marketQuery.trim()||`${entry.displayName} ${entry.description} ${entry.category} ${entry.usage}`.toLowerCase().includes(marketQuery.trim().toLowerCase())))
+
  // 统计与派生数据（对齐设计原型 view-meta：「N 名专家 · N 种来源 · N 个部门 · 每阶段挂载 ≤4」）
  const enabledCount=items.filter(item=>item.state==='enabled').length,disabledCount=items.filter(item=>item.state==='disabled').length,archivedCount=items.filter(item=>item.state==='archived').length
- const sourceCount=new Set(items.map(item=>item.source)).size,divisionCount=new Set(items.map(item=>item.division)).size
  const expertName=(expertId:string)=>items.find(item=>item.expertId===expertId)?.name??expertId.slice(0,8)
  const detailExpert=detail?.expert as{name?:unknown;division?:unknown;source?:unknown;semver?:unknown;description?:unknown}|undefined
  const mountedProjectLines=(detail?.mountings??[]).filter(m=>m.state==='mounted').reduce<Array<string>>((lines,m)=>{const name=projectItems.find(project=>project.id===m.projectId)?.name??m.projectId.slice(0,8);const phase=PHASES.find(p=>p.key===m.phaseKey)?.label??m.phaseKey;const existing=lines.find(line=>line.startsWith(`${name} · `));if(existing){const index=lines.indexOf(existing);lines[index]=existing.replace(/（(.*)）/,(_all,stages:string)=>`（${stages}、${phase}）`)}else lines.push(`${name} · 阶段 ${phase}（${detail?.expert&&'semver'in(detail.expert as object)?String((detail.expert as{semver?:unknown}).semver??''):(detail?.versions[0]?.semver??'')}）`);return lines},[])
 
  return <main className="expert-center-page">
   <header className="expert-view-head">
-   <div><div className="view-title">专家中心</div><div className="view-meta">{items.length} 名专家 · {sourceCount} 种来源 · {divisionCount} 个部门 · 每阶段挂载 ≤4</div></div>
+   <div><div className="view-title">专家中心</div><div className="view-meta">{items.length} 名专家 · 市场 {catalog.length} 个可点选安装 · 每阶段挂载 ≤4</div></div>
    <div className="memory-tabs" role="tablist" aria-label="专家状态">
     <button type="button" role="tab" className={`memory-tab ${stateFilter===''?'on':''}`} aria-selected={stateFilter===''} onClick={()=>setStateFilter('')}>全部 · {items.length}</button>
     <button type="button" role="tab" className={`memory-tab ${stateFilter==='enabled'?'on':''}`} aria-selected={stateFilter==='enabled'} onClick={()=>setStateFilter('enabled')}>已启用 · {enabledCount}</button>
@@ -106,13 +114,23 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
    </div>
   </header>
   <section className="skill-center-toolbar">
-   <select aria-label="条线过滤" value={divisionFilter} onChange={e=>setDivisionFilter(e.target.value as Division|'')}><option value="">全部条线</option>{(Object.keys(DIVISIONS) as Division[]).map(division=><option key={division} value={division}>{DIVISIONS[division]}</option>)}</select>
+   <div className="skill-status-tabs" role="tablist" aria-label="专家视图">
+    <button type="button" role="tab" aria-selected={view==='library'} onClick={()=>setView('library')}>我的专家</button>
+    <button type="button" role="tab" aria-selected={view==='market'} onClick={()=>setView('market')}>专家市场</button>
+   </div>
+   {view==='library'&&<><select aria-label="条线过滤" value={divisionFilter} onChange={e=>setDivisionFilter(e.target.value as Division|'')}><option value="">全部条线</option>{(Object.keys(DIVISIONS) as Division[]).map(division=><option key={division} value={division}>{DIVISIONS[division]}</option>)}</select>
    <label className="skill-search">搜索专家<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="名称"/></label>
-   <button aria-label="刷新专家" onClick={()=>void load()} disabled={loading}>↻</button>
+   <button aria-label="刷新专家" onClick={()=>void load()} disabled={loading}>↻</button></>}
+   {view==='market'&&<><label className="skill-search">搜索市场<input value={marketQuery} onChange={e=>setMarketQuery(e.target.value)} placeholder="名称、分类或用途"/></label>
+   <button aria-label="刷新市场" onClick={()=>void loadCatalog()}>↻</button></>}
   </section>
   {error&&!editing&&<p className="skill-center-error" role="alert">{error}</p>}
   {notice&&<p role="status">{notice}</p>}
-  <div className="skill-center-layout" style={{'--detail-width':`${detailWidth}px`} as React.CSSProperties}><section className="skill-table expert-list" aria-label="专家列表"><div className="skill-table-inner"><div className="skill-table-head expert-head"><span>专家</span><span>版本</span><span>状态</span><span>来源</span></div>
+  {view==='market'?<div className="skill-market-page" aria-label="专家市场">{!catalog.length?<div className="empty"><b>市场暂不可用</b><span>当前版本未提供专家目录。</span></div>:<>
+    <nav className="skill-market-cats" aria-label="市场分类"><button type="button" aria-pressed={!marketCategory} onClick={()=>setMarketCategory('')}>全部<small>{catalog.length}</small></button>{marketCategories.map(([id,count])=><button type="button" key={id} aria-pressed={marketCategory===id} onClick={()=>setMarketCategory(id)}>{id}<small>{count}</small></button>)}</nav>
+    <section className="skill-market-shelf" aria-label="可安装专家"><header><b>{marketCategory||'全部角色'}</b><small>{visibleCatalog.length} 个</small></header>{visibleCatalog.length?<div className="skill-market">{visibleCatalog.map(entry=><article className={`skill-market-card ${entry.installed?'is-installed':''}`} key={entry.id}><header><span className="skill-market-glyph" aria-hidden="true">{entry.emoji||entry.displayName.slice(0,1)}</span><div><b>{entry.displayName}</b><small>{USAGE[entry.usage]} · {entry.category}</small></div>{entry.installed?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${entry.displayName}`} disabled={Boolean(marketBusy)} onClick={()=>void installCatalog(entry)}>{marketBusy===entry.id?'…':'＋'}</button>}</header><p>{entry.description}</p><footer><small>v{entry.version}</small></footer></article>)}</div>:<div className="empty"><b>没有匹配的专家</b><span>换个分类或关键字再试。</span></div>}</section>
+   </>}</div>
+  :<div className="skill-center-layout" style={{'--detail-width':`${detailWidth}px`} as React.CSSProperties}><section className="skill-table expert-list" aria-label="专家列表"><div className="skill-table-inner"><div className="skill-table-head expert-head"><span>专家</span><span>版本</span><span>状态</span><span>来源</span></div>
    {loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=><button type="button" className={`skill-row on expert-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setArchiveConfirm(null)}}><span className="sn"><b>{item.name}</b><small className="desc">{DIVISIONS[item.division]} — v{item.semver} · 挂载 {item.mountedPhaseCount} 处</small></span><code className="mono">v{item.versionCount}</code><i className={`s-stat ${item.state==='enabled'?'on':'off'} skill-status status-${item.state==='enabled'?'published':item.state==='disabled'?'disabled':'deprecated'}`}>{STATES[item.state]}</i><code className="mono">{SOURCES[item.source]}</code></button>):<div className="empty"><b>暂无专家</b><span>{query?'没有匹配的专家。':'点击「创建专家」创建本地六段式专家。'}</span></div>}</div></section>
    <div className="panel-resizer split-resizer" role="separator" aria-label="调整详情栏宽度" aria-orientation="vertical" onPointerDown={startDetailResize}/>
    <aside className="skill-detail expert-detail" aria-label="专家详情">
@@ -147,7 +165,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
       {archiveConfirm&&<div className="skill-center-error" role="alert"><p>归档为终态且需先解除全部活跃挂载（M8-048）。确认令牌：<code>{archiveConfirm.token.slice(0,16)}…</code></p><div className="skill-detail-actions"><button className="danger" onClick={()=>void archive()} disabled={busy}>确认归档</button><button onClick={()=>setArchiveConfirm(null)}>取消</button></div></div>}
      </>
     ):<div className="empty"><b>选择专家查看详情</b></div>}
-   </aside></div>
+   </aside></div>}
   <Dialog open={!!editing} wide title={editing==='create'?'创建专家向导':`修订 ${selected?.name??''}`} description={editing==='create'?'填写基础信息和六段岗位说明书。任一段为空都会拒绝保存。':'新版本写入 append-only 版本链，必须填写变更说明。'} onClose={()=>{if(!busy)setEditing(null)}}>
    <form className="editor-dialog" onSubmit={e=>{e.preventDefault();void submit()}}>
     <div className="form-grid expert-form-grid">

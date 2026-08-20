@@ -70,6 +70,35 @@ func TestReadRejectsHardLinksAndOversizedFiles(t *testing.T) {
 	}
 }
 
+func TestClearUnbindsSavedWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(t.TempDir(), "root.json")
+	h := New(config)
+	if err := atomicWrite(h.configPath, []byte(`{"path":`+mustJSON(root)+`}`)); err != nil {
+		t.Fatal(err)
+	}
+	if response := h.HandleHost(t.Context(), workspaceRequest(bridge.MethodWorkspaceRootGet, `{}`)); !response.OK {
+		t.Fatalf("get before clear: %#v", response)
+	}
+	if response := h.HandleHost(t.Context(), workspaceRequest(bridge.MethodWorkspaceRootClear, `{}`)); !response.OK {
+		t.Fatalf("clear: %#v", response)
+	}
+	if response := h.HandleHost(t.Context(), workspaceRequest(bridge.MethodWorkspaceRootGet, `{}`)); !response.OK {
+		t.Fatalf("get after clear: %#v", response)
+	} else {
+		body, _ := json.Marshal(response.Payload)
+		var parsed struct {
+			Bound bool `json:"bound"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil || parsed.Bound {
+			t.Fatalf("expected unbound after clear: %#v", response)
+		}
+	}
+	if response := h.HandleHost(t.Context(), workspaceRequest(bridge.MethodWorkspaceRootClear, `{}`)); !response.OK {
+		t.Fatalf("clear twice: %#v", response)
+	}
+}
+
 func TestStrictConfigRejectsUnknownFields(t *testing.T) {
 	h := New(filepath.Join(t.TempDir(), "root.json"))
 	if err := os.WriteFile(h.configPath, []byte(`{"path":"C:\\","extra":true}`), 0600); err != nil {

@@ -281,6 +281,7 @@ func run() error {
 		bridge.MethodSystemSettingsOpen:       &systemsettings.Handler{OpenMicrophone: webviewhost.OpenMicrophonePrivacySettings},
 		bridge.MethodUiThemeSet:               themeHandler,
 		bridge.MethodWorkspaceRootSelect:      workspaceHandler,
+		bridge.MethodWorkspaceRootClear:       workspaceHandler,
 		bridge.MethodWorkspaceRootGet:         workspaceHandler,
 		bridge.MethodWorkspaceList:            workspaceHandler,
 		bridge.MethodWorkspaceRead:            workspaceHandler,

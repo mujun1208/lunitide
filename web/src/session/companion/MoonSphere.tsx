@@ -41,6 +41,7 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
       style={{ '--moon-gain': gain, '--moon-level': ringAverage } as React.CSSProperties}
     >
       <div className="companion-moon-halo" aria-hidden="true" />
+      <div className="companion-moon-halo-wave" aria-hidden="true" />
       <button
         type="button"
         className="companion-moon-body"
