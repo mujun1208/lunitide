@@ -121,7 +121,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// sentences stay short so synthesis overlaps playback. Tools stay
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 搜网页/查火车航班：web.search；打开页面或播歌：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面或播歌：web.fetch 阅读页面，或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -364,46 +364,61 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 
 		// Assemble the context envelope with full priority ordering and
-		// selection trace (ADR-005 §3).
+		// selection trace (ADR-005 §3). Companion starts chat.start before
+		// message.append lands, so a brand-new 月伴 session is often still
+		// empty — never fail the spoken turn closed.
 		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, p.SessionID, envelope)
+		assembled := assembleErr == nil
 		if assembleErr != nil {
-			return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
-		}
-		var combineErr error
-		messages, combineErr = combineDurableProviderMessages(result.Messages, trustedMessages, providerInfo)
-		if combineErr != nil {
-			if errors.Is(combineErr, errCombinedContextOverBudget) {
-				return bridge.Failure(request.ID, request.TraceID, "CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
+			if !useExplicitChatFallback(p.Companion, trustedMessages, assembleErr) {
+				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
 			}
-			return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, combineErr)
-		}
-		// P1-3 complexity.decide wiring: deterministic full-conversation
-		// scoring labels the tier; moderate+ conversations get an explicit
-		// nudge toward the planned path (plan.run) in the system message.
-		if !p.Companion {
-			if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == gateway.RoleSystem {
-				messages[0].Content += tierHint
-			}
-		}
-		// Images are expensive and model-dependent. Unlike parsed text, do not
-		// silently resend every historical image on every turn: only explicitly
-		// referenced images enter the multimodal request.
-		if len(imageRefs) > 0 {
-			if len(imageRefs) > attachmentapp.MaxVisionImages {
-				return bridge.Failure(request.ID, request.TraceID, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
-			}
-			total := 0
-			for _, imageID := range imageRefs {
-				image, visionErr := e.GetVisionImage(ctx, imageID, p.SessionID)
-				if visionErr != nil {
-					retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
-					return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
+			log.Printf("chat.start using explicit turn after context assembly failed: %v", assembleErr)
+			messages = trustedMessages
+		} else {
+			var combineErr error
+			messages, combineErr = combineDurableProviderMessages(result.Messages, trustedMessages, providerInfo)
+			if combineErr != nil {
+				if useExplicitChatFallback(p.Companion, trustedMessages, combineErr) {
+					log.Printf("chat.start using explicit turn after context combine failed: %v", combineErr)
+					messages = trustedMessages
+					assembled = false
+				} else if errors.Is(combineErr, errCombinedContextOverBudget) {
+					return bridge.Failure(request.ID, request.TraceID, "CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
+				} else {
+					return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, combineErr)
 				}
-				total += len(image.Data)
-				if total > attachmentapp.MaxVisionBatchBytes {
+			}
+		}
+		if assembled {
+			// P1-3 complexity.decide wiring: deterministic full-conversation
+			// scoring labels the tier; moderate+ conversations get an explicit
+			// nudge toward the planned path (plan.run) in the system message.
+			if !p.Companion {
+				if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == gateway.RoleSystem {
+					messages[0].Content += tierHint
+				}
+			}
+			// Images are expensive and model-dependent. Unlike parsed text, do not
+			// silently resend every historical image on every turn: only explicitly
+			// referenced images enter the multimodal request.
+			if len(imageRefs) > 0 {
+				if len(imageRefs) > attachmentapp.MaxVisionImages {
 					return bridge.Failure(request.ID, request.TraceID, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
 				}
-				images = append(images, gateway.Image{MIME: image.MIME, Data: image.Data})
+				total := 0
+				for _, imageID := range imageRefs {
+					image, visionErr := e.GetVisionImage(ctx, imageID, p.SessionID)
+					if visionErr != nil {
+						retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
+						return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
+					}
+					total += len(image.Data)
+					if total > attachmentapp.MaxVisionBatchBytes {
+						return bridge.Failure(request.ID, request.TraceID, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+					}
+					images = append(images, gateway.Image{MIME: image.MIME, Data: image.Data})
+				}
 			}
 		}
 	} else {
@@ -474,6 +489,21 @@ func lastUserChatText(messages []gateway.Message) string {
 		}
 	}
 	return ""
+}
+
+// useExplicitChatFallback lets chat.start proceed with the renderer-supplied
+// user turn when durable assembly cannot. Empty-session ErrNoMessages is
+// recoverable for any caller that already sent that turn. Companion also
+// falls back on budget/sequence failures so a voice round never dead-ends
+// behind CONTEXT_ASSEMBLY_FAILED.
+func useExplicitChatFallback(companion bool, trusted []gateway.Message, err error) bool {
+	if err == nil || lastUserChatText(trusted) == "" {
+		return false
+	}
+	if errors.Is(err, contextapp.ErrNoMessages) {
+		return true
+	}
+	return companion
 }
 
 func (e *Engine) peekLastUserMessage(ctx context.Context, sessionID string) string {
@@ -737,7 +767,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist)", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
 		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body)", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
-		{Name: "web.search", Description: "Search the public web (DuckDuckGo Lite) and return ranked results with titles, URLs and snippets", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string"},"max":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Results also appear in the in-app browser tab. Uses DuckDuckGo, then Bing if needed.", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string"},"max":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .xlsx"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
@@ -1493,7 +1523,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if digest == "" {
 					return errors.New("invalid tool arguments")
 				}
-				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest}}); err != nil {
+				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: toolStartedSummary(call.Name, call.Arguments)}}); err != nil {
 					return err
 				}
 				if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
@@ -1746,6 +1776,33 @@ func sendDeltaChunks(send func(bridge.Event) error, text string) error {
 
 func clipToolSummary(summary string) string {
 	return truncateUTF8Bytes(summary, toolSummaryMaxBytes)
+}
+
+func toolStartedSummary(name string, args json.RawMessage) string {
+	switch name {
+	case "command.run":
+		var a struct {
+			Argv []string `json:"argv"`
+		}
+		if json.Unmarshal(args, &a) == nil && len(a.Argv) > 0 {
+			return "$ " + strings.Join(a.Argv, " ")
+		}
+	case "web.search":
+		var a struct {
+			Query string `json:"query"`
+		}
+		if json.Unmarshal(args, &a) == nil && strings.TrimSpace(a.Query) != "" {
+			return "搜索：" + strings.TrimSpace(a.Query)
+		}
+	case "web.fetch":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(args, &a) == nil && a.URL != "" {
+			return a.URL
+		}
+	}
+	return ""
 }
 
 func truncateUTF8Bytes(text string, limit int) string {

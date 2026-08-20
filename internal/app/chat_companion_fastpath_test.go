@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/gateway"
@@ -78,6 +80,95 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 		if !found {
 			t.Fatalf("companion tools missing %s: %#v", name, req.Tools)
 		}
+	}
+}
+
+type emptyCompanionReader struct{}
+
+func (emptyCompanionReader) ListMessages(context.Context, string, string, int) ([]contextapp.Message, error) {
+	return nil, nil
+}
+func (emptyCompanionReader) SumTokens(context.Context, string, string, string, string) (int64, error) {
+	return 0, nil
+}
+
+type errCompanionReader struct{ err error }
+
+func (r errCompanionReader) ListMessages(context.Context, string, string, int) ([]contextapp.Message, error) {
+	return nil, r.err
+}
+func (errCompanionReader) SumTokens(context.Context, string, string, string, string) (int64, error) {
+	return 0, nil
+}
+
+func TestCompanionEmptySessionFallsBackToSpokenTurn(t *testing.T) {
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.messageReader = emptyCompanionReader{}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","companion":true,"messages":[{"role":"user","content":"今晚月色如何"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("companion empty-session chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	var foundSpoken bool
+	for _, m := range req.Messages {
+		if m.Role == gateway.RoleUser && strings.Contains(m.Content, "今晚月色如何") {
+			foundSpoken = true
+		}
+	}
+	if !foundSpoken {
+		t.Fatalf("spoken turn missing after empty-session fallback: %#v", req.Messages)
+	}
+}
+
+func TestCompanionAssemblyReadErrorFallsBackToSpokenTurn(t *testing.T) {
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.messageReader = errCompanionReader{err: errors.New("sqlite busy")}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","companion":true,"messages":[{"role":"user","content":"你好"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("companion should not surface CONTEXT_ASSEMBLY_FAILED: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	if lastUserChatText(req.Messages) != "你好" {
+		t.Fatalf("spoken turn missing: %#v", req.Messages)
+	}
+}
+
+func TestChatStartEmptyHistoryWithoutMessagesStillFailsAssembly(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.messageReader = emptyCompanionReader{}
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `"}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if response.OK || response.Error.Code != "CONTEXT_ASSEMBLY_FAILED" {
+		t.Fatalf("empty durable history without messages = %#v", response)
+	}
+}
+
+func TestUseExplicitChatFallback(t *testing.T) {
+	trusted := []gateway.Message{{Role: gateway.RoleUser, Content: "hi"}}
+	if !useExplicitChatFallback(true, trusted, contextapp.ErrNoMessages) {
+		t.Fatal("companion empty history must fall back")
+	}
+	if !useExplicitChatFallback(false, trusted, contextapp.ErrNoMessages) {
+		t.Fatal("explicit user turn must recover empty history")
+	}
+	if useExplicitChatFallback(false, trusted, contextapp.ErrEnvelopeBudgetTooSmall) {
+		t.Fatal("non-companion budget failure must stay fail-closed")
+	}
+	if !useExplicitChatFallback(true, trusted, contextapp.ErrEnvelopeBudgetTooSmall) {
+		t.Fatal("companion budget failure must fall back")
+	}
+	if useExplicitChatFallback(true, nil, contextapp.ErrNoMessages) {
+		t.Fatal("no spoken turn means no fallback")
 	}
 }
 

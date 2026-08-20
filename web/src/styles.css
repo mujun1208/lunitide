@@ -217,6 +217,8 @@ button:disabled{opacity:.5}
 .pm-workbench .pm-workbench-center.has-deliverable{width:calc(100% - var(--sidebar-width,288px) - var(--deliverable-width,360px));margin-right:var(--deliverable-width,360px)}
 .pm-workbench .pm-workbench-center .main{min-height:100vh;height:100vh}
 .pm-workbench .pm-workbench-center .phase-nav{display:none}
+.pm-workbench .pm-workbench-center .personal-chat-page{height:100%;min-height:0;background:transparent}
+.pm-workbench .pm-workbench-center .personal-chat-page .session-content{height:calc(100% - 46px)}
 .pm-phase-sidebar .pm-workbench-project{display:grid;gap:4px;padding:0 4px 14px;border-bottom:1px solid rgba(137,159,194,.12);margin-bottom:12px}
 .pm-phase-sidebar .pm-workbench-project b{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pm-phase-sidebar .pm-workbench-project span,.pm-phase-sidebar .pm-workbench-project small{color:var(--muted);font-size:11px}
@@ -502,8 +504,8 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .about-content{padding:18px 16px}
 .about-logo{display:flex;align-items:center;gap:14px;margin-bottom:20px}
 .about-logo .moon-logo{width:46px;height:46px;border-radius:50%;flex:none;
-  background:#010204 url(/brand/moon-companion.png) 50% 46%/235% no-repeat;
-  box-shadow:none;position:relative;isolation:isolate;overflow:visible}
+  background:radial-gradient(circle at 36% 32%,#fff 0%,#f2f7ff 26%,#c8daf5 64%,#88a9d8 100%);
+  box-shadow:0 0 18px rgba(117,168,237,.42);position:relative;isolation:isolate;overflow:visible}
 .about-logo .moon-logo::before{content:"";position:absolute;inset:-72%;z-index:-1;border-radius:50%;pointer-events:none;
   background:radial-gradient(circle,transparent 36%,rgba(255,250,246,.48) 41%,rgba(220,238,255,.2) 50%,rgba(150,215,255,.07) 64%,transparent 80%);
   filter:blur(9px)}
@@ -577,7 +579,7 @@ body{background:#03060c;overflow-x:hidden}
 .atmosphere .ambient-moon{position:absolute;z-index:4;top:70px;right:8vw;width:116px;height:116px;opacity:.38}
 @keyframes starTwinkle{0%,100%{opacity:.2;transform:scale(.76)}48%{opacity:1;transform:scale(1.18)}55%{opacity:.78;transform:scale(1)}}
 
-.real-moon,.ambient-moon{display:block;position:relative;border-radius:50%;background:#010204 url(/brand/moon-companion.png) 50% 46%/235% no-repeat;box-shadow:none;overflow:visible;isolation:isolate}
+.real-moon,.ambient-moon{display:block;position:relative;border-radius:50%;background:radial-gradient(circle at 36% 32%,#fff 0%,#f2f7ff 26%,#c8daf5 64%,#88a9d8 100%);box-shadow:0 0 16px rgba(117,168,237,.38);overflow:visible;isolation:isolate}
 .real-moon{width:68px;height:68px;margin:0 auto 34px;animation:moonFloat 8s ease-in-out infinite}
 .real-moon.small{width:40px;height:40px;margin:0;animation:none}
 .real-moon::before,.ambient-moon::before{content:"";position:absolute;inset:-70%;z-index:-1;border-radius:50%;pointer-events:none;background:radial-gradient(circle,transparent 36%,rgba(255,250,246,.52) 41.7%,rgba(236,244,255,.2) 48%,rgba(200,226,255,.08) 62%,transparent 82%);filter:blur(11px)}

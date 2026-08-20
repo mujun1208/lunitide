@@ -125,6 +125,17 @@ func ValidTemplateType(t TemplateType) bool {
 	return t == TemplateTypeDocument || t == TemplateTypeScaffold
 }
 
+// documentTypeKeys are the English keys the workbench UI upserts.
+// Stored as-is so the panel can look documents up by def.key.
+var documentTypeKeys = map[string]struct{}{
+	"biz_req_analysis": {}, "impl_assessment": {}, "req_task_list": {}, "arch_design": {},
+	"hw_config": {}, "biz_standard": {}, "dev_standard": {}, "tech_standard": {},
+	"project_structure": {}, "biz_flow_diagram": {}, "biz_flow_list": {}, "biz_blueprint": {},
+	"api_list": {}, "feature_dev_list": {}, "feature_detail": {}, "api_detail": {},
+	"db_detail": {}, "ui_detail": {}, "integration_test_list": {}, "interface_list": {},
+	"db_design": {}, "dev_checklist": {}, "test_checklist": {},
+}
+
 func ValidDocumentType(d DocumentType) bool {
 	if d == "" {
 		return true
@@ -134,7 +145,8 @@ func ValidDocumentType(d DocumentType) bool {
 			return true
 		}
 	}
-	return false
+	_, ok := documentTypeKeys[string(d)]
+	return ok
 }
 
 func NormalizeName(raw string) (string, error) {

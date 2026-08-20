@@ -370,3 +370,30 @@ it('falls back to the default microphone when the saved device disappears',async
  expect(screen.getByRole('button',{name:'停止语音输入'})).toBeInTheDocument()
  delete (window as any).SpeechRecognition;delete (window as any).AudioContext
 })
+
+it('opens project workbench chat with the home composer instead of the session list',async()=>{
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn()} as MessageBridge} onBack={vi.fn()} initialSession={session} homeChat attachments={attachments}/>)
+ expect(await screen.findByText('还没有消息')).toBeInTheDocument()
+ expect(screen.queryByText('新建会话')).toBeNull()
+ expect(document.querySelector('.personal-chat-page')).not.toBeNull()
+ expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'执行模式'})).toBeInTheDocument()
+})
+
+it('automatically opens the terminal workspace for project home-chat command activity',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const user=userEvent.setup()
+ render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn()} as MessageBridge} onBack={vi.fn()} initialSession={session} homeChat attachments={attachments} providers={providers} chat={{start,approve:vi.fn(),dispose:vi.fn()}}/>)
+ await screen.findByText('还没有消息')
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'运行测试')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_started',tool:{callId:'call-1',name:'command.run',argsDigest:'digest',summary:'$ go test ./...'}}))
+ expect(screen.getByLabelText('统一工作区')).toBeInTheDocument()
+ expect(screen.getByRole('tab',{name:'终端'})).toHaveAttribute('aria-selected','true')
+ expect(screen.getByLabelText('命令调用情况')).toHaveTextContent('go test ./...')
+})

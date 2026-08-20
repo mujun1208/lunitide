@@ -139,6 +139,34 @@ func TestWebSearchToolParsesResults(t *testing.T) {
 	if !strings.Contains(out.Output, "https://go.dev/") {
 		t.Fatalf("missing result url: %q", out.Output)
 	}
+	if out.Artifact == nil || out.Artifact.Kind != "html" || !strings.Contains(out.Artifact.Content, "Go Programming Language") {
+		t.Fatalf("missing html artifact: %+v", out.Artifact)
+	}
+}
+
+func TestWebSearchFallsBackToBing(t *testing.T) {
+	r, _ := New(t.TempDir())
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	r.SetWebFetcher(func(_ context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		if strings.Contains(rawURL, "duckduckgo") {
+			return networkpolicy.FetchResult{}, errors.New("timeout")
+		}
+		if strings.Contains(rawURL, "bing.com") {
+			body := `<li class="b_algo"><h2><a href="https://go.dev/">Go</a></h2><p>The Go language.</p></li>`
+			return networkpolicy.FetchResult{Status: 200, ContentType: "text/html", Body: []byte(body)}, nil
+		}
+		return networkpolicy.FetchResult{}, errors.New("unexpected url " + rawURL)
+	})
+	out, err := r.Execute(context.Background(), Approval, s, "web.search", json.RawMessage(`{"query":"golang","max":3}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "https://go.dev/") || !strings.Contains(out.Output, "source: bing") {
+		t.Fatalf("bing fallback missing: %q", out.Output)
+	}
+	if out.Artifact == nil || !strings.Contains(out.Artifact.Content, "搜索结果") {
+		t.Fatalf("missing search html: %+v", out.Artifact)
+	}
 }
 
 const ddgLiteBody = `<html><body><table>
