@@ -134,6 +134,24 @@ var presets = []Preset{
 		ArgHint:        "数据库文件路径，例如 E:/data/app.db（不存在会自动创建）",
 		Category:       "数据库",
 	},
+	{
+		ID:          "time",
+		Name:        "Time",
+		Description: "查询当前时间、时区转换与工作日计算，适合日程和日志场景",
+		Transport:   "stdio",
+		Command:     "npx",
+		Args:        []string{"-y", "@modelcontextprotocol/server-time"},
+		Category:    "效率",
+	},
+	{
+		ID:          "context7",
+		Name:        "Context7",
+		Description: "按库名拉取最新官方文档片段，给模型准确的 API 与示例",
+		Transport:   "stdio",
+		Command:     "npx",
+		Args:        []string{"-y", "@upstash/context7-mcp"},
+		Category:    "开发",
+	},
 }
 
 // Presets returns a copy of the preset catalog in display order.

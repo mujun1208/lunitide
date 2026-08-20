@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getPluginBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,mcBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
@@ -8,13 +8,7 @@ import{OntologyPage}from'../ontology/OntologyPage'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'data' | 'security' | 'mcp' | 'browser' | 'computer' | 'plugins' | 'collab' | 'diagnostics' | 'about'
-
-// sha256Hex mirrors m8core.DigestOf for bridge confirm tokens (hex, 64).
-const sha256Hex = async (value: string): Promise<string> => {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('')
-}
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'data' | 'security' | 'browser' | 'computer' | 'collab' | 'diagnostics' | 'about'
 
 const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'general', icon: '◌', label: '常规' },
@@ -24,10 +18,8 @@ const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'personal', icon: '✧', label: '个人智能' },
   { id: 'data', icon: '❖', label: '数据与记忆' },
   { id: 'security', icon: '⛨', label: '安全与治理' },
-  { id: 'mcp', icon: '⧉', label: 'MCP 服务器' },
   { id: 'browser', icon: '⬟', label: '浏览器' },
   { id: 'computer', icon: '⌖', label: '电脑控制' },
-  { id: 'plugins', icon: '⬢', label: '插件' },
   { id: 'collab', icon: '⌘', label: '协作门禁' },
   { id: 'diagnostics', icon: '◉', label: '诊断与更新' },
   { id: 'about', icon: 'ⓘ', label: '关于' },
@@ -146,10 +138,8 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
             <HooksPanel />
             <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} /> }, { id: 'plans', label: '计划管理', render: pid => <PlanPage projectId={pid} /> }]} />
           </>}
-          {category === 'mcp' && <McpPanel />}
           {category === 'browser' && <BrowserPanel />}
           {category === 'computer' && <ComputerPanel />}
-          {category === 'plugins' && <PluginsPanel />}
           {category === 'collab' && <CollabGatePanel />}
           {category === 'diagnostics' && <DiagnosticsPanel />}
           {category === 'about' && <AboutPanel />}
@@ -425,172 +415,6 @@ function AboutPanel(): React.JSX.Element {
           <span>产品定位：不只是一个"更好的界面"，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。</span>
         </div>
       </div>
-    </div>
-  )
-}
-
-// M7 T-7.8.5 + M10 — MCP 连接器设置页：已安装端点管理、市场目录浏览、
-// 手动配置（含 8 规则校验链与确认令牌）、预置服务器一键注册。
-// 整合了原「连接器市场」独立页面，统一入口。
-function McpPanel(): React.JSX.Element {
-  const bridge = getMcpBridge()
-  const [tab, setTab] = useState<'market' | 'manual' | 'installed'>('installed')
-  const [endpoints, setEndpoints] = useState<Array<{ endpointId: string; transport: 'stdio' | 'https'; state: string; enabled: boolean; origin?: string; lastHealthAt?: string }>>([])
-  const [status, setStatus] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [json, setJson] = useState('{"transport":"stdio","command":"npx","args":["-y","some-mcp-server"]}')
-  const [riskConfirmed, setRiskConfirmed] = useState(false)
-  const [marketQuery, setMarketQuery] = useState('')
-  const [marketItems, setMarketItems] = useState<Array<{ itemId: string; name: string; publisher: string; description: string; transportHint: string; signed: boolean }>>([])
-  const [tombstone, setTombstone] = useState<{ fresh: boolean; revoked: Array<{ marketItemId: string; name: string; endpointIds: string[] }>; drifted: Array<{ marketItemId: string; name: string; cachedDigest: string; registryDigest: string }> }>()
-  const [uninstallTarget, setUninstallTarget] = useState<string>('')
-
-  const refresh = async () => {
-    setBusy(true)
-    try { const r = await bridge.list(); setEndpoints(r.endpoints); setStatus('') }
-    catch (e) { setStatus(e instanceof Error ? e.message : 'MCP 列表加载失败') }
-    finally { setBusy(false) }
-  }
-  useEffect(() => { void refresh() }, [])
-
-  const toggle = async (endpointId: string, enabled: boolean) => {
-    setBusy(true); setStatus('')
-    try { await bridge.toggle({ endpointId, enabled }); await refresh() }
-    catch (e) { setStatus(e instanceof Error ? e.message : '启停失败') } finally { setBusy(false) }
-  }
-  const health = async (endpointId: string) => {
-    setBusy(true); setStatus('')
-    try {
-      const r = await bridge.health({ endpointId })
-      setStatus(`${endpointId.slice(0, 8)}… 状态 ${r.state}${r.latencyMs !== undefined ? ` · 延迟 ${r.latencyMs}ms` : ''}${r.driftDetected ? ' · 能力漂移已检测（fail-closed）' : ''}`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '健康检查失败') } finally { setBusy(false) }
-  }
-  const addManual = async () => {
-    setBusy(true); setStatus('')
-    try {
-      const parsed = JSON.parse(json) as { transport?: 'stdio' | 'https'; command?: string; args?: string[]; url?: string }
-      await bridge.add({ origin: 'manual', transport: parsed.transport, command: parsed.command, args: parsed.args, url: parsed.url, riskConfirmed, requestId: crypto.randomUUID() })
-      setJson(''); setRiskConfirmed(false)
-      setStatus('已添加，进入 probe 探测。')
-      await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '添加失败：JSON 需含 transport(stdio|https) 及 command/args 或 url') } finally { setBusy(false) }
-  }
-  const searchMarket = async () => {
-    setBusy(true); setStatus('')
-    try {
-      const r = await bridge.marketSearch({ query: marketQuery })
-      setMarketItems(r.items)
-      setStatus(r.fresh ? `市场返回 ${r.items.length} 项` : `市场缓存返回 ${r.items.length} 项（离线）`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '市场搜索失败') } finally { setBusy(false) }
-  }
-  const addFromMarket = async (itemId: string) => {
-    setBusy(true); setStatus('')
-    try {
-      await bridge.add({ origin: 'market', marketItemId: itemId, riskConfirmed: true, requestId: crypto.randomUUID() })
-      setStatus('市场服务器已添加，进入 probe 探测。')
-      await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '市场添加失败') } finally { setBusy(false) }
-  }
-  const runTombstone = async () => {
-    setBusy(true); setStatus('')
-    try { setTombstone(await mcBridge.tombstoneCheck()) }
-    catch (e) { setStatus(e instanceof Error ? e.message : '墓碑检测失败') } finally { setBusy(false) }
-  }
-  const requestUninstall = async () => {
-    if (!uninstallTarget) return
-    setBusy(true); setStatus('')
-    try {
-      const token = await mcBridge.confirmToken({ method: 'mc.connector.uninstall', target: uninstallTarget })
-      const base = { endpointId: uninstallTarget, confirmToken: token.confirmToken }
-      await mcBridge.uninstall(base)
-      setStatus(`端点 ${uninstallTarget.slice(0, 12)}… 已吊销`)
-      setUninstallTarget('')
-      await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '卸载失败') } finally { setBusy(false) }
-  }
-
-  return (
-    <div className="setting-group">
-      <div className="setting-group-title">MCP 连接器</div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">stdio/HTTPS 双通道；能力 pin 漂移 fail-closed；8 规则校验链；确认令牌与端点生命周期。当前 {endpoints.length} 个端点。</div>
-      </div>
-
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="skill-status-tabs" role="tablist" aria-label="MCP 视图">
-          <button type="button" role="tab" aria-selected={tab === 'installed'} onClick={() => setTab('installed')}>已安装（{endpoints.length}）</button>
-          <button type="button" role="tab" aria-selected={tab === 'market'} onClick={() => setTab('market')}>市场</button>
-          <button type="button" role="tab" aria-selected={tab === 'manual'} onClick={() => setTab('manual')}>手动配置</button>
-        </div>
-      </div>
-
-      {tab === 'installed' && <>
-        {endpoints.map(e => (
-          <div className="setting-row" key={e.endpointId}>
-            <div>
-              <div className="setting-label">{e.endpointId.slice(0, 12)}… · {e.transport}{e.origin ? ` · ${e.origin === 'market' ? '市场' : '手动'}` : ''}</div>
-              <div className="setting-desc">状态 {e.state}{e.lastHealthAt ? ` · 上次检查 ${new Date(e.lastHealthAt).toLocaleString()}` : ''}</div>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button disabled={busy} onClick={() => void health(e.endpointId)}>检查</button>
-              <button disabled={busy} aria-pressed={e.enabled} onClick={() => void toggle(e.endpointId, !e.enabled)}>{e.enabled ? '停用' : '启用'}</button>
-              <button disabled={busy} className="danger" onClick={() => setUninstallTarget(e.endpointId)}>卸载</button>
-            </div>
-          </div>
-        ))}
-        {endpoints.length === 0 && <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}><div className="setting-desc">暂无已安装端点，从市场或手动配置添加第一个 MCP 连接器。</div></div>}
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button disabled={busy} onClick={() => void runTombstone()}>墓碑检测</button>
-          </div>
-          {tombstone && <div style={{ marginTop: 8 }}>
-            {tombstone.revoked.length > 0 && <div className="setting-desc" style={{ color: '#ff9ba4' }}>发现 {tombstone.revoked.length} 个已撤销条目：{tombstone.revoked.map(item => item.name).join('、')}，建议卸载。</div>}
-            {tombstone.drifted.length > 0 && <div className="setting-desc">发现 {tombstone.drifted.length} 个上游摘要漂移：{tombstone.drifted.map(item => item.name).join('、')}，建议更新。</div>}
-            {tombstone.revoked.length === 0 && tombstone.drifted.length === 0 && <div className="setting-desc">无已撤销或漂移条目。</div>}
-          </div>}
-        </div>
-      </>}
-
-      {tab === 'market' && <>
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="setting-input" style={{ flex: 1 }} placeholder="搜索 MCP 服务器（名称 / 发布者 / 描述）" value={marketQuery} onChange={ev => setMarketQuery(ev.target.value)} aria-label="市场搜索" />
-            <button disabled={busy || !marketQuery.trim()} onClick={() => void searchMarket()}>搜索</button>
-          </div>
-        </div>
-        {marketItems.map(m => (
-          <div className="setting-row" key={m.itemId} style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
-            <div>
-              <div className="setting-label">{m.name} {m.signed ? '· 已签名' : '· 未签名'} · {m.transportHint}</div>
-              <div className="setting-desc">{m.publisher} — {m.description}</div>
-            </div>
-            <button disabled={busy} onClick={() => void addFromMarket(m.itemId)}>添加</button>
-          </div>
-        ))}
-        {marketItems.length === 0 && <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}><div className="setting-desc">输入关键词搜索 MCP 市场目录，或切换到「预置服务器」查看免费官方推荐。</div></div>}
-      </>}
-
-      {tab === 'manual' && <>
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-          <div className="setting-group-title" style={{ marginTop: 0 }}>手动配置（JSON）</div>
-          <textarea className="setting-textarea" style={{ width: '100%', minHeight: 84, fontFamily: 'var(--mono)', fontSize: 12 }} placeholder='{"transport":"stdio","command":"npx","args":["-y","some-mcp-server"]}' value={json} onChange={ev => setJson(ev.target.value)} aria-label="MCP 连接器 JSON" />
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--muted)' }}>
-            <input type="checkbox" checked={riskConfirmed} onChange={ev => setRiskConfirmed(ev.target.checked)} /> 我确认信任此服务器来源，理解其工具将进入本机沙箱执行
-          </label>
-          <div><button disabled={busy || !json.trim() || !riskConfirmed} onClick={() => void addManual()}>添加连接器</button></div>
-        </div>
-      </>}
-
-      <McpPresetsSection />
-      {status && <p role="status" className="notice">{status}</p>}
-
-      {uninstallTarget && <div className="model-manager-overlay" role="dialog" aria-modal="true" aria-label="确认卸载连接器">
-        <div className="mc-detail-dialog">
-          <div className="skill-detail-title"><h2>卸载连接器</h2><button type="button" onClick={() => setUninstallTarget('')}>取消</button></div>
-          <p>端点 <code>{uninstallTarget}</code> 将被吊销：停用并进入终态，用量统计保留。操作需要签发一次性确认令牌。</p>
-          <div className="skill-detail-actions"><button className="danger" disabled={busy} onClick={() => void requestUninstall()}>{busy ? '卸载中…' : '签发令牌并卸载'}</button><button disabled={busy} onClick={() => setUninstallTarget('')}>取消</button></div>
-        </div>
-      </div>}
     </div>
   )
 }
@@ -1215,205 +1039,6 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
           </div>
         )}
       </div>
-      {status && <p role="status" className="notice">{status}</p>}
-    </div>
-  )
-}
-
-// M8 T-8.9.7 — 插件设置页：已安装启停/卸载/升级 + 市场浏览安装。
-function PluginsPanel(): React.JSX.Element {
-  const bridge = getPluginBridge()
-  const [plugins, setPlugins] = useState<Array<{ installId: string; pluginId: string; semver: string; publisher: string; kind: string; origin: string; state: string; bindingCount: number }>>([])
-  const [status, setStatus] = useState('')
-  const [busy, setBusy] = useState(false)
- const[query, setQuery] = useState('')
-  const [pluginTab, setPluginTab] = useState<'config' | 'list'>('list')
-  const [items, setItems] = useState<Array<{ itemId: string; pluginId: string; name: string; publisher: string; description: string; kind: string; semver: string; signed: boolean }>>([])
-  // 三步安装确认（M8 P1）：1 详情 → 2 权限确认 → 3 安装
-  const [wizard, setWizard] = useState<{ step: 1 | 2; item: { itemId: string; pluginId: string; name: string; publisher: string; description: string; kind: string; semver: string; signed: boolean }; detail?: { manifest: object; permissions: string[]; requires: object; signature: object; downloads: number }; grant: Record<string, string[]>; agreed: boolean } | null>(null)
-  // 开发者工具视图（plugin.dev.create）
-  const [devOpen, setDevOpen] = useState(false)
-  const [devWorkspace, setDevWorkspace] = useState('')
-  const [devEntrypoint, setDevEntrypoint] = useState('')
-  const [devManifest, setDevManifest] = useState('')
-  const [listQuery, setListQuery] = useState('')
-  const quarantined = plugins.filter(p => p.state === 'quarantined')
-  const visiblePlugins = plugins.filter(p => !listQuery.trim() || `${p.pluginId} ${p.kind} ${p.state}`.toLowerCase().includes(listQuery.trim().toLowerCase()))
-  const enabledCount = plugins.filter(p => p.state === 'enabled').length
-
-  const refresh = async () => {
-    setBusy(true)
-    try { setPlugins((await bridge.list()).plugins); setStatus('') } catch (e) { setStatus(e instanceof Error ? e.message : '插件列表加载失败') } finally { setBusy(false) }
-  }
-  useEffect(() => { void refresh() }, [])
-
-  const toggle = async (installId: string, enabled: boolean) => {
-    setBusy(true); setStatus('')
-    try { await bridge.toggle({ installId, enabled }); await refresh() } catch (e) { setStatus(e instanceof Error ? e.message : '启停失败') } finally { setBusy(false) }
-  }
-  const uninstall = async (installId: string) => {
-    if (!window.confirm('确认卸载该插件？能力绑定将同步撤销，并留存墓碑记录。')) return
-    setBusy(true); setStatus('')
-    try {
-      const confirmToken = await sha256Hex(`plugin.uninstall|${installId}`)
-      await bridge.uninstall({ installId, confirmToken }); await refresh(); setStatus('已卸载，能力绑定同步撤销。')
-    } catch (e) { setStatus(e instanceof Error ? e.message : '卸载失败') } finally { setBusy(false) }
-  }
-  const upgrade = async (installId: string) => {
-    setBusy(true); setStatus('')
-    try { const r = await bridge.upgrade({ installId }); setStatus(`${r.fromSemver} → ${r.toSemver}${r.permissionExpansion ? '（权限有扩展，请复核）' : ''}`); await refresh() } catch (e) { setStatus(e instanceof Error ? e.message : '升级失败') } finally { setBusy(false) }
-  }
-  const search = async () => {
-    setBusy(true); setStatus('')
-    try { setItems((await bridge.marketSearch({ query })).items); setStatus('') } catch (e) { setStatus(e instanceof Error ? e.message : '市场搜索失败') } finally { setBusy(false) }
-  }
-  // 步骤 1：读取详情并把声明权限解析为授权文档（grant = requested，不扩权）
-  const openWizard = async (item: { itemId: string; pluginId: string; name: string; publisher: string; description: string; kind: string; semver: string; signed: boolean }) => {
-    setBusy(true); setStatus('')
-    try {
-      const detail = await bridge.marketDetail({ itemId: item.itemId })
-      const docPermissions = (detail.manifest as { permissions?: unknown } | null)?.permissions
-      const grant: Record<string, string[]> = {}
-      if (docPermissions && typeof docPermissions === 'object' && !Array.isArray(docPermissions)) {
-        for (const [scope, actions] of Object.entries(docPermissions as Record<string, unknown>)) grant[scope] = Array.isArray(actions) ? actions.map(String) : [String(actions)]
-      } else {
-        for (const permission of detail.permissions) {
-          const [scope, ...rest] = String(permission).split(/[.:]/)
-          const action = rest.join(':') || scope
-          grant[scope] = [...(grant[scope] ?? []), action]
-        }
-      }
-      setWizard({ step: 1, item, detail, grant, agreed: false })
-    } catch (e) { setStatus(e instanceof Error ? e.message : '插件详情加载失败') } finally { setBusy(false) }
-  }
-  // 步骤 3：携带确认后的授权文档安装（空权限插件也走同一链路）
-  const install = async () => {
-    if (!wizard || !wizard.agreed) return
-    setBusy(true); setStatus('')
-    try {
-      const r = await bridge.install({ origin: 'market', source: wizard.item.itemId, permissionGrant: wizard.grant, requestId: crypto.randomUUID() })
-      setStatus(r.state === 'quarantined' ? '安装已隔离：签名/哈希校验未通过，未注册任何能力。' : `已安装（${r.state}，绑定 ${r.bindings.length} 项能力）`)
-      setWizard(null); await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '安装失败') } finally { setBusy(false) }
-  }
-  const devCreate = async () => {
-    setBusy(true); setStatus('')
-    try {
-      const manifest = JSON.parse(devManifest) as object
-      const r = await bridge.devCreate({ workspaceId: devWorkspace.trim(), manifest, entrypoint: devEntrypoint.trim() })
-      setStatus(r.state === 'quarantined' ? `开发包已创建并隔离（bundle ${r.bundleId}）` : `开发包已创建并通过校验（bundle ${r.bundleId}）`)
-      setDevOpen(false); setDevWorkspace(''); setDevEntrypoint(''); setDevManifest('')
-    } catch (e) { setStatus(e instanceof Error ? e.message : '开发包创建失败（清单需为合法 JSON）') } finally { setBusy(false) }
-  }
-
-  return (
-    <div className="setting-group">
-      <div className="setting-group-title">插件</div>
-      <div className="skill-status-tabs" role="tablist" aria-label="插件视图">
-        <button type="button" role="tab" aria-selected={pluginTab === 'config'} onClick={() => setPluginTab('config')}>插件配置</button>
-        <button type="button" role="tab" aria-selected={pluginTab === 'list'} onClick={() => setPluginTab('list')}>插件列表 · {plugins.length}</button>
-      </div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">内置能力按 Harness 方式挂进现有子系统（命令、搜索、工作区、会话）。已启用 {enabledCount} / {plugins.length}。</div>
-      </div>
-      {pluginTab === 'config' && (
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-          <details open><summary className="setting-label">终端</summary><div className="setting-desc">命令执行走 command.run 与命令白名单；Windows 默认启用 PowerShell、停用 Bash。</div></details>
-          <details><summary className="setting-label">Agent 循环</summary><div className="setting-desc">工具派发沿用现有引擎循环，可在插件列表启停 agent-loop / thinking。</div></details>
-          <details><summary className="setting-label">网页搜索</summary><div className="setting-desc">web.search 与 DeepSeek 搜索插件（web-search-deepseek）可在列表中单独启停。</div></details>
-        </div>
-      )}
-      {quarantined.length > 0 && (
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr', border: '1px solid #f59e0b', borderRadius: 8, background: 'rgba(245, 158, 11, 0.08)' }} role="alert">
-          <div className="setting-label">⛔ {quarantined.length} 个插件处于隔离状态</div>
-          <div className="setting-desc">{quarantined.map(p => p.pluginId).join('、')} — 签名/哈希校验未通过，未注册任何能力；可卸载留存取证。</div>
-        </div>
-      )}
-      {pluginTab === 'list' && (
-        <>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <input className="setting-input" placeholder="搜索已安装插件" value={listQuery} onChange={e => setListQuery(e.target.value)} aria-label="搜索已安装插件" />
-      </div>
-      <div className="plugin-card-grid">
-      {visiblePlugins.map(p => (
-        <div className="setting-row plugin-card" key={p.installId}>
-          <div>
-            <div className="setting-label">{p.pluginId} · v{p.semver} · {p.kind}{p.state === 'quarantined' ? ' · ⛔ 隔离' : ''}</div>
-            <div className="setting-desc">{p.publisher} · {p.state} · 绑定 {p.bindingCount} 项 · {p.origin}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {p.state === 'enabled' || p.state === 'disabled' ? <button disabled={busy} onClick={() => void toggle(p.installId, p.state !== 'enabled')}>{p.state === 'enabled' ? '停用' : '启用'}</button> : null}
-            {p.state !== 'quarantined' && p.state !== 'uninstalled' && <button disabled={busy} onClick={() => void upgrade(p.installId)}>升级</button>}
-            {p.state !== 'uninstalled' && <button disabled={busy} onClick={() => void uninstall(p.installId)}>卸载</button>}
-          </div>
-        </div>
-      ))}
-      </div>
-        </>
-      )}
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-group-title" style={{ marginTop: 8 }}>插件市场</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="setting-input" style={{ flex: 1 }} placeholder="搜索插件（mcp/skill/workflow/template/tool/agent-pack）" value={query} onChange={e => setQuery(e.target.value)} aria-label="插件市场搜索" />
-          <button disabled={busy || !query.trim()} onClick={() => void search()}>搜索</button>
-        </div>
-        {items.map(m => (
-          <div className="setting-row" key={m.itemId} style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
-            <div>
-              <div className="setting-label">{m.name} v{m.semver} · {m.kind} {m.signed ? '· 已签名' : '· 未签名'}</div>
-              <div className="setting-desc">{m.publisher} — {m.description}</div>
-            </div>
-            <button disabled={busy} onClick={() => void openWizard(m)}>安装…</button>
-          </div>
-        ))}
-      </div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-group-title" style={{ marginTop: 8 }}>开发者工具</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button disabled={busy} onClick={() => setDevOpen(open => !open)} aria-expanded={devOpen}>{devOpen ? '收起' : '创建开发包'}</button>
-        </div>
-        {devOpen && (
-          <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
-            <div className="setting-desc">本地工作区直连：plugin.dev.create 走隔离校验链，未通过前不注册能力。</div>
-            <input className="setting-input" placeholder="workspaceId（本地工作区标识）" value={devWorkspace} onChange={e => setDevWorkspace(e.target.value)} aria-label="开发包工作区" />
-            <input className="setting-input" placeholder="入口（entrypoint，如 plugin/main.ts）" value={devEntrypoint} onChange={e => setDevEntrypoint(e.target.value)} aria-label="开发包入口" />
-            <textarea className="setting-input" style={{ minHeight: 120, fontFamily: 'var(--mono, monospace)' }} placeholder='插件清单 JSON，如 {"pluginId":"demo","semver":"0.1.0","publisher":"local","kind":"tool","permissions":{"fs":["read"]}}' value={devManifest} onChange={e => setDevManifest(e.target.value)} aria-label="开发包清单 JSON" />
-            <div><button className="primary" disabled={busy || !devWorkspace.trim() || !devEntrypoint.trim() || !devManifest.trim()} onClick={() => void devCreate()}>提交开发包</button></div>
-          </div>
-        )}
-      </div>
-      {wizard && wizard.detail && (
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr', border: '1px solid var(--rule)', borderRadius: 8, padding: 12 }} role="dialog" aria-label={`安装确认 ${wizard.item.name}`}>
-          <div className="setting-group-title">安装 {wizard.item.name} v{wizard.item.semver} · 第 {wizard.step}/2 步</div>
-          {wizard.step === 1 ? (
-            <>
-              <div className="setting-desc">{wizard.item.publisher} — {wizard.item.description} · 下载 {wizard.detail.downloads} 次 · {wizard.item.signed ? '已签名' : '未签名'}</div>
-              <div className="setting-label" style={{ marginTop: 8 }}>清单</div>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{JSON.stringify(wizard.detail.manifest, null, 2)}</pre>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button onClick={() => setWizard({ ...wizard, step: 2 })}>下一步：确认权限</button>
-                <button onClick={() => setWizard(null)}>取消</button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="setting-label" style={{ marginTop: 8 }}>该插件声明以下权限（安装即按此精确授权，不扩权）</div>
-              {Object.keys(wizard.grant).length ? Object.entries(wizard.grant).map(([scope, actions]) => (
-                <div className="setting-desc" key={scope}><code>{scope}</code> → {actions.join('、')}</div>
-              )) : <div className="setting-desc">（无权限声明）</div>}
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                <input type="checkbox" checked={wizard.agreed} onChange={e => setWizard({ ...wizard, agreed: e.target.checked })} />
-                <span className="setting-desc">我已了解并同意授予以上权限</span>
-              </label>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button className="primary" disabled={busy || !wizard.agreed} onClick={() => void install()}>确认并安装</button>
-                <button onClick={() => setWizard({ ...wizard, step: 1 })}>上一步</button>
-                <button onClick={() => setWizard(null)}>取消</button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
       {status && <p role="status" className="notice">{status}</p>}
     </div>
   )

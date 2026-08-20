@@ -43,6 +43,26 @@
             },
             "lastHealthAt": {
               "type": "string"
+            },
+            "displayName": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "command": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "args": {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048
             }
           },
           "required": ["endpointId", "transport", "state", "enabled"]

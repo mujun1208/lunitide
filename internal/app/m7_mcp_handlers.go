@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
 // M7 slice-8 handlers (T-7.8.x): the MCP settings plane
@@ -92,6 +95,7 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	}
 	items := make([]m7McpEndpointDTO, 0, len(eps))
 	for _, ep := range eps {
+		args := parseMcpArgsJSON(ep.ArgsJSON)
 		items = append(items, m7McpEndpointDTO{
 			EndpointID:   ep.EndpointID,
 			Transport:    ep.Transport,
@@ -99,6 +103,10 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 			Enabled:      ep.Enabled,
 			Origin:       ep.Origin,
 			LastHealthAt: ep.LastHealthAt,
+			DisplayName:  mcpEndpointDisplayName(ep, args),
+			Command:      ep.Command,
+			Args:         args,
+			URL:          ep.URL,
 		})
 	}
 	return bridge.Success(r.ID, struct {
@@ -108,12 +116,66 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 
 // m7McpEndpointDTO is one row of the mcp.list projection.
 type m7McpEndpointDTO struct {
-	EndpointID   string `json:"endpointId"`
-	Transport    string `json:"transport"`
-	State        string `json:"state"`
-	Enabled      bool   `json:"enabled"`
-	Origin       string `json:"origin"`
-	LastHealthAt string `json:"lastHealthAt,omitempty"`
+	EndpointID   string   `json:"endpointId"`
+	Transport    string   `json:"transport"`
+	State        string   `json:"state"`
+	Enabled      bool     `json:"enabled"`
+	Origin       string   `json:"origin,omitempty"`
+	LastHealthAt string   `json:"lastHealthAt,omitempty"`
+	DisplayName  string   `json:"displayName,omitempty"`
+	Command      string   `json:"command,omitempty"`
+	Args         []string `json:"args,omitempty"`
+	URL          string   `json:"url,omitempty"`
+}
+
+func parseMcpArgsJSON(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var args []string
+	if json.Unmarshal([]byte(raw), &args) != nil {
+		return nil
+	}
+	return args
+}
+
+func mcpEndpointDisplayName(ep m7flow.McpEndpointConfig, args []string) string {
+	for _, preset := range mcp6.Presets() {
+		if preset.Command != ep.Command {
+			continue
+		}
+		if mcpArgsMatchPreset(preset.Args, args) {
+			return preset.Name
+		}
+	}
+	for i := len(args) - 1; i >= 0; i-- {
+		a := args[i]
+		if strings.HasPrefix(a, "@") || strings.Contains(a, "mcp") {
+			return a
+		}
+	}
+	if ep.URL != "" {
+		return ep.URL
+	}
+	if ep.Command != "" {
+		return ep.Command
+	}
+	return ep.EndpointID
+}
+
+func mcpArgsMatchPreset(template, actual []string) bool {
+	if len(template) != len(actual) {
+		return false
+	}
+	for i := range template {
+		if strings.HasPrefix(template[i], "{{") && strings.HasSuffix(template[i], "}}") {
+			continue
+		}
+		if template[i] != actual[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func handleMcpToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

@@ -17,7 +17,7 @@ func TestCatalogTemplatesWellFormed(t *testing.T) {
 		if tpl.ID == "" || tpl.Name == "" || tpl.DisplayName == "" || tpl.Category == "" {
 			t.Fatalf("template missing required identity fields: %+v", tpl)
 		}
-		if !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" {
+		if !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" && tpl.ID != "plugin-creator" {
 			t.Fatalf("template name must use tpl- prefix: %q", tpl.Name)
 		}
 		if seen[tpl.ID] {
