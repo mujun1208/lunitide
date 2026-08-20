@@ -5,9 +5,10 @@
   "type":"object","additionalProperties":false,
   "properties":{
     "id":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},
-    "version":{"type":"integer","minimum":1}
+    "version":{"type":"integer","minimum":1},
+    "reason":{"type":"string","minLength":1,"maxLength":500}
   },
-  "required":["id","version"],
+  "required":["id","version","reason"],
   "x-result":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"},
-  "x-examples":{"positive":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","version":1}],"negative":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}]}
+  "x-examples":{"positive":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","version":1,"reason":"恢复实施"}],"negative":[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","version":1}]}
 }

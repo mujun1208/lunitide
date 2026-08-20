@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/stage.update.schema.json",
+  "title": "stage.update payload",
+  "x-method": "stage.update",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "id": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "status": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/StageStatus"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": ["projectId", "id", "status", "expectedVersion"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/StageDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "status": "in_progress",
+        "expectedVersion": 1
+      }
+    ],
+    "negative": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "status": "in_progress"
+      }
+    ]
+  }
+}

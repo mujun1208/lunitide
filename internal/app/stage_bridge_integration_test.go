@@ -88,6 +88,9 @@ type nilStages struct{}
 func (*nilStages) Create(context.Context, string, string, any, stage.Stage) (stage.Stage, error) {
 	panic("typed nil called")
 }
+func (*nilStages) Update(context.Context, string, string, any, stageapp.UpdateInput) (stage.Stage, error) {
+	panic("typed nil called")
+}
 func (*nilStages) List(context.Context, stage.Filter) ([]stage.Stage, error) {
 	panic("typed nil called")
 }
@@ -199,6 +202,64 @@ func TestStageBridgeAllNinePhases(t *testing.T) {
 	for i, item := range result.Items {
 		if item.Phase != i+1 {
 			t.Fatalf("expected phase %d at index %d, got %d", i+1, i, item.Phase)
+		}
+	}
+}
+
+func TestStageBridgeUpdateReplayConflictAndVersionGuard(t *testing.T) {
+	e, parent, path := stageEngine(t)
+	create := validRequest("stage.create", `{"projectId":"`+parent+`","phase":1,"title":"Requirements"}`)
+	create.IdempotencyKey = "update-seed"
+	created := e.Handle(context.Background(), create)
+	if !created.OK {
+		t.Fatalf("create %#v", created)
+	}
+	raw, _ := json.Marshal(created.Payload)
+	var dto stageDTO
+	if err := json.Unmarshal(raw, &dto); err != nil {
+		t.Fatal(err)
+	}
+	update := validRequest("stage.update", fmt.Sprintf(`{"projectId":"%s","id":"%s","status":"in_progress","expectedVersion":%d}`, parent, dto.ID, dto.Version))
+	update.IdempotencyKey = "stage-update-key"
+	first := e.Handle(context.Background(), update)
+	second := e.Handle(context.Background(), update)
+	if !first.OK || !second.OK {
+		t.Fatalf("update/replay %#v %#v", first, second)
+	}
+	a, _ := json.Marshal(first.Payload)
+	b, _ := json.Marshal(second.Payload)
+	if string(a) != string(b) {
+		t.Fatalf("replay differs %s %s", a, b)
+	}
+	if err := json.Unmarshal(a, &dto); err != nil || dto.Status != stage.StatusInProgress || dto.Version != 2 {
+		t.Fatalf("unexpected DTO %#v", dto)
+	}
+	update.Payload = json.RawMessage(fmt.Sprintf(`{"projectId":"%s","id":"%s","status":"completed","expectedVersion":%d}`, parent, dto.ID, dto.Version))
+	if x := e.Handle(context.Background(), update); x.OK || x.Error.Code != "IDEMPOTENCY_CONFLICT" {
+		t.Fatalf("conflict %#v", x)
+	}
+	stale := validRequest("stage.update", fmt.Sprintf(`{"projectId":"%s","id":"%s","status":"waiting_review","expectedVersion":1}`, parent, dto.ID))
+	stale.IdempotencyKey = "stage-stale-version"
+	if x := e.Handle(context.Background(), stale); x.OK || x.Error.Code != "STAGE_VERSION_CONFLICT" {
+		t.Fatalf("version conflict %#v", x)
+	}
+	missing := validRequest("stage.update", `{"projectId":"`+parent+`","id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","status":"in_progress","expectedVersion":1}`)
+	missing.IdempotencyKey = "stage-missing"
+	if x := e.Handle(context.Background(), missing); x.OK || x.Error.Code != "STAGE_NOT_FOUND" {
+		t.Fatalf("missing stage %#v", x)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for query, want := range map[string]int{
+		`SELECT count(*) FROM audit_events WHERE action='stage.updated'`:                                               1,
+		`SELECT count(*) FROM idempotency_records WHERE operation='stage.update' AND idempotency_key='stage-update-key'`: 1,
+	} {
+		var got int
+		if err = db.QueryRow(query).Scan(&got); err != nil || got != want {
+			t.Fatalf("query %q got=%d want=%d err=%v", query, got, want, err)
 		}
 	}
 }

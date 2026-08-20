@@ -11,7 +11,10 @@ import {
   type ProjectClosePayload, type ProjectCloseResult, type ProjectReopenPayload, type ProjectReopenResult,
   type SessionCreatePayload, type SessionCreateResult, type SessionListPayload, type SessionListResult, type SessionUpdatePayload, type SessionUpdateResult,
   type MessageAppendPayload, type MessageAppendResult, type MessageListPayload, type MessageListResult, type MessageRewindPayload, type MessageRewindResult,
-  type StageCreatePayload, type StageCreateResult, type StageListPayload, type StageListResult,
+  type StageCreatePayload, type StageCreateResult, type StageListPayload, type StageListResult, type StageUpdatePayload, type StageUpdateResult,
+  type DeliverableListPayload, type DeliverableListResult, type DeliverableUpsertPayload, type DeliverableUpsertResult, type DeliverableConfirmGatePayload, type DeliverableConfirmGateResult,
+  type ReleaseBuildPackagePayload, type ReleaseBuildPackageResult, type ReleaseCreateRevisionPayload, type ReleaseCreateRevisionResult, type ReleaseGetRevisionPayload, type ReleaseGetRevisionResult, type ReleaseGetPackagePayload, type ReleaseGetPackageResult,
+  type SkillImportDiscoverPayload, type SkillImportDiscoverResult, type SkillImportInspectPayload, type SkillImportInspectResult, type SkillImportSubmitPayload, type SkillImportSubmitResult, type SkillImportApprovePayload, type SkillImportApproveResult, type SkillImportRejectPayload, type SkillImportRejectResult, type SkillImportRevokePayload, type SkillImportRevokeResult,
   type PlanGetPayload, type PlanGetResult, type PlanListPayload, type PlanListResult,
   type PlanCreatePayload, type PlanCreateResult,
   type PlanActivatePayload, type PlanActivateResult, type PlanCompletePayload, type PlanCompleteResult,
@@ -99,6 +102,7 @@ import {
   type AttachmentIngestPayload, type AttachmentIngestResult,
   type AttachmentGetPayload, type AttachmentGetResult,
   type AttachmentListPayload, type AttachmentListResult,
+  type TemplateListPayload, type TemplateListResult,
   type AttachmentDeletePayload, type AttachmentDeleteResult,
   type AttachmentUploadBeginPayload,type AttachmentUploadBeginResult,type AttachmentUploadChunkPayload,type AttachmentUploadChunkResult,type AttachmentUploadCommitPayload,type AttachmentUploadCommitResult,type AttachmentUploadAbortPayload,type AttachmentUploadAbortResult,
   type TerminalStartPayload,type TerminalStartResult,type TerminalInputResult,type TerminalResizeResult,type TerminalCloseResult,
@@ -144,7 +148,7 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'session.create'|'session.update'|'session.delete'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'
+export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -169,13 +173,16 @@ export interface ProviderBridge {
   syncModels(payload: ProviderModelSyncPayload, options?:MutationOptions<ProviderModelSyncPayload>): Promise<ProviderModelSyncResult>
   test(payload: ProviderTestPayload): Promise<ProviderTestResult>
 }
+export type ProjectAdvanceStatusPayload = { id: string; version: number; phase: number }
+export type ProjectAdvanceStatusResult = ProjectCreateResult
 export interface ProjectBridge {
   list(payload?:ProjectListPayload):Promise<ProjectListResult>
   create(payload:ProjectCreatePayload,options?:MutationOptions<ProjectCreatePayload>):Promise<ProjectCreateResult>
   update(payload:ProjectUpdatePayload,options?:MutationOptions<ProjectUpdatePayload>):Promise<ProjectUpdateResult>
   publish(payload:ProjectPublishPayload,options?:MutationOptions<ProjectPublishPayload>):Promise<ProjectPublishResult>
   close(payload:ProjectClosePayload,options?:MutationOptions<ProjectClosePayload>):Promise<ProjectCloseResult>
-  reopen(payload:ProjectReopenPayload,options?:MutationOptions<ProjectReopenPayload>):Promise<ProjectReopenResult>
+  reopen(payload:ProjectReopenPayload&{reason:string},options?:MutationOptions<ProjectReopenPayload&{reason:string}>):Promise<ProjectReopenResult>
+  advanceStatus(payload:ProjectAdvanceStatusPayload,options?:MutationOptions<ProjectAdvanceStatusPayload>):Promise<ProjectAdvanceStatusResult>
   delete(payload:ProjectDeletePayload,options?:MutationOptions<ProjectDeletePayload>):Promise<ProjectDeleteResult>
 }
 export interface SessionBridge { list(payload:SessionListPayload):Promise<SessionListResult>; create(payload:SessionCreatePayload,options?:MutationOptions<SessionCreatePayload>):Promise<SessionCreateResult>; update(payload:SessionUpdatePayload,options?:MutationOptions<SessionUpdatePayload>):Promise<SessionUpdateResult>; delete(payload:SessionDeletePayload,options?:MutationOptions<SessionDeletePayload>):Promise<SessionDeleteResult> }
@@ -183,7 +190,7 @@ export interface MessageBridge { list(payload:MessageListPayload):Promise<Messag
 export interface UIThemeBridge { set(payload:UiThemeSetPayload):Promise<UiThemeSetResult> }
 export interface SystemSettingsBridge { open(payload:SystemSettingsOpenPayload):Promise<SystemSettingsOpenResult> }
 export interface BrowserBridge { open(payload:BrowserOpenPayload):Promise<BrowserOpenResult>; close():Promise<BrowserCloseResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','session.create','session.update','session.delete','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -192,13 +199,14 @@ const isTime=(v:unknown)=>{if(typeof v!=='string')return false;const m=/^(\d{4})
 const normalizedProjectName=(v:string)=>v.split(/\p{White_Space}+/u).filter(Boolean).join(' ')
 const isProjectCode=(v:unknown)=>typeof v==='string'&&/^ITM[0-9]{3,12}$/.test(v)
 const isDate=(v:unknown)=>typeof v==='string'&&(v===''||/^\d{4}-\d{2}-\d{2}$/.test(v))
-const isProject=(v:unknown)=>isObj(v)&&exact(v,['id','name','projectCode','type','status','createdAt','updatedAt','version'],['description','summary','objective','client','contractNo','amount','budget','planStart','planEnd','remark','closeReason'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===normalizedProjectName(v.name)&&Array.from(v.name).length>=1&&Array.from(v.name).length<=200&&isProjectCode(v.projectCode)&&['implementation','operations','enhancement'].includes(String(v.type))&&['created','active','closed','archived'].includes(String(v.status))&&(!('description'in v)||typeof v.description==='string')&&(!('client'in v)||typeof v.client==='string')&&(!('amount'in v)||typeof v.amount==='number'&&v.amount>=0)&&(!('budget'in v)||typeof v.budget==='number'&&v.budget>=0)&&(!('planStart'in v)||isDate(v.planStart))&&(!('planEnd'in v)||isDate(v.planEnd))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Date.parse(String(v.updatedAt))>=Date.parse(String(v.createdAt))&&Number.isInteger(v.version)&&Number(v.version)>=1
+const PROJECT_ADVANCE_METHOD='project.advanceStatus' as const
+const isProject=(v:unknown)=>isObj(v)&&exact(v,['id','name','projectCode','type','status','createdAt','updatedAt','version'],['description','summary','objective','client','contractNo','amount','budget','planStart','planEnd','remark','closeReason','statusBeforeClose','reopenReason'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===normalizedProjectName(v.name)&&Array.from(v.name).length>=1&&Array.from(v.name).length<=200&&isProjectCode(v.projectCode)&&['implementation','operations','enhancement'].includes(String(v.type))&&['created','chartered','req_architecture','req_assessment','in_progress','integration_test','go_live_prep','live','closed','archived','active'].includes(String(v.status))&&(!('description'in v)||typeof v.description==='string')&&(!('client'in v)||typeof v.client==='string')&&(!('amount'in v)||typeof v.amount==='number'&&v.amount>=0)&&(!('budget'in v)||typeof v.budget==='number'&&v.budget>=0)&&(!('planStart'in v)||isDate(v.planStart))&&(!('planEnd'in v)||isDate(v.planEnd))&&(!('statusBeforeClose'in v)||['created','chartered','req_architecture','req_assessment','in_progress','integration_test','go_live_prep','live','closed','archived','active'].includes(String(v.statusBeforeClose)))&&(!('reopenReason'in v)||typeof v.reopenReason==='string')&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Date.parse(String(v.updatedAt))>=Date.parse(String(v.createdAt))&&Number.isInteger(v.version)&&Number(v.version)>=1
 const isSession=(v:unknown,projectId?:string)=>isObj(v)&&exact(v,['id','projectId','title','pinned','status','createdAt','updatedAt','version'])&&isULID(v.id)&&(!projectId||v.projectId===projectId)&&typeof v.title==='string'&&v.title===normalizedProjectName(v.title)&&Array.from(v.title).length>=1&&Array.from(v.title).length<=200&&typeof v.pinned==='boolean'&&v.status==='active'&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Date.parse(String(v.updatedAt))>=Date.parse(String(v.createdAt))&&Number.isInteger(v.version)&&Number(v.version)>=1
 const isModel=(v:unknown)=>isObj(v)&&exact(v,['modelId','displayName','isDefault'],['contextWindow'])&&typeof v.modelId==='string'&&/^[\x21-\x7E]{1,200}$/.test(v.modelId)&&typeof v.displayName==='string'&&v.displayName===v.displayName.trim()&&v.displayName.length>0&&new TextEncoder().encode(v.displayName).length<=200&&typeof v.isDefault==='boolean'&&(!('contextWindow'in v)||(Number.isSafeInteger(v.contextWindow)&&Number(v.contextWindow)>=0&&Number(v.contextWindow)<=100_000_000))
 const isModels=(v:unknown)=>Array.isArray(v)&&v.length>=1&&v.length<=50&&v.every(isModel)&&new Set(v.map(x=>(x as {modelId:string}).modelId)).size===v.length&&v.filter(x=>(x as {isDefault:boolean}).isDefault).length===1
 const isProvider=(v:unknown)=>isObj(v)&&exact(v,['id','name','protocol','baseUrl','models','status','credentialState','createdAt','updatedAt','version'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===v.name.trim()&&v.name.length>0&&['openai_compatible','anthropic'].includes(String(v.protocol))&&typeof v.baseUrl==='string'&&isModels(v.models)&&['enabled','disabled'].includes(String(v.status))&&['configured','missing','unavailable','requires_reentry'].includes(String(v.credentialState))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Number.isInteger(v.version)&&Number(v.version)>=1
-const guards:Partial<Record<BridgeMethod,(v:unknown)=>boolean>>={
- 'project.create':isProject,'project.update':isProject,'project.publish':isProject,'project.close':isProject,'project.reopen':isProject,
+const guards:Partial<Record<BridgeMethod|(typeof PROJECT_ADVANCE_METHOD),(v:unknown)=>boolean>>={
+ 'project.create':isProject,'project.update':isProject,'project.publish':isProject,'project.close':isProject,'project.reopen':isProject,[PROJECT_ADVANCE_METHOD]:isProject,
  'project.list':v=>isObj(v)&&exact(v,['items'])&&Array.isArray(v.items)&&v.items.length<=100&&v.items.every(isProject),
  'project.delete':v=>isObj(v)&&exact(v,['deleted','id'])&&v.deleted===true&&isULID(v.id),
  'provider.get':isProvider,'provider.create':isProvider,'provider.update':isProvider,
@@ -235,13 +243,13 @@ export const providerBridge:ProviderBridge={get:p=>getProviderBridge().get(p),li
 
 export function createProjectBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):ProjectBridge{
  const pending=new Map<string,{method:BridgeMethod;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
- transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const requestId=raw.requestId,waiting=pending.get(requestId)!;clearTimeout(waiting.timer);pending.delete(requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}if(!guards[waiting.method]?.(raw.payload)){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
- const request=<T>(method:'project.create'|'project.list'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method!=='project.list'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30_000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
- return{list:(p={})=>request('project.list',p),create:(p,o)=>request('project.create',p,o?.attempt),update:(p,o)=>request('project.update',p,o?.attempt),publish:(p,o)=>request('project.publish',p,o?.attempt),close:(p,o)=>request('project.close',p,o?.attempt),reopen:(p,o)=>request('project.reopen',p,o?.attempt),delete:(p,o)=>request('project.delete',p,o?.attempt)}
+ transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const requestId=raw.requestId,waiting=pending.get(requestId)!;clearTimeout(waiting.timer);pending.delete(requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}const guard=(guards as Partial<Record<string,(v:unknown)=>boolean>>)[waiting.method];if(!guard?.(raw.payload)){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
+ const request=<T>(method:'project.create'|'project.list'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method!=='project.list'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30_000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method:method as BridgeMethod,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method:method as BridgeMethod,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:(p={})=>request('project.list',p),create:(p,o)=>request('project.create',p,o?.attempt),update:(p,o)=>request('project.update',p,o?.attempt),publish:(p,o)=>request('project.publish',p,o?.attempt),close:(p,o)=>request('project.close',p,o?.attempt),reopen:(p,o)=>request('project.reopen',p,o?.attempt),advanceStatus:(p,o)=>request('project.advanceStatus',p,o?.attempt),delete:(p,o)=>request('project.delete',p,o?.attempt)}
 }
 let projectSingleton:ProjectBridge|undefined
 export function getProjectBridge():ProjectBridge{return projectSingleton??=createProjectBridge(webview())}
-export const projectBridge:ProjectBridge={list:p=>getProjectBridge().list(p),create:(p,o)=>getProjectBridge().create(p,o),update:(p,o)=>getProjectBridge().update(p,o),publish:(p,o)=>getProjectBridge().publish(p,o),close:(p,o)=>getProjectBridge().close(p,o),reopen:(p,o)=>getProjectBridge().reopen(p,o),delete:(p,o)=>getProjectBridge().delete(p,o)}
+export const projectBridge:ProjectBridge={list:p=>getProjectBridge().list(p),create:(p,o)=>getProjectBridge().create(p,o),update:(p,o)=>getProjectBridge().update(p,o),publish:(p,o)=>getProjectBridge().publish(p,o),close:(p,o)=>getProjectBridge().close(p,o),reopen:(p,o)=>getProjectBridge().reopen(p,o),advanceStatus:(p,o)=>getProjectBridge().advanceStatus(p,o),delete:(p,o)=>getProjectBridge().delete(p,o)}
 
 export function createSessionBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):SessionBridge{
  const pending=new Map<string,{method:'session.create'|'session.update'|'session.list'|'session.delete';projectId:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
@@ -269,17 +277,17 @@ export function getMessageBridge():MessageBridge{return messageSingleton??=creat
 export const messageBridge:MessageBridge={list:p=>getMessageBridge().list(p),append:(p,o)=>getMessageBridge().append(p,o),rewind:(p,o)=>getMessageBridge().rewind!(p,o)}
 
 const stageStatuses=['not_started','in_progress','waiting_review','approved','completed','rejected','stale','paused','blocked','cancelled']
-const isStage=(v:unknown,projectId:string)=>isObj(v)&&exact(v,['id','projectId','phase','title','status','createdAt','updatedAt','version'])&&isULID(v.id)&&v.projectId===projectId&&Number.isInteger(v.phase)&&Number(v.phase)>=1&&Number(v.phase)<=9&&typeof v.title==='string'&&v.title===normalizedProjectName(v.title)&&Array.from(v.title).length>=1&&Array.from(v.title).length<=200&&stageStatuses.includes(String(v.status))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&v.version===1
-export interface StageBridge { list(payload:StageListPayload):Promise<StageListResult>; create(payload:StageCreatePayload,options?:MutationOptions<StageCreatePayload>):Promise<StageCreateResult> }
+const isStage=(v:unknown,projectId:string)=>isObj(v)&&exact(v,['id','projectId','phase','title','status','createdAt','updatedAt','version'])&&isULID(v.id)&&v.projectId===projectId&&Number.isInteger(v.phase)&&Number(v.phase)>=1&&Number(v.phase)<=9&&typeof v.title==='string'&&v.title===normalizedProjectName(v.title)&&Array.from(v.title).length>=1&&Array.from(v.title).length<=200&&stageStatuses.includes(String(v.status))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Number.isInteger(v.version)&&Number(v.version)>=1
+export interface StageBridge { list(payload:StageListPayload):Promise<StageListResult>; create(payload:StageCreatePayload,options?:MutationOptions<StageCreatePayload>):Promise<StageCreateResult>; update(payload:StageUpdatePayload,options?:MutationOptions<StageUpdatePayload>):Promise<StageUpdateResult> }
 export function createStageBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):StageBridge{
- const pending=new Map<string,{method:'stage.create'|'stage.list';projectId:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
- transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const waiting=pending.get(raw.requestId)!;clearTimeout(waiting.timer);pending.delete(raw.requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,raw.requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}const valid=waiting.method==='stage.create'?isStage(raw.payload,waiting.projectId):isObj(raw.payload)&&exact(raw.payload,['items'])&&Array.isArray(raw.payload.items)&&raw.payload.items.length<=9&&raw.payload.items.every(v=>isStage(v,waiting.projectId));if(!valid){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
- const request=<T>(method:'stage.create'|'stage.list',payload:StageCreatePayload|StageListPayload,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method==='stage.create'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,projectId:payload.projectId,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
- return{list:p=>request('stage.list',p),create:(p,o)=>request('stage.create',p,o?.attempt)}
+ const pending=new Map<string,{method:'stage.create'|'stage.list'|'stage.update';projectId:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
+ transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const waiting=pending.get(raw.requestId)!;clearTimeout(waiting.timer);pending.delete(raw.requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,raw.requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}const payloadProjectId=waiting.method==='stage.update'&&isObj(raw.payload)?String(raw.payload.projectId):waiting.projectId;const valid=waiting.method==='stage.list'?isObj(raw.payload)&&exact(raw.payload,['items'])&&Array.isArray(raw.payload.items)&&raw.payload.items.length<=9&&raw.payload.items.every(v=>isStage(v,waiting.projectId)):isStage(raw.payload,payloadProjectId);if(!valid){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
+ const request=<T>(method:'stage.create'|'stage.list'|'stage.update',payload:StageCreatePayload|StageListPayload|StageUpdatePayload,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method!=='stage.list'?checkedAttempt(method as MutationMethod,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30000,Math.max(1,defaultDeadlineMs)),projectId=method==='stage.update'?'':(payload as StageCreatePayload|StageListPayload).projectId,message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method,projectId,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ return{list:p=>request('stage.list',p),create:(p,o)=>request('stage.create',p,o?.attempt),update:(p,o)=>request('stage.update',p,o?.attempt)}
 }
 let stageSingleton:StageBridge|undefined
 export function getStageBridge():StageBridge{return stageSingleton??=createStageBridge(webview())}
-export const stageBridge:StageBridge={list:p=>{try{return getStageBridge().list(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getStageBridge().create(p,o)}catch(error){return Promise.reject(error)}}}
+export const stageBridge:StageBridge={list:p=>{try{return getStageBridge().list(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getStageBridge().create(p,o)}catch(error){return Promise.reject(error)}},update:(p,o)=>{try{return getStageBridge().update(p,o)}catch(error){return Promise.reject(error)}}}
 
 // M7 subagent research bridge — read-only parallel collection panel
 // (subagent-ui / T-7.6.5). spawn carries requestId + idempotency key;
@@ -466,7 +474,7 @@ export const planBridge: PlanBridge = { get: p => getPlanBridge().get(p), list: 
 export interface AgentRuntimeBridge{
  capabilities():Promise<CapabilityListResult>;start(p:AgentRunStartPayload):Promise<AgentRunStartResult>;get(p:AgentRunGetPayload):Promise<AgentRunGetResult>;cancel(p:AgentRunCancelPayload):Promise<AgentRunCancelResult>;resume(p:AgentRunResumePayload):Promise<AgentRunResumeResult>;reconcile(p:AgentRunReconcilePayload):Promise<AgentRunReconcileResult>;registerWorkspace(p:WorkspaceRegisterPayload):Promise<WorkspaceRegisterResult>;grantWorkspace(p:WorkspaceGrantPayload):Promise<WorkspaceGrantResult>;leaseWorkspace(p:WorkspaceLeasePayload):Promise<WorkspaceLeaseResult>;decide(p:ReviewDecidePayload):Promise<ReviewDecideResult>;previewChanges(p:ChangesetPreviewPayload):Promise<ChangesetPreviewResult>;applyChanges(p:ChangesetApplyPayload):Promise<ChangesetApplyResult>;revertChanges(p:ChangesetRevertPayload):Promise<ChangesetRevertResult>;requestCommandReview(p:CommandReviewRequestPayload):Promise<CommandReviewRequestResult>;startCommand(p:CommandStartPayload):Promise<CommandStartResult>;getCommand(p:CommandGetPayload):Promise<CommandGetResult>;cancelCommand(p:CommandCancelPayload):Promise<CommandCancelResult>;fetchWeb(p:WebFetchPayload):Promise<WebFetchResult>;searchWeb(p:WebSearchPayload):Promise<WebSearchResult>;putPlan(p:RunPlanPutPayload):Promise<RunPlanPutResult>;evidence(p:EvidenceListPayload):Promise<EvidenceListResult>
 }
-export function createAgentRuntimeBridge(transport:WebViewTransport,deadline=30_000):AgentRuntimeBridge{const core=createSimpleBridge(transport,{},deadline),mut=<P extends object,R>(method:MutationMethod,p:P)=>core.request<R>(method,p,deadline,createMutationAttempt(method,p) as MutationAttempt<object>);return{capabilities:()=>core.request('capability.list',{}),start:p=>mut('agent.run.start',p),get:p=>core.request('agent.run.get',p),cancel:p=>mut('agent.run.cancel',p),resume:p=>mut('agent.run.resume',p),reconcile:p=>mut('agent.run.reconcile',p),registerWorkspace:p=>mut('workspace.register',p),grantWorkspace:p=>mut('workspace.grant',p),leaseWorkspace:p=>mut('workspace.lease',p),decide:p=>mut('review.decide',p),previewChanges:p=>mut('changeset.preview',p),applyChanges:p=>mut('changeset.apply',p),revertChanges:p=>mut('changeset.revert',p),requestCommandReview:p=>mut('command.review.request',p),startCommand:p=>mut('command.start',p),getCommand:p=>core.request('command.get',p),cancelCommand:p=>mut('command.cancel',p),fetchWeb:p=>mut('web.fetch',p),searchWeb:p=>mut('web.search',p),putPlan:p=>mut('run.plan.put',p),evidence:p=>core.request('evidence.list',p)}}
+export function createAgentRuntimeBridge(transport:WebViewTransport,deadline=30_000):AgentRuntimeBridge{const core=createSimpleBridge(transport,{},deadline),mut=<P extends object,R>(method:MutationMethod,p:P)=>core.request<R>(method as BridgeMethod,p,deadline,createMutationAttempt(method,p) as MutationAttempt<object>);return{capabilities:()=>core.request('capability.list',{}),start:p=>mut('agent.run.start',p),get:p=>core.request('agent.run.get',p),cancel:p=>mut('agent.run.cancel',p),resume:p=>mut('agent.run.resume',p),reconcile:p=>mut('agent.run.reconcile',p),registerWorkspace:p=>mut('workspace.register',p),grantWorkspace:p=>mut('workspace.grant',p),leaseWorkspace:p=>mut('workspace.lease',p),decide:p=>mut('review.decide',p),previewChanges:p=>mut('changeset.preview',p),applyChanges:p=>mut('changeset.apply',p),revertChanges:p=>mut('changeset.revert',p),requestCommandReview:p=>mut('command.review.request',p),startCommand:p=>mut('command.start',p),getCommand:p=>core.request('command.get',p),cancelCommand:p=>mut('command.cancel',p),fetchWeb:p=>mut('web.fetch',p),searchWeb:p=>mut('web.search',p),putPlan:p=>mut('run.plan.put',p),evidence:p=>core.request('evidence.list',p)}}
 let agentRuntimeSingleton:AgentRuntimeBridge|undefined
 export function getAgentRuntimeBridge(){return agentRuntimeSingleton??=createAgentRuntimeBridge(webview())}
 export const agentRuntimeBridge:AgentRuntimeBridge=new Proxy({} as AgentRuntimeBridge,{get:(_target,key)=>(...args:unknown[])=>(getAgentRuntimeBridge() as unknown as Record<PropertyKey,(...x:unknown[])=>unknown>)[key](...args)})
@@ -859,6 +867,92 @@ export const attachmentBridge: AttachmentBridge = {
   list: p => getAttachmentBridge().list(p),
   delete: (p, o) => getAttachmentBridge().delete(p, o),
   begin:p=>getAttachmentBridge().begin(p),chunk:p=>getAttachmentBridge().chunk(p),commit:p=>getAttachmentBridge().commit(p),abort:p=>getAttachmentBridge().abort(p),
+}
+
+export interface TemplateBridge {
+  list(payload?: TemplateListPayload): Promise<TemplateListResult>
+}
+export function createTemplateBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): TemplateBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return { list: p => core.request('template.list', p ?? {}) }
+}
+let templateSingleton: TemplateBridge | undefined
+export function getTemplateBridge(): TemplateBridge { return templateSingleton ??= createTemplateBridge(webview()) }
+export const templateBridge: TemplateBridge = { list: p => getTemplateBridge().list(p) }
+
+export interface DeliverableBridge {
+  list(payload: DeliverableListPayload): Promise<DeliverableListResult>
+  upsert(payload: DeliverableUpsertPayload, options?: MutationOptions<DeliverableUpsertPayload>): Promise<DeliverableUpsertResult>
+  confirmGate(payload: DeliverableConfirmGatePayload, options?: MutationOptions<DeliverableConfirmGatePayload>): Promise<DeliverableConfirmGateResult>
+}
+export function createDeliverableBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): DeliverableBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    list: p => core.request('deliverable.list', p),
+    upsert: (p, o) => core.request('deliverable.upsert', p, defaultDeadlineMs, o?.attempt),
+    confirmGate: (p, o) => core.request('deliverable.confirmGate', p, defaultDeadlineMs, o?.attempt),
+  }
+}
+let deliverableSingleton: DeliverableBridge | undefined
+export function getDeliverableBridge(): DeliverableBridge { return deliverableSingleton ??= createDeliverableBridge(webview()) }
+export const deliverableBridge: DeliverableBridge = {
+  list: p => getDeliverableBridge().list(p),
+  upsert: (p, o) => getDeliverableBridge().upsert(p, o),
+  confirmGate: (p, o) => getDeliverableBridge().confirmGate(p, o),
+}
+
+export interface ReleaseBridge {
+  buildPackage(payload: ReleaseBuildPackagePayload, options?: MutationOptions<ReleaseBuildPackagePayload>): Promise<ReleaseBuildPackageResult>
+  createRevision(payload: ReleaseCreateRevisionPayload, options?: MutationOptions<ReleaseCreateRevisionPayload>): Promise<ReleaseCreateRevisionResult>
+  getRevision(payload: ReleaseGetRevisionPayload): Promise<ReleaseGetRevisionResult>
+  getPackage(payload: ReleaseGetPackagePayload): Promise<ReleaseGetPackageResult>
+}
+export function createReleaseBridge(transport: WebViewTransport, defaultDeadlineMs = 15_000): ReleaseBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    buildPackage: (p, o) => core.request('release.buildPackage', p, 30_000, o?.attempt),
+    createRevision: (p, o) => core.request('release.createRevision', p, defaultDeadlineMs, o?.attempt),
+    getRevision: p => core.request('release.getRevision', p),
+    getPackage: p => core.request('release.getPackage', p),
+  }
+}
+let releaseSingleton: ReleaseBridge | undefined
+export function getReleaseBridge(): ReleaseBridge { return releaseSingleton ??= createReleaseBridge(webview()) }
+export const releaseBridge: ReleaseBridge = {
+  buildPackage: (p, o) => getReleaseBridge().buildPackage(p, o),
+  createRevision: (p, o) => getReleaseBridge().createRevision(p, o),
+  getRevision: p => getReleaseBridge().getRevision(p),
+  getPackage: p => getReleaseBridge().getPackage(p),
+}
+
+export interface SkillImportBridge {
+  discover(payload: SkillImportDiscoverPayload, options?: MutationOptions<SkillImportDiscoverPayload>): Promise<SkillImportDiscoverResult>
+  inspect(payload: SkillImportInspectPayload, options?: MutationOptions<SkillImportInspectPayload>): Promise<SkillImportInspectResult>
+  submit(payload: SkillImportSubmitPayload, options?: MutationOptions<SkillImportSubmitPayload>): Promise<SkillImportSubmitResult>
+  approve(payload: SkillImportApprovePayload, options?: MutationOptions<SkillImportApprovePayload>): Promise<SkillImportApproveResult>
+  reject(payload: SkillImportRejectPayload, options?: MutationOptions<SkillImportRejectPayload>): Promise<SkillImportRejectResult>
+  revoke(payload: SkillImportRevokePayload, options?: MutationOptions<SkillImportRevokePayload>): Promise<SkillImportRevokeResult>
+}
+export function createSkillImportBridge(transport: WebViewTransport, defaultDeadlineMs = 15_000): SkillImportBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    discover: (p, o) => core.request('skill.import.discover', p, defaultDeadlineMs, o?.attempt),
+    inspect: (p, o) => core.request('skill.import.inspect', p, defaultDeadlineMs, o?.attempt),
+    submit: (p, o) => core.request('skill.import.submit', p, defaultDeadlineMs, o?.attempt),
+    approve: (p, o) => core.request('skill.import.approve', p, defaultDeadlineMs, o?.attempt),
+    reject: (p, o) => core.request('skill.import.reject', p, defaultDeadlineMs, o?.attempt),
+    revoke: (p, o) => core.request('skill.import.revoke', p, defaultDeadlineMs, o?.attempt),
+  }
+}
+let skillImportSingleton: SkillImportBridge | undefined
+export function getSkillImportBridge(): SkillImportBridge { return skillImportSingleton ??= createSkillImportBridge(webview()) }
+export const skillImportBridge: SkillImportBridge = {
+  discover: (p, o) => getSkillImportBridge().discover(p, o),
+  inspect: (p, o) => getSkillImportBridge().inspect(p, o),
+  submit: (p, o) => getSkillImportBridge().submit(p, o),
+  approve: (p, o) => getSkillImportBridge().approve(p, o),
+  reject: (p, o) => getSkillImportBridge().reject(p, o),
+  revoke: (p, o) => getSkillImportBridge().revoke(p, o),
 }
 
 export function createTerminalBridge(transport:WebViewTransport,deadlineMs=8000):TerminalBridge{

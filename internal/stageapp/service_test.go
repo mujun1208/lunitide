@@ -39,6 +39,13 @@ func (m *memory) CreateStage(_ context.Context, v stage.Stage) (stage.Stage, err
 	v.UpdatedAt = v.CreatedAt
 	return v, nil
 }
+func (m *memory) UpdateStage(_ context.Context, input UpdateInput) (stage.Stage, error) {
+	return stage.Stage{
+		ID: input.ID, ProjectID: input.ProjectID, Phase: 1, Title: "Alpha",
+		Status: input.Status, Version: input.ExpectedVersion + 1,
+		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(2, 0).UTC(),
+	}, nil
+}
 func (m *memory) Idempotency(_ context.Context, op, key string, _ time.Time) (providerapp.Record, bool, error) {
 	r, ok := m.records[op+"\x00"+key]
 	return r, ok, nil
@@ -90,5 +97,33 @@ func TestInvalidIdempotencyKeys(t *testing.T) {
 		if _, err := s.Create(context.Background(), key, "test", struct{}{}, stage.Stage{}); !errors.Is(err, ErrIdempotencyKeyRequired) {
 			t.Errorf("key %q: %v", key, err)
 		}
+	}
+}
+
+func TestUpdateReplayConflict(t *testing.T) {
+	m := &memory{records: map[string]providerapp.Record{}}
+	s := New(m, m)
+	s.clock = testClock{time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	req := struct {
+		ProjectID       string       `json:"projectId"`
+		ID              string       `json:"id"`
+		Status          stage.Status `json:"status"`
+		ExpectedVersion int64        `json:"expectedVersion"`
+	}{"01ARZ3NDEKTSV4RRFFQ69G5FAA", "01ARZ3NDEKTSV4RRFFQ69G5FAV", stage.StatusInProgress, 1}
+	input := UpdateInput{ProjectID: req.ProjectID, ID: req.ID, Status: req.Status, ExpectedVersion: req.ExpectedVersion}
+	a, err := s.Update(context.Background(), "key-one", "test", req, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Update(context.Background(), "key-one", "test", req, input)
+	if err != nil || a.Version != b.Version || len(m.audits) != 1 {
+		t.Fatalf("replay a=%#v b=%#v audits=%d err=%v", a, b, len(m.audits), err)
+	}
+	changed := req
+	changed.Status = stage.StatusCompleted
+	if _, err = s.Update(context.Background(), "key-one", "test", changed, UpdateInput{
+		ProjectID: changed.ProjectID, ID: changed.ID, Status: changed.Status, ExpectedVersion: changed.ExpectedVersion,
+	}); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("conflict=%v", err)
 	}
 }

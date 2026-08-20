@@ -19,10 +19,20 @@ var (
 	ErrIdempotencyConflict    = errors.New("idempotency key reused with different request")
 	ErrProjectNotFound        = errors.New("project not found")
 	ErrStagePhaseConflict     = errors.New("stage phase already exists for project")
+	ErrStageNotFound          = errors.New("stage not found")
+	ErrStageVersionConflict   = errors.New("stage version conflict")
 )
+
+type UpdateInput struct {
+	ProjectID       string
+	ID              string
+	Status          stage.Status
+	ExpectedVersion int64
+}
 
 type Tx interface {
 	CreateStage(context.Context, stage.Stage) (stage.Stage, error)
+	UpdateStage(context.Context, UpdateInput) (stage.Stage, error)
 	Idempotency(context.Context, string, string, time.Time) (providerapp.Record, bool, error)
 	PutIdempotency(context.Context, providerapp.Record) error
 	PutAudit(context.Context, providerapp.Audit) error
@@ -95,6 +105,52 @@ func (s *Service) Create(ctx context.Context, key, actor string, request any, va
 			return e
 		}
 		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "stage.create", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+	})
+	return result, err
+}
+
+func (s *Service) Update(ctx context.Context, key, actor string, request any, input UpdateInput) (stage.Stage, error) {
+	if !providerapp.ValidIdempotencyKey(key) {
+		return stage.Stage{}, ErrIdempotencyKeyRequired
+	}
+	if s == nil || s.uow == nil {
+		return stage.Stage{}, errors.New("stage unit of work unavailable")
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return stage.Stage{}, err
+	}
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	var result stage.Stage
+	err = s.uow.DoStage(ctx, func(tx Tx) error {
+		now := s.clock.Now().UTC()
+		record, found, e := tx.Idempotency(ctx, "stage.update", key, now)
+		if e != nil {
+			return e
+		}
+		if found {
+			if record.Digest != digest {
+				return ErrIdempotencyConflict
+			}
+			return json.Unmarshal(record.Response, &result)
+		}
+		result, e = tx.UpdateStage(ctx, input)
+		if e != nil {
+			return e
+		}
+		response, e := json.Marshal(result)
+		if e != nil {
+			return e
+		}
+		meta, _ := json.Marshal(map[string]any{"projectId": result.ProjectID, "stageId": result.ID, "status": result.Status, "version": result.Version})
+		eventSum := sha256.Sum256([]byte("stage-audit\x00" + digest + "\x00" + result.ID))
+		var event ulid.ULID
+		copy(event[:], eventSum[:16])
+		if e = tx.PutAudit(ctx, providerapp.Audit{ID: event.String(), Action: "stage.updated", AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); e != nil {
+			return e
+		}
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "stage.update", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
 	})
 	return result, err
 }

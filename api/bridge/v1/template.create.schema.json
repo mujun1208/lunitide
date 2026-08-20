@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/template.create.schema.json",
+  "title": "template.create payload",
+  "x-method": "template.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "templateType": { "enum": ["document", "scaffold"] },
+    "documentType": { "type": "string", "maxLength": 128 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "client": { "type": "string", "maxLength": 200 },
+    "mimeType": { "type": "string", "maxLength": 128 },
+    "fileName": { "type": "string", "maxLength": 260 },
+    "filePath": { "type": "string", "maxLength": 512 }
+  },
+  "required": ["name", "templateType", "description"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "templateCode": { "type": "string" },
+      "name": { "type": "string" },
+      "templateType": { "enum": ["document", "scaffold"] },
+      "documentType": { "type": "string" },
+      "description": { "type": "string" },
+      "client": { "type": "string" },
+      "mimeType": { "type": "string" },
+      "fileName": { "type": "string" },
+      "filePath": { "type": "string" },
+      "status": { "enum": ["draft"] },
+      "createdAt": { "type": "string", "format": "date-time" },
+      "updatedAt": { "type": "string", "format": "date-time" },
+      "version": { "type": "integer", "minimum": 1 }
+    },
+    "required": ["id", "templateCode", "name", "templateType", "status", "createdAt", "updatedAt", "version"]
+  },
+  "x-examples": {
+    "positive": [{
+      "name": "业务需求分析报告模板",
+      "templateType": "document",
+      "documentType": "业务需求分析报告",
+      "description": "标准 BRD 模板"
+    }],
+    "negative": [{ "name": "" }]
+  }
+}

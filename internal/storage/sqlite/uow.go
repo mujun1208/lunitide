@@ -72,7 +72,7 @@ type txAdapter struct {
 	q *sql.Conn
 }
 
-const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status,created_at,updated_at,version,org_id,space_id`
+const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id`
 
 func optionalProjectID(value sql.NullString) string {
 	if value.Valid {
@@ -93,7 +93,7 @@ func (t *txAdapter) getProject(ctx context.Context, id string) (project.Project,
 	var created, updated string
 	var orgID, spaceID sql.NullString
 	row := t.q.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE id=?`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
 		if err == sql.ErrNoRows {
 			return p, project.ErrNotFound
 		}
@@ -108,6 +108,7 @@ func (t *txAdapter) getProject(ctx context.Context, id string) (project.Project,
 	}
 	p.OrgID = optionalProjectID(orgID)
 	p.SpaceID = optionalProjectID(spaceID)
+	p.Status = project.NormalizeStatus(p.Status)
 	return p, p.Validate()
 }
 
@@ -156,8 +157,8 @@ func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (proje
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.Status, formatTime(now), formatTime(now), p.Version, nullableProjectID(p.OrgID), nullableProjectID(p.SpaceID))
+	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.StatusBeforeClose, p.ReopenReason, p.Status, formatTime(now), formatTime(now), p.Version, nullableProjectID(p.OrgID), nullableProjectID(p.SpaceID))
 	if err == nil {
 		_, err = t.q.ExecContext(ctx, `INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, p.ID)
 	}
@@ -180,8 +181,8 @@ func (t *txAdapter) UpdateProject(ctx context.Context, id string, version int64,
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	result, err := t.q.ExecContext(ctx, `UPDATE projects SET name=?,project_type=?,description=?,summary=?,objective=?,client=?,contract_no=?,amount=?,budget=?,plan_start=?,plan_end=?,remark=?,close_reason=?,status=?,updated_at=?,version=? WHERE id=? AND version=?`,
-		p.Name, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.Status, formatTime(p.UpdatedAt), p.Version, id, version)
+	result, err := t.q.ExecContext(ctx, `UPDATE projects SET name=?,project_type=?,description=?,summary=?,objective=?,client=?,contract_no=?,amount=?,budget=?,plan_start=?,plan_end=?,remark=?,close_reason=?,status_before_close=?,reopen_reason=?,status=?,updated_at=?,version=? WHERE id=? AND version=?`,
+		p.Name, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.StatusBeforeClose, p.ReopenReason, p.Status, formatTime(p.UpdatedAt), p.Version, id, version)
 	if err != nil {
 		return p, mapWriteError(err)
 	}
@@ -308,6 +309,52 @@ func (t *txAdapter) CreateStage(ctx context.Context, v stage.Stage) (stage.Stage
 	}
 	_, err = t.q.ExecContext(ctx, `INSERT INTO stages(id,project_id,phase,title,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?,?)`, v.ID, v.ProjectID, v.Phase, v.Title, v.Status, formatTime(now), formatTime(now), v.Version)
 	return v, mapWriteError(err)
+}
+
+func (t *txAdapter) getStage(ctx context.Context, projectID, id string) (stage.Stage, error) {
+	var v stage.Stage
+	var created, updated string
+	row := t.q.QueryRowContext(ctx, `SELECT id,project_id,phase,title,status,created_at,updated_at,version FROM stages WHERE id=? AND project_id=?`, id, projectID)
+	if err := row.Scan(&v.ID, &v.ProjectID, &v.Phase, &v.Title, &v.Status, &created, &updated, &v.Version); err != nil {
+		if err == sql.ErrNoRows {
+			return v, stageapp.ErrStageNotFound
+		}
+		return v, err
+	}
+	var err error
+	if v.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
+		return v, err
+	}
+	if v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
+		return v, err
+	}
+	return v, v.Validate()
+}
+
+func (t *txAdapter) UpdateStage(ctx context.Context, input stageapp.UpdateInput) (stage.Stage, error) {
+	v, err := t.getStage(ctx, input.ProjectID, input.ID)
+	if err != nil {
+		return v, err
+	}
+	if v.Version != input.ExpectedVersion {
+		return v, stageapp.ErrStageVersionConflict
+	}
+	v.Status = input.Status
+	if err = v.Validate(); err != nil {
+		return v, err
+	}
+	now := time.Now().UTC()
+	v.UpdatedAt = now
+	v.Version = input.ExpectedVersion + 1
+	result, err := t.q.ExecContext(ctx, `UPDATE stages SET status=?,updated_at=?,version=? WHERE id=? AND project_id=? AND version=?`,
+		v.Status, formatTime(now), v.Version, input.ID, input.ProjectID, input.ExpectedVersion)
+	if err != nil {
+		return v, mapWriteError(err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return v, stageapp.ErrStageVersionConflict
+	}
+	return v, nil
 }
 
 func (t *txAdapter) AppendMessage(ctx context.Context, v message.Message) (message.Message, error) {

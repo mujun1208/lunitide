@@ -57,19 +57,24 @@ export interface CompanionSpeechHandle {
   setBargeInActive: (active: boolean) => void
 }
 
-/** Commit the utterance after this much silence once we already have text.
- *  ~200ms keeps turn-taking snappy; waiting for OS isFinal is 0.8–1.5s. */
-export const UTTERANCE_SILENCE_MS = 200
+/** Commit after this much silence once we already have text. */
+export const UTTERANCE_SILENCE_MS = 280
+/** Commit when interim/final text stops changing (robust against room noise). */
+export const UTTERANCE_STABLE_MS = 420
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 const VOICE_PEAK = 0.13
 /** Stronger peak while assistant speaks — avoids TTS bleed despite AEC. */
-export const BARGE_IN_PEAK = 0.22
+export const BARGE_IN_PEAK = 0.32
 /** Sustained voice before a barge-in fires. */
 export const BARGE_IN_HOLD_MS = 160
 
 export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
   return hasText && silentForMs >= silenceMs
+}
+
+export function shouldCommitStable(hasText: boolean, stableForMs: number, stableMs = UTTERANCE_STABLE_MS): boolean {
+  return hasText && stableForMs >= stableMs
 }
 
 export function shouldBargeIn(hasText: boolean, voiceForMs: number, holdMs = BARGE_IN_HOLD_MS): boolean {
@@ -128,6 +133,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     let finals = ''
     let interim = ''
     let lastVoiceAt = performance.now()
+    let lastTextChangeAt = performance.now()
     const assembled = () => {
       const f = finals.trim()
       const i = interim.trim()
@@ -141,6 +147,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       finals = ''
       interim = ''
       bargeVoiceSince = 0
+      lastTextChangeAt = performance.now()
       callbacks.onInterim?.('')
       try {
         recognition.stop()
@@ -170,10 +177,21 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     const tryBargeIn = (rawPeak: number) => {
       if (finished || !duplex || !bargeIn || !bargeInActive || !callbacks.onBargeIn) return
+      const peak = rawPeak / 255
+      if (assistantPlayback) {
+        if (peak >= BARGE_IN_PEAK) {
+          if (!bargeVoiceSince) bargeVoiceSince = performance.now()
+          else if (performance.now() - bargeVoiceSince >= BARGE_IN_HOLD_MS) {
+            bargeVoiceSince = 0
+            callbacks.onBargeIn('')
+            restartRecognition()
+          }
+        } else bargeVoiceSince = 0
+        return
+      }
       const text = assembled()
       if (!text) return
-      const peak = assistantPlayback ? BARGE_IN_PEAK : VOICE_PEAK + 0.04
-      if (rawPeak / 255 >= peak) {
+      if (peak >= VOICE_PEAK + 0.04) {
         if (!bargeVoiceSince) bargeVoiceSince = performance.now()
         else if (shouldBargeIn(true, performance.now() - bargeVoiceSince)) {
           bargeVoiceSince = 0
@@ -184,7 +202,15 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     const tryCommitFromSilence = (voiceAt: number, silenceMs = UTTERANCE_SILENCE_MS) => {
       if (finished || commitPaused || assistantPlayback) return
-      if (shouldCommitUtterance(Boolean(assembled()), performance.now() - voiceAt, silenceMs)) commit(assembled())
+      const text = assembled()
+      if (!text) return
+      const silentFor = performance.now() - voiceAt
+      const stableFor = performance.now() - lastTextChangeAt
+      if (shouldCommitStable(true, stableFor) && silentFor >= Math.min(silenceMs, 220)) {
+        commit(text)
+        return
+      }
+      if (shouldCommitUtterance(true, silentFor, silenceMs)) commit(text)
     }
     try {
       const AudioContextClass = window.AudioContext
@@ -222,16 +248,20 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     rec.interimResults = true
     let lastInterimAt = 0
     rec.onresult = event => {
+      if (assistantPlayback) return
       let finalTranscript = ''
       let interimTranscript = ''
       for (let i = 0; i < event.results.length; i++) {
         if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript
         else interimTranscript += event.results[i][0].transcript
       }
+      const prev = assembled()
       finals = finalTranscript
       interim = interimTranscript
       const now = performance.now()
-      if (assembled()) lastVoiceAt = now
+      const next = assembled()
+      if (next !== prev) lastTextChangeAt = now
+      if (next) lastVoiceAt = now
       if (interimTranscript) {
         if (now - lastInterimAt >= 80) {
           lastInterimAt = now
@@ -239,7 +269,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         }
       }
       window.clearTimeout(recSilenceTimer)
-      if (assembled()) {
+      if (finalTranscript.trim() && !commitPaused) {
+        commit(next.trim())
+        return
+      }
+      if (next) {
         recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), UTTERANCE_SILENCE_MS)
       }
       tryCommitFromSilence(lastVoiceAt)
@@ -293,10 +327,22 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       },
       setAssistantPlayback: (active: boolean) => {
         assistantPlayback = active
-        if (!active) bargeVoiceSince = 0
+        if (active) {
+          finals = ''
+          interim = ''
+          bargeVoiceSince = 0
+          lastTextChangeAt = performance.now()
+          callbacks.onInterim?.('')
+        } else bargeVoiceSince = 0
       },
       setCommitPaused: (paused: boolean) => {
         commitPaused = paused
+        if (paused) {
+          finals = ''
+          interim = ''
+          lastTextChangeAt = performance.now()
+          callbacks.onInterim?.('')
+        }
       },
       setBargeInActive: (active: boolean) => {
         bargeInActive = active

@@ -122,8 +122,12 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'context.handoff.revoke',
   'context.status',
 
-  'db.query',  'delegation.create',
+  'db.query',
+  'delegation.create',
   'delegation.settle',
+  'deliverable.confirmGate',
+  'deliverable.list',
+  'deliverable.upsert',
   'devTask.create',
   'devTask.transition',
   'diagnostics.export',
@@ -254,6 +258,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'plugin.toggle',
   'plugin.uninstall',
   'plugin.upgrade',
+  'project.advanceStatus',
   'project.close',
   'project.create',
   'project.delete',
@@ -316,6 +321,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'skill.update',
   'stage.create',
   'stage.list',
+  'stage.update',
   'stream.cancel',
 
   'subagent.join',
@@ -323,6 +329,11 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'subagent.tree',  'sync.push',
   'system.health',
   'system.settings.open',
+  'template.create',
+  'template.delete',
+  'template.enable',
+  'template.list',
+  'template.void',
   'terminal.close',
   'terminal.input',
   'terminal.resize',
@@ -369,8 +380,9 @@ assert(JSON.stringify(enabled) === JSON.stringify([
 for (const method of ['session.create', 'session.list']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
 assert(required(methodSchema('session.create')).has('title') && refEndsWith(methodSchema('session.create')['x-result'], '#/$defs/SessionDTO'), 'session.create contract drift')
 assert(required(methodSchema('session.list')).has('projectId') && methodSchema('session.list')['x-result']?.properties?.items?.maxItems === 100, 'session.list contract drift')
-for (const method of ['stage.create', 'stage.list']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
+for (const method of ['stage.create', 'stage.list', 'stage.update']) assert(ulidRef(props(methodSchema(method)).projectId), `${method}.projectId must be a ULID`)
 assert(required(methodSchema('stage.create')).has('phase') && required(methodSchema('stage.create')).has('title') && refEndsWith(methodSchema('stage.create')['x-result'], '#/$defs/StageDTO'), 'stage.create contract drift')
+assert(required(methodSchema('stage.update')).has('id') && required(methodSchema('stage.update')).has('status') && required(methodSchema('stage.update')).has('expectedVersion') && refEndsWith(methodSchema('stage.update')['x-result'], '#/$defs/StageDTO'), 'stage.update contract drift')
 assert(required(methodSchema('stage.list')).has('projectId') && methodSchema('stage.list')['x-result']?.properties?.items?.maxItems === 9, 'stage.list contract drift')
 assert(methodSchemas.every(schema => schema['x-owner'] === (['browser.close', 'browser.open', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.read', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
 assert(refEndsWith(props(providerList).protocol, '#/$defs/ProviderProtocol'), 'provider.list protocol must explicitly reference ProviderProtocol')

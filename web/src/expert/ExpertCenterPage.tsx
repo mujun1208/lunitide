@@ -101,8 +101,8 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
    </div>
    <div className="view-actions">
     <button type="button" className="ui-btn" disabled title="概念预览：AgentPack 校验链（FR-18）尚未开放，来源 pack 暂不可导入">导入 AgentPack</button>
-    {onCreateInChat&&<button type="button" className="ui-btn" onClick={onCreateInChat}>✦ 通过对话创建</button>}
-    <button type="button" className="ui-btn primary" onClick={beginCreate}>＋ 创建专家</button>
+    {onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建专家</button>}
+    <button type="button" className="ui-btn" onClick={beginCreate}>表单向导</button>
    </div>
   </header>
   <section className="skill-center-toolbar">

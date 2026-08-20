@@ -7,12 +7,20 @@ package skillapp
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/skill"
 )
+
+//go:embed bundled/skill-creator/SKILL.md
+var skillCreatorSkillMD []byte
+
+//go:embed bundled/expert-manager/SKILL.md
+var expertManagerSkillMD []byte
 
 // ErrTemplateUnknown answers an install request naming a catalog id that
 // does not exist; ErrTemplateInstalled answers a name+version collision.
@@ -53,10 +61,67 @@ func Catalog() []CatalogTemplate {
 	return catalogTemplates
 }
 
+func stripYAMLFrontmatter(raw string) string {
+	raw = strings.TrimPrefix(raw, "\uFEFF")
+	if !strings.HasPrefix(raw, "---") {
+		return strings.TrimSpace(raw)
+	}
+	if end := strings.Index(raw[3:], "\n---"); end >= 0 {
+		return strings.TrimSpace(raw[3+end+4:])
+	}
+	return strings.TrimSpace(raw)
+}
+
+func skillCreatorManifest() map[string]any {
+	body := stripYAMLFrontmatter(string(skillCreatorSkillMD))
+	lunitide := "\n\n--- Lunitide 集成 ---\n" +
+		"完成技能设计后，使用 skill.create 写入技能中心（name、displayName、description、permissions、entryPoint=SKILL.md、manifestJson 含 triggers 与 prompt）。\n" +
+		"可先用 workspace.read/write 在工作区起草 SKILL.md 与 scripts/；用户给出现成目录时直接读取并 skill.create。"
+	prompt := strings.TrimSpace(body) + lunitide
+	if len(prompt) > 60000 {
+		prompt = prompt[:60000]
+	}
+	return map[string]any{
+		"triggers": []string{"创建技能", "新建技能", "写技能", "skill creator", "skill-creator", "优化技能", "改进技能", "create skill"},
+		"prompt":   prompt,
+	}
+}
+
+func expertManagerManifest() map[string]any {
+	body := stripYAMLFrontmatter(string(expertManagerSkillMD))
+	lunitide := "\n\n--- Lunitide 集成 ---\n" +
+		"完成六段式岗位说明书后，调用 expert.create（source=local，frontmatter + sixSection，requestId=新 UUID）。\n" +
+		"不要用 skill.create。创建成功后提示用户到专家中心挂载到项目阶段。"
+	prompt := strings.TrimSpace(body) + lunitide
+	if len(prompt) > 60000 {
+		prompt = prompt[:60000]
+	}
+	return map[string]any{
+		"triggers": []string{"创建专家", "新建专家", "专家", "expert-manager", "岗位说明书", "六段式", "create expert"},
+		"prompt":   prompt,
+	}
+}
+
 // catalogTemplates is the frozen local market list. Entry points point at
 // the builtin pipeline namespace; manifests keep the trigger keywords the
 // matcher scores and the working agreement the model sees on invoke.
 var catalogTemplates = []CatalogTemplate{
+	{
+		ID: "skill-creator", Name: "skill-creator", DisplayName: "skill-creator",
+		Description: "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill.",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionFileSystem, skill.PermissionShell},
+		EntryPoint: "builtin://skill-creator",
+		Manifest:   skillCreatorManifest(),
+	},
+	{
+		ID: "expert-manager", Name: "expert-manager", DisplayName: "expert-manager",
+		Description: "Create and refine six-section expert profiles for Lunitide. Use when users want to create a new expert persona from industry experience or optimize an existing expert.",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://expert-manager",
+		Manifest:   expertManagerManifest(),
+	},
 	{
 		ID: "meeting-minutes", Name: "tpl-meeting-minutes", DisplayName: "会议纪要助手",
 		Description: "把散落在会话里的讨论整理成结构化会议纪要：结论、待办、责任人、截止时间，可导出为 Word。",
@@ -205,6 +270,86 @@ var catalogTemplates = []CatalogTemplate{
 		Manifest: map[string]any{
 			"triggers": []string{"整理文档", "知识库", "索引仓库"},
 			"prompt":   "你是知识索引助手。workspace.list/search 建立主题提纲，标出过期与冲突；需要成文时用 docx.gen。",
+		},
+	},
+	{
+		ID: "pm-phase-1", Name: "tpl-pm-phase-1", DisplayName: "需求架构规范助手",
+		Description: "指导完成阶段一需求架构规范交付物：范围、架构视图、约束与非功能需求清单。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://pm-phase-1",
+		Manifest: map[string]any{
+			"triggers": []string{"需求架构交付", "需求架构规范", "阶段一交付", "pm phase 1"},
+			"prompt":   "你是项目管理阶段一（需求架构规范）交付助手。对照项目目标梳理范围边界、干系人与约束；产出需求架构说明、关键用例与非功能需求清单；逐项标记交付物 draft/review/approved 状态并提示三关确认晋级前缺口。",
+		},
+	},
+	{
+		ID: "pm-phase-2", Name: "tpl-pm-phase-2", DisplayName: "方案和UI设计助手",
+		Description: "指导完成阶段二方案与 UI 设计交付物：交互流程、界面规范与方案说明。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://pm-phase-2",
+		Manifest: map[string]any{
+			"triggers": []string{"方案和UI设计", "方案设计", "UI设计交付", "阶段二交付"},
+			"prompt":   "你是项目管理阶段二（方案和UI设计）交付助手。基于需求架构整理业务流程、页面清单与交互说明；产出方案文档与 UI 规范要点；核对每份交付物是否已绑定附件或模板并可用于晋级评审。",
+		},
+	},
+	{
+		ID: "pm-phase-3", Name: "tpl-pm-phase-3", DisplayName: "数据库设计助手",
+		Description: "指导完成阶段三数据库交付物：逻辑模型、表结构与数据字典。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://pm-phase-3",
+		Manifest: map[string]any{
+			"triggers": []string{"数据库交付", "数据库设计", "逻辑模型", "阶段三交付"},
+			"prompt":   "你是项目管理阶段三（数据库）交付助手。梳理实体关系、表结构、索引与数据字典；标注与接口、权限相关的字段约束；输出可评审的数据库设计说明并跟踪交付物确认状态。",
+		},
+	},
+	{
+		ID: "pm-phase-4", Name: "tpl-pm-phase-4", DisplayName: "接口设计助手",
+		Description: "指导完成阶段四接口交付物：API 契约、错误码与集成说明。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://pm-phase-4",
+		Manifest: map[string]any{
+			"triggers": []string{"接口交付", "API设计", "接口契约", "阶段四交付"},
+			"prompt":   "你是项目管理阶段四（接口）交付助手。整理对内对外 API 清单、请求响应示例、鉴权与错误码；确保与数据库、前端方案一致；列出待联调项并辅助完成交付物门禁确认。",
+		},
+	},
+	{
+		ID: "pm-phase-5", Name: "tpl-pm-phase-5", DisplayName: "开发实施助手",
+		Description: "指导完成阶段五开发交付物：实现说明、变更记录与代码审查要点。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		EntryPoint: "builtin://pm-phase-5",
+		Manifest: map[string]any{
+			"triggers": []string{"开发交付", "开发实施", "阶段五交付", "实现说明"},
+			"prompt":   "你是项目管理阶段五（开发）交付助手。对照方案与接口契约检查实现覆盖度；汇总关键模块说明、配置项与变更记录；提示测试前置条件并协助标记开发阶段交付物完成度。",
+		},
+	},
+	{
+		ID: "pm-phase-6", Name: "tpl-pm-phase-6", DisplayName: "测试验收助手",
+		Description: "指导完成阶段六测试交付物：用例、执行结果与缺陷闭环。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		EntryPoint: "builtin://pm-phase-6",
+		Manifest: map[string]any{
+			"triggers": []string{"测试交付", "测试验收", "用例执行", "阶段六交付"},
+			"prompt":   "你是项目管理阶段六（测试）交付助手。整理测试范围、用例与执行证据；跟踪缺陷修复与回归结果；输出测试结论摘要并确认本阶段交付物是否满足晋级条件。",
+		},
+	},
+	{
+		ID: "pm-phase-7", Name: "tpl-pm-phase-7", DisplayName: "集成联调助手",
+		Description: "指导完成阶段七集成交付物：联调报告、环境差异与问题清单。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://pm-phase-7",
+		Manifest: map[string]any{
+			"triggers": []string{"集成交付", "联调报告", "系统集成", "阶段七交付"},
+			"prompt":   "你是项目管理阶段七（集成）交付助手。汇总跨模块联调结果、环境配置差异与阻塞项；明确遗留风险与缓解措施；协助完成集成阶段交付物确认与上线前检查清单。",
+		},
+	},
+	{
+		ID: "pm-phase-8", Name: "tpl-pm-phase-8", DisplayName: "发布上线助手",
+		Description: "指导完成阶段八发布交付物：发布清单、回滚预案与上线验证。",
+		Category: "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://pm-phase-8",
+		Manifest: map[string]any{
+			"triggers": []string{"发布交付", "上线准备", "发布清单", "阶段八交付"},
+			"prompt":   "你是项目管理阶段八（发布）交付助手。核对发布窗口、变更清单、回滚步骤与值班安排；整理上线后验证项与监控关注点；确保发布相关交付物齐备后再建议项目晋级或关闭。",
 		},
 	},
 }

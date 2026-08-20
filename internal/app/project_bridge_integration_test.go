@@ -195,7 +195,7 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 		t.Fatalf("publish: %#v", published)
 	}
 	raw, _ = json.Marshal(published.Payload)
-	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "active" || dto.Version != 3 {
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "chartered" || dto.Version != 3 {
 		t.Fatalf("publish dto: %s (%v)", raw, err)
 	}
 
@@ -206,18 +206,18 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 		t.Fatalf("close: %#v", closed)
 	}
 	raw, _ = json.Marshal(closed.Payload)
-	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "closed" {
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "closed" || dto.StatusBeforeClose != "chartered" {
 		t.Fatalf("close dto: %s (%v)", raw, err)
 	}
 
-	reopen := validRequest("project.reopen", fmt.Sprintf(`{"id":%q,"version":%d}`, dto.ID, dto.Version))
+	reopen := validRequest("project.reopen", fmt.Sprintf(`{"id":%q,"version":%d,"reason":"恢复实施"}`, dto.ID, dto.Version))
 	reopen.IdempotencyKey = "lifecycle-reopen"
 	reopened := e.Handle(context.Background(), reopen)
 	if !reopened.OK {
 		t.Fatalf("reopen: %#v", reopened)
 	}
 	raw, _ = json.Marshal(reopened.Payload)
-	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "active" {
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "chartered" {
 		t.Fatalf("reopen dto: %s (%v)", raw, err)
 	}
 }

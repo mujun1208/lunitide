@@ -14,7 +14,7 @@ func TestNormalizeAndValidate(t *testing.T) {
 		t.Fatalf("NormalizeName = %q, %v", name, err)
 	}
 	now := time.Now().UTC()
-	p := project.Project{ID: ulid.Make().String(), Name: name, ProjectCode: "ITM00001", Type: project.TypeImplementation, Status: project.StatusActive, CreatedAt: now, UpdatedAt: now, Version: 1}
+	p := project.Project{ID: ulid.Make().String(), Name: name, ProjectCode: "ITM00001", Type: project.TypeImplementation, Status: project.StatusChartered, CreatedAt: now, UpdatedAt: now, Version: 1}
 	if err := p.Validate(); err != nil {
 		t.Fatal(err)
 	}

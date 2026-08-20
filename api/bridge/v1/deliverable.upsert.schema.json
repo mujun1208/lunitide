@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/deliverable.upsert.schema.json",
+  "title": "deliverable.upsert payload",
+  "x-method": "deliverable.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "phase": { "type": "integer", "minimum": 1, "maximum": 9 },
+    "documentType": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "templateId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "attachmentId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "status": { "enum": ["draft", "review", "approved"] },
+    "digest": { "type": "string", "maxLength": 128 }
+  },
+  "required": ["projectId", "phase", "documentType", "title"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "projectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "phase": { "type": "integer", "minimum": 1, "maximum": 9 },
+      "documentType": { "type": "string" },
+      "title": { "type": "string" },
+      "status": { "enum": ["draft", "review", "approved", "immutable"] },
+      "gateConfirmations": { "type": "integer", "minimum": 0, "maximum": 3 },
+      "version": { "type": "integer", "minimum": 1 }
+    },
+    "required": ["id", "projectId", "phase", "documentType", "title", "status", "gateConfirmations", "version"]
+  },
+  "x-examples": {
+    "positive": [{
+      "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "phase": 1,
+      "documentType": "业务需求分析报告",
+      "title": "月汐 BRD v1"
+    }],
+    "negative": [{ "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }]
+  }
+}

@@ -129,9 +129,16 @@
     "ProjectStatus": {
       "enum": [
         "created",
-        "active",
+        "chartered",
+        "req_architecture",
+        "req_assessment",
+        "in_progress",
+        "integration_test",
+        "go_live_prep",
+        "live",
         "closed",
-        "archived"
+        "archived",
+        "active"
       ]
     },
     "ProjectType": {
@@ -201,6 +208,13 @@
           "maxLength": 2000
         },
         "closeReason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "statusBeforeClose": {
+          "$ref": "#/$defs/ProjectStatus"
+        },
+        "reopenReason": {
           "type": "string",
           "maxLength": 500
         },

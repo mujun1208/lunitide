@@ -13,7 +13,7 @@ type Status string
 
 const (
 	StatusCreated  Status = "created"
-	StatusActive   Status = "active"
+	StatusActive   Status = "active" // legacy alias → chartered
 	StatusClosed   Status = "closed"
 	StatusArchived Status = "archived"
 )
@@ -29,34 +29,35 @@ const (
 var ErrNotFound = errors.New("project not found")
 
 type Project struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	ProjectCode string    `json:"projectCode"`
-	Type        Type      `json:"type"`
-	Description string    `json:"description"`
-	Summary     string    `json:"summary"`
-	Objective   string    `json:"objective"`
-	Client      string    `json:"client"`
-	ContractNo  string    `json:"contractNo"`
-	Amount      float64   `json:"amount"`
-	Budget      float64   `json:"budget"`
-	PlanStart   string    `json:"planStart"`
-	PlanEnd     string    `json:"planEnd"`
-	Remark      string    `json:"remark"`
-	CloseReason string    `json:"closeReason"`
-	Status      Status    `json:"status"`
-	OrgID       string    `json:"orgId,omitempty"`
-	SpaceID     string    `json:"spaceId,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	Version     int64     `json:"version"`
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	ProjectCode       string    `json:"projectCode"`
+	Type              Type      `json:"type"`
+	Description       string    `json:"description"`
+	Summary           string    `json:"summary"`
+	Objective         string    `json:"objective"`
+	Client            string    `json:"client"`
+	ContractNo        string    `json:"contractNo"`
+	Amount            float64   `json:"amount"`
+	Budget            float64   `json:"budget"`
+	PlanStart         string    `json:"planStart"`
+	PlanEnd           string    `json:"planEnd"`
+	Remark            string    `json:"remark"`
+	CloseReason       string    `json:"closeReason"`
+	StatusBeforeClose Status    `json:"statusBeforeClose"`
+	ReopenReason      string    `json:"reopenReason"`
+	Status            Status    `json:"status"`
+	OrgID             string    `json:"orgId,omitempty"`
+	SpaceID           string    `json:"spaceId,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	Version           int64     `json:"version"`
 }
 
 type Filter struct {
 	Status Status
 	Type   Type
-	// OrgID scopes list results to the bound org plus legacy unscoped rows.
-	OrgID string
+	OrgID  string
 }
 
 type Repository interface {
@@ -75,9 +76,10 @@ func NormalizeName(raw string) (string, error) {
 	return name, nil
 }
 
-func validType(t Type) bool { return t == TypeImplementation || t == TypeOperations || t == TypeEnhancement }
+func validType(t Type) bool {
+	return t == TypeImplementation || t == TypeOperations || t == TypeEnhancement
+}
 
-// validPlanDate accepts empty or a strict YYYY-MM-DD calendar date.
 func validPlanDate(s string) bool {
 	if s == "" {
 		return true
@@ -89,7 +91,7 @@ func validPlanDate(s string) bool {
 	return err == nil && t.Format("2006-01-02") == s
 }
 
-func (p Project) Validate() error {
+func (p *Project) validateBase() error {
 	id, err := ulid.ParseStrict(p.ID)
 	if err != nil || id.String() != p.ID || p.ID[0] > '7' {
 		return errors.New("project ID must be an uppercase canonical ULID")
@@ -118,11 +120,6 @@ func (p Project) Validate() error {
 	if p.PlanStart != "" && p.PlanEnd != "" && p.PlanEnd < p.PlanStart {
 		return errors.New("project plan end must not precede plan start")
 	}
-	switch p.Status {
-	case StatusCreated, StatusActive, StatusClosed, StatusArchived:
-	default:
-		return errors.New("project status is invalid")
-	}
 	if p.Status == StatusClosed && strings.TrimSpace(p.CloseReason) == "" {
 		return errors.New("closed project requires a close reason")
 	}
@@ -132,10 +129,5 @@ func (p Project) Validate() error {
 	return nil
 }
 
-// CanEnterWorkspace reports whether the project gate allows opening the workbench.
-// Only accepted (published) projects expose the workspace; created projects stay
-// in the management list until publication.
-func (p Project) CanEnterWorkspace() bool { return p.Status == StatusActive }
-
-// CanEdit reports whether the frozen A-N fields may still be modified.
-func (p Project) CanEdit() bool { return p.Status == StatusCreated || p.Status == StatusActive }
+// CanEdit reports whether the project form may be opened for mutation.
+func (p Project) CanEdit() bool { return p.CanEditMutableFields() || p.CanEditIdentity() }

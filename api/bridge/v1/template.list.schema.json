@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/template.list.schema.json",
+  "title": "template.list payload",
+  "x-method": "template.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": { "enum": ["draft", "enabled", "disabled", "void"] },
+    "templateType": { "enum": ["document", "scaffold"] },
+    "documentType": { "type": "string", "maxLength": 128 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "templateCode": { "type": "string", "minLength": 4, "maxLength": 16 },
+            "name": { "type": "string" },
+            "templateType": { "enum": ["document", "scaffold"] },
+            "documentType": { "type": "string" },
+            "description": { "type": "string" },
+            "client": { "type": "string" },
+            "mimeType": { "type": "string" },
+            "fileName": { "type": "string" },
+            "filePath": { "type": "string" },
+            "status": { "enum": ["draft", "enabled", "disabled", "void"] },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" },
+            "version": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["id", "templateCode", "name", "templateType", "status", "createdAt", "updatedAt", "version"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}
