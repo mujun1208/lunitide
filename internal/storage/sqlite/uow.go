@@ -72,13 +72,28 @@ type txAdapter struct {
 	q *sql.Conn
 }
 
-const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status,created_at,updated_at,version`
+const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status,created_at,updated_at,version,org_id,space_id`
+
+func optionalProjectID(value sql.NullString) string {
+	if value.Valid {
+		return value.String
+	}
+	return ""
+}
+
+func nullableProjectID(id string) sql.NullString {
+	if id == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: id, Valid: true}
+}
 
 func (t *txAdapter) getProject(ctx context.Context, id string) (project.Project, error) {
 	var p project.Project
 	var created, updated string
+	var orgID, spaceID sql.NullString
 	row := t.q.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE id=?`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.Status, &created, &updated, &p.Version); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
 		if err == sql.ErrNoRows {
 			return p, project.ErrNotFound
 		}
@@ -91,6 +106,8 @@ func (t *txAdapter) getProject(ctx context.Context, id string) (project.Project,
 	if p.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
 		return p, err
 	}
+	p.OrgID = optionalProjectID(orgID)
+	p.SpaceID = optionalProjectID(spaceID)
 	return p, p.Validate()
 }
 
@@ -139,8 +156,8 @@ func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (proje
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.Status, formatTime(now), formatTime(now), p.Version)
+	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.Status, formatTime(now), formatTime(now), p.Version, nullableProjectID(p.OrgID), nullableProjectID(p.SpaceID))
 	if err == nil {
 		_, err = t.q.ExecContext(ctx, `INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, p.ID)
 	}

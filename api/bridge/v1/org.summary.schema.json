@@ -1,1 +1,49 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/org.summary.schema.json","title":"org.summary payload","x-method":"org.summary","x-owner":"engine","x-enabled":true,"type":"object","additionalProperties":false,"properties":{},"x-result":{"type":"object","additionalProperties":false,"properties":{"boundOrgId":{"type":"string","minLength":0,"maxLength":26},"org":{"type":"object","additionalProperties":false,"properties":{"orgId":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},"name":{"type":"string","minLength":1,"maxLength":128},"state":{"type":"string","enum":["draft","active","suspended","closed"]},"retentionDays":{"type":"integer","minimum":90},"createdAt":{"type":"string","format":"date-time"},"updatedAt":{"type":"string","format":"date-time"}},"required":["orgId","name","state","retentionDays","createdAt","updatedAt"]},"orgs":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"orgId":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},"name":{"type":"string","minLength":1,"maxLength":128},"state":{"type":"string","enum":["draft","active","suspended","closed"]}},"required":["orgId","name","state"]}}},"required":["boundOrgId","orgs"]},"x-examples":{"positive":[{}],"negative":[{"unexpected":1}]}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/org.summary.schema.json",
+  "title": "org.summary payload",
+  "x-method": "org.summary",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "boundOrgId": { "type": "string" },
+      "org": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "orgId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "state": { "type": "string", "enum": ["draft", "active", "suspended", "closed"] },
+          "retentionDays": { "type": "integer", "minimum": 90 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["orgId", "name", "state", "retentionDays", "createdAt", "updatedAt"]
+      },
+      "orgs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "orgId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "state": { "type": "string", "enum": ["draft", "active", "suspended", "closed"] }
+          },
+          "required": ["orgId", "name", "state"]
+        }
+      }
+    },
+    "required": ["boundOrgId", "orgs"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "x": 1 }]
+  }
+}

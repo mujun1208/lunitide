@@ -16,6 +16,7 @@ export type CompanionEvent =
   | { type: 'PLAYBACK_ENDED' } // all segments finished
   | { type: 'INTERRUPT' } // Esc or moon click during speaking
   | { type: 'MIC_CLICK_WHILE_SPEAKING' } // composite: cancel TTS then listen
+  | { type: 'BARGE_IN' } // voice interrupt during speaking/thinking (duplex)
 
 interface CompanionSnapshot {
   state: CompanionState
@@ -27,13 +28,13 @@ type CompanionAction = CompanionEvent | { type: 'GUARD_REJECT'; from: CompanionS
 const transitionTable: Record<CompanionState, Partial<Record<CompanionEvent['type'], CompanionState>>> = {
   idle: { MIC_ACTIVATE: 'listening' },
   listening: { MIC_CANCEL: 'idle', RECOGNIZED_FINAL: 'thinking', MIC_ACTIVATE: 'listening' },
-  thinking: { REPLY_COMPLETED: 'speaking', REPLY_TERMINAL: 'idle' },
-  // PLAYBACK_ENDED / INTERRUPT in thinking is invalid; speaking handles them.
+  thinking: { REPLY_COMPLETED: 'speaking', REPLY_TERMINAL: 'idle', INTERRUPT: 'idle', BARGE_IN: 'listening' },
   speaking: {
     PLAYBACK_ENDED: 'idle',
     INTERRUPT: 'idle',
     // Composite transition: internally speaking -> idle -> listening.
     MIC_CLICK_WHILE_SPEAKING: 'listening',
+    BARGE_IN: 'listening',
   },
 }
 

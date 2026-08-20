@@ -33,13 +33,26 @@ type projectDTO struct {
 	Remark      string         `json:"remark"`
 	CloseReason string         `json:"closeReason"`
 	Status      project.Status `json:"status"`
+	OrgID       string         `json:"orgId,omitempty"`
+	SpaceID     string         `json:"spaceId,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 	Version     int64          `json:"version"`
 }
 
 func newProjectDTO(p project.Project) projectDTO {
-	return projectDTO{ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type, Description: p.Description, Summary: p.Summary, Objective: p.Objective, Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget, PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark, CloseReason: p.CloseReason, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
+	return projectDTO{ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type, Description: p.Description, Summary: p.Summary, Objective: p.Objective, Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget, PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark, CloseReason: p.CloseReason, Status: p.Status, OrgID: p.OrgID, SpaceID: p.SpaceID, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
+}
+
+func (e *Engine) boundOrgID(ctx context.Context) string {
+	if e.m9org == nil {
+		return ""
+	}
+	res, err := e.m9org.Summary(ctx)
+	if err != nil {
+		return ""
+	}
+	return res.BoundOrgID
 }
 
 func projectServiceAvailable(service ProjectService) bool {
@@ -105,6 +118,7 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		PlanEnd:     p.PlanEnd,
 		Remark:      clampText(p.Remark, 2000),
 		Status:      project.StatusCreated,
+		OrgID:       e.boundOrgID(ctx),
 	})
 	if err != nil {
 		return projectFailure(r, err)
@@ -128,7 +142,7 @@ func handleProjectList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.list 参数无效", false)
 		}
 	}
-	items, err := e.projects.List(ctx, project.Filter{Status: project.Status(p.Status), Type: project.Type(p.Type)})
+	items, err := e.projects.List(ctx, project.Filter{Status: project.Status(p.Status), Type: project.Type(p.Type), OrgID: e.boundOrgID(ctx)})
 	if err != nil {
 		return projectFailure(r, err)
 	}

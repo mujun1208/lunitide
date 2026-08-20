@@ -70,16 +70,15 @@ describe('takeSpeakableChunk', () => {
   })
 
   test('starts the first utterance once enough unpunctuated text has arrived', () => {
-    const pending = '今晚天气怎么样啊'
-    expect(Array.from(pending).length).toBeGreaterThanOrEqual(6)
-    const taken = takeSpeakableChunk(pending, true)
-    expect(taken).not.toBeNull()
-    expect(Array.from(taken!.text).length).toBeGreaterThanOrEqual(6)
-    expect(pending.slice(0, taken!.consumed)).toBe(taken!.text)
+    const pending = '你好'
+    expect(takeSpeakableChunk(pending, true)).toEqual({
+      text: '你好',
+      consumed: 2,
+    })
   })
 
   test('keeps later chunks as whole sentences so playback is not chopped', () => {
-    expect(takeSpeakableChunk('然后我再给你建议', false)).toBeNull()
+    expect(takeSpeakableChunk('然后我再', false)).toBeNull()
     expect(takeSpeakableChunk('然后我再给你建议。最后总结。', false)).toEqual({
       text: '然后我再给你建议。',
       consumed: '然后我再给你建议。'.length,

@@ -2,7 +2,7 @@
 // after ~400ms of silence once we already have text, never on a short
 // pause or on an empty buffer.
 import { describe, expect, test } from 'vitest'
-import { UTTERANCE_SILENCE_MS, shouldCommitUtterance } from './speech'
+import { UTTERANCE_SILENCE_MS, BARGE_IN_HOLD_MS, shouldCommitUtterance, shouldBargeIn } from './speech'
 
 describe('shouldCommitUtterance', () => {
   test('waits for the silence window once speech is present', () => {
@@ -20,5 +20,17 @@ describe('shouldCommitUtterance', () => {
   test('accepts a tighter window for mid-utterance checks', () => {
     expect(shouldCommitUtterance(true, 280, 280)).toBe(true)
     expect(shouldCommitUtterance(true, 279, 280)).toBe(false)
+  })
+})
+
+describe('shouldBargeIn', () => {
+  test('requires sustained voice once text is present', () => {
+    expect(shouldBargeIn(true, 0)).toBe(false)
+    expect(shouldBargeIn(true, BARGE_IN_HOLD_MS - 1)).toBe(false)
+    expect(shouldBargeIn(true, BARGE_IN_HOLD_MS)).toBe(true)
+  })
+
+  test('never fires without assembled text', () => {
+    expect(shouldBargeIn(false, BARGE_IN_HOLD_MS)).toBe(false)
   })
 })

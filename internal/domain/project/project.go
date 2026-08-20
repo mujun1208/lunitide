@@ -45,6 +45,8 @@ type Project struct {
 	Remark      string    `json:"remark"`
 	CloseReason string    `json:"closeReason"`
 	Status      Status    `json:"status"`
+	OrgID       string    `json:"orgId,omitempty"`
+	SpaceID     string    `json:"spaceId,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	Version     int64     `json:"version"`
@@ -53,6 +55,8 @@ type Project struct {
 type Filter struct {
 	Status Status
 	Type   Type
+	// OrgID scopes list results to the bound org plus legacy unscoped rows.
+	OrgID string
 }
 
 type Repository interface {

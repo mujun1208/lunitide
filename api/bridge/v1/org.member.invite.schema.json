@@ -1,1 +1,44 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/org.member.invite.schema.json","title":"org.member.invite payload","x-method":"org.member.invite","x-owner":"engine","x-enabled":true,"type":"object","additionalProperties":false,"properties":{"displayName":{"type":"string","minLength":1,"maxLength":128},"externalId":{"type":"string","minLength":1,"maxLength":256},"idpIssuer":{"type":"string","minLength":8,"maxLength":512},"expiresAt":{"type":"string"}},"required":["displayName"],"x-result":{"type":"object","additionalProperties":false,"properties":{"principalId":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},"displayName":{"type":"string","minLength":1,"maxLength":128},"externalId":{"type":"string","minLength":1,"maxLength":256},"idpIssuer":{"type":"string","minLength":8,"maxLength":512},"state":{"type":"string","enum":["active","suspended","expired","revoked"]},"bindingVersion":{"type":"integer","minimum":1},"expiresAt":{"type":"string"},"revokedAt":{"type":"string"},"createdAt":{"type":"string","format":"date-time"},"updatedAt":{"type":"string","format":"date-time"}},"required":["principalId","displayName","state","bindingVersion","createdAt","updatedAt"]},"x-examples":{"positive":[{"displayName":"Alice"},{"displayName":"Bob","externalId":"ext-bob","idpIssuer":"https://idp.example"}],"negative":[{"displayName":""},{"externalId":"ext-x"}]}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/org.member.invite.schema.json",
+  "title": "org.member.invite payload",
+  "x-method": "org.member.invite",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "externalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "idpIssuer": { "type": "string", "minLength": 8, "maxLength": 512 },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  },
+  "required": ["displayName"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "principalId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "displayName": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "externalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+      "idpIssuer": { "type": "string", "minLength": 8, "maxLength": 512 },
+      "state": { "type": "string", "enum": ["active", "suspended", "expired", "revoked"] },
+      "bindingVersion": { "type": "integer", "minimum": 1 },
+      "expiresAt": { "type": "string", "format": "date-time" },
+      "revokedAt": { "type": "string", "format": "date-time" },
+      "createdAt": { "type": "string", "format": "date-time" },
+      "updatedAt": { "type": "string", "format": "date-time" }
+    },
+    "required": ["principalId", "displayName", "state", "bindingVersion", "createdAt", "updatedAt"]
+  },
+  "x-examples": {
+    "positive": [
+      { "displayName": "张工" },
+      { "displayName": "服务账号", "externalId": "svc-01", "idpIssuer": "https://idp.example.com" }
+    ],
+    "negative": [
+      { "displayName": "" },
+      { "displayName": "x", "expiresAt": "not-a-date" }
+    ]
+  }
+}

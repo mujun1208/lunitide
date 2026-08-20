@@ -19,6 +19,12 @@ const speech = vi.hoisted(() => ({
   start: vi.fn(),
   callbacks: undefined as CapturedSpeech | undefined,
   stop: vi.fn(),
+  handle: () => ({
+    stop: speech.stop,
+    setAssistantPlayback: vi.fn(),
+    setCommitPaused: vi.fn(),
+    setBargeInActive: vi.fn(),
+  }),
 }))
 
 const tts = vi.hoisted(() => ({
@@ -56,7 +62,8 @@ vi.mock('./speech', () => ({
 }))
 
 vi.mock('./ttsPlayer', () => ({
-  unlockTtsAudio: vi.fn(),
+  unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure(): void {}
     async speak(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
@@ -151,7 +158,7 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   automation.runs = [run({})]
   // Open the microphone so the reply chain is legal: listening →
   // thinking (final transcript) → speaking (reply completed).
-  speech.start.mockResolvedValue({ stop: speech.stop })
+  speech.start.mockResolvedValue(speech.handle())
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(600)
   expect(stateOf(utils.container)).toBe('listening')
@@ -176,7 +183,7 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
 })
 
 test('returns to idle when chat fails while the stage is speaking', async () => {
-  speech.start.mockResolvedValue({ stop: speech.stop })
+  speech.start.mockResolvedValue(speech.handle())
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(600)
   expect(stateOf(utils.container)).toBe('listening')

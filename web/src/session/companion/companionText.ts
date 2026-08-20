@@ -6,10 +6,10 @@
 // sentences) and at most 20 segments per reply.
 export const MAX_SEGMENT_CHARS = 500
 export const MAX_SEGMENTS = 20
-/** First audible chunk: a short complete sentence, else this many characters. */
-export const FIRST_SPEAK_CHARS = 6
+/** First audible chunk: speak almost immediately (2 chars) so voice tracks the stream. */
+export const FIRST_SPEAK_CHARS = 2
 /** Later chunks prefer a sentence, but do not stall the voice for long unpunctuated runs. */
-export const FOLLOW_SPEAK_CHARS = 14
+export const FOLLOW_SPEAK_CHARS = 8
 
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
@@ -81,9 +81,9 @@ export function prepareSpeech(text: string): string[] {
  * Offsets are in the raw `pending` string (same indexing as assistantText)
  * so the caller can advance spokenUpTo without cleaning first.
  *
- * Doubao-style: prefer a complete sentence; never speak a 2–3 word
- * comma fragment; only force a prefix when the model dumps a long
- * unpunctuated run and the user would otherwise wait in silence.
+ * Real-time voice: prefer a complete sentence; on the first chunk speak
+ * as soon as two characters land; later chunks wait for punctuation or
+ * a slightly longer prefix so playback stays natural.
  */
 export function takeSpeakableChunk(pending: string, isFirst: boolean): { text: string; consumed: number } | null {
   if (!pending.trim()) return null
@@ -92,7 +92,7 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean): { text: s
     return { text: sentence[1], consumed: sentence[1].length }
   }
   const forceAt = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
-  const minClause = isFirst ? 4 : 12
+  const minClause = isFirst ? 2 : 8
   const clause = /^([\s\S]*?[，,、；;])/.exec(pending)
   if (clause && Array.from(clause[1]).length >= minClause) {
     return { text: clause[1], consumed: clause[1].length }
