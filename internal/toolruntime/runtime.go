@@ -1121,7 +1121,14 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			b.WriteString("note: content truncated\n")
 		}
 		b.WriteString("\n" + extracted.Text)
-		return result(truncateRunes(b.String(), 12000)), nil
+		out := result(truncateRunes(b.String(), 12000))
+		preview := extracted.Text
+		if len(preview) > 24<<10 {
+			preview = preview[:24<<10]
+		}
+		title := extracted.Title
+		out.Artifact = &Artifact{Kind: "html", Path: "fetch.html", Content: webfetch.RenderExtractHTML(title, page.FinalURL, preview)}
+		return out, nil
 	case "web.search":
 		var a struct {
 			Query string `json:"query"`
@@ -1140,13 +1147,15 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if max > 10 {
 			max = 10
 		}
-		page, e := r.fetchWeb(ctx, webfetch.SearchURL(a.Query))
+		results, source, e := r.searchWeb(ctx, a.Query, max)
 		if e != nil {
 			return Result{}, e
 		}
-		results := webfetch.ParseSearchResults(string(page.Body), max)
 		var b strings.Builder
 		b.WriteString("query: " + a.Query + "\n")
+		if source != "" && source != "none" {
+			b.WriteString("source: " + source + "\n")
+		}
 		if len(results) == 0 {
 			b.WriteString("no results\n")
 		}
@@ -1156,7 +1165,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 				b.WriteString("   " + hit.Snippet + "\n")
 			}
 		}
-		return result(b.String()), nil
+		out := result(b.String())
+		out.Artifact = &Artifact{Kind: "html", Path: "search.html", Content: webfetch.RenderSearchHTML(a.Query, results)}
+		return out, nil
 	case "excel.gen":
 		var a struct {
 			Path   string                  `json:"path"`
@@ -1610,4 +1621,46 @@ func strict(b []byte, v any) error {
 func result(s string) Result {
 	h := sha256.Sum256([]byte(s))
 	return Result{Output: s, Digest: hex.EncodeToString(h[:])}
+}
+
+const searchAttemptTimeout = 8 * time.Second
+
+func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfetch.SearchResult, string, error) {
+	attempts := []struct {
+		url    string
+		source string
+	}{
+		{webfetch.SearchURL(query), "duckduckgo"},
+		{webfetch.BingCNSearchURL(query), "bing"},
+		{webfetch.BingSearchURL(query), "bing"},
+	}
+	var lastErr error
+	var lastHits []webfetch.SearchResult
+	var lastSrc string
+	for _, attempt := range attempts {
+		c, cancel := context.WithTimeout(ctx, searchAttemptTimeout)
+		page, err := r.fetchWeb(c, attempt.url)
+		cancel()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var hits []webfetch.SearchResult
+		if attempt.source == "duckduckgo" {
+			hits = webfetch.ParseSearchResults(string(page.Body), max)
+		} else {
+			hits = webfetch.ParseBingResults(string(page.Body), max)
+		}
+		lastHits, lastSrc = hits, attempt.source
+		if len(hits) > 0 {
+			return hits, attempt.source, nil
+		}
+	}
+	if lastSrc != "" {
+		return lastHits, lastSrc, nil
+	}
+	if lastErr != nil {
+		return nil, "", lastErr
+	}
+	return nil, "none", nil
 }

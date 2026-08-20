@@ -200,3 +200,39 @@ func TestUnwrapSearchRedirectDropsNonWebTargets(t *testing.T) {
 		t.Fatalf("direct link: %q", got)
 	}
 }
+
+const bingPage = `<ol id="b_results">
+<li class="b_algo"><h2><a href="https://news.example/jay">周杰伦最新消息</a></h2><p>演唱会与新专辑动态。</p></li>
+<li class="b_algo"><h2><a href="javascript:void(0)">skip</a></h2></li>
+<li class="b_algo"><h2><a href="https://music.example/jay">官方新闻</a></h2><div class="b_caption"><p>来源可靠。</p></div></li>
+</ol>`
+
+func TestParseBingResultsExtractsOrganicLinks(t *testing.T) {
+	t.Parallel()
+	results := ParseBingResults(bingPage, 10)
+	if len(results) != 2 {
+		t.Fatalf("results=%d %+v", len(results), results)
+	}
+	if results[0].URL != "https://news.example/jay" || results[0].Title != "周杰伦最新消息" {
+		t.Fatalf("first=%+v", results[0])
+	}
+	if results[0].Snippet != "演唱会与新专辑动态。" {
+		t.Fatalf("snippet=%q", results[0].Snippet)
+	}
+	if results[1].URL != "https://music.example/jay" {
+		t.Fatalf("second=%+v", results[1])
+	}
+}
+
+func TestRenderSearchHTMLEscapesAndLists(t *testing.T) {
+	t.Parallel()
+	out := RenderSearchHTML(`jay <script>`, []SearchResult{{Title: `A&B`, URL: "https://ex.test/?q=1", Snippet: "<b>x</b>"}})
+	for _, banned := range []string{"<script>", "<b>x</b>"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("unescaped %q in %s", banned, out)
+		}
+	}
+	if !strings.Contains(out, "https://ex.test/?q=1") || !strings.Contains(out, "A&amp;B") {
+		t.Fatalf("missing escaped content: %s", out)
+	}
+}

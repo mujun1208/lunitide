@@ -1,5 +1,5 @@
-// speech.test.ts pins Doubao-style utterance endpointing: commit only
-// after ~400ms of silence once we already have text, never on a short
+// speech.test.ts pins Doubao-style utterance endpointing: commit after
+// analyser silence or a stable Windows SR transcript, never on a short
 // pause or on an empty buffer.
 import { describe, expect, test } from 'vitest'
 import { UTTERANCE_SILENCE_MS, UTTERANCE_STABLE_MS, BARGE_IN_HOLD_MS, shouldCommitUtterance, shouldCommitStable, shouldBargeIn } from './speech'

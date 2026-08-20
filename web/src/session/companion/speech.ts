@@ -60,7 +60,7 @@ export interface CompanionSpeechHandle {
 /** Commit after this much analyser silence once we already have text. */
 export const UTTERANCE_SILENCE_MS = 280
 /** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
-export const UTTERANCE_STABLE_MS = 520
+export const UTTERANCE_STABLE_MS = 360
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 const VOICE_PEAK = 0.13

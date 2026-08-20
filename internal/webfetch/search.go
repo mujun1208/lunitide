@@ -1,6 +1,8 @@
 package webfetch
 
 import (
+	"fmt"
+	"html"
 	"net/url"
 	"strings"
 )
@@ -9,9 +11,24 @@ import (
 // It is fetched through the same SSRF-pinned transport as any other URL.
 const SearchEndpoint = "https://lite.duckduckgo.com/lite/"
 
+// BingSearchEndpoint and BingCNSearchEndpoint are keyless HTML fallbacks when
+// DuckDuckGo Lite is slow or blocked (common on some networks).
+const BingSearchEndpoint = "https://www.bing.com/search"
+const BingCNSearchEndpoint = "https://cn.bing.com/search"
+
 // SearchURL builds the search GET URL for query.
 func SearchURL(query string) string {
 	return SearchEndpoint + "?q=" + url.QueryEscape(query)
+}
+
+// BingSearchURL builds the international Bing HTML search URL.
+func BingSearchURL(query string) string {
+	return BingSearchEndpoint + "?q=" + url.QueryEscape(query) + "&setlang=zh-CN"
+}
+
+// BingCNSearchURL builds the cn.bing.com HTML search URL.
+func BingCNSearchURL(query string) string {
+	return BingCNSearchEndpoint + "?q=" + url.QueryEscape(query)
 }
 
 // SearchResult is one parsed organic result.
@@ -72,6 +89,133 @@ func ParseSearchResults(html string, max int) []SearchResult {
 		results = append(results, SearchResult{Title: title, URL: target, Snippet: snippet})
 	}
 	return results
+}
+
+// ParseBingResults extracts organic results from a Bing HTML results page.
+func ParseBingResults(page string, max int) []SearchResult {
+	if max <= 0 {
+		max = 5
+	}
+	var results []SearchResult
+	rest := page
+	for len(results) < max {
+		idx := strings.Index(rest, "b_algo")
+		if idx < 0 {
+			break
+		}
+		rest = rest[idx:]
+		next := strings.Index(rest[1:], "b_algo")
+		block := rest
+		if next >= 0 {
+			block = rest[:1+next]
+			rest = rest[1+next:]
+		} else {
+			rest = ""
+		}
+		href, title := firstHTTPAnchor(block)
+		if href == "" {
+			continue
+		}
+		results = append(results, SearchResult{
+			Title:   title,
+			URL:     href,
+			Snippet: firstParagraph(block),
+		})
+	}
+	return results
+}
+
+// RenderSearchHTML builds a dark, network-blocked preview of ranked results
+// for the in-app workspace browser tab.
+func RenderSearchHTML(query string, results []SearchResult) string {
+	var b strings.Builder
+	b.WriteString(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>`)
+	b.WriteString(html.EscapeString(query))
+	b.WriteString(`</title><style>
+body{margin:0;padding:22px 24px;font:14px/1.55 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0b111a;color:#e8eef7}
+h1{margin:0 0 16px;font-size:16px;font-weight:650}
+ol{margin:0;padding:0;list-style:none;display:grid;gap:14px}
+a{color:#8ec5ff;text-decoration:none}
+small{display:block;margin:4px 0;color:#6f8aad;word-break:break-all}
+p{margin:0;color:#c5d0de}
+.empty{color:#8a9bb0}
+</style></head><body><h1>搜索结果 · `)
+	b.WriteString(html.EscapeString(query))
+	b.WriteString(`</h1>`)
+	if len(results) == 0 {
+		b.WriteString(`<p class="empty">没有找到结果。</p></body></html>`)
+		return b.String()
+	}
+	b.WriteString(`<ol>`)
+	for i, hit := range results {
+		fmt.Fprintf(&b, `<li><a href="%s">%d. %s</a><small>%s</small><p>%s</p></li>`,
+			html.EscapeString(hit.URL), i+1, html.EscapeString(hit.Title), html.EscapeString(hit.URL), html.EscapeString(hit.Snippet))
+	}
+	b.WriteString(`</ol></body></html>`)
+	return b.String()
+}
+
+// RenderExtractHTML builds a dark preview of a fetched page's extracted text.
+func RenderExtractHTML(title, finalURL, body string) string {
+	if title == "" {
+		title = finalURL
+	}
+	return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>` +
+		html.EscapeString(title) + `</title><style>
+body{margin:0;padding:22px 24px;font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0b111a;color:#e8eef7}
+h1{margin:0 0 8px;font-size:16px}
+small{display:block;margin:0 0 16px;color:#6f8aad;word-break:break-all}
+pre{margin:0;white-space:pre-wrap;color:#c5d0de}
+</style></head><body><h1>` + html.EscapeString(title) + `</h1><small>` +
+		html.EscapeString(finalURL) + `</small><pre>` + html.EscapeString(body) + `</pre></body></html>`
+}
+
+func firstHTTPAnchor(block string) (href, title string) {
+	rest := block
+	for {
+		open := strings.Index(strings.ToLower(rest), "<a")
+		if open < 0 {
+			return "", ""
+		}
+		tagEnd := strings.Index(rest[open:], ">")
+		if tagEnd < 0 {
+			return "", ""
+		}
+		tag := rest[open : open+tagEnd+1]
+		closeEnd := strings.Index(strings.ToLower(rest[open+tagEnd:]), "</a>")
+		if closeEnd < 0 {
+			return "", ""
+		}
+		text := rest[open+tagEnd+1 : open+tagEnd+closeEnd]
+		rest = rest[open+tagEnd+closeEnd+4:]
+		target := unwrapSearchRedirect(attrValue(tag, "href"))
+		if target == "" {
+			continue
+		}
+		title = strings.TrimSpace(unescapeEntities(stripTags(text)))
+		if title == "" {
+			continue
+		}
+		return target, title
+	}
+}
+
+func firstParagraph(block string) string {
+	lower := strings.ToLower(block)
+	idx := strings.Index(lower, "<p")
+	if idx < 0 {
+		return ""
+	}
+	cell := strings.Index(block[idx:], ">")
+	if cell < 0 {
+		return ""
+	}
+	raw := block[idx+cell+1:]
+	end := strings.Index(strings.ToLower(raw), "</p>")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(unescapeEntities(stripTags(raw[:end])))
 }
 
 // unwrapSearchRedirect decodes a //duckduckgo.com/l/?uddg= wrapper to its
