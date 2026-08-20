@@ -12,5 +12,7 @@ func bundledWorkflowInjection() string {
 		"- 任务：todo.write 维护清单；复杂请求先拆步再动手，每步可验证。\n" +
 		"- Git：command.run 只用白名单只读 git（status/diff/log）；写操作需用户确认。\n" +
 		"- 浏览：公开页用 browser.act（navigate/read，与 web.fetch 同一套 SSRF 防护）；要点击或填表时在设置启用 Playwright MCP，或用工作区「浏览器」标签打开独立窗口。\n" +
-		"使用规则：匹配上述场景时直接执行。用户已发布的技能见下方目录，用 skill.invoke。\n"
+		"- 安装技能：用户给出含 SKILL.md 的目录时，列出后立刻 workspace.read 每个 SKILL.md，再连续调用 skill.create；不要只列目录就结束。\n" +
+		"使用规则：匹配上述场景时直接执行。用户已发布的技能见下方目录，用 skill.invoke。\n" +
+		"执行纪律：用户给出明确任务后，本轮连续调用工具直到完成或遇到真实阻塞（缺权限、缺无法推断的信息）。不要在勘查后停下等待确认，不要分段汇报后结束本轮。批量任务一次性做完再给最终结果。运行中补充的说明会在工具间隙并入，必须结合当前进度一起做完。\n"
 }

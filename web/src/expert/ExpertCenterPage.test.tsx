@@ -35,6 +35,17 @@ const expertApi = (o: Partial<ExpertBridge> = {}): ExpertBridge => ({
 })
 const projects: ProjectBridge = { list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn(), update: vi.fn(), publish: vi.fn(), close: vi.fn(), reopen: vi.fn(), delete: vi.fn() }
 
+it('opens create expert in a dialog instead of the side panel', async () => {
+  const bridge = expertApi()
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findAllByText('数据库优化专家')
+  expect(screen.getByRole('separator', { name: '调整详情栏宽度' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '＋ 创建专家' }))
+  expect(await screen.findByRole('dialog', { name: '创建专家向导' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '创建专家' })).toBeInTheDocument()
+  expect(screen.getAllByText('数据库优化专家').length).toBeGreaterThanOrEqual(2)
+})
+
 it('renders scenario cards of the selected expert', async () => {
   const bridge = expertApi()
   render(<ExpertCenterPage bridge={bridge} projects={projects} />)

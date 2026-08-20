@@ -156,15 +156,33 @@ func validProjectEnum(s string) bool {
 	return false
 }
 
+type projectMutationMeta struct {
+	ID      string `json:"id"`
+	Version int64  `json:"version"`
+	Reason  string `json:"reason"`
+}
+
+type projectUpdatePayload struct {
+	ID          string  `json:"id"`
+	Version     int64   `json:"version"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Description string  `json:"description"`
+	Summary     string  `json:"summary"`
+	Objective   string  `json:"objective"`
+	Client      string  `json:"client"`
+	ContractNo  string  `json:"contractNo"`
+	Amount      float64 `json:"amount"`
+	Budget      float64 `json:"budget"`
+	PlanStart   string  `json:"planStart"`
+	PlanEnd     string  `json:"planEnd"`
+	Remark      string  `json:"remark"`
+}
+
 // handleProjectMutate carries the shared lifecycle gate for update / publish /
 // close / reopen: optimistic version check plus state-machine enforcement.
-func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, action string, apply func(*project.Project) error) bridge.Response {
-	var p struct {
-		ID      string `json:"id"`
-		Version int64  `json:"version"`
-		Reason  string `json:"reason"`
-	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.Version < 1 {
+func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, action, id string, version int64, reason string, apply func(*project.Project) error) bridge.Response {
+	if !validCanonicalULID(id) || version < 1 {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", action+" 参数无效", false)
 	}
 	if !projectServiceAvailable(e.projects) {
@@ -173,7 +191,7 @@ func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, actio
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
-	result, err := e.projects.Mutate(ctx, r.IdempotencyKey, projectMutationActor, action, p.ID, p.Version, func(cur *project.Project) error {
+	result, err := e.projects.Mutate(ctx, r.IdempotencyKey, projectMutationActor, action, id, version, func(cur *project.Project) error {
 		switch action {
 		case "project.update":
 			if !cur.CanEdit() {
@@ -198,7 +216,7 @@ func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, actio
 		if action == "project.publish" {
 			cur.Status = project.StatusActive
 		} else if action == "project.close" {
-			cur.CloseReason = clampText(p.Reason, 500)
+			cur.CloseReason = clampText(reason, 500)
 			if cur.CloseReason == "" {
 				return errors.New("close reason is required")
 			}
@@ -216,17 +234,19 @@ func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, actio
 }
 
 func handleProjectUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var body projectCreatePayload
+	var body projectUpdatePayload
 	if decodePayload(r.Payload, &body) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.update 参数无效", false)
 	}
-	return handleProjectMutate(e, ctx, r, "project.update", func(cur *project.Project) error {
+	return handleProjectMutate(e, ctx, r, "project.update", body.ID, body.Version, "", func(cur *project.Project) error {
 		name, err := project.NormalizeName(body.Name)
 		if err != nil {
 			return err
 		}
 		cur.Name = name
-		cur.Type = project.Type(body.Type)
+		if body.Type != "" {
+			cur.Type = project.Type(body.Type)
+		}
 		cur.Description = clampText(body.Description, 2000)
 		cur.Summary = clampText(body.Summary, 500)
 		cur.Objective = clampText(body.Objective, 2000)
@@ -240,15 +260,27 @@ func handleProjectUpdate(e *Engine, ctx context.Context, r bridge.Request) bridg
 }
 
 func handleProjectPublish(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	return handleProjectMutate(e, ctx, r, "project.publish", func(*project.Project) error { return nil })
+	var p projectMutationMeta
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.publish 参数无效", false)
+	}
+	return handleProjectMutate(e, ctx, r, "project.publish", p.ID, p.Version, "", func(*project.Project) error { return nil })
 }
 
 func handleProjectClose(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	return handleProjectMutate(e, ctx, r, "project.close", func(*project.Project) error { return nil })
+	var p projectMutationMeta
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.close 参数无效", false)
+	}
+	return handleProjectMutate(e, ctx, r, "project.close", p.ID, p.Version, p.Reason, func(*project.Project) error { return nil })
 }
 
 func handleProjectReopen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	return handleProjectMutate(e, ctx, r, "project.reopen", func(*project.Project) error { return nil })
+	var p projectMutationMeta
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.reopen 参数无效", false)
+	}
+	return handleProjectMutate(e, ctx, r, "project.reopen", p.ID, p.Version, "", func(*project.Project) error { return nil })
 }
 
 func projectFailure(r bridge.Request, err error) bridge.Response {

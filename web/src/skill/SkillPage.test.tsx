@@ -41,6 +41,16 @@ it('starts skill creation through chat instead of an inline form', async () => {
   expect(screen.queryByLabelText('技能名称')).not.toBeInTheDocument()
 })
 
+it('opens skill edit in a dialog and exposes a resizable detail pane', async () => {
+  const bridge = api({ list: vi.fn().mockResolvedValue({ items: [skill] }) })
+  render(<SkillPage bridge={bridge} />)
+  await screen.findAllByText('代码审查')
+  expect(screen.getByRole('separator', { name: '调整详情栏宽度' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '编辑技能' }))
+  expect(await screen.findByRole('dialog', { name: '编辑 代码审查' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '保存修改' })).toBeInTheDocument()
+})
+
 it('deletes a skill from the list', async () => {
   const del = vi.fn().mockResolvedValue({ deleted: true })
   const bridge = api({ list: vi.fn().mockResolvedValue({ items: [skill] }), delete: del })

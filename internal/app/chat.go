@@ -109,6 +109,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		mode = executionModeFullAccess
 	}
 
+	turnText := lastUserChatText(p.Messages)
+	if p.Companion && turnText == "" && hasSession && e.messageReader != nil {
+		turnText = e.peekLastUserMessage(ctx, p.SessionID)
+	}
+	wantsTools := !p.Companion || companionWantsTools(turnText)
+
 	instruction := executionModeInstruction(mode)
 	// Moon Companion: Doubao-style voice. First audible sentence must
 	// land in TTS immediately (period-terminated, 8–20 chars). Later
@@ -134,8 +140,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	// Overlap provider lookup with preference/skill injection (Cursor-style
-	// TTFT): they share no data. Companion still gets memory prefs and the
-	// skill catalog so voice can invoke the same skills as ordinary chat.
+	// TTFT): they share no data. Companion idle turns skip the skill catalog
+	// so the first spoken token is not waiting on tool schemas.
 	var (
 		item    provider.Provider
 		getErr  error
@@ -157,7 +163,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		}()
 	}
-	{
+	if wantsTools {
 		prep.Add(1)
 		go func() {
 			defer prep.Done()
@@ -181,6 +187,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	if catalog != "" {
 		instruction += "\n\n" + catalog
+	}
+	if !p.Companion && hasSession {
+		instruction += e.unfinishedTurnInjection(p.SessionID, turnText)
 	}
 	trustedMessages := append([]gateway.Message{{Role: gateway.RoleSystem, Content: instruction}}, p.Messages...)
 
@@ -427,7 +436,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
 	}
-	if e.tools != nil {
+	if e.tools != nil && wantsTools {
 		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
@@ -455,6 +464,64 @@ func gatewayRole(role string) gateway.Role {
 }
 
 var errCombinedContextOverBudget = errors.New("combined provider context exceeds effective input budget")
+
+func lastUserChatText(messages []gateway.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == gateway.RoleUser {
+			if text := strings.TrimSpace(messages[i].Content); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func (e *Engine) peekLastUserMessage(ctx context.Context, sessionID string) string {
+	if e == nil || e.messageReader == nil || sessionID == "" {
+		return ""
+	}
+	msgs, err := e.messageReader.ListMessages(ctx, sessionID, "backward", 8)
+	if err != nil {
+		return ""
+	}
+	var best contextapp.Message
+	var found bool
+	for _, m := range msgs {
+		if m.Role != "user" || strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		if !found || m.Sequence >= best.Sequence {
+			best, found = m, true
+		}
+	}
+	if !found {
+		return ""
+	}
+	return strings.TrimSpace(best.Content)
+}
+
+// companionWantsTools is the voice fast-path gate: idle chat must not ship
+// tool schemas (they dominate TTFT). Action-shaped utterances keep the full
+// toolset so 月伴 can still search, open pages, or write files.
+func companionWantsTools(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, needle := range []string{
+		"搜索", "搜一下", "搜网页", "打开", "播放", "播一首", "播歌",
+		"查一下", "查询", "查火车", "查航班", "火车票", "航班",
+		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
+		"mcp", "运行命令", "打开网页", "浏览器", "下载",
+		"search", "open http", "play song", "install",
+	} {
+		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
 
 func validChatMessages(model string, messages []gateway.Message) bool {
 	totalBytes := len(model)
@@ -728,6 +795,7 @@ func (e *Engine) skillToolDefinitions() []gateway.ToolDefinition {
 	}
 	return []gateway.ToolDefinition{
 		{Name: "skill.invoke", Description: "Invoke one published skill by its skillId (see the [可用技能目录] section for IDs and trigger scenarios); input is the user's request text for the skill", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"skill ULID from the catalog"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"the user request passed to the skill"}},"required":["skillId","input"],"additionalProperties":false}`)},
+		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill; batch many calls in the same turn. Do not stop after listing directories — keep creating until every requested skill is done, then summarize.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
 	}
 }
 
@@ -762,6 +830,58 @@ func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, sessio
 		return toolruntime.Result{}, err
 	}
 	return toolruntime.Result{Output: out.Output}, nil
+}
+
+func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+	if !skillServiceAvailable(e.skills) {
+		return toolruntime.Result{}, errors.New("skill service unavailable")
+	}
+	var a struct {
+		Name         string   `json:"name"`
+		DisplayName  string   `json:"displayName"`
+		Description  string   `json:"description"`
+		Version      string   `json:"version"`
+		Permissions  []string `json:"permissions"`
+		EntryPoint   string   `json:"entryPoint"`
+		ManifestJSON string   `json:"manifestJson"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return toolruntime.Result{}, errors.New("invalid skill.create arguments")
+	}
+	name := strings.TrimSpace(a.Name)
+	display := strings.TrimSpace(a.DisplayName)
+	if display == "" {
+		display = name
+	}
+	version := strings.TrimSpace(a.Version)
+	if version == "" {
+		version = "1.0.0"
+	}
+	entry := strings.TrimSpace(a.EntryPoint)
+	if entry == "" {
+		entry = "SKILL.md"
+	}
+	perms := make([]skill.PermissionLevel, 0, len(a.Permissions))
+	for _, p := range a.Permissions {
+		perms = append(perms, skill.PermissionLevel(p))
+	}
+	created, err := e.skills.Create(ctx, skill.Skill{
+		Name: name, DisplayName: display, Description: a.Description,
+		Version: version, Permissions: perms, EntryPoint: entry,
+		ManifestJSON: a.ManifestJSON,
+	})
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	label := created.DisplayName
+	if label == "" {
+		label = name
+	}
+	id := created.ID
+	if id == "" {
+		id = name
+	}
+	return toolruntime.Result{Output: "技能「" + label + "」已创建（id=" + id + "，status=" + string(created.Status) + "）。"}, nil
 }
 
 // invokeExpertCreateTool routes a model-initiated expert.create call through
@@ -1159,6 +1279,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var pendingThinking string
 	var pendingThinkingSince time.Time
 	var streamResult gateway.Response
+	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
 	mode := executionModeApproval
 	if len(modes) > 0 {
 		mode = modes[0]
@@ -1193,11 +1314,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		// Keep flushing and event emission on the stream callback goroutine: emit
 		// may be synchronous, and this preserves thinking-before-answer ordering.
 		if event.Type != bridge.EventThinking {
-			if err := flushThinking(true); err != nil {
+			if err := flushThinking(true); err != nil && event.Type == bridge.EventApprovalRequired {
 				return err
 			}
 		}
-		return rawSend(event)
+		if err := rawSend(event); err != nil {
+			if event.Type == bridge.EventApprovalRequired {
+				return err
+			}
+			// UI/network drop must not abort the tool loop: persist the
+			// turn and keep executing until the task finishes.
+			log.Printf("chat stream %s dropped event %s: %v", id, event.Type, err)
+		}
+		return nil
 	}
 	// Goroutine-wide panic guard: runStream runs detached (go e.runStream), so
 	// an unrecovered panic would kill the Engine process and sever the event
@@ -1228,7 +1357,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		var result gateway.Response
 		var streamErr error
 		toolsFallbackUsed := false
-		for step := 0; step < 6; step++ {
+		usedTools := false
+		nudges := 0
+		if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
+			turn.Goal = prev.Goal
+			turn.Injected = append(turn.Injected, prev.Injected...)
+		}
+		e.saveTurnCheckpoint(sessionID, turn)
+		for step := 0; step < maxToolLoopSteps; step++ {
+			_ = e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText)
+			stepTextStart := assistantText.Len()
 			result, streamErr = a.Stream(op, credential, req, func(d gateway.Delta) error {
 				if d.Reasoning != "" && thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
 					reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
@@ -1284,9 +1422,43 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				toolsFallbackUsed = true
 				continue
 			}
-			if streamErr != nil || len(result.Message.ToolCalls) == 0 {
+			if streamErr != nil {
 				break
 			}
+			if len(result.Message.ToolCalls) == 0 {
+				stepText := ""
+				if assistantText.Len() > stepTextStart {
+					stepText = assistantText.String()[stepTextStart:]
+				}
+				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) {
+					nudges++
+					msg := result.Message
+					if strings.TrimSpace(msg.Content) == "" {
+						msg.Role = gateway.RoleAssistant
+						msg.Content = stepText
+					}
+					req.Messages = append(req.Messages, msg, continueNudgeMessage())
+					continue
+				}
+				note, texts := e.pullQueuedSupplements(op, sessionID)
+				if note != "" {
+					msg := result.Message
+					if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+						msg.Role = gateway.RoleAssistant
+						msg.Content = stepText
+					}
+					if msg.Role != "" {
+						req.Messages = append(req.Messages, msg)
+					}
+					req.Messages = append(req.Messages, queuedSupplementMessage(note))
+					turn.Injected = append(turn.Injected, texts...)
+					assistantText.WriteString(queueInjectNotice)
+					_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
+					continue
+				}
+				break
+			}
+			usedTools = true
 			req.Messages = append(req.Messages, result.Message)
 			// Parallel subagents: same-turn subagent.spawn calls are
 			// pre-started (bounded) so independent research subagents
@@ -1438,6 +1610,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					// Model-initiated expert creation routes through the
 					// M8 expert service (never the raw toolruntime switch).
+					if call.Name == "skill.create" {
+						return e.invokeSkillCreateTool(op, call.Arguments)
+					}
 					if call.Name == "expert.create" {
 						return e.invokeExpertCreateTool(op, sessionID, call.Arguments)
 					}
@@ -1483,9 +1658,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
 			}
+			for _, call := range result.Message.ToolCalls {
+				turn.LastTools = append(turn.LastTools, call.Name)
+			}
+			e.saveTurnCheckpoint(sessionID, turn)
 		}
 		streamResult = result
-		// Step-budget exhaustion: when the 6th step still produced tool
+		// Step-budget exhaustion: when the last step still produced tool
 		// calls the loop ends after executing them, and without a final
 		// text the user would see a completed stream with no answer.
 		// Surface a Chinese notice in both the live stream and the
@@ -1528,6 +1707,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 	}
 	terminal := bridge.Event{Type: e.selectTerminal(id, state, err)}
+	switch terminal.Type {
+	case bridge.EventCompleted:
+		turn.Status = turnStatusCompleted
+	case bridge.EventCancelled:
+		turn.Status = turnStatusCancelled
+	default:
+		if len(turn.LastTools) > 0 || err != nil {
+			turn.Status = turnStatusInterrupted
+		}
+	}
+	e.saveTurnCheckpoint(sessionID, turn)
 	if terminal.Type == bridge.EventCompleted && messageID != "" {
 		terminal.Completed = &bridge.CompletedEvent{MessageID: messageID}
 	}

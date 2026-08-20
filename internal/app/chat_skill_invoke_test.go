@@ -141,7 +141,7 @@ func TestSkillInvokeToolDefinitionsWithAndWithoutService(t *testing.T) {
 	}
 	e.skills = &skillInvokeRecordingStub{}
 	defs := e.skillToolDefinitions()
-	if len(defs) != 1 || defs[0].Name != "skill.invoke" {
-		t.Fatalf("definitions = %#v, want one skill.invoke", defs)
+	if len(defs) != 2 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.create" {
+		t.Fatalf("definitions = %#v, want skill.invoke and skill.create", defs)
 	}
 }

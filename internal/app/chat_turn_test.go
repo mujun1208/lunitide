@@ -1,0 +1,164 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/queueinput"
+	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/queueapp"
+	"github.com/lunitide/lunitide/internal/toolruntime"
+)
+
+func TestLooksLikeResume(t *testing.T) {
+	if !looksLikeResume(resumeUserPrompt) || !looksLikeResume("继续") || looksLikeResume("帮我安装技能") {
+		t.Fatal("resume detector mismatch")
+	}
+}
+
+type memQueueStore struct {
+	mu    sync.Mutex
+	items []queueinput.Message
+}
+
+func (s *memQueueStore) SessionExists(context.Context, string) (bool, error) { return true, nil }
+func (s *memQueueStore) EnqueueQueuedMessage(context.Context, string, string, string, string, string) (queueinput.Message, error) {
+	return queueinput.Message{}, errors.New("unused")
+}
+func (s *memQueueStore) GetQueuedByRequest(context.Context, string, string) (queueinput.Message, error) {
+	return queueinput.Message{}, nil
+}
+func (s *memQueueStore) CountQueued(context.Context, string) (int, error) { return 0, nil }
+func (s *memQueueStore) CountQueuedSince(context.Context, string, time.Time) (int, error) {
+	return 0, nil
+}
+func (s *memQueueStore) ListQueued(context.Context, string) ([]queueinput.Message, error) {
+	return nil, nil
+}
+func (s *memQueueStore) WithdrawQueuedMessage(context.Context, string, string) (queueinput.Message, error) {
+	return queueinput.Message{}, errors.New("unused")
+}
+func (s *memQueueStore) ConsumeQueuedMessages(context.Context, string) ([]queueinput.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.items
+	s.items = nil
+	return out, nil
+}
+func (s *memQueueStore) push(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = append(s.items, queueinput.Message{Payload: text, Status: queueinput.StatusQueued, Seq: int64(len(s.items) + 1)})
+}
+
+type queueInjectAdapter struct {
+	store         *memQueueStore
+	calls         int
+	sawSupplement bool
+}
+
+func (a *queueInjectAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	return gateway.Response{}, errors.New("not used")
+}
+func (a *queueInjectAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, errors.New("not used")
+}
+func (a *queueInjectAdapter) Stream(_ context.Context, _ []byte, req gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+	a.calls++
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "任务进行中补充") && strings.Contains(m.Content, "只要 arkcli") {
+			a.sawSupplement = true
+		}
+	}
+	if a.calls == 1 {
+		a.store.push("只要 arkcli 相关的技能")
+		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
+		}}}, nil
+	}
+	if err := emit(gateway.Delta{Text: "已结合补充说明继续安装。"}); err != nil {
+		return gateway.Response{}, err
+	}
+	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: "已结合补充说明继续安装。"}}, nil
+}
+
+func TestRunStreamInjectsQueuedSupplementsMidTurn(t *testing.T) {
+	store := &memQueueStore{}
+	adapter := &queueInjectAdapter{store: store}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetQueueService(queueapp.New(store))
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-queue-inject"
+	e.streams[id] = state
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(bridge.Event) error { return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if adapter.calls < 2 {
+		t.Fatalf("calls = %d, want at least 2", adapter.calls)
+	}
+	if !adapter.sawSupplement {
+		t.Fatal("queued supplement was not injected into the in-flight turn")
+	}
+}
+
+type dropUIAdapter struct{ calls int }
+
+func (a *dropUIAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	return gateway.Response{}, errors.New("not used")
+}
+func (a *dropUIAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, errors.New("not used")
+}
+func (a *dropUIAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
+		}}}, nil
+	}
+	_ = emit(gateway.Delta{Text: "工具已跑完。"})
+	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: "工具已跑完。"}}, nil
+}
+
+func TestRunStreamKeepsWorkingWhenUIDisconnects(t *testing.T) {
+	adapter := &dropUIAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-ui-drop"
+	e.streams[id] = state
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(bridge.Event) error {
+		return errors.New("ui gone")
+	}, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if adapter.calls < 2 {
+		t.Fatalf("disconnected UI aborted the turn: calls=%d", adapter.calls)
+	}
+}
+
+func TestUnfinishedTurnInjectionUsesCheckpoint(t *testing.T) {
+	tools, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tools.Close()
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetToolRuntime(tools)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	e.saveTurnCheckpoint(session, chatTurnCheckpoint{Status: turnStatusInterrupted, Goal: "把目录里的技能都装上", Injected: []string{"只要 arkcli"}})
+	got := e.unfinishedTurnInjection(session, resumeUserPrompt)
+	if !strings.Contains(got, "把目录里的技能都装上") || !strings.Contains(got, "只要 arkcli") {
+		t.Fatalf("injection missing checkpoint: %q", got)
+	}
+	if e.unfinishedTurnInjection(session, "新开一个话题") != "" {
+		t.Fatal("non-resume turns must not force the old task")
+	}
+}

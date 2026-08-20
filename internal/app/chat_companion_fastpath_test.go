@@ -41,8 +41,11 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "第一句") || !strings.Contains(system, "闲聊立刻回答") || !strings.Contains(system, "调用对应工具") {
 		t.Fatalf("companion voice instruction missing: %q", system)
 	}
-	if !strings.Contains(system, "可用技能目录") {
-		t.Fatalf("companion skipped skill catalog: %q", system)
+	if strings.Contains(system, "可用技能目录") {
+		t.Fatalf("idle companion injected skill catalog: %q", system)
+	}
+	if len(req.Tools) != 0 {
+		t.Fatalf("idle companion attached tools: %#v", req.Tools)
 	}
 }
 
@@ -75,6 +78,15 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 		if !found {
 			t.Fatalf("companion tools missing %s: %#v", name, req.Tools)
 		}
+	}
+}
+
+func TestCompanionWantsTools(t *testing.T) {
+	if companionWantsTools("今晚月色如何") || companionWantsTools("你好") {
+		t.Fatal("idle chat must not request tools")
+	}
+	if !companionWantsTools("打开网页") || !companionWantsTools("搜一下今天新闻") {
+		t.Fatal("action chat must request tools")
 	}
 }
 

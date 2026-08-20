@@ -43,9 +43,8 @@ export interface CompanionSpeechHandle {
 }
 
 /** Commit the utterance after this much silence once we already have text.
- *  ~400ms matches cloud voice agents (Doubao / realtime): faster than
- *  waiting for the OS SpeechRecognition isFinal (often 0.8–1.5s). */
-export const UTTERANCE_SILENCE_MS = 400
+ *  ~300ms is the Doubao-style endpoint; waiting for OS isFinal is 0.8–1.5s. */
+export const UTTERANCE_SILENCE_MS = 300
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 const VOICE_PEAK = 0.13
@@ -64,8 +63,10 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
   let context: AudioContext | undefined
   let frame = 0
   let finished = false
+  let recSilenceTimer = 0
   const teardown = () => {
     if (frame) cancelAnimationFrame(frame)
+    window.clearTimeout(recSilenceTimer)
     stream?.getTracks().forEach(track => track.stop())
     stream = undefined
     void context?.close()
@@ -97,7 +98,6 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
     let finals = ''
     let interim = ''
     let lastVoiceAt = performance.now()
-    let vadEnabled = false
     const assembled = () => {
       const f = finals.trim()
       const i = interim.trim()
@@ -114,7 +114,7 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       callbacks.onFinal(text)
     }
     const tryCommitFromSilence = (voiceAt: number, silenceMs = UTTERANCE_SILENCE_MS) => {
-      if (!vadEnabled || finished) return
+      if (finished) return
       if (shouldCommitUtterance(Boolean(assembled()), performance.now() - voiceAt, silenceMs)) commit(assembled())
     }
     try {
@@ -122,11 +122,10 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       context = new AudioContextClass()
       const analyser = context.createAnalyser()
       analyser.fftSize = 64
-      analyser.smoothingTimeConstant = 0.72
+      analyser.smoothingTimeConstant = 0.4
       context.createMediaStreamSource(media).connect(analyser)
       const samples = new Uint8Array(analyser.frequencyBinCount)
       const bucket = Math.max(1, Math.floor(samples.length / MOON_RING_BINS))
-      vadEnabled = true
       const meter = () => {
         analyser.getByteFrequencyData(samples)
         const levels: number[] = []
@@ -161,21 +160,19 @@ export function startCompanionSpeech(callbacks: CompanionSpeechCallbacks): Promi
       }
       finals = finalTranscript
       interim = interimTranscript
+      const now = performance.now()
+      if (assembled()) lastVoiceAt = now
       if (interimTranscript) {
-        const now = performance.now()
-        if (now - lastInterimAt >= 100) {
+        if (now - lastInterimAt >= 80) {
           lastInterimAt = now
           callbacks.onInterim?.(interimTranscript.trim())
         }
       }
-      // Without an analyser, keep the previous "first final wins" path so
-      // a machine that cannot VAD still sends. With VAD, keep listening
-      // until silence so a multi-phrase utterance is one ChatBridge turn.
-      if (!vadEnabled && finalTranscript.trim()) {
-        commit(assembled())
-        return
+      window.clearTimeout(recSilenceTimer)
+      if (assembled()) {
+        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), UTTERANCE_SILENCE_MS)
       }
-      tryCommitFromSilence(lastVoiceAt, 280)
+      tryCommitFromSilence(lastVoiceAt)
     }
     rec.onerror = event => {
       if (finished) return

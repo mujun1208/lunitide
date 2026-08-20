@@ -78,6 +78,19 @@ it('orders by updatedAt DESC, filters by query, and enters the workbench from an
  expect(onSelect).toHaveBeenCalledWith(beta)
 })
 
+it('saves an edited created project and publishes it into the workbench',async()=>{
+ const saved={...created,name:'在线电商',version:2,client:'范德萨',amount:11,contractNo:'ht-222-06',description:'大范德萨',planStart:'2026-08-18',planEnd:'2026-12-18'}
+ const update=vi.fn().mockResolvedValue(saved)
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[created]}),update,publish:vi.fn().mockImplementation(async payload=>({...saved,id:payload.id,status:'active' as const,version:3}))}),user=userEvent.setup()
+ render(<ProjectPage bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:'修改'}))
+ expect(screen.getByText('修改项目 · ITM00001')).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'保存项目'}))
+ await waitFor(()=>expect(update).toHaveBeenCalledOnce())
+ expect(vi.mocked(update).mock.calls[0][0]).toEqual({id:created.id,version:1,name:'<img src=x onerror=alert(1)>',type:'implementation',description:'demo',summary:'',objective:'',client:'Acme',contractNo:'',amount:0,budget:0,planStart:'2026-01-01',planEnd:'2026-06-30',remark:''})
+ expect(await screen.findByText('项目已保存')).toBeInTheDocument()
+})
+
 it('gates lifecycle actions: publish confirm flips created to active and enables the workbench',async()=>{
  const bridge=api({list:vi.fn().mockResolvedValue({items:[created]})}),user=userEvent.setup()
  render(<ProjectPage bridge={bridge}/>)
