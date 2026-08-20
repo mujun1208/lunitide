@@ -49,7 +49,7 @@ export function DeliverablePanel({project,phase,bridge,deliverableBridge=default
  const finalize=async()=>{if(busy||readOnly||confirmText.trim()!==phrase)return;setBusy(true);setError('');try{
   for(const doc of docs){const current=byType.get(doc.key);if(!current?.id)continue;const payload={projectId:project.id,id:current.id,expectedVersion:current.version},attempt=createMutationAttempt('deliverable.confirmGate',payload);const saved=await deliverableBridge.confirmGate(payload,{attempt});setItems(values=>values.map(v=>v.documentType===doc.key?{...v,...saved}:v))}
   const advancePayload={id:project.id,version:project.version,phase},advanceAttempt=createMutationAttempt('project.advanceStatus',advancePayload);const savedProject=await bridge.advanceStatus(advancePayload,{attempt:advanceAttempt});onProjectUpdated?.(savedProject)
-  if(stages&&stage){const stagePayload={id:stage.id,status:'completed' as const,version:stage.version},stageAttempt=createMutationAttempt('stage.update',stagePayload);const savedStage=await stages.update(stagePayload,{attempt:stageAttempt});onStagesUpdated?.((stageItems??[]).map(s=>s.id===savedStage.id?savedStage:s))}
+  if(stages&&stage){const stagePayload={projectId:project.id,id:stage.id,status:'completed' as const,expectedVersion:stage.version},stageAttempt=createMutationAttempt('stage.update',stagePayload);const savedStage=await stages.update(stagePayload,{attempt:stageAttempt});onStagesUpdated?.((stageItems??[]).map(s=>s.id===savedStage.id?savedStage:s))}
   closeGate();void load()
  }catch(e){setError(problem(e).message)}finally{setBusy(false)}}
 
