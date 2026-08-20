@@ -1,7 +1,7 @@
 // M10 queued input (wave 2): durable supplements enqueued while a chat
-// stream is running. The queue strip renders only when items are pending;
-// after a stream completes the queue is consumed and replayed as the next
-// message (zero loss, explicit routing per FR-28/FR-34).
+// stream is running. The engine consumes the queue at a tool-loop
+// boundary and folds it into the current turn; the renderer also
+// consumes leftover rows after a stream settles (zero loss).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, runQueueBridge } from '../bridge/client'
 
@@ -23,7 +23,7 @@ export interface InputQueueState {
   flushAfterStream: (send: (text: string) => void) => Promise<void>
 }
 
-export function useInputQueue(sessionId: string): InputQueueState {
+export function useInputQueue(sessionId: string, streaming = false): InputQueueState {
   const [items, setItems] = useState<QueuedItem[]>([])
   const [notice, setNotice] = useState('')
   const sessionRef = useRef(sessionId)
@@ -42,6 +42,12 @@ export function useInputQueue(sessionId: string): InputQueueState {
     setItems([]); setNotice('')
     void refresh()
   }, [sessionId, refresh])
+
+  useEffect(() => {
+    if (!streaming) return
+    const timer = window.setInterval(() => { void refresh() }, 1500)
+    return () => window.clearInterval(timer)
+  }, [streaming, refresh])
 
   const enqueue = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -105,11 +111,11 @@ export function QueueStrip({ items, notice, onWithdraw, disabled }: {
     <div className="input-queue" role="list" aria-label="排队中的补充输入">
       {items.map(m => <div className="input-queue-item" role="listitem" key={m.queuedId}>
         <span className="input-queue-badge" aria-hidden="true">⏳</span>
-        <span className="input-queue-badge">#{m.seq} 等待注入</span>
+        <span className="input-queue-badge">#{m.seq} 等待插入</span>
         <span className="input-queue-text">{m.text}</span>
         <button type="button" disabled={disabled} onClick={() => onWithdraw(m.queuedId)}>撤回</button>
       </div>)}
     </div>
-    <span className="sr-only" aria-live="polite">{items.length ? `${items.length} 条补充排队中，将在本轮回答结束后自动发送` : notice}</span>
+    <span className="sr-only" aria-live="polite">{items.length ? `${items.length} 条补充排队中，将在合适时机并入当前任务` : notice}</span>
   </div>
 }

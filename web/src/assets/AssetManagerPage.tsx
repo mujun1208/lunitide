@@ -229,6 +229,7 @@ export function AssetManagerPage({ attachments = attachmentBridge, projects = pr
         {/* 数据表格 */}
         {error ? <p className="asset-notice" role="alert">{error}</p> : !projectId ? <p className="asset-notice">还没有可用项目；请先在"项目管理"中创建。</p> : (
           <div className="asset-table-wrap">
+            <div className="asset-table-inner">
             <div className="asset-table-head">
               <span>名称</span>
               <span>类型 / Scope</span>
@@ -248,6 +249,7 @@ export function AssetManagerPage({ attachments = attachmentBridge, projects = pr
                 <span className="asset-cell-status"><i className={`asset-status-badge ${STATUS_CLASS[row.status]}`}>{STATUS_LABEL[row.status]}</i></span>
               </button>
             )) : <p className="asset-table-empty">该分类暂无资产</p>}
+            </div>
           </div>
         )}
       </div>

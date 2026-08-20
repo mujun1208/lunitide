@@ -182,7 +182,7 @@ func (s *Service) Mutate(ctx context.Context, key, actor, action string, id stri
 		eventSum := sha256.Sum256([]byte("project-audit\x00" + action + "\x00" + result.ID))
 		var eventULID ulid.ULID
 		copy(eventULID[:], eventSum[:16])
-		if err = tx.PutAudit(ctx, providerapp.Audit{ID: eventULID.String(), Action: action, AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); err != nil {
+		if err = tx.PutAudit(ctx, providerapp.Audit{ID: eventULID.String(), Action: projectAuditAction(action), AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); err != nil {
 			return err
 		}
 		return tx.PutIdempotency(ctx, providerapp.Record{Operation: action, Key: key, Digest: digestOf(action, id, version), Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
@@ -193,4 +193,21 @@ func (s *Service) Mutate(ctx context.Context, key, actor, action string, id stri
 func digestOf(action, id string, version int64) string {
 	sum := sha256.Sum256([]byte(action + "\x00" + id + "\x00" + strconv.FormatInt(version, 10)))
 	return hex.EncodeToString(sum[:])
+}
+
+// projectAuditAction maps bridge methods onto the frozen audit_events
+// CHECK list (project.updated / published / closed / reopened).
+func projectAuditAction(action string) string {
+	switch action {
+	case "project.update":
+		return "project.updated"
+	case "project.publish":
+		return "project.published"
+	case "project.close":
+		return "project.closed"
+	case "project.reopen":
+		return "project.reopened"
+	default:
+		return action
+	}
 }

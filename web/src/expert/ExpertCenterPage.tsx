@@ -1,6 +1,8 @@
 import React,{useCallback,useEffect,useState}from'react'
 import{createMutationAttempt,expertBridge,projectBridge,type ExpertBridge,type ProjectBridge}from'../bridge/client'
 import type{ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertMountingGetResult,ExpertScenarioListResult,ProjectDTO}from'../generated/bridge'
+import{Dialog}from'../ui/Dialog'
+import{usePanelResize}from'../ui/usePanelResize'
 
 type ExpertItem=ExpertListResult['experts'][number]
 type ScenarioItem=ExpertScenarioListResult['items'][number]
@@ -38,6 +40,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
  const[matrix,setMatrix]=useState<ExpertMountingGetResult>()
  const[scenarios,setScenarios]=useState<ScenarioItem[]>([]),[scenarioState,setScenarioState]=useState<'active'|'archived'>('active')
  const[scenarioForm,setScenarioForm]=useState({title:'',summary:'',phaseKey:'DEVELOPMENT_CHANGE' as PhaseKey,scenarioJson:'{\n  "steps": []\n}'})
+ const[detailWidth,startDetailResize]=usePanelResize({storageKey:'lunitide:expert-detail-width',initial:380,min:280,max:()=>Math.min(560,Math.max(320,window.innerWidth-360)),reverse:true})
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??''))}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge])
  useEffect(()=>{void load()},[load])
@@ -49,7 +52,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
  const visible=items.filter(item=>(!divisionFilter||item.division===divisionFilter)&&(!stateFilter||item.state===stateFilter)&&(!query.trim()||item.name.toLowerCase().includes(query.trim().toLowerCase())))
  const selected=items.find(item=>item.expertId===selectedId)??visible[0]
  const sectionOf=(value:unknown):SixSectionBody=>{const raw=(value??{})as Partial<Record<keyof SixSectionBody,unknown>>;return{identity:String(raw.identity??''),mission:String(raw.mission??''),rules:String(raw.rules??''),workflow:String(raw.workflow??''),deliverableTemplate:String(raw.deliverableTemplate??''),successMetrics:String(raw.successMetrics??'')}}
- const beginCreate=()=>{setEditing('create');setArchiveConfirm(null);setForm({name:'',division:'engineering',description:'',semver:'1.0.0',identity:'',mission:'',rules:'',workflow:'',deliverableTemplate:'',successMetrics:''});setChangeNote('')}
+ const beginCreate=()=>{setEditing('create');setArchiveConfirm(null);setError('');setForm({name:'',division:'engineering',description:'',semver:'1.0.0',identity:'',mission:'',rules:'',workflow:'',deliverableTemplate:'',successMetrics:''});setChangeNote('')}
  const beginUpdate=()=>{if(!detail)return;setEditing('update');setChangeNote('');const section=sectionOf(detail.sixSection);setForm({name:String((detail.expert as{ name?: unknown }).name??selected?.name??''),division:(String((detail.expert as{ division?: unknown }).division)||'engineering') as Division,description:String((detail.expert as{ description?: unknown }).description??''),semver:String((detail.expert as{ semver?: unknown }).semver||selected?.semver||'1.0.0'),...section})}
  const validate=():string|null=>{const{name,description,semver,...section}=form
   if(name.trim().length<1||name.length>128)return'名称需为 1–128 个字符'
@@ -107,22 +110,13 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
    <label className="skill-search">搜索专家<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="名称"/></label>
    <button aria-label="刷新专家" onClick={()=>void load()} disabled={loading}>↻</button>
   </section>
-  {error&&<p className="skill-center-error" role="alert">{error}</p>}
+  {error&&!editing&&<p className="skill-center-error" role="alert">{error}</p>}
   {notice&&<p role="status">{notice}</p>}
-  <div className="skill-center-layout"><section className="skill-table expert-list" aria-label="专家列表"><div className="skill-table-head expert-head"><span>专家</span><span>版本</span><span>状态</span><span>来源</span></div>
-   {loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=><button type="button" className={`skill-row on expert-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setEditing(null);setArchiveConfirm(null)}}><span className="sn"><b>{item.name}</b><small className="desc">{DIVISIONS[item.division]} — v{item.semver} · 挂载 {item.mountedPhaseCount} 处</small></span><code className="mono">v{item.versionCount}</code><i className={`s-stat ${item.state==='enabled'?'on':'off'} skill-status status-${item.state==='enabled'?'published':item.state==='disabled'?'disabled':'deprecated'}`}>{STATES[item.state]}</i><code className="mono">{SOURCES[item.source]}</code></button>):<div className="empty"><b>暂无专家</b><span>{query?'没有匹配的专家。':'点击「创建专家」创建本地六段式专家。'}</span></div>}</section>
+  <div className="skill-center-layout" style={{'--detail-width':`${detailWidth}px`} as React.CSSProperties}><section className="skill-table expert-list" aria-label="专家列表"><div className="skill-table-inner"><div className="skill-table-head expert-head"><span>专家</span><span>版本</span><span>状态</span><span>来源</span></div>
+   {loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=><button type="button" className={`skill-row on expert-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setArchiveConfirm(null)}}><span className="sn"><b>{item.name}</b><small className="desc">{DIVISIONS[item.division]} — v{item.semver} · 挂载 {item.mountedPhaseCount} 处</small></span><code className="mono">v{item.versionCount}</code><i className={`s-stat ${item.state==='enabled'?'on':'off'} skill-status status-${item.state==='enabled'?'published':item.state==='disabled'?'disabled':'deprecated'}`}>{STATES[item.state]}</i><code className="mono">{SOURCES[item.source]}</code></button>):<div className="empty"><b>暂无专家</b><span>{query?'没有匹配的专家。':'点击「创建专家」创建本地六段式专家。'}</span></div>}</div></section>
+   <div className="panel-resizer split-resizer" role="separator" aria-label="调整详情栏宽度" aria-orientation="vertical" onPointerDown={startDetailResize}/>
    <aside className="skill-detail expert-detail" aria-label="专家详情">
-    {editing?(
-     <form onSubmit={e=>{e.preventDefault();void submit()}}><div className="skill-detail-title"><h2>{editing==='create'?'创建专家向导':`修订 ${selected?.name??''}`}</h2><button type="button" onClick={()=>setEditing(null)}>取消</button></div>
-      <p className="view-meta">{editing==='create'?'六段式逐段校验，任一段非法即拒绝且零落库（M8-042）；成功即生成 v1.0.0 并进入启用状态。':'新版本必须填写 change_note，写入 append-only 版本链并更新 current_version_id。'}</p>
-      <label>名称<input value={form.name} maxLength={128} onChange={e=>setForm({...form,name:e.target.value})} disabled={editing==='update'}/></label>
-      <label>条线（division 八类）<select value={form.division} onChange={e=>setForm({...form,division:e.target.value as Division})} disabled={editing==='update'}>{(Object.keys(DIVISIONS) as Division[]).map(division=><option key={division} value={division}>{DIVISIONS[division]}</option>)}</select></label>
-      <label>描述<textarea value={form.description} maxLength={2000} onChange={e=>setForm({...form,description:e.target.value})} disabled={editing==='update'}/></label>
-      <label>版本号（仅创建时）<input value={form.semver} onChange={e=>setForm({...form,semver:e.target.value})} disabled={editing==='update'}/></label>
-      {SECTION_FIELDS.map(field=><label key={field.key}>{field.label}<textarea className="skill-manifest-editor" value={form[field.key]} maxLength={65536} onChange={e=>setForm({...form,[field.key]:e.target.value})}/></label>)}
-      {editing==='update'&&<label>变更说明（change_note）<input value={changeNote} maxLength={500} onChange={e=>setChangeNote(e.target.value)} placeholder="本次六段修订的要点"/></label>}
-      <button className="primary" disabled={busy}>{busy?'保存中…':editing==='create'?'创建专家':'发布新版本'}</button></form>
-    ):selected?(
+    {selected?(
      <><div className="sd-title">{selected.name}</div>
       <div className="sd-ver">v{selected.semver} · division: {selected.division} · source: {SOURCES[selected.source]} · six_section_digest: {detail?.versions[0]?.sixSectionDigest.slice(0,4)??'----'}…{detail?.versions[0]?.sixSectionDigest.slice(-4)??''} · {selected.versionCount} 个版本</div>
       {String(detailExpert?.description??'')&&<p>{String(detailExpert?.description)}</p>}
@@ -138,12 +132,12 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
       <div className="sd-sig"><span aria-hidden="true">✓</span><div><b>只读派发 · 无权限载荷</b><small>readCaps 由 capability_digest 唯一决定 · personaRef 不携带授权 · 结果物化 Evidence 汇回 Root Run</small></div></div>
       <h3>九阶段挂载矩阵</h3>
       <label>项目<select value={mountProjectId} onChange={e=>setMountProjectId(e.target.value)}>{projectItems.length?projectItems.map(project=><option key={project.id} value={project.id}>{project.name}</option>):<option value="">（暂无项目）</option>}</select></label>
-      {matrix?<table className="mount-matrix"><thead><tr><th>#</th><th>阶段</th><th>默认推荐（M7 映射）</th><th>本项目挂载</th><th>上限</th><th>操作</th></tr></thead><tbody>{matrix.matrix.map((row,index)=>{const mounted=row.mountings.filter(m=>m.state==='mounted');const isMounted=mounted.some(m=>m.expertId===selected.expertId);return<tr key={row.phaseKey}><td className="mono">{index+1}</td><td>{PHASES.find(phase=>phase.key===row.phaseKey)?.label??row.phaseKey}</td><td className="mono">{row.defaults.map(d=>expertName(d.expertId)).join(' · ')||'—'}</td><td>{mounted.length?mounted.map(m=>`${expertName(m.expertId)}${m.expertState!=='enabled'?'（已停用 · 派发跳过）':''}`).join('、'):`同默认（${row.defaults.length} 名）`}</td><td className="mono">{mounted.length} / 4</td><td>{selected.state==='enabled'&&mountProjectId&&(isMounted?<button type="button" disabled={busy} onClick={()=>void mount(row.phaseKey,'unmount')}>卸载</button>:<button type="button" disabled={busy} onClick={()=>void mount(row.phaseKey,'mount')}>挂载</button>)}</td></tr>})}</tbody></table>:<p role="status">正在载入挂载矩阵…</p>}
+      {matrix?<div className="mount-matrix-wrap"><table className="mount-matrix"><thead><tr><th>#</th><th>阶段</th><th>默认推荐（M7 映射）</th><th>本项目挂载</th><th>上限</th><th>操作</th></tr></thead><tbody>{matrix.matrix.map((row,index)=>{const mounted=row.mountings.filter(m=>m.state==='mounted');const isMounted=mounted.some(m=>m.expertId===selected.expertId);return<tr key={row.phaseKey}><td className="mono">{index+1}</td><td>{PHASES.find(phase=>phase.key===row.phaseKey)?.label??row.phaseKey}</td><td className="mono">{row.defaults.map(d=>expertName(d.expertId)).join(' · ')||'—'}</td><td>{mounted.length?mounted.map(m=>`${expertName(m.expertId)}${m.expertState!=='enabled'?'（已停用 · 派发跳过）':''}`).join('、'):`同默认（${row.defaults.length} 名）`}</td><td className="mono">{mounted.length} / 4</td><td>{selected.state==='enabled'&&mountProjectId&&(isMounted?<button type="button" disabled={busy} onClick={()=>void mount(row.phaseKey,'unmount')}>卸载</button>:<button type="button" disabled={busy} onClick={()=>void mount(row.phaseKey,'mount')}>挂载</button>)}</td></tr>})}</tbody></table></div>:<p role="status">正在载入挂载矩阵…</p>}
       <p className="view-meta">挂载规则：目标必须为启用态（M8-045）；同阶段超过 4 名由触发器拒绝（M8-044）；停用/digest 漂移的专家派发时跳过并提示原因（M8-047）。</p>
       <div className="sd-sec"><h4>场景卡</h4>
        <div className="skill-status-tabs" role="tablist" aria-label="场景卡状态"><button type="button" role="tab" aria-selected={scenarioState==='active'} onClick={()=>setScenarioState('active')}>活跃</button><button type="button" role="tab" aria-selected={scenarioState==='archived'} onClick={()=>setScenarioState('archived')}>已归档</button></div>
        {scenarios.length?scenarios.map(card=><details key={card.scenarioCardId}><summary><b>{card.title}</b> <small>{PHASES.find(phase=>phase.key===card.phaseKey)?.label}</small></summary><p>{card.summary}</p><p><small>{card.createdAt} · {card.updatedAt}</small></p>{card.state==='active'&&<div className="skill-detail-actions"><button disabled={busy} onClick={()=>void deleteScenario(card.scenarioCardId)}>归档此场景卡</button></div>}</details>):<p>{scenarioState==='active'?'暂无活跃场景卡':'暂无已归档场景卡'}</p>}
-       {selected.source==='local'&&selected.state!=='archived'&&<form onSubmit={e=>{e.preventDefault();void createScenario()}} aria-label="新建场景卡"><label>标题<input value={scenarioForm.title} maxLength={128} onChange={e=>setScenarioForm({...scenarioForm,title:e.target.value})} placeholder="如：数据库慢查询处置"/></label><label>摘要<textarea value={scenarioForm.summary} maxLength={2048} onChange={e=>setScenarioForm({...scenarioForm,summary:e.target.value})} placeholder="该场景要解决的问题与产出"/></label><label>适用阶段<select value={scenarioForm.phaseKey} onChange={e=>setScenarioForm({...scenarioForm,phaseKey:e.target.value as PhaseKey})}>{PHASES.map(phase=><option key={phase.key} value={phase.key}>{phase.label}</option>)}</select></label><label>场景 JSON<textarea className="skill-manifest-editor" value={scenarioForm.scenarioJson} maxLength={65536} onChange={e=>setScenarioForm({...scenarioForm,scenarioJson:e.target.value})}/></label><button className="primary" disabled={busy}>{busy?'保存中…':'创建场景卡'}</button></form>}
+       {selected.source==='local'&&selected.state!=='archived'&&<form className="scenario-create" onSubmit={e=>{e.preventDefault();void createScenario()}} aria-label="新建场景卡"><label>标题<input value={scenarioForm.title} maxLength={128} onChange={e=>setScenarioForm({...scenarioForm,title:e.target.value})} placeholder="如：数据库慢查询处置"/></label><label>适用阶段<select value={scenarioForm.phaseKey} onChange={e=>setScenarioForm({...scenarioForm,phaseKey:e.target.value as PhaseKey})}>{PHASES.map(phase=><option key={phase.key} value={phase.key}>{phase.label}</option>)}</select></label><label className="wide">摘要<textarea rows={2} value={scenarioForm.summary} maxLength={2048} onChange={e=>setScenarioForm({...scenarioForm,summary:e.target.value})} placeholder="该场景要解决的问题与产出"/></label><label className="wide">场景 JSON<textarea rows={4} value={scenarioForm.scenarioJson} maxLength={65536} onChange={e=>setScenarioForm({...scenarioForm,scenarioJson:e.target.value})}/></label><button className="primary" disabled={busy}>{busy?'保存中…':'创建场景卡'}</button></form>}
       </div>
       <div className="skill-detail-actions">
        <button onClick={beginUpdate} disabled={busy||selected.source!=='local'||selected.state==='archived'}>修订新版本</button>
@@ -153,5 +147,20 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
       {archiveConfirm&&<div className="skill-center-error" role="alert"><p>归档为终态且需先解除全部活跃挂载（M8-048）。确认令牌：<code>{archiveConfirm.token.slice(0,16)}…</code></p><div className="skill-detail-actions"><button className="danger" onClick={()=>void archive()} disabled={busy}>确认归档</button><button onClick={()=>setArchiveConfirm(null)}>取消</button></div></div>}
      </>
     ):<div className="empty"><b>选择专家查看详情</b></div>}
-   </aside></div></main>
+   </aside></div>
+  <Dialog open={!!editing} wide title={editing==='create'?'创建专家向导':`修订 ${selected?.name??''}`} description={editing==='create'?'填写基础信息和六段岗位说明书。任一段为空都会拒绝保存。':'新版本写入 append-only 版本链，必须填写变更说明。'} onClose={()=>{if(!busy)setEditing(null)}}>
+   <form className="editor-dialog" onSubmit={e=>{e.preventDefault();void submit()}}>
+    <div className="form-grid expert-form-grid">
+     <label>名称<input value={form.name} maxLength={128} onChange={e=>setForm({...form,name:e.target.value})} disabled={editing==='update'}/></label>
+     <label>条线<select value={form.division} onChange={e=>setForm({...form,division:e.target.value as Division})} disabled={editing==='update'}>{(Object.keys(DIVISIONS) as Division[]).map(division=><option key={division} value={division}>{DIVISIONS[division]}</option>)}</select></label>
+     <label>版本号<input value={form.semver} onChange={e=>setForm({...form,semver:e.target.value})} disabled={editing==='update'}/></label>
+     <label className="wide">描述<textarea rows={2} value={form.description} maxLength={2000} onChange={e=>setForm({...form,description:e.target.value})} disabled={editing==='update'}/></label>
+     {SECTION_FIELDS.map(field=><label key={field.key}>{field.label}<textarea rows={4} value={form[field.key]} maxLength={65536} onChange={e=>setForm({...form,[field.key]:e.target.value})}/></label>)}
+     {editing==='update'&&<label className="wide">变更说明<input value={changeNote} maxLength={500} onChange={e=>setChangeNote(e.target.value)} placeholder="本次六段修订的要点"/></label>}
+    </div>
+    {error&&<p className="skill-center-error" role="alert">{error}</p>}
+    <div className="dialog-actions"><button type="button" disabled={busy} onClick={()=>setEditing(null)}>取消</button><button className="primary" disabled={busy}>{busy?'保存中…':editing==='create'?'创建专家':'发布新版本'}</button></div>
+   </form>
+  </Dialog>
+ </main>
 }

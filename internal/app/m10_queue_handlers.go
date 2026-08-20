@@ -12,7 +12,8 @@ import (
 // M10 queued-input handlers: run.queueInput / run.queueList /
 // run.queueWithdraw / run.queueConsume. Error mapping follows the M10
 // wire contract (M10-QI-001~007); consume is the terminal routing path —
-// the renderer replays the settled rows as the next chat message.
+// consume is also used mid-turn by the chat tool loop so supplements
+// join the current task instead of waiting for the stream to settle.
 
 type queuedItemDTO struct {
 	QueuedID  string `json:"queuedId"`

@@ -69,6 +69,23 @@ it('flushes queued rows as one merged send after a stream completes', async () =
   expect(result.current.items).toHaveLength(0)
 })
 
+it('polls the queue projection while a stream is running', async () => {
+  vi.useFakeTimers()
+  const bridge = queue()
+  vi.mocked(bridge.list).mockResolvedValue({ items: [] })
+  const { rerender } = renderHook(({ streaming }: { streaming: boolean }) => useInputQueue('01ARZ3NDEKTSV4RRFFQ69G5FAV', streaming), { initialProps: { streaming: true } })
+  await act(async () => { await Promise.resolve() })
+  const calls = vi.mocked(bridge.list).mock.calls.length
+  vi.mocked(bridge.list).mockResolvedValue({ items: [item(1, 'mid-turn')] })
+  await act(async () => { vi.advanceTimersByTime(1600) })
+  expect(vi.mocked(bridge.list).mock.calls.length).toBeGreaterThan(calls)
+  rerender({ streaming: false })
+  const after = vi.mocked(bridge.list).mock.calls.length
+  await act(async () => { vi.advanceTimersByTime(1600) })
+  expect(vi.mocked(bridge.list).mock.calls.length).toBe(after)
+  vi.useRealTimers()
+})
+
 it('keeps the composer untouched when nothing is queued at flush time', async () => {
   const bridge = queue()
   vi.mocked(bridge.consume).mockResolvedValue({ count: 0, items: [] })

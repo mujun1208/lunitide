@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -153,5 +154,70 @@ func TestProjectCapacityMapsToStableNonRetryableError(t *testing.T) {
 		if i == 100 && (response.OK || response.Error == nil || response.Error.Code != "PROJECT_CAPACITY_REACHED" || response.Error.Retryable) {
 			t.Fatalf("capacity response: %#v", response)
 		}
+	}
+}
+
+func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
+	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-lifecycle.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+
+	create := validRequest("project.create", `{"name":"电商","type":"implementation","description":"大范德萨","summary":"范德萨发","objective":"范德萨","client":"范德萨","contractNo":"ht-222-06","amount":11,"budget":0,"planStart":"2026-08-18","planEnd":"2026-12-18"}`)
+	create.IdempotencyKey = "lifecycle-create"
+	created := e.Handle(context.Background(), create)
+	if !created.OK {
+		t.Fatalf("create: %#v", created)
+	}
+	raw, _ := json.Marshal(created.Payload)
+	var dto projectDTO
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.ID == "" || dto.Version != 1 {
+		t.Fatalf("create dto: %s (%v)", raw, err)
+	}
+
+	update := validRequest("project.update", fmt.Sprintf(`{"id":%q,"version":%d,"name":"在线电商","type":"implementation","description":"大范德萨","summary":"范德萨发","objective":"范德萨","client":"范德萨","contractNo":"ht-222-06","amount":11,"budget":0,"planStart":"2026-08-18","planEnd":"2026-12-18","remark":""}`, dto.ID, dto.Version))
+	update.IdempotencyKey = "lifecycle-update"
+	updated := e.Handle(context.Background(), update)
+	if !updated.OK {
+		t.Fatalf("update: %#v", updated)
+	}
+	raw, _ = json.Marshal(updated.Payload)
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Name != "在线电商" || dto.Version != 2 {
+		t.Fatalf("update dto: %s (%v)", raw, err)
+	}
+
+	publish := validRequest("project.publish", fmt.Sprintf(`{"id":%q,"version":%d}`, dto.ID, dto.Version))
+	publish.IdempotencyKey = "lifecycle-publish"
+	published := e.Handle(context.Background(), publish)
+	if !published.OK {
+		t.Fatalf("publish: %#v", published)
+	}
+	raw, _ = json.Marshal(published.Payload)
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "active" || dto.Version != 3 {
+		t.Fatalf("publish dto: %s (%v)", raw, err)
+	}
+
+	closeReq := validRequest("project.close", fmt.Sprintf(`{"id":%q,"version":%d,"reason":"验收完成"}`, dto.ID, dto.Version))
+	closeReq.IdempotencyKey = "lifecycle-close"
+	closed := e.Handle(context.Background(), closeReq)
+	if !closed.OK {
+		t.Fatalf("close: %#v", closed)
+	}
+	raw, _ = json.Marshal(closed.Payload)
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "closed" {
+		t.Fatalf("close dto: %s (%v)", raw, err)
+	}
+
+	reopen := validRequest("project.reopen", fmt.Sprintf(`{"id":%q,"version":%d}`, dto.ID, dto.Version))
+	reopen.IdempotencyKey = "lifecycle-reopen"
+	reopened := e.Handle(context.Background(), reopen)
+	if !reopened.OK {
+		t.Fatalf("reopen: %#v", reopened)
+	}
+	raw, _ = json.Marshal(reopened.Payload)
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "active" {
+		t.Fatalf("reopen dto: %s (%v)", raw, err)
 	}
 }
