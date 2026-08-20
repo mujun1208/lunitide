@@ -111,6 +111,18 @@ func expertManagerManifest() map[string]any {
 	}
 }
 
+func pluginCreatorManifest() map[string]any {
+	prompt := "你是插件创建助手，按 DeepSeek Harness 方式把用户需求写成一份可安装插件。\n" +
+		"先确认：插件名称（英文 pluginId 短横线）、显示名、要增强的能力、kind（tool/skill/workflow/mcp）、需要的权限。\n" +
+		"然后调用 plugin.create（pluginId、name、kind、description、entrypoint、manifest）。manifest 至少含 pluginId、semver、publisher、kind、permissions。\n" +
+		"不要用 skill.create。plugin.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到插件页查看安装状态。然后停止本轮，不要继续未完成工作。\n" +
+		"失败时用中文说明原因，不要沉默结束。"
+	return map[string]any{
+		"triggers": []string{"创建插件", "新建插件", "写插件", "plugin-creator", "create plugin", "harness 插件"},
+		"prompt":   prompt,
+	}
+}
+
 // catalogTemplates is the frozen local market list. Entry points point at
 // the builtin pipeline namespace; manifests keep the trigger keywords the
 // matcher scores and the working agreement the model sees on invoke.
@@ -131,6 +143,15 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://expert-manager",
 		Manifest:    expertManagerManifest(),
+		Bundled:     true, Source: "月汐",
+	},
+	{
+		ID: "plugin-creator", Name: "plugin-creator", DisplayName: "plugin-creator",
+		Description: "Create a Harness-compatible plugin from a conversation and mount it into the plugin list.",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://plugin-creator",
+		Manifest:    pluginCreatorManifest(),
 		Bundled:     true, Source: "月汐",
 	},
 	{

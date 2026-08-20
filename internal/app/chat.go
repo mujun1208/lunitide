@@ -461,6 +461,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
 		req.Tools = append(req.Tools, e.skillToolDefinitions()...)
 		req.Tools = append(req.Tools, e.expertToolDefinitions()...)
+		req.Tools = append(req.Tools, e.pluginToolDefinitions()...)
 		req.Tools = append(req.Tools, e.settingsPlaneToolDefinitions()...)
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, p.SessionID, mode)
@@ -792,6 +793,15 @@ func (e *Engine) expertToolDefinitions() []gateway.ToolDefinition {
 	}
 }
 
+func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
+	if e.m8plugin == nil {
+		return nil
+	}
+	return []gateway.ToolDefinition{
+		{Name: "plugin.create", Description: "Create one Harness-compatible plugin and mount it into the plugin list (pluginId, name, kind, description, entrypoint, manifest). After it succeeds, write a short Chinese confirmation naming the plugin and telling the user to open Plugin Center, then STOP.", Schema: []byte(`{"type":"object","properties":{"pluginId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","enum":["mcp","skill","workflow","template","tool","agent-pack"]},"description":{"type":"string","maxLength":2000},"entrypoint":{"type":"string","maxLength":512},"semver":{"type":"string","maxLength":32},"publisher":{"type":"string","maxLength":128},"manifest":{"type":"object"}},"required":["pluginId","name","kind"],"additionalProperties":false}`)},
+	}
+}
+
 // ccToolDefinitions are the six M10 wave-4 computer-control tools. They
 // are appended to the model tool list only when the ccapp service is
 // wired and the operator enabled the domain (M10-CC-012 keeps them hidden
@@ -960,6 +970,83 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 	}
 	b, _ := json.Marshal(res)
 	return toolruntime.Result{Output: "专家「" + a.Name + "」已创建成功。\n" + string(b)}, nil
+}
+
+func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	if e.m8plugin == nil {
+		return toolruntime.Result{}, errors.New("plugin service unavailable")
+	}
+	var a struct {
+		PluginID    string         `json:"pluginId"`
+		Name        string         `json:"name"`
+		Kind        string         `json:"kind"`
+		Description string         `json:"description"`
+		Entrypoint  string         `json:"entrypoint"`
+		Semver      string         `json:"semver"`
+		Publisher   string         `json:"publisher"`
+		Manifest    map[string]any `json:"manifest"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return toolruntime.Result{}, errors.New("invalid plugin.create arguments")
+	}
+	pluginID := strings.TrimSpace(a.PluginID)
+	if pluginID == "" || len(pluginID) > 128 {
+		return toolruntime.Result{}, errors.New("pluginId must be 1-128 characters")
+	}
+	if !m8core.ValidPluginKind(a.Kind) {
+		return toolruntime.Result{}, errors.New("invalid plugin kind")
+	}
+	manifest := a.Manifest
+	if manifest == nil {
+		manifest = map[string]any{}
+	}
+	if _, ok := manifest["pluginId"]; !ok {
+		manifest["pluginId"] = pluginID
+	}
+	if _, ok := manifest["id"]; !ok {
+		manifest["id"] = pluginID
+	}
+	if _, ok := manifest["kind"]; !ok {
+		manifest["kind"] = a.Kind
+	}
+	if _, ok := manifest["semver"]; !ok {
+		semver := strings.TrimSpace(a.Semver)
+		if semver == "" {
+			semver = "1.0.0"
+		}
+		manifest["semver"] = semver
+	}
+	if _, ok := manifest["publisher"]; !ok {
+		publisher := strings.TrimSpace(a.Publisher)
+		if publisher == "" {
+			publisher = "local"
+		}
+		manifest["publisher"] = publisher
+	}
+	if a.Description != "" {
+		if _, ok := manifest["description"]; !ok {
+			manifest["description"] = a.Description
+		}
+	}
+	entry := strings.TrimSpace(a.Entrypoint)
+	if entry == "" {
+		entry = "plugin/main.ts"
+	}
+	workspace := session
+	if workspace == "" {
+		workspace = "chat"
+	}
+	res, err := e.m8plugin.CreateAndMount(ctx, m8app.DevCreateInput{
+		WorkspaceID: workspace, Manifest: manifest, Entrypoint: entry,
+	})
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	label := strings.TrimSpace(a.Name)
+	if label == "" {
+		label = pluginID
+	}
+	return toolruntime.Result{Output: "插件「" + label + "」已创建（id=" + pluginID + "，state=" + res.State + "）。请到插件页查看安装状态。"}, nil
 }
 
 // mcpToolPrefix namespaces merged MCP endpoint tools inside the model tool
@@ -1649,6 +1736,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if call.Name == "expert.create" {
 						return e.invokeExpertCreateTool(op, sessionID, call.Arguments)
 					}
+					if call.Name == "plugin.create" {
+						return e.invokePluginCreateTool(op, sessionID, call.Arguments)
+					}
 					// P1-2: long-running commands stream bounded output chunks
 					// between started and completed. The runtime serializes
 					// progress callbacks, so the non-concurrent send closure
@@ -1775,6 +1865,9 @@ func createTurnClosingNotice(tools []string) string {
 		}
 		if name == "expert.create" {
 			return "专家已创建。请到专家中心把它挂载到项目步骤。\n"
+		}
+		if name == "plugin.create" {
+			return "插件已创建。请到插件页查看安装状态。\n"
 		}
 	}
 	return ""

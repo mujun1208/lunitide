@@ -12,6 +12,18 @@ import (
 // c3-mcp: the shipped catalog must survive the unchanged M6-MCP-004
 // admission gate (fail-closed m7flow whitelist) both as-shipped and after
 // placeholder resolution.
+func presetPackageAllowed(spec string) bool {
+	if strings.HasPrefix(spec, "@modelcontextprotocol/") {
+		return true
+	}
+	switch spec {
+	case "@playwright/mcp", "@upstash/context7-mcp":
+		return true
+	default:
+		return false
+	}
+}
+
 func TestPresetCatalogPassesWhitelist(t *testing.T) {
 	if err := ValidatePresetCatalog(); err != nil {
 		t.Fatalf("preset catalog invalid: %v", err)
@@ -33,8 +45,8 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		if !m7flow.McpArgsSafe(p.Args) {
 			t.Fatalf("preset %s: template args contain metacharacters", p.ID)
 		}
-		if !strings.HasPrefix(p.Args[1], "@modelcontextprotocol/") && p.Args[1] != "@playwright/mcp" {
-			t.Fatalf("preset %s: args[1] = %q, want an official free server spec", p.ID, p.Args[1])
+		if !presetPackageAllowed(p.Args[1]) {
+			t.Fatalf("preset %s: args[1] = %q, want a curated free server spec", p.ID, p.Args[1])
 		}
 	}
 }

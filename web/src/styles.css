@@ -1242,6 +1242,13 @@ html[data-theme="light"] .asset-sidebar-item.active{color:var(--ink);background:
 html[data-theme="light"] .asset-sidebar-item:hover{background:rgba(0,138,197,.08)}
 html[data-theme="light"] .asset-table-head,html[data-theme="light"] .asset-detail-meta,html[data-theme="light"] .asset-detail-parsed,html[data-theme="light"] .asset-precheck,html[data-theme="light"] .asset-lifecycle-card,html[data-theme="light"] .asset-lifecycle-note{background:var(--bg2)}
 html[data-theme="light"] .asset-detail,html[data-theme="light"] .asset-dialog{background:#fff;box-shadow:0 30px 90px rgba(45,92,135,.25)}
+
+.mcp-page .mcp-market{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.mcp-arg-row{display:flex;gap:8px;align-items:center}
+.mcp-arg-row input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;background:transparent;color:var(--ink)}
+.mcp-trust{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
+.mcp-card .skill-status{flex:none;align-self:center}
+.plugin-page .view-actions{display:flex;gap:8px}
 html[data-theme="light"] .asset-detail-desc,html[data-theme="light"] .asset-cell-type code{color:var(--muted)}
 html[data-theme="light"] .asset-table-row:hover,html[data-theme="light"] .asset-table-row.active{background:rgba(49,139,205,.09)}
 html[data-theme="light"] .asset-table-wrap{scrollbar-color:rgba(45,92,135,.3) var(--bg2)}

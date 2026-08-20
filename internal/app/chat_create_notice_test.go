@@ -9,8 +9,8 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 	if got := createTurnClosingNotice([]string{"workspace.write", "skill.create"}); !strings.Contains(got, "技能中心") {
 		t.Fatalf("skill.create notice = %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"expert.create"}); !strings.Contains(got, "专家中心") {
-		t.Fatalf("expert.create notice = %q", got)
+	if got := createTurnClosingNotice([]string{"plugin.create"}); !strings.Contains(got, "插件") {
+		t.Fatalf("plugin.create notice = %q", got)
 	}
 	if got := createTurnClosingNotice([]string{"workspace.read"}); got != "" {
 		t.Fatalf("unrelated tools should not close the turn: %q", got)

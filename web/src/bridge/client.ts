@@ -1035,6 +1035,7 @@ export function createMcpBridge(transport:WebViewTransport=webview(),deadlineMs=
 }
 let mcpSingleton:McpBridge|undefined
 export function getMcpBridge():McpBridge{return mcpSingleton??=createMcpBridge()}
+export const mcpBridge:McpBridge={list:p=>getMcpBridge().list(p),add:(p,o)=>getMcpBridge().add(p,o),toggle:(p,o)=>getMcpBridge().toggle(p,o),health:p=>getMcpBridge().health(p),marketSearch:p=>getMcpBridge().marketSearch(p),presets:p=>getMcpBridge().presets(p)}
 
 // M8 plugin system bridge — install / list / toggle / uninstall / upgrade +
 // market browse + dev bundles (T-8.9.7 settings page data source).
@@ -1054,6 +1055,7 @@ export function createPluginBridge(transport:WebViewTransport=webview(),deadline
 }
 let pluginSingleton:PluginBridge|undefined
 export function getPluginBridge():PluginBridge{return pluginSingleton??=createPluginBridge()}
+export const pluginBridge:PluginBridge={list:p=>getPluginBridge().list(p),install:(p,o)=>getPluginBridge().install(p,o),toggle:(p,o)=>getPluginBridge().toggle(p,o),uninstall:(p,o)=>getPluginBridge().uninstall(p,o),upgrade:(p,o)=>getPluginBridge().upgrade(p,o),marketSearch:p=>getPluginBridge().marketSearch(p),marketDetail:p=>getPluginBridge().marketDetail(p),devCreate:(p,o)=>getPluginBridge().devCreate(p,o)}
 
 // M8 expert center bridge — six-section catalog CRUD + nine-phase mounting
 // (T-8.11.5 expert center data source).
