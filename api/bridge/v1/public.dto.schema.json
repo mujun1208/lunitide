@@ -221,6 +221,12 @@
         "status": {
           "$ref": "#/$defs/ProjectStatus"
         },
+        "orgId": {
+          "$ref": "#/$defs/ULID"
+        },
+        "spaceId": {
+          "$ref": "#/$defs/ULID"
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
