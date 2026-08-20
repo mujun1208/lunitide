@@ -269,10 +269,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("prepare org directory failed; engine not ready: %v", err)
 	}
-	engine.SetM9OrgAdminService(m9app.NewOrgAdminService(
+	orgAdmin := m9app.NewOrgAdminService(
 		org.NewService(org.NewGate(store.OrgStorage()), nil),
 		m9app.NewFileBindingStore(filepath.Join(orgRoot.Path(), "binding.json")),
-	))
+	)
+	engine.SetM9OrgAdminService(orgAdmin)
+	if err := m9app.EnsureDefaultOrgBinding(ctx, orgAdmin); err != nil {
+		log.Fatalf("org auto-bootstrap failed; engine not ready: %v", err)
+	}
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
 	// never blindly retried). Failure means unreconciled jobs remain, so
@@ -353,6 +357,12 @@ func main() {
 	engine.SetArtifactReviewStore(reviews)
 	engine.SetAssetStorage(store)
 	engine.SetDeliverableStorage(store)
+	projectAttachmentRoot, err := dataRoot.PrepareSubdirectory("project-attachments")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer projectAttachmentRoot.Close()
+	engine.SetProjectAttachmentStorage(store, attachmentapp.NewDirFileStorage(projectAttachmentRoot.Path()))
 	// P2-3 resident automation: cron scheduler beside the tool workspaces.
 	// The headless executor is attached after the engine is fully wired so
 	// scheduled runs reuse the single durable chat kernel.

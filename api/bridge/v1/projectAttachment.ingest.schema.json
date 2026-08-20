@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/projectAttachment.ingest.schema.json",
+  "title": "projectAttachment.ingest payload",
+  "x-method": "projectAttachment.ingest",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "phase": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9
+    },
+    "category": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 260
+    },
+    "mimeType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "contentBase64": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 14000000
+    }
+  },
+  "required": ["projectId", "phase", "fileName", "mimeType", "contentBase64"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "attachmentId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "projectId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "phase": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9
+      },
+      "category": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "fileName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 260
+      },
+      "mimeType": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "size": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10485760
+      },
+      "digest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updatedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["attachmentId", "projectId", "phase", "category", "fileName", "mimeType", "size", "digest", "createdAt", "updatedAt", "version"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "phase": 1,
+        "fileName": "arch-design.pdf",
+        "mimeType": "application/pdf",
+        "contentBase64": "SGVsbG8gV29ybGQ="
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

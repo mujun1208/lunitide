@@ -38,7 +38,7 @@ it('does not match ordinary speech or look-alike phrases', () => {
 })
 
 it('matches common ASR homophone transcribes of the wake name', () => {
-  for (const phrase of ['你好月希', '你好，月西', '嗨月溪', '您好月熙', '你好月惜', '你好悦汐', 'hello月希']) {
+  for (const phrase of ['你好月希', '你好，月西', '嗨月溪', '您好月熙', '你好月惜', '你好悦汐', 'hello月希', '你好我是月汐', '您好，我是月希']) {
     expect(matchWakeWord(phrase).hit).toBe(true)
   }
   expect(matchWakeWord('月希今天天气')).toEqual({ hit: true, prompt: '今天天气' })

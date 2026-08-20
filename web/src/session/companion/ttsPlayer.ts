@@ -221,7 +221,7 @@ export class TtsPlayer {
       const bytes = new Uint8Array(new ArrayBuffer(byteCharacters.length))
       for (let i = 0; i < byteCharacters.length; i++) bytes[i] = byteCharacters.charCodeAt(i)
       if (this.blobUrl) URL.revokeObjectURL(this.blobUrl)
-      this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
+      this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: bytes[0] === 0xff || (bytes[0] === 0x49 && bytes[1] === 0x44) ? 'audio/mpeg' : 'audio/wav' }))
 
       const cleanup = () => {
         audio.removeEventListener('ended', onEnded)

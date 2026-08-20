@@ -70,7 +70,21 @@ func (r *RouterEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, e
 		if r.edge == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音引擎未装配", ErrEngineUnavailable)
 		}
-		return r.edge.Synthesize(in)
+		res, fb, err := r.edge.Synthesize(in)
+		if err == nil {
+			return res, fb, nil
+		}
+		if r.sapi == nil {
+			return res, fb, err
+		}
+		local := in
+		local.Engine = EngineNatural
+		local.VoiceID = edgeVoiceToLocal(in.VoiceID)
+		res2, fb2, err2 := r.sapi.Synthesize(local)
+		if err2 != nil {
+			return res, fb, err
+		}
+		return res2, fb2 || true, nil
 	default:
 		if r.sapi == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: SAPI 引擎未装配", ErrEngineUnavailable)

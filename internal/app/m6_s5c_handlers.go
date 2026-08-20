@@ -301,6 +301,8 @@ func skillImportFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVALID_TRANSITION", "候选状态不支持该操作", false)
 	case errors.Is(err, m6app.ErrSkillVersionExists):
 		return bridge.Failure(r.ID, r.TraceID, "M6-SKL-001", "技能版本已存在或清单校验失败", false)
+	case errors.Is(err, m6app.ErrPromptBundleVersionExists):
+		return bridge.Failure(r.ID, r.TraceID, "M6-SKL-001", "提示词包版本已存在或清单校验失败", false)
 	case isManifestError(err):
 		return bridge.Failure(r.ID, r.TraceID, "M6-SKL-001", "技能清单缺失字段或校验失败", false)
 	case errors.Is(err, m6app.ErrServiceUnavailable):

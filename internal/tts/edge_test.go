@@ -2,6 +2,7 @@ package tts
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -57,10 +58,18 @@ func TestEdgeSecMSGECIsStableInsideThe300sWindow(t *testing.T) {
 }
 
 func TestEdgeAudioPayloadStripsHeaders(t *testing.T) {
-	frame := []byte("X-RequestId:abc\r\nPath:audio\r\nRIFF....")
+	header := []byte("Path:audio\r\n")
+	frame := make([]byte, 2+len(header)+4)
+	binary.BigEndian.PutUint16(frame[:2], uint16(len(header)))
+	copy(frame[2:], header)
+	copy(frame[2+len(header):], []byte("MP3."))
 	got := edgeAudioPayload(frame)
-	if string(got) != "RIFF...." {
+	if string(got) != "MP3." {
 		t.Fatalf("payload=%q", got)
+	}
+	legacy := []byte("X-RequestId:abc\r\nPath:audio\r\nRIFF....")
+	if string(edgeAudioPayload(legacy)) != "RIFF...." {
+		t.Fatal("legacy delimiter fallback broken")
 	}
 }
 

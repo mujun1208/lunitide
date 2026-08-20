@@ -34,6 +34,11 @@ const (
 // EdgeDefaultVoiceID is the first-listen Chinese neural voice.
 func EdgeDefaultVoiceID() string { return edgeDefaultVoice }
 
+func edgeVoiceToLocal(voiceID string) string {
+	_ = voiceID
+	return ""
+}
+
 type edgeEngine struct {
 	client    *http.Client
 	voicesURL string
@@ -213,7 +218,7 @@ func edgeSSML(in SynthesizeInput) string {
 		voice = edgeDefaultVoice
 	}
 	var text bytes.Buffer
-	_ = xml.EscapeText(&text, []byte(in.Text))
+	_ = xml.EscapeText(&text, []byte(edgeSanitizeText(in.Text)))
 	ratePct := in.Rate * 10
 	if ratePct < -50 {
 		ratePct = -50
@@ -246,6 +251,20 @@ func signedPercent(n int) string {
 		return "+" + strconv.Itoa(n) + "%"
 	}
 	return strconv.Itoa(n) + "%"
+}
+
+// edgeSanitizeText strips control characters the Edge TTS service rejects.
+func edgeSanitizeText(text string) string {
+	if text == "" {
+		return text
+	}
+	runes := []rune(text)
+	for i, r := range runes {
+		if (r >= 0 && r <= 8) || (r >= 11 && r <= 12) || (r >= 14 && r <= 31) {
+			runes[i] = ' '
+		}
+	}
+	return string(runes)
 }
 
 // edgeSecMSGEC is the time-based token Edge Read Aloud requires

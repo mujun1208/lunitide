@@ -389,6 +389,80 @@ func TestSkillImportPipeline(t *testing.T) {
 	}
 }
 
+const goodPromptBundleManifest = `{"schema":"lunitide.prompt_bundle/v1","name":"expert-db","version":"1.0.0","publisher":"acme","templateRef":"lunitide-prompt.tpl","vars":{"role":"数据库专家","projectName":"Demo","phase":"3","context":"表结构评审","instructions":"输出 ER 摘要"}}`
+
+func TestPromptBundleImportPipeline(t *testing.T) {
+	_, _, _, ssvc, _, _, repo := newS5CServices(t)
+	ctx := context.Background()
+
+	c, err := ssvc.Discover(ctx, m6app.DiscoverInput{
+		AssetType: m6supply.AssetPromptBundle, SourceURL: "https://src.example/acme/expert-db",
+		ImmutableCommit: strings.Repeat("c", 40), ArchiveHash: strings.Repeat("b", 64),
+		License: "MIT", Publisher: "acme",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = ssvc.Pin(ctx, c.ID, c.Version, m6supply.ImportEvidence{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = ssvc.Inspect(ctx, c.ID, c.Version, m6supply.ImportEvidence{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = ssvc.Scan(ctx, c.ID, c.Version, m6supply.ImportEvidence{ScanRefs: `["scan-1"]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = ssvc.Evaluate(ctx, c.ID, c.Version, m6supply.ImportEvidence{EvaluationID: "eval-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitted, err := ssvc.Submit(ctx, c.ID, c.Version, m6supply.ImportEvidence{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := ssvc.Approve(ctx, m6app.ApproveInput{
+		CandidateID: submitted.ID, ExpectedVersion: submitted.Version,
+		Approval: `{"by":"local"}`, Manifest: []byte(goodPromptBundleManifest),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.State != m6supply.ImportApproved {
+		t.Fatalf("approved: %+v", approved)
+	}
+
+	var bundle m6supply.PromptBundle
+	var version m6supply.PromptBundleVersion
+	err = repo.TransactM6(ctx, func(tx m6app.Tx) error {
+		b, err := tx.FindM6PromptBundleByName("expert-db")
+		if err != nil {
+			return err
+		}
+		bundle = b
+		v, err := tx.GetM6PromptBundleVersion(b.CurrentVersionID)
+		if err != nil {
+			return err
+		}
+		version = v
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Publisher != "acme" || bundle.Status != m6supply.PromptBundleVerified {
+		t.Fatalf("bundle: %+v", bundle)
+	}
+	if version.Semver != "1.0.0" || version.TemplateRef != "lunitide-prompt.tpl" {
+		t.Fatalf("version: %+v", version)
+	}
+	if !strings.Contains(version.CompiledBody, "数据库专家") || len(version.CompiledDigest) != 64 {
+		t.Fatalf("compiled: digest=%q body=%q", version.CompiledDigest, version.CompiledBody)
+	}
+}
+
 func TestComplexityRoutingAndSynthesis(t *testing.T) {
 	store, _, _, _, rsvc, _, repo := newS5CServices(t)
 	ctx := context.Background()

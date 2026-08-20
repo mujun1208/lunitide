@@ -31,7 +31,8 @@ export interface WakeWordMatch {
 // often returns for 「你好，月汐」 (月汐/月夕/月希/月西/月溪/月熙/月惜 and
 // 悦汐/悦希 — the exact-fit phrase list used to miss transcribes entirely).
 const WAKE_GREETINGS = ['你好', '您好', '嗨', '嘿', '哈喽', 'hello', 'hi']
-const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '悦汐', '悦希', '月伴', 'yuxi']
+const WAKE_NAMES = ['月汐', '月夕', '月希', '月西', '月溪', '月熙', '月惜', '月曦', '月溪', '悦汐', '悦希', '玥汐', '岳希', '月伴', 'yuxi']
+const WAKE_FILLERS = ['', '我是', '我叫', '我是叫', '请', '帮我', '帮忙']
 const WAKE_PHRASES = WAKE_GREETINGS.flatMap(g => WAKE_NAMES.map(n => g + n))
 WAKE_PHRASES.push('进入月伴', '打开月伴', '进入月伴模式', '打开月伴模式', '进入月伴对话', '打开月伴对话')
 WAKE_PHRASES.sort((a, b) => b.length - a.length)
@@ -45,6 +46,19 @@ export function matchWakeWord(transcript: string): WakeWordMatch {
   for (const phrase of WAKE_PHRASES) {
     const at = normalized.indexOf(phrase)
     if (at >= 0) return { hit: true, prompt: normalized.slice(at + phrase.length) }
+  }
+  for (const greeting of WAKE_GREETINGS) {
+    const gi = normalized.indexOf(greeting)
+    if (gi < 0) continue
+    const rest = normalized.slice(gi + greeting.length)
+    for (const filler of WAKE_FILLERS) {
+      const afterFiller = filler ? (rest.startsWith(filler) ? rest.slice(filler.length) : '') : rest
+      if (filler && !rest.startsWith(filler)) continue
+      for (const name of NAME_ONLY) {
+        const ni = afterFiller.indexOf(name)
+        if (ni >= 0 && ni <= 6) return { hit: true, prompt: afterFiller.slice(ni + name.length) }
+      }
+    }
   }
   for (const name of NAME_ONLY) {
     if (normalized === name) return { hit: true, prompt: '' }
@@ -124,15 +138,15 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
           if (stopped) return
           sawResult = true
           setState('listening')
+          let rolling = ''
           for (let i = 0; i < event.results.length; i++) {
-            const result = event.results[i]
-            const match = matchWakeWord(result[0].transcript)
-            if (match.hit) {
-              stopped = true
-              stopRecognition()
-              onWakeRef.current(match.prompt)
-              return
-            }
+            rolling += event.results[i][0].transcript
+          }
+          const match = matchWakeWord(rolling)
+          if (match.hit) {
+            stopped = true
+            stopRecognition()
+            onWakeRef.current(match.prompt)
           }
         }
         recognition.onerror = event => {

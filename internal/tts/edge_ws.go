@@ -18,13 +18,30 @@ import (
 )
 
 const (
-	edgeSynthHost  = "speech.platform.bing.com"
-	edgeSynthPath  = "/consumer/speech/synthesize/readaloud/edge/v1"
+	edgeSynthHost    = "speech.platform.bing.com"
+	edgeSynthHostAlt = "api.msedgeservices.com"
+	edgeSynthPath    = "/consumer/speech/synthesize/readaloud/edge/v1"
+	edgeSynthPathAlt = "/tts/cognitiveservices/websocket/v1"
 	edgeAudioDelim = "Path:audio\r\n"
-	edgeOutputFmt  = "riff-24khz-16bit-mono-pcm"
+	edgeOutputFmt  = "audio-24khz-48kbitrate-mono-mp3"
 	edgeGUIDMagic  = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 	edgeMaxFrame   = 4 << 20
 )
+
+func edgeTimestamp(now time.Time) string {
+	return now.UTC().Format("Mon Jan 2 2006 15:04:05") + " GMT+0000 (Coordinated Universal Time)"
+}
+
+func edgeMUID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	const hexdigits = "0123456789ABCDEF"
+	out := make([]byte, 32)
+	for i, v := range b {
+		out[i*2], out[i*2+1] = hexdigits[v>>4], hexdigits[v&0x0f]
+	}
+	return string(out)
+}
 
 func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (SynthesizeResult, bool, error) {
 	if ctx == nil {
@@ -35,9 +52,27 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 	e.mu.Lock()
 	skew := e.clockSkew
 	e.mu.Unlock()
-	conn, err := dialEdgeWS(ctx, edgeSecMSGEC(time.Now().Add(skew)))
+	var lastErr error
+	for _, target := range []struct{ host, path string }{
+		{edgeSynthHost, edgeSynthPath},
+		{edgeSynthHostAlt, edgeSynthPathAlt},
+	} {
+		res, fb, err := e.synthesizeWSHost(ctx, target.host, target.path, in, edgeSecMSGEC(time.Now().Add(skew)))
+		if err == nil {
+			return res, fb, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("%w: 云端语音合成失败", ErrSynthesisFailed)
+	}
+	return SynthesizeResult{}, false, lastErr
+}
+
+func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in SynthesizeInput, gec string) (SynthesizeResult, bool, error) {
+	conn, err := dialEdgeWS(ctx, host, path, gec)
 	if err != nil {
-		return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接微软云端语音（需联网）: %v", ErrEngineUnavailable, err)
+		return SynthesizeResult{}, false, err
 	}
 	defer conn.Close()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -45,7 +80,9 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 	}
 
 	requestID := edgeRequestID()
-	config := "X-Timestamp:" + time.Now().UTC().Format(time.RFC3339) + "\r\n" +
+	now := time.Now()
+	ts := edgeTimestamp(now)
+	config := "X-Timestamp:" + ts + "\r\n" +
 		"Content-Type:application/json; charset=utf-8\r\n" +
 		"Path:speech.config\r\n\r\n" +
 		`{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"` + edgeOutputFmt + `"}}}}`
@@ -54,6 +91,7 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 	}
 	ssml := "X-RequestId:" + requestID + "\r\n" +
 		"Content-Type:application/ssml+xml\r\n" +
+		"X-Timestamp:" + ts + "Z\r\n" +
 		"Path:ssml\r\n\r\n" + edgeSSML(in)
 	if err := wsWriteText(conn, ssml); err != nil {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: %v", ErrSynthesisFailed, err)
@@ -69,12 +107,19 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 		case 0x8:
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音连接关闭", ErrSynthesisFailed)
 		case 0x1:
-			if strings.Contains(string(payload), "Path:turn.end") {
-				if len(audio) < 44 {
+			text := string(payload)
+			if strings.Contains(text, "Path:turn.end") {
+				if len(audio) < 64 {
 					return SynthesizeResult{}, false, fmt.Errorf("%w: 云端未返回音频", ErrSynthesisFailed)
 				}
-				hint := float64(len(audio)-44) / (24000 * 2)
+				hint := float64(len(audio)) / 6000
+				if hint < 0.25 {
+					hint = 0.25
+				}
 				return SynthesizeResult{WavBase64: base64.StdEncoding.EncodeToString(audio), DurationHint: hint}, false, nil
+			}
+			if strings.Contains(text, "Path:turn.error") || strings.Contains(text, `"error"`) {
+				return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音合成被拒绝", ErrSynthesisFailed)
 			}
 		case 0x2:
 			chunk := edgeAudioPayload(payload)
@@ -89,7 +134,7 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 	}
 }
 
-func dialEdgeWS(ctx context.Context, gec string) (net.Conn, error) {
+func dialEdgeWS(ctx context.Context, host, path, gec string) (net.Conn, error) {
 	connID := edgeRequestID()
 	query := url.Values{}
 	query.Set("TrustedClientToken", edgeTrustedToken)
@@ -97,11 +142,11 @@ func dialEdgeWS(ctx context.Context, gec string) (net.Conn, error) {
 	query.Set("Sec-MS-GEC-Version", edgeSecMSGECVersion())
 	query.Set("ConnectionId", connID)
 	d := net.Dialer{Timeout: 10 * time.Second}
-	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(edgeSynthHost, "443"))
+	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, "443"))
 	if err != nil {
 		return nil, err
 	}
-	tlsConn := tls.Client(raw, &tls.Config{ServerName: edgeSynthHost, MinVersion: tls.VersionTLS12})
+	tlsConn := tls.Client(raw, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		raw.Close()
 		return nil, err
@@ -113,12 +158,13 @@ func dialEdgeWS(ctx context.Context, gec string) (net.Conn, error) {
 	}
 	secKey := base64.StdEncoding.EncodeToString(key)
 	major := strings.SplitN(edgeChromiumFull, ".", 2)[0]
-	req := "GET " + edgeSynthPath + "?" + query.Encode() + " HTTP/1.1\r\n" +
-		"Host: " + edgeSynthHost + "\r\n" +
+	req := "GET " + path + "?" + query.Encode() + " HTTP/1.1\r\n" +
+		"Host: " + host + "\r\n" +
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +
 		"Sec-WebSocket-Version: 13\r\n" +
 		"Sec-WebSocket-Key: " + secKey + "\r\n" +
+		"Cookie: muid=" + edgeMUID() + ";\r\n" +
 		"Origin: chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold\r\n" +
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36 Edg/" + major + ".0.0.0\r\n" +
 		"Pragma: no-cache\r\n" +
@@ -256,6 +302,22 @@ func wsRead(conn net.Conn) (byte, []byte, error) {
 }
 
 func edgeAudioPayload(frame []byte) []byte {
+	if len(frame) < 4 {
+		return nil
+	}
+	headerLen := int(binary.BigEndian.Uint16(frame[:2]))
+	if headerLen > 2 && headerLen+2 <= len(frame) {
+		headerBlock := frame[:headerLen]
+		if bytes.Contains(headerBlock, []byte("Path:audio")) {
+			return frame[headerLen+2:]
+		}
+	}
+	if headerLen > 0 && 2+headerLen+2 <= len(frame) {
+		header := frame[2 : 2+headerLen]
+		if bytes.Contains(header, []byte("Path:audio")) {
+			return frame[2+headerLen+2:]
+		}
+	}
 	idx := bytes.Index(frame, []byte(edgeAudioDelim))
 	if idx < 0 {
 		return nil
