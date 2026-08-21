@@ -27,6 +27,7 @@ it('shows the management table, validates required A–N fields, normalizes crea
  expect(await screen.findByText('还没有项目')).toBeInTheDocument()
  expect(screen.getByRole('heading',{name:'项目管理'})).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:/创建项目/}))
+ expect(screen.getByRole('button',{name:/创建项目/})).toHaveClass('primary')
  expect(screen.getByText('创建项目 · A–N')).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:'保存项目'}))
  expect(await screen.findByText('请输入项目名称（C）')).toBeInTheDocument()
