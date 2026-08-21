@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/skillapp"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 // skillCatalogStub backs the SkillService surface the catalog injection
@@ -102,7 +103,7 @@ func TestChatStartInjectsSkillCatalog(t *testing.T) {
 		"[可用技能目录]",
 		"- manual-parser：解析 AMM/IPC/SRM 手册章节并抽取工卡字段。当用户提到“手册解析、工卡抽取”时使用。",
 		"- report-writer：生成合规检查报告。当用户提到“生成报告、检查报告”时使用。",
-		"使用规则：当用户请求与某技能触发场景匹配时，先声明“将使用技能 X”，再执行。",
+		"使用规则：用户请求与某技能名称或触发场景匹配时，必须立刻调用 skill.invoke（skillId 见下行，input 用用户原话）。不要只口头提到技能；完整约定在调用后才会注入，禁止猜测技能正文。",
 		"[内置工作流]",
 	} {
 		if !strings.Contains(sys, want) {
@@ -194,5 +195,65 @@ func TestChatStartSkillCatalogReadFailureDoesNotBlockChat(t *testing.T) {
 	}
 	if !strings.HasPrefix(sys, "Execution mode: approval.") {
 		t.Fatalf("base instruction missing on read failure:\n%s", sys)
+	}
+}
+
+func TestChatStartRanksMatchingSkillsFirst(t *testing.T) {
+	stub := &skillCatalogStub{items: []skill.Skill{
+		catalogTestSkill("report-writer", "生成合规检查报告。", `{"triggers":["生成报告"]}`),
+		catalogTestSkill("manual-parser", "解析 AMM 手册章节。", `{"triggers":["手册解析","工卡抽取"]}`),
+	}}
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.skills = stub
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","executionMode":"approval","messages":[{"role":"user","content":"帮我做手册解析"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("chat.start failed: %#v", response)
+	}
+	sys := capturedSkillChatSystem(t, requests)
+	parser := strings.Index(sys, "- manual-parser：")
+	writer := strings.Index(sys, "- report-writer：")
+	if parser < 0 || writer < 0 || parser > writer {
+		t.Fatalf("matching skill must rank first:\n%s", sys)
+	}
+}
+
+func TestCompanionInjectsCatalogWhenQueryHitsSkill(t *testing.T) {
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { tools.Close() })
+	e.SetToolRuntime(tools)
+	e.skills = &skillCatalogStub{items: []skill.Skill{
+		catalogTestSkill("manual-parser", "解析 AMM 手册章节。", `{"triggers":["手册解析"]}`),
+	}}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"messages":[{"role":"user","content":"帮我做手册解析"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("companion chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	if len(req.Messages) == 0 || !strings.Contains(req.Messages[0].Content, "[可用技能目录]") || !strings.Contains(req.Messages[0].Content, "manual-parser") {
+		t.Fatalf("companion skill hit must inject catalog: %#v", req.Messages)
+	}
+	found := false
+	for _, def := range req.Tools {
+		if def.Name == "skill.invoke" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("companion skill hit must attach skill.invoke: %#v", req.Tools)
 	}
 }

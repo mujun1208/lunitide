@@ -70,6 +70,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
   stateRef.current = machine.state
+  const chatStatusRef = useRef(chatStatus)
+  chatStatusRef.current = chatStatus
+  const lastDeltaAtRef = useRef(0)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   /** Hands-free loop armed after the first successful microphone activation. */
@@ -189,6 +192,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   // user sees characters as they land; first token leaves "thinking".
   useEffect(() => {
     if (chatStatus !== 'streaming') return
+    lastDeltaAtRef.current = performance.now()
     const text = assistantText
     if (text.trim() && stateRef.current === 'thinking') {
       machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
@@ -240,11 +244,54 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           setCircuitBroken(true)
         }
         setStreamTick(t => t + 1)
+        if (
+          reason === 'completed' &&
+          chatStatusRef.current === 'streaming' &&
+          stateRef.current === 'speaking' &&
+          !playerRef.current?.isBusy()
+        ) {
+          machine.dispatch({ type: 'AWAIT_MORE' })
+        }
       },
       onSegmentFailed: (index, consecutive) => {
         if (consecutive >= 3) setCircuitBroken(true)
       },
     })
+  }, [assistantText, chatStatus, ttsAvailable, settings.autoSpeak, streamTick])
+
+  // If the model stalls mid-sentence, force the leftover into TTS so the
+  // later turns do not sit on “说话中” with a silent player.
+  useEffect(() => {
+    if (chatStatus !== 'streaming') return
+    if (ttsAvailable === false || !settings.autoSpeak) return
+    const timer = window.setInterval(() => {
+      const pending = assistantText.slice(spokenUpToRef.current)
+      if (!pending.trim()) return
+      if (performance.now() - lastDeltaAtRef.current < 420) return
+      const chunk = takeSpeakableChunk(pending, spokenUpToRef.current === 0, true)
+      if (!chunk) return
+      spokenUpToRef.current += chunk.consumed
+      const cleaned = cleanForSpeech(chunk.text)
+      if (!cleaned) return
+      const player = ensurePlayer()
+      const voiceId = activeVoiceId()
+      player.configure(voiceId, settings.rate, settings.volume, settings)
+      player.enqueue([cleaned], { ...settings, voiceId }, {
+        onFinished: reason => {
+          setGain(0)
+          setStreamTick(t => t + 1)
+          if (
+            reason === 'completed' &&
+            chatStatusRef.current === 'streaming' &&
+            stateRef.current === 'speaking' &&
+            !playerRef.current?.isBusy()
+          ) {
+            machine.dispatch({ type: 'AWAIT_MORE' })
+          }
+        },
+      })
+    }, 180)
+    return () => window.clearInterval(timer)
   }, [assistantText, chatStatus, ttsAvailable, settings.autoSpeak, streamTick])
 
   // Terminal chat states drive the machine (TTS on → speaking).
@@ -289,6 +336,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             setGain(0)
             speakingRef.current = false
             if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
+            else if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
           },
         })
       } else if (!remaining.trim() && speakable) {
@@ -299,6 +347,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             setGain(0)
             speakingRef.current = false
             if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
+            else if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
           },
         })
       } else if (!speakable) {
@@ -341,6 +390,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }, ms)
     return () => window.clearTimeout(timer)
   }, [machine.state, chatStatus, assistantText, machine, onCancel])
+
+  // TTS drained but the stream is still open: leave “说话中” so the mic
+  // hears the next utterance instead of looking frozen.
+  useEffect(() => {
+    if (machine.state !== 'speaking' || chatStatus !== 'streaming') return
+    const timer = window.setInterval(() => {
+      if (stateRef.current !== 'speaking' || chatStatusRef.current !== 'streaming') return
+      if (playerRef.current?.isBusy()) return
+      machine.dispatch({ type: 'AWAIT_MORE' })
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [machine.state, chatStatus, machine])
 
   const ensurePlayer = useCallback(() => {
     playerRef.current ??= new TtsPlayer()
@@ -460,20 +521,23 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const syncSpeechModes = useCallback(() => {
     const handle = speechHandleRef.current
     if (!handle || !settingsRef.current.fullDuplex) return
-    const busy = stateRef.current === 'thinking' || stateRef.current === 'speaking'
-    handle.setCommitPaused(busy)
-    handle.setAssistantPlayback(stateRef.current === 'speaking')
-    handle.setBargeInActive(settingsRef.current.bargeIn && busy)
+    const playing = stateRef.current === 'speaking' && !!playerRef.current?.isBusy()
+    // Only pause silence-commit while audio is actually out. Thinking or
+    // a drained TTS queue must keep hearing the user (phone-call duplex).
+    handle.setCommitPaused(playing)
+    handle.setAssistantPlayback(playing)
+    handle.setBargeInActive(settingsRef.current.bargeIn && (playing || stateRef.current === 'thinking' || stateRef.current === 'speaking'))
   }, [])
 
   useEffect(() => {
     syncSpeechModes()
-  }, [machine.state, settings.fullDuplex, settings.bargeIn, syncSpeechModes])
+  }, [machine.state, streamTick, settings.fullDuplex, settings.bargeIn, syncSpeechModes])
 
   const beginUserTurn = useCallback(
     (transcript: string, viaBargeIn: boolean) => {
       const text = transcript.trim()
-      if (!text && viaBargeIn) {
+      const barge = viaBargeIn || stateRef.current === 'thinking' || stateRef.current === 'speaking'
+      if (!text && barge) {
         silentRestartsRef.current = 0
         spokenUpToRef.current = 0
         speakingRef.current = false
@@ -494,7 +558,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       setInterimText('')
       playerRef.current?.interrupt()
       setRounds([{ role: 'user', text: text }])
-      if (viaBargeIn) {
+      if (barge) {
         onCancel?.()
         if (stateRef.current === 'speaking' || stateRef.current === 'thinking') machine.dispatch({ type: 'BARGE_IN' })
       } else if (stateRef.current === 'idle') {

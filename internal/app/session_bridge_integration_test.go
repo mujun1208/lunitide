@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -36,7 +37,9 @@ func sessionEngine(t *testing.T) (*Engine, string, string) {
 	}
 	sessions := sessionapp.New(store, store)
 	sessions.SetDeleter(store)
-	return NewEngineWithSessions(providerapp.New(store, store), projects, sessions, "test", nil), created.ID, path
+	engine := NewEngineWithSessions(providerapp.New(store, store), projects, sessions, "test", nil)
+	engine.SetSessionExpertStore(store)
+	return engine, created.ID, path
 }
 func structToProject(name string) (p project.Project) { p.Name = name; return }
 
@@ -212,5 +215,32 @@ func TestSessionBridgeUpdateRenamePinReplayAndVersionConflict(t *testing.T) {
 	stale.IdempotencyKey = "stale-key"
 	if x := e.Handle(context.Background(), stale); x.OK || x.Error.Code != "VERSION_CONFLICT" {
 		t.Fatalf("stale %#v", x)
+	}
+}
+
+func TestSessionExpertsGetAndSetPersistForTheSession(t *testing.T) {
+	e, parent, _ := sessionEngine(t)
+	create := validRequest("session.create", `{"projectId":"`+parent+`","title":"With experts"}`)
+	create.IdempotencyKey = "create-experts"
+	created := e.Handle(context.Background(), create)
+	body, _ := json.Marshal(created.Payload)
+	var dto sessionDTO
+	if !created.OK || json.Unmarshal(body, &dto) != nil {
+		t.Fatalf("create %#v", created)
+	}
+	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+	set := validRequest("session.experts.set", fmt.Sprintf(`{"sessionId":"%s","expertIds":["%s"]}`, dto.ID, expertID))
+	set.IdempotencyKey = "set-experts"
+	first := e.Handle(context.Background(), set)
+	if !first.OK {
+		t.Fatalf("set %#v", first)
+	}
+	got := e.Handle(context.Background(), validRequest("session.experts.get", fmt.Sprintf(`{"sessionId":"%s"}`, dto.ID)))
+	if !got.OK {
+		t.Fatalf("get %#v", got)
+	}
+	raw, _ := json.Marshal(got.Payload)
+	if !strings.Contains(string(raw), expertID) {
+		t.Fatalf("payload %s", raw)
 	}
 }

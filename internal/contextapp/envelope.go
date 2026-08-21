@@ -213,11 +213,12 @@ type ReservedTokenBreakdown struct {
 	PinnedFacts        int64
 	HandoffCapsules    int64
 	AttachmentExcerpts int64
+	TaskState          int64
 }
 
 // Total returns the sum of all reserved token costs.
 func (r ReservedTokenBreakdown) Total() int64 {
 	return r.ReservedOutput + r.SystemTokens + r.ToolSchemaTokens +
 		r.SafetyMargin + r.PriorSummary + r.PinnedFacts + r.HandoffCapsules +
-		r.AttachmentExcerpts
+		r.AttachmentExcerpts + r.TaskState
 }

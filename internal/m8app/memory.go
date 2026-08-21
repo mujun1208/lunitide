@@ -137,11 +137,11 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 // MemoryService implements the slice-1 use cases.
 type MemoryService struct {
-	uow         MemoryUnitOfWork
-	clock       Clock
-	subject     string // local requesting subject (single-user engine)
-	policy      PolicyProbe
-	verifyEv    EvidenceVerifier
+	uow      MemoryUnitOfWork
+	clock    Clock
+	subject  string // local requesting subject (single-user engine)
+	policy   PolicyProbe
+	verifyEv EvidenceVerifier
 }
 
 // NewMemoryService wires the slice-1 service with fail-closed defaults.
@@ -179,8 +179,8 @@ type ProposeInput struct {
 // ProposeResult answers the created pending candidate and its one-time
 // confirmation token for the UI confirmation journey.
 type ProposeResult struct {
-	Candidate     m8core.MemoryCandidate
-	ConfirmToken  string
+	Candidate    m8core.MemoryCandidate
+	ConfirmToken string
 }
 
 // ProposeCandidate stores one pending candidate with a derived token.
@@ -471,6 +471,9 @@ type RecallHit struct {
 	Score           float64            `json:"score"`
 	ScoreComponents map[string]float64 `json:"scoreComponents,omitempty"`
 	Freshness       string             `json:"freshness"`
+	// Content is the confirmed payload text for chat injection. It is omitted
+	// from recall.query traces that still search fact identifiers only.
+	Content string `json:"content,omitempty"`
 }
 
 // RecallExplanation is the mandatory FR-04 explanation block.
@@ -534,8 +537,8 @@ func (s *MemoryService) Recall(ctx context.Context, in RecallInput) (RecallResul
 			return err
 		}
 		type scored struct {
-			fact m8core.MemoryFact
-			cov  float64
+			fact  m8core.MemoryFact
+			cov   float64
 			fresh float64
 			score float64
 		}
@@ -722,9 +725,9 @@ type FeedbackRecordInput struct {
 // FeedbackRecordResult answers the persisted event and, for correct, the
 // proposed pending preference candidate awaiting explicit confirmation.
 type FeedbackRecordResult struct {
-	EventID                string
-	CandidateID            string
-	ConfirmationToken      string
+	EventID           string
+	CandidateID       string
+	ConfirmationToken string
 }
 
 // RecordFeedback appends one feedback event and, for corrections with

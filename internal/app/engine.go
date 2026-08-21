@@ -207,6 +207,8 @@ type Engine struct {
 	m8plugin *m8app.PluginService
 	// M8 FR-19: expert center and project-phase mounting.
 	m8expert *m8app.ExpertService
+	// Session-scoped expert collaboration pack (durable mounts).
+	sessionExperts sessionExpertStore
 
 	// M8 FR-17: the write-collaboration evaluation gate (default disabled).
 	m8gate *m8app.CollabGateService
@@ -239,8 +241,9 @@ type terminalOwner struct {
 }
 
 type streamState struct {
-	cancel context.CancelFunc
-	state  streamLifecycle
+	cancel    context.CancelFunc
+	state     streamLifecycle
+	companion bool
 }
 
 type streamLifecycle uint8
@@ -402,6 +405,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProjectAttachmentList:         handleProjectAttachmentList,
 	bridge.MethodSessionCreate:                 handleSessionCreate,
 	bridge.MethodSessionDelete:                 handleSessionDelete,
+	bridge.MethodSessionExpertsGet:             handleSessionExpertsGet,
+	bridge.MethodSessionExpertsSet:             handleSessionExpertsSet,
 	bridge.MethodSessionList:                   handleSessionList,
 	bridge.MethodSessionUpdate:                 handleSessionUpdate,
 	bridge.MethodMessageAppend:                 handleMessageAppend,
@@ -1376,6 +1381,15 @@ func (e *Engine) SetM8PluginService(pluginSvc *m8app.PluginService) {
 // SetM8ExpertService wires the M8 FR-19 expert center.
 func (e *Engine) SetM8ExpertService(expertSvc *m8app.ExpertService) {
 	e.m8expert = expertSvc
+}
+
+type sessionExpertStore interface {
+	ListSessionExpertIDs(ctx context.Context, sessionID string) ([]string, error)
+	ReplaceSessionExpertIDs(ctx context.Context, sessionID string, expertIDs []string) error
+}
+
+func (e *Engine) SetSessionExpertStore(store sessionExpertStore) {
+	e.sessionExperts = store
 }
 
 // SetM8CollabGateService wires the M8 FR-17 write-collaboration gate.

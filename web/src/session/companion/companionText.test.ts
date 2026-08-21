@@ -84,4 +84,11 @@ describe('takeSpeakableChunk', () => {
       consumed: '然后我再给你建议。'.length,
     })
   })
+
+  test('force-flushes a stalled unpunctuated tail so later turns do not hang the voice', () => {
+    expect(takeSpeakableChunk('然后我再', false, true)).toEqual({
+      text: '然后我再',
+      consumed: '然后我再'.length,
+    })
+  })
 })

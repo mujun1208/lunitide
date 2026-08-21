@@ -122,7 +122,7 @@ it('renders recall traces with hits and reasons', async () => {
   })
   render(<MemoryOpsPanel ops={ops} />)
   expect(await screen.findByText('sha256:abcd')).toBeInTheDocument()
-  expect(screen.getByText(/命中 2/)).toBeInTheDocument()
+  expect(screen.getByText(/注入命中 2 条/)).toBeInTheDocument()
 })
 
 it('saves memory settings via memory.settings.update', async () => {

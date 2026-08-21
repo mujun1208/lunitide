@@ -12,8 +12,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/ipc"
@@ -45,6 +47,7 @@ const (
 
 type streamProgress struct {
 	nextSequence uint64
+	emitSequence uint64
 }
 
 // DiagnosticsSink receives the reason every time the Engine RPC connection
@@ -285,15 +288,19 @@ func (c *Client) decodeEngineEvent(raw []byte) (bridge.Event, bool, error) {
 	if err := decodeStrict(raw, &event); err != nil {
 		return bridge.Event{}, false, fmt.Errorf("invalid Engine event: decode: %w", err)
 	}
+	sanitizeEvent(&event)
 	if err := validateEvent(event); err != nil {
 		c.diagnose(fmt.Sprintf("dropping invalid Engine event type=%s stream=%s seq=%d: %v", event.Type, event.StreamID, event.Sequence, err))
-		if accErr := c.acceptEvent(event); accErr != nil {
+		forward := terminalEventType(event.Type)
+		emit, accErr := c.acceptEvent(event, forward)
+		if accErr != nil {
 			return bridge.Event{}, false, accErr
 		}
-		if !terminalEventType(event.Type) {
+		if !forward {
 			return bridge.Event{}, true, nil
 		}
 		event.Type = bridge.EventFailed
+		event.Sequence = emit
 		event.Delta = nil
 		event.Thinking = nil
 		event.Usage = nil
@@ -303,9 +310,11 @@ func (c *Client) decodeEngineEvent(raw []byte) (bridge.Event, bool, error) {
 		event.Error = &bridge.StreamError{Code: "ENGINE_EVENT_INVALID", Message: "流事件无效", Retryable: true}
 		return event, false, nil
 	}
-	if err := c.acceptEvent(event); err != nil {
+	emit, err := c.acceptEvent(event, true)
+	if err != nil {
 		return bridge.Event{}, false, err
 	}
+	event.Sequence = emit
 	return event, false, nil
 }
 
@@ -315,7 +324,7 @@ func (c *Client) diagnose(msg string) {
 	}
 }
 
-func (c *Client) acceptEvent(event bridge.Event) error {
+func (c *Client) acceptEvent(event bridge.Event, forward bool) (uint64, error) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	if c.streams == nil {
@@ -326,27 +335,93 @@ func (c *Client) acceptEvent(event bridge.Event) error {
 	}
 	c.pruneTombstonesLocked(time.Now())
 	if _, terminal := c.streamTerminals[event.StreamID]; terminal {
-		return errors.New("Engine event received after stream terminal")
+		return 0, errors.New("Engine event received after stream terminal")
 	}
 	progress, exists := c.streams[event.StreamID]
 	if !exists {
 		progress.nextSequence = 1
+		progress.emitSequence = 1
 	}
 	if event.Sequence != progress.nextSequence {
-		return errors.New("Engine event sequence mismatch")
+		return 0, errors.New("Engine event sequence mismatch")
 	}
 	progress.nextSequence++
+	var emit uint64
+	if forward {
+		if progress.emitSequence == 0 {
+			progress.emitSequence = 1
+		}
+		emit = progress.emitSequence
+		progress.emitSequence++
+	}
 	if terminalEventType(event.Type) {
 		delete(c.streams, event.StreamID)
 		c.streamTerminals[event.StreamID] = time.Now().Add(streamTombstoneLifetime)
 	} else {
 		c.streams[event.StreamID] = progress
 	}
-	return nil
+	return emit, nil
 }
 
 func terminalEventType(t bridge.EventType) bool {
 	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed || t == bridge.EventTerminalExit
+}
+
+// sanitizeEvent keeps a stream alive when a payload is display-only
+// incompatible with the renderer (Windows artifact paths, office kinds
+// the preview does not accept). Dropping those events after consuming
+// the Engine sequence used to surface as BRIDGE_EVENT_SEQUENCE_INVALID
+// on every tool turn, not just web.search.
+func sanitizeEvent(e *bridge.Event) {
+	if e == nil || e.Tool == nil {
+		return
+	}
+	if len(e.Tool.Summary) > 4096 {
+		e.Tool.Summary = truncateUTF8Prefix(e.Tool.Summary, 4096)
+	}
+	if e.Type == bridge.EventToolStarted {
+		e.Tool.Artifact = nil
+		return
+	}
+	if e.Type != bridge.EventToolCompleted || e.Tool.Artifact == nil {
+		return
+	}
+	normalizeArtifactPath(e.Tool.Artifact)
+	if validRendererArtifact(e.Tool.Artifact) != nil {
+		e.Tool.Artifact = nil
+	}
+}
+
+func truncateUTF8Prefix(text string, limit int) string {
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	end := limit
+	for end > 0 && !utf8.ValidString(text[:end]) {
+		end--
+	}
+	return text[:end]
+}
+
+func normalizeArtifactPath(a *bridge.ArtifactEvent) {
+	if a == nil {
+		return
+	}
+	a.Path = strings.ReplaceAll(a.Path, "\\", "/")
+}
+
+func validRendererArtifact(a *bridge.ArtifactEvent) error {
+	if a == nil {
+		return nil
+	}
+	if a.Kind != "html" || len(a.Path) == 0 || len(a.Path) > 512 || strings.HasPrefix(a.Path, "/") || strings.Contains(a.Path, "\\") || strings.Contains(a.Path, "..") || len(a.Content) > 180<<10 {
+		return errors.New("invalid tool artifact")
+	}
+	lower := strings.ToLower(a.Path)
+	if !strings.HasSuffix(lower, ".html") && !strings.HasSuffix(lower, ".htm") {
+		return errors.New("invalid tool artifact")
+	}
+	return nil
 }
 
 func validateEvent(e bridge.Event) error {
@@ -401,7 +476,11 @@ func validateEvent(e bridge.Event) error {
 		}
 		switch e.Type {
 		case bridge.EventToolStarted:
-			if tool.Summary != "" || tool.Artifact != nil {
+			// Optional summary is the live activity line (e.g. "搜索：周杰伦").
+			// Rejecting it dropped the event after consuming the Engine
+			// sequence, so the renderer saw a hole and died with
+			// BRIDGE_EVENT_SEQUENCE_INVALID.
+			if tool.Artifact != nil {
 				return errors.New("invalid tool started event")
 			}
 		case bridge.EventApprovalRequired:

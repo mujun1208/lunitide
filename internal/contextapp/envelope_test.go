@@ -259,6 +259,30 @@ func TestAssembleEnvelopePinnedFactsOrder(t *testing.T) {
 	}
 }
 
+func TestAssembleEnvelopeInjectsTaskStateAsSystemPreamble(t *testing.T) {
+	reader := &mockReader{
+		messages: []Message{
+			{ID: "m1", Role: "user", Content: "hello", Sequence: 1, TokenCount: 5},
+		},
+	}
+	info := ProviderInfo{ContextWindow: 1000, ReservedOutput: 0}
+	result, err := AssembleEnvelope(context.Background(), reader, "s1", ContextEnvelope{
+		Provider: info,
+		TaskState: []ContextSource{{
+			Type:      SourceTaskState,
+			ID:        "working-1",
+			Authority: AuthorityWorkspace,
+			Content:   "当前任务：改造记忆注入",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Messages) < 2 || result.Messages[0].Role != "system" || !strings.Contains(result.Messages[0].Content, "[Task State]") {
+		t.Fatalf("expected task state system preamble, got %#v", result.Messages)
+	}
+}
+
 // TestAssembleEnvelopeHandoffCapsuleInjection verifies that handoff capsules
 // are safely serialized as untrusted user-context data with exact budgeting.
 func TestAssembleEnvelopeHandoffCapsuleInjection(t *testing.T) {

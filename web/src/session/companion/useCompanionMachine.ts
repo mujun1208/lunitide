@@ -17,6 +17,7 @@ export type CompanionEvent =
   | { type: 'INTERRUPT' } // Esc or moon click during speaking
   | { type: 'MIC_CLICK_WHILE_SPEAKING' } // composite: cancel TTS then listen
   | { type: 'BARGE_IN' } // voice interrupt during speaking/thinking (duplex)
+  | { type: 'AWAIT_MORE' } // TTS drained mid-stream; keep listening while the model continues
 
 interface CompanionSnapshot {
   state: CompanionState
@@ -35,6 +36,7 @@ const transitionTable: Record<CompanionState, Partial<Record<CompanionEvent['typ
     // Composite transition: internally speaking -> idle -> listening.
     MIC_CLICK_WHILE_SPEAKING: 'listening',
     BARGE_IN: 'listening',
+    AWAIT_MORE: 'thinking',
   },
 }
 

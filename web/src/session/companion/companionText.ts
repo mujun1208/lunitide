@@ -85,7 +85,7 @@ export function prepareSpeech(text: string): string[] {
  * as soon as two characters land; later chunks wait for punctuation or
  * a slightly longer prefix so playback stays natural.
  */
-export function takeSpeakableChunk(pending: string, isFirst: boolean): { text: string; consumed: number } | null {
+export function takeSpeakableChunk(pending: string, isFirst: boolean, force = false): { text: string; consumed: number } | null {
   if (!pending.trim()) return null
   const sentence = /^([\s\S]*?[。？！!?\n])/.exec(pending)
   if (sentence && sentence[1].replace(/\s/g, '').length > 0) {
@@ -97,7 +97,10 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean): { text: s
   if (clause && Array.from(clause[1]).length >= minClause) {
     return { text: clause[1], consumed: clause[1].length }
   }
-  if (Array.from(pending).length < forceAt) return null
+  if (Array.from(pending).length < forceAt && !force) return null
+  if (force) {
+    return { text: pending, consumed: pending.length }
+  }
   const prefix = Array.from(pending).slice(0, forceAt).join('')
   return { text: prefix, consumed: prefix.length }
 }

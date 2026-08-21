@@ -249,6 +249,7 @@ func main() {
 		m8app.NewFilePersonaStore(personaRoot.Path()),
 	)
 	engine.SetM8ExpertService(expertSvc)
+	engine.SetSessionExpertStore(store)
 	if err := m8app.EnsureBuiltinExperts(ctx, expertSvc); err != nil {
 		log.Printf("builtin expert seed: %v", err)
 	}

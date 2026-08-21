@@ -321,6 +321,39 @@ func TestQueueSaturationStillDeliversExactlyOneTerminal(t *testing.T) {
 	}
 }
 
+func TestQueueOverflowTerminalUsesDroppedEventSequence(t *testing.T) {
+	caller := &streamingCaller{events: make(chan bridge.Event, eventQueueCapacity*2), release: make(chan struct{})}
+	g, _ := New("https://app.lunitide.local", caller)
+	streamID := ulid.Make().String()
+	owner := activeOwner(g.generation)
+	owner.admitted = true
+	g.streamsMu.Lock()
+	g.streams[streamID] = owner
+	g.outstanding = 1
+	g.reservations = 1
+	g.streamsMu.Unlock()
+	for i := 1; i <= eventQueueCapacity+2; i++ {
+		caller.events <- bridge.Event{StreamID: streamID, Sequence: uint64(i), Type: bridge.EventDelta}
+	}
+	g.streamsMu.Lock()
+	for !owner.terminalQueued {
+		g.eventChanged.Wait()
+	}
+	var overflowSeq, lastDelta uint64
+	for _, routed := range g.eventQueue {
+		if routed.Event.Type == bridge.EventDelta && routed.Event.Sequence > lastDelta {
+			lastDelta = routed.Event.Sequence
+		}
+		if routed.Event.Type == bridge.EventFailed && routed.Event.Error != nil && routed.Event.Error.Code == "HOST_EVENT_OVERFLOW" {
+			overflowSeq = routed.Event.Sequence
+		}
+	}
+	g.streamsMu.Unlock()
+	if overflowSeq == 0 || overflowSeq != lastDelta+1 {
+		t.Fatalf("overflow sequence %d lastDelta %d would reopen a renderer hole", overflowSeq, lastDelta)
+	}
+}
+
 func TestPausedConsumerBoundsRepeatedFastTerminalStreams(t *testing.T) {
 	caller := &fastTerminalCaller{events: make(chan bridge.Event, eventQueueCapacity+1)}
 	g, _ := New("https://app.lunitide.local", caller)

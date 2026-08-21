@@ -111,6 +111,20 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		attachmentExcerptTokens += token.EstimateTokens(renderUntrustedUserContext("Attachment", env.AttachmentExcerpts[i].Content))
 	}
 
+	var taskStateTokens int64
+	for i := range env.TaskState {
+		if env.TaskState[i].Content == "" {
+			continue
+		}
+		taskStateTokens += token.EstimateTokens(renderTaskState(env.TaskState[i].Content))
+	}
+	for i := range env.WorkspaceState {
+		if env.WorkspaceState[i].Content == "" {
+			continue
+		}
+		taskStateTokens += token.EstimateTokens(renderTaskState(env.TaskState[i].Content))
+	}
+
 	trace.ReservedTokens = ReservedTokenBreakdown{
 		ReservedOutput:     env.Provider.ReservedOutput,
 		SystemTokens:       env.Provider.SystemTokens,
@@ -120,6 +134,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		PinnedFacts:        pinnedFactsTokens,
 		HandoffCapsules:    handoffCapsuleTokens,
 		AttachmentExcerpts: attachmentExcerptTokens,
+		TaskState:          taskStateTokens,
 	}
 
 	// Effective input budget after all fixed reservations.
@@ -131,7 +146,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	// Subtract preamble token costs from the message selection budget.
 	// Preambles (priorities 3, 4, handoff, attachments) are mandatory once
 	// provided; they reduce the budget available for recent messages.
-	preambleTokens := priorSummaryTokens + pinnedFactsTokens + handoffCapsuleTokens + attachmentExcerptTokens
+	preambleTokens := priorSummaryTokens + pinnedFactsTokens + handoffCapsuleTokens + attachmentExcerptTokens + taskStateTokens
 	messageBudget := budget - preambleTokens
 	if messageBudget < 0 {
 		return nil, ErrEnvelopeBudgetTooSmall
@@ -437,6 +452,43 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 	var preambles []Message
 	var untrustedUserData string
 
+	// Priority 2: workspace/task state is user-authored current work and is
+	// injected as a trusted system preamble (never dropped once provided).
+	for i := range env.WorkspaceState {
+		state := env.WorkspaceState[i]
+		if state.Content == "" {
+			continue
+		}
+		rendered := renderTaskState(state.Content)
+		renderedCost := token.EstimateTokens(rendered)
+		preambles = append(preambles, Message{Role: "system", Content: rendered, TokenCount: renderedCost})
+		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
+			SourceType: SourceWorkspaceState,
+			SourceID:   state.ID,
+			Authority:  state.Authority,
+			TokenCost:  renderedCost,
+			Selected:   true,
+			Provenance: state.Provenance,
+		})
+	}
+	for i := range env.TaskState {
+		state := env.TaskState[i]
+		if state.Content == "" {
+			continue
+		}
+		rendered := renderTaskState(state.Content)
+		renderedCost := token.EstimateTokens(rendered)
+		preambles = append(preambles, Message{Role: "system", Content: rendered, TokenCount: renderedCost})
+		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
+			SourceType: SourceTaskState,
+			SourceID:   state.ID,
+			Authority:  state.Authority,
+			TokenCost:  renderedCost,
+			Selected:   true,
+			Provenance: state.Provenance,
+		})
+	}
+
 	// Accepted model-generated summaries remain untrusted data even after their
 	// checkpoint is durably accepted; acceptance must not grant system authority.
 	if env.AcceptedCheckpoint != nil && env.AcceptedCheckpoint.Content != "" {
@@ -543,6 +595,10 @@ func finalizeMessageAccounting(result *AssembleResult, budget int64) {
 
 func renderPinnedFacts(content string) string {
 	return "[Pinned Facts]\n" + content
+}
+
+func renderTaskState(content string) string {
+	return "[Task State]\n" + content
 }
 
 // renderUntrustedUserContext serializes content as a quoted JSON string inside

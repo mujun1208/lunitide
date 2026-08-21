@@ -36,6 +36,13 @@ type Reader interface {
 	ListSessions(context.Context, session.Filter) ([]session.Session, error)
 }
 
+// sessionByID is implemented by stores that can resolve one session without
+// listing a whole project. Chat memory inject uses it to find the project
+// that owns the current session; missing implementations skip domain recall.
+type sessionByID interface {
+	GetSession(context.Context, string) (session.Session, error)
+}
+
 // Deleter removes a session and all its dependent records.
 type Deleter interface {
 	DeleteSession(context.Context, string) error
@@ -65,6 +72,18 @@ func (s *Service) List(ctx context.Context, f session.Filter) ([]session.Session
 		return nil, errors.New("session reader unavailable")
 	}
 	return s.read.ListSessions(ctx, f)
+}
+
+// Get answers one session by id when the reader implements GetSession.
+func (s *Service) Get(ctx context.Context, id string) (session.Session, error) {
+	if s == nil || s.read == nil {
+		return session.Session{}, errors.New("session reader unavailable")
+	}
+	g, ok := s.read.(sessionByID)
+	if !ok {
+		return session.Session{}, ErrSessionNotFound
+	}
+	return g.GetSession(ctx, id)
 }
 func (s *Service) Create(ctx context.Context, key, actor string, request any, value session.Session) (session.Session, error) {
 	if !providerapp.ValidIdempotencyKey(key) {
