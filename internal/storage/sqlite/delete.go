@@ -193,6 +193,9 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM message_session_state WHERE session_id=?`, id); err != nil {
 		return fmt.Errorf("delete message_session_state: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_expert_mounts WHERE session_id=?`, id); err != nil {
+		return fmt.Errorf("delete session_expert_mounts: %w", err)
+	}
 	// 8. session
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=?`, id); err != nil {
 		return fmt.Errorf("delete session: %w", err)
@@ -304,6 +307,9 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 		// 7. message_session_state (FK to sessions)
 		if _, err := tx.ExecContext(ctx, `DELETE FROM message_session_state WHERE session_id=?`, sid); err != nil {
 			return fmt.Errorf("delete message_session_state for session %s: %w", sid, err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM session_expert_mounts WHERE session_id=?`, sid); err != nil {
+			return fmt.Errorf("delete session_expert_mounts for session %s: %w", sid, err)
 		}
 	}
 

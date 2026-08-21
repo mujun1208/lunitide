@@ -360,6 +360,10 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventToolStarted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}
 		}, true},
+		{"tool started summary", func(e *bridge.Event) {
+			e.Type = bridge.EventToolStarted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "web.search", ArgsDigest: strings.Repeat("a", 64), Summary: "搜索：周杰伦"}
+		}, true},
 		{"tool completed artifact", func(e *bridge.Event) {
 			e.Type = bridge.EventToolCompleted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.write", ArgsDigest: strings.Repeat("b", 64), Summary: "done", Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "site/index.html", Content: "<h1>ok</h1>"}}
@@ -398,9 +402,9 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventToolStarted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("z", 64)}
 		}, false},
-		{"tool started summary", func(e *bridge.Event) {
+		{"tool started artifact", func(e *bridge.Event) {
 			e.Type = bridge.EventToolStarted
-			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64), Summary: "unexpected"}
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64), Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "x.html", Content: "<p>x</p>"}}
 		}, false},
 		{"approval empty summary", func(e *bridge.Event) {
 			e.Type = bridge.EventApprovalRequired
@@ -445,11 +449,80 @@ func TestInvalidNonTerminalEventIsDroppedWithoutPoison(t *testing.T) {
 		if event.Type != bridge.EventCompleted {
 			t.Fatalf("expected completed after dropped junk, got %#v", event)
 		}
+		if event.Sequence != 2 {
+			t.Fatalf("dropped events must not leave a renderer sequence hole: got %d", event.Sequence)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("completed event after dropped junk stalled")
 	}
 	if err := client.brokenError(); err != nil {
 		t.Fatalf("payload-shape bug poisoned RPC: %v", err)
+	}
+}
+
+func TestToolStartedSummaryForwardsContiguousSequence(t *testing.T) {
+	client, server := newPipedClient(t)
+	streamID := ulid.Make().String()
+	digest := strings.Repeat("a", 64)
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 1, Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: "我来搜索。"}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 2, Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: "call-1", Name: "web.search", ArgsDigest: digest, Summary: "搜索：周杰伦"}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 3, Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: "call-1", Name: "web.search", ArgsDigest: digest, Summary: "ok"}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 4, Type: bridge.EventCompleted})
+	want := []bridge.EventType{bridge.EventDelta, bridge.EventToolStarted, bridge.EventToolCompleted, bridge.EventCompleted}
+	for i, typ := range want {
+		select {
+		case event := <-client.Events():
+			if event.Type != typ || event.Sequence != uint64(i+1) {
+				t.Fatalf("event %d = type=%s seq=%d, want type=%s seq=%d", i+1, event.Type, event.Sequence, typ, i+1)
+			}
+			if typ == bridge.EventToolStarted && (event.Tool == nil || event.Tool.Summary != "搜索：周杰伦") {
+				t.Fatalf("tool started summary dropped: %#v", event.Tool)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("event %d (%s) stalled", i+1, typ)
+		}
+	}
+}
+
+func TestToolCompletedWindowsPathAndOfficeArtifactsStayContiguous(t *testing.T) {
+	client, server := newPipedClient(t)
+	streamID := ulid.Make().String()
+	digest := strings.Repeat("b", 64)
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 1, Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: "call-1", Name: "workspace.write", ArgsDigest: digest, Summary: "site\\index.html"}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 2, Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: "call-1", Name: "workspace.write", ArgsDigest: digest, Summary: "wrote", Artifact: &bridge.ArtifactEvent{Kind: "html", Path: `site\index.html`, Content: "<h1>ok</h1>"}}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 3, Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: "call-2", Name: "workspace.write", ArgsDigest: digest, Summary: "xlsx", Artifact: &bridge.ArtifactEvent{Kind: "xlsx", Path: "report.xlsx"}}})
+	writeJSONFrame(t, server, bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: streamID, Sequence: 4, Type: bridge.EventCompleted})
+	select {
+	case event := <-client.Events():
+		if event.Type != bridge.EventToolStarted || event.Sequence != 1 || event.Tool == nil || event.Tool.Summary != "site\\index.html" {
+			t.Fatalf("started = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tool started stalled")
+	}
+	select {
+	case event := <-client.Events():
+		if event.Type != bridge.EventToolCompleted || event.Sequence != 2 || event.Tool == nil || event.Tool.Artifact == nil || event.Tool.Artifact.Path != "site/index.html" {
+			t.Fatalf("html completed = %#v", event.Tool)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("html completed stalled")
+	}
+	select {
+	case event := <-client.Events():
+		if event.Type != bridge.EventToolCompleted || event.Sequence != 3 || event.Tool == nil || event.Tool.Artifact != nil {
+			t.Fatalf("office completed should drop preview-only artifact: %#v", event.Tool)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("office completed stalled")
+	}
+	select {
+	case event := <-client.Events():
+		if event.Type != bridge.EventCompleted || event.Sequence != 4 {
+			t.Fatalf("completed = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal stalled")
 	}
 }
 

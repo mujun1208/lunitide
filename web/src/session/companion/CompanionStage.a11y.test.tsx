@@ -83,6 +83,9 @@ vi.mock('./ttsPlayer', () => ({
       // resolves once the queue drains (interrupt/PLAYBACK_ENDED paths
       // are driven by the stage, not by this stub).
     }
+    isBusy() {
+      return false
+    }
     interrupt() {
       tts.interrupts++
     }

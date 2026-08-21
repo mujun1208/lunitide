@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -18,5 +19,10 @@ func TestToolStartedSummary(t *testing.T) {
 	}
 	if got := toolStartedSummary("workspace.read", json.RawMessage(`{}`)); got != "" {
 		t.Fatalf("other: %q", got)
+	}
+	long := strings.Repeat("x", 5000)
+	got := clipToolSummary(toolStartedSummary("command.run", json.RawMessage(`{"argv":["echo","`+long+`"]}`)))
+	if len(got) > 4096 {
+		t.Fatalf("started summary must clip to 4096 bytes, got %d", len(got))
 	}
 }

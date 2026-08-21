@@ -147,3 +147,55 @@ func handleSessionDelete(e *Engine, ctx context.Context, r bridge.Request) bridg
 	}
 	return bridge.Success(r.ID, map[string]any{"deleted": true, "id": p.ID})
 }
+
+func handleSessionExpertsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		SessionID string `json:"sessionId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.experts.get 参数无效", false)
+	}
+	if e.sessionExperts == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话专家挂载暂时不可用", true)
+	}
+	ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, p.SessionID)
+	if err != nil {
+		return sessionFailure(r, err)
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return bridge.Success(r.ID, map[string]any{"expertIds": ids})
+}
+
+func handleSessionExpertsSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		SessionID string   `json:"sessionId"`
+		ExpertIDs []string `json:"expertIds"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) || p.ExpertIDs == nil || len(p.ExpertIDs) > 8 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.experts.set 参数无效", false)
+	}
+	for _, id := range p.ExpertIDs {
+		if !validCanonicalULID(id) {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.experts.set 参数无效", false)
+		}
+	}
+	if e.sessionExperts == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话专家挂载暂时不可用", true)
+	}
+	if failure := requireIdempotency(r); failure != nil {
+		return *failure
+	}
+	if err := e.sessionExperts.ReplaceSessionExpertIDs(ctx, p.SessionID, p.ExpertIDs); err != nil {
+		return sessionFailure(r, err)
+	}
+	ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, p.SessionID)
+	if err != nil {
+		return sessionFailure(r, err)
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return bridge.Success(r.ID, map[string]any{"expertIds": ids})
+}

@@ -198,6 +198,7 @@ DROP TABLE team_spaces;
 DROP TABLE organizations;
 DROP TABLE m6_prompt_bundle_version;
 DROP TABLE m6_prompt_bundle;
+DROP TABLE session_expert_mounts;
 DROP TABLE project_deliverables;
 DROP TABLE project_attachments;
 DROP TABLE asset_templates;ALTER TABLE sessions DROP COLUMN pinned;

@@ -31,6 +31,22 @@ const StatCard = ({ label, value, hint }: { label: string; value: number | strin
   </div>
 )
 
+function traceHitCount(hits: string): number {
+  return traceItemCount(hits)
+}
+
+function traceItemCount(raw: string): number {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.length
+    if (typeof parsed === 'number' && Number.isFinite(parsed)) return parsed
+  } catch {
+    /* non-JSON audit payloads fall through */
+  }
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : 0
+}
+
 export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridge }): React.JSX.Element {
   const [stats, setStats] = useState<MemoryStatsResult>()
   const [facts, setFacts] = useState<FactItem[]>([])
@@ -249,17 +265,17 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
 
       <section aria-label="召回记录" style={panelStyle}>
         <h2 style={{ margin: '0 0 6px', fontSize: '16px' }}>召回记录</h2>
-        <p style={{ margin: '0 0 10px', color: '#8fa3bf', fontSize: '12px' }}>每次记忆召回的查询摘要、命中与脱敏审计（最近优先）。</p>
-        {traces.length === 0 ? <div className="empty"><b>暂无召回记录</b><span>对话中发生记忆召回后会记录在这里。</span></div> : (
+        <p style={{ margin: '0 0 10px', color: '#8fa3bf', fontSize: '12px' }}>每次对话开始会按本轮问题自动召回已确认事实；未确认候选不会进入系统指令。命中条数来自审计轨迹。</p>
+        {traces.length === 0 ? <div className="empty"><b>暂无召回记录</b><span>开启「启用记忆沉淀」后，对话中的自动召回会出现在这里。</span></div> : (
           <div style={{ display: 'grid', gap: '8px' }}>
             {traces.map(t => (
-              <div key={t.id} style={{ padding: '10px 12px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827', fontSize: '12px' }}>
+              <div key={t.id} data-testid="memory-trace-row" style={{ padding: '10px 12px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827', fontSize: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'monospace', color: '#8fa3bf', overflowWrap: 'anywhere' }}>{t.queryDigest}</span>
                   <span style={{ color: '#8fa3bf', flexShrink: 0 }}>{new Date(t.createdAt).toLocaleString()}</span>
                 </div>
                 <div style={{ marginTop: '6px', color: '#8fa3bf', overflowWrap: 'anywhere' }}>
-                  命中 {t.hits} · 理由 {t.reasons} · 脱敏 {t.redactions}
+                  注入命中 {traceHitCount(t.hits)} 条 · 理由 {traceItemCount(t.reasons)} · 脱敏 {traceItemCount(t.redactions)}
                 </div>
               </div>
             ))}
@@ -284,6 +300,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
             <input type="number" min={1} max={90} value={settings.growthDays} onChange={e => setSettings(s => ({ ...s, growthDays: Math.min(90, Math.max(1, Number(e.target.value) || 1)) }))} style={{ width: '70px', padding: '4px 6px', backgroundColor: '#0a0e1a', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px' }} />
           </label>
         </div>
+        <p style={{ margin: '12px 0 0', color: '#8fa3bf', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把本轮要点放进确认台，不会自动升格为事实。</p>
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button style={primaryBtnStyle} disabled={busy !== ''} onClick={() => void saveSettings()}>{busy === 'settings' ? '保存中…' : '保存设置'}</button>
           <button style={btnStyle} disabled={busy !== ''} onClick={() => void doExport()}>{busy === 'export' ? '导出中…' : '导出记忆数据'}</button>

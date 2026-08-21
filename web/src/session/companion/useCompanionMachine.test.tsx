@@ -1,5 +1,5 @@
-// useCompanionMachine.test.tsx asserts the frozen M9.5 transition
-// matrix (T-9.5.2.1 DoD): all 9 positive transitions pass, every other
+// useCompanionMachine.test.tsx asserts the M9.5 transition
+// matrix (T-9.5.2.1 DoD): legal transitions pass, every other
 // combination is rejected by the guard (M95-005) while the current
 // state is kept.
 import { act, renderHook } from '@testing-library/react'
@@ -16,6 +16,7 @@ const EVENTS: CompanionEvent['type'][] = [
   'INTERRUPT',
   'MIC_CLICK_WHILE_SPEAKING',
   'BARGE_IN',
+  'AWAIT_MORE',
 ]
 
 const event = (type: CompanionEvent['type']): CompanionEvent =>
@@ -35,6 +36,7 @@ describe('useCompanionMachine transition matrix', () => {
     ['speaking', 'INTERRUPT', 'idle'],
     ['speaking', 'MIC_CLICK_WHILE_SPEAKING', 'listening'],
     ['speaking', 'BARGE_IN', 'listening'],
+    ['speaking', 'AWAIT_MORE', 'thinking'],
   ]
 
   test.each(positives)('%s x %s -> %s', (from, type, expected) => {

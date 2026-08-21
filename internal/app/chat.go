@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -121,7 +123,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// sentences stay short so synthesis overlaps playback. Tools stay
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面或播歌：web.fetch 阅读页面，或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面或播歌：web.fetch 阅读页面，或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -131,6 +133,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			instruction += " Full-disk full-access is enabled: file tools accept absolute paths on any drive (Desktop, Documents, other drives) and command.run executes arbitrary commands on this machine. Use absolute paths for user folders; create missing parent directories with writes when needed."
 		} else if root, ok := e.tools.FullAccessRootHint(); ok {
 			instruction += " File tools operate directly inside the user's workspace root " + root + "; relative paths resolve there. Keep every read and write inside that root and answer with real paths from it."
+			if p.Companion {
+				base := filepath.Base(filepath.Clean(root))
+				if base != "" && base != "." && base != string(filepath.Separator) {
+					instruction += "\n当前工作区文件夹名叫「" + base + "」，完整路径：" + root + "。用户说「这个文件夹」或「文件夹名」时默认指它，直接回答名字，不要反问。"
+				}
+			}
 		} else {
 			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
 		}
@@ -140,12 +148,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	// Overlap provider lookup with preference/skill injection (Cursor-style
-	// TTFT): they share no data. Companion idle turns skip the skill catalog
-	// so the first spoken token is not waiting on tool schemas.
+	// TTFT). The skill catalog is metadata-only (name + triggers + one-line
+	// summary); the full SKILL body loads only when skill.invoke runs.
+	// Companion idle chat still skips an unmatched catalog so TTFT stays short.
 	var (
 		item    provider.Provider
 		getErr  error
-		prefs   []string
+		memPack chatMemoryPack
 		catalog string
 	)
 	var prep sync.WaitGroup
@@ -154,34 +163,25 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		defer prep.Done()
 		item, getErr = e.providers.Get(ctx, p.ProviderID)
 	}()
-	if e.m8memory != nil {
-		prep.Add(1)
-		go func() {
-			defer prep.Done()
-			if snapshot, perr := e.m8memory.ConfirmedSnapshot(ctx, m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); perr == nil {
-				prefs = snapshot
-			}
-		}()
-	}
-	if wantsTools {
-		prep.Add(1)
-		go func() {
-			defer prep.Done()
-			catalog = e.skillCatalogInjection(ctx)
-		}()
-	}
+	prep.Add(1)
+	go func() {
+		defer prep.Done()
+		memPack = e.prepareChatMemory(ctx, chatMemoryRequest{
+			Query:     turnText,
+			SessionID: p.SessionID,
+			Companion: p.Companion,
+		})
+	}()
+	prep.Add(1)
+	go func() {
+		defer prep.Done()
+		catalog = e.skillCatalogInjection(ctx, turnText, p.Companion)
+	}()
 	prep.Wait()
-	if len(prefs) > 0 {
-		var b strings.Builder
-		b.WriteString(instruction)
-		b.WriteString("\n\n以下为用户已显式确认的偏好，回答时必须遵守：\n")
-		for _, pref := range prefs {
-			b.WriteString("- ")
-			b.WriteString(pref)
-			b.WriteString("\n")
-		}
-		instruction = b.String()
+	if p.Companion {
+		wantsTools = companionWantsTools(turnText) || catalog != ""
 	}
+	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
 		instruction += bundledWorkflowInjection()
 	}
@@ -366,6 +366,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: candidate.ID, Authority: contextapp.AuthorityEvidence, Content: candidate.OriginalName + "\n" + candidate.ParsedText, Provenance: "attachment:" + candidate.ID + ":project:" + candidate.ProjectID})
 		}
 
+		applyChatMemoryPack(&envelope, memPack)
+
 		// Assemble the context envelope with full priority ordering and
 		// selection trace (ADR-005 §3). Companion starts chat.start before
 		// message.append lands, so a brand-new 月伴 session is often still
@@ -447,7 +449,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		parent = ctx
 	}
 	streamCtx, cancel := context.WithCancel(parent)
-	state := &streamState{cancel: cancel}
+	state := &streamState{cancel: cancel, companion: p.Companion}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1, DisableReasoning: p.Companion}
@@ -602,11 +604,10 @@ func executionModeInstruction(mode executionMode) string {
 // skillCatalogInjection builds the installed-skill directory appended to the
 // system instruction (c4-skill): one metadata-only line per published skill
 // (name + trigger keywords + one-sentence summary) plus a usage rule, so the
-// model can proactively reference skills. The directory is bounded by
-// skillInjectMaxItems/skillInjectMaxBytes (overflow truncates with an
-// explicit notice) and is fail-closed: an unavailable skill service or a
-// read failure logs and injects nothing instead of blocking the chat.
-func (e *Engine) skillCatalogInjection(ctx context.Context) string {
+// model can proactively invoke skills. Query hits are sorted to the front
+// (Claude Code / Trae catalog-then-body): the full SKILL body is never
+// injected here. Companion idle turns with zero hits inject nothing.
+func (e *Engine) skillCatalogInjection(ctx context.Context, query string, companion bool) string {
 	if !skillServiceAvailable(e.skills) {
 		return ""
 	}
@@ -618,8 +619,21 @@ func (e *Engine) skillCatalogInjection(ctx context.Context) string {
 	if len(skills) == 0 {
 		return ""
 	}
+	ranked := rankSkillsForCatalog(skills, query)
+	maxItems := skillInjectMaxItems
+	if companion {
+		hits := catalogHitCount(ranked)
+		if hits == 0 {
+			return ""
+		}
+		maxItems = 4
+		ranked = ranked[:hits]
+		if len(ranked) > maxItems {
+			ranked = ranked[:maxItems]
+		}
+	}
 	const header = "[可用技能目录]\n"
-	const usage = "使用规则：当用户请求与某技能触发场景匹配时，先声明“将使用技能 X”，再执行。\n"
+	const usage = "使用规则：用户请求与某技能名称或触发场景匹配时，必须立刻调用 skill.invoke（skillId 见下行，input 用用户原话）。不要只口头提到技能；完整约定在调用后才会注入，禁止猜测技能正文。\n"
 	const truncNotice = "（技能目录已截断）\n"
 	var b strings.Builder
 	b.WriteString(header)
@@ -628,12 +642,12 @@ func (e *Engine) skillCatalogInjection(ctx context.Context) string {
 	budget := skillInjectMaxBytes - len(header) - len(usage) - len(truncNotice)
 	injected := 0
 	truncated := false
-	for _, sk := range skills {
-		if injected == skillInjectMaxItems {
+	for _, item := range ranked {
+		if injected == maxItems {
 			truncated = true
 			break
 		}
-		line := skillCatalogLine(sk)
+		line := skillCatalogLine(item.skill)
 		if len(line) > budget {
 			if budget <= 0 {
 				truncated = true
@@ -641,7 +655,7 @@ func (e *Engine) skillCatalogInjection(ctx context.Context) string {
 			}
 			// Defensive: a single oversized line is UTF-8-safe truncated to
 			// the remaining budget rather than blowing the global cap.
-			b.WriteString(truncateUTF8Bytes(line, budget) + "\n")
+			b.WriteString(truncateUTF8Bytes(line, budget))
 			truncated = true
 			break
 		}
@@ -654,6 +668,97 @@ func (e *Engine) skillCatalogInjection(ctx context.Context) string {
 	}
 	b.WriteString(usage)
 	return b.String()
+}
+
+type catalogRankedSkill struct {
+	skill skill.Skill
+	score int
+}
+
+func rankSkillsForCatalog(skills []skill.Skill, query string) []catalogRankedSkill {
+	ranked := make([]catalogRankedSkill, 0, len(skills))
+	for _, sk := range skills {
+		ranked = append(ranked, catalogRankedSkill{skill: sk, score: catalogSkillScore(sk, query)})
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].score > ranked[j].score })
+	return ranked
+}
+
+func catalogHitCount(ranked []catalogRankedSkill) int {
+	n := 0
+	for _, item := range ranked {
+		if item.score <= 0 {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+func catalogSkillScore(sk skill.Skill, query string) int {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return 0
+	}
+	hay := strings.ToLower(strings.Join([]string{
+		sk.Name, sk.DisplayName, sk.Description, strings.Join(skillCatalogTriggers(sk.ManifestJSON), " "),
+	}, " "))
+	score := 0
+	if strings.Contains(hay, strings.ToLower(query)) {
+		score += 8
+	}
+	for _, tok := range catalogQueryTokens(query) {
+		if tok == "" {
+			continue
+		}
+		if strings.Contains(hay, tok) {
+			score += 3
+		}
+	}
+	return score
+}
+
+func catalogQueryTokens(q string) []string {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	for _, f := range strings.Fields(q) {
+		add(f)
+	}
+	var compact []rune
+	for _, r := range []rune(q) {
+		if r == ' ' || r == '\t' || r == '\n' {
+			continue
+		}
+		compact = append(compact, r)
+	}
+	cjk := false
+	for _, r := range compact {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			cjk = true
+			break
+		}
+	}
+	if cjk {
+		if len(compact) >= 2 {
+			add(string(compact))
+		}
+		for i := 0; i+1 < len(compact); i++ {
+			add(string(compact[i : i+2]))
+		}
+	}
+	return out
 }
 
 // skillCatalogLine renders one published skill as a single catalog line:
@@ -1380,12 +1485,12 @@ func (e *Engine) persistApprovedToolResult(ctx context.Context, sessionID, callI
 	_, _ = e.messages.Append(ctx, key, "engine", minimalReq, value)
 }
 
-// 10x 优化：thinking flush 间隔从 16ms 降到 8ms，阈值从 1KB 降到 512B，
-// 让 thinking 内容更快到达前端，用户感知延迟降低 ~50%。包级常量让
-// stream_state_test 可以按实际阈值推导聚合断言上界，而不是硬编码历史值。
+// Thinking is coalesced so a long DeepSeek reasoning turn does not flood
+// the host event queue (256–4k slots). Flush before answers/tools is
+// unchanged, so the first visible sentence still follows a complete thought.
 const (
-	thinkingFlushBytes    = 512
-	thinkingFlushInterval = 8 * time.Millisecond
+	thinkingFlushBytes    = 2048
+	thinkingFlushInterval = 32 * time.Millisecond
 	streamDeltaMaxBytes   = 16 * 1024
 	toolSummaryMaxBytes   = 4096
 )
@@ -1613,7 +1718,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if digest == "" {
 					return errors.New("invalid tool arguments")
 				}
-				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: toolStartedSummary(call.Name, call.Arguments)}}); err != nil {
+				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
 					return err
 				}
 				if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
@@ -1848,6 +1953,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	e.saveTurnCheckpoint(sessionID, turn)
 	if terminal.Type == bridge.EventCompleted && messageID != "" {
 		terminal.Completed = &bridge.CompletedEvent{MessageID: messageID}
+		go func() {
+			_ = e.maybeAutoNominateTurn(context.Background(), sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
+		}()
 	}
 	if terminal.Type == bridge.EventFailed {
 		terminal.Error = chatStreamError(err)
@@ -1900,31 +2008,50 @@ func extractExpertRefIDs(text string) []string {
 	return ids
 }
 
+func collectExpertIDs(mounted []string, texts ...string) []string {
+	seen := map[string]bool{}
+	var ids []string
+	add := func(id string) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	for _, id := range mounted {
+		add(id)
+	}
+	for _, text := range texts {
+		for _, id := range extractExpertRefIDs(text) {
+			add(id)
+		}
+	}
+	return ids
+}
+
 func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, explicit []gateway.Message) string {
 	if e.m8expert == nil {
 		return ""
 	}
-	seen := map[string]bool{}
-	var ids []string
-	add := func(text string) {
-		for _, id := range extractExpertRefIDs(text) {
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			ids = append(ids, id)
+	var mounted []string
+	if sessionID != "" && e.sessionExperts != nil {
+		if ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, sessionID); err == nil {
+			mounted = ids
 		}
 	}
+	var texts []string
 	for _, m := range explicit {
-		add(m.Content)
+		texts = append(texts, m.Content)
 	}
 	if sessionID != "" && e.messageReader != nil {
-		add(e.peekLastUserMessage(ctx, sessionID))
+		texts = append(texts, e.peekLastUserMessage(ctx, sessionID))
 	}
+	ids := collectExpertIDs(mounted, texts...)
 	if len(ids) == 0 {
 		return ""
 	}
 	var b strings.Builder
+	b.WriteString("\n\n你是月汐主编排。以下专家已常驻挂载到本会话，直到用户移除。请统筹他们的职责：按岗位约束作答；需要专项技能时调用 skill.invoke；不要并行打满多路完整 completion。协作包：\n")
 	for _, id := range ids {
 		detail, err := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: id})
 		if err != nil {
@@ -1934,9 +2061,9 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, e
 		if name == "" {
 			name = id
 		}
-		b.WriteString("\n\n请以专家「")
+		b.WriteString("\n【专家「")
 		b.WriteString(name)
-		b.WriteString("」身份回答本轮问题。岗位说明书：\n")
+		b.WriteString("」】岗位说明书：\n")
 		b.Write(detail.SixSection)
 		b.WriteByte('\n')
 	}
@@ -1983,6 +2110,25 @@ func toolStartedSummary(name string, args json.RawMessage) string {
 		}
 		if json.Unmarshal(args, &a) == nil && a.URL != "" {
 			return a.URL
+		}
+	case "skill.invoke":
+		var a struct {
+			SkillID string `json:"skillId"`
+			Input   string `json:"input"`
+		}
+		if json.Unmarshal(args, &a) == nil {
+			in := strings.TrimSpace(a.Input)
+			if r := []rune(in); len(r) > 40 {
+				in = string(r[:40]) + "…"
+			}
+			id := strings.TrimSpace(a.SkillID)
+			if in != "" && id != "" {
+				return id + " · " + in
+			}
+			if in != "" {
+				return in
+			}
+			return id
 		}
 	}
 	return ""

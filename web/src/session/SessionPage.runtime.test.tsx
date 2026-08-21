@@ -136,6 +136,28 @@ it('offers personal composer context actions',async()=>{
  await user.click(screen.getByRole('button',{name:/@ 上下文/}));expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('@')
 })
 
+it('keeps multiple mounted experts on the conversation after send',async()=>{
+ const expertA={expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',name:'安全工程师',division:'security' as const,source:'local' as const,semver:'1.0.0',state:'enabled' as const,versionCount:1,mountedPhaseCount:0}
+ const expertB={...expertA,expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',name:'测试专家',division:'testing' as const}
+ const sessionMountSet=vi.fn().mockImplementation(async(payload:{expertIds:string[]})=>({expertIds:payload.expertIds}))
+ const experts={list:vi.fn().mockResolvedValue({experts:[expertA,expertB]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[]}),sessionMountSet,detail:vi.fn(),create:vi.fn(),update:vi.fn(),toggle:vi.fn(),archive:vi.fn(),mount:vi.fn(),mountingGet:vi.fn(),scenarioCreate:vi.fn(),scenarioList:vi.fn(),scenarioDelete:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
+ const append=vi.fn().mockResolvedValue({}),start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ const user=await open({personal:true,providers,initialSession:session,experts,messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge,chat:{start,approve:vi.fn(),dispose:vi.fn()}})
+ await user.click(screen.getByRole('button',{name:'＋ 添加专家'}))
+ expect(await screen.findByRole('listbox',{name:'专家候选'})).toBeInTheDocument()
+ await user.click(await screen.findByRole('option',{name:/安全工程师/}))
+ await user.click(screen.getByRole('option',{name:/测试专家/}))
+ expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('安全工程师')
+ expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('测试专家')
+ await waitFor(()=>expect(sessionMountSet).toHaveBeenCalled())
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'请协作审查'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalled())
+ expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('安全工程师')
+ expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('测试专家')
+ expect(vi.mocked(append).mock.calls[0][0].text).toBe('请协作审查')
+})
+
 it('closes composer popovers when clicking outside',async()=>{
  const user=await open({personal:true,providers,initialSession:session})
  await user.click(screen.getByRole('button',{name:'添加上下文'}))

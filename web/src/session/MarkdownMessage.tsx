@@ -62,10 +62,53 @@ export function MarkdownMessage({text}:{text:string}) {
   >{text}</ReactMarkdown>
 }
 
-export function ThinkingPanel({text,open,onToggle,status,children}:{text:string;open:boolean;onToggle:(open:boolean)=>void;status?:string;children?:React.ReactNode}) {
+/** Last sentence (or tail) so the live thinking row does not type the full chain. */
+export function compressThinking(text: string, maxRunes = 36): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (!t) return ''
+  const parts = t.split(/(?<=[。！？.!?])\s*/).filter(Boolean)
+  const last = parts[parts.length - 1] ?? t
+  const runes = Array.from(last)
+  if (runes.length <= maxRunes) return last
+  return `…${runes.slice(-maxRunes).join('')}`
+}
+
+export function formatTaskElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
+}
+
+export function ThinkingPanel({
+  text, open, onToggle, status, elapsed, skillCount, searchCount, streaming, children,
+}:{
+  text:string
+  open:boolean
+  onToggle:(open:boolean)=>void
+  status?:string
+  elapsed?:string
+  skillCount?:number
+  searchCount?:number
+  streaming?:boolean
+  children?:React.ReactNode
+}) {
   if(!text&&!children)return null
+  const preview = compressThinking(text)
   return <details className="thinking-panel" open={open} onToggle={event=>onToggle(event.currentTarget.open)}>
-    <summary><span className="thinking-summary-label">任务过程</span>{status&&<span className="thinking-summary-status">{status}</span>}</summary>
-    <div className="thinking-content">{text&&<div className="thinking-reasoning"><b>思考</b><MarkdownMessage text={text}/></div>}{children}</div>
+    <summary>
+      <span className="thinking-summary-label">任务过程</span>
+      {elapsed&&<span className="thinking-summary-chip">耗时 {elapsed}</span>}
+      {!!skillCount&&<span className="thinking-summary-chip">已调用 {skillCount} 次技能</span>}
+      {!!searchCount&&<span className="thinking-summary-chip">已搜索 {searchCount} 次网页</span>}
+      {status&&<span className="thinking-summary-status">{status}</span>}
+    </summary>
+    <div className="thinking-content">
+      {text&&<details className="thinking-reasoning-fold" open={false}>
+        <summary>思考{preview&&<em>{streaming?preview:compressThinking(text,48)}</em>}</summary>
+        <div className="thinking-reasoning"><MarkdownMessage text={text}/></div>
+      </details>}
+      {children}
+    </div>
   </details>
 }

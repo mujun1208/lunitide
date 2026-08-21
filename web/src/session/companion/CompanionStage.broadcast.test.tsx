@@ -76,6 +76,9 @@ vi.mock('./ttsPlayer', () => ({
       // Reply playback stays "ongoing" — the busy stage must keep
       // dropping broadcasts until a real queue drain would end it.
     }
+    isBusy() {
+      return false
+    }
     interrupt(): void {}
     dispose(): void {}
   },

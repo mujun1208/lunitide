@@ -17,10 +17,11 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 	}
 }
 
-func TestExtractExpertRefIDs(t *testing.T) {
-	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	got := extractExpertRefIDs("[引用专家 安全工程师|" + id + "]\n请审查")
-	if len(got) != 1 || got[0] != id {
+func TestCollectExpertIDsPrefersMountedPack(t *testing.T) {
+	const mounted = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	const extra = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	got := collectExpertIDs([]string{mounted}, "[引用专家 安全|"+extra+"]\n[引用专家 重复|"+mounted+"]")
+	if len(got) != 2 || got[0] != mounted || got[1] != extra {
 		t.Fatalf("got %#v", got)
 	}
 }

@@ -58,7 +58,7 @@ type streamOwner struct {
 	terminalQueued bool
 }
 
-const eventQueueCapacity = 256
+const eventQueueCapacity = 1024
 
 // Handler owns a Bridge method in the Host process. Requests dispatched to a
 // Handler are never sent to the Engine Caller.
@@ -345,7 +345,7 @@ func (g *Gateway) forwardEvents(source <-chan bridge.Event) {
 		if owner.admitted {
 			g.reservations--
 		}
-		g.eventQueue = append(g.eventQueue, syntheticFailure(owner, event.StreamID, event.Sequence+1, "HOST_EVENT_OVERFLOW", "事件队列已满，流已终止"))
+		g.eventQueue = append(g.eventQueue, syntheticFailure(owner, event.StreamID, event.Sequence, "HOST_EVENT_OVERFLOW", "事件队列已满，流已终止"))
 		g.eventChanged.Broadcast()
 		g.streamsMu.Unlock()
 		go g.cancelIDs(context.Background(), []string{event.StreamID})

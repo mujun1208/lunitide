@@ -1,6 +1,6 @@
 import {cleanup,render,screen} from '@testing-library/react'
 import {afterEach,expect,it} from 'vitest'
-import {MarkdownMessage,safeMarkdownUrl} from './MarkdownMessage'
+import {MarkdownMessage,compressThinking,formatTaskElapsed,safeMarkdownUrl} from './MarkdownMessage'
 
 afterEach(cleanup)
 
@@ -51,4 +51,11 @@ it('uses standard Markdown soft breaks while preserving code whitespace',()=>{
  expect(paragraph.querySelector('br')).toBeNull()
  expect(paragraph.textContent).toBe('第一行\n第二行')
  expect(container.querySelector('pre code')?.textContent).toBe('  indented\nnext  line\n')
+})
+
+it('compresses thinking to the last short sentence instead of the full chain',()=>{
+ expect(compressThinking('先列出步骤。然后核对来源。最后给出结论。')).toBe('最后给出结论。')
+ expect(compressThinking('x'.repeat(80)).startsWith('…')).toBe(true)
+ expect(formatTaskElapsed(174_000)).toBe('2m 54s')
+ expect(formatTaskElapsed(9_000)).toBe('9s')
 })

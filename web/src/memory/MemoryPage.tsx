@@ -166,7 +166,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
   return (
     <div className="memory-center">
       <header className="expert-view-head">
-        <div><div className="view-title">记忆中心</div><div className="view-meta">🔒 仅当前项目 · 跨项目泄漏率为 0 · 模型推断不会自动升级为已确认事实</div></div>
+        <div><div className="view-title">记忆中心</div><div className="view-meta">🔒 仅当前项目 · 四层记忆可检索注入对话 · 已确认偏好始终遵守 · 模型推断不会自动升级为已确认事实</div></div>
         <div className="view-actions">
           <button type="button" className="ui-btn" onClick={() => void load()} disabled={loading}>↻ 刷新</button>
           <button type="button" className="ui-btn primary" onClick={() => setShowCreate(v => !v)}>＋ 添加记忆</button>

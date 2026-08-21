@@ -81,6 +81,11 @@ export class TtsPlayer {
   private currentVolume = 80
   private currentExtras: SynthExtras = { engine: 'edge', refEndpoint: '' }
 
+  /** True while a clip is synthesizing or playing — used to pause mic commit. */
+  isBusy(): boolean {
+    return this.queueProcessing || this.pendingSegments.length > 0 || this.activeSources.size > 0
+  }
+
   /** Remember the synthesis parameters so prefetches reuse them. */
   configure(voiceId: string, rate: number, volume: number, extras?: SynthExtras): void {
     this.currentVoiceId = voiceId
