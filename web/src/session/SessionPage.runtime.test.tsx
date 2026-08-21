@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
-import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode } from './SessionPage'
+import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT } from './SessionPage'
 import { resetLiveChatForTests } from './liveChat'
 
 afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
@@ -80,6 +80,7 @@ it('blocks Enter re-entry after chat.start resolves, retains one stream, and can
  expect(response.closest('.bubble')).toHaveClass('message-body')
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:stream.streamId,sequence:2,type:'cancelled'}))
  expect(screen.getAllByRole('status').some(node => /已取消/.test(node.textContent ?? ''))).toBe(true)
+ expect(response.closest('.bubble')).toHaveTextContent('终止打断了')
  expect(start).toHaveBeenCalledOnce()
  expect(dispose).not.toHaveBeenCalled()
 })
@@ -143,19 +144,62 @@ it('keeps multiple mounted experts on the conversation after send',async()=>{
  const experts={list:vi.fn().mockResolvedValue({experts:[expertA,expertB]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[]}),sessionMountSet,detail:vi.fn(),create:vi.fn(),update:vi.fn(),toggle:vi.fn(),archive:vi.fn(),mount:vi.fn(),mountingGet:vi.fn(),scenarioCreate:vi.fn(),scenarioList:vi.fn(),scenarioDelete:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
  const append=vi.fn().mockResolvedValue({}),start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
  const user=await open({personal:true,providers,initialSession:session,experts,messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge,chat:{start,approve:vi.fn(),dispose:vi.fn()}})
- await user.click(screen.getByRole('button',{name:'＋ 添加专家'}))
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/选专家/}))
  expect(await screen.findByRole('listbox',{name:'专家候选'})).toBeInTheDocument()
  await user.click(await screen.findByRole('option',{name:/安全工程师/}))
  await user.click(screen.getByRole('option',{name:/测试专家/}))
- expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('安全工程师')
- expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('测试专家')
+ expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('安全工程师')
+ expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('测试专家')
+ expect(screen.queryByLabelText('本会话协作专家')).toBeNull()
  await waitFor(()=>expect(sessionMountSet).toHaveBeenCalled())
  fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'请协作审查'}})
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalled())
- expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('安全工程师')
- expect(screen.getByLabelText('本会话协作专家')).toHaveTextContent('测试专家')
+ expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('安全工程师')
+ expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('测试专家')
  expect(vi.mocked(append).mock.calls[0][0].text).toBe('请协作审查')
+})
+
+it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn',async()=>{
+ localStorage.setItem(`lunitide:active-turn:${S}`,JSON.stringify({status:'interrupted',resumeCount:0}))
+ const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'帮我写个文件',createdAt:NOW}
+ const start=vi.fn().mockRejectedValue(new BridgeClientError('模型请求失败','UPSTREAM_FAILED',true,'engine'))
+ const append=vi.fn().mockResolvedValue({})
+ const user=userEvent.setup()
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append} as MessageBridge} chat={{start,approve:vi.fn(),dispose:vi.fn()}}/>)
+ expect(await screen.findByText('帮我写个文件')).toBeInTheDocument()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).not.toHaveBeenCalled()
+ expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'再试一次'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
+ expect(vi.mocked(append).mock.calls[0][0].text).toBe('再试一次')
+ expect(await screen.findByText('出错了，无法完成。')).toBeInTheDocument()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).toHaveBeenCalledOnce()
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'继续'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledTimes(2))
+ expect(vi.mocked(append).mock.calls[1][0].text).toBe('继续')
+ expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
+})
+
+it('shows an error notice on retryable stream failed without auto-resume',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const user=await open({personal:true,providers,initialSession:session,messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge,chat:{start,approve:vi.fn(),dispose:vi.fn()}})
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'打开网页'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'failed',error:{code:'UPSTREAM_FAILED',message:'模型请求失败',retryable:true}}))
+ expect(await screen.findByText('出错了，无法完成。')).toBeInTheDocument()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).toHaveBeenCalledOnce()
+ expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
 })
 
 it('closes composer popovers when clicking outside',async()=>{

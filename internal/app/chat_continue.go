@@ -15,8 +15,10 @@ const (
 	continueNudgeText = "继续执行用户的指令直到完成。不要停下来询问、不要等待确认、不要只做勘查后结束本轮。立刻继续调用工具。仅在任务已完成，或缺少无法推断的必要信息/权限时，才给出最终说明。"
 )
 
-// assistantPausedMidTask reports whether the model stopped after reconnaissance
-// and is waiting for the user to say "继续" instead of finishing the job.
+// assistantPausedMidTask reports whether the model clearly stopped to ASK the
+// user (confirm / shall I / waiting for) instead of finishing the job.
+// Progress phrases such as 「接下来」「先看一下」「下一步」 must not extra-loop
+// a one-shot computer task that is already executing.
 func assistantPausedMidTask(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" {
@@ -32,12 +34,8 @@ func assistantPausedMidTask(text string) bool {
 		}
 	}
 	for _, m := range []string{
-		"接下来", "下一步", "安装前", "先弄清", "还没开始", "初步判断",
-		"请确认", "是否继续", "稍等", "让我先", "需要先", "先看一下",
-		"弄清结构", "安装方式", "要不要我", "是否需要", "请问你",
-		"before installing", "next i will", "let me first", "shall i",
-		"i'll start by", "to proceed", "waiting for", "haven't started",
-		"preliminary",
+		"请确认", "是否继续", "要不要我", "是否需要", "请问你",
+		"shall i", "waiting for",
 	} {
 		if strings.Contains(t, m) {
 			return true

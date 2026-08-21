@@ -1579,6 +1579,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			return adapterErr
 		}
 		seen := map[string]bool{}
+		completedDigests := map[string]string{}
 		var result gateway.Response
 		var streamErr error
 		toolsFallbackUsed := false
@@ -1717,6 +1718,30 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				digest := toolruntime.Digest(call.Name, call.Arguments)
 				if digest == "" {
 					return errors.New("invalid tool arguments")
+				}
+				if skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests); skip {
+					if future, ok := parallelFutures[call.ID]; ok {
+						select {
+						case <-future:
+						case <-op.Done():
+						}
+						delete(parallelFutures, call.ID)
+					}
+					if future, ok := subagentFutures[call.ID]; ok {
+						select {
+						case <-future:
+						case <-op.Done():
+						}
+						delete(subagentFutures, call.ID)
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
+						return err
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: skipSummary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+					continue
 				}
 				if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
 					return err
@@ -1873,6 +1898,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					summary = toolErr.Error()
 				}
 				summary = clipToolSummary(summary)
+				if toolErr == nil {
+					completedDigests[digest] = summary
+				}
 				toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
 				if toolErr == nil && r.Artifact != nil {
 					if k := r.Artifact.Kind; k == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
@@ -1897,12 +1925,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		// text the user would see a completed stream with no answer.
 		// Surface a Chinese notice in both the live stream and the
 		// persisted assistant text (same pattern as the 400 fallback).
-		if streamErr == nil && assistantText.Len() == 0 {
-			notice := createTurnClosingNotice(turn.LastTools)
-			if notice == "" && len(result.Message.ToolCalls) > 0 {
+		if streamErr == nil {
+			notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
+			if notice == "" && assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
 				notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
 			}
 			if notice != "" {
+				if assistantText.Len() > 0 && !strings.HasPrefix(notice, "\n") {
+					notice = "\n" + notice
+				}
 				assistantText.WriteString(notice)
 				if sendErr := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); sendErr != nil {
 					return sendErr
@@ -1939,6 +1970,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 		}
 	}
+	if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
+		if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
+			assistantText.Reset()
+			assistantText.WriteString(next)
+			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+		}
+	}
 	terminal := bridge.Event{Type: e.selectTerminal(id, state, err)}
 	switch terminal.Type {
 	case bridge.EventCompleted:
@@ -1966,19 +2004,101 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	e.finishTerminal(id, state)
 }
 
-func createTurnClosingNotice(tools []string) string {
-	for _, name := range tools {
-		if name == "skill.create" {
-			return "技能已创建并写入技能中心。请到技能中心安装并发布。\n"
-		}
-		if name == "expert.create" {
-			return "专家已创建。请到专家中心把它挂载到项目步骤。\n"
-		}
-		if name == "plugin.create" {
-			return "插件已创建。请到插件页查看安装状态。\n"
+func createTurnClosingNotice(tools []string, assistantText string) string {
+	empty := strings.TrimSpace(assistantText) == ""
+	if empty {
+		for _, name := range tools {
+			if name == "skill.create" {
+				return "技能已创建并写入技能中心。请到技能中心安装并发布。\n"
+			}
+			if name == "expert.create" {
+				return "专家已创建。请到专家中心把它挂载到项目步骤。\n"
+			}
+			if name == "plugin.create" {
+				return "插件已创建。请到插件页查看安装状态。\n"
+			}
 		}
 	}
+	if !hasActingComputerTool(tools) {
+		return ""
+	}
+	if assistantTextContainsDone(assistantText) {
+		return ""
+	}
+	return "我已经做完了。\n"
+}
+
+func hasActingComputerTool(tools []string) bool {
+	for _, name := range tools {
+		switch name {
+		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "browser.act", "browser.open",
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen":
+			return true
+		}
+		if strings.HasPrefix(name, "cc.") {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantTextContainsDone(text string) bool {
+	if strings.Contains(text, "已完成") || strings.Contains(text, "做完") {
+		return true
+	}
+	if !strings.Contains(text, "完成") {
+		return false
+	}
+	stripped := strings.ReplaceAll(text, "未完成", "")
+	stripped = strings.ReplaceAll(stripped, "无法完成", "")
+	return strings.Contains(stripped, "完成")
+}
+
+const (
+	turnInterruptNotice   = "终止打断了"
+	turnErrorNotice       = "出错了，无法完成。"
+	duplicateToolResult   = "already done this turn"
+	expertSectionMaxRunes = 5000
+)
+
+func turnOutcomeNotice(cancelling bool, err error) string {
+	if cancelling {
+		return turnInterruptNotice
+	}
+	if err != nil {
+		return turnErrorNotice
+	}
 	return ""
+}
+
+func appendAssistantNotice(existing, notice string) (next, delta string) {
+	if notice == "" || strings.Contains(existing, notice) {
+		return existing, ""
+	}
+	if strings.TrimSpace(existing) == "" {
+		return notice, notice
+	}
+	delta = "\n" + notice
+	return existing + delta, delta
+}
+
+func duplicateToolSkipSummary(digest string, completed map[string]string) (string, bool) {
+	if digest == "" {
+		return "", false
+	}
+	if _, ok := completed[digest]; ok {
+		return duplicateToolResult, true
+	}
+	return "", false
+}
+
+func (e *Engine) isStreamCancelling(state *streamState) bool {
+	if e == nil || state == nil {
+		return false
+	}
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	return state.state == streamCancelling
 }
 
 func extractExpertRefIDs(text string) []string {
@@ -2050,8 +2170,11 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, e
 	if len(ids) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("\n\n你是月汐主编排。以下专家已常驻挂载到本会话，直到用户移除。请统筹他们的职责：按岗位约束作答；需要专项技能时调用 skill.invoke；不要并行打满多路完整 completion。协作包：\n")
+	type packed struct {
+		name string
+		body string
+	}
+	var experts []packed
 	for _, id := range ids {
 		detail, err := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: id})
 		if err != nil {
@@ -2061,13 +2184,37 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, e
 		if name == "" {
 			name = id
 		}
+		experts = append(experts, packed{name: name, body: clipExpertBody(detail.SixSection)})
+	}
+	if len(experts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(expertPersonaHeader(len(experts)))
+	for _, item := range experts {
 		b.WriteString("\n【专家「")
-		b.WriteString(name)
+		b.WriteString(item.name)
 		b.WriteString("」】岗位说明书：\n")
-		b.Write(detail.SixSection)
+		b.WriteString(item.body)
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func expertPersonaHeader(count int) string {
+	if count >= 2 {
+		return "\n\n你是月汐主编排（会议主席）。以下专家已常驻挂载到本会话，直到用户移除。请在思考/推理通道内部召开有界专家理事会：具名专家轮流发言，全场合计最多 5–6 轮（不是每位专家各 5–6 轮），再给出用户可见的一份综合结论。不要把每位专家的发言拆成多条助手消息，不要并行打满多路完整 completion。仅当某位专家真正需要技能时才调用 skill.invoke。协作包：\n"
+	}
+	return "\n\n你是月汐主编排。以下专家已常驻挂载到本会话，直到用户移除。请统筹他们的职责：按岗位约束作答；需要专项技能时调用 skill.invoke；不要并行打满多路完整 completion。协作包：\n"
+}
+
+func clipExpertBody(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	r := []rune(s)
+	if len(r) <= expertSectionMaxRunes {
+		return s
+	}
+	return string(r[:expertSectionMaxRunes]) + "\n…（岗位说明书已截断）"
 }
 
 func sendDeltaChunks(send func(bridge.Event) error, text string) error {

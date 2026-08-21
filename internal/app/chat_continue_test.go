@@ -15,10 +15,10 @@ import (
 
 func TestAssistantPausedMidTask(t *testing.T) {
 	paused := []string{
-		"找到 59 个技能目录，安装前要先弄清结构和安装方式。",
-		"还没开始装，只是初步判断。",
-		"接下来我会用命令行查看 SKILL.md。",
-		"Before installing I need to clarify the layout.",
+		"找到 59 个技能目录，请确认是否继续安装。",
+		"要不要我继续执行？",
+		"Shall I proceed with the install?",
+		"Waiting for your confirmation before I continue.",
 	}
 	for _, s := range paused {
 		if !assistantPausedMidTask(s) {
@@ -29,11 +29,21 @@ func TestAssistantPausedMidTask(t *testing.T) {
 		"已全部安装完成，共 59 个技能。",
 		"All done, successfully installed.",
 		"这是一份代码审查，没有后续动作。",
+		"接下来我会用命令行查看 SKILL.md。",
+		"先看一下桌面再操作。",
+		"找到 59 个技能目录，安装前要先弄清结构和安装方式。",
+		"文件已写入，下一步可以打开看看。",
 	}
 	for _, s := range done {
 		if assistantPausedMidTask(s) {
 			t.Fatalf("did not expect pause: %q", s)
 		}
+	}
+	if shouldContinueTurn("文件写好了，下一步打开网页。", true, 0, false) {
+		t.Fatal("succeeded tools plus 下一步 must not nudge")
+	}
+	if !shouldContinueTurn("请确认是否继续安装", true, 0, false) {
+		t.Fatal("explicit ask after tools should still nudge")
 	}
 }
 
@@ -61,7 +71,7 @@ func (a *continueAdapter) Stream(_ context.Context, _ []byte, req gateway.Reques
 			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
 		}}}, nil
 	case 2:
-		text := "找到 59 个技能目录，安装前要先弄清结构和安装方式。"
+		text := "找到 59 个技能目录，请确认是否继续安装。"
 		if err := emit(gateway.Delta{Text: text}); err != nil {
 			return gateway.Response{}, err
 		}
