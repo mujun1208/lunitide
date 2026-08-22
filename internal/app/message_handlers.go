@@ -7,6 +7,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/message"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/messageapp"
 )
 
@@ -17,6 +18,23 @@ func messageServiceAvailable(service MessageService) bool {
 	v := reflect.ValueOf(service)
 	return v.Kind() != reflect.Ptr || !v.IsNil()
 }
+
+type sessionProjectResolver interface {
+	Get(context.Context, string) (session.Session, error)
+}
+
+func projectIDForSession(e *Engine, ctx context.Context, sessionID string) (string, bool, error) {
+	resolver, ok := e.sessions.(sessionProjectResolver)
+	if !ok {
+		return "", false, nil
+	}
+	item, err := resolver.Get(ctx, sessionID)
+	if err != nil {
+		return "", true, err
+	}
+	return item.ProjectID, true, nil
+}
+
 func handleMessageAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		SessionID string `json:"sessionId"`
@@ -35,6 +53,13 @@ func handleMessageAppend(e *Engine, ctx context.Context, r bridge.Request) bridg
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
+	}
+	if projectID, ok, err := projectIDForSession(e, ctx, p.SessionID); err != nil {
+		return messageFailure(r, err)
+	} else if ok {
+		if failure := rejectIfProjectReadOnly(e, ctx, r, projectID); failure != nil {
+			return *failure
+		}
 	}
 	result, err := e.messages.Append(ctx, r.IdempotencyKey, sessionMutationActor, p, message.Message{SessionID: p.SessionID, Text: text})
 	if err != nil {

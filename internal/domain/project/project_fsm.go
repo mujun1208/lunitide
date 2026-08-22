@@ -36,8 +36,11 @@ func statusesForType(t Type) []Status {
 	switch t {
 	case TypeOperations:
 		return []Status{StatusCreated, StatusChartered, StatusInProgress, StatusClosed}
-	case TypeEnhancement:
-		return []Status{StatusCreated, StatusChartered, StatusReqAssessment, StatusInProgress, StatusClosed}
+ case TypeEnhancement:
+  return []Status{
+   StatusCreated, StatusChartered, StatusReqAssessment, StatusInProgress,
+   StatusIntegrationTest, StatusGoLivePrep, StatusLive, StatusClosed,
+  }
 	default:
 		return []Status{
 			StatusCreated, StatusChartered, StatusReqArchitecture, StatusInProgress,
@@ -86,11 +89,16 @@ func (p Project) CanDeleteOnlyCreated() bool {
 // CloseableStatuses are project statuses where manual close is permitted.
 func CloseableStatuses(t Type) []Status {
 	switch t {
-	case TypeOperations, TypeEnhancement:
-		return []Status{StatusChartered, StatusReqAssessment, StatusInProgress}
+	case TypeOperations:
+		return []Status{StatusInProgress}
+	case TypeEnhancement:
+		return []Status{
+			StatusReqAssessment, StatusInProgress, StatusIntegrationTest,
+			StatusGoLivePrep, StatusLive,
+		}
 	default:
 		return []Status{
-			StatusChartered, StatusReqArchitecture, StatusInProgress, StatusIntegrationTest,
+			StatusReqArchitecture, StatusInProgress, StatusIntegrationTest,
 			StatusGoLivePrep, StatusLive,
 		}
 	}
@@ -118,17 +126,29 @@ func AdvanceTarget(t Type, phase int) (Status, bool) {
 			return StatusReqArchitecture, true
 		case 2:
 			return StatusInProgress, true
+		case 6:
+			return StatusIntegrationTest, true
+		case 7:
+			return StatusGoLivePrep, true
+		case 8:
+			return StatusLive, true
 		}
-	case TypeEnhancement:
-		switch phase {
-		case 1:
-			return StatusReqAssessment, true
-		case 2:
-			return StatusInProgress, true
-		}
+ case TypeEnhancement:
+  switch phase {
+  case 1:
+   return StatusReqAssessment, true
+  case 2:
+   return StatusInProgress, true
+  case 6:
+   return StatusIntegrationTest, true
+  case 7:
+   return StatusGoLivePrep, true
+  case 8:
+   return StatusLive, true
+  }
 	case TypeOperations:
 		switch phase {
-		case 1:
+		case 1, 2, 3, 4, 5:
 			return StatusInProgress, true
 		}
 	}
@@ -142,7 +162,7 @@ func (p Project) StatusLabel() string {
 	case StatusChartered:
 		return "立项"
 	case StatusReqArchitecture:
-		return "需求架构"
+		return "需求架构规范"
 	case StatusReqAssessment:
 		return "需求评估"
 	case StatusInProgress:

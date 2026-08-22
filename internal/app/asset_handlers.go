@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/asset"
+	"github.com/oklog/ulid/v2"
 )
 
 type AssetTemplateStore interface {
@@ -90,20 +93,24 @@ func handleTemplateList(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Name         string `json:"name"`
-		TemplateType string `json:"templateType"`
-		DocumentType string `json:"documentType"`
-		Description  string `json:"description"`
-		Client       string `json:"client"`
-		MimeType     string `json:"mimeType"`
-		FileName     string `json:"fileName"`
-		FilePath     string `json:"filePath"`
+		Name           string `json:"name"`
+		TemplateType   string `json:"templateType"`
+		DocumentType   string `json:"documentType"`
+		Description    string `json:"description"`
+		Client         string `json:"client"`
+		MimeType       string `json:"mimeType"`
+		FileName       string `json:"fileName"`
+		FilePath       string `json:"filePath"`
+		ContentBase64  string `json:"contentBase64"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 参数无效", false)
 	}
 	if !assetStoreAvailable(e.assets) {
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板数据暂时不可用", true)
+	}
+	if e.templateFiles == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板文件存储暂时不可用", true)
 	}
 	name, err := asset.NormalizeName(p.Name)
 	if err != nil {
@@ -125,13 +132,36 @@ func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 	if desc == "" {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 参数无效", false)
 	}
+	fileName := strings.TrimSpace(p.FileName)
+	if fileName == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 需要上传附件", false)
+	}
+	if err := asset.ValidateTemplateFile(tplType, fileName); err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", err.Error(), false)
+	}
+	if p.ContentBase64 == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 需要上传附件", false)
+	}
+	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
+		return bridge.Failure(r.ID, r.TraceID, "TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
+	}
+	content, err := base64.StdEncoding.DecodeString(p.ContentBase64)
+	if err != nil || len(content) == 0 || len(content) > attachmentapp.MaxFileSize {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create contentBase64 无效", false)
+	}
+	mimeType := asset.DetectMimeType(fileName)
+	fileRef := ulid.Make().String()
+	if err := e.templateFiles.WriteFile(ctx, fileRef, content); err != nil {
+		return assetFailure(r, err)
+	}
 	created, err := e.assets.CreateAssetTemplate(ctx, asset.AssetTemplate{
 		Name: name, TemplateType: tplType, DocumentType: docType,
 		Description: desc, Client: clampText(p.Client, 200),
-		MimeType: clampText(p.MimeType, 128), FileName: clampText(p.FileName, 260),
-		FilePath: clampText(p.FilePath, 512), Status: asset.StatusDraft,
+		MimeType: mimeType, FileName: clampText(fileName, 260),
+		FilePath: fileRef, Status: asset.StatusDraft,
 	})
 	if err != nil {
+		_ = e.templateFiles.DeleteFile(ctx, fileRef)
 		return assetFailure(r, err)
 	}
 	return bridge.Success(r.ID, newAssetTemplateDTO(created))
@@ -173,6 +203,24 @@ func handleTemplateVoid(e *Engine, ctx context.Context, r bridge.Request) bridge
 	return bridge.Success(r.ID, newAssetTemplateDTO(updated))
 }
 
+func handleTemplateRestore(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ID              string `json:"id"`
+		ExpectedVersion int64  `json:"expectedVersion"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.restore 参数无效", false)
+	}
+	if !assetStoreAvailable(e.assets) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板数据暂时不可用", true)
+	}
+	updated, err := e.assets.UpdateAssetTemplateStatus(ctx, p.ID, p.ExpectedVersion, asset.StatusDraft)
+	if err != nil {
+		return assetFailure(r, err)
+	}
+	return bridge.Success(r.ID, newAssetTemplateDTO(updated))
+}
+
 func handleTemplateDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ID              string `json:"id"`
@@ -184,8 +232,15 @@ func handleTemplateDelete(e *Engine, ctx context.Context, r bridge.Request) brid
 	if !assetStoreAvailable(e.assets) {
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板数据暂时不可用", true)
 	}
+	cur, err := e.assets.GetAssetTemplate(ctx, p.ID)
+	if err != nil {
+		return assetFailure(r, err)
+	}
 	if err := e.assets.DeleteAssetTemplate(ctx, p.ID, p.ExpectedVersion); err != nil {
 		return assetFailure(r, err)
+	}
+	if e.templateFiles != nil && strings.TrimSpace(cur.FilePath) != "" {
+		_ = e.templateFiles.DeleteFile(ctx, cur.FilePath)
 	}
 	return bridge.Success(r.ID, map[string]any{"deleted": true})
 }

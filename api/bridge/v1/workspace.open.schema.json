@@ -1,0 +1,6 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/workspace.open.schema.json","title":"workspace.open payload","x-method":"workspace.open","x-owner":"host","x-enabled":true,
+  "type":"object","additionalProperties":false,"properties":{"path":{"type":"string","maxLength":1024,"pattern":"^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*$"},"editor":{"type":"string","enum":["vscode","explorer"]}},"required":[],
+  "x-result":{"type":"object","additionalProperties":false,"properties":{"opened":{"type":"string"},"editor":{"type":"string"}},"required":["opened","editor"]},
+  "x-examples":{"positive":[{"path":"README.md","editor":"vscode"},{}],"negative":[{"path":"../secret"}]}
+}

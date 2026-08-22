@@ -15,6 +15,8 @@ import (
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
+const validProjectCreateJSON = `{"name":"Alpha Project","type":"implementation","description":"desc","client":"客户A","planStart":"2026-01-01","planEnd":"2026-12-31"}`
+
 func TestProjectBridgeCreateReplayConflictAndList(t *testing.T) {
 	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project.db"))
 	if err != nil {
@@ -22,7 +24,7 @@ func TestProjectBridgeCreateReplayConflictAndList(t *testing.T) {
 	}
 	defer store.Close()
 	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
-	r := validRequest("project.create", `{"name":"  Alpha   Project  "}`)
+	r := validRequest("project.create", validProjectCreateJSON)
 	r.IdempotencyKey = "project-key"
 	first := e.Handle(context.Background(), r)
 	if !first.OK {
@@ -37,7 +39,7 @@ func TestProjectBridgeCreateReplayConflictAndList(t *testing.T) {
 	if string(a) != string(b) {
 		t.Fatalf("replay differs: %s / %s", a, b)
 	}
-	r.Payload = json.RawMessage(`{"name":"Different"}`)
+	r.Payload = json.RawMessage(`{"name":"Different","type":"implementation","description":"desc","client":"客户B","planStart":"2026-01-01","planEnd":"2026-12-31"}`)
 	conflict := e.Handle(context.Background(), r)
 	if conflict.OK || conflict.Error.Code != "IDEMPOTENCY_CONFLICT" {
 		t.Fatalf("conflict: %#v", conflict)
@@ -101,7 +103,7 @@ func TestProjectBridgeConcurrentSameKeyReplay(t *testing.T) {
 	}
 	defer store.Close()
 	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
-	r := validRequest("project.create", `{"name":"Concurrent"}`)
+	r := validRequest("project.create", `{"name":"Concurrent","type":"implementation","description":"desc","client":"客户A","planStart":"2026-01-01","planEnd":"2026-12-31"}`)
 	r.IdempotencyKey = "concurrent-key"
 	const workers = 12
 	responses := make(chan bridge.Response, workers)
@@ -145,7 +147,7 @@ func TestProjectCapacityMapsToStableNonRetryableError(t *testing.T) {
 	defer store.Close()
 	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
 	for i := 0; i < 101; i++ {
-		r := validRequest("project.create", `{"name":"Capacity"}`)
+		r := validRequest("project.create", fmt.Sprintf(`{"name":"Capacity %d","type":"implementation","description":"desc","client":"客户A","planStart":"2026-01-01","planEnd":"2026-12-31"}`, i))
 		r.IdempotencyKey = "capacity-" + strings.Repeat("x", i%20) + string(rune('A'+i/20))
 		response := e.Handle(context.Background(), r)
 		if i < 100 && !response.OK {
@@ -199,6 +201,17 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 		t.Fatalf("publish dto: %s (%v)", raw, err)
 	}
 
+	advance := validRequest("project.advanceStatus", fmt.Sprintf(`{"id":%q,"version":%d,"phase":1}`, dto.ID, dto.Version))
+	advance.IdempotencyKey = "lifecycle-advance"
+	advanced := e.Handle(context.Background(), advance)
+	if !advanced.OK {
+		t.Fatalf("advance: %#v", advanced)
+	}
+	raw, _ = json.Marshal(advanced.Payload)
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "req_architecture" {
+		t.Fatalf("advance dto: %s (%v)", raw, err)
+	}
+
 	closeReq := validRequest("project.close", fmt.Sprintf(`{"id":%q,"version":%d,"reason":"验收完成"}`, dto.ID, dto.Version))
 	closeReq.IdempotencyKey = "lifecycle-close"
 	closed := e.Handle(context.Background(), closeReq)
@@ -206,7 +219,7 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 		t.Fatalf("close: %#v", closed)
 	}
 	raw, _ = json.Marshal(closed.Payload)
-	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "closed" || dto.StatusBeforeClose != "chartered" {
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "closed" || dto.StatusBeforeClose != "req_architecture" {
 		t.Fatalf("close dto: %s (%v)", raw, err)
 	}
 
@@ -217,7 +230,7 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 		t.Fatalf("reopen: %#v", reopened)
 	}
 	raw, _ = json.Marshal(reopened.Payload)
-	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "chartered" {
+	if err := json.Unmarshal(raw, &dto); err != nil || dto.Status != "req_architecture" {
 		t.Fatalf("reopen dto: %s (%v)", raw, err)
 	}
 }
@@ -229,7 +242,7 @@ func TestProjectListOmitsEmptyCloseFieldsAndKeepsRFC3339NanoTimes(t *testing.T) 
 	}
 	defer store.Close()
 	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
-	create := validRequest("project.create", `{"name":"Shape Check"}`)
+	create := validRequest("project.create", validProjectCreateJSON)
 	create.IdempotencyKey = "shape-create"
 	created := e.Handle(context.Background(), create)
 	if !created.OK {

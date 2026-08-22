@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -150,6 +153,43 @@ func (h *Handler) HandleHost(ctx context.Context, r bridge.Request) bridge.Respo
 			return failure(r, "WORKSPACE_PREVIEW_BINARY", "二进制文件无法预览", false)
 		}
 		return bridge.Success(r.ID, map[string]any{"path": filepath.ToSlash(p.Path), "content": string(data), "size": len(data)})
+	case bridge.MethodWorkspaceOpen:
+		var p struct {
+			Path   string `json:"path"`
+			Editor string `json:"editor"`
+		}
+		if strictJSON(r.Payload, &p) != nil || len(p.Path) > 1024 {
+			return failure(r, "BRIDGE_SCHEMA_INVALID", "打开参数无效", false)
+		}
+		root, err := h.root()
+		if err != nil {
+			return failure(r, "WORKSPACE_ROOT_REQUIRED", "请先选择工作区", false)
+		}
+		target := root
+		selectFile := false
+		if rel := strings.TrimSpace(p.Path); rel != "" {
+			if dirTarget, dirErr := safePath(root, rel, true); dirErr == nil {
+				target = dirTarget
+			} else if fileTarget, fileErr := safePath(root, rel, false); fileErr == nil {
+				target = fileTarget
+				selectFile = true
+			} else {
+				return failure(r, "WORKSPACE_PATH_DENIED", "路径不在所选工作区内", false)
+			}
+		}
+		editor := strings.TrimSpace(p.Editor)
+		if editor == "" {
+			editor = "vscode"
+		}
+		if editor == "vscode" {
+			if err := openInVSCode(target); err == nil {
+				return bridge.Success(r.ID, map[string]any{"opened": target, "editor": "vscode"})
+			}
+		}
+		if err := openInShell(target, selectFile); err != nil {
+			return failure(r, "WORKSPACE_OPEN_FAILED", "无法打开路径", false)
+		}
+		return bridge.Success(r.ID, map[string]any{"opened": target, "editor": "explorer"})
 	}
 	return failure(r, "BRIDGE_METHOD_NOT_ALLOWED", "方法不受支持", false)
 }
@@ -341,4 +381,43 @@ if ($d.ShowDialog() -eq 'OK') {
 		return "", errors.New("cancelled")
 	}
 	return path, nil
+}
+
+func openInShell(target string, selectFile bool) error {
+	if runtime.GOOS != "windows" {
+		return exec.Command("xdg-open", target).Start()
+	}
+	if selectFile {
+		return exec.Command("explorer.exe", "/select,", filepath.Clean(target)).Start()
+	}
+	return exec.Command("explorer.exe", filepath.Clean(target)).Start()
+}
+
+func openInVSCode(target string) error {
+	if path, err := exec.LookPath("code"); err == nil {
+		return exec.Command(path, "-g", target).Start()
+	}
+	candidates := []string{
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Microsoft VS Code", "Code.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft VS Code", "Code.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft VS Code", "Code.exe"),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return exec.Command(candidate, "-g", target).Start()
+		}
+	}
+	ctx := context.Background()
+	script := fmt.Sprintf(`$paths=@('%s','%s','%s');foreach($p in $paths){if($p -and (Test-Path -LiteralPath $p)) { Start-Process -FilePath $p -ArgumentList @('-g','%s'); exit 0 }} exit 1`,
+		strings.ReplaceAll(candidates[0], `'`, `''`),
+		strings.ReplaceAll(candidates[1], `'`, `''`),
+		strings.ReplaceAll(candidates[2], `'`, `''`),
+		strings.ReplaceAll(target, `'`, `''`))
+	if _, err := winexec.HiddenPowerShell(ctx, "-NoProfile", "-Command", script).Output(); err != nil {
+		return err
+	}
+	return nil
 }

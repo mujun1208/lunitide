@@ -61,6 +61,9 @@ func handleStageCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
+	if failure := rejectIfProjectReadOnly(e, ctx, r, p.ProjectID); failure != nil {
+		return *failure
+	}
 	title, err := stage.NormalizeTitle(p.Title)
 	if err != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "stage.create 参数无效", false)
@@ -109,6 +112,9 @@ func handleStageUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "阶段数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
+		return *failure
+	}
+	if failure := rejectIfProjectReadOnly(e, ctx, r, p.ProjectID); failure != nil {
 		return *failure
 	}
 	updated, err := e.stages.Update(ctx, r.IdempotencyKey, stageMutationActor, p, stageapp.UpdateInput{

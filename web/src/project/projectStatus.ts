@@ -16,7 +16,7 @@ export type WorkbenchProjectStatus =
 const STATUS_LABELS: Record<Exclude<WorkbenchProjectStatus, 'active'>, string> = {
   created: '创建',
   chartered: '立项',
-  req_architecture: '需求架构',
+  req_architecture: '需求架构规范',
   req_assessment: '需求评估',
   in_progress: '实施中',
   integration_test: '集成测试',
@@ -50,10 +50,11 @@ export function canPublish(status: string): boolean {
 export function closeable(type: ProjectType): Exclude<WorkbenchProjectStatus, 'active'>[] {
   switch (type) {
     case 'operations':
+      return ['in_progress']
     case 'enhancement':
-      return ['chartered', 'req_assessment', 'in_progress']
+      return ['req_assessment', 'in_progress', 'integration_test', 'go_live_prep', 'live']
     default:
-      return ['chartered', 'req_architecture', 'in_progress', 'integration_test', 'go_live_prep', 'live']
+      return ['req_architecture', 'in_progress', 'integration_test', 'go_live_prep', 'live']
   }
 }
 

@@ -14,8 +14,8 @@ import {
   type StageCreatePayload, type StageCreateResult, type StageListPayload, type StageListResult, type StageUpdatePayload, type StageUpdateResult,
   type DeliverableListPayload, type DeliverableListResult, type DeliverableUpsertPayload, type DeliverableUpsertResult, type DeliverableConfirmGatePayload, type DeliverableConfirmGateResult,
   type DbQueryPayload, type DbQueryResult, type OpenapiParsePayload, type OpenapiParseResult,
-  type ProjectAttachmentIngestPayload, type ProjectAttachmentIngestResult, type ProjectAttachmentListPayload, type ProjectAttachmentListResult,
-  type ReleaseBuildPackagePayload, type ReleaseBuildPackageResult, type ReleaseCreateRevisionPayload, type ReleaseCreateRevisionResult, type ReleaseGetRevisionPayload, type ReleaseGetRevisionResult, type ReleaseGetPackagePayload, type ReleaseGetPackageResult,
+  type ProjectAttachmentGetPayload, type ProjectAttachmentGetResult, type ProjectAttachmentIngestPayload, type ProjectAttachmentIngestResult, type ProjectAttachmentListPayload, type ProjectAttachmentListResult,
+  type ReleaseBuildPackagePayload, type ReleaseBuildPackageResult, type ReleaseCreateRevisionPayload, type ReleaseCreateRevisionResult, type ReleaseGetRevisionPayload, type ReleaseGetRevisionResult, type ReleaseGetPackagePayload, type ReleaseGetPackageResult, type ReleasePromotePayload, type ReleasePromoteResult, type ReleaseGetPromotionPayload, type ReleaseGetPromotionResult, type ReleaseRollbackPayload, type ReleaseRollbackResult,
   type SkillImportDiscoverPayload, type SkillImportDiscoverResult, type SkillImportInspectPayload, type SkillImportInspectResult, type SkillImportSubmitPayload, type SkillImportSubmitResult, type SkillImportApprovePayload, type SkillImportApproveResult, type SkillImportRejectPayload, type SkillImportRejectResult, type SkillImportRevokePayload, type SkillImportRevokeResult,
   type PlanGetPayload, type PlanGetResult, type PlanListPayload, type PlanListResult,
   type PlanCreatePayload, type PlanCreateResult,
@@ -90,7 +90,7 @@ import {
   type SkillCategorySetPayload,type SkillCategorySetResult,
   type UiThemeSetPayload, type UiThemeSetResult, type SystemSettingsOpenPayload, type SystemSettingsOpenResult,
   type BrowserOpenPayload, type BrowserOpenResult, type BrowserCloseResult,
-  type WorkspaceRootGetResult,type WorkspaceRootSelectResult,type WorkspaceRootClearResult,type WorkspaceListResult,type WorkspaceReadResult,
+  type WorkspaceRootGetResult,type WorkspaceRootSelectResult,type WorkspaceRootClearResult,type WorkspaceListResult,type WorkspaceReadResult,type WorkspaceOpenPayload,type WorkspaceOpenResult,
   type ContextStatusPayload, type ContextStatusResult,
   type ContextCompactPreviewPayload, type ContextCompactPreviewResult,
   type ContextCompactCommitPayload, type ContextCompactCommitResult,
@@ -105,6 +105,11 @@ import {
   type AttachmentGetPayload, type AttachmentGetResult,
   type AttachmentListPayload, type AttachmentListResult,
   type TemplateListPayload, type TemplateListResult,
+  type TemplateCreatePayload, type TemplateCreateResult,
+  type TemplateEnablePayload, type TemplateEnableResult,
+  type TemplateVoidPayload, type TemplateVoidResult,
+  type TemplateRestorePayload, type TemplateRestoreResult,
+  type TemplateDeletePayload, type TemplateDeleteResult,
   type AttachmentDeletePayload, type AttachmentDeleteResult,
   type AttachmentUploadBeginPayload,type AttachmentUploadBeginResult,type AttachmentUploadChunkPayload,type AttachmentUploadChunkResult,type AttachmentUploadCommitPayload,type AttachmentUploadCommitResult,type AttachmentUploadAbortPayload,type AttachmentUploadAbortResult,
   type TerminalStartPayload,type TerminalStartResult,type TerminalInputResult,type TerminalResizeResult,type TerminalCloseResult,
@@ -140,7 +145,7 @@ export class BridgeClientError extends Error {
     super(message); this.name = 'BridgeClientError'
   }
 }
-export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>}
+export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>;open(payload?:WorkspaceOpenPayload):Promise<WorkspaceOpenResult>}
 export interface WebViewTransport {
   postMessage(value: unknown): void
   addEventListener(type: 'message', listener: (event: MessageEvent<BridgeResponse>) => void): void
@@ -152,7 +157,7 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.experts.set'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'release.buildPackage'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'
+export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.experts.set'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -194,7 +199,7 @@ export interface MessageBridge { list(payload:MessageListPayload):Promise<Messag
 export interface UIThemeBridge { set(payload:UiThemeSetPayload):Promise<UiThemeSetResult> }
 export interface SystemSettingsBridge { open(payload:SystemSettingsOpenPayload):Promise<SystemSettingsOpenResult> }
 export interface BrowserBridge { open(payload:BrowserOpenPayload):Promise<BrowserOpenResult>; close():Promise<BrowserCloseResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.experts.set','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.experts.set','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -908,14 +913,33 @@ export const attachmentBridge: AttachmentBridge = {
 
 export interface TemplateBridge {
   list(payload?: TemplateListPayload): Promise<TemplateListResult>
+  create(payload: TemplateCreatePayload, options?: MutationOptions<TemplateCreatePayload>): Promise<TemplateCreateResult>
+  enable(payload: TemplateEnablePayload, options?: MutationOptions<TemplateEnablePayload>): Promise<TemplateEnableResult>
+  void(payload: TemplateVoidPayload, options?: MutationOptions<TemplateVoidPayload>): Promise<TemplateVoidResult>
+  restore(payload: TemplateRestorePayload, options?: MutationOptions<TemplateRestorePayload>): Promise<TemplateRestoreResult>
+  delete(payload: TemplateDeletePayload, options?: MutationOptions<TemplateDeletePayload>): Promise<TemplateDeleteResult>
 }
 export function createTemplateBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): TemplateBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
-  return { list: p => core.request('template.list', p ?? {}) }
+  return {
+    list: p => core.request('template.list', p ?? {}),
+    create: (p, o) => core.request('template.create', p, defaultDeadlineMs, o?.attempt),
+    enable: (p, o) => core.request('template.enable', p, defaultDeadlineMs, o?.attempt),
+    void: (p, o) => core.request('template.void', p, defaultDeadlineMs, o?.attempt),
+    restore: (p, o) => core.request('template.restore', p, defaultDeadlineMs, o?.attempt),
+    delete: (p, o) => core.request('template.delete', p, defaultDeadlineMs, o?.attempt),
+  }
 }
 let templateSingleton: TemplateBridge | undefined
 export function getTemplateBridge(): TemplateBridge { return templateSingleton ??= createTemplateBridge(webview()) }
-export const templateBridge: TemplateBridge = { list: p => getTemplateBridge().list(p) }
+export const templateBridge: TemplateBridge = {
+  list: p => getTemplateBridge().list(p),
+  create: (p, o) => getTemplateBridge().create(p, o),
+  enable: (p, o) => getTemplateBridge().enable(p, o),
+  void: (p, o) => getTemplateBridge().void(p, o),
+  restore: (p, o) => getTemplateBridge().restore(p, o),
+  delete: (p, o) => getTemplateBridge().delete(p, o),
+}
 
 export interface DeliverableBridge {
   list(payload: DeliverableListPayload): Promise<DeliverableListResult>
@@ -943,6 +967,9 @@ export interface ReleaseBridge {
   createRevision(payload: ReleaseCreateRevisionPayload, options?: MutationOptions<ReleaseCreateRevisionPayload>): Promise<ReleaseCreateRevisionResult>
   getRevision(payload: ReleaseGetRevisionPayload): Promise<ReleaseGetRevisionResult>
   getPackage(payload: ReleaseGetPackagePayload): Promise<ReleaseGetPackageResult>
+  promote(payload: ReleasePromotePayload, options?: MutationOptions<ReleasePromotePayload>): Promise<ReleasePromoteResult>
+  getPromotion(payload: ReleaseGetPromotionPayload): Promise<ReleaseGetPromotionResult>
+  rollback(payload: ReleaseRollbackPayload, options?: MutationOptions<ReleaseRollbackPayload>): Promise<ReleaseRollbackResult>
 }
 export function createReleaseBridge(transport: WebViewTransport, defaultDeadlineMs = 15_000): ReleaseBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
@@ -951,6 +978,9 @@ export function createReleaseBridge(transport: WebViewTransport, defaultDeadline
     createRevision: (p, o) => core.request('release.createRevision', p, defaultDeadlineMs, o?.attempt),
     getRevision: p => core.request('release.getRevision', p),
     getPackage: p => core.request('release.getPackage', p),
+    promote: (p, o) => core.request('release.promote', p, 30_000, o?.attempt),
+    getPromotion: p => core.request('release.getPromotion', p),
+    rollback: (p, o) => core.request('release.rollback', p, 30_000, o?.attempt),
   }
 }
 let releaseSingleton: ReleaseBridge | undefined
@@ -960,6 +990,9 @@ export const releaseBridge: ReleaseBridge = {
   createRevision: (p, o) => getReleaseBridge().createRevision(p, o),
   getRevision: p => getReleaseBridge().getRevision(p),
   getPackage: p => getReleaseBridge().getPackage(p),
+  promote: (p, o) => getReleaseBridge().promote(p, o),
+  getPromotion: p => getReleaseBridge().getPromotion(p),
+  rollback: (p, o) => getReleaseBridge().rollback(p, o),
 }
 
 export interface SkillImportBridge {
@@ -1012,12 +1045,14 @@ export const registryBridge: RegistryBridge = {
 
 export interface ProjectAttachmentBridge {
   list(payload: ProjectAttachmentListPayload): Promise<ProjectAttachmentListResult>
+  get(payload: ProjectAttachmentGetPayload): Promise<ProjectAttachmentGetResult>
   ingest(payload: ProjectAttachmentIngestPayload): Promise<ProjectAttachmentIngestResult>
 }
 export function createProjectAttachmentBridge(transport: WebViewTransport, defaultDeadlineMs = 15_000): ProjectAttachmentBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
   return {
     list: p => core.request('projectAttachment.list', p),
+    get: p => core.request('projectAttachment.get', p, 30_000),
     ingest: p => core.request('projectAttachment.ingest', p, 30_000),
   }
 }
@@ -1025,6 +1060,7 @@ let projectAttachmentSingleton: ProjectAttachmentBridge | undefined
 export function getProjectAttachmentBridge(): ProjectAttachmentBridge { return projectAttachmentSingleton ??= createProjectAttachmentBridge(webview()) }
 export const projectAttachmentBridge: ProjectAttachmentBridge = {
   list: p => getProjectAttachmentBridge().list(p),
+  get: p => getProjectAttachmentBridge().get(p),
   ingest: p => getProjectAttachmentBridge().ingest(p),
 }
 
@@ -1037,7 +1073,7 @@ export function createTerminalBridge(transport:WebViewTransport,deadlineMs=8000)
 let terminalSingleton:TerminalBridge|undefined
 export function getTerminalBridge(){return terminalSingleton??=createTerminalBridge(webview())}
 
-export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),clear:()=>core.request('workspace.root.clear',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path})}}
+export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),clear:()=>core.request('workspace.root.clear',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path}),open:payload=>core.request('workspace.open',payload??{})}}
 
 // M9.5 Moon Companion TTS bridge — engine-routed synthesis (tts.voices /
 // tts.synthesize / tts.cancel / tts.refAudios). Voices and synthesis take

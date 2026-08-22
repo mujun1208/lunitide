@@ -236,6 +236,7 @@ type Engine struct {
 	deliverables           DeliverableStore
 	projectAttachments     ProjectAttachmentStore
 	projectAttachmentFiles attachmentapp.FileStorage
+	templateFiles          attachmentapp.FileStorage
 }
 type terminalOwner struct {
 	emit     EventEmitter
@@ -407,6 +408,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodProjectClose:                  handleProjectClose,
 	bridge.MethodProjectReopen:                 handleProjectReopen,
 	bridge.MethodProjectAdvanceStatus:          handleProjectAdvanceStatus,
+	bridge.MethodProjectAttachmentGet:          handleProjectAttachmentGet,
 	bridge.MethodProjectAttachmentIngest:       handleProjectAttachmentIngest,
 	bridge.MethodProjectAttachmentList:         handleProjectAttachmentList,
 	bridge.MethodSessionCreate:                 handleSessionCreate,
@@ -486,6 +488,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTemplateDelete:                handleTemplateDelete,
 	bridge.MethodTemplateEnable:                handleTemplateEnable,
 	bridge.MethodTemplateList:                  handleTemplateList,
+	bridge.MethodTemplateRestore:               handleTemplateRestore,
 	bridge.MethodTemplateVoid:                  handleTemplateVoid,
 	bridge.MethodWorkflowCaptureInput:          handleWorkflowCaptureInput,
 	bridge.MethodWorkflowCreateVersion:         handleWorkflowCreateVersion,

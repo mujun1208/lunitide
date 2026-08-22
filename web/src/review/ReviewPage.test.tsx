@@ -39,8 +39,9 @@ it('loads plans and reviews on plan selection with risk badge and expiry', async
   const select = await screen.findByRole('combobox')
   fireEvent.change(select, { target: { value: PLAN_ID } })
   await waitFor(() => expect(list).toHaveBeenCalledWith({ planId: PLAN_ID }))
-  // 操作类型出现在卡片头部与参数区两处
-  expect((await screen.findAllByText('plan.activate')).length).toBeGreaterThanOrEqual(2)
+  // 操作类型仍出现在技术参数区
+  expect(await screen.findByText('plan.activate')).toBeInTheDocument()
+  expect(screen.getByText('启动执行计划')).toBeInTheDocument()
   expect(screen.getByText('MEDIUM RISK')).toBeInTheDocument()
   expect(screen.getByText(/天后过期/)).toBeInTheDocument()
   expect(screen.getByText(/待我审批 1/)).toBeInTheDocument()
@@ -55,7 +56,7 @@ it('approves a pending review through the appraisal card', async () => {
   const select = await screen.findByRole('combobox')
   fireEvent.change(select, { target: { value: PLAN_ID } })
   await screen.findAllByText('plan.activate')
-  fireEvent.click(screen.getByRole('button', { name: '批准此操作' }))
+  fireEvent.click(screen.getByRole('button', { name: '批准启动计划' }))
   await waitFor(() => expect(approve).toHaveBeenCalledOnce())
   expect(approve.mock.calls[0][0]).toMatchObject({ reviewId: review.id })
 })

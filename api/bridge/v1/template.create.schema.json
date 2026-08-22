@@ -15,9 +15,10 @@
     "client": { "type": "string", "maxLength": 200 },
     "mimeType": { "type": "string", "maxLength": 128 },
     "fileName": { "type": "string", "maxLength": 260 },
-    "filePath": { "type": "string", "maxLength": 512 }
+    "filePath": { "type": "string", "maxLength": 512 },
+    "contentBase64": { "type": "string", "minLength": 1 }
   },
-  "required": ["name", "templateType", "description"],
+  "required": ["name", "templateType", "description", "fileName", "contentBase64"],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -44,7 +45,9 @@
       "name": "业务需求分析报告模板",
       "templateType": "document",
       "documentType": "业务需求分析报告",
-      "description": "标准 BRD 模板"
+      "description": "标准 BRD 模板",
+      "fileName": "brd-template.docx",
+      "contentBase64": "dGVzdA=="
     }],
     "negative": [{ "name": "" }]
   }

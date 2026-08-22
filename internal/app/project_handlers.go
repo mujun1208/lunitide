@@ -110,14 +110,18 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.create 参数无效", false)
 	}
-	created, err := e.projects.Create(ctx, r.IdempotencyKey, projectMutationActor, p, project.Project{
+	candidate := project.Project{
 		Name: name, Type: project.Type(p.Type),
 		Description: clampText(p.Description, 2000), Summary: clampText(p.Summary, 500),
 		Objective: clampText(p.Objective, 2000), Client: clampText(p.Client, 200),
 		ContractNo: clampText(p.ContractNo, 100), Amount: p.Amount, Budget: p.Budget,
 		PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: clampText(p.Remark, 2000),
 		Status: project.StatusCreated, OrgID: e.boundOrgID(ctx),
-	})
+	}
+	if err := project.ValidateCreateBusinessFields(candidate); err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", err.Error(), false)
+	}
+	created, err := e.projects.Create(ctx, r.IdempotencyKey, projectMutationActor, p, candidate)
 	if err != nil {
 		return projectFailure(r, err)
 	}

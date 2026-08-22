@@ -8,6 +8,9 @@ func (e *Engine) SetAssetStorage(store AssetTemplateStore) { e.assets = store }
 // SetDeliverableStorage wires the project deliverable store into the engine.
 func (e *Engine) SetDeliverableStorage(store DeliverableStore) { e.deliverables = store }
 
+// SetTemplateFileStorage wires org-level template file I/O.
+func (e *Engine) SetTemplateFileStorage(files attachmentapp.FileStorage) { e.templateFiles = files }
+
 // SetProjectAttachmentStorage wires project phase attachment storage and file I/O.
 func (e *Engine) SetProjectAttachmentStorage(store ProjectAttachmentStore, files attachmentapp.FileStorage) {
 	e.projectAttachments = store
