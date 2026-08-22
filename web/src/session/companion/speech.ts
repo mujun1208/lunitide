@@ -71,15 +71,15 @@ export interface CompanionSpeechHandle {
 }
 
 /** Commit after this much analyser silence once we already have text. */
-export const UTTERANCE_SILENCE_MS = 620
+export const UTTERANCE_SILENCE_MS = 520
 /** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
-export const UTTERANCE_STABLE_MS = 880
+export const UTTERANCE_STABLE_MS = 680
 /** Incomplete-looking phrases (mid-command tails) need a longer stable window. */
 export const INCOMPLETE_STABLE_MS = 1350
 /** Incomplete phrases also tolerate a longer trailing pause before commit. */
 export const INCOMPLETE_SILENCE_MS = 980
 /** Minimum time with text on screen before we accept a non-terminal commit. */
-export const MIN_UTTERANCE_MS = 480
+export const MIN_UTTERANCE_MS = 280
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 export const VOICE_PEAK = 0.09

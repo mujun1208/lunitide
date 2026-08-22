@@ -92,6 +92,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   /** P0-1: Incremented when a streaming chunk finishes, forcing the streaming
    *  useEffect to re-evaluate even if assistantText hasn't changed. */
   const [streamTick, setStreamTick] = useState(0)
+  const chatReadyRef = useRef(chatReady)
+  chatReadyRef.current = chatReady
+  const pendingSendRef = useRef<string | null>(null)
+  const onSendRef = useRef(onSend)
+  onSendRef.current = onSend
 
   // Mount: load settings, probe the TTS engine, unlock audio playback,
   // lock body scroll, remember the entry element for focus return.
@@ -114,71 +119,68 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     window.addEventListener('keydown', unlock, { once: true })
     const audioPoll = window.setInterval(() => setAudioLocked(getTtsAudioState() !== 'running'), 1200)
     let cancelled = false
-    const probeEngines: CompanionSettings['engine'][] =
-      stored.engine === 'ref' ? ['ref', 'edge', 'natural', 'sapi'] : stored.engine === 'edge' ? ['edge', 'natural', 'sapi'] : [stored.engine, 'edge', 'natural', 'sapi']
-    void (async () => {
-      for (const engine of [...new Set(probeEngines)]) {
-        if (cancelled) return
-        try {
-          const result = await getTtsBridge().voices({ engine })
+    const deferTtsWarmup = window.setTimeout(() => {
+      if (cancelled) return
+      const probeEngines: CompanionSettings['engine'][] =
+        stored.engine === 'ref' ? ['ref', 'edge', 'natural', 'sapi'] : stored.engine === 'edge' ? ['edge', 'natural', 'sapi'] : [stored.engine, 'edge', 'natural', 'sapi']
+      void (async () => {
+        for (const engine of [...new Set(probeEngines)]) {
           if (cancelled) return
-          if (result.voices.length) {
-            setVoices(result.voices)
-            setTtsAvailable(true)
-            if (engine !== stored.engine) setSettings(current => ({ ...current, engine }))
-            return
+          try {
+            const result = await getTtsBridge().voices({ engine })
+            if (cancelled) return
+            if (result.voices.length) {
+              setVoices(result.voices)
+              setTtsAvailable(true)
+              if (engine !== stored.engine) setSettings(current => ({ ...current, engine }))
+              return
+            }
+          } catch {
+            /* try the next engine so a cloud-voice outage still speaks */
           }
-        } catch {
-          /* try the next engine so a cloud-voice outage still speaks */
         }
-      }
-      if (!cancelled) {
-        setTtsAvailable(false)
-        setDegraded(true)
-      }
-    })()
-    // P0-3: Warm up GPT-SoVITS when using ref engine. First ask the
-    // backend to auto-host the model server (non-blocking spawn when
-    // 9880 is down), then send a short silent synthesis so the model
-    // finishes loading before the first real segment. Retries cover the
-    // 30-90s cold-load window; the result is discarded (not played).
-    if (stored.engine === 'ref' && stored.autoSpeak) {
-      const warmupVoiceId = stored.voiceId || ''
-      const warmup = async (attempt: number) => {
-        try {
-          await getTtsBridge().synthesize({
+        if (!cancelled) {
+          setTtsAvailable(false)
+          setDegraded(true)
+        }
+      })()
+      if (stored.engine === 'ref' && stored.autoSpeak) {
+        const warmupVoiceId = stored.voiceId || ''
+        const warmup = async (attempt: number) => {
+          try {
+            await getTtsBridge().synthesize({
+              text: '嗯',
+              voiceId: warmupVoiceId || undefined,
+              rate: stored.rate,
+              volume: 0,
+              engine: 'ref',
+              refEndpoint: stored.refEndpoint || undefined,
+            })
+          } catch (error) {
+            const starting =
+              error instanceof Error && (error as { code?: unknown }).code === 'M95-001' && /启动中/.test(error.message)
+            if (starting && attempt < 10 && !cancelled) setTimeout(() => void warmup(attempt + 1), 8000)
+          }
+        }
+        void getTtsBridge()
+          .ensureRefEngine({ refEndpoint: stored.refEndpoint || undefined })
+          .catch(() => {})
+        void warmup(0)
+      } else if (stored.autoSpeak) {
+        void Promise.resolve(
+          getTtsBridge().synthesize({
             text: '嗯',
-            voiceId: warmupVoiceId || undefined,
+            voiceId: stored.voiceId || undefined,
             rate: stored.rate,
-            volume: 0, // volume 0 so even if it somehow plays, it's silent
-            engine: 'ref',
-            refEndpoint: stored.refEndpoint || undefined,
-          })
-        } catch (error) {
-          // "语音引擎启动中" → the hosted server is still loading:
-          // keep waiting instead of giving up on the warm-up.
-          const starting =
-            error instanceof Error && (error as { code?: unknown }).code === 'M95-001' && /启动中/.test(error.message)
-          if (starting && attempt < 10 && !cancelled) setTimeout(() => void warmup(attempt + 1), 8000)
-        }
+            volume: 0,
+            engine: stored.engine,
+          }),
+        ).catch(() => {})
       }
-      void getTtsBridge()
-        .ensureRefEngine({ refEndpoint: stored.refEndpoint || undefined })
-        .catch(() => {})
-      void warmup(0)
-    } else if (stored.autoSpeak) {
-      void Promise.resolve(
-        getTtsBridge().synthesize({
-          text: '嗯',
-          voiceId: stored.voiceId || undefined,
-          rate: stored.rate,
-          volume: 0,
-          engine: stored.engine,
-        }),
-      ).catch(() => {})
-    }
+    }, 400)
     return () => {
       cancelled = true
+      window.clearTimeout(deferTtsWarmup)
       window.clearInterval(audioPoll)
       exitedRef.current = true
       autoLoopRef.current = false
@@ -617,12 +619,26 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       } else if (stateRef.current === 'idle') {
         machine.dispatch({ type: 'MIC_ACTIVATE' })
       }
+      if (!chatReadyRef.current) {
+        pendingSendRef.current = text
+        syncSpeechModes()
+        return
+      }
       machine.dispatch({ type: 'RECOGNIZED_FINAL' })
       onSend(text)
       syncSpeechModes()
     },
     [machine, onCancel, onSend, syncSpeechModes],
   )
+
+  useEffect(() => {
+    if (!chatReady || !pendingSendRef.current) return
+    const text = pendingSendRef.current
+    pendingSendRef.current = null
+    if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
+    machine.dispatch({ type: 'RECOGNIZED_FINAL' })
+    onSendRef.current(text)
+  }, [chatReady, machine])
 
   // P3-4 automation→TTS linkage: a run that finishes while the stage
   // sits idle is spoken like a proactive reply — re-using the
@@ -723,21 +739,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     return () => window.clearTimeout(timer)
   }, [machine.state, startListening, syncSpeechModes])
 
-  // Auto-start attempt when the chat is ready: with microphone
-  // permission already granted this opens the listening loop without
-  // any click; otherwise the catch shows the faint hint. The callback
-  // lives in a ref so the effect (and its timer) survive unrelated
-  // re-renders — e.g. the voices() probe resolving right after mount.
+  // Auto-start the microphone as soon as the stage mounts. Listening does
+  // not depend on chat/model readiness — only the LLM send is gated.
   const startListeningRef = useRef(startListening)
   startListeningRef.current = startListening
   useEffect(() => {
-    if (autoStartTriedRef.current || !chatReady) return
+    if (autoStartTriedRef.current) return
     autoStartTriedRef.current = true
     const timer = window.setTimeout(() => {
       if (!exitedRef.current && stateRef.current === 'idle') startListeningRef.current(true)
-    }, 150)
+    }, 0)
     return () => window.clearTimeout(timer)
-  }, [chatReady])
+  }, [])
 
   const toggleMic = useCallback(() => {
     unlockTtsAudio()
@@ -940,7 +953,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           {rounds.map((round, index) => (
             <SubtitleRow key={index} round={round} />
           ))}
-          {!rounds.length && !interimText && <p className="companion-subtitle-hint">开启麦克风后，你说的话和月汐的回答都会在这里播报。</p>}
+          {!rounds.length && !interimText && <p className="companion-subtitle-hint">进入后即可说话；你说的话和月汐的回答都会在这里显示。</p>}
         </div>
       </div>
       <button type="button" className="companion-exit" aria-label="退出月伴对话（Esc）" onClick={exit}>
