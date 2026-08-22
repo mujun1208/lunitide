@@ -272,7 +272,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const timer = window.setInterval(() => {
       const pending = assistantText.slice(spokenUpToRef.current)
       if (!pending.trim()) return
-      if (performance.now() - lastDeltaAtRef.current < 420) return
+      if (performance.now() - lastDeltaAtRef.current < 850) return
       const chunk = takeSpeakableChunk(pending, spokenUpToRef.current === 0, true)
       if (!chunk) return
       spokenUpToRef.current += chunk.consumed

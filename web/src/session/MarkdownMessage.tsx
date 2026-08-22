@@ -1,6 +1,8 @@
 import React from 'react'
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { MermaidBlock } from './markdown/MermaidBlock'
+import { RichCodeBlock, codeBlockLanguage } from './markdown/RichCodeBlock'
 
 const allowedElements = ['p','h1','h2','h3','h4','h5','h6','strong','em','del','ul','ol','li','table','thead','tbody','tr','th','td','blockquote','pre','code','a','br','hr','input']
 const firstCjkPunctuation = /[，。！？、；：]/u
@@ -13,9 +15,6 @@ type MarkdownNode = {
   position?: {start?: {offset?: number}; end?: {offset?: number}}
 }
 
-// GFM's bare URL autolinker can include adjacent CJK punctuation. Fix only
-// autolinks identified from their source span; explicit [labels](targets) are
-// deliberately never rewritten.
 const remarkTrimBareUrlPunctuation = () => (tree: MarkdownNode, file: {value?: unknown}) => {
   const source = typeof file.value === 'string' ? file.value : String(file.value ?? '')
   const visit = (node: MarkdownNode) => {
@@ -49,16 +48,32 @@ export const safeMarkdownUrl = (url: string): string => {
   }
 }
 
-export function MarkdownMessage({text}:{text:string}) {
+function markdownComponents(onCopy?: (value: string) => void | Promise<void>): Components {
+  return {
+    a: ({ children, href, ...props }) => {
+      if (!href) return <>{children}</>
+      return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+    },
+    input: ({ type, ...props }) => type === 'checkbox' ? <input {...props} type="checkbox" disabled readOnly /> : null,
+    pre: ({ children }) => <>{children}</>,
+    table: ({ children }) => <div className="md-table-wrap"><table className="md-table">{children}</table></div>,
+    code: ({ className, children, ...props }) => {
+      const lang = codeBlockLanguage(className)
+      const text = String(children).replace(/\n$/, '')
+      if (lang === 'mermaid') return <MermaidBlock source={text} onCopy={onCopy} />
+      if (lang) return <RichCodeBlock lang={lang} code={text} onCopy={onCopy} />
+      return <code className={className} {...props}>{children}</code>
+    },
+  }
+}
+
+export function MarkdownMessage({ text, onCopy }: { text: string; onCopy?: (value: string) => void | Promise<void> }) {
   return <ReactMarkdown
-    remarkPlugins={[remarkGfm,remarkTrimBareUrlPunctuation]}
+    remarkPlugins={[remarkGfm, remarkTrimBareUrlPunctuation]}
     allowedElements={allowedElements}
     unwrapDisallowed
     urlTransform={safeMarkdownUrl}
-    components={{a:({children,href,...props})=>{
-      if(!href)return <>{children}</>
-      return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-    },input:({type,...props})=>type === 'checkbox' ? <input {...props} type="checkbox" disabled readOnly/> : null}}
+    components={markdownComponents(onCopy)}
   >{text}</ReactMarkdown>
 }
 
@@ -81,32 +96,33 @@ export function formatTaskElapsed(ms: number): string {
 }
 
 export function ThinkingPanel({
-  text, open, onToggle, status, elapsed, skillCount, searchCount, streaming, children,
-}:{
-  text:string
-  open:boolean
-  onToggle:(open:boolean)=>void
-  status?:string
-  elapsed?:string
-  skillCount?:number
-  searchCount?:number
-  streaming?:boolean
-  children?:React.ReactNode
+  text, open, onToggle, status, elapsed, skillCount, searchCount, streaming, children, onCopy,
+}: {
+  text: string
+  open: boolean
+  onToggle: (open: boolean) => void
+  status?: string
+  elapsed?: string
+  skillCount?: number
+  searchCount?: number
+  streaming?: boolean
+  children?: React.ReactNode
+  onCopy?: (value: string) => void | Promise<void>
 }) {
-  if(!text&&!children)return null
+  if (!text && !children) return null
   const preview = compressThinking(text)
-  return <details className="thinking-panel" open={open} onToggle={event=>onToggle(event.currentTarget.open)}>
+  return <details className="thinking-panel" open={open} onToggle={event => onToggle(event.currentTarget.open)}>
     <summary>
       <span className="thinking-summary-label">任务过程</span>
-      {elapsed&&<span className="thinking-summary-chip">耗时 {elapsed}</span>}
-      {!!skillCount&&<span className="thinking-summary-chip">已调用 {skillCount} 次技能</span>}
-      {!!searchCount&&<span className="thinking-summary-chip">已搜索 {searchCount} 次网页</span>}
-      {status&&<span className="thinking-summary-status">{status}</span>}
+      {elapsed && <span className="thinking-summary-chip">耗时 {elapsed}</span>}
+      {!!skillCount && <span className="thinking-summary-chip">已调用 {skillCount} 次技能</span>}
+      {!!searchCount && <span className="thinking-summary-chip">已搜索 {searchCount} 次网页</span>}
+      {status && <span className="thinking-summary-status">{status}</span>}
     </summary>
     <div className="thinking-content">
-      {text&&<details className="thinking-reasoning-fold" open={false}>
-        <summary>思考{preview&&<em>{streaming?preview:compressThinking(text,48)}</em>}</summary>
-        <div className="thinking-reasoning"><MarkdownMessage text={text}/></div>
+      {text && <details className="thinking-reasoning-fold" open={false}>
+        <summary>思考{preview && <em>{streaming ? preview : compressThinking(text, 48)}</em>}</summary>
+        <div className="thinking-reasoning"><MarkdownMessage text={text} onCopy={onCopy} /></div>
       </details>}
       {children}
     </div>

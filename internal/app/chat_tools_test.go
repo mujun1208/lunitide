@@ -271,6 +271,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(bundledWorkflowInjection(), "desktop.open") || !strings.Contains(bundledWorkflowInjection(), "闭环") {
 		t.Fatal("desktop open and closed-loop workflow missing")
 	}
+	if !strings.Contains(chatRichMarkdownInstruction(), "mermaid") || !strings.Contains(chatRichMarkdownInstruction(), "powershell") {
+		t.Fatal("rich markdown instruction missing")
+	}
 }
 
 func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {

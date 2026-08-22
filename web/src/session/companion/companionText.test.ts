@@ -4,7 +4,7 @@
 // with the 500-char comma re-split and the 20-segment truncation
 // notice.
 import { describe, expect, test } from 'vitest'
-import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, cleanUserTranscript, looksLikePlaybackEcho, prepareSpeech, segmentForSpeech, takeSpeakableChunk } from './companionText'
+import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, cleanUserTranscript, looksLikePlaybackEcho, looksIncompleteUtterance, mergeShortSegments, prepareSpeech, segmentForSpeech, takeSpeakableChunk } from './companionText'
 
 describe('cleanForSpeech', () => {
   test('replaces code fences and inline code with the spoken notice', () => {
@@ -59,6 +59,10 @@ describe('prepareSpeech', () => {
     const segments = prepareSpeech('```\nsecret()\n```\n好的。')
     expect(segments).toEqual(['代码已省略', '好的。'])
   })
+
+  test('merges short acknowledgement segments for smoother playback', () => {
+    expect(prepareSpeech('好的。然后我再给你建议。')).toEqual(['好的。然后我再给你建议。'])
+  })
 })
 
 describe('takeSpeakableChunk', () => {
@@ -79,9 +83,9 @@ describe('takeSpeakableChunk', () => {
 
   test('keeps later chunks as whole sentences so playback is not chopped', () => {
     expect(takeSpeakableChunk('然后我再', false)).toBeNull()
-    expect(takeSpeakableChunk('然后我再给你建议。最后总结。', false)).toEqual({
-      text: '然后我再给你建议。',
-      consumed: '然后我再给你建议。'.length,
+    expect(takeSpeakableChunk('然后我再给你一些建议。最后总结。', false)).toEqual({
+      text: '然后我再给你一些建议。',
+      consumed: '然后我再给你一些建议。'.length,
     })
   })
 
@@ -90,6 +94,20 @@ describe('takeSpeakableChunk', () => {
       text: '然后我再',
       consumed: '然后我再'.length,
     })
+  })
+})
+
+describe('looksIncompleteUtterance', () => {
+  test('flags mid-command tails and short fragments', () => {
+    expect(looksIncompleteUtterance('帮我在桌面儿')).toBe(true)
+    expect(looksIncompleteUtterance('帮我打开桌面。')).toBe(false)
+    expect(looksIncompleteUtterance('好的')).toBe(true)
+  })
+})
+
+describe('mergeShortSegments', () => {
+  test('merges tiny fragments into the next clause', () => {
+    expect(mergeShortSegments(['好的。', '然后我再给你建议。'])).toEqual(['好的。然后我再给你建议。'])
   })
 })
 

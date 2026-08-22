@@ -153,7 +153,7 @@ export class TtsPlayer {
     const source = ctx.createBufferSource()
     source.buffer = playable
     source.connect(this.gainNode)
-    const overlap = this.timelineEnd > ctx.currentTime + 0.08 ? 0.028 : 0
+    const overlap = this.timelineEnd > ctx.currentTime + 0.08 ? 0.052 : 0
     const startAt = this.timelineEnd > ctx.currentTime ? this.timelineEnd - overlap : ctx.currentTime
     this.timelineEnd = startAt + playable.duration
     this.activeSources.add(source)

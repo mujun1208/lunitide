@@ -6,6 +6,7 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
+import { looksIncompleteUtterance } from './companionText'
 import { unlockTtsAudio } from './ttsPlayer'
 
 type SpeechRecognitionEventLike = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
@@ -70,9 +71,15 @@ export interface CompanionSpeechHandle {
 }
 
 /** Commit after this much analyser silence once we already have text. */
-export const UTTERANCE_SILENCE_MS = 240
+export const UTTERANCE_SILENCE_MS = 620
 /** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
-export const UTTERANCE_STABLE_MS = 320
+export const UTTERANCE_STABLE_MS = 780
+/** Incomplete-looking phrases (mid-command tails) need a longer stable window. */
+export const INCOMPLETE_STABLE_MS = 1350
+/** Incomplete phrases also tolerate a longer trailing pause before commit. */
+export const INCOMPLETE_SILENCE_MS = 980
+/** Minimum time with text on screen before we accept a non-terminal commit. */
+export const MIN_UTTERANCE_MS = 480
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
 export const VOICE_PEAK = 0.09
@@ -83,10 +90,10 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
   if (environment === 'noisy') {
     return {
       voicePeak: 0.14,
-      utteranceSilenceMs: 380,
-      utteranceStableMs: 460,
+      utteranceSilenceMs: 520,
+      utteranceStableMs: 640,
       bargeInPeakDelta: 0.06,
-      minVoiceHoldMs: 220,
+      minVoiceHoldMs: 280,
     }
   }
   return {
@@ -94,7 +101,7 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
     utteranceSilenceMs: UTTERANCE_SILENCE_MS,
     utteranceStableMs: UTTERANCE_STABLE_MS,
     bargeInPeakDelta: 0.04,
-    minVoiceHoldMs: 0,
+    minVoiceHoldMs: 360,
   }
 }
 /** Sustained voice before a barge-in fires. Thinking only; playback uses mute. */
@@ -114,6 +121,20 @@ export function shouldCommitUtterance(hasText: boolean, silentForMs: number, sil
 
 export function shouldCommitStable(hasText: boolean, stableForMs: number, stableMs = UTTERANCE_STABLE_MS): boolean {
   return hasText && stableForMs >= stableMs
+}
+
+export function endpointingForText(text: string, profile: SpeechProfile): { stableMs: number; silenceMs: number } {
+  if (looksIncompleteUtterance(text)) {
+    return { stableMs: INCOMPLETE_STABLE_MS, silenceMs: INCOMPLETE_SILENCE_MS }
+  }
+  return { stableMs: profile.utteranceStableMs, silenceMs: profile.utteranceSilenceMs }
+}
+
+export function shouldDeferCommit(text: string, textSinceMs: number): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return true
+  if (/[。？！?!…]$/.test(trimmed)) return false
+  return textSinceMs < MIN_UTTERANCE_MS
 }
 
 export function shouldBargeIn(hasText: boolean, voiceForMs: number, holdMs = BARGE_IN_HOLD_MS): boolean {
@@ -187,6 +208,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     let interim = ''
     let lastVoiceAt = performance.now()
     let lastTextChangeAt = performance.now()
+    let firstTextAt = 0
     let utteranceVoiceSince = 0
     const assembled = () => {
       const f = finals.trim()
@@ -202,6 +224,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       interim = ''
       bargeVoiceSince = 0
       utteranceVoiceSince = 0
+      firstTextAt = 0
       lastTextChangeAt = performance.now()
       callbacks.onInterim?.('')
       recRestarting = true
@@ -253,19 +276,22 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         }
       } else bargeVoiceSince = 0
     }
-    const tryCommitFromSilence = (voiceAt: number, silenceMs = profile.utteranceSilenceMs) => {
+    const tryCommitFromSilence = (voiceAt: number) => {
       if (finished || commitPaused || recognitionHeld()) return
-      const text = assembled()
+      const text = assembled().trim()
       if (!text) return
       if (profile.minVoiceHoldMs > 0) {
         if (!utteranceVoiceSince) return
         if (performance.now() - utteranceVoiceSince < profile.minVoiceHoldMs) return
       }
+      const textSince = firstTextAt ? performance.now() - firstTextAt : 0
+      if (shouldDeferCommit(text, textSince)) return
+      const { stableMs, silenceMs } = endpointingForText(text, profile)
       const silentFor = performance.now() - voiceAt
       const stableFor = performance.now() - lastTextChangeAt
       // Stable transcript is enough: Windows Speech Recognition keeps
       // re-emitting the same interim, which used to look like "still talking".
-      if (shouldCommitStable(true, stableFor, profile.utteranceStableMs)) {
+      if (shouldCommitStable(true, stableFor, stableMs)) {
         commit(text)
         return
       }
@@ -322,8 +348,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       finals = finalTranscript
       interim = interimTranscript
       const now = performance.now()
-      const next = assembled()
-      if (next !== prev) lastTextChangeAt = now
+      const next = assembled().trim()
+      if (next !== prev.trim()) {
+        lastTextChangeAt = now
+        if (!firstTextAt) firstTextAt = now
+      }
       // Do not bump lastVoiceAt here. Recognition events are not energy;
       // Windows will keep the same interim alive for tens of seconds.
       if (interimTranscript) {
@@ -333,12 +362,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         }
       }
       window.clearTimeout(recSilenceTimer)
-      if (finalTranscript.trim() && !commitPaused) {
-        commit(next.trim())
-        return
-      }
+      // Windows marks phrase-level finals while the user may still be
+      // mid-sentence — never commit on isFinal alone.
       if (next) {
-        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), profile.utteranceStableMs)
+        const { stableMs } = endpointingForText(next, profile)
+        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), stableMs)
       }
       tryCommitFromSilence(lastVoiceAt)
     }
@@ -367,7 +395,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     rec.onend = () => {
       if (finished) return
       if (recRestarting || recognitionHeld()) return
-      const text = assembled()
+      const text = assembled().trim()
       if (text) {
         commit(text)
         return
@@ -403,6 +431,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         finals = ''
         interim = ''
         bargeVoiceSince = 0
+        firstTextAt = 0
         lastTextChangeAt = performance.now()
         callbacks.onInterim?.('')
         if (active) {
@@ -427,6 +456,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (paused) {
           finals = ''
           interim = ''
+          firstTextAt = 0
           lastTextChangeAt = performance.now()
           callbacks.onInterim?.('')
         }

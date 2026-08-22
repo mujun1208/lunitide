@@ -126,7 +126,7 @@ import {
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
   type ConversationsRootGetResult,type ConversationsRootSelectResult,type ConversationsRootSetPayload,type ConversationsRootSetResult,
-  type SessionFolderGetPayload,type SessionFolderGetResult,type SessionFolderOpenPayload,type SessionFolderOpenResult,
+  type SessionFolderGetPayload,type SessionFolderGetResult,type SessionFolderListPayload,type SessionFolderListResult,type SessionFolderOpenPayload,type SessionFolderOpenResult,
   type CollabGateStatusPayload,type CollabGateStatusResult,type CollabGateEvaluatePayload,type CollabGateEvaluateResult,type CollabGateConfirmPayload,type CollabGateConfirmResult,
   type DiagnosticsExportPayload,type DiagnosticsExportResult,type SystemHealthResult,
   type ToolsCommandPolicyGetResult,type ToolsCommandPolicySetPayload,type ToolsCommandPolicySetResult,
@@ -267,7 +267,9 @@ export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),cre
 
 const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 const dtoTextValid=(v:unknown)=>typeof v==='string'&&v.length>=1&&v.length<=65536
-const isMessage=(v:unknown,sessionId:string)=>isObj(v)&&exact(v,['id','sessionId','role','status','sequence','text','createdAt'])&&isULID(v.id)&&v.sessionId===sessionId&&(v.role==='user'||v.role==='assistant'||v.role==='tool')&&v.status==='completed'&&Number.isSafeInteger(v.sequence)&&Number(v.sequence)>0&&dtoTextValid(v.text)&&isTime(v.createdAt)
+const messageArtifactPathValid=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
+const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&(v.kind==='html'||v.kind==='xlsx'||v.kind==='docx'||v.kind==='pptx'||v.kind==='pdf')
+const isMessage=(v:unknown,sessionId:string)=>isObj(v)&&exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts'])&&isULID(v.id)&&v.sessionId===sessionId&&(v.role==='user'||v.role==='assistant'||v.role==='tool')&&v.status==='completed'&&Number.isSafeInteger(v.sequence)&&Number(v.sequence)>0&&dtoTextValid(v.text)&&isTime(v.createdAt)&&(!('artifacts'in v)||(Array.isArray(v.artifacts)&&v.artifacts.every(isMessageArtifact)))
 export function createMessageBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):MessageBridge{
  type Waiting={method:'message.append'|'message.list'|'message.rewind';sessionId:string;direction:'forward'|'backward';cursor?:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}
  const pending=new Map<string,Waiting>(),cursors=new Map<string,{sessionId:string;direction:'forward'|'backward';snapshot:number}>()
@@ -310,15 +312,15 @@ export function getSubagentBridge():SubagentBridge{return subagentSingleton??=cr
 export const subagentBridge:SubagentBridge={spawn:(p,o)=>{try{return getSubagentBridge().spawn(p,o)}catch(error){return Promise.reject(error)}},join:p=>{try{return getSubagentBridge().join(p)}catch(error){return Promise.reject(error)}},tree:p=>{try{return getSubagentBridge().tree(p)}catch(error){return Promise.reject(error)}}}
 
 export interface ConversationsBridge{get():Promise<ConversationsRootGetResult>;select():Promise<ConversationsRootSelectResult>;set(payload:ConversationsRootSetPayload):Promise<ConversationsRootSetResult>}
-export interface SessionFolderBridge{get(payload:SessionFolderGetPayload):Promise<SessionFolderGetResult>;open(payload:SessionFolderOpenPayload):Promise<SessionFolderOpenResult>}
+export interface SessionFolderBridge{get(payload:SessionFolderGetPayload):Promise<SessionFolderGetResult>;list(payload:SessionFolderListPayload):Promise<SessionFolderListResult>;open(payload:SessionFolderOpenPayload):Promise<SessionFolderOpenResult>}
 export function createConversationsBridge(transport:WebViewTransport=webview()):ConversationsBridge{const core=createSimpleBridge(transport,{},120_000);return{get:()=>core.request('conversations.root.get',{}),select:()=>core.request('conversations.root.select',{}),set:p=>core.request('conversations.root.set',p,120_000)}}
-export function createSessionFolderBridge(transport:WebViewTransport=webview()):SessionFolderBridge{const core=createSimpleBridge(transport,{},8_000);return{get:p=>core.request('session.folder.get',p),open:p=>core.request('session.folder.open',p)}}
+export function createSessionFolderBridge(transport:WebViewTransport=webview()):SessionFolderBridge{const core=createSimpleBridge(transport,{},8_000);return{get:p=>core.request('session.folder.get',p),list:p=>core.request('session.folder.list',p),open:p=>core.request('session.folder.open',p)}}
 let conversationsSingleton:ConversationsBridge|undefined
 let sessionFolderSingleton:SessionFolderBridge|undefined
 export function getConversationsBridge():ConversationsBridge{return conversationsSingleton??=createConversationsBridge()}
 export function getSessionFolderBridge():SessionFolderBridge{return sessionFolderSingleton??=createSessionFolderBridge()}
 export const conversationsBridge:ConversationsBridge={get:()=>getConversationsBridge().get(),select:()=>getConversationsBridge().select(),set:p=>getConversationsBridge().set(p)}
-export const sessionFolderBridge:SessionFolderBridge={get:p=>getSessionFolderBridge().get(p),open:p=>getSessionFolderBridge().open(p)}
+export const sessionFolderBridge:SessionFolderBridge={get:p=>getSessionFolderBridge().get(p),list:p=>getSessionFolderBridge().list(p),open:p=>getSessionFolderBridge().open(p)}
 
 // M8 collab gate bridge — capability status / evidence evaluation /
 // single-use decision-token confirm (FR-17, GT-01~GT-06).

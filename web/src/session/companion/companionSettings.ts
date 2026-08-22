@@ -27,12 +27,12 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 4
+const SETTINGS_REV = 5
 
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
   autoSpeak: true,
-  wakeWord: true,
+  wakeWord: false,
   fullDuplex: true,
   bargeIn: true,
   speechEnvironment: 'normal',
@@ -56,10 +56,14 @@ export function loadCompanionSettings(): CompanionSettings {
       engine = 'edge'
       if (voiceId.startsWith('HKEY_')) voiceId = ''
     }
+    let wakeWord = typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord
+    if (rev < SETTINGS_REV) {
+      wakeWord = false
+    }
     const next: CompanionSettings = {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
       autoSpeak: typeof parsed.autoSpeak === 'boolean' ? parsed.autoSpeak : fallback.autoSpeak,
-      wakeWord: typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord,
+      wakeWord,
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
       bargeIn: typeof parsed.bargeIn === 'boolean' ? parsed.bargeIn : fallback.bargeIn,
       speechEnvironment: parsed.speechEnvironment === 'noisy' ? 'noisy' : fallback.speechEnvironment,

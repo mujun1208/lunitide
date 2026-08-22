@@ -556,6 +556,15 @@ func (sapiEngine) Voices() ([]Voice, error) {
 	return voices, nil
 }
 
+// NaturalVoices lists only mirrored OneCore neural voices (engine=natural).
+func (sapiEngine) NaturalVoices() ([]Voice, error) {
+	voices := oneCoreVoices()
+	if len(voices) == 0 {
+		return nil, fmt.Errorf("%w: no natural voices enumerated", ErrEngineUnavailable)
+	}
+	return voices, nil
+}
+
 // desktopVoices enumerates the voices classic SAPI exposes (the
 // HKLM Speech\Tokens tree: Desktop 11.0 voices etc.).
 func desktopVoices() ([]Voice, error) {
