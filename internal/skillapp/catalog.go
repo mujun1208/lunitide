@@ -22,6 +22,27 @@ var skillCreatorSkillMD []byte
 //go:embed bundled/expert-manager/SKILL.md
 var expertManagerSkillMD []byte
 
+//go:embed bundled/find-skills/SKILL.md
+var findSkillsSkillMD []byte
+
+//go:embed bundled/brainstorming/SKILL.md
+var brainstormingSkillMD []byte
+
+//go:embed bundled/pm-skill/SKILL.md
+var pmSkillSkillMD []byte
+
+//go:embed bundled/super-coders/SKILL.md
+var superCodersSkillMD []byte
+
+//go:embed bundled/frontend-design/SKILL.md
+var frontendDesignSkillMD []byte
+
+//go:embed bundled/ui-components/SKILL.md
+var uiComponentsSkillMD []byte
+
+//go:embed bundled/design-system/SKILL.md
+var designSystemSkillMD []byte
+
 // ErrTemplateUnknown answers an install request naming a catalog id that
 // does not exist; ErrTemplateInstalled answers a name+version collision.
 var (
@@ -123,6 +144,60 @@ func pluginCreatorManifest() map[string]any {
 	}
 }
 
+func bundledManifest(raw []byte, triggers []string, lunitide string) map[string]any {
+	body := stripYAMLFrontmatter(string(raw))
+	prompt := strings.TrimSpace(body) + lunitide
+	if len(prompt) > 60000 {
+		prompt = prompt[:60000]
+	}
+	return map[string]any{
+		"triggers": triggers,
+		"prompt":   prompt,
+	}
+}
+
+func findSkillsManifest() map[string]any {
+	return bundledManifest(findSkillsSkillMD, []string{
+		"find skill", "find-skills", "找技能", "有没有技能", "安装技能", "发现技能", "skill 推荐",
+	}, "\n\n--- Lunitide 集成 ---\n优先 skill.catalog.list 浏览内置市场；匹配时用 skill.install({ templateId })，draft 需 skill.publish。\n用 skill.list 确认已发布。用中文向用户说明推荐与安装结果。")
+}
+
+func brainstormingManifest() map[string]any {
+	return bundledManifest(brainstormingSkillMD, []string{
+		"brainstorm", "brainstorming", "头脑风暴", "先想清楚", "产品方向", "需求发散", "从0到1",
+	}, "\n\n--- Lunitide 集成 ---\n设计定稿前不要写实现代码。设计文档写入工作区 docs/plans/。用中文与用户逐段确认。")
+}
+
+func pmSkillManifest() map[string]any {
+	return bundledManifest(pmSkillSkillMD, []string{
+		"pm skill", "pm-skill", "产品经理", "写PRD", "PRD", "用户画像", "商业模式", "市场调研", "产品方案",
+	}, "\n\n--- Lunitide 集成 ---\nPRD 与调研产物写入工作区 markdown。需要联网调研时用 web.search 并附来源。用中文输出。")
+}
+
+func superCodersManifest() map[string]any {
+	return bundledManifest(superCodersSkillMD, []string{
+		"super coders", "super-coders", "拆任务", "驱动实现", "写代码", "开发任务", "垂直切片", "按票实现",
+	}, "\n\n--- Lunitide 集成 ---\n用 workspace 与 command.run（白名单）实现；每切片验证后再继续。可 skill.invoke code-reviewer。用中文汇报进度。")
+}
+
+func frontendDesignManifest() map[string]any {
+	return bundledManifest(frontendDesignSkillMD, []string{
+		"frontend design", "frontend-design", "前端设计", "页面美化", "UI 质感", "landing page", "dashboard UI",
+	}, "\n\n--- Lunitide 集成 ---\n先读项目现有样式与组件库；实现用 workspace 工具。与 design-system、ui-components 技能配合。用中文说明设计方向。")
+}
+
+func uiComponentsManifest() map[string]any {
+	return bundledManifest(uiComponentsSkillMD, []string{
+		"ui components", "ui-components", "shadcn", "组件库", "高质量组件", "参考组件", "radix", "tailwind 组件",
+	}, "\n\n--- Lunitide 集成 ---\n优先复用项目已有组件；新组件遵循 shadcn/Radix 模式。实现写入工作区。用中文说明组件选型。")
+}
+
+func designSystemManifest() map[string]any {
+	return bundledManifest(designSystemSkillMD, []string{
+		"design system", "design-system", "设计系统", "风格统一", "设计规范", "视觉一致", "design tokens",
+	}, "\n\n--- Lunitide 集成 ---\n审计现有 CSS/Tailwind 变量；token 与规范写入工作区文档。重构时小步提交。用中文输出检查清单。")
+}
+
 // catalogTemplates is the frozen local market list. Entry points point at
 // the builtin pipeline namespace; manifests keep the trigger keywords the
 // matcher scores and the working agreement the model sees on invoke.
@@ -135,6 +210,69 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint:  "builtin://skill-creator",
 		Manifest:    skillCreatorManifest(),
 		Featured:    true, Bundled: true, Source: "月汐",
+	},
+	{
+		ID: "find-skills", Name: "find-skills", DisplayName: "find-skills",
+		Description: "Discover and install agent skills from the built-in market when users need capabilities or ask which skill to use.",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
+		EntryPoint:  "builtin://find-skills",
+		Manifest:    findSkillsManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "brainstorming", Name: "brainstorming", DisplayName: "brainstorming",
+		Description: "Explore user intent and design before implementation. Use before creative work, new features, or product direction changes.",
+		Category:    "产品设计", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://brainstorming",
+		Manifest:    brainstormingManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "pm-skill", Name: "pm-skill", DisplayName: "pm-skill",
+		Description: "Product manager workflow: PRD, personas, business model, market research, and delivery checklist.",
+		Category:    "产品设计", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
+		EntryPoint:  "builtin://pm-skill",
+		Manifest:    pmSkillManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "super-coders", Name: "super-coders", DisplayName: "super-coders",
+		Description: "Split specs into vertical-slice dev tasks and drive implementation with tests and review.",
+		Category:    "产品设计", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		EntryPoint:  "builtin://super-coders",
+		Manifest:    superCodersManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "frontend-design", Name: "frontend-design", DisplayName: "frontend-design",
+		Description: "Create distinctive, production-grade frontend interfaces that avoid generic AI aesthetics.",
+		Category:    "审美设计", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://frontend-design",
+		Manifest:    frontendDesignManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "ui-components", Name: "ui-components", DisplayName: "ui-components",
+		Description: "High-quality UI component patterns with shadcn/ui, Radix, and Tailwind for polished pages and apps.",
+		Category:    "审美设计", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://ui-components",
+		Manifest:    uiComponentsManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "design-system", Name: "design-system", DisplayName: "design-system",
+		Description: "Keep visual language consistent — tokens, typography, spacing, and shared components across pages.",
+		Category:    "审美设计", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://design-system",
+		Manifest:    designSystemManifest(),
+		Featured:    true, Bundled: true, Source: "Codex 推荐",
 	},
 	{
 		ID: "expert-manager", Name: "expert-manager", DisplayName: "expert-manager",
