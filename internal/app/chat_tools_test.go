@@ -268,6 +268,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(bundledWorkflowInjection(), "html.gen") || strings.Contains(bundledWorkflowInjection(), "桌面 HTML 小游戏：workspace.write") {
 		t.Fatal("desktop game workflow must route through html.gen")
 	}
+	if !strings.Contains(bundledWorkflowInjection(), "media.play") {
+		t.Fatal("media.play workflow missing")
+	}
 	if !strings.Contains(bundledWorkflowInjection(), "desktop.open") || !strings.Contains(bundledWorkflowInjection(), "闭环") {
 		t.Fatal("desktop open and closed-loop workflow missing")
 	}
@@ -277,15 +280,21 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 }
 
 func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
-	found := false
+	foundBrowser := false
+	foundMedia := false
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "browser.act" {
-			found = true
-			break
+			foundBrowser = true
+		}
+		if d.Name == "media.play" {
+			foundMedia = true
 		}
 	}
-	if !found {
+	if !foundBrowser {
 		t.Fatal("browser.act missing from engine tools")
+	}
+	if !foundMedia {
+		t.Fatal("media.play missing from engine tools")
 	}
 	for _, d := range readOnlyEngineToolDefinitions() {
 		if d.Name == "browser.act" {

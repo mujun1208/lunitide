@@ -134,7 +134,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// sentences stay short so synthesis overlaps playback. Tools stay
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 播歌/播放：打开窗口不算完成；须继续 command.run、cc.keyboard_shortcut（media play/空格）或 cc.mouse_click 点播放，直到真正开始播放或明确告知需用户手动点播放\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或 browser.act\n- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐）；不要用 command.run 猜路径\n- 播歌/播放：若本会话已打开音乐软件（见下方会话上下文），必须用 media.play（target=foreground，query=歌名/歌手）在该软件内搜索并播放；禁止改用网页或 netease/qqmusic。用户一句里同时要求打开软件并播放时，先 desktop.open 再 media.play target=foreground。仅当用户明确要网页版或未打开桌面音乐软件时，才用 target=browser|netease|qqmusic\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*（含 media_play 快捷键）\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -152,6 +152,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		} else {
 			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
+			if p.Companion {
+				instruction += " Tell the user to enable 全盘完全访问 in Settings → Command policy so desktop.open and media.play can run."
+			}
 		}
 	}
 	subagentPolicy := parseSubagentChatPolicy(p.SubagentPolicy)
@@ -201,7 +204,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}()
 	prep.Wait()
 	if p.Companion {
-		wantsTools = companionWantsTools(turnText) || catalog != ""
+		instruction += e.companionSessionInjection(p.SessionID, turnText)
+		wantsTools = e.companionWantsToolsForTurn(p.SessionID, turnText) || catalog != ""
 	}
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
@@ -406,9 +410,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		applyChatMemoryPack(&envelope, memPack)
 
 		// Assemble the context envelope with full priority ordering and
-		// selection trace (ADR-005 §3). Companion starts chat.start before
-		// message.append lands, so a brand-new 月伴 session is often still
-		// empty — never fail the spoken turn closed.
+		// selection trace (ADR-005 §3). Companion now awaits message.append
+		// before chat.start, but the assembly fallback remains for empty sessions.
 		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, p.SessionID, envelope)
 		assembled := assembleErr == nil
 		if assembleErr != nil {
@@ -587,6 +590,7 @@ func companionWantsTools(text string) bool {
 		"查一下", "查询", "查火车", "查航班", "火车票", "航班",
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
+		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水",
 		"search", "open http", "play song", "install",
 	} {
 		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
@@ -882,6 +886,8 @@ func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefi
 			defs[i].Description += "; desktop=true writes a double-clickable file on the real Desktop (full-disk full-access is enabled)"
 		case "desktop.open":
 			defs[i].Description += "; full-disk full-access is enabled — opens one real Desktop file with the default app"
+		case "media.play":
+			defs[i].Description += "; full-disk full-access is enabled — foreground target types into the active music app; browser targets open music URLs and send media keys"
 		}
 	}
 	return defs
@@ -923,9 +929,10 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Write it into the session workspace. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
-		{Name: "desktop.open", Description: "Open exactly one file on the real Desktop whose name best matches the given query (for example 协议 → 协议.docx). Never open extra unrelated files. If several files tie, return the list and do not open any.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename fragment the user said, without requiring the extension"}},"required":["name"],"additionalProperties":false}`)},
+		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, or shortcut whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 → desktop shortcut or Start Menu app). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
+		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground searches in an already-open desktop music app via keyboard (needs cc.*). target=browser|netease|qqmusic opens a search URL then sends the Windows media-play key. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=search in open app; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
-		{Name: "browser.act", Description: "Restricted public-page browser: op=navigate|read fetches through the SSRF-pinned channel; click/type/snapshot tell you to enable Playwright MCP or the workspace browser tab", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","read","click","type","snapshot"]},"url":{"type":"string","description":"required for navigate; read reuses the last navigated URL when omitted"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "browser.act", Description: "Browser automation: navigate/read fetch public pages; click/type/snapshot route to bundled Playwright MCP (auto-installed on first use). After navigate to a music page, click with empty selector falls back to media.play.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","read","click","type","snapshot"]},"url":{"type":"string","description":"required for navigate; read reuses the last navigated URL when omitted"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["op"],"additionalProperties":false}`)},
 	}
 }
 
@@ -969,7 +976,7 @@ func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
 		{Name: "cc.mouse_move", Description: "Move the mouse cursor to absolute screen pixel coordinates", Schema: []byte(`{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},"required":["x","y"],"additionalProperties":false}`)},
 		{Name: "cc.mouse_click", Description: "Click the mouse at the current cursor position", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"}},"additionalProperties":false}`)},
 		{Name: "cc.keyboard_type", Description: "Type literal text through synthetic keyboard input (no control characters)", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096}},"required":["text"],"additionalProperties":false}`)},
-		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s); system-reserved combos are refused", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}}},"required":["keys"],"additionalProperties":false}`)},
+		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s or media_play); system-reserved combos are refused", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}}},"required":["keys"],"additionalProperties":false}`)},
 		{Name: "cc.screen_capture", Description: "Capture the screen as a PNG image saved into the session workspace", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
 		{Name: "cc.get_active_window", Description: "Answer the foreground window title and process name", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
 	}
@@ -1304,15 +1311,28 @@ func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, raw
 
 func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, session string, raw json.RawMessage) (toolruntime.Result, error) {
 	var a struct {
-		Op  string `json:"op"`
-		URL string `json:"url"`
+		Op       string `json:"op"`
+		URL      string `json:"url"`
+		Selector string `json:"selector"`
+		Text     string `json:"text"`
 	}
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
 		return toolruntime.Result{}, errors.New("browser.act needs op")
 	}
 	switch a.Op {
 	case "click", "type", "snapshot":
-		return toolruntime.Result{Output: "交互式点击、输入或截图请在设置启用 Playwright MCP，或用工作区「浏览器」标签打开独立窗口。内置 browser.act 只提供公开页 navigate/read。"}, nil
+		if out, err := e.invokeBrowserActViaPlaywright(ctx, a.Op, a.Selector, a.Text); err != nil {
+			return toolruntime.Result{}, err
+		} else if out.Output != "" {
+			return out, nil
+		}
+		if a.Op == "click" && strings.TrimSpace(a.Selector) == "" && e.tools != nil && e.fullDiskChat(mode) {
+			res, err := e.executeUserTool(ctx, mode, session, "media.play", json.RawMessage(`{"action":"play"}`))
+			if err == nil {
+				return res, nil
+			}
+		}
+		return toolruntime.Result{Output: "交互式浏览器自动化正在初始化 Playwright MCP（首次会下载 Chromium，约 1–2 分钟）。若仍失败，请用 media.play 播放音乐，或在设置 → 插件/MCP 检查 Playwright 状态。"}, nil
 	case "navigate", "read":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {
@@ -1926,9 +1946,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 							_ = send(bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: chunk}})
 						}
-						return e.executeUserToolStreaming(op, mode, sessionID, call.Name, call.Arguments, progress)
+						return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, progress)
 					}
-					return e.executeUserTool(op, mode, sessionID, call.Name, call.Arguments)
+					return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, nil)
 				}()
 				if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
 					if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
@@ -1950,6 +1970,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				summary = clipToolSummary(summary)
 				if toolErr == nil {
 					completedDigests[digest] = summary
+					if state.companion {
+						e.noteCompanionToolSuccess(sessionID, call.Name, call.Arguments, summary)
+					}
 				}
 				toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
 				if toolErr == nil && r.Artifact != nil {
@@ -2089,7 +2112,7 @@ func hasActingComputerTool(tools []string) bool {
 	for _, name := range tools {
 		switch name {
 		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "web.search", "browser.act", "browser.open",
-			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open":
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "media.play":
 			return true
 		}
 		if strings.HasPrefix(name, "cc.") {

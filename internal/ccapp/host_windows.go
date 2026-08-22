@@ -120,6 +120,7 @@ var virtualKeyCodes = map[string]uint16{
 	"f11": 0x7A, "f12": 0x7B, "f13": 0x7C, "f14": 0x7D, "f15": 0x7E,
 	"f16": 0x7F, "f17": 0x80, "f18": 0x81, "f19": 0x82, "f20": 0x83,
 	"f21": 0x84, "f22": 0x85, "f23": 0x86, "f24": 0x87,
+	"media_play": 0xB3, "media_pause": 0xB3, "media_next": 0xB0, "media_prev": 0xB1, "media_stop": 0xB2,
 }
 
 type windowsHost struct{}

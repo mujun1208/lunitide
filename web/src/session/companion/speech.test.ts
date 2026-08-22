@@ -87,11 +87,11 @@ describe('shouldBargeIn', () => {
 })
 
 describe('shouldHoldRecognition', () => {
-  test('holds during playback and the post-TTS echo window', () => {
+  test('holds during playback unless playback barge-in is enabled', () => {
     expect(shouldHoldRecognition(true, 0, 1000)).toBe(true)
+    expect(shouldHoldRecognition(true, 0, 1000, true)).toBe(false)
     expect(shouldHoldRecognition(false, 800, 700)).toBe(true)
     expect(shouldHoldRecognition(false, 800, 800)).toBe(false)
-    expect(shouldHoldRecognition(false, 0, 1000)).toBe(false)
   })
 
   test('echo guard is long enough for speaker ring-out', () => {

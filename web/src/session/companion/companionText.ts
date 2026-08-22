@@ -8,10 +8,10 @@ export const MAX_SEGMENT_CHARS = 500
 export const MAX_SEGMENTS = 20
 /** First audible chunk: speak almost immediately (2 chars) so voice tracks the stream. */
 export const FIRST_SPEAK_CHARS = 2
-/** Later chunks prefer a sentence, but do not stall the voice for long unpunctuated runs. */
-export const FOLLOW_SPEAK_CHARS = 16
+/** Later chunks prefer a full sentence before speaking. */
+export const FOLLOW_SPEAK_CHARS = 22
 /** First comma clause must be long enough to sound like a breath, not a stutter. */
-export const FIRST_COMMA_MIN_CHARS = 6
+export const FIRST_COMMA_MIN_CHARS = 10
 
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
@@ -111,7 +111,16 @@ const TRAILING_FILLERS = /[，,、\s]+(?:嗯+|啊+|呃+)\s*$/u
 
 /** Shannon-style local cleanup: drop oral fillers while keeping the user's meaning. */
 const INCOMPLETE_TAIL =
-  /(?:儿|的|了|在|把|给|和|与|或|到|从|往|向|帮|请|要|想|能|会|这|那|哪|啥|吗|呢|吧|啊|呀|哦|嗯|一个|一下|什么|怎么|哪里|哪儿|桌面|文件|文件夹|打开|列出|找|搜索)$/u
+  /(?:儿|的|了|在|把|给|和|与|或|到|从|往|向|帮|请|要|想|能|会|这|那|哪|啥|吗|呢|吧|啊|呀|哦|嗯|一个|一下|什么|怎么|哪里|哪儿|桌面|文件|文件夹|打开|列出|找|搜索|软件|音乐|汽水)$/u
+
+const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
+  [/越席|月西|悦溪|跃溪|月息/g, '月汐'],
+  [/店面文件|店面的/g, '桌面文件'],
+  [/打开店面/g, '打开桌面'],
+  [/气水音乐|起水音乐|七水音乐|汽水音月/g, '汽水音乐'],
+  [/帮我打开桌面的/g, '帮我打开桌面'],
+  [/帮我打开一个/g, '帮我打开'],
+]
 
 /** True when the recognizer likely stopped mid-thought — wait longer before commit. */
 export function looksIncompleteUtterance(text: string): boolean {
@@ -125,6 +134,9 @@ export function looksIncompleteUtterance(text: string): boolean {
 export function cleanUserTranscript(raw: string): string {
   let text = raw.replace(/\s+/g, ' ').trim()
   if (!text) return ''
+  for (const [pattern, replacement] of SPEECH_CORRECTIONS) {
+    text = text.replace(pattern, replacement)
+  }
   for (let pass = 0; pass < 3; pass++) {
     const next = text.replace(LEADING_FILLERS, '').replace(MID_FILLERS, '$1').replace(TRAILING_FILLERS, '').trim()
     if (next === text) break
@@ -167,9 +179,16 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean, force = fa
   }
   const forceAt = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
   const clause = /^([\s\S]*?[，,、；;])/.exec(pending)
+  if (isFirst && clause && Array.from(clause[1]).length < FIRST_COMMA_MIN_CHARS && !/[。？！!?\n]/.test(pending)) {
+    return null
+  }
+  if (isFirst && clause && Array.from(clause[1]).length >= FIRST_COMMA_MIN_CHARS && /[。？！!?\n]/.test(pending.slice(clause[1].length))) {
+    return null
+  }
   if (isFirst && clause && Array.from(clause[1]).length >= FIRST_COMMA_MIN_CHARS) {
     return { text: clause[1], consumed: clause[1].length }
   }
+  if (!isFirst && !force && !/[。？！!?\n]/.test(pending)) return null
   if (Array.from(pending).length < forceAt && !force) return null
   if (force) {
     return { text: pending, consumed: pending.length }

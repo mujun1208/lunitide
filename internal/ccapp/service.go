@@ -189,6 +189,7 @@ var keyVocabulary = map[string]bool{
 	"f11": true, "f12": true, "f13": true, "f14": true, "f15": true,
 	"f16": true, "f17": true, "f18": true, "f19": true, "f20": true,
 	"f21": true, "f22": true, "f23": true, "f24": true,
+	"media_play": true, "media_pause": true, "media_next": true, "media_prev": true, "media_stop": true,
 }
 
 // Settings is the single-row security configuration.
