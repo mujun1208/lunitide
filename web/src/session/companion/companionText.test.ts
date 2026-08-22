@@ -66,18 +66,18 @@ describe('prepareSpeech', () => {
 })
 
 describe('takeSpeakableChunk', () => {
-  test('starts the first utterance on a short comma clause so the voice does not wait for a period', () => {
-    expect(takeSpeakableChunk('今晚是满月，', true)).toEqual({
-      text: '今晚是满月，',
-      consumed: '今晚是满月，'.length,
+  test('starts the first utterance once enough unpunctuated text has arrived', () => {
+    expect(takeSpeakableChunk('你好', true)).toEqual({
+      text: '你好',
+      consumed: 2,
     })
   })
 
-  test('starts the first utterance once enough unpunctuated text has arrived', () => {
-    const pending = '你好'
-    expect(takeSpeakableChunk(pending, true)).toEqual({
-      text: '你好',
-      consumed: 2,
+  test('waits for a full comma clause on the first chunk when it is still short', () => {
+    expect(takeSpeakableChunk('今晚是满月，', true)).toBeNull()
+    expect(takeSpeakableChunk('今晚是满月，适合抬头看看。', true)).toEqual({
+      text: '今晚是满月，适合抬头看看。',
+      consumed: '今晚是满月，适合抬头看看。'.length,
     })
   })
 
@@ -118,8 +118,9 @@ describe('cleanUserTranscript', () => {
     expect(cleanUserTranscript('好的，嗯')).toBe('好的')
   })
 
-  test('keeps meaningful content intact', () => {
-    expect(cleanUserTranscript('帮我写一份项目计划')).toBe('帮我写一份项目计划')
+  test('corrects common speech-recognition homophones', () => {
+    expect(cleanUserTranscript('帮我打开店面文件')).toBe('帮我打开桌面文件')
+    expect(cleanUserTranscript('打开气水音乐')).toBe('打开汽水音乐')
   })
 })
 

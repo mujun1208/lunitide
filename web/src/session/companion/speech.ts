@@ -73,7 +73,7 @@ export interface CompanionSpeechHandle {
 /** Commit after this much analyser silence once we already have text. */
 export const UTTERANCE_SILENCE_MS = 620
 /** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
-export const UTTERANCE_STABLE_MS = 780
+export const UTTERANCE_STABLE_MS = 880
 /** Incomplete-looking phrases (mid-command tails) need a longer stable window. */
 export const INCOMPLETE_STABLE_MS = 1350
 /** Incomplete phrases also tolerate a longer trailing pause before commit. */
@@ -104,15 +104,23 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
     minVoiceHoldMs: 360,
   }
 }
-/** Sustained voice before a barge-in fires. Thinking only; playback uses mute. */
+/** Sustained voice before a barge-in fires during thinking. Playback uses energy gate. */
 export const BARGE_IN_HOLD_MS = 280
 /** After TTS ends, ignore mic/SR until speaker ring-out dies. */
 export const ECHO_GUARD_MS = 700
 /** After a click/voice interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 160
 
-export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number): boolean {
+/** Sustained loud voice during assistant TTS playback (energy-only barge-in). */
+export const BARGE_IN_PLAYBACK_HOLD_MS = 220
+
+export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number, allowPlaybackBargeIn = false): boolean {
+  if (allowPlaybackBargeIn) return now < guardUntil
   return playback || now < guardUntil
+}
+
+export function shouldBargeInDuringPlayback(peak: number, voiceForMs: number, holdMs = BARGE_IN_PLAYBACK_HOLD_MS): boolean {
+  return peak >= BARGE_IN_PEAK && voiceForMs >= holdMs
 }
 
 export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
@@ -165,7 +173,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let recRestarting = false
   let echoGuardUntil = 0
   let echoTimer = 0
-  const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now())
+  let playbackBargeIn = false
+  const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now(), playbackBargeIn)
   const muteMic = (muted: boolean) => {
     stream?.getAudioTracks().forEach(track => {
       track.enabled = !muted
@@ -258,13 +267,26 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     const tryBargeIn = (rawPeak: number) => {
       if (finished || !duplex || !bargeIn || !bargeInActive || !callbacks.onBargeIn) return
-      // Speaker playback always leaks into the mic. Do not treat that
-      // energy as a barge-in — moon click still interrupts.
-      if (assistantPlayback || recognitionHeld()) {
+      const peak = rawPeak / 255
+      if (assistantPlayback) {
+        if (!playbackBargeIn) {
+          bargeVoiceSince = 0
+          return
+        }
+        if (peak >= BARGE_IN_PEAK) {
+          if (!bargeVoiceSince) bargeVoiceSince = performance.now()
+          else if (shouldBargeInDuringPlayback(peak, performance.now() - bargeVoiceSince)) {
+            bargeVoiceSince = 0
+            callbacks.onBargeIn(assembled().trim() || '')
+            restartRecognition()
+          }
+        } else bargeVoiceSince = 0
+        return
+      }
+      if (recognitionHeld()) {
         bargeVoiceSince = 0
         return
       }
-      const peak = rawPeak / 255
       const text = assembled()
       if (!text) return
       if (peak >= profile.voicePeak + profile.bargeInPeakDelta) {
@@ -427,6 +449,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       },
       setAssistantPlayback: (active: boolean, echoGuardMs = ECHO_GUARD_MS) => {
         assistantPlayback = active
+        playbackBargeIn = active && bargeIn
         window.clearTimeout(echoTimer)
         finals = ''
         interim = ''
@@ -435,6 +458,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         lastTextChangeAt = performance.now()
         callbacks.onInterim?.('')
         if (active) {
+          if (playbackBargeIn) {
+            muteMic(false)
+            recRestarting = true
+            try {
+              recognition?.stop()
+            } catch {
+              /* already stopped */
+            }
+            return
+          }
           muteMic(true)
           recRestarting = true
           try {
@@ -444,6 +477,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           }
           return
         }
+        playbackBargeIn = false
         muteMic(false)
         echoGuardUntil = performance.now() + Math.max(0, echoGuardMs)
         echoTimer = window.setTimeout(() => {

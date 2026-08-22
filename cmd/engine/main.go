@@ -360,6 +360,7 @@ func main() {
 			log.Printf("bundled skills published: %d", n)
 		}
 		engine.SeedRecommendedMcpKit(ctx)
+		engine.SeedPlaywrightMcp(ctx)
 		engine.HydrateMcpGatewayFromSettings(ctx)
 	}()
 	// P2-2 artifact acceptance log lives beside the tool workspaces

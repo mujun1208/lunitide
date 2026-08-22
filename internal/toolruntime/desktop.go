@@ -12,26 +12,32 @@ import (
 )
 
 func userDesktopDir() (string, error) {
-	var candidates []string
-	if runtime.GOOS == "windows" {
-		if p := os.Getenv("USERPROFILE"); p != "" {
-			candidates = append(candidates, filepath.Join(p, "Desktop"), filepath.Join(p, "桌面"))
+	candidates := desktopDirCandidates()
+	if len(candidates) == 0 {
+		var legacy []string
+		if runtime.GOOS == "windows" {
+			if p := os.Getenv("USERPROFILE"); p != "" {
+				legacy = append(legacy, filepath.Join(p, "Desktop"), filepath.Join(p, "桌面"))
+			}
+		}
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			legacy = append(legacy, filepath.Join(home, "Desktop"), filepath.Join(home, "桌面"))
+		}
+		seen := map[string]bool{}
+		for _, c := range legacy {
+			if c == "" || seen[c] {
+				continue
+			}
+			seen[c] = true
+			if st, err := os.Stat(c); err == nil && st.IsDir() {
+				candidates = append(candidates, c)
+			}
 		}
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		candidates = append(candidates, filepath.Join(home, "Desktop"), filepath.Join(home, "桌面"))
+	if len(candidates) == 0 {
+		return "", errors.New("desktop folder not found")
 	}
-	seen := map[string]bool{}
-	for _, c := range candidates {
-		if c == "" || seen[c] {
-			continue
-		}
-		seen[c] = true
-		if st, err := os.Stat(c); err == nil && st.IsDir() {
-			return c, nil
-		}
-	}
-	return "", errors.New("desktop folder not found")
+	return candidates[0], nil
 }
 
 type desktopHit struct {
@@ -66,28 +72,10 @@ func desktopNameScore(base, query string) int {
 	return 0
 }
 
-// pickDesktopNamedFile returns the unique best match. When several files
-// share the top score it returns an empty path plus the candidate names so
-// the caller can refuse to open anything.
-func pickDesktopNamedFile(dir, query string) (string, []string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", nil, err
-	}
-	var hits []desktopHit
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		base := e.Name()
-		score := desktopNameScore(base, query)
-		if score <= 0 {
-			continue
-		}
-		hits = append(hits, desktopHit{path: filepath.Join(dir, base), base: base, score: score})
-	}
+// pickBestDesktopHit returns the unique best match from scored hits.
+func pickBestDesktopHit(hits []desktopHit, query string) (string, []string, error) {
 	if len(hits) == 0 {
-		return "", nil, errors.New("no desktop file matching " + strings.TrimSpace(query))
+		return "", nil, errors.New("no match for " + strings.TrimSpace(query))
 	}
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].score != hits[j].score {
@@ -103,6 +91,54 @@ func pickDesktopNamedFile(dir, query string) (string, []string, error) {
 		return "", names, nil
 	}
 	return hits[0].path, names, nil
+}
+
+// pickDesktopNamedFile returns the unique best match on the real Desktop.
+// Directories, shortcuts (.lnk), and apps (.exe) are included so voice
+// commands like “打开汽水音乐” can launch desktop folders or shortcuts.
+func pickDesktopNamedFile(dir, query string) (string, []string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", nil, err
+	}
+	var hits []desktopHit
+	for _, e := range entries {
+		base := e.Name()
+		score := desktopNameScore(base, query)
+		if score <= 0 {
+			continue
+		}
+		if e.IsDir() {
+			score -= 2
+			if score <= 0 {
+				continue
+			}
+		}
+		hits = append(hits, desktopHit{path: filepath.Join(dir, base), base: base, score: score})
+	}
+	return pickBestDesktopHit(hits, query)
+}
+
+// pickLaunchTarget resolves a desktop file/folder/shortcut, then falls
+// back to Start Menu shortcuts (e.g. 汽水音乐 when only installed globally).
+func pickLaunchTarget(query string) (string, []string, error) {
+	if dir, err := userDesktopDir(); err == nil {
+		path, others, err := pickDesktopNamedFile(dir, query)
+		if path != "" {
+			return path, others, nil
+		}
+		if len(others) > 0 {
+			return "", others, err
+		}
+	}
+	path, others, err := pickStartMenuShortcut(query)
+	if path != "" || len(others) > 0 {
+		return path, others, err
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	return "", nil, errors.New("no desktop or start-menu item matching " + strings.TrimSpace(query))
 }
 
 func openWithDefaultApp(path string) error {

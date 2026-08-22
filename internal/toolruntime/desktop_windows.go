@@ -1,0 +1,107 @@
+//go:build windows
+
+package toolruntime
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"golang.org/x/sys/windows/registry"
+)
+
+func expandWindowsPath(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "%") {
+		return filepath.Clean(os.ExpandEnv(s))
+	}
+	return filepath.Clean(s)
+}
+
+func registryDesktopDir() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders`, registry.READ)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	v, _, err := k.GetStringValue("Desktop")
+	if err != nil {
+		return ""
+	}
+	return expandWindowsPath(v)
+}
+
+func desktopDirCandidates() []string {
+	var candidates []string
+	if p := registryDesktopDir(); p != "" {
+		candidates = append(candidates, p)
+	}
+	if p := os.Getenv("USERPROFILE"); p != "" {
+		candidates = append(candidates,
+			filepath.Join(p, "Desktop"),
+			filepath.Join(p, "桌面"),
+			filepath.Join(p, "OneDrive", "Desktop"),
+			filepath.Join(p, "OneDrive", "桌面"),
+		)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, "Desktop"),
+			filepath.Join(home, "桌面"),
+			filepath.Join(home, "OneDrive", "Desktop"),
+			filepath.Join(home, "OneDrive", "桌面"),
+		)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		c = filepath.Clean(c)
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		if st, err := os.Stat(c); err == nil && st.IsDir() {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func startMenuRoots() []string {
+	var roots []string
+	if p := os.Getenv("APPDATA"); p != "" {
+		roots = append(roots, filepath.Join(p, "Microsoft", "Windows", "Start Menu", "Programs"))
+	}
+	if p := os.Getenv("ProgramData"); p != "" {
+		roots = append(roots, filepath.Join(p, "Microsoft", "Windows", "Start Menu", "Programs"))
+	}
+	return roots
+}
+
+func pickStartMenuShortcut(query string) (string, []string, error) {
+	var hits []desktopHit
+	for _, root := range startMenuRoots() {
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(d.Name()))
+			if ext != ".lnk" && ext != ".exe" && ext != ".url" {
+				return nil
+			}
+			score := desktopNameScore(d.Name(), query)
+			if score <= 0 {
+				return nil
+			}
+			hits = append(hits, desktopHit{path: path, base: d.Name(), score: score})
+			return nil
+		})
+	}
+	return pickBestDesktopHit(hits, query)
+}

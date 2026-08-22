@@ -806,7 +806,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || officeGenTools[name]
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "media.play" || officeGenTools[name]
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
@@ -1339,11 +1339,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if !unconfined || !r.FullDiskEnabled() {
 			return Result{}, errors.New("desktop.open requires full-disk full-access")
 		}
-		dir, e := userDesktopDir()
-		if e != nil {
-			return Result{}, e
-		}
-		path, others, e := pickDesktopNamedFile(dir, a.Name)
+		path, others, e := pickLaunchTarget(a.Name)
 		if e != nil {
 			return Result{}, e
 		}
@@ -1354,6 +1350,11 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		return result("opened " + path), nil
+	case "media.play":
+		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
+			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)
+		}
+		return executeMediaPlayWithCC(ctx, invoke, session, args, unconfined, approved)
 	case "pdf.gen":
 		var a struct {
 			Path  string `json:"path"`

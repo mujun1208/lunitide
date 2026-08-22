@@ -550,7 +550,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const speaking = stateRef.current === 'speaking'
     // Mute + ignore SR for the whole speaking state, not only while the
     // player reports busy — TTS fetch delay is when speaker echo starts.
-    handle.setCommitPaused(speaking)
+    handle.setCommitPaused(speaking && !settingsRef.current.bargeIn)
     handle.setAssistantPlayback(speaking, stateRef.current === 'listening' ? INTERRUPT_ECHO_MS : ECHO_GUARD_MS)
     handle.setBargeInActive(settingsRef.current.bargeIn && (stateRef.current === 'thinking' || speaking))
   }, [])

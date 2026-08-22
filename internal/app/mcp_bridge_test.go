@@ -47,7 +47,7 @@ func TestInvokeBrowserActGuidesInteractiveOps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.Output, "Playwright") {
+	if !strings.Contains(out.Output, "Playwright") && !strings.Contains(out.Output, "media.play") {
 		t.Fatalf("output = %q", out.Output)
 	}
 }
