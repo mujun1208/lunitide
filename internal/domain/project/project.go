@@ -129,5 +129,28 @@ func (p *Project) validateBase() error {
 	return nil
 }
 
+// ValidateCreateBusinessFields enforces required business fields on project.create.
+func ValidateCreateBusinessFields(p Project) error {
+	if !validType(p.Type) {
+		return errors.New("project type is required")
+	}
+	if strings.TrimSpace(p.Description) == "" {
+		return errors.New("project description is required")
+	}
+	if strings.TrimSpace(p.Client) == "" {
+		return errors.New("project client is required")
+	}
+	if !validPlanDate(p.PlanStart) || p.PlanStart == "" {
+		return errors.New("project plan start date is required")
+	}
+	if !validPlanDate(p.PlanEnd) || p.PlanEnd == "" {
+		return errors.New("project plan end date is required")
+	}
+	if p.PlanEnd < p.PlanStart {
+		return errors.New("project plan end must not precede plan start")
+	}
+	return nil
+}
+
 // CanEdit reports whether the project form may be opened for mutation.
 func (p Project) CanEdit() bool { return p.CanEditMutableFields() || p.CanEditIdentity() }

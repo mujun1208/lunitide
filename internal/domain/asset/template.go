@@ -2,6 +2,8 @@ package asset
 
 import (
 	"errors"
+	"mime"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -167,4 +169,83 @@ func CanVoid(cur Status) bool {
 
 func CanDelete(cur Status) bool {
 	return cur == StatusDraft
+}
+
+func CanRestore(cur Status) bool {
+	return cur == StatusVoid
+}
+
+var documentExtensions = map[string]struct{}{
+	".md": {}, ".txt": {}, ".pdf": {}, ".doc": {}, ".docx": {},
+	".xls": {}, ".xlsx": {}, ".ppt": {}, ".pptx": {},
+	".html": {}, ".htm": {}, ".json": {}, ".yaml": {}, ".yml": {}, ".csv": {},
+}
+
+// ValidateTemplateFile enforces allowed extensions per template type.
+func ValidateTemplateFile(t TemplateType, fileName string) error {
+	lower := strings.ToLower(strings.TrimSpace(fileName))
+	if lower == "" {
+		return errors.New("template file name is required")
+	}
+	switch t {
+	case TemplateTypeScaffold:
+		if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".zip") {
+			return nil
+		}
+		return errors.New("scaffold template must be .zip or .tar.gz")
+	default:
+		if _, ok := documentExtensions[filepath.Ext(lower)]; ok {
+			return nil
+		}
+		return errors.New("document template file type not allowed")
+	}
+}
+
+// DetectMimeType infers MIME from the file name extension.
+func DetectMimeType(fileName string) string {
+	lower := strings.ToLower(strings.TrimSpace(fileName))
+	if strings.HasSuffix(lower, ".tar.gz") {
+		return "application/gzip"
+	}
+	ext := filepath.Ext(lower)
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	if detected := mime.TypeByExtension(ext); detected != "" {
+		return detected
+	}
+	switch ext {
+	case ".md":
+		return "text/markdown"
+	case ".doc":
+		return "application/msword"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".ppt":
+		return "application/vnd.ms-powerpoint"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// StatusLabel returns the product-facing status label.
+func StatusLabel(s Status) string {
+	switch s {
+	case StatusDraft:
+		return "创建"
+	case StatusEnabled:
+		return "可用"
+	case StatusVoid:
+		return "作废"
+	case StatusDisabled:
+		return "停用"
+	default:
+		return string(s)
+	}
 }

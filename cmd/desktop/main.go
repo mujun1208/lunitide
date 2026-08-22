@@ -288,6 +288,7 @@ func run() error {
 		bridge.MethodWorkspaceRootGet:         workspaceHandler,
 		bridge.MethodWorkspaceList:            workspaceHandler,
 		bridge.MethodWorkspaceRead:            workspaceHandler,
+		bridge.MethodWorkspaceOpen:            workspaceHandler,
 	})
 	if err != nil {
 		return err

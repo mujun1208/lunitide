@@ -13,3 +13,13 @@ export const DEV_WORKFLOW_CHIPS: DevWorkflowChip[] = [
 export function isDevWorkflowPhase(phase?: number, label?: string): boolean {
   return label === '开发' && (phase === 4 || phase === 5)
 }
+
+export function isTestWorkflowPhase(phase?: number, label?: string): boolean {
+  return label === '测试' && (phase === 5 || phase === 6)
+}
+
+export function workspaceTabForPhase(phase?: number, label?: string): 'code' | 'plan' | undefined {
+  if (isDevWorkflowPhase(phase, label)) return 'code'
+  if (isTestWorkflowPhase(phase, label)) return 'plan'
+  return undefined
+}

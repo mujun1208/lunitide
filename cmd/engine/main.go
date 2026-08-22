@@ -383,6 +383,12 @@ func main() {
 	}
 	defer projectAttachmentRoot.Close()
 	engine.SetProjectAttachmentStorage(store, attachmentapp.NewDirFileStorage(projectAttachmentRoot.Path()))
+	templateRoot, err := dataRoot.PrepareSubdirectory("asset-templates")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer templateRoot.Close()
+	engine.SetTemplateFileStorage(attachmentapp.NewDirFileStorage(templateRoot.Path()))
 	// P2-3 resident automation: cron scheduler beside the tool workspaces.
 	// The headless executor is attached after the engine is fully wired so
 	// scheduled runs reuse the single durable chat kernel.

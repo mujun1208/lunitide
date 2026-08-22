@@ -52,6 +52,47 @@ func newProjectAttachmentDTO(a projectattachment.Attachment, size int64) project
 	}
 }
 
+func handleProjectAttachmentGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ProjectID    string `json:"projectId"`
+		AttachmentID string `json:"attachmentId"`
+	}
+	if decodePayload(r.Payload, &p) != nil ||
+		!validCanonicalULID(p.ProjectID) ||
+		!validCanonicalULID(p.AttachmentID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.get 参数无效", false)
+	}
+	if !projectAttachmentStoreAvailable(e.projectAttachments) || e.projectAttachmentFiles == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
+	}
+	att, err := e.projectAttachments.GetProjectAttachment(ctx, p.AttachmentID)
+	if err != nil {
+		return projectAttachmentFailure(r, err)
+	}
+	if att.ProjectID != p.ProjectID {
+		return bridge.Failure(r.ID, r.TraceID, "PROJECT_ATTACHMENT_NOT_FOUND", "项目附件不存在", false)
+	}
+	content, err := e.projectAttachmentFiles.ReadFile(ctx, att.FilePath)
+	if err != nil {
+		return projectAttachmentFailure(r, err)
+	}
+	dto := newProjectAttachmentDTO(att, int64(len(content)))
+	return bridge.Success(r.ID, map[string]any{
+		"attachmentId":  dto.AttachmentID,
+		"projectId":     dto.ProjectID,
+		"phase":         dto.Phase,
+		"category":      dto.Category,
+		"fileName":      dto.FileName,
+		"mimeType":      dto.MimeType,
+		"size":          dto.Size,
+		"digest":        dto.Digest,
+		"contentBase64": base64.StdEncoding.EncodeToString(content),
+		"createdAt":     dto.CreatedAt,
+		"updatedAt":     dto.UpdatedAt,
+		"version":       dto.Version,
+	})
+}
+
 func handleProjectAttachmentList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ProjectID string `json:"projectId"`

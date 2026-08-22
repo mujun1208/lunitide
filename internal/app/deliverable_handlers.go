@@ -10,6 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/asset"
 	"github.com/lunitide/lunitide/internal/domain/deliverable"
+	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/projectapp"
 )
 
@@ -34,6 +35,10 @@ func rejectIfProjectReadOnly(e *Engine, ctx context.Context, r bridge.Request, p
 	}
 	proj, err := e.projects.Get(ctx, projectID)
 	if err != nil {
+		if errors.Is(err, project.ErrNotFound) {
+			resp := bridge.Failure(r.ID, r.TraceID, "PROJECT_NOT_FOUND", "项目不存在", false)
+			return &resp
+		}
 		resp := projectFailure(r, err)
 		return &resp
 	}

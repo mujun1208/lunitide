@@ -225,6 +225,10 @@ func projectAuditAction(action string) string {
 		return "project.closed"
 	case "project.reopen":
 		return "project.reopened"
+	case "project.advanceStatus":
+		return "project.advanced"
+	case "project.delete":
+		return "project.deleted"
 	default:
 		return action
 	}

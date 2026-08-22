@@ -6,6 +6,7 @@ import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type
 import{SubagentsPanel}from'./SubagentsPanel'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
+import{FreeLLMAPIPanel}from'../provider/FreeLLMAPIPanel'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
 type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'security' | 'browser' | 'computer' | 'subagents' | 'collab' | 'diagnostics' | 'about'
 
@@ -131,11 +132,11 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
           {category === 'voice' && <VoicePanel />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
-          {category === 'security' && <>
+          {category === 'security' && <div className="governance-stack">
             <CommandPolicyPanel />
             <HooksPanel />
-            <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} /> }, { id: 'plans', label: '计划管理', render: pid => <PlanPage projectId={pid} /> }]} />
-          </>}
+            <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} embedded /> }, { id: 'plans', label: '计划管理', render: pid => <PlanPage projectId={pid} /> }]} />
+          </div>}
           {category === 'browser' && <BrowserPanel />}
           {category === 'computer' && <ComputerPanel />}
           {category === 'subagents' && <SubagentsPanel onSaved={() => setSaved(true)} />}
@@ -415,7 +416,9 @@ function AppearancePanel({ settings, onChange }: { settings: AppearanceSettings;
 
 function ProvidersPanel({ onNavigate }: { onNavigate?: () => void }): React.JSX.Element {
   return (
-    <div className="setting-group">
+    <>
+      <FreeLLMAPIPanel />
+      <div className="setting-group">
       <div className="setting-group-title">模型与供应商</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div>
@@ -431,6 +434,7 @@ function ProvidersPanel({ onNavigate }: { onNavigate?: () => void }): React.JSX.
         </button>
       </div>
     </div>
+    </>
   )
 }
 
