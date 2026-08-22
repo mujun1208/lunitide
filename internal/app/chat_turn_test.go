@@ -20,6 +20,18 @@ func TestLooksLikeResume(t *testing.T) {
 	if !looksLikeResume(resumeUserPrompt) || !looksLikeResume("继续") || looksLikeResume("帮我安装技能") {
 		t.Fatal("resume detector mismatch")
 	}
+	if !looksLikeIndependentRequest("帮我打开桌面协议的文件") || !looksLikeIndependentRequest("打开协议") {
+		t.Fatal("new tasks must stay independent")
+	}
+	if looksLikeIndependentRequest("只要 arkcli 相关的技能") || looksLikeIndependentRequest("继续") {
+		t.Fatal("clarifications and resume are not independent tasks")
+	}
+	if closedLoopTurnInjection("继续") != "" {
+		t.Fatal("resume must not add closed-loop scope")
+	}
+	if !strings.Contains(closedLoopTurnInjection("帮我打开协议"), "本轮范围") {
+		t.Fatal("new turns must close the previous loop")
+	}
 }
 
 type memQueueStore struct {
@@ -39,7 +51,10 @@ func (s *memQueueStore) CountQueuedSince(context.Context, string, time.Time) (in
 	return 0, nil
 }
 func (s *memQueueStore) ListQueued(context.Context, string) ([]queueinput.Message, error) {
-	return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := append([]queueinput.Message(nil), s.items...)
+	return out, nil
 }
 func (s *memQueueStore) WithdrawQueuedMessage(context.Context, string, string) (queueinput.Message, error) {
 	return queueinput.Message{}, errors.New("unused")
@@ -58,9 +73,10 @@ func (s *memQueueStore) push(text string) {
 }
 
 type queueInjectAdapter struct {
-	store         *memQueueStore
-	calls         int
-	sawSupplement bool
+	store          *memQueueStore
+	calls          int
+	sawSupplement  bool
+	sawIndependent bool
 }
 
 func (a *queueInjectAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
@@ -74,6 +90,9 @@ func (a *queueInjectAdapter) Stream(_ context.Context, _ []byte, req gateway.Req
 	for _, m := range req.Messages {
 		if strings.Contains(m.Content, "任务进行中补充") && strings.Contains(m.Content, "只要 arkcli") {
 			a.sawSupplement = true
+		}
+		if strings.Contains(m.Content, "任务进行中补充") && strings.Contains(m.Content, "打开") {
+			a.sawIndependent = true
 		}
 	}
 	if a.calls == 1 {
@@ -105,6 +124,34 @@ func TestRunStreamInjectsQueuedSupplementsMidTurn(t *testing.T) {
 	}
 	if !adapter.sawSupplement {
 		t.Fatal("queued supplement was not injected into the in-flight turn")
+	}
+}
+
+func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
+	store := &memQueueStore{}
+	adapter := &dropUIAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetQueueService(queueapp.New(store))
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-queue-independent"
+	e.streams[id] = state
+	store.push("帮我打开桌面协议的文件我要查看")
+	var sawMerge bool
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+		if event.Delta != nil && strings.Contains(event.Delta.Text, "已并入你刚才补充的说明") {
+			sawMerge = true
+		}
+		return nil
+	}, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if sawMerge {
+		t.Fatal("independent queued task must not merge into the current turn")
+	}
+	left, err := store.ListQueued(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if err != nil || len(left) != 1 || !strings.Contains(left[0].Payload, "协议") {
+		t.Fatalf("independent request should remain queued: %+v err=%v", left, err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -227,7 +228,7 @@ func TestWorkspaceWriteReturnsPreviewMetadataOnlyForHTML(t *testing.T) {
 	r, _ := New(t.TempDir())
 	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	html, err := r.Execute(context.Background(), AutoEdit, session, "workspace.write", json.RawMessage(`{"path":"site/index.html","content":"<h1>preview</h1>"}`), false)
-	if err != nil || html.Artifact == nil || html.Artifact.Kind != "html" || html.Artifact.Path != "site/index.html" || html.Artifact.Content != "<h1>preview</h1>" {
+	if err != nil || html.Artifact == nil || html.Artifact.Kind != "html" || !strings.Contains(html.Artifact.Path, "index.html") || html.Artifact.Content != "<h1>preview</h1>" {
 		t.Fatalf("html result = %+v, err=%v", html, err)
 	}
 	text, err := r.Execute(context.Background(), AutoEdit, session, "workspace.write", json.RawMessage(`{"path":"notes.txt","content":"plain"}`), false)

@@ -146,6 +146,101 @@ type edgeVoiceRow struct {
 	Locale       string `json:"Locale"`
 }
 
+type edgeCuratedVoice struct {
+	VoiceID     string
+	DisplayName string
+	Gender      string
+	Group       string
+	Rank        int
+}
+
+// edgeCuratedZh supplements Microsoft list metadata with Chinese labels
+// and finer male/female/style groups for the settings picker.
+var edgeCuratedZh = []edgeCuratedVoice{
+	{VoiceID: "zh-CN-XiaoxiaoNeural", DisplayName: "晓晓 · 温柔女声（推荐）", Gender: "female", Group: "云端中文 · 女声 · 温柔", Rank: 0},
+	{VoiceID: "zh-CN-XiaoyiNeural", DisplayName: "晓伊 · 活泼女声", Gender: "female", Group: "云端中文 · 女声 · 活泼", Rank: 1},
+	{VoiceID: "zh-CN-XiaomoNeural", DisplayName: "晓墨 · 知性女声", Gender: "female", Group: "云端中文 · 女声 · 知性", Rank: 2},
+	{VoiceID: "zh-CN-XiaoxuanNeural", DisplayName: "晓萱 · 新闻播报女声", Gender: "female", Group: "云端中文 · 女声 · 新闻", Rank: 3},
+	{VoiceID: "zh-CN-XiaoruiNeural", DisplayName: "晓睿 · 客服女声", Gender: "female", Group: "云端中文 · 女声 · 客服", Rank: 4},
+	{VoiceID: "zh-CN-XiaohanNeural", DisplayName: "晓涵 · 温暖女声", Gender: "female", Group: "云端中文 · 女声 · 温柔", Rank: 5},
+	{VoiceID: "zh-CN-XiaomengNeural", DisplayName: "晓梦 · 故事女声", Gender: "female", Group: "云端中文 · 女声 · 故事", Rank: 6},
+	{VoiceID: "zh-CN-XiaoshuangNeural", DisplayName: "晓双 · 童声", Gender: "female", Group: "云端中文 · 童声", Rank: 7},
+	{VoiceID: "zh-CN-XiaoyanNeural", DisplayName: "晓颜 · 客服女声", Gender: "female", Group: "云端中文 · 女声 · 客服", Rank: 8},
+	{VoiceID: "zh-CN-XiaoyouNeural", DisplayName: "晓悠 · 儿童女声", Gender: "female", Group: "云端中文 · 童声", Rank: 9},
+	{VoiceID: "zh-CN-XiaozhenNeural", DisplayName: "晓甄 · 情感女声", Gender: "female", Group: "云端中文 · 女声 · 情感", Rank: 10},
+	{VoiceID: "zh-CN-YunxiNeural", DisplayName: "云希 · 阳光男声（推荐）", Gender: "male", Group: "云端中文 · 男声 · 阳光", Rank: 11},
+	{VoiceID: "zh-CN-YunjianNeural", DisplayName: "云健 · 体育解说男声", Gender: "male", Group: "云端中文 · 男声 · 解说", Rank: 12},
+	{VoiceID: "zh-CN-YunxiaNeural", DisplayName: "云夏 · 少年男声", Gender: "male", Group: "云端中文 · 男声 · 少年", Rank: 13},
+	{VoiceID: "zh-CN-YunyangNeural", DisplayName: "云扬 · 新闻男声", Gender: "male", Group: "云端中文 · 男声 · 新闻", Rank: 14},
+	{VoiceID: "zh-CN-YunfengNeural", DisplayName: "云枫 · 沉稳男声", Gender: "male", Group: "云端中文 · 男声 · 沉稳", Rank: 15},
+	{VoiceID: "zh-CN-YunhaoNeural", DisplayName: "云皓 · 广告男声", Gender: "male", Group: "云端中文 · 男声 · 广告", Rank: 16},
+	{VoiceID: "zh-CN-YunyeNeural", DisplayName: "云野 · 情感男声", Gender: "male", Group: "云端中文 · 男声 · 情感", Rank: 17},
+	{VoiceID: "zh-CN-YunzeNeural", DisplayName: "云泽 · 纪录片男声", Gender: "male", Group: "云端中文 · 男声 · 纪录片", Rank: 18},
+	{VoiceID: "zh-TW-HsiaoChenNeural", DisplayName: "晓臻 · 台湾女声", Gender: "female", Group: "云端中文 · 港台", Rank: 20},
+	{VoiceID: "zh-TW-HsiaoYuNeural", DisplayName: "晓雨 · 台湾女声", Gender: "female", Group: "云端中文 · 港台", Rank: 21},
+	{VoiceID: "zh-TW-YunJheNeural", DisplayName: "云哲 · 台湾男声", Gender: "male", Group: "云端中文 · 港台", Rank: 22},
+	{VoiceID: "zh-HK-HiuGaaiNeural", DisplayName: "晓佳 · 粤语女声", Gender: "female", Group: "云端中文 · 粤语", Rank: 23},
+	{VoiceID: "zh-HK-HiuMaanNeural", DisplayName: "晓曼 · 粤语女声", Gender: "female", Group: "云端中文 · 粤语", Rank: 24},
+	{VoiceID: "zh-HK-WanLungNeural", DisplayName: "云龙 · 粤语男声", Gender: "male", Group: "云端中文 · 粤语", Rank: 25},
+}
+
+func edgeCuratedMeta(voiceID string) (edgeCuratedVoice, bool) {
+	for _, row := range edgeCuratedZh {
+		if row.VoiceID == voiceID {
+			return row, true
+		}
+	}
+	return edgeCuratedVoice{}, false
+}
+
+func mergeEdgeCuratedVoices(voices []Voice) []Voice {
+	byID := map[string]Voice{}
+	order := make([]string, 0, len(voices)+len(edgeCuratedZh))
+	for _, v := range voices {
+		if cur, ok := edgeCuratedMeta(v.VoiceID); ok {
+			v.DisplayName = cur.DisplayName
+			v.Group = cur.Group
+			v.Gender = cur.Gender
+		}
+		byID[v.VoiceID] = v
+		order = append(order, v.VoiceID)
+	}
+	for _, cur := range edgeCuratedZh {
+		if _, ok := byID[cur.VoiceID]; ok {
+			continue
+		}
+		lang := "zh-CN"
+		if i := strings.Index(cur.VoiceID, "-"); i > 0 {
+			if j := strings.Index(cur.VoiceID[i+1:], "-"); j > 0 {
+				lang = cur.VoiceID[:i+1+j]
+			}
+		}
+		byID[cur.VoiceID] = Voice{
+			VoiceID:     cur.VoiceID,
+			DisplayName: cur.DisplayName,
+			Gender:      cur.Gender,
+			Lang:        lang,
+			Group:       cur.Group,
+		}
+		order = append(order, cur.VoiceID)
+	}
+	out := make([]Voice, 0, len(byID))
+	seen := map[string]bool{}
+	for _, id := range order {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if v, ok := byID[id]; ok {
+			out = append(out, v)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return edgeVoiceRank(out[i]) < edgeVoiceRank(out[j])
+	})
+	return out
+}
+
 func parseEdgeVoices(raw []byte) ([]Voice, error) {
 	var rows []edgeVoiceRow
 	if err := json.Unmarshal(raw, &rows); err != nil {
@@ -172,18 +267,24 @@ func parseEdgeVoices(raw []byte) ([]Voice, error) {
 		if name == "" {
 			name = row.ShortName
 		}
+		group := edgeVoiceGroup(row.Locale, gender)
+		if cur, ok := edgeCuratedMeta(row.ShortName); ok {
+			name = cur.DisplayName
+			group = cur.Group
+			gender = cur.Gender
+		}
 		out = append(out, Voice{
 			VoiceID:     row.ShortName,
 			DisplayName: name,
 			Gender:      gender,
 			Lang:        row.Locale,
-			Group:       edgeVoiceGroup(row.Locale, gender),
+			Group:       group,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return edgeVoiceRank(out[i]) < edgeVoiceRank(out[j])
 	})
-	return out, nil
+	return mergeEdgeCuratedVoices(out), nil
 }
 
 func edgeVoiceGroup(locale, gender string) string {
@@ -193,6 +294,9 @@ func edgeVoiceGroup(locale, gender string) string {
 		}
 		return "云端中文 · 女声"
 	}
+	if locale == "zh-TW" || locale == "zh-HK" {
+		return "云端中文 · 港台粤语"
+	}
 	if strings.HasPrefix(locale, "zh-") {
 		return "云端中文 · 方言"
 	}
@@ -200,16 +304,19 @@ func edgeVoiceGroup(locale, gender string) string {
 }
 
 func edgeVoiceRank(v Voice) int {
+	if cur, ok := edgeCuratedMeta(v.VoiceID); ok {
+		return cur.Rank
+	}
 	if v.VoiceID == edgeDefaultVoice {
 		return 0
 	}
 	if v.Lang == "zh-CN" {
-		return 1
+		return 30
 	}
 	if strings.HasPrefix(v.Lang, "zh-") {
-		return 2
+		return 40
 	}
-	return 3
+	return 100
 }
 
 func edgeSSML(in SynthesizeInput) string {

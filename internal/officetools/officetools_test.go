@@ -119,6 +119,13 @@ func TestGenPptxStructure(t *testing.T) {
 	if !strings.Contains(slide1, "&lt;标题&gt;") || !strings.Contains(slide1, "要点A") {
 		t.Fatalf("slide1 content broken: %.200s", slide1)
 	}
+	if !strings.Contains(slide1, "Microsoft YaHei") || !strings.Contains(slide1, `val="0B1F3A"`) {
+		t.Fatalf("cover slide must use business theme: %.300s", slide1)
+	}
+	slide2 := zipPartBody(t, data, "ppt/slides/slide2.xml")
+	if !strings.Contains(slide2, "第二章") || !strings.Contains(slide2, `val="0B1F3A"`) {
+		t.Fatalf("section slide missing branding: %.200s", slide2)
+	}
 	pres := zipPartBody(t, data, "ppt/presentation.xml")
 	if strings.Count(pres, "<p:sldId ") != 2 {
 		t.Fatalf("presentation must list 2 slides: %.200s", pres)

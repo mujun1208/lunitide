@@ -25,6 +25,7 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
+	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
@@ -325,6 +326,19 @@ func main() {
 			return "", err
 		}
 		return readWorkspaceRoot(path)
+	})
+	convConfigPath, err := dataRoot.FilePath("conversations-root.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	convStore := conversationsapp.New(convConfigPath, toolRoot.Path())
+	engine.SetConversationsStore(convStore)
+	tools.SetSessionStorageRoot(func() (string, error) {
+		root, configured, err := convStore.EffectiveRoot()
+		if err != nil || !configured {
+			return "", nil
+		}
+		return root, nil
 	})
 	engine.SetToolRuntime(tools)
 	defer tools.Close()

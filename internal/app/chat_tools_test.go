@@ -239,6 +239,40 @@ func TestMcpToolsFallbackSchemaWithoutDescribe(t *testing.T) {
 	}
 }
 
+func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
+	found := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "html.gen" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("html.gen missing from engine tools")
+	}
+	foundOpen := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "desktop.open" {
+			foundOpen = true
+			break
+		}
+	}
+	if !foundOpen {
+		t.Fatal("desktop.open missing from engine tools")
+	}
+	for _, d := range readOnlyEngineToolDefinitions() {
+		if d.Name == "html.gen" || d.Name == "desktop.open" {
+			t.Fatal("subagents must not receive html.gen or desktop.open")
+		}
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "html.gen") || strings.Contains(bundledWorkflowInjection(), "桌面 HTML 小游戏：workspace.write") {
+		t.Fatal("desktop game workflow must route through html.gen")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "desktop.open") || !strings.Contains(bundledWorkflowInjection(), "闭环") {
+		t.Fatal("desktop open and closed-loop workflow missing")
+	}
+}
+
 func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	found := false
 	for _, d := range engineToolDefinitions() {

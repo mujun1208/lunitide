@@ -125,11 +125,13 @@ func handleSubagentTree(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	items := make([]m7SubagentTreeItem, 0, len(runs))
 	for _, run := range runs {
+		obsCount := 0
+		if obs, err := e.m7subagent.ListObservations(ctx, run.ID); err == nil {
+			obsCount = len(obs)
+		}
 		items = append(items, m7SubagentTreeItem{
-			ID:        run.ID,
-			Purpose:   run.Purpose,
-			Status:    run.Status,
-			SpentTokens: run.SpentTokens,
+			ID: run.ID, Purpose: run.Purpose, Status: run.Status,
+			SpentTokens: run.SpentTokens, ObservationCount: obsCount,
 		})
 	}
 	return bridge.Success(r.ID, struct {
@@ -140,10 +142,11 @@ func handleSubagentTree(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 // m7SubagentTreeItem is one row of the subagent.tree projection.
 type m7SubagentTreeItem struct {
-	ID          string `json:"id"`
-	Purpose     string `json:"purpose"`
-	Status      string `json:"status"`
-	SpentTokens int64  `json:"spentTokens"`
+	ID               string `json:"id"`
+	Purpose          string `json:"purpose"`
+	Status           string `json:"status"`
+	SpentTokens      int64  `json:"spentTokens"`
+	ObservationCount int    `json:"observationCount"`
 }
 
 // m7SubagentFailure maps m7app slice-6 errors onto the M7 wire family.

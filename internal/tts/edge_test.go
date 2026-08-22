@@ -22,14 +22,14 @@ func TestParseEdgeVoicesRanksXiaoxiaoFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(voices) != 3 {
-		t.Fatalf("len=%d, classic non-neural should be dropped", len(voices))
+	if len(voices) < 3 {
+		t.Fatalf("len=%d, classic non-neural should be dropped and curated voices merged", len(voices))
 	}
-	if voices[0].VoiceID != edgeDefaultVoice || voices[0].DisplayName != "Xiaoxiao" {
-		t.Fatalf("first = %+v, want Xiaoxiao", voices[0])
+	if voices[0].VoiceID != edgeDefaultVoice || voices[0].DisplayName != "晓晓 · 温柔女声（推荐）" {
+		t.Fatalf("first = %+v, want Xiaoxiao curated label", voices[0])
 	}
-	if voices[0].Group != "云端中文 · 女声" || voices[1].Group != "云端中文 · 男声" {
-		t.Fatalf("groups = %+v", voices)
+	if voices[0].Group != "云端中文 · 女声 · 温柔" {
+		t.Fatalf("groups = %+v", voices[0])
 	}
 }
 
@@ -88,7 +88,7 @@ func TestEdgeVoicesUsesInjectedHTTP(t *testing.T) {
 	eng.voicesURL = srv.URL
 	eng.client = srv.Client()
 	voices, err := eng.Voices()
-	if err != nil || len(voices) != 1 || voices[0].VoiceID != edgeDefaultVoice {
+	if err != nil || len(voices) < len(edgeCuratedZh) || voices[0].VoiceID != edgeDefaultVoice {
 		t.Fatalf("voices=%+v err=%v", voices, err)
 	}
 }

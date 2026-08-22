@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
+	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/webfetch"
@@ -51,6 +52,9 @@ type Runtime struct {
 	// read/write inside that root; every other mode stays sandboxed to
 	// <root>/<session>. nil or a resolver failure falls back to the sandbox.
 	fullAccessRoot func() (string, error)
+	// sessionStorageRoot overrides the per-session sandbox parent when the
+	// user configures a conversations directory in General settings.
+	sessionStorageRoot func() (string, error)
 	// rulesMu guards commandRules and fullDisk for hot reload
 	// (SetCommandPolicyJSON swaps both; Execute copies under RLock).
 	rulesMu      sync.RWMutex
@@ -308,6 +312,19 @@ func (r *Runtime) SetFullAccessRootResolver(f func() (string, error)) {
 	r.fullAccessRoot = f
 }
 
+func (r *Runtime) SetSessionStorageRoot(f func() (string, error)) { r.sessionStorageRoot = f }
+
+func (r *Runtime) effectiveSessionsRoot() string {
+	if r.sessionStorageRoot != nil {
+		if root, err := r.sessionStorageRoot(); err == nil && root != "" {
+			return root
+		}
+	}
+	return r.root
+}
+
+func (r *Runtime) SessionFolder(session string) (string, error) { return r.sessionRoot(session) }
+
 // effectiveRoot returns the directory file tools operate in for this call.
 // Full-access rides the user-selected workspace root when one resolves;
 // everything else (and any resolver failure) keeps the per-session sandbox.
@@ -409,7 +426,7 @@ func (r *Runtime) sessionPath(session string) (string, error) {
 	if len(session) != 26 || strings.ContainsAny(session, "/\\") {
 		return "", errors.New("invalid session")
 	}
-	return filepath.Join(r.root, session), nil
+	return filepath.Join(r.effectiveSessionsRoot(), session), nil
 }
 func (r *Runtime) sessionRoot(session string) (string, error) {
 	p, err := r.sessionPath(session)
@@ -789,7 +806,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || officeGenTools[name]
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || officeGenTools[name]
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
@@ -889,7 +906,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		written := result("wrote " + a.Path)
 		ext := strings.ToLower(filepath.Ext(a.Path))
 		if ext == ".html" || ext == ".htm" {
-			written.Artifact = &Artifact{Kind: "html", Path: filepath.ToSlash(a.Path), Content: a.Content}
+			written.Artifact = &Artifact{Kind: "html", Path: htmlArtifactPath(a.Path, false), Content: a.Content}
 		}
 		return written, nil
 	case "workspace.search":
@@ -1023,11 +1040,29 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e = os.MkdirAll(root, 0700); e != nil {
 			return Result{}, e
 		}
+		if dir, ok := extractMkdirPath(a.Argv); ok {
+			dir = expandWindowsEnv(dir)
+			if dir == "" {
+				return Result{}, commandFailure("empty directory path")
+			}
+			if !filepath.IsAbs(dir) {
+				dir = filepath.Join(root, dir)
+			}
+			if e = os.MkdirAll(dir, 0755); e != nil {
+				return Result{}, commandFailure(e.Error())
+			}
+			return result(formatCommandOutput(true, "created directory: "+dir)), nil
+		}
+		argv, cleanup, wrapErr := prepareCommandArgv(a.Argv)
+		if wrapErr != nil {
+			return Result{}, commandFailure(wrapErr.Error())
+		}
+		defer cleanup()
 		cctx, cancel := context.WithTimeout(ctx, deadline)
 		defer cancel()
-		cmd := exec.CommandContext(cctx, a.Argv[0], a.Argv[1:]...)
+		cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0")
+		cmd.Env = append(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 		// P1-2: with a progress sink the pipes are read live so long
 		// running commands stream bounded stdout/stderr chunks to the
 		// caller instead of black-boxing until exit. The final result
@@ -1037,14 +1072,14 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if progress != nil {
 			stdoutPipe, e := cmd.StdoutPipe()
 			if e != nil {
-				return Result{}, fmt.Errorf("command failed: %s", e)
+				return Result{}, commandFailure(e.Error())
 			}
 			stderrPipe, e := cmd.StderrPipe()
 			if e != nil {
-				return Result{}, fmt.Errorf("command failed: %s", e)
+				return Result{}, commandFailure(e.Error())
 			}
 			if e = cmd.Start(); e != nil {
-				return Result{}, fmt.Errorf("command failed: %s", e)
+				return Result{}, commandFailure(e.Error())
 			}
 			var mu sync.Mutex
 			var combined []byte
@@ -1053,7 +1088,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 				sc := bufio.NewScanner(r)
 				sc.Buffer(make([]byte, 0, 64*1024), 256*1024)
 				for sc.Scan() {
-					line := sc.Text()
+					line := decodeCommandOutput(sc.Bytes())
 					mu.Lock()
 					if len(combined) < 64<<10 {
 						combined = append(combined, line...)
@@ -1081,19 +1116,21 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			if len(out) > 64<<10 {
 				out = out[:64<<10]
 			}
+			text := decodeCommandOutput(out)
 			if waitErr != nil {
-				return Result{}, fmt.Errorf("command failed: %s", out)
+				return Result{}, commandFailure(text)
 			}
-			return result(string(out)), nil
+			return result(formatCommandOutput(true, text)), nil
 		}
 		out, e := cmd.CombinedOutput()
 		if len(out) > 64<<10 {
 			out = out[:64<<10]
 		}
+		text := decodeCommandOutput(out)
 		if e != nil {
-			return Result{}, fmt.Errorf("command failed: %s", out)
+			return Result{}, commandFailure(text)
 		}
-		return result(string(out)), nil
+		return result(formatCommandOutput(true, text)), nil
 	case "web.fetch":
 		var a struct {
 			URL string `json:"url"`
@@ -1127,6 +1164,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			preview = preview[:24<<10]
 		}
 		title := extracted.Title
+		// Path must end in .html — the desktop host strips any other
+		// artifact (including https:// URLs) before it reaches the
+		// renderer, which left the browser tab on an empty placeholder.
 		out.Artifact = &Artifact{Kind: "html", Path: "fetch.html", Content: webfetch.RenderExtractHTML(title, page.FinalURL, preview)}
 		return out, nil
 	case "web.search":
@@ -1147,15 +1187,19 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if max > 10 {
 			max = 10
 		}
-		results, source, e := r.searchWeb(ctx, a.Query, max)
+		results, source, pageURL, e := r.searchWeb(ctx, a.Query, max)
 		if e != nil {
 			return Result{}, e
+		}
+		if pageURL == "" {
+			pageURL = webfetch.BingCNSearchURL(a.Query)
 		}
 		var b strings.Builder
 		b.WriteString("query: " + a.Query + "\n")
 		if source != "" && source != "none" {
 			b.WriteString("source: " + source + "\n")
 		}
+		b.WriteString("results_url: " + pageURL + "\n")
 		if len(results) == 0 {
 			b.WriteString("no results\n")
 		}
@@ -1238,6 +1282,78 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		return r.writeGenerated(mode, session, a.Path, data, len(a.Slides), unconfined)
+	case "html.gen":
+		var a struct {
+			Path     string `json:"path"`
+			Title    string `json:"title"`
+			Template string `json:"template"`
+			Desktop  bool   `json:"desktop"`
+		}
+		if strict(args, &a) != nil {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if strings.TrimSpace(a.Template) == "" {
+			a.Template = "penalty-shootout"
+		}
+		page, e := htmlapp.Render(a.Template, a.Title)
+		if e != nil {
+			return Result{}, e
+		}
+		outPath := strings.TrimSpace(a.Path)
+		if a.Desktop {
+			if !unconfined || !r.FullDiskEnabled() {
+				return Result{}, errors.New("html.gen desktop=true requires full-disk full-access")
+			}
+			dir, de := userDesktopDir()
+			if de != nil {
+				return Result{}, de
+			}
+			base := filepath.Base(outPath)
+			if base == "." || base == "" {
+				base = "世界杯点球大战.html"
+			}
+			if ext := strings.ToLower(filepath.Ext(base)); ext != ".html" && ext != ".htm" {
+				base += ".html"
+			}
+			outPath = filepath.Join(dir, base)
+		}
+		if outPath == "" {
+			outPath = "penalty-shootout.html"
+		}
+		if ext := strings.ToLower(filepath.Ext(outPath)); ext != ".html" && ext != ".htm" {
+			return Result{}, errors.New("html.gen path must end with .html")
+		}
+		written, e := r.writeGenerated(mode, session, outPath, []byte(page), -1, unconfined)
+		if e != nil {
+			return Result{}, e
+		}
+		written.Artifact = &Artifact{Kind: "html", Path: htmlArtifactPath(outPath, a.Desktop), Content: page}
+		return written, nil
+	case "desktop.open":
+		var a struct {
+			Name string `json:"name"`
+		}
+		if strict(args, &a) != nil || strings.TrimSpace(a.Name) == "" {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if !unconfined || !r.FullDiskEnabled() {
+			return Result{}, errors.New("desktop.open requires full-disk full-access")
+		}
+		dir, e := userDesktopDir()
+		if e != nil {
+			return Result{}, e
+		}
+		path, others, e := pickDesktopNamedFile(dir, a.Name)
+		if e != nil {
+			return Result{}, e
+		}
+		if path == "" {
+			return Result{}, fmt.Errorf("multiple desktop files match %q: %s", strings.TrimSpace(a.Name), strings.Join(others, ", "))
+		}
+		if e = openWithDefaultApp(path); e != nil {
+			return Result{}, e
+		}
+		return result("opened " + path), nil
 	case "pdf.gen":
 		var a struct {
 			Path  string `json:"path"`
@@ -1297,7 +1413,52 @@ func (r *Runtime) runCcTool(ctx context.Context, mode Mode, session, name string
 // officeGenTools are the P2-1 generators: they mutate the session
 // workspace, so they ride the workspace.write approval class.
 var officeGenTools = map[string]bool{
-	"excel.gen": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true,
+	"excel.gen": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true, "html.gen": true,
+}
+
+// htmlArtifactPath is the renderer-safe preview name. Host sanitizer
+// rejects file:// URLs, backslashes and non-.html suffixes, so desktop
+// writes still preview as desktop/basename.html.
+func htmlArtifactPath(requested string, desktop bool) string {
+	base := filepath.Base(filepath.Clean(strings.TrimSpace(requested)))
+	base = strings.ReplaceAll(base, `\`, "")
+	lower := strings.ToLower(base)
+	if base == "" || base == "." || strings.Contains(base, "..") {
+		base = "preview.html"
+	} else if !strings.HasSuffix(lower, ".html") && !strings.HasSuffix(lower, ".htm") {
+		base = "preview.html"
+	}
+	if desktop {
+		return "desktop/" + base
+	}
+	return base
+}
+
+// ResolveSessionArtifact maps a renderer-safe artifact path to a confined
+// on-disk target under the session folder or user Desktop (desktop/ prefix).
+func (r *Runtime) ResolveSessionArtifact(sessionID, relPath string) (string, error) {
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return r.SessionFolder(sessionID)
+	}
+	clean := filepath.Clean(filepath.FromSlash(relPath))
+	clean = strings.ReplaceAll(clean, `\`, "/")
+	if strings.HasPrefix(clean, "desktop/") {
+		base := strings.TrimPrefix(clean, "desktop/")
+		if base == "" || base == "." {
+			return userDesktopDir()
+		}
+		dir, err := userDesktopDir()
+		if err != nil {
+			return "", err
+		}
+		return r.containedRead(dir, base)
+	}
+	dir, err := r.SessionFolder(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return r.containedRead(dir, clean)
 }
 
 // ReadWorkspaceFile reads up to max bytes of one contained session
@@ -1625,7 +1786,7 @@ func result(s string) Result {
 
 const searchAttemptTimeout = 8 * time.Second
 
-func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfetch.SearchResult, string, error) {
+func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfetch.SearchResult, string, string, error) {
 	attempts := []struct {
 		url    string
 		source string
@@ -1636,7 +1797,7 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfe
 	}
 	var lastErr error
 	var lastHits []webfetch.SearchResult
-	var lastSrc string
+	var lastSrc, lastURL string
 	for _, attempt := range attempts {
 		c, cancel := context.WithTimeout(ctx, searchAttemptTimeout)
 		page, err := r.fetchWeb(c, attempt.url)
@@ -1651,16 +1812,20 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfe
 		} else {
 			hits = webfetch.ParseBingResults(string(page.Body), max)
 		}
-		lastHits, lastSrc = hits, attempt.source
+		pageURL := attempt.url
+		if page.FinalURL != "" {
+			pageURL = page.FinalURL
+		}
+		lastHits, lastSrc, lastURL = hits, attempt.source, pageURL
 		if len(hits) > 0 {
-			return hits, attempt.source, nil
+			return hits, attempt.source, pageURL, nil
 		}
 	}
 	if lastSrc != "" {
-		return lastHits, lastSrc, nil
+		return lastHits, lastSrc, lastURL, nil
 	}
 	if lastErr != nil {
-		return nil, "", lastErr
+		return nil, "", "", lastErr
 	}
-	return nil, "none", nil
+	return nil, "none", webfetch.BingCNSearchURL(query), nil
 }

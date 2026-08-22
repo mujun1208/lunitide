@@ -62,6 +62,10 @@ func handleSessionCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return sessionFailure(r, err)
 	}
+	if _, err := e.sessionOutputDir(created.ID); err != nil {
+		// Non-fatal: folder will be created on first tool use.
+		_ = err
+	}
 	return bridge.Success(r.ID, newSessionDTO(created))
 }
 func handleSessionList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

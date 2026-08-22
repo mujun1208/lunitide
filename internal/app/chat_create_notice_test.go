@@ -22,8 +22,14 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 	if got := createTurnClosingNotice([]string{"command.run", "web.fetch"}, "文件已写入，已完成。"); got != "" {
 		t.Fatalf("already-done text must not spam: %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"workspace.edit"}, "改好了几处代码"); !strings.Contains(got, "我已经做完了") {
-		t.Fatalf("acting tool without done phrase = %q", got)
+	if got := createTurnClosingNotice([]string{"html.gen"}, ""); !strings.Contains(got, "我已经做完了") {
+		t.Fatalf("html.gen notice = %q", got)
+	}
+	if got := createTurnClosingNotice([]string{"desktop.open"}, ""); !strings.Contains(got, "我已经做完了") {
+		t.Fatalf("desktop.open notice = %q", got)
+	}
+	if got := createTurnClosingNotice([]string{"web.search"}, ""); !strings.Contains(got, "我已经做完了") {
+		t.Fatalf("web.search notice = %q", got)
 	}
 }
 
@@ -80,6 +86,18 @@ func TestExpertPersonaHeaderAndClip(t *testing.T) {
 	}
 	if n := len([]rune(clipped)); n > expertSectionMaxRunes+20 {
 		t.Fatalf("clipped too large: %d", n)
+	}
+}
+
+func TestSkipExpertCouncilOnSimpleComputerUse(t *testing.T) {
+	if !skipExpertCouncil("帮我在桌面创建一个文件夹，名字叫小宝") {
+		t.Fatal("create-folder must skip council")
+	}
+	if !skipExpertCouncil("帮我设计一个点球大战的网页小游戏，在桌面可以直接试玩") {
+		t.Fatal("desktop html game must skip council")
+	}
+	if skipExpertCouncil("请三位专家一起评审这份架构方案") {
+		t.Fatal("architecture review must keep council")
 	}
 }
 

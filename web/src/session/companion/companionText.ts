@@ -76,6 +76,44 @@ export function prepareSpeech(text: string): string[] {
   return segmentForSpeech(cleanForSpeech(text))
 }
 
+/** Strip spaces and punctuation so TTS and SR transcripts can be compared. */
+export function compactSpeech(text: string): string {
+  return text.replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase()
+}
+
+const LEADING_FILLERS = /^(?:嗯+|啊+|呃+|那个+|就是说+|就是+|然后+|所以说+|你知道+|怎么说呢)+[，,、\s]*/u
+const MID_FILLERS = /([，,。！？；;])\s*(?:嗯+|啊+|呃+)(?=\s|[，,。！？；;]|$)/gu
+const TRAILING_FILLERS = /[，,、\s]+(?:嗯+|啊+|呃+)\s*$/u
+
+/** Shannon-style local cleanup: drop oral fillers while keeping the user's meaning. */
+export function cleanUserTranscript(raw: string): string {
+  let text = raw.replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  for (let pass = 0; pass < 3; pass++) {
+    const next = text.replace(LEADING_FILLERS, '').replace(MID_FILLERS, '$1').replace(TRAILING_FILLERS, '').trim()
+    if (next === text) break
+    text = next
+  }
+  return text.replace(/^[，,、]+|[，,、]+$/g, '').trim()
+}
+
+/**
+ * True when the recognizer almost certainly heard our own TTS playback
+ * (speaker → microphone loop) rather than a new user utterance.
+ */
+export function looksLikePlaybackEcho(heard: string, spoken: string): boolean {
+  const a = compactSpeech(heard)
+  const b = compactSpeech(spoken)
+  if (a.length < 4 || b.length < 4) return false
+  if (b.includes(a) || a.includes(b)) return true
+  const window = Math.min(6, a.length)
+  if (window < 6) return false
+  for (let i = 0; i <= a.length - window; i++) {
+    if (b.includes(a.slice(i, i + window))) return true
+  }
+  return false
+}
+
 /**
  * Pick the next TTS utterance from a growing LLM stream.
  * Offsets are in the raw `pending` string (same indexing as assistantText)

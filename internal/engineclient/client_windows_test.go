@@ -435,6 +435,27 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 	}
 }
 
+func TestSanitizeKeepsHTMLPreviewAndDropsHTTPSArtifactPath(t *testing.T) {
+	keep := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
+		CallID: "call-1", Name: "web.search", ArgsDigest: strings.Repeat("a", 64),
+		Summary: "results_url: https://cn.bing.com/search?q=x",
+		Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "search.html", Content: "<h1>ok</h1>"},
+	}}
+	sanitizeEvent(&keep)
+	if keep.Tool.Artifact == nil || keep.Tool.Artifact.Path != "search.html" {
+		t.Fatalf("search.html preview must survive: %#v", keep.Tool.Artifact)
+	}
+	drop := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
+		CallID: "call-2", Name: "web.fetch", ArgsDigest: strings.Repeat("b", 64),
+		Summary: "url: https://tags.sina.com.cn/star_gutianle",
+		Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "https://tags.sina.com.cn/star_gutianle", Content: "<h1>stripped</h1>"},
+	}}
+	sanitizeEvent(&drop)
+	if drop.Tool.Artifact != nil {
+		t.Fatalf("https artifact path must be stripped, got %#v", drop.Tool.Artifact)
+	}
+}
+
 func TestInvalidNonTerminalEventIsDroppedWithoutPoison(t *testing.T) {
 	client, server := newPipedClient(t)
 	streamID := ulid.Make().String()

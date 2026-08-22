@@ -2,7 +2,7 @@
 // analyser silence or a stable Windows SR transcript, never on a short
 // pause or on an empty buffer.
 import { describe, expect, test } from 'vitest'
-import { UTTERANCE_SILENCE_MS, UTTERANCE_STABLE_MS, BARGE_IN_HOLD_MS, shouldCommitUtterance, shouldCommitStable, shouldBargeIn, isPermanentSpeechError } from './speech'
+import { UTTERANCE_SILENCE_MS, UTTERANCE_STABLE_MS, BARGE_IN_HOLD_MS, ECHO_GUARD_MS, shouldCommitUtterance, shouldCommitStable, shouldBargeIn, shouldHoldRecognition, isPermanentSpeechError, speechProfile } from './speech'
 
 describe('shouldCommitUtterance', () => {
   test('waits for the silence window once speech is present', () => {
@@ -44,6 +44,29 @@ describe('shouldBargeIn', () => {
 
   test('never fires without assembled text', () => {
     expect(shouldBargeIn(false, BARGE_IN_HOLD_MS)).toBe(false)
+  })
+})
+
+describe('shouldHoldRecognition', () => {
+  test('holds during playback and the post-TTS echo window', () => {
+    expect(shouldHoldRecognition(true, 0, 1000)).toBe(true)
+    expect(shouldHoldRecognition(false, 800, 700)).toBe(true)
+    expect(shouldHoldRecognition(false, 800, 800)).toBe(false)
+    expect(shouldHoldRecognition(false, 0, 1000)).toBe(false)
+  })
+
+  test('echo guard is long enough for speaker ring-out', () => {
+    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(500)
+  })
+})
+
+describe('speechProfile', () => {
+  test('noisy mode tightens endpointing', () => {
+    const noisy = speechProfile('noisy')
+    const normal = speechProfile('normal')
+    expect(noisy.voicePeak).toBeGreaterThan(normal.voicePeak)
+    expect(noisy.utteranceSilenceMs).toBeGreaterThan(normal.utteranceSilenceMs)
+    expect(noisy.minVoiceHoldMs).toBeGreaterThan(0)
   })
 })
 

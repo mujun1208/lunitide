@@ -25,7 +25,7 @@ func TestParallelToolEligible(t *testing.T) {
 			t.Fatalf("%s must be eligible", name)
 		}
 	}
-	mutating := []string{"workspace.write", "workspace.edit", "command.run", "todo.write", "excel.gen", "docx.gen", "pptx.gen", "pdf.gen", "cc.mouse_click", "cc.keyboard_type", "subagent.spawn", "plan.run", "unknown.tool"}
+	mutating := []string{"workspace.write", "workspace.edit", "command.run", "todo.write", "excel.gen", "docx.gen", "pptx.gen", "pdf.gen", "html.gen", "desktop.open", "cc.mouse_click", "cc.keyboard_type", "subagent.spawn", "plan.run", "unknown.tool"}
 	for _, name := range mutating {
 		if parallelToolEligible(name) {
 			t.Fatalf("%s must stay serial", name)

@@ -274,10 +274,12 @@ func GenDocx(title string, blocks []DocxBlock) ([]byte, error) {
 	})
 }
 
-// SlideSpec is one pptx slide.
+// SlideSpec is one pptx slide. Layout is title (cover), section, or content.
 type SlideSpec struct {
-	Title   string   `json:"title"`
-	Bullets []string `json:"bullets"`
+	Title    string   `json:"title"`
+	Subtitle string   `json:"subtitle,omitempty"`
+	Bullets  []string `json:"bullets"`
+	Layout   string   `json:"layout,omitempty"`
 }
 
 // GenPptx writes a minimal-but-valid PowerPoint deck (OOXML zip:
@@ -302,7 +304,7 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 			s.Bullets = s.Bullets[:MaxBulletsPerSld]
 		}
 		name := fmt.Sprintf("ppt/slides/slide%d.xml", i+1)
-		parts = append(parts, zipPart{name, slideXML(s.Title, s.Bullets)})
+		parts = append(parts, zipPart{name, slideXML(i, len(slides), title, s)})
 		rels := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></p:Relationships>`)
 		parts = append(parts, zipPart{path.Dir(name) + "/_rels/" + path.Base(name) + ".rels", rels})

@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,conversationsBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
+import{SubagentsPanel}from'./SubagentsPanel'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'security' | 'browser' | 'computer' | 'collab' | 'diagnostics' | 'about'
+type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'security' | 'browser' | 'computer' | 'subagents' | 'collab' | 'diagnostics' | 'about'
 
 const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'general', icon: '◌', label: '常规' },
@@ -17,6 +18,7 @@ const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
   { id: 'security', icon: '⛨', label: '安全与治理' },
   { id: 'browser', icon: '⬟', label: '浏览器' },
   { id: 'computer', icon: '⌖', label: '电脑控制' },
+  { id: 'subagents', icon: '⎇', label: '子智能体' },
   { id: 'collab', icon: '⌘', label: '协作门禁' },
   { id: 'diagnostics', icon: '◉', label: '诊断与更新' },
   { id: 'about', icon: 'ⓘ', label: '关于' },
@@ -136,6 +138,7 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
           </>}
           {category === 'browser' && <BrowserPanel />}
           {category === 'computer' && <ComputerPanel />}
+          {category === 'subagents' && <SubagentsPanel onSaved={() => setSaved(true)} />}
           {category === 'collab' && <CollabGatePanel />}
           {category === 'diagnostics' && <DiagnosticsPanel />}
           {category === 'about' && <AboutPanel />}
@@ -266,7 +269,105 @@ function GeneralPanel({ settings, onChange }: { settings: GeneralSettings; onCha
           onChange={v => onChange('defaultMode', v as GeneralSettings['defaultMode'])}
         />
       </div>
+      <ConversationsStorageSection />
     </>
+  )
+}
+
+function ConversationsStorageSection(): React.JSX.Element {
+  const [path, setPath] = useState('')
+  const [configured, setConfigured] = useState(false)
+  const [legacyPath, setLegacyPath] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const load = async () => {
+    try {
+      const status = await conversationsBridge.get()
+      setPath(status.path ?? '')
+      setConfigured(!!status.configured)
+      setLegacyPath(status.legacyPath ?? '')
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : '无法读取对话存储路径')
+    }
+  }
+  useEffect(() => {
+    void load()
+  }, [])
+  const choose = async () => {
+    setBusy(true)
+    setNotice('')
+    try {
+      const picked = await conversationsBridge.select()
+      if (picked.path) setPath(picked.path)
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : '未选择文件夹')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const save = async () => {
+    const next = path.trim()
+    if (!next) {
+      setNotice('请先选择或填写存储目录')
+      return
+    }
+    setBusy(true)
+    setNotice('正在保存并迁移历史对话数据…')
+    try {
+      const result = await conversationsBridge.set({ path: next })
+      setPath(result.path)
+      setConfigured(result.configured)
+      setLegacyPath(result.legacyPath ?? legacyPath)
+      setNotice(
+        result.migratedSessions > 0
+          ? `已保存。已迁移 ${result.migratedSessions} 个历史会话文件夹。`
+          : '已保存。每个新对话都会在此目录下自动创建独立子文件夹。',
+      )
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="setting-group">
+      <div className="setting-group-title">数据存储</div>
+      <div className="setting-row conversations-storage-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div>
+          <div className="setting-label">数据存储路径</div>
+          <div className="setting-desc">
+            所有对话产物的根目录。修改后会将现有会话文件夹复制到新位置；每个对话会自动创建以会话编号命名的子文件夹，本次对话生成的 Word、PDF、HTML 等文件默认保存在其中。
+          </div>
+          {!configured && legacyPath && (
+            <div className="setting-desc">当前使用默认位置：{legacyPath}</div>
+          )}
+        </div>
+        <div className="conversations-storage-controls">
+          <label className="conversations-storage-path">
+            <span aria-hidden="true">📁</span>
+            <input
+              aria-label="对话数据存储路径"
+              value={path}
+              placeholder="选择或输入目录，例如 E:\\Trae-Work-Projects"
+              onChange={e => setPath(e.target.value)}
+            />
+          </label>
+          <div className="conversations-storage-actions">
+            <button type="button" disabled={busy} onClick={() => void choose()}>
+              选择文件夹
+            </button>
+            <button type="button" className="primary" disabled={busy || !path.trim()} onClick={() => void save()}>
+              {busy ? '处理中…' : '保存'}
+            </button>
+          </div>
+          {notice && (
+            <p className="notice" role={notice.includes('失败') ? 'alert' : 'status'}>
+              {notice}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -356,6 +457,7 @@ function CompanionSection():React.JSX.Element{
  // engine returns the built-in 18-voice character pack plus service
  // health in ref_meta.
  const refEndpointPayload=companion.engine==='ref'&&companion.refEndpoint?companion.refEndpoint:undefined
+ const[showForeignEdgeVoices,setShowForeignEdgeVoices]=useState(false)
  useEffect(()=>{let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);let available=r.voices.length>0;if(companion.engine==='ref'&&r.ref_meta&&!r.ref_meta.pack_exists){available=false}setEngineState(available?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,refEndpointPayload])
  // Auto-host launcher: when the ref engine is selected but the service
  // is down, kick the backend ensureRefEngine (non-blocking spawn) once
@@ -377,14 +479,18 @@ function CompanionSection():React.JSX.Element{
   }catch(e){setStatus(e instanceof Error?`试听失败：${e.message}`:'试听失败，请检查引擎配置')}finally{setBusy(false)}
  }
  const refDesc=refMeta?(refMeta.server_online?(refMeta.pack_exists?(refMeta.missing_files&&refMeta.missing_files.length>0?`音色 ${voices.length} 个，但 ${refMeta.missing_files.length} 个参考音频缺失（${refMeta.missing_files.slice(0,3).join('、')}${refMeta.missing_files.length>3?'…':''}），请检查音色包目录`:`音色 ${voices.length} 个（GPT-SoVITS 本地克隆，引擎在线，按风格分组）`):`引擎在线，但音色包目录缺失（${refMeta.pack_dir}），请检查音色文件`):refMeta.host_script?(hostLaunching?'语音引擎启动中…（首次加载模型约 30-90 秒，就绪后 50 种音色自动可用）':`检测到本机 GPT-SoVITS，服务未运行——已自动在后台启动语音引擎（首次加载模型约 30-90 秒）`):`未检测到 GPT-SoVITS 启动脚本（E:\GPT-SoVITS\start-api-cpu.bat）——请手动启动 api_v2 服务（默认端口 9880；WebUI 的 9874 端口不提供合成 API）`):'正在检测 GPT-SoVITS 服务…'
- const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`云端音色 ${voices.length} 个（微软 Edge 朗读 · 晓晓等神经网络音色，免密钥，需联网）`:'无法连接微软云端语音（需联网；可改选本机自然语音）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
+ const zhVoices=voices.filter(v=>(v.lang||'').toLowerCase().startsWith('zh'))
+ const zhMale=zhVoices.filter(v=>v.gender==='male').length
+ const zhFemale=zhVoices.filter(v=>v.gender==='female').length
+ const visibleVoices=companion.engine==='edge'&&!showForeignEdgeVoices?zhVoices:voices
+ const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`中文音色 ${zhVoices.length} 个（男 ${zhMale} · 女 ${zhFemale}${showForeignEdgeVoices?` · 全部 ${voices.length}`:''}；微软 Edge Neural，免密钥，需联网）`:'无法连接微软云端语音（需联网；可改选本机自然语音）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
  const voiceDisabled=engineState!=='available'
  // Voice grouping: ref-engine presets carry an explicit group from the
  // backend; SAPI/OneCore voices fall back to the gender/lang heuristic
  // (zh-CN splits by gender, other zh-* are dialects, rest is foreign).
- const voiceGroups=(()=>{const g=new Map<string,typeof voices>();for(const v of voices){const lang=v.lang||'';const grp=v.group||(lang==='zh-CN'?(v.gender==='male'?'男声 · 阳光少年 / 沉稳大叔':'女声 · 温柔 / 活泼 / 甜美'):lang.startsWith('zh-')?'方言 · 东北 / 陕西 / 粤语 / 台湾':'外语 · 英语 / 日语');const arr=g.get(grp)||[];arr.push(v);g.set(grp,arr)}return[...g.entries()]})()
- return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="语音唤醒（你好，月汐）" desc="在首页待命：说「你好，月汐」自动进入月伴对话，唤醒词后的话会作为提问直接回答；依赖 Windows 在线语音识别与麦克风权限。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="全双工对话" desc="麦克风在月汐说话时保持开启（系统回声消除）；外放扬声器可能拾取朗读声，建议戴耳机或关闭「插话打断」。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v,bargeIn:v?companion.bargeIn:false})}/><Toggle label="插话打断" desc="月汐朗读或思考较慢时，大声说话可打断（朗读期间不会把月汐自己的声音当成你的话）。" on={companion.fullDuplex&&companion.bargeIn} onChange={v=>save({...companion,bargeIn:companion.fullDuplex?v:false})}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">云端免费走微软 Edge 朗读（晓晓等 Neural，免 API Key，需联网）；自然语音为本机 OneCore；本机语音为经典 SAPI；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine'],voiceId:''})}><option value="edge">云端免费（微软晓晓 · 推荐）</option><option value="natural">自然语音（本机 OneCore）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（GPT-SoVITS · 50 种音色）</option></select></div>
-{companion.engine==='ref'&&<div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880（api_v2 推理服务端口；9874 是 WebUI 端口，不提供合成 API）。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div>}<div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div>
+ const voiceGroups=(()=>{const g=new Map<string,typeof visibleVoices>();for(const v of visibleVoices){const lang=v.lang||'';const grp=v.group||(lang==='zh-CN'?(v.gender==='male'?'男声 · 阳光少年 / 沉稳大叔':'女声 · 温柔 / 活泼 / 甜美'):lang.startsWith('zh-')?'方言 · 东北 / 陕西 / 粤语 / 台湾':'外语 · 英语 / 日语');const arr=g.get(grp)||[];arr.push(v);g.set(grp,arr)}return[...g.entries()]})()
+ return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="语音唤醒（你好，月汐）" desc="在首页待命：说「你好，月汐」自动进入月伴对话，唤醒词后的话会作为提问直接回答；依赖 Windows 在线语音识别与麦克风权限。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="全双工对话" desc="麦克风在月汐说话时保持开启（系统回声消除）；外放扬声器可能拾取朗读声，建议戴耳机或关闭「插话打断」。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v,bargeIn:v?companion.bargeIn:false})}/><Toggle label="插话打断" desc="月汐朗读或思考较慢时，大声说话可打断（朗读期间不会把月汐自己的声音当成你的话）。" on={companion.fullDuplex&&companion.bargeIn} onChange={v=>save({...companion,bargeIn:companion.fullDuplex?v:false})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发；建议戴耳机，必要时关闭全双工/插话打断。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">云端免费走微软 Edge 朗读（晓晓等 Neural，免 API Key，需联网）；自然语音为本机 OneCore；本机语音为经典 SAPI；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine'],voiceId:''})}><option value="edge">云端免费（微软晓晓 · 推荐）</option><option value="natural">自然语音（本机 OneCore）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（GPT-SoVITS · 50 种音色）</option></select></div>
+{companion.engine==='ref'&&<div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880（api_v2 推理服务端口；9874 是 WebUI 端口，不提供合成 API）。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div>}{companion.engine==='edge'&&<Toggle label="显示外语音色" desc="默认只列出中文（含普通话、港台、粤语）；开启后可浏览全部云端 Neural 音色。" on={showForeignEdgeVoices} onChange={setShowForeignEdgeVoices}/>}<div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div>
  <div className="setting-row"><div><div className="setting-label">语速（rate -10~10）</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量（0~100）</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div>{status&&<p role="status" className="notice">{status}</p>}</>
 }
 
@@ -1233,7 +1339,7 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
 // 评估：block 拒绝并回显原因；requireApproval 强制审批（即使自动模式）；
 // allow 免除审批往返（不放宽命令白名单）。多规则命中时 block 最优先。
 // 保存即校验并热生效（fail-closed：非法文档整体拒绝，不影响现运行规则）。
-const HOOK_TOOLS = ['workspace.list', 'workspace.read', 'workspace.write', 'workspace.search', 'workspace.edit', 'todo.write', 'command.run', 'web.fetch', 'web.search', 'excel.gen', 'excel.parse', 'docx.gen', 'pptx.gen', 'pdf.gen'] as const
+const HOOK_TOOLS = ['workspace.list', 'workspace.read', 'workspace.write', 'workspace.search', 'workspace.edit', 'todo.write', 'command.run', 'web.fetch', 'web.search', 'excel.gen', 'excel.parse', 'docx.gen', 'pptx.gen', 'pdf.gen', 'html.gen', 'desktop.open'] as const
 const HOOK_DECISIONS = [
   { value: 'block', label: '拦截（拒绝执行）' },
   { value: 'requireApproval', label: '强制审批' },

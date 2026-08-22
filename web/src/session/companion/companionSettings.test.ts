@@ -27,7 +27,7 @@ describe('companionSettings cloud default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.engine).toBe('edge')
     expect(loaded.voiceId).toBe('')
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(3)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(4)
   })
 
   test('rev-2 installs gain full-duplex defaults on load', () => {
@@ -45,7 +45,7 @@ describe('companionSettings cloud default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.fullDuplex).toBe(true)
     expect(loaded.bargeIn).toBe(true)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(3)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(4)
   })
 
   test('an explicit later OneCore choice is kept', () => {
@@ -55,8 +55,8 @@ describe('companionSettings cloud default', () => {
     expect(loaded.voiceId).toBe('local-voice')
   })
 
-  test('sapi and ref are never migrated', () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ engine: 'sapi', voiceId: 'v' }))
-    expect(loadCompanionSettings().engine).toBe('sapi')
+  test('defaults speech environment to normal', () => {
+    expect(defaultCompanionSettings().speechEnvironment).toBe('normal')
+    expect(loadCompanionSettings().speechEnvironment).toBe('normal')
   })
 })

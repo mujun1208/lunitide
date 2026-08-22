@@ -35,6 +35,7 @@ const tts = vi.hoisted(() => ({
   enqueueCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
   configuredWith: [] as string[],
   interrupts: 0,
+  playing: false,
 }))
 
 vi.mock('../../bridge/client', async importOriginal => {
@@ -59,6 +60,8 @@ vi.mock('../../bridge/client', async importOriginal => {
 })
 
 vi.mock('./speech', () => ({
+  ECHO_GUARD_MS: 700,
+  INTERRUPT_ECHO_MS: 160,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {
     speech.callbacks = callbacks
     return speech.start(callbacks)
@@ -77,17 +80,27 @@ vi.mock('./ttsPlayer', () => ({
     }
     enqueue(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
       tts.enqueueCalls.push({ segments, callbacks })
+      tts.playing = true
     }
-    async flush(_callbacks: TtsPlayerCallbacks) {
-      // Playback stays "ongoing" in these tests — the real flush only
-      // resolves once the queue drains (interrupt/PLAYBACK_ENDED paths
-      // are driven by the stage, not by this stub).
+    async flush(callbacks: TtsPlayerCallbacks) {
+      await new Promise<void>(resolve => {
+        const finish = () => {
+          callbacks.onFinished?.('completed')
+          resolve()
+        }
+        const check = () => {
+          if (!tts.playing) finish()
+          else setTimeout(check, 40)
+        }
+        check()
+      })
     }
     isBusy() {
-      return false
+      return tts.playing
     }
     interrupt() {
       tts.interrupts++
+      tts.playing = false
     }
     dispose() {}
   },
@@ -127,6 +140,7 @@ beforeEach(() => {
   tts.enqueueCalls = []
   tts.configuredWith = []
   tts.interrupts = 0
+  tts.playing = false
   vi.mocked(baseProps.onSend).mockClear()
   vi.mocked(baseProps.onExit).mockClear()
   localStorage.clear()
@@ -303,6 +317,40 @@ describe('MC-06 state distinguishability + live announcements', () => {
     // 7. …and Esc exits unconditionally, even mid-listen.
     fireEvent.keyDown(stage(container), { key: 'Escape' })
     await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1))
+  })
+
+  test('returns to idle after a streamed reply finishes so subtitles can fade', async () => {
+    const onSend = vi.fn()
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend })
+    fireEvent.keyDown(stage(container), { key: ' ' })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'))
+    await act(async () => {
+      speech.callbacks!.onFinal('你好')
+    })
+    expect(stateOf(container)).toBe('thinking')
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="streaming"
+        assistantText="最近怎么样，有什么想聊的？"
+      />,
+    )
+    expect(stateOf(container)).toBe('speaking')
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="done"
+        assistantText="最近怎么样，有什么想聊的？"
+      />,
+    )
+    await act(async () => {
+      tts.playing = false
+    })
+    await waitFor(() => expect(stateOf(container)).toBe('idle'), { timeout: 2000 })
+    expect(statusRegion(container).textContent).not.toContain('说话中')
   })
 
   test('unavailable chat config announces the error via role=alert and stays idle', async () => {

@@ -60,7 +60,8 @@ func handleMessageList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return messageFailure(r, err)
 	}
-	return bridge.Success(r.ID, page)
+	payload := enrichMessageListPage(page, e.loadSessionArtifactsByMessage(p.SessionID))
+	return bridge.Success(r.ID, payload)
 }
 func handleMessageRewind(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {

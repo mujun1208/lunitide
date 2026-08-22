@@ -125,6 +125,8 @@ import {
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
+  type ConversationsRootGetResult,type ConversationsRootSelectResult,type ConversationsRootSetPayload,type ConversationsRootSetResult,
+  type SessionFolderGetPayload,type SessionFolderGetResult,type SessionFolderOpenPayload,type SessionFolderOpenResult,
   type CollabGateStatusPayload,type CollabGateStatusResult,type CollabGateEvaluatePayload,type CollabGateEvaluateResult,type CollabGateConfirmPayload,type CollabGateConfirmResult,
   type DiagnosticsExportPayload,type DiagnosticsExportResult,type SystemHealthResult,
   type ToolsCommandPolicyGetResult,type ToolsCommandPolicySetPayload,type ToolsCommandPolicySetResult,
@@ -306,6 +308,17 @@ export function createSubagentBridge(transport:WebViewTransport=webview(),deadli
 let subagentSingleton:SubagentBridge|undefined
 export function getSubagentBridge():SubagentBridge{return subagentSingleton??=createSubagentBridge()}
 export const subagentBridge:SubagentBridge={spawn:(p,o)=>{try{return getSubagentBridge().spawn(p,o)}catch(error){return Promise.reject(error)}},join:p=>{try{return getSubagentBridge().join(p)}catch(error){return Promise.reject(error)}},tree:p=>{try{return getSubagentBridge().tree(p)}catch(error){return Promise.reject(error)}}}
+
+export interface ConversationsBridge{get():Promise<ConversationsRootGetResult>;select():Promise<ConversationsRootSelectResult>;set(payload:ConversationsRootSetPayload):Promise<ConversationsRootSetResult>}
+export interface SessionFolderBridge{get(payload:SessionFolderGetPayload):Promise<SessionFolderGetResult>;open(payload:SessionFolderOpenPayload):Promise<SessionFolderOpenResult>}
+export function createConversationsBridge(transport:WebViewTransport=webview()):ConversationsBridge{const core=createSimpleBridge(transport,{},120_000);return{get:()=>core.request('conversations.root.get',{}),select:()=>core.request('conversations.root.select',{}),set:p=>core.request('conversations.root.set',p,120_000)}}
+export function createSessionFolderBridge(transport:WebViewTransport=webview()):SessionFolderBridge{const core=createSimpleBridge(transport,{},8_000);return{get:p=>core.request('session.folder.get',p),open:p=>core.request('session.folder.open',p)}}
+let conversationsSingleton:ConversationsBridge|undefined
+let sessionFolderSingleton:SessionFolderBridge|undefined
+export function getConversationsBridge():ConversationsBridge{return conversationsSingleton??=createConversationsBridge()}
+export function getSessionFolderBridge():SessionFolderBridge{return sessionFolderSingleton??=createSessionFolderBridge()}
+export const conversationsBridge:ConversationsBridge={get:()=>getConversationsBridge().get(),select:()=>getConversationsBridge().select(),set:p=>getConversationsBridge().set(p)}
+export const sessionFolderBridge:SessionFolderBridge={get:p=>getSessionFolderBridge().get(p),open:p=>getSessionFolderBridge().open(p)}
 
 // M8 collab gate bridge — capability status / evidence evaluation /
 // single-use decision-token confirm (FR-17, GT-01~GT-06).
@@ -780,6 +793,17 @@ export type StreamEvent =
 export interface ChatStream { readonly streamId:string; cancel():Promise<boolean>; dispose():void }
 export interface ChatBridge { start(payload:ChatStartPayload,onEvent:(event:StreamEvent)=>void):Promise<ChatStream>; approve?(payload:ChatToolApprovePayload):Promise<ChatToolApproveResult>; dispose():void }
 const nonnegativeInt=(v:unknown)=>Number.isInteger(v)&&Number(v)>=0
+const validArtifactPath=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
+const isStreamArtifact=(artifact:unknown):artifact is StreamArtifact=>{
+ if(!isObj(artifact)||!exact(artifact,['kind','path','content']))return false
+ const path=artifact.path
+ if(typeof path!=='string'||!validArtifactPath(path)||typeof artifact.content!=='string')return false
+ switch(artifact.kind){
+  case'html':return/\.html?$/i.test(path)&&new TextEncoder().encode(artifact.content).length<=184320
+  case'xlsx':case'docx':case'pptx':case'pdf':return artifact.content===''
+  default:return false
+ }
+}
 const isStreamEvent=(v:unknown):v is StreamEvent=>{
  if(!isObj(v)||v.v!==BRIDGE_VERSION||v.kind!=='event'||!isULID(v.id)||!isULID(v.streamId)||!Number.isInteger(v.sequence)||Number(v.sequence)<1||typeof v.type!=='string')return false
  const base=['v','kind','id','streamId','sequence','type']
@@ -788,7 +812,7 @@ const isStreamEvent=(v:unknown):v is StreamEvent=>{
   case'thinking':return exact(v,[...base,'thinking'])&&isObj(v.thinking)&&exact(v.thinking,['text'])&&typeof v.thinking.text==='string'&&v.thinking.text.length>0&&new TextEncoder().encode(v.thinking.text).length<=16384
   case'usage':return exact(v,[...base,'usage'])&&isObj(v.usage)&&exact(v.usage,['inputTokens','outputTokens','totalTokens'])&&nonnegativeInt(v.usage.inputTokens)&&nonnegativeInt(v.usage.outputTokens)&&nonnegativeInt(v.usage.totalTokens)
   case'tool_started':case'approval_required':case'tool_output':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')
-  case'tool_completed':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary','artifact'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')&&(!('artifact'in v.tool)||(isObj(v.tool.artifact)&&exact(v.tool.artifact,['kind','path','content'])&&v.tool.artifact.kind==='html'&&typeof v.tool.artifact.path==='string'&&v.tool.artifact.path.length>0&&v.tool.artifact.path.length<=512&&!v.tool.artifact.path.startsWith('/')&&!v.tool.artifact.path.includes('\\')&&!v.tool.artifact.path.split('/').includes('..')&&/\.html?$/i.test(v.tool.artifact.path)&&typeof v.tool.artifact.content==='string'&&new TextEncoder().encode(v.tool.artifact.content).length<=184320))
+  case'tool_completed':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary','artifact'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')&&(!('artifact'in v.tool)||isStreamArtifact(v.tool.artifact))
   case'completed':return exact(v,'completed'in v?[...base,'completed']:base)&&(!('completed'in v)||isObj(v.completed)&&exact(v.completed,['messageId'])&&isULID(v.completed.messageId))
   case'cancelled':return exact(v,base)
   case'failed':return exact(v,[...base,'error'])&&isObj(v.error)&&exact(v.error,['code','message','retryable'])&&typeof v.error.code==='string'&&v.error.code.length>0&&typeof v.error.message==='string'&&v.error.message.length>0&&typeof v.error.retryable==='boolean'

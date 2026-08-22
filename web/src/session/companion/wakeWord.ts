@@ -137,16 +137,18 @@ export function useWakeWord({ enabled, retry = 0, onWake }: { enabled: boolean; 
         recognition.onresult = event => {
           if (stopped) return
           sawResult = true
+          failures = 0
           setState('listening')
-          let rolling = ''
-          for (let i = 0; i < event.results.length; i++) {
-            rolling += event.results[i][0].transcript
-          }
-          const match = matchWakeWord(rolling)
-          if (match.hit) {
-            stopped = true
-            stopRecognition()
-            onWakeRef.current(match.prompt)
+          for (let i = event.results.length - 1; i >= 0; i--) {
+            if (!event.results[i].isFinal && i !== event.results.length - 1) continue
+            const match = matchWakeWord(event.results[i][0].transcript)
+            if (match.hit) {
+              stopped = true
+              stopRecognition()
+              unlockTtsAudio()
+              onWakeRef.current(match.prompt)
+              return
+            }
           }
         }
         recognition.onerror = event => {

@@ -6,15 +6,19 @@
 // cloning). rev < 2 installs that used the old OneCore default are
 // moved onto the cloud engine once; an explicit later choice is kept.
 export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref'
+/** normal = default endpointing; noisy = tighter mic gate for cafes / shared rooms. */
+export type SpeechEnvironment = 'normal' | 'noisy'
 
 export interface CompanionSettings {
   enabled: boolean
   autoSpeak: boolean
   wakeWord: boolean
-  /** Keep mic open between turns; listen while assistant speaks (AEC on). */
+  /** Keep mic open between turns; mute while assistant TTS plays. */
   fullDuplex: boolean
   /** Voice interrupt during assistant playback or slow replies. */
   bargeIn: boolean
+  /** Tighter voice gate + longer silence before commit in loud environments. */
+  speechEnvironment: SpeechEnvironment
   voiceId: string
   rate: number
   volume: number
@@ -23,7 +27,7 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 3
+const SETTINGS_REV = 4
 
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
@@ -31,9 +35,10 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   wakeWord: true,
   fullDuplex: true,
   bargeIn: true,
+  speechEnvironment: 'normal',
   voiceId: '',
-  rate: 4,
-  volume: 80,
+  rate: 2,
+  volume: 88,
   engine: 'edge',
   refEndpoint: '',
 })
@@ -57,6 +62,7 @@ export function loadCompanionSettings(): CompanionSettings {
       wakeWord: typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord,
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
       bargeIn: typeof parsed.bargeIn === 'boolean' ? parsed.bargeIn : fallback.bargeIn,
+      speechEnvironment: parsed.speechEnvironment === 'noisy' ? 'noisy' : fallback.speechEnvironment,
       voiceId,
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),

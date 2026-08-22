@@ -29,10 +29,10 @@ func TestMatchCommandRuleBuiltinSet(t *testing.T) {
 	}
 	deny := [][]string{
 		{"cmd", "/c", "del", "x"},
-		{"git", "status"},                    // pager path not allowed
-		{"git", "--no-pager", "push"},        // mutating git
+		{"git", "status"},             // pager path not allowed
+		{"git", "--no-pager", "push"}, // mutating git
 		{"git", "--no-pager", "log", "-n", "1", "-p", "-a", "-b", "-c", "-d", "-e"}, // over maxArgs
-		{"go", "build", "./..."},             // not in builtin set
+		{"go", "build", "./..."}, // not in builtin set
 		{},
 	}
 	for _, argv := range deny {
@@ -119,6 +119,9 @@ func TestWebFetchToolExtractsText(t *testing.T) {
 	if strings.Contains(out.Output, "evil()") {
 		t.Fatalf("script leaked: %q", out.Output)
 	}
+	if out.Artifact == nil || out.Artifact.Path != "fetch.html" || !strings.Contains(out.Artifact.Content, "Hello Web") {
+		t.Fatalf("fetch preview missing: %+v", out.Artifact)
+	}
 	// Read-only tool: no approval gate even in approval mode (already proven
 	// by the call above executing with approved=false).
 }
@@ -141,6 +144,12 @@ func TestWebSearchToolParsesResults(t *testing.T) {
 	}
 	if out.Artifact == nil || out.Artifact.Kind != "html" || !strings.Contains(out.Artifact.Content, "Go Programming Language") {
 		t.Fatalf("missing html artifact: %+v", out.Artifact)
+	}
+	if out.Artifact.Path != "search.html" {
+		t.Fatalf("preview path must stay .html or the host strips it, got %q", out.Artifact.Path)
+	}
+	if !strings.Contains(out.Output, "results_url:") || !strings.Contains(out.Output, "https://") {
+		t.Fatalf("search must expose a real results URL in the tool output, got %q", out.Output)
 	}
 }
 

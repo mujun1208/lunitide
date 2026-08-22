@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/conversations.root.get.schema.json",
+  "title": "conversations.root.get payload",
+  "x-method": "conversations.root.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "path": { "type": "string" },
+      "configured": { "type": "boolean" },
+      "legacyPath": { "type": "string" }
+    },
+    "required": ["path", "configured"]
+  },
+  "x-examples": { "positive": [{}], "negative": [{ "extra": true }] }
+}

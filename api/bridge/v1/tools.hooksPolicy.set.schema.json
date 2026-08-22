@@ -25,7 +25,7 @@
           "tools": {
               "type": "array",
               "minItems": 1,
-              "maxItems": 14,
+              "maxItems": 16,
               "items": {
                 "enum": [
                   "workspace.list",
@@ -41,7 +41,9 @@
                   "excel.parse",
                   "docx.gen",
                   "pptx.gen",
-                  "pdf.gen"
+                  "pdf.gen",
+                  "html.gen",
+                  "desktop.open"
                 ]
               }
             },

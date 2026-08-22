@@ -53,6 +53,10 @@ const (
 	preferenceInjectMaxBytes = 2048
 	companionMaxTokens       = 2048
 	companionMaxMessages     = 24
+	// chatMaxTokens leaves headroom after long reasoning so a short tool
+	// call still fits. Dumping a full HTML game under 4096 truncated the
+	// tool JSON and surfaced “出错了，无法完成。”
+	chatMaxTokens = 16384
 )
 
 // Skill catalog injection budget (c4-skill): the installed-skill directory
@@ -72,16 +76,19 @@ const (
 
 func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var p struct {
-		ProviderID    string            `json:"providerId"`
-		ModelID       string            `json:"modelId"`
-		SessionID     string            `json:"sessionId"`
-		Messages      []gateway.Message `json:"messages"`
-		ExecutionMode executionMode     `json:"executionMode"`
-		ContextRefs   []struct {
+		ProviderID        string            `json:"providerId"`
+		ModelID           string            `json:"modelId"`
+		SessionID         string            `json:"sessionId"`
+		Messages          []gateway.Message `json:"messages"`
+		ExecutionMode     executionMode     `json:"executionMode"`
+		ContextRefs       []struct {
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
-		Companion bool `json:"companion"` // Added to detect Moon Companion requests
+		Companion         bool              `json:"companion"`
+		ProjectPhase      int               `json:"projectPhase"`
+		ProjectPhaseLabel string            `json:"projectPhaseLabel"`
+		SubagentPolicy    json.RawMessage   `json:"subagentPolicy"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -115,7 +122,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if p.Companion && turnText == "" && hasSession && e.messageReader != nil {
 		turnText = e.peekLastUserMessage(ctx, p.SessionID)
 	}
-	wantsTools := !p.Companion || companionWantsTools(turnText)
+	wantsTools := !p.Companion || mode == executionModeFullAccess || companionWantsTools(turnText)
 
 	instruction := executionModeInstruction(mode)
 	// Moon Companion: Doubao-style voice. First audible sentence must
@@ -143,8 +150,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
 		}
 	}
-	if e.delegation == delegationProactive && !p.Companion {
+	subagentPolicy := parseSubagentChatPolicy(p.SubagentPolicy)
+	if subagentPolicy.DelegationMode == delegationProactive && !p.Companion {
 		instruction += delegationProactiveHint
+	}
+	if !p.Companion && subagentPolicy.DelegationMode != delegationDisabled {
+		instruction += subagentProfileCatalogInjection(subagentPolicy)
 	}
 
 	// Overlap provider lookup with preference/skill injection (Cursor-style
@@ -175,7 +186,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	prep.Add(1)
 	go func() {
 		defer prep.Done()
-		catalog = e.skillCatalogInjection(ctx, turnText, p.Companion)
+		catalogQuery := turnText
+		if p.ProjectPhase > 0 {
+			catalogQuery += " " + p.ProjectPhaseLabel
+			if p.ProjectPhaseLabel == "开发" {
+				catalogQuery += " implement tdd code review 开发"
+			}
+		}
+		catalog = e.skillCatalogInjection(ctx, catalogQuery, p.Companion)
 	}()
 	prep.Wait()
 	if p.Companion {
@@ -185,14 +203,18 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !p.Companion {
 		instruction += bundledWorkflowInjection()
 	}
+	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
+		instruction += hint
+	}
 	if catalog != "" {
 		instruction += "\n\n" + catalog
 	}
-	if persona := e.expertPersonaInjection(ctx, p.SessionID, p.Messages); persona != "" {
+	if persona := e.expertPersonaInjection(ctx, p.SessionID, p.Messages, turnText); persona != "" {
 		instruction += persona
 	}
 	if !p.Companion && hasSession {
 		instruction += e.unfinishedTurnInjection(p.SessionID, turnText)
+		instruction += closedLoopTurnInjection(turnText)
 	}
 	trustedMessages := append([]gateway.Message{{Role: gateway.RoleSystem, Content: instruction}}, p.Messages...)
 
@@ -237,7 +259,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Model:             p.ModelID,
 			ContextWindow:     contextWindow,
 			SafetyCeiling:     safetyCeiling,
-			ReservedOutput:    4096,
+			ReservedOutput:    int64(chatMaxTokens),
 			SystemTokens:      explicitTokens,
 			SafetyMargin:      1024,
 			TokenizerRevision: tokenizerRevision,
@@ -449,15 +471,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		parent = ctx
 	}
 	streamCtx, cancel := context.WithCancel(parent)
-	state := &streamState{cancel: cancel, companion: p.Companion}
+	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
-	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: 4096, MaxAttempts: 1, DisableReasoning: p.Companion}
+	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
 	}
 	if e.tools != nil && wantsTools {
-		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode)...)
+		req.Tools = append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode, subagentPolicy)...)
 		req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 		req.Tools = append(req.Tools, e.mcpToolDefinitions()...)
 		req.Tools = append(req.Tools, e.ccToolDefinitions()...)
@@ -836,11 +858,15 @@ func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefi
 	for i := range defs {
 		switch defs[i].Name {
 		case "command.run":
-			defs[i].Description = "Run any command on this machine (full-disk full-access is enabled); prefer PowerShell/cmd executables by absolute name, argv max 16 items"
+			defs[i].Description = "Run any command on this machine (full-disk full-access is enabled). Prefer workspace.write for files and desktop.open for opening one named Desktop file. Windows PowerShell -Command is rewritten to UTF-8; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded. argv max 16 items"
 		case "workspace.list", "workspace.read":
 			defs[i].Description += "; absolute paths on any drive are accepted (full-disk full-access is enabled)"
 		case "workspace.write", "workspace.edit", "workspace.search":
 			defs[i].Description += "; absolute paths on any drive are accepted and missing parent directories are created (full-disk full-access is enabled)"
+		case "html.gen":
+			defs[i].Description += "; desktop=true writes a double-clickable file on the real Desktop (full-disk full-access is enabled)"
+		case "desktop.open":
+			defs[i].Description += "; full-disk full-access is enabled — opens one real Desktop file with the default app"
 		}
 	}
 	return defs
@@ -874,13 +900,15 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "workspace.search", Description: "Search session workspace files for a literal substring or regex; answers path:line: text matches (binary and oversized files skipped)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"literal substring, or regex when regex=true"},"path":{"type":"string","description":"workspace-relative directory to search (default .)"},"regex":{"type":"boolean"},"max":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "workspace.edit", Description: "Anchored edit of a controlled session workspace file: oldText must match exactly once (or pass replaceAll=true) and is replaced by newText; everything else stays untouched", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["path","oldText","newText"],"additionalProperties":false}`)},
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
-		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist)", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
-		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body)", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
-		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Results also appear in the in-app browser tab. Uses DuckDuckGo, then Bing if needed.", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string"},"max":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
+		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body). The workspace browser address bar shows this URL.", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
+		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query.", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string"},"max":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .xlsx"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
-		{Name: "pptx.gen", Description: "Generate a .pptx slide deck (title slide content plus title+bullets slides) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
+		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Write it into the session workspace. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
+		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
+		{Name: "desktop.open", Description: "Open exactly one file on the real Desktop whose name best matches the given query (for example 协议 → 协议.docx). Never open extra unrelated files. If several files tie, return the list and do not open any.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename fragment the user said, without requiring the extension"}},"required":["name"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 		{Name: "browser.act", Description: "Restricted public-page browser: op=navigate|read fetches through the SSRF-pinned channel; click/type/snapshot tell you to enable Playwright MCP or the workspace browser tab", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","read","click","type","snapshot"]},"url":{"type":"string","description":"required for navigate; read reuses the last navigated URL when omitted"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["op"],"additionalProperties":false}`)},
 	}
@@ -1504,6 +1532,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var pendingThinking string
 	var pendingThinkingSince time.Time
 	var streamResult gateway.Response
+	var turnArtifacts []SessionArtifact
 	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
 	mode := executionModeApproval
 	if len(modes) > 0 {
@@ -1690,7 +1719,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			// pre-started (bounded) so independent research subagents
 			// overlap; each result is consumed in original call order
 			// below, keeping the event stream deterministic.
-			subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls)
+			subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls, state.subagentPolicy)
 			// P0-1 parallel tools: same-turn MCP and read-only engine calls
 			// pre-start on bounded goroutines (chat_parallel.go documents
 			// the concurrency safety contract); mutating, cc.* and gated
@@ -1815,7 +1844,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						summary, invokeErr = res.summary, res.err
 						delete(subagentFutures, call.ID)
 					} else {
-						summary, invokeErr = e.invokeSubagentTool(op, a, credential, req.Model, sessionID, call.Name, call.Arguments)
+						summary, invokeErr = e.invokeSubagentTool(op, a, credential, req.Model, sessionID, call.Name, call.Arguments, state.subagentPolicy)
 					}
 					if invokeErr != nil {
 						summary = invokeErr.Error()
@@ -1896,6 +1925,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				summary := r.Output
 				if toolErr != nil {
 					summary = toolErr.Error()
+					if !strings.HasPrefix(summary, "ok:false") {
+						summary = "ok:false\n" + summary
+					}
+					turn.ToolFailed = true
 				}
 				summary = clipToolSummary(summary)
 				if toolErr == nil {
@@ -1907,6 +1940,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: r.Artifact.Content}
 					} else if artifactKindValid(k) {
 						toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: ""}
+					}
+					if toolEvent.Artifact != nil {
+						turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(call.ID, call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path))
 					}
 				}
 				if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: toolEvent}); err != nil {
@@ -1927,6 +1963,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		// persisted assistant text (same pattern as the 400 fallback).
 		if streamErr == nil {
 			notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
+			if turn.ToolFailed {
+				notice = ""
+			}
 			if notice == "" && assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
 				notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
 			}
@@ -1967,6 +2006,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				err = appendErr
 			} else {
 				messageID = msg.ID
+				e.appendMessageArtifacts(sessionID, messageID, turnArtifacts)
 			}
 		}
 	}
@@ -2031,8 +2071,8 @@ func createTurnClosingNotice(tools []string, assistantText string) string {
 func hasActingComputerTool(tools []string) bool {
 	for _, name := range tools {
 		switch name {
-		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "browser.act", "browser.open",
-			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen":
+		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "web.search", "browser.act", "browser.open",
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open":
 			return true
 		}
 		if strings.HasPrefix(name, "cc.") {
@@ -2058,8 +2098,21 @@ const (
 	turnInterruptNotice   = "终止打断了"
 	turnErrorNotice       = "出错了，无法完成。"
 	duplicateToolResult   = "already done this turn"
-	expertSectionMaxRunes = 5000
+	expertSectionMaxRunes = 2500
 )
+
+func skipExpertCouncil(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	lower := strings.ToLower(t)
+	createFolder := (strings.Contains(t, "文件夹") || strings.Contains(lower, "folder") || strings.Contains(t, "目录")) &&
+		(strings.Contains(t, "创建") || strings.Contains(t, "新建") || strings.Contains(t, "建一个") || strings.Contains(t, "建个"))
+	htmlOnDesktop := (strings.Contains(lower, "html") || strings.Contains(t, "网页") || strings.Contains(t, "小游戏")) &&
+		(strings.Contains(t, "桌面") || strings.Contains(lower, "desktop"))
+	return createFolder || htmlOnDesktop
+}
 
 func turnOutcomeNotice(cancelling bool, err error) string {
 	if cancelling {
@@ -2149,8 +2202,11 @@ func collectExpertIDs(mounted []string, texts ...string) []string {
 	return ids
 }
 
-func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, explicit []gateway.Message) string {
+func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, explicit []gateway.Message, turnText string) string {
 	if e.m8expert == nil {
+		return ""
+	}
+	if skipExpertCouncil(turnText) {
 		return ""
 	}
 	var mounted []string

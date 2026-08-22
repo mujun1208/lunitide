@@ -39,18 +39,30 @@ export interface CompanionSpeechCallbacks {
   onEndWithoutFinal?: () => void
 }
 
+export type SpeechEnvironment = 'normal' | 'noisy'
+
+export interface SpeechProfile {
+  voicePeak: number
+  utteranceSilenceMs: number
+  utteranceStableMs: number
+  bargeInPeakDelta: number
+  minVoiceHoldMs: number
+}
+
 export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
   /** Keep mic + recognition alive between turns (phone-call loop). */
   duplex?: boolean
   /** Voice-triggered interrupt while assistant is playing or thinking. */
   bargeIn?: boolean
+  /** Tighter endpointing when cafes / background voices are present. */
+  environment?: SpeechEnvironment
 }
 
 export interface CompanionSpeechHandle {
   /** Stop recognition and release the microphone immediately. */
   stop: () => void
-  /** Assistant TTS active — raise barge-in threshold (AEC still on). */
-  setAssistantPlayback: (active: boolean) => void
+  /** Assistant TTS active — mute the mic and ignore recognizer output. */
+  setAssistantPlayback: (active: boolean, echoGuardMs?: number) => void
   /** Pause silence-based commit while thinking/speaking. */
   setCommitPaused: (paused: boolean) => void
   /** Enable voice barge-in detection (thinking or speaking). */
@@ -58,16 +70,43 @@ export interface CompanionSpeechHandle {
 }
 
 /** Commit after this much analyser silence once we already have text. */
-export const UTTERANCE_SILENCE_MS = 280
+export const UTTERANCE_SILENCE_MS = 240
 /** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
-export const UTTERANCE_STABLE_MS = 360
+export const UTTERANCE_STABLE_MS = 320
 
 /** Energy above this (0–1 peak) counts as voice for endpointing. */
-const VOICE_PEAK = 0.13
+export const VOICE_PEAK = 0.09
 /** Stronger peak while assistant speaks — avoids TTS bleed despite AEC. */
-export const BARGE_IN_PEAK = 0.27
-/** Sustained voice before a barge-in fires. */
-export const BARGE_IN_HOLD_MS = 120
+export const BARGE_IN_PEAK = 0.42
+
+export function speechProfile(environment: SpeechEnvironment = 'normal'): SpeechProfile {
+  if (environment === 'noisy') {
+    return {
+      voicePeak: 0.14,
+      utteranceSilenceMs: 380,
+      utteranceStableMs: 460,
+      bargeInPeakDelta: 0.06,
+      minVoiceHoldMs: 220,
+    }
+  }
+  return {
+    voicePeak: VOICE_PEAK,
+    utteranceSilenceMs: UTTERANCE_SILENCE_MS,
+    utteranceStableMs: UTTERANCE_STABLE_MS,
+    bargeInPeakDelta: 0.04,
+    minVoiceHoldMs: 0,
+  }
+}
+/** Sustained voice before a barge-in fires. Thinking only; playback uses mute. */
+export const BARGE_IN_HOLD_MS = 280
+/** After TTS ends, ignore mic/SR until speaker ring-out dies. */
+export const ECHO_GUARD_MS = 700
+/** After a click/voice interrupt, unmute quickly so the user can talk. */
+export const INTERRUPT_ECHO_MS = 160
+
+export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number): boolean {
+  return playback || now < guardUntil
+}
 
 export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
   return hasText && silentForMs >= silenceMs
@@ -85,7 +124,8 @@ export const PERMANENT_SPEECH_ERRORS = new Set(['not-allowed', 'service-not-allo
 export const isPermanentSpeechError = (error?: string) => !!error && PERMANENT_SPEECH_ERRORS.has(error)
 
 export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
-  const { duplex = false, bargeIn = true, ...callbacks } = options
+  const { duplex = false, bargeIn = true, environment = 'normal', ...callbacks } = options
+  const profile = speechProfile(environment)
   const Recognition = speechRecognitionConstructor()
   if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
     return Promise.reject(new BridgeClientError('当前系统 WebView 不支持语音输入', 'SPEECH_RECOGNITION_UNAVAILABLE', false, 'renderer'))
@@ -101,10 +141,20 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let bargeInActive = false
   let commitPaused = false
   let bargeVoiceSince = 0
+  let recRestarting = false
+  let echoGuardUntil = 0
+  let echoTimer = 0
+  const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now())
+  const muteMic = (muted: boolean) => {
+    stream?.getAudioTracks().forEach(track => {
+      track.enabled = !muted
+    })
+  }
   const teardown = () => {
     if (frame) cancelAnimationFrame(frame)
     window.clearTimeout(recSilenceTimer)
     window.clearTimeout(restartTimer)
+    window.clearTimeout(echoTimer)
     stream?.getTracks().forEach(track => track.stop())
     stream = undefined
     void context?.close()
@@ -116,7 +166,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     const withEcho = (value: MediaStreamConstraints): MediaStreamConstraints => {
       const audio = value.audio
       if (audio === false) return value
-      const extra = { echoCancellation: true as const, noiseSuppression: true as const }
+      const extra = { echoCancellation: true as const, noiseSuppression: true as const, autoGainControl: false as const }
       return { audio: audio === true || audio == null ? extra : { ...audio, ...extra } }
     }
     constraints = withEcho(constraints)
@@ -137,6 +187,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     let interim = ''
     let lastVoiceAt = performance.now()
     let lastTextChangeAt = performance.now()
+    let utteranceVoiceSince = 0
     const assembled = () => {
       const f = finals.trim()
       const i = interim.trim()
@@ -150,15 +201,19 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       finals = ''
       interim = ''
       bargeVoiceSince = 0
+      utteranceVoiceSince = 0
       lastTextChangeAt = performance.now()
       callbacks.onInterim?.('')
+      recRestarting = true
+      window.clearTimeout(restartTimer)
       try {
         recognition.stop()
       } catch {
         /* engine may already be stopped */
       }
       restartTimer = window.setTimeout(() => {
-        if (finished || !recognition) return
+        recRestarting = false
+        if (finished || !recognition || recognitionHeld()) return
         try {
           recognition.start()
         } catch {
@@ -167,7 +222,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }, 60)
     }
     const commit = (text: string) => {
-      if (finished || !text) return
+      if (finished || !text || recognitionHeld()) return
       if (duplex) {
         callbacks.onFinal(text)
         restartRecognition()
@@ -180,21 +235,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     const tryBargeIn = (rawPeak: number) => {
       if (finished || !duplex || !bargeIn || !bargeInActive || !callbacks.onBargeIn) return
-      const peak = rawPeak / 255
-      if (assistantPlayback) {
-        if (peak >= BARGE_IN_PEAK) {
-          if (!bargeVoiceSince) bargeVoiceSince = performance.now()
-          else if (performance.now() - bargeVoiceSince >= BARGE_IN_HOLD_MS) {
-            bargeVoiceSince = 0
-            callbacks.onBargeIn('')
-            restartRecognition()
-          }
-        } else bargeVoiceSince = 0
+      // Speaker playback always leaks into the mic. Do not treat that
+      // energy as a barge-in — moon click still interrupts.
+      if (assistantPlayback || recognitionHeld()) {
+        bargeVoiceSince = 0
         return
       }
+      const peak = rawPeak / 255
       const text = assembled()
       if (!text) return
-      if (peak >= VOICE_PEAK + 0.04) {
+      if (peak >= profile.voicePeak + profile.bargeInPeakDelta) {
         if (!bargeVoiceSince) bargeVoiceSince = performance.now()
         else if (shouldBargeIn(true, performance.now() - bargeVoiceSince)) {
           bargeVoiceSince = 0
@@ -203,15 +253,19 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         }
       } else bargeVoiceSince = 0
     }
-    const tryCommitFromSilence = (voiceAt: number, silenceMs = UTTERANCE_SILENCE_MS) => {
-      if (finished || commitPaused || assistantPlayback) return
+    const tryCommitFromSilence = (voiceAt: number, silenceMs = profile.utteranceSilenceMs) => {
+      if (finished || commitPaused || recognitionHeld()) return
       const text = assembled()
       if (!text) return
+      if (profile.minVoiceHoldMs > 0) {
+        if (!utteranceVoiceSince) return
+        if (performance.now() - utteranceVoiceSince < profile.minVoiceHoldMs) return
+      }
       const silentFor = performance.now() - voiceAt
       const stableFor = performance.now() - lastTextChangeAt
       // Stable transcript is enough: Windows Speech Recognition keeps
       // re-emitting the same interim, which used to look like "still talking".
-      if (shouldCommitStable(true, stableFor)) {
+      if (shouldCommitStable(true, stableFor, profile.utteranceStableMs)) {
         commit(text)
         return
       }
@@ -237,8 +291,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           rawPeak = Math.max(rawPeak, peak)
           levels.push(Math.max(0.06, peak / 255))
         }
-        if (rawPeak / 255 >= VOICE_PEAK) lastVoiceAt = performance.now()
-        else tryCommitFromSilence(lastVoiceAt)
+        const peak = rawPeak / 255
+        if (peak >= profile.voicePeak) {
+          if (!utteranceVoiceSince && assembled().trim()) utteranceVoiceSince = performance.now()
+          lastVoiceAt = performance.now()
+        } else tryCommitFromSilence(lastVoiceAt)
         tryBargeIn(rawPeak)
         callbacks.onLevels?.(levels)
         frame = requestAnimationFrame(meter)
@@ -254,7 +311,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     rec.interimResults = true
     let lastInterimAt = 0
     rec.onresult = event => {
-      if (assistantPlayback) return
+      if (recognitionHeld()) return
       let finalTranscript = ''
       let interimTranscript = ''
       for (let i = 0; i < event.results.length; i++) {
@@ -281,7 +338,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         return
       }
       if (next) {
-        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), UTTERANCE_STABLE_MS)
+        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), profile.utteranceStableMs)
       }
       tryCommitFromSilence(lastVoiceAt)
     }
@@ -309,6 +366,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     rec.onend = () => {
       if (finished) return
+      if (recRestarting || recognitionHeld()) return
       const text = assembled()
       if (text) {
         commit(text)
@@ -339,15 +397,30 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         recognition?.stop()
         teardown()
       },
-      setAssistantPlayback: (active: boolean) => {
+      setAssistantPlayback: (active: boolean, echoGuardMs = ECHO_GUARD_MS) => {
         assistantPlayback = active
+        window.clearTimeout(echoTimer)
+        finals = ''
+        interim = ''
+        bargeVoiceSince = 0
+        lastTextChangeAt = performance.now()
+        callbacks.onInterim?.('')
         if (active) {
-          finals = ''
-          interim = ''
-          bargeVoiceSince = 0
-          lastTextChangeAt = performance.now()
-          callbacks.onInterim?.('')
-        } else bargeVoiceSince = 0
+          muteMic(true)
+          recRestarting = true
+          try {
+            recognition?.stop()
+          } catch {
+            /* already stopped */
+          }
+          return
+        }
+        muteMic(false)
+        echoGuardUntil = performance.now() + Math.max(0, echoGuardMs)
+        echoTimer = window.setTimeout(() => {
+          if (finished || assistantPlayback) return
+          restartRecognition()
+        }, Math.max(0, echoGuardMs))
       },
       setCommitPaused: (paused: boolean) => {
         commitPaused = paused
