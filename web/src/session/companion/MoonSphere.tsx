@@ -1,14 +1,13 @@
-// MoonSphere.tsx is the M9.5 moon avatar (T-9.5.2.2): a photoreal moon
-// disc with CSS-layered visuals for the four companion states. It consumes
-// only data-state and --moon-gain/--moon-level — no business logic.
-// Look: reference full-moon texture, limb bloom (solid-to-soft aura), no
-// watermark and no stroked halo ring. Glow still flickers with the mic
-// level (listening) or playback gain (speaking). Animations collapse
+// MoonSphere.tsx is the M9.5 moon avatar (T-9.5.2.2): a volumetric
+// glowing sphere with a soft halo. It consumes only data-state and
+// --moon-gain/--moon-level — no business logic. Look: pale off-white
+// disc, cool-blue limb, dark radial atmosphere — no crater texture
+// and no stroked ring. Glow still flickers with the mic level
+// (listening) or playback gain (speaking). Animations collapse
 // under .reduce-motion.
 import type { CompanionState } from './useCompanionMachine'
 
 export const MOON_RING_BINS = 12
-export const MOON_TEXTURE = '/brand/moon-companion.png'
 
 export interface MoonSphereProps {
   state: CompanionState
@@ -51,9 +50,8 @@ export function MoonSphere({ state, gain, levels, interruptible, onInterrupt }: 
         tabIndex={-1}
       >
         <span className="companion-moon-disc" aria-hidden="true">
-          <span className="companion-moon-face">
-            <img src={MOON_TEXTURE} alt="" draggable={false} />
-          </span>
+          <span className="companion-moon-face" />
+          <span className="companion-moon-sheen" />
         </span>
       </button>
     </div>

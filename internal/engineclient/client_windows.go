@@ -414,11 +414,23 @@ func validRendererArtifact(a *bridge.ArtifactEvent) error {
 	if a == nil {
 		return nil
 	}
-	if a.Kind != "html" || len(a.Path) == 0 || len(a.Path) > 512 || strings.HasPrefix(a.Path, "/") || strings.Contains(a.Path, "\\") || strings.Contains(a.Path, "..") || len(a.Content) > 180<<10 {
+	if len(a.Path) == 0 || len(a.Path) > 512 || strings.HasPrefix(a.Path, "/") || strings.Contains(a.Path, "\\") || strings.Contains(a.Path, "..") {
 		return errors.New("invalid tool artifact")
 	}
-	lower := strings.ToLower(a.Path)
-	if !strings.HasSuffix(lower, ".html") && !strings.HasSuffix(lower, ".htm") {
+	switch a.Kind {
+	case "html":
+		if len(a.Content) > 180<<10 {
+			return errors.New("invalid tool artifact")
+		}
+		lower := strings.ToLower(a.Path)
+		if !strings.HasSuffix(lower, ".html") && !strings.HasSuffix(lower, ".htm") {
+			return errors.New("invalid tool artifact")
+		}
+	case "xlsx", "docx", "pptx", "pdf":
+		if a.Content != "" {
+			return errors.New("invalid tool artifact")
+		}
+	default:
 		return errors.New("invalid tool artifact")
 	}
 	return nil

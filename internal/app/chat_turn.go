@@ -24,12 +24,13 @@ const (
 )
 
 type chatTurnCheckpoint struct {
-	Status    string   `json:"status"`
-	Goal      string   `json:"goal"`
-	StreamID  string   `json:"streamId"`
-	Injected  []string `json:"injected,omitempty"`
-	LastTools []string `json:"lastTools,omitempty"`
-	UpdatedAt string   `json:"updatedAt"`
+	Status     string   `json:"status"`
+	Goal       string   `json:"goal"`
+	StreamID   string   `json:"streamId"`
+	Injected   []string `json:"injected,omitempty"`
+	LastTools  []string `json:"lastTools,omitempty"`
+	ToolFailed bool     `json:"toolFailed,omitempty"`
+	UpdatedAt  string   `json:"updatedAt"`
 }
 
 func looksLikeResume(text string) bool {
@@ -117,6 +118,26 @@ func (e *Engine) todoSummary(sessionID string) string {
 	return b.String()
 }
 
+func looksLikeIndependentRequest(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || looksLikeResume(t) {
+		return false
+	}
+	for _, p := range []string{"只要", "改成", "改用", "换成", "不要用", "别用", "补充", "再加上", "还有就是", "用这个", "继续用", "只装"} {
+		if strings.HasPrefix(t, p) {
+			return false
+		}
+	}
+	return true
+}
+
+func closedLoopTurnInjection(userText string) string {
+	if looksLikeResume(userText) {
+		return ""
+	}
+	return "\n\n[本轮范围] 只执行用户这一条最新消息。上一轮无论成功还是失败都已闭环，禁止重做，禁止和本轮绑在一起。用户没有说「继续」时，不要去完成聊天记录里更早的任务，也不要打开与本轮无关的文件。"
+}
+
 func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 	if sessionID == "" || !looksLikeResume(userText) {
 		return ""
@@ -148,6 +169,15 @@ func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string) (string, []string) {
 	if e == nil || e.queue == nil || sessionID == "" {
 		return "", nil
+	}
+	pending, err := e.queue.List(ctx, sessionID)
+	if err != nil || len(pending) == 0 {
+		return "", nil
+	}
+	for _, m := range pending {
+		if looksLikeIndependentRequest(m.Payload) {
+			return "", nil
+		}
 	}
 	items, err := e.queue.Consume(ctx, sessionID)
 	if err != nil || len(items) == 0 {

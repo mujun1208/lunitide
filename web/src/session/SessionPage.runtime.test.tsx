@@ -178,6 +178,9 @@ it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
  expect(vi.mocked(append).mock.calls[0][0].text).toBe('再试一次')
  expect(await screen.findByText('出错了，无法完成。')).toBeInTheDocument()
+ expect(screen.queryByText('模型请求失败')).toBeNull()
+ expect(screen.queryByText(/代码 UPSTREAM_FAILED/)).toBeNull()
+ expect(screen.queryByRole('button',{name:'从最新页重试'})).toBeNull()
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
  expect(start).toHaveBeenCalledOnce()
  fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'继续'}})
@@ -187,7 +190,7 @@ it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
 })
 
-it('shows an error notice on retryable stream failed without auto-resume',async()=>{
+it('surfaces stream failure only as 出错了，无法完成 without the UPSTREAM_FAILED card',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
@@ -197,6 +200,9 @@ it('shows an error notice on retryable stream failed without auto-resume',async(
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'failed',error:{code:'UPSTREAM_FAILED',message:'模型请求失败',retryable:true}}))
  expect(await screen.findByText('出错了，无法完成。')).toBeInTheDocument()
+ expect(screen.queryByText('模型请求失败')).toBeNull()
+ expect(screen.queryByText(/代码 UPSTREAM_FAILED/)).toBeNull()
+ expect(screen.queryByRole('button',{name:'从最新页重试'})).toBeNull()
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
  expect(start).toHaveBeenCalledOnce()
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
@@ -280,7 +286,7 @@ it('opens and closes the personal workspace without unmounting conversation or c
  await user.click(screen.getByRole('button',{name:'收起右侧工作区'}));expect(screen.queryByLabelText('统一工作区')).toBeNull();expect(composer).toHaveValue('draft')
 })
 
-it('automatically opens the terminal workspace for command tool activity',async()=>{
+it('does not auto-open the terminal workspace for command tool activity',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
@@ -290,9 +296,7 @@ it('automatically opens the terminal workspace for command tool activity',async(
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_started',tool:{callId:'call-1',name:'command.run',argsDigest:'digest',summary:'go test ./...'}}))
- expect(screen.getByLabelText('统一工作区')).toBeInTheDocument()
- expect(screen.getByRole('tab',{name:'终端'})).toHaveAttribute('aria-selected','true')
- expect(screen.getByLabelText('命令调用情况')).toHaveTextContent('go test ./...')
+ expect(screen.queryByLabelText('统一工作区')).toBeNull()
 })
 
 it('keeps tool activity inside the task process and follows the growing stream',async()=>{
@@ -380,6 +384,19 @@ it('automatically opens a sandboxed browser preview only after a completed HTML 
  expect(screen.getByTitle('HTML 预览 index.html')).toHaveAttribute('sandbox','')
 })
 
+it('does not auto-open the browser workspace for background web.search',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const user=await open({personal:true,initialSession:session,providers,chat:{start,dispose:vi.fn()},attachments:{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge})
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'现在市面上除了飞算AI，还有没有类似他的产品')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_started',tool:{callId:'search-1',name:'web.search',argsDigest:'a'.repeat(64),summary:'搜索：飞算AI'}}))
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:stream.streamId,sequence:2,type:'tool_completed',tool:{callId:'search-1',name:'web.search',argsDigest:'a'.repeat(64),summary:'query: 飞算AI\nresults_url: https://cn.bing.com/search?q=%E9%A3%9E%E7%AE%97AI',artifact:{kind:'html',path:'search.html',content:'<h1>搜索结果 · 飞算AI</h1>'}}}))
+ expect(screen.queryByLabelText('统一工作区')).toBeNull()
+})
+
 
 it('closes the attachment menu as soon as the file picker is opened',async()=>{
  const user=await open({personal:true,providers,initialSession:session,attachments:{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge})
@@ -456,7 +473,7 @@ it('opens project workbench chat with the home composer instead of the session l
  expect(screen.getByRole('button',{name:'执行模式'})).toBeInTheDocument()
 })
 
-it('automatically opens the terminal workspace for project home-chat command activity',async()=>{
+it('does not auto-open the terminal workspace for project home-chat command activity',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
@@ -468,7 +485,5 @@ it('automatically opens the terminal workspace for project home-chat command act
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_started',tool:{callId:'call-1',name:'command.run',argsDigest:'digest',summary:'$ go test ./...'}}))
- expect(screen.getByLabelText('统一工作区')).toBeInTheDocument()
- expect(screen.getByRole('tab',{name:'终端'})).toHaveAttribute('aria-selected','true')
- expect(screen.getByLabelText('命令调用情况')).toHaveTextContent('go test ./...')
+ expect(screen.queryByLabelText('统一工作区')).toBeNull()
 })

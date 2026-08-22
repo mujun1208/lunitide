@@ -346,6 +346,23 @@ func (s *SubagentService) Tree(ctx context.Context, rootRunID, cursor string, li
 	return runs, next, nil
 }
 
+// ListObservations returns join-evidence rows for one subagent run (UI tree).
+func (s *SubagentService) ListObservations(ctx context.Context, subagentRunID string) ([]m7flow.SubagentObservation, error) {
+	if s == nil || s.uow == nil {
+		return nil, ErrServiceUnavailable
+	}
+	var out []m7flow.SubagentObservation
+	err := s.uow.TransactSubagent(ctx, func(tx SubagentTx) error {
+		obs, err := tx.ListSubagentObservations(subagentRunID)
+		if err != nil {
+			return err
+		}
+		out = obs
+		return nil
+	})
+	return out, err
+}
+
 // CancelRoot cascades a root terminal/cancel onto every live subagent
 // (scenario 38): queued/running -> cancelled, zero orphans.
 func (s *SubagentService) CancelRoot(ctx context.Context, rootRunID, actor string) (int, error) {

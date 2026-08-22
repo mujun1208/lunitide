@@ -424,19 +424,14 @@ export class TtsPlayer {
 
   /** P0-1: Flush remaining queue and resolve when all queued segments are done. */
   async flush(callbacks: TtsPlayerCallbacks): Promise<void> {
-    if (!this.queueProcessing) {
-      callbacks.onFinished?.('completed')
-      return
-    }
-    // Wait for the queue to drain naturally — processQueue will call onFinished
-    // when the last segment is done and the queue is empty.
     return new Promise(resolve => {
+      const finish = () => {
+        callbacks.onFinished?.('completed')
+        resolve()
+      }
       const check = () => {
-        if (!this.queueProcessing) {
-          resolve()
-        } else {
-          setTimeout(check, 50)
-        }
+        if (!this.isBusy()) finish()
+        else setTimeout(check, 40)
       }
       check()
     })

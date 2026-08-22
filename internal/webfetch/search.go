@@ -113,7 +113,7 @@ func ParseBingResults(page string, max int) []SearchResult {
 			rest = ""
 		}
 		href, title := firstHTTPAnchor(block)
-		if href == "" {
+		if href == "" || isBingNavURL(href) {
 			continue
 		}
 		results = append(results, SearchResult{
@@ -146,9 +146,9 @@ p{margin:0;color:#c5d0de}
 		b.WriteString(`<p class="empty">没有找到结果。</p></body></html>`)
 		return b.String()
 	}
-	b.WriteString(`<ol>`)
+	b.WriteString(`<ol class="serp">`)
 	for i, hit := range results {
-		fmt.Fprintf(&b, `<li><a href="%s">%d. %s</a><small>%s</small><p>%s</p></li>`,
+		fmt.Fprintf(&b, `<li class="serp-hit"><a href="%s">%d. %s</a><small>%s</small><p>%s</p></li>`,
 			html.EscapeString(hit.URL), i+1, html.EscapeString(hit.Title), html.EscapeString(hit.URL), html.EscapeString(hit.Snippet))
 	}
 	b.WriteString(`</ol></body></html>`)
@@ -216,6 +216,21 @@ func firstParagraph(block string) string {
 		return ""
 	}
 	return strings.TrimSpace(unescapeEntities(stripTags(raw[:end])))
+}
+
+func isBingNavURL(href string) bool {
+	u, err := url.Parse(href)
+	if err != nil {
+		return true
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "bing.com" || strings.HasSuffix(host, ".bing.com") || host == "microsoft.com" || strings.HasSuffix(host, ".microsoft.com") || host == "microsoftonline.com" || strings.HasSuffix(host, ".microsoftonline.com") {
+		path := strings.ToLower(u.Path)
+		if path == "" || path == "/" || strings.HasPrefix(path, "/account") || strings.HasPrefix(path, "/images") || strings.HasPrefix(path, "/videos") || strings.HasPrefix(path, "/maps") || strings.HasPrefix(path, "/shop") || strings.HasPrefix(path, "/translator") {
+			return true
+		}
+	}
+	return false
 }
 
 // unwrapSearchRedirect decodes a //duckduckgo.com/l/?uddg= wrapper to its

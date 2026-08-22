@@ -244,7 +244,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
 		EntryPoint: "builtin://code-reviewer",
 		Manifest: map[string]any{
-			"triggers": []string{"code review", "审查代码", "review diff"},
+			"triggers": []string{"code review", "code-review", "审查代码", "review diff"},
 			"prompt":   "你是代码审查助手。用 workspace.search/read 收集改动与周边代码；按 严重/建议 分级，每条引用 path:line；不修改文件除非用户明确要求。",
 		},
 	},
@@ -394,8 +394,48 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
 		EntryPoint: "builtin://grill-me", Featured: true, Source: "工程实践",
 		Manifest: map[string]any{
-			"triggers": []string{"追问", "对齐需求", "grill", "先问清楚", "需求澄清"},
+			"triggers": []string{"追问", "对齐需求", "grill", "grill-me", "先问清楚", "需求澄清"},
 			"prompt":   "你是深度追问助手（改编自 Matt Pocock grilling，MIT）。把当前任务画成设计树：每个决定会分出后续决定。每轮只问「现在就能回答、不依赖未决前提」的问题；编号、给出你的推荐答案，然后等待用户。事实用工具自己查，不要问用户本可检索的信息。树走完、用户确认共识之前，不要动手实现。",
+		},
+	},
+	{
+		ID: "to-spec", Name: "tpl-to-spec", DisplayName: "写规格",
+		Description: "把已对齐的共识沉淀为可执行的规格文档，明确范围、验收标准与不在范围内的事项。",
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://to-spec", Featured: true, Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"to-spec", "写规格", "写需求文档", "规格说明", "spec", "验收标准"},
+			"prompt":   "你是规格助手（改编自 Matt Pocock to-spec，MIT）。在动手前输出结构化规格：背景、目标、非目标、用户故事/用例、验收标准、风险与开放问题。写入工作区 markdown；引用已有文件路径，不重复粘贴大段原文。规格定稿前不要写实现代码。",
+		},
+	},
+	{
+		ID: "to-tickets", Name: "tpl-to-tickets", DisplayName: "拆票",
+		Description: "把规格拆成可独立交付的垂直切片任务（tracer bullet），而不是按技术层横切。",
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://to-tickets", Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"to-tickets", "拆票", "拆任务", "垂直切片", "tracer bullet", "任务清单"},
+			"prompt":   "你是拆票助手（改编自 Matt Pocock to-tickets，MIT）。每张票必须端到端可演示（tracer bullet），禁止按「前端/后端/数据库」横切。每张票含：标题、目标、验收标准、依赖、预估风险。优先最小可合并增量；输出 markdown 或表格到工作区。",
+		},
+	},
+	{
+		ID: "implement", Name: "tpl-implement", DisplayName: "驱动实现",
+		Description: "按规格与票据驱动实现：小步提交、先测后写、完成后自审。",
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
+		EntryPoint: "builtin://implement", Featured: true, Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"implement", "开始实现", "写代码", "按票实现", "驱动实现", "开发功能"},
+			"prompt":   "你是实现助手（改编自 Matt Pocock implement + tdd，MIT）。一次只完成一张垂直切片：先确认验收标准，再 workspace.edit/write 与 command.run。优先配合 tdd-loop：红-绿-重构。禁止一次性大改；每步用测试或命令验证。完成后 skill.invoke code-reviewer 或说明待审查 diff。",
+		},
+	},
+	{
+		ID: "improve-architecture", Name: "tpl-improve-architecture", DisplayName: "架构改进",
+		Description: "扫描代码库寻找深模块化与边界清晰化机会，输出可执行的改进建议。",
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://improve-architecture", Source: "工程实践",
+		Manifest: map[string]any{
+			"triggers": []string{"improve-architecture", "架构改进", "模块化", "重构建议", "improve architecture"},
+			"prompt":   "你是架构改进助手（改编自 Matt Pocock improve-codebase-architecture，MIT）。用 workspace.search/read 扫描耦合点、重复边界与缺失抽象。输出：问题、证据（path:line）、建议改法、风险与推荐顺序。默认只读；用户确认后再改代码。",
 		},
 	},
 	{

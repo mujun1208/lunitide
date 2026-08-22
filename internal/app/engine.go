@@ -19,6 +19,7 @@ import (
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/handoff"
@@ -144,6 +145,7 @@ type Engine struct {
 	streams            map[string]*streamState
 	maxStreams         int
 	tools              *toolruntime.Runtime
+	conversations      *conversationsapp.Store
 	terminals          *terminalruntime.Runtime
 	terminalsMu        sync.Mutex
 	terminalOwners     map[string]*terminalOwner
@@ -241,9 +243,10 @@ type terminalOwner struct {
 }
 
 type streamState struct {
-	cancel    context.CancelFunc
-	state     streamLifecycle
-	companion bool
+	cancel         context.CancelFunc
+	state          streamLifecycle
+	companion      bool
+	subagentPolicy subagentChatPolicy
 }
 
 type streamLifecycle uint8
@@ -375,6 +378,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodChatStart:                     handleChatStart,
 	bridge.MethodChatToolApprove:               handleChatToolApprove,
 	bridge.MethodContextStatus:                 handleContextStatus,
+	bridge.MethodConversationsRootGet:          handleConversationsRootGet,
+	bridge.MethodConversationsRootSet:          handleConversationsRootSet,
 	bridge.MethodContextCompactPreview:         handleContextCompactPreview,
 	bridge.MethodContextCompactCommit:          handleContextCompactCommit,
 	bridge.MethodContextCompactCancel:          handleContextCompactCancel,
@@ -407,6 +412,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSessionDelete:                 handleSessionDelete,
 	bridge.MethodSessionExpertsGet:             handleSessionExpertsGet,
 	bridge.MethodSessionExpertsSet:             handleSessionExpertsSet,
+	bridge.MethodSessionFolderGet:              handleSessionFolderGet,
+	bridge.MethodSessionFolderOpen:             handleSessionFolderOpen,
 	bridge.MethodSessionList:                   handleSessionList,
 	bridge.MethodSessionUpdate:                 handleSessionUpdate,
 	bridge.MethodMessageAppend:                 handleMessageAppend,
@@ -667,6 +674,8 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 func (e *Engine) SetMigrationService(m MigrationService) { e.migration = m }
 
 func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) { e.tools = r }
+
+func (e *Engine) SetConversationsStore(s *conversationsapp.Store) { e.conversations = s }
 
 // SetArtifactReviewStore wires the P2-2 artifact acceptance log.
 func (e *Engine) SetArtifactReviewStore(s *artifactreview.Store) { e.artifactReviews = s }

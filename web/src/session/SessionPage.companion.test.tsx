@@ -30,6 +30,8 @@ vi.mock('../bridge/client', async importOriginal => {
 })
 
 vi.mock('./companion/speech', () => ({
+  ECHO_GUARD_MS: 700,
+  INTERRUPT_ECHO_MS: 160,
   startCompanionSpeech: (callbacks: { onFinal: (transcript: string) => void }) => {
     speech.callbacks = callbacks
     return speech.start(callbacks)

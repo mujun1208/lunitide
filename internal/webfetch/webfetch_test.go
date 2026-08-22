@@ -207,6 +207,19 @@ const bingPage = `<ol id="b_results">
 <li class="b_algo"><h2><a href="https://music.example/jay">官方新闻</a></h2><div class="b_caption"><p>来源可靠。</p></div></li>
 </ol>`
 
+func TestParseBingResultsSkipsHomepageNav(t *testing.T) {
+	t.Parallel()
+	home := `<ol id="b_results">
+<li class="b_algo"><h2><a href="https://www.bing.com/">Bing</a></h2><p>homepage</p></li>
+<li class="b_algo"><h2><a href="https://www.microsoft.com/">Microsoft</a></h2><p>nav</p></li>
+<li class="b_algo"><h2><a href="https://news.example/louis-koo">古天乐新闻</a></h2><p>电影与公开活动。</p></li>
+</ol>`
+	results := ParseBingResults(home, 10)
+	if len(results) != 1 || results[0].URL != "https://news.example/louis-koo" {
+		t.Fatalf("want organic news only, got %+v", results)
+	}
+}
+
 func TestParseBingResultsExtractsOrganicLinks(t *testing.T) {
 	t.Parallel()
 	results := ParseBingResults(bingPage, 10)

@@ -13,8 +13,8 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/m7app"
-	"github.com/lunitide/lunitide/internal/toolruntime"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 // subagentFakeAdapter drives the sub-session loop: first Complete answers
@@ -74,22 +74,23 @@ func newSubagentChatEngine(t *testing.T) *Engine {
 
 const subTestSession = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
+func subTestPolicy() subagentChatPolicy { return defaultSubagentChatPolicy() }
+
 func TestSubagentToolDefinitionsTiers(t *testing.T) {
 	e := newSubagentChatEngine(t)
-	// Zero value defaults to the explicit tier.
-	defs := e.subagentToolDefinitions(executionModeApproval)
+	defs := e.subagentToolDefinitions(executionModeApproval, subTestPolicy())
 	if len(defs) != 2 || defs[0].Name != "subagent.spawn" || defs[1].Name != "subagent.join" {
 		t.Fatalf("explicit tier defs = %+v", defs)
 	}
 	// Plan mode never exposes delegation.
-	if got := e.subagentToolDefinitions(executionModePlan); len(got) != 0 {
+	if got := e.subagentToolDefinitions(executionModePlan, subTestPolicy()); len(got) != 0 {
 		t.Fatalf("plan tier exposed tools: %+v", got)
 	}
 	// Disabled hides the tools.
 	if err := e.SetDelegationMode(delegationDisabled); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.subagentToolDefinitions(executionModeApproval); len(got) != 0 {
+	if got := e.subagentToolDefinitions(executionModeApproval, subagentChatPolicy{DelegationMode: delegationDisabled}); len(got) != 0 {
 		t.Fatalf("disabled tier exposed tools: %+v", got)
 	}
 	// Invalid mode is refused fail-closed.
@@ -101,15 +102,15 @@ func TestSubagentToolDefinitionsTiers(t *testing.T) {
 func TestSubagentSpawnRunsReadOnlySessionAndReportsOnce(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	adapter := &subagentFakeAdapter{}
-	out, err := e.invokeSubagentTool(context.Background(), adapter, nil, "model-x", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"survey the workspace"}`))
+	out, err := e.invokeSubagentTool(context.Background(), adapter, nil, "model-x", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"survey the workspace","profile":"explore"}`), subTestPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var res struct {
-		SubagentID string `json:"subagentId"`
-		Status     string `json:"status"`
-		Summary    string `json:"summary"`
-		SpentTokens int64 `json:"spentTokens"`
+		SubagentID  string `json:"subagentId"`
+		Status      string `json:"status"`
+		Summary     string `json:"summary"`
+		SpentTokens int64  `json:"spentTokens"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatal(err)
@@ -125,6 +126,9 @@ func TestSubagentSpawnRunsReadOnlySessionAndReportsOnce(t *testing.T) {
 		if name == "workspace.write" {
 			t.Fatal("sub-session was offered workspace.write")
 		}
+		if name == "html.gen" {
+			t.Fatal("sub-session was offered html.gen")
+		}
 	}
 	if len(adapter.seenTools) == 0 {
 		t.Fatal("sub-session received no tools")
@@ -134,7 +138,7 @@ func TestSubagentSpawnRunsReadOnlySessionAndReportsOnce(t *testing.T) {
 		t.Fatalf("sub-session messages = %+v", adapter.seenMsgs)
 	}
 	// The run is durable and terminal: join re-reads the same single report.
-	joined, err := e.invokeSubagentTool(context.Background(), adapter, nil, "model-x", subTestSession, "subagent.join", json.RawMessage(`{"subagentId":"`+res.SubagentID+`"}`))
+	joined, err := e.invokeSubagentTool(context.Background(), adapter, nil, "model-x", subTestSession, "subagent.join", json.RawMessage(`{"subagentId":"`+res.SubagentID+`"}`), subTestPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,18 +151,18 @@ func TestSubagentSpawnBudgetInheritanceAndGuards(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	adapter := &subagentFakeAdapter{}
 	// Explicit budget rides through as the sub-session MaxTokens (capped).
-	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"p","budgetTokens":2000}`)); err != nil {
+	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"p","budgetTokens":2000}`), subTestPolicy()); err != nil {
 		t.Fatal(err)
 	}
 	if adapter.seenMsgs == nil {
 		t.Fatal("no sub-session started")
 	}
 	// Out-of-window budgets are refused before any spawn.
-	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"p","budgetTokens":10}`)); err == nil {
+	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"p","budgetTokens":10}`), subTestPolicy()); err == nil {
 		t.Fatal("budget below window accepted")
 	}
 	// Empty purpose is refused.
-	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":""}`)); err == nil {
+	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":""}`), subTestPolicy()); err == nil {
 		t.Fatal("empty purpose accepted")
 	}
 }
@@ -170,14 +174,14 @@ func TestSubagentSpawnQuotaFailsClosed(t *testing.T) {
 	for i := 0; i < m7flow.SubagentMaxConcurrent; i++ {
 		if _, err := e.m7subagent.Spawn(context.Background(), m7app.SpawnInput{
 			RootRunID: subTestSession, Purpose: "hold",
-			ReadCaps: subagentReadOnlyCaps, BudgetTokens: 1000,
+			ReadCaps: defaultSubagentProfileCaps(), BudgetTokens: 1000,
 			DeadlineMS: subagentDeadlineMS, IdempotencyKey: string(rune('a' + i)),
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	adapter := &subagentFakeAdapter{}
-	_, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"one too many"}`))
+	_, err := e.invokeSubagentTool(context.Background(), adapter, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"one too many"}`), subTestPolicy())
 	if err == nil || !errors.Is(err, m7app.ErrSubagentQuota) {
 		t.Fatalf("quota guard not surfaced: %v", err)
 	}
@@ -226,7 +230,7 @@ func TestParallelSubagentSpawnsOverlapInOneTurn(t *testing.T) {
 		{ID: "s2", Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"task two"}`)},
 		{ID: "j1", Name: "subagent.join", Arguments: json.RawMessage(`{"subagentId":"01ARZ3NDEKTSV4RRFFQ69G5FAVX"}`)},
 	}
-	futures := startSubagentFutures(context.Background(), e, adapter, nil, "m", subTestSession, calls)
+	futures := startSubagentFutures(context.Background(), e, adapter, nil, "m", subTestSession, calls, subTestPolicy())
 	// Only spawn calls are pre-started; join stays inline.
 	if len(futures) != 2 {
 		t.Fatalf("pre-started futures = %d, want 2", len(futures))
@@ -250,7 +254,7 @@ func TestParallelSubagentFuturesBoundedAtThree(t *testing.T) {
 	for i := range calls {
 		calls[i] = gateway.ToolCall{ID: "p" + string(rune('0'+i)), Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"p"}`)}
 	}
-	futures := startSubagentFutures(context.Background(), e, adapter, nil, "m", subTestSession, calls)
+	futures := startSubagentFutures(context.Background(), e, adapter, nil, "m", subTestSession, calls, subTestPolicy())
 	if len(futures) != maxParallelSubagentSpawns {
 		t.Fatalf("pre-started futures = %d, want %d", len(futures), maxParallelSubagentSpawns)
 	}

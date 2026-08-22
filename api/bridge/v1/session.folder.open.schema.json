@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/session.folder.open.schema.json",
+  "title": "session.folder.open payload",
+  "x-method": "session.folder.open",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "relativePath": { "type": "string", "maxLength": 512 }
+  },
+  "required": ["sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "opened": { "type": "string" }
+    },
+    "required": ["opened"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
+    "negative": [{ "sessionId": "" }]
+  }
+}

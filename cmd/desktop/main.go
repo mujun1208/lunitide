@@ -18,6 +18,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/browserapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
+	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/credentialsubmission"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/diagnosticapp"
@@ -269,6 +270,7 @@ func run() error {
 		return err
 	}
 	workspaceHandler := workspaceapp.New(workspaceConfig)
+	conversationsHandler := conversationsapp.NewHostHandler()
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
 		bridge.MethodBrowserOpen:              browserManager,
 		bridge.MethodBrowserClose:             browserManager,
@@ -280,6 +282,7 @@ func run() error {
 		bridge.MethodDiagnosticsExport:        &diagnosticapp.HostHandler{},
 		bridge.MethodSystemSettingsOpen:       &systemsettings.Handler{OpenMicrophone: webviewhost.OpenMicrophonePrivacySettings},
 		bridge.MethodUiThemeSet:               themeHandler,
+		bridge.MethodConversationsRootSelect:  conversationsHandler,
 		bridge.MethodWorkspaceRootSelect:      workspaceHandler,
 		bridge.MethodWorkspaceRootClear:       workspaceHandler,
 		bridge.MethodWorkspaceRootGet:         workspaceHandler,

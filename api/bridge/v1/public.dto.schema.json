@@ -334,6 +334,12 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MessageArtifactDTO"
+          }
         }
       },
       "required": [
@@ -344,6 +350,42 @@
         "sequence",
         "text",
         "createdAt"
+      ]
+    },
+    "MessageArtifactDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "html",
+            "xlsx",
+            "docx",
+            "pptx",
+            "pdf"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "toolName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "callId",
+        "toolName"
       ]
     },
     "StageStatus": {

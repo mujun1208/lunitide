@@ -4,7 +4,7 @@
 // with the 500-char comma re-split and the 20-segment truncation
 // notice.
 import { describe, expect, test } from 'vitest'
-import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, prepareSpeech, segmentForSpeech, takeSpeakableChunk } from './companionText'
+import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, cleanUserTranscript, looksLikePlaybackEcho, prepareSpeech, segmentForSpeech, takeSpeakableChunk } from './companionText'
 
 describe('cleanForSpeech', () => {
   test('replaces code fences and inline code with the spoken notice', () => {
@@ -90,5 +90,29 @@ describe('takeSpeakableChunk', () => {
       text: '然后我再',
       consumed: '然后我再'.length,
     })
+  })
+})
+
+describe('cleanUserTranscript', () => {
+  test('removes leading and trailing oral fillers', () => {
+    expect(cleanUserTranscript('嗯啊，那个，帮我打开桌面')).toBe('帮我打开桌面')
+    expect(cleanUserTranscript('然后就是说，今晚月色如何？')).toBe('今晚月色如何？')
+    expect(cleanUserTranscript('好的，嗯')).toBe('好的')
+  })
+
+  test('keeps meaningful content intact', () => {
+    expect(cleanUserTranscript('帮我写一份项目计划')).toBe('帮我写一份项目计划')
+  })
+})
+
+describe('looksLikePlaybackEcho', () => {
+  test('treats a recognizer copy of the spoken reply as echo', () => {
+    expect(looksLikePlaybackEcho('今晚是满月，适合抬头。', '今晚是满月，适合抬头。')).toBe(true)
+    expect(looksLikePlaybackEcho('今晚是满月适合抬头', '今晚是满月，适合抬头。')).toBe(true)
+  })
+
+  test('does not treat a new question as echo of the previous reply', () => {
+    expect(looksLikePlaybackEcho('帮我打开桌面协议', '今晚是满月，适合抬头。')).toBe(false)
+    expect(looksLikePlaybackEcho('嗯', '今晚是满月，适合抬头。')).toBe(false)
   })
 })

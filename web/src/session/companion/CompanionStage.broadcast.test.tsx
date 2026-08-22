@@ -30,6 +30,7 @@ const speech = vi.hoisted(() => ({
 const tts = vi.hoisted(() => ({
   speakCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
   enqueueCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
+  playing: false,
 }))
 
 const automation = vi.hoisted(() => ({
@@ -55,6 +56,8 @@ vi.mock('../../bridge/client', async importOriginal => {
 })
 
 vi.mock('./speech', () => ({
+  ECHO_GUARD_MS: 700,
+  INTERRUPT_ECHO_MS: 160,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {
     speech.callbacks = callbacks
     return speech.start(callbacks)
@@ -71,15 +74,31 @@ vi.mock('./ttsPlayer', () => ({
     }
     enqueue(segments: string[], _settings: unknown, callbacks: TtsPlayerCallbacks) {
       tts.enqueueCalls.push({ segments, callbacks })
+      tts.playing = true
     }
-    async flush(_callbacks: TtsPlayerCallbacks) {
-      // Reply playback stays "ongoing" — the busy stage must keep
-      // dropping broadcasts until a real queue drain would end it.
+    async flush(callbacks: TtsPlayerCallbacks) {
+      if (!tts.playing) {
+        callbacks.onFinished?.('completed')
+        return
+      }
+      await new Promise<void>(resolve => {
+        const finish = () => {
+          callbacks.onFinished?.('completed')
+          resolve()
+        }
+        const check = () => {
+          if (!tts.playing) finish()
+          else setTimeout(check, 40)
+        }
+        check()
+      })
     }
     isBusy() {
-      return false
+      return tts.playing
     }
-    interrupt(): void {}
+    interrupt(): void {
+      tts.playing = false
+    }
     dispose(): void {}
   },
 }))
