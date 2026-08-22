@@ -4,3 +4,8 @@ Copyright (c) 2026 Matt Pocock.
 
 They are rewritten to Lunitide's builtin:// invoke path and tool names.
 They are not a vendored copy of the upstream repository.
+
+Templates marked Source "Codex 推荐" adapt open agent skill practices
+(find-skills, brainstorming, frontend-design, shadcn/ui patterns, superpowers
+execution flow). Prompts are rewritten for Lunitide skill catalog, bridge
+tools, and Chinese user-facing deliverables — not verbatim upstream copies.

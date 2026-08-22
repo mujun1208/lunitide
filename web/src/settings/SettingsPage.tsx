@@ -6,7 +6,6 @@ import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type
 import{SubagentsPanel}from'./SubagentsPanel'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
-import{FreeLLMAPIPanel}from'../provider/FreeLLMAPIPanel'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
 type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'security' | 'browser' | 'computer' | 'subagents' | 'collab' | 'diagnostics' | 'about'
 
@@ -417,7 +416,6 @@ function AppearancePanel({ settings, onChange }: { settings: AppearanceSettings;
 function ProvidersPanel({ onNavigate }: { onNavigate?: () => void }): React.JSX.Element {
   return (
     <>
-      <FreeLLMAPIPanel />
       <div className="setting-group">
       <div className="setting-group-title">模型与供应商</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
