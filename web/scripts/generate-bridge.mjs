@@ -307,6 +307,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'session.experts.get',
   'session.experts.set',
   'session.folder.get',
+  'session.folder.list',
   'session.folder.open',
   'session.list',
   'session.update',

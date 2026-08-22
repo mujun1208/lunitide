@@ -5,11 +5,11 @@ package conversationsapp
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/winexec"
 )
 
 type HostHandler struct {
@@ -47,10 +47,10 @@ if ($d.ShowDialog() -eq 'OK') {
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
     $d.SelectedPath
 }`
-	out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script).Output()
+	out, err := winexec.HiddenPowerShell(ctx, "-NoProfile", "-STA", "-Command", script).Output()
 	if err != nil {
 		legacy := `$s=(New-Object -ComObject Shell.Application).BrowseForFolder(0,'选择对话与产物存储目录',0,0);if($s){[Console]::OutputEncoding=[Text.Encoding]::UTF8;$s.Self.Path}`
-		out2, err2 := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", legacy).Output()
+		out2, err2 := winexec.HiddenPowerShell(ctx, "-NoProfile", "-STA", "-Command", legacy).Output()
 		if err2 != nil {
 			return "", err2
 		}

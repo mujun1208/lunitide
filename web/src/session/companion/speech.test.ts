@@ -2,7 +2,24 @@
 // analyser silence or a stable Windows SR transcript, never on a short
 // pause or on an empty buffer.
 import { describe, expect, test } from 'vitest'
-import { UTTERANCE_SILENCE_MS, UTTERANCE_STABLE_MS, BARGE_IN_HOLD_MS, ECHO_GUARD_MS, shouldCommitUtterance, shouldCommitStable, shouldBargeIn, shouldHoldRecognition, isPermanentSpeechError, speechProfile } from './speech'
+import {
+  UTTERANCE_SILENCE_MS,
+  UTTERANCE_STABLE_MS,
+  INCOMPLETE_STABLE_MS,
+  INCOMPLETE_SILENCE_MS,
+  MIN_UTTERANCE_MS,
+  BARGE_IN_HOLD_MS,
+  ECHO_GUARD_MS,
+  shouldCommitUtterance,
+  shouldCommitStable,
+  shouldBargeIn,
+  shouldHoldRecognition,
+  shouldDeferCommit,
+  endpointingForText,
+  isPermanentSpeechError,
+  speechProfile,
+} from './speech'
+import { looksIncompleteUtterance } from './companionText'
 
 describe('shouldCommitUtterance', () => {
   test('waits for the silence window once speech is present', () => {
@@ -18,8 +35,30 @@ describe('shouldCommitUtterance', () => {
   })
 
   test('accepts a tighter window for mid-utterance checks', () => {
-    expect(shouldCommitUtterance(true, 280, 280)).toBe(true)
-    expect(shouldCommitUtterance(true, 279, 280)).toBe(false)
+    expect(shouldCommitUtterance(true, 620, 620)).toBe(true)
+    expect(shouldCommitUtterance(true, 619, 620)).toBe(false)
+  })
+})
+
+describe('endpointingForText', () => {
+  test('extends windows for incomplete command tails', () => {
+    expect(looksIncompleteUtterance('帮我在桌面儿')).toBe(true)
+    expect(endpointingForText('帮我在桌面儿', speechProfile('normal'))).toEqual({
+      stableMs: INCOMPLETE_STABLE_MS,
+      silenceMs: INCOMPLETE_SILENCE_MS,
+    })
+    expect(endpointingForText('帮我打开桌面。', speechProfile('normal'))).toEqual({
+      stableMs: UTTERANCE_STABLE_MS,
+      silenceMs: UTTERANCE_SILENCE_MS,
+    })
+  })
+})
+
+describe('shouldDeferCommit', () => {
+  test('waits briefly before accepting a non-terminal phrase', () => {
+    expect(shouldDeferCommit('帮我在桌面', 200)).toBe(true)
+    expect(shouldDeferCommit('帮我在桌面', MIN_UTTERANCE_MS)).toBe(false)
+    expect(shouldDeferCommit('好的。', 100)).toBe(false)
   })
 })
 
@@ -61,12 +100,12 @@ describe('shouldHoldRecognition', () => {
 })
 
 describe('speechProfile', () => {
-  test('noisy mode tightens endpointing', () => {
+  test('noisy mode tightens mic gating without cutting utterances too early', () => {
     const noisy = speechProfile('noisy')
     const normal = speechProfile('normal')
     expect(noisy.voicePeak).toBeGreaterThan(normal.voicePeak)
-    expect(noisy.utteranceSilenceMs).toBeGreaterThan(normal.utteranceSilenceMs)
     expect(noisy.minVoiceHoldMs).toBeGreaterThan(0)
+    expect(normal.minVoiceHoldMs).toBeGreaterThan(0)
   })
 })
 

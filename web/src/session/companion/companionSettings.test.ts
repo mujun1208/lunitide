@@ -27,7 +27,8 @@ describe('companionSettings cloud default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.engine).toBe('edge')
     expect(loaded.voiceId).toBe('')
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(4)
+    expect(loaded.wakeWord).toBe(false)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(5)
   })
 
   test('rev-2 installs gain full-duplex defaults on load', () => {
@@ -45,7 +46,7 @@ describe('companionSettings cloud default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.fullDuplex).toBe(true)
     expect(loaded.bargeIn).toBe(true)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(4)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(5)
   })
 
   test('an explicit later OneCore choice is kept', () => {
@@ -55,8 +56,8 @@ describe('companionSettings cloud default', () => {
     expect(loaded.voiceId).toBe('local-voice')
   })
 
-  test('defaults speech environment to normal', () => {
-    expect(defaultCompanionSettings().speechEnvironment).toBe('normal')
-    expect(loadCompanionSettings().speechEnvironment).toBe('normal')
+  test('new installs default wake word off', () => {
+    expect(defaultCompanionSettings().wakeWord).toBe(false)
+    expect(loadCompanionSettings().wakeWord).toBe(false)
   })
 })

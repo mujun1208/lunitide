@@ -9,7 +9,9 @@ export const MAX_SEGMENTS = 20
 /** First audible chunk: speak almost immediately (2 chars) so voice tracks the stream. */
 export const FIRST_SPEAK_CHARS = 2
 /** Later chunks prefer a sentence, but do not stall the voice for long unpunctuated runs. */
-export const FOLLOW_SPEAK_CHARS = 8
+export const FOLLOW_SPEAK_CHARS = 16
+/** First comma clause must be long enough to sound like a breath, not a stutter. */
+export const FIRST_COMMA_MIN_CHARS = 6
 
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
@@ -67,9 +69,31 @@ export function segmentForSpeech(cleaned: string): string[] {
   if (segments.length > MAX_SEGMENTS) {
     const kept = segments.slice(0, MAX_SEGMENTS)
     kept[MAX_SEGMENTS - 1] = `${kept[MAX_SEGMENTS - 1]}。${TRUNCATION_NOTICE}。`
-    return kept
+    return mergeShortSegments(kept)
   }
-  return segments
+  return mergeShortSegments(segments)
+}
+
+/** Glue tiny acknowledgement fragments onto the next clause so playback does not stutter. */
+export function mergeShortSegments(segments: string[]): string[] {
+  if (segments.length <= 1) return segments
+  const merged: string[] = []
+  for (const segment of segments) {
+    const prev = merged[merged.length - 1]
+    if (prev && shouldMergeAckSegment(prev, segment)) {
+      merged[merged.length - 1] = prev + segment
+    } else {
+      merged.push(segment)
+    }
+  }
+  return merged
+}
+
+function shouldMergeAckSegment(prev: string, next: string): boolean {
+  if (!next.trim()) return false
+  if (Array.from(prev + next).length > MAX_SEGMENT_CHARS) return false
+  if (/[？！?!]/.test(prev)) return false
+  return /^(?:好的|嗯|对|行|好|是的|可以|明白|收到)[。！？，,]?$/u.test(prev.trim()) || Array.from(prev.trim()).length <= 2
 }
 
 export function prepareSpeech(text: string): string[] {
@@ -86,6 +110,18 @@ const MID_FILLERS = /([，,。！？；;])\s*(?:嗯+|啊+|呃+)(?=\s|[，,。！
 const TRAILING_FILLERS = /[，,、\s]+(?:嗯+|啊+|呃+)\s*$/u
 
 /** Shannon-style local cleanup: drop oral fillers while keeping the user's meaning. */
+const INCOMPLETE_TAIL =
+  /(?:儿|的|了|在|把|给|和|与|或|到|从|往|向|帮|请|要|想|能|会|这|那|哪|啥|吗|呢|吧|啊|呀|哦|嗯|一个|一下|什么|怎么|哪里|哪儿|桌面|文件|文件夹|打开|列出|找|搜索)$/u
+
+/** True when the recognizer likely stopped mid-thought — wait longer before commit. */
+export function looksIncompleteUtterance(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  if (/[。？！?!…]$/.test(trimmed)) return false
+  if (INCOMPLETE_TAIL.test(trimmed)) return true
+  return Array.from(trimmed).length <= 5
+}
+
 export function cleanUserTranscript(raw: string): string {
   let text = raw.replace(/\s+/g, ' ').trim()
   if (!text) return ''
@@ -130,9 +166,8 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean, force = fa
     return { text: sentence[1], consumed: sentence[1].length }
   }
   const forceAt = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
-  const minClause = isFirst ? 2 : 8
   const clause = /^([\s\S]*?[，,、；;])/.exec(pending)
-  if (clause && Array.from(clause[1]).length >= minClause) {
+  if (isFirst && clause && Array.from(clause[1]).length >= FIRST_COMMA_MIN_CHARS) {
     return { text: clause[1], consumed: clause[1].length }
   }
   if (Array.from(pending).length < forceAt && !force) return null

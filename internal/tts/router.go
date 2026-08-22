@@ -12,6 +12,10 @@ type RouterEngine struct {
 	edge Engine
 }
 
+type naturalVoiceCatalog interface {
+	NaturalVoices() ([]Voice, error)
+}
+
 // NewRouterEngine wraps the platform (SAPI) engine with the cloud Edge
 // engine and the local reference-timbre engine.
 func NewRouterEngine(platform Engine) *RouterEngine {
@@ -49,6 +53,14 @@ func (r *RouterEngine) VoicesFor(engine string) ([]Voice, error) {
 			return nil, fmt.Errorf("%w: 参考音色引擎未装配", ErrEngineUnavailable)
 		}
 		return r.ref.Voices()
+	case EngineNatural:
+		if r.sapi == nil {
+			return nil, fmt.Errorf("%w: SAPI 引擎未装配", ErrEngineUnavailable)
+		}
+		if nat, ok := r.sapi.(naturalVoiceCatalog); ok {
+			return nat.NaturalVoices()
+		}
+		return r.sapi.Voices()
 	default:
 		if r.sapi == nil {
 			return nil, fmt.Errorf("%w: SAPI 引擎未装配", ErrEngineUnavailable)
@@ -74,17 +86,9 @@ func (r *RouterEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, e
 		if err == nil {
 			return res, fb, nil
 		}
-		if r.sapi == nil {
-			return res, fb, err
-		}
-		local := in
-		local.Engine = EngineNatural
-		local.VoiceID = edgeVoiceToLocal(in.VoiceID)
-		res2, fb2, err2 := r.sapi.Synthesize(local)
-		if err2 != nil {
-			return res, fb, err
-		}
-		return res2, fb2 || true, nil
+		// Edge neural voice IDs have no faithful local mapping; falling back
+		// to SAPI made every voice sound identical (default OneCore pick).
+		return res, fb, err
 	default:
 		if r.sapi == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: SAPI 引擎未装配", ErrEngineUnavailable)

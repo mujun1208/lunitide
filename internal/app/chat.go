@@ -86,6 +86,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
 		Companion         bool              `json:"companion"`
+		ProjectID         string            `json:"projectId"`
 		ProjectPhase      int               `json:"projectPhase"`
 		ProjectPhaseLabel string            `json:"projectPhaseLabel"`
 		SubagentPolicy    json.RawMessage   `json:"subagentPolicy"`
@@ -105,6 +106,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if !validCanonicalULID(ref.ID) || (ref.Type != "attachment" && ref.Type != "skillResult") {
 			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start contextRefs 无效", false)
 		}
+	}
+	if p.ProjectID != "" && !validCanonicalULID(p.ProjectID) {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start projectId 无效", false)
 	}
 	mode, validMode := normalizeExecutionMode(p.ExecutionMode)
 	if !validMode {
@@ -130,7 +134,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// sentences stay short so synthesis overlaps playback. Tools stay
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面或播歌：web.fetch 阅读页面，或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或已连接的 Playwright MCP\n- 播歌/播放：打开窗口不算完成；须继续 command.run、cc.keyboard_shortcut（media play/空格）或 cc.mouse_click 点播放，直到真正开始播放或明确告知需用户手动点播放\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -202,6 +206,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
 		instruction += bundledWorkflowInjection()
+		instruction += chatRichMarkdownInstruction()
 	}
 	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
 		instruction += hint
@@ -209,8 +214,18 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if catalog != "" {
 		instruction += "\n\n" + catalog
 	}
-	if persona := e.expertPersonaInjection(ctx, p.SessionID, p.Messages, turnText); persona != "" {
-		instruction += persona
+	councilCfg := e.buildExpertCouncilConfig(ctx, expertCouncilInputs{
+		SessionID:    p.SessionID,
+		ProjectID:    p.ProjectID,
+		PhaseLabel:   p.ProjectPhaseLabel,
+		Companion:    p.Companion,
+		TurnText:     turnText,
+		ExplicitMsgs: p.Messages,
+	})
+	if councilCfg == nil {
+		if persona := e.expertPersonaInjection(ctx, p.SessionID, p.Messages, turnText); persona != "" {
+			instruction += persona
+		}
 	}
 	if !p.Companion && hasSession {
 		instruction += e.unfinishedTurnInjection(p.SessionID, turnText)
@@ -471,7 +486,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		parent = ctx
 	}
 	streamCtx, cancel := context.WithCancel(parent)
-	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy}
+	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion}
@@ -568,7 +583,7 @@ func companionWantsTools(text string) bool {
 	}
 	lower := strings.ToLower(text)
 	for _, needle := range []string{
-		"搜索", "搜一下", "搜网页", "打开", "播放", "播一首", "播歌",
+		"搜索", "搜一下", "搜网页", "打开", "播放", "播一首", "播歌", "音乐", "听歌",
 		"查一下", "查询", "查火车", "查航班", "火车票", "航班",
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
@@ -1607,6 +1622,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		if adapterErr != nil {
 			return adapterErr
 		}
+		e.applyExpertCouncil(op, a, credential, req.Model, state.council, &req, state.companion, send)
+		state.council = nil
 		seen := map[string]bool{}
 		completedDigests := map[string]string{}
 		var result gateway.Response
@@ -2111,7 +2128,11 @@ func skipExpertCouncil(text string) bool {
 		(strings.Contains(t, "创建") || strings.Contains(t, "新建") || strings.Contains(t, "建一个") || strings.Contains(t, "建个"))
 	htmlOnDesktop := (strings.Contains(lower, "html") || strings.Contains(t, "网页") || strings.Contains(t, "小游戏")) &&
 		(strings.Contains(t, "桌面") || strings.Contains(lower, "desktop"))
-	return createFolder || htmlOnDesktop
+	openWeb := (strings.Contains(t, "打开") || strings.Contains(t, "访问") || strings.Contains(lower, "open")) &&
+		(strings.Contains(t, "网站") || strings.Contains(t, "网页") || strings.Contains(t, "页面") || strings.Contains(lower, "http"))
+	playMusic := (strings.Contains(t, "播") || strings.Contains(lower, "play")) &&
+		(strings.Contains(t, "歌") || strings.Contains(t, "音乐") || strings.Contains(lower, "music"))
+	return createFolder || htmlOnDesktop || openWeb || playMusic
 }
 
 func turnOutcomeNotice(cancelling bool, err error) string {

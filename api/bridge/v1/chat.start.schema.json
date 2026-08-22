@@ -37,6 +37,10 @@
       "maxLength": 64,
       "description": "Human-readable label for the active project phase, e.g. 开发."
     },
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID",
+      "description": "Project scope for merging phase-mounted experts into the expert council."
+    },
     "contextRefs": {
       "type": "array", "maxItems": 32,
       "items": {

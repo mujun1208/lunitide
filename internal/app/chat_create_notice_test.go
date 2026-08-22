@@ -96,6 +96,9 @@ func TestSkipExpertCouncilOnSimpleComputerUse(t *testing.T) {
 	if !skipExpertCouncil("帮我设计一个点球大战的网页小游戏，在桌面可以直接试玩") {
 		t.Fatal("desktop html game must skip council")
 	}
+	if !skipExpertCouncil("打开网站播放音乐") {
+		t.Fatal("open website and play music must skip council")
+	}
 	if skipExpertCouncil("请三位专家一起评审这份架构方案") {
 		t.Fatal("architecture review must keep council")
 	}

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/winexec"
 	"golang.org/x/sys/windows"
 )
 
@@ -322,11 +322,11 @@ if ($d.ShowDialog() -eq 'OK') {
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
     $d.SelectedPath
 }`
-	out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script).Output()
+	out, err := winexec.HiddenPowerShell(ctx, "-NoProfile", "-STA", "-Command", script).Output()
 	if err != nil {
 		// Fallback: if .NET Forms is unavailable, try the legacy COM approach
 		legacy := `$s=(New-Object -ComObject Shell.Application).BrowseForFolder(0,'选择 Lunitide 工作区',0,0);if($s){[Console]::OutputEncoding=[Text.Encoding]::UTF8;$s.Self.Path}`
-		out2, err2 := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", legacy).Output()
+		out2, err2 := winexec.HiddenPowerShell(ctx, "-NoProfile", "-STA", "-Command", legacy).Output()
 		if err2 != nil {
 			return "", err2
 		}

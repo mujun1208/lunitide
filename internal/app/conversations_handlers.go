@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -57,6 +58,43 @@ func handleSessionFolderGet(e *Engine, _ context.Context, r bridge.Request) brid
 		return bridge.Failure(r.ID, r.TraceID, "SESSION_FOLDER_UNAVAILABLE", err.Error(), false)
 	}
 	return bridge.Success(r.ID, map[string]any{"path": path})
+}
+
+func handleSessionFolderList(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		SessionID    string `json:"sessionId"`
+		RelativePath string `json:"relativePath"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.folder.list 参数无效", false)
+	}
+	dir, err := e.resolveSessionArtifactTarget(p.SessionID, p.RelativePath)
+	if err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "SESSION_FOLDER_DENIED", "路径无效", false)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "SESSION_FOLDER_UNAVAILABLE", "无法读取目录", false)
+	}
+	type item struct {
+		Name      string `json:"name"`
+		Path      string `json:"path"`
+		Directory bool   `json:"directory"`
+	}
+	prefix := strings.Trim(strings.ReplaceAll(p.RelativePath, `\`, `/`), "/")
+	out := make([]item, 0, len(entries))
+	for _, ent := range entries {
+		name := ent.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		rel := name
+		if prefix != "" {
+			rel = prefix + "/" + name
+		}
+		out = append(out, item{Name: name, Path: rel, Directory: ent.IsDir()})
+	}
+	return bridge.Success(r.ID, map[string]any{"items": out})
 }
 
 func handleSessionFolderOpen(e *Engine, _ context.Context, r bridge.Request) bridge.Response {

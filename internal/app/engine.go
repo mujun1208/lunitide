@@ -247,6 +247,7 @@ type streamState struct {
 	state          streamLifecycle
 	companion      bool
 	subagentPolicy subagentChatPolicy
+	council        *expertCouncilConfig
 }
 
 type streamLifecycle uint8
@@ -413,6 +414,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSessionExpertsGet:             handleSessionExpertsGet,
 	bridge.MethodSessionExpertsSet:             handleSessionExpertsSet,
 	bridge.MethodSessionFolderGet:              handleSessionFolderGet,
+	bridge.MethodSessionFolderList:             handleSessionFolderList,
 	bridge.MethodSessionFolderOpen:             handleSessionFolderOpen,
 	bridge.MethodSessionList:                   handleSessionList,
 	bridge.MethodSessionUpdate:                 handleSessionUpdate,

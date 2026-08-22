@@ -72,6 +72,17 @@ it('message bridge accepts model output above the user input limit', async () =>
   await expect(promise).resolves.toMatchObject({ items: [{ text }] })
 })
 
+it('message bridge accepts optional persisted artifacts on list and append results', async () => {
+  const artifact = { kind: 'html' as const, path: 'preview/index.html', callId: 'call-1', toolName: 'web.fetch' }
+  const h = controlled(), listed = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
+  h.reply(h.sent[0], page([dto({ role: 'assistant', artifacts: [artifact] })]))
+  await expect(listed).resolves.toMatchObject({ items: [{ artifacts: [artifact] }] })
+
+  const appended = h.bridge.append({ sessionId: SESSION, text: 'hello' })
+  h.reply(h.sent[1], dto({ artifacts: [artifact] }))
+  await expect(appended).resolves.toMatchObject({ artifacts: [artifact] })
+})
+
 it.each([
   ['items is not an array', { items: null }],
   ['too many items', { items: Array.from({ length: 257 }, (_, i) => dto({ id: i === 0 ? MESSAGE : `01ARZ3NDEKTSV4RRFFQ69G${String(i).padStart(3, '0')}` as any })) }],

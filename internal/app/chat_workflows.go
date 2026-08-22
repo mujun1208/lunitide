@@ -16,8 +16,22 @@ func bundledWorkflowInjection() string {
 		"- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n" +
 		"- 桌面 HTML 小游戏：必须用 html.gen（template=penalty-shootout；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n" +
 		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个。禁止把桌面上其它无关文件一起打开。\n" +
+		"- 播放音乐/视频：仅 browser.open 或 desktop.open 只会启动窗口，不会自动播放。必须继续执行直到真正开始播放：\n" +
+		"  · 网页音乐：command.run 用系统默认浏览器打开带 autoplay 或搜索结果的 URL（Windows：cmd /c start \"\" URL）；或 browser.act navigate 到可播放页后，全磁盘+电脑控制时用 cc.keyboard_shortcut 按空格/回车触发播放；Playwright MCP 可用时 browser.act click 播放按钮。\n" +
+		"  · 本地音乐软件：command.run 启动应用并带搜索/播放参数（如网易云 music:// 或 Start-Process 后 cc.* 点击播放）；或 cc.get_active_window 确认前台后 cc.keyboard_shortcut 发送 media play/空格。\n" +
+		"  · 禁止在只打开窗口后就对用户说「已开始播放」；须看到播放动作已触发或如实说明需用户点一下播放。\n" +
 		"使用规则：匹配上述场景时直接执行。用户已发布的技能见下方目录，用 skill.invoke。\n" +
 		"执行纪律：用户给出明确任务后，本轮连续调用工具直到完成或遇到真实阻塞（缺权限、缺无法推断的信息）。不要在勘查后停下等待确认，不要分段汇报后结束本轮。批量任务一次性做完再给最终结果。运行中若用户又发了新任务（帮我打开/开发/播放等），等本轮结束后再单独做，不要和当前任务绑在一起。上一轮已成功或失败即闭环。同一指令只执行一次，不要重复打开/创建/播放。一次性电脑操作（写文件、打开网页、播放歌曲）做完即停，不要循环重复同一动作。\n"
+}
+
+// chatRichMarkdownInstruction tells the model how to format answers the UI can
+// render as copyable code blocks, tables, and Mermaid diagrams (text chat only).
+func chatRichMarkdownInstruction() string {
+	return "\n\n[回复排版]\n" +
+		"- 可执行命令用 ```powershell 或 ```bash 独立成块；环境变量/配置用 ```env\n" +
+		"- 结构化对比、安装状态、参数清单用 GFM 表格（| 列 | 列 |）\n" +
+		"- 流程、规划、架构说明用 ```mermaid 代码块（flowchart TD/LR、sequenceDiagram 等）\n" +
+		"- 每段命令/代码单独成块，便于用户一键复制；正文先给结论，再附表格或图\n"
 }
 
 // projectPhaseWorkflowInjection tells the model which Matt Pocock-style workflow
