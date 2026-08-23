@@ -13,6 +13,8 @@ import type { TtsPlayerCallbacks } from './ttsPlayer'
 
 interface CapturedSpeech {
   onFinal: (transcript: string) => void
+  onInterim?: (transcript: string) => void
+  onSpeechStart?: () => void
   onError: (error: unknown) => void
   onLevels?: (levels: number[]) => void
   onEndWithoutFinal?: () => void
@@ -27,6 +29,8 @@ const speech = vi.hoisted(() => ({
     setAssistantPlayback: vi.fn(),
     setCommitPaused: vi.fn(),
     setBargeInActive: vi.fn(),
+    pulseRecognition: vi.fn(),
+    forceCommit: vi.fn(),
   }),
 }))
 
@@ -166,7 +170,7 @@ describe('MC-06 a11y skeleton', () => {
     // The subtitle strip is now visible (streams the current turn); the
     // sr-only hiding was the "conversation never shows" bug.
     expect(subtitles.className).not.toContain('sr-only')
-    expect(subtitles.textContent).toContain('开启麦克风后，你说的话和月汐的回答都会在这里播报。')
+    expect(subtitles.textContent).toContain('进入后即可说话')
     // The pure-moon stage has no visible chat bar or control toolbar.
     expect(container.querySelector('.companion-controls')).toBeNull()
     expect(container.querySelector('.companion-mic')).toBeNull()
@@ -208,6 +212,8 @@ describe('MC-06 zero-mouse operation', () => {
 
   test('Space inside an interactive control does not toggle the mic', async () => {
     const { container } = await renderStage()
+    await waitFor(() => expect(speech.start).toHaveBeenCalledTimes(1))
+    speech.start.mockClear()
     fireEvent.keyDown(container.querySelector('.companion-exit')!, { key: ' ' })
     expect(stateOf(container)).toBe('idle')
     expect(speech.start).not.toHaveBeenCalled()
@@ -263,15 +269,17 @@ describe('MC-06 state distinguishability + live announcements', () => {
     const onExit = vi.fn()
     speech.start.mockResolvedValue(speech.handle())
     const { container, rerender } = await renderStage({ onSend, onExit })
-    // 1. Voice round starts from the stage Space shortcut.
-    fireEvent.keyDown(stage(container), { key: ' ' })
-    await waitFor(() => expect(stateOf(container)).toBe('listening'))
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 450))
+    })
+    // 1. Auto-start already opened the microphone on entry.
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     // 2. Final transcript lands in the live log and moves to thinking.
     await act(async () => {
       speech.callbacks!.onFinal('今晚月色如何')
     })
     expect(stateOf(container)).toBe('thinking')
-    expect(statusRegion(container).textContent).toContain('回应中')
+    expect(statusRegion(container).textContent).toContain('对答中')
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
     // Thinking stays interruptible: moon click can cancel a slow reply.
@@ -304,7 +312,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     )
     await waitFor(() => expect(stateOf(container)).toBe('speaking'))
     expect(statusRegion(container).textContent).toContain('说话中')
-    expect(tts.enqueueCalls.length).toBe(1)
+    expect(tts.enqueueCalls.length).toBe(1) // streaming reply only — no filler ack
     expect(tts.configuredWith).toContain('zh-female')
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在说话，点击打断朗读')
@@ -319,12 +327,104 @@ describe('MC-06 state distinguishability + live announcements', () => {
     await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1))
   })
 
+  test('interrupt button and Tab shortcut stop speaking without exiting', async () => {
+    const onSend = vi.fn()
+    const onExit = vi.fn()
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend, onExit })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('打断我一下')
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        onExit={onExit}
+        chatStatus="done"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await waitFor(() => expect(stateOf(container)).toBe('speaking'))
+    const interruptBtn = container.querySelector('.companion-interrupt') as HTMLButtonElement
+    expect(interruptBtn.disabled).toBe(false)
+    fireEvent.click(interruptBtn)
+    await waitFor(() => expect(tts.interrupts).toBe(1))
+    expect(onExit).not.toHaveBeenCalled()
+  })
+
+  test('voice does not interrupt speaking; only the interrupt control does', async () => {
+    const onSend = vi.fn()
+    const onExit = vi.fn()
+    const onCancel = vi.fn()
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend, onExit, onCancel })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('先听我说完')
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        onExit={onExit}
+        onCancel={onCancel}
+        chatStatus="done"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await waitFor(() => expect(stateOf(container)).toBe('speaking'))
+    const interruptsBefore = tts.interrupts
+    await act(async () => {
+      speech.callbacks!.onFinal('我想打断你')
+    })
+    expect(tts.interrupts).toBe(interruptsBefore)
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledWith('先听我说完')
+    expect(stateOf(container)).toBe('speaking')
+    expect(onExit).not.toHaveBeenCalled()
+  })
+
+  test('a new utterance replaces the previous turn captions', async () => {
+    const onSend = vi.fn()
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('今晚月色如何')
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="streaming"
+        assistantText="今晚是满月，适合抬头。"
+      />,
+    )
+    expect(liveLog(container).textContent).toContain('今晚月色如何')
+    expect(liveLog(container).textContent).toContain('今晚是满月，适合抬头。')
+    fireEvent.click(moonBody(container))
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onInterim?.('下一句')
+    })
+    expect(liveLog(container).textContent).not.toContain('今晚月色如何')
+    expect(liveLog(container).textContent).not.toContain('今晚是满月')
+    expect(liveLog(container).textContent).toContain('下一句')
+    await act(async () => {
+      speech.callbacks!.onFinal('下一句你好吗')
+    })
+    expect(onSend).toHaveBeenLastCalledWith('下一句你好吗')
+    expect(liveLog(container).textContent).toContain('下一句你好吗')
+    expect(liveLog(container).textContent).not.toContain('今晚月色如何')
+  })
+
   test('returns to idle after a streamed reply finishes so subtitles can fade', async () => {
     const onSend = vi.fn()
     speech.start.mockResolvedValue(speech.handle())
     const { container, rerender } = await renderStage({ onSend })
-    fireEvent.keyDown(stage(container), { key: ' ' })
-    await waitFor(() => expect(stateOf(container)).toBe('listening'))
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     await act(async () => {
       speech.callbacks!.onFinal('你好')
     })
@@ -353,16 +453,13 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(statusRegion(container).textContent).not.toContain('说话中')
   })
 
-  test('unavailable chat config announces the error via role=alert and stays idle', async () => {
+  test('allows microphone when chat config is still loading', async () => {
+    speech.start.mockResolvedValueOnce(speech.handle())
     const { container } = await renderStage({ chatReady: false })
-    fireEvent.keyDown(stage(container), { key: ' ' })
-    const banner = await waitFor(() => {
-      const found = container.querySelector('.companion-banner.error') as HTMLElement
-      expect(found).toBeTruthy()
-      return found
+    await act(async () => {
+      fireEvent.keyDown(stage(container), { key: ' ' })
     })
-    expect(banner.getAttribute('role')).toBe('alert')
-    expect(banner.textContent).toContain('CHAT_CONFIG_MISSING')
-    expect(stateOf(container)).toBe('idle')
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    expect(container.querySelector('.companion-banner.error')).toBeNull()
   })
 })

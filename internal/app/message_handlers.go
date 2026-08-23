@@ -9,6 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/sessionapp"
 )
 
 func messageServiceAvailable(service MessageService) bool {
@@ -115,7 +116,7 @@ func messageFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, messageapp.ErrIdempotencyConflict):
 		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
-	case errors.Is(err, messageapp.ErrSessionNotFound):
+	case errors.Is(err, messageapp.ErrSessionNotFound), errors.Is(err, sessionapp.ErrSessionNotFound):
 		return bridge.Failure(r.ID, r.TraceID, "SESSION_NOT_FOUND", "会话不存在", false)
 	case errors.Is(err, messageapp.ErrMessageNotFound):
 		return bridge.Failure(r.ID, r.TraceID, "MESSAGE_NOT_FOUND", "消息不存在", false)

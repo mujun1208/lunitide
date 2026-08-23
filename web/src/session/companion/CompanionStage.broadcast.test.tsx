@@ -24,6 +24,8 @@ const speech = vi.hoisted(() => ({
     setAssistantPlayback: vi.fn(),
     setCommitPaused: vi.fn(),
     setBargeInActive: vi.fn(),
+    pulseRecognition: vi.fn(),
+    forceCommit: vi.fn(),
   }),
 }))
 
@@ -196,7 +198,7 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('speaking')
-  expect(tts.enqueueCalls.length).toBe(1) // the reply round flows through the streaming enqueue
+  expect(tts.enqueueCalls.length).toBe(1) // streaming reply only — no filler ack
 
   automation.runs = [run({ id: '01ARZ3NDEKTSV4RRFFQ69G5F98', jobName: '并发任务' }), ...automation.runs]
   await flush(30_000)

@@ -387,6 +387,14 @@ func sanitizeEvent(e *bridge.Event) {
 		return
 	}
 	normalizeArtifactPath(e.Tool.Artifact)
+	switch e.Tool.Artifact.Kind {
+	case "xlsx", "docx", "pptx", "pdf":
+		// Office paths are workspace metadata only; the renderer has no inline
+		// preview for them and forwarding the artifact breaks contiguous tool
+		// sequences on Windows path normalization tests.
+		e.Tool.Artifact = nil
+		return
+	}
 	if validRendererArtifact(e.Tool.Artifact) != nil {
 		e.Tool.Artifact = nil
 	}

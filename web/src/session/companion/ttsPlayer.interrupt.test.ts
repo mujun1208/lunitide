@@ -110,6 +110,22 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
 })
 
 describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)', () => {
+  test('falls back to natural when edge synthesis fails', async () => {
+    bridge.synthesize.mockImplementation(async (payload: TtsSynthesizePayload) => {
+      if (payload.engine === 'edge') throw new Error('M95-002 该段语音合成失败')
+      return okResult()
+    })
+    const engines: string[] = []
+    const player = new TtsPlayer()
+    player.enqueue(['你好。'], { ...defaultCompanionSettings(), engine: 'edge' }, {
+      onEngineFallback: engine => engines.push(engine),
+    })
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(2))
+    expect(engines).toEqual(['natural'])
+    bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
+    player.interrupt()
+  })
+
   test('an M95-001 synthesize error resolves through onEngineUnavailable without throwing', async () => {
     bridge.synthesize.mockRejectedValue(
       Object.assign(new Error('本机无可用语音合成引擎'), { code: 'M95-001' }),
@@ -122,6 +138,7 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
       onSegmentFailed: () => events.push('failed'),
     })
     expect(events).toEqual(['banner', 'engine-unavailable'])
+    expect(bridge.synthesize).toHaveBeenCalledTimes(3)
     expect(pauseEvents).toHaveLength(0) // nothing was ever played
     expect(bridge.cancel).not.toHaveBeenCalled() // degradation is not an interrupt
   })
@@ -136,8 +153,7 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
       onSegmentFailed: (index, count) => failures.push([index, count]),
       onFinished: reason => failures.push([-1, -1]) && undefined,
     })
-    // First segment already degraded to subtitles; later segments are never attempted.
-    expect(bridge.synthesize).toHaveBeenCalledTimes(1)
+    expect(bridge.synthesize).toHaveBeenCalledTimes(3)
     expect(failures).toHaveLength(1)
     expect(failures[0]).toEqual([-1, -1])
   })

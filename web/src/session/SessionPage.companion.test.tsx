@@ -26,8 +26,15 @@ vi.mock('../bridge/client', async importOriginal => {
       cancel: vi.fn(),
     }),
     automationBridge: { listRuns: () => Promise.resolve({ runs: [] }) },
+    sessionFolderBridge: { get: vi.fn().mockResolvedValue({ path: '' }), list: vi.fn(), open: vi.fn() },
+    toolsPolicyBridge: { getCommandPolicy: vi.fn().mockResolvedValue({ commands: [], fullAccess: true }), setCommandPolicy: vi.fn() },
+    ccBridge: { getConfig: vi.fn().mockResolvedValue({ enabled: true }), updateConfig: vi.fn(), getAuditLog: vi.fn(), emergencyStop: vi.fn() },
   }
 })
+
+vi.mock('./companion/ensureCompanionCapabilities', () => ({
+  ensureCompanionCapabilities: vi.fn().mockResolvedValue({ fullAccess: true, ccEnabled: true }),
+}))
 
 vi.mock('./companion/speech', () => ({
   ECHO_GUARD_MS: 700,
@@ -46,6 +53,9 @@ vi.mock('./companion/ttsPlayer', () => ({
     async speak() {}
     enqueue() {}
     async flush() {}
+    isBusy() {
+      return false
+    }
     interrupt() {}
     dispose() {}
   },

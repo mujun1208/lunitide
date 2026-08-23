@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,conversationsBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
-import{defaultCompanionSettings,loadCompanionSettings,saveCompanionSettings,type CompanionSettings}from'../session/companion/companionSettings'
+import{defaultCompanionSettings,formatInterruptHotkey,interruptHotkeyFromEvent,loadCompanionSettings,saveCompanionSettings,type CompanionSettings,type InterruptHotkey}from'../session/companion/companionSettings'
 import{SubagentsPanel}from'./SubagentsPanel'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
@@ -163,6 +163,48 @@ function Toggle({ on, onChange, label, desc }: { on: boolean; onChange: (v: bool
         aria-label={label}
       >
         <span className="toggle-knob" />
+      </button>
+    </div>
+  )
+}
+
+function HotkeyRow({ label, desc, hotkey, onChange }: {
+  label: string
+  desc: string
+  hotkey: InterruptHotkey
+  onChange: (next: InterruptHotkey) => void
+}): React.JSX.Element {
+  const [capturing, setCapturing] = useState(false)
+  return (
+    <div className="setting-row">
+      <div>
+        <div className="setting-label">{label}</div>
+        <div className="setting-desc">{desc}</div>
+      </div>
+      <button
+        type="button"
+        className={`setting-hotkey${capturing ? ' capturing' : ''}`}
+        aria-label={label}
+        aria-pressed={capturing}
+        onClick={() => setCapturing(true)}
+        onBlur={() => setCapturing(false)}
+        onKeyDown={event => {
+          if (!capturing) {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setCapturing(true)
+            }
+            return
+          }
+          event.preventDefault()
+          event.stopPropagation()
+          const next = interruptHotkeyFromEvent(event.nativeEvent)
+          if (!next) return
+          onChange(next)
+          setCapturing(false)
+        }}
+      >
+        {capturing ? '按下要设置的快捷键…' : formatInterruptHotkey(hotkey)}
       </button>
     </div>
   )
@@ -481,17 +523,17 @@ function CompanionSection():React.JSX.Element{
   }catch(e){setStatus(e instanceof Error?`试听失败：${e.message}`:'试听失败，请检查引擎配置')}finally{setBusy(false)}
  }
  const refDesc=refMeta?(refMeta.server_online?(refMeta.pack_exists?(refMeta.missing_files&&refMeta.missing_files.length>0?`音色 ${voices.length} 个，但 ${refMeta.missing_files.length} 个参考音频缺失（${refMeta.missing_files.slice(0,3).join('、')}${refMeta.missing_files.length>3?'…':''}），请检查音色包目录`:`音色 ${voices.length} 个（GPT-SoVITS 本地克隆，引擎在线，按风格分组）`):`引擎在线，但音色包目录缺失（${refMeta.pack_dir}），请检查音色文件`):refMeta.host_script?(hostLaunching?'语音引擎启动中…（首次加载模型约 30-90 秒，就绪后 50 种音色自动可用）':`检测到本机 GPT-SoVITS，服务未运行——已自动在后台启动语音引擎（首次加载模型约 30-90 秒）`):`未检测到 GPT-SoVITS 启动脚本（E:\GPT-SoVITS\start-api-cpu.bat）——请手动启动 api_v2 服务（默认端口 9880；WebUI 的 9874 端口不提供合成 API）`):'正在检测 GPT-SoVITS 服务…'
- const zhVoices=voices.filter(v=>(v.lang||'').toLowerCase().startsWith('zh'))
+ const zhVoices=voices.filter(v=>(v.lang||'').toLowerCase()==='zh-cn')
  const zhMale=zhVoices.filter(v=>v.gender==='male').length
  const zhFemale=zhVoices.filter(v=>v.gender==='female').length
  const visibleVoices=companion.engine==='edge'&&!showForeignEdgeVoices?zhVoices:voices
- const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`中文音色 ${zhVoices.length} 个（男 ${zhMale} · 女 ${zhFemale}${showForeignEdgeVoices?` · 全部 ${voices.length}`:''}；微软 Edge Neural，免密钥，需联网）`:'无法连接微软云端语音（需联网；可改选本机自然语音）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
+ const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`普通话音色 ${zhVoices.length} 种（男 ${zhMale} · 女 ${zhFemale}${showForeignEdgeVoices?` · 全部 ${voices.length}`:''}；微软 Edge Neural 风格扩展，免密钥，需联网）`:'无法连接微软云端语音（需联网；可改选本机自然语音）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
  const voiceDisabled=engineState!=='available'
  // Voice grouping: ref-engine presets carry an explicit group from the
  // backend; SAPI/OneCore voices fall back to the gender/lang heuristic
  // (zh-CN splits by gender, other zh-* are dialects, rest is foreign).
  const voiceGroups=(()=>{const g=new Map<string,typeof visibleVoices>();for(const v of visibleVoices){const lang=v.lang||'';const grp=v.group||(lang==='zh-CN'?(v.gender==='male'?'男声 · 阳光少年 / 沉稳大叔':'女声 · 温柔 / 活泼 / 甜美'):lang.startsWith('zh-')?'方言 · 东北 / 陕西 / 粤语 / 台湾':'外语 · 英语 / 日语');const arr=g.get(grp)||[];arr.push(v);g.set(grp,arr)}return[...g.entries()]})()
- return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="全双工对话" desc="麦克风在月汐说话时保持开启（系统回声消除）；外放扬声器可能拾取朗读声，建议戴耳机或关闭「插话打断」。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v,bargeIn:v?companion.bargeIn:false})}/><Toggle label="插话打断" desc="月汐朗读或思考较慢时，大声说话可打断（朗读期间不会把月汐自己的声音当成你的话）。" on={companion.fullDuplex&&companion.bargeIn} onChange={v=>save({...companion,bargeIn:companion.fullDuplex?v:false})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发；建议戴耳机，必要时关闭全双工/插话打断。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">云端免费走微软 Edge 朗读（晓晓等 Neural，免 API Key，需联网）；自然语音为本机 OneCore；本机语音为经典 SAPI；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine'],voiceId:''})}><option value="edge">云端免费（微软晓晓 · 推荐）</option><option value="natural">自然语音（本机 OneCore）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（GPT-SoVITS · 50 种音色）</option></select></div>
+ return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="全双工对话" desc="麦克风在月汐说话时保持开启。外放时她不会被自己的声音打断；想插话请点舞台上的「打断」或使用快捷键。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v})}/><HotkeyRow label="打断快捷键" desc="月汐说话或思考时，按此快捷键立刻停止；舞台上也有「打断」按钮。Esc 仍用于退出月伴。" hotkey={companion.interruptHotkey} onChange={hotkey=>save({...companion,interruptHotkey:hotkey})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">云端免费走微软 Edge 朗读（晓晓等 Neural，免 API Key，需联网）；自然语音为本机 OneCore；本机语音为经典 SAPI；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine'],voiceId:''})}><option value="edge">云端免费（微软晓晓 · 推荐）</option><option value="natural">自然语音（本机 OneCore）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（GPT-SoVITS · 50 种音色）</option></select></div>
 {companion.engine==='ref'&&<div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880（api_v2 推理服务端口；9874 是 WebUI 端口，不提供合成 API）。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div>}{companion.engine==='edge'&&<Toggle label="显示外语音色" desc="默认只列出中文（含普通话、港台、粤语）；开启后可浏览全部云端 Neural 音色。" on={showForeignEdgeVoices} onChange={setShowForeignEdgeVoices}/>}<div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div>
  <div className="setting-row"><div><div className="setting-label">语速（rate -10~10）</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量（0~100）</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div>{status&&<p role="status" className="notice">{status}</p>}</>
 }

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,11 +78,7 @@ func (e *edgeEngine) Voices() ([]Voice, error) {
 }
 
 func (e *edgeEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
-	voice := strings.TrimSpace(in.VoiceID)
-	if voice == "" || strings.HasPrefix(voice, "HKEY_") || strings.HasPrefix(voice, "refpack:") {
-		voice = edgeDefaultVoice
-	}
-	in.VoiceID = voice
+	edgeApplyStyleVoice(&in)
 	if e.synth == nil {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音引擎未装配", ErrEngineUnavailable)
 	}
@@ -99,44 +94,54 @@ func (e *edgeEngine) fetchVoices(ctx context.Context) ([]Voice, error) {
 	if e.client == nil {
 		return nil, fmt.Errorf("%w: 云端语音客户端未装配", ErrEngineUnavailable)
 	}
-	gec := edgeSecMSGEC(time.Now().Add(e.clockSkew))
-	url := e.voicesURL + "?trustedclienttoken=" + edgeTrustedToken +
-		"&Sec-MS-GEC=" + gec + "&Sec-MS-GEC-Version=" + edgeSecMSGECVersion()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, err)
-	}
-	edgeSetHeaders(req.Header)
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: 无法连接微软云端语音（需联网）: %v", ErrEngineUnavailable, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusForbidden {
-		if d := resp.Header.Get("Date"); d != "" {
-			if t, perr := http.ParseTime(d); perr == nil {
-				e.mu.Lock()
-				e.clockSkew = t.Sub(time.Now())
-				e.mu.Unlock()
-			}
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		e.mu.Lock()
+		skew := e.clockSkew
+		e.mu.Unlock()
+		gec := edgeSecMSGEC(time.Now().Add(skew))
+		url := e.voicesURL + "?trustedclienttoken=" + edgeTrustedToken +
+			"&Sec-MS-GEC=" + gec + "&Sec-MS-GEC-Version=" + edgeSecMSGECVersion()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, err)
 		}
-		return nil, fmt.Errorf("%w: 云端语音拒绝访问，请检查系统时间与网络", ErrEngineUnavailable)
+		edgeSetHeaders(req.Header)
+		resp, err := e.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("%w: 无法连接微软云端语音（需联网）: %v", ErrEngineUnavailable, err)
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, edgeMaxBody))
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusForbidden {
+			if d := resp.Header.Get("Date"); d != "" {
+				if t, perr := http.ParseTime(d); perr == nil {
+					e.adjustClockSkew(t)
+					lastErr = fmt.Errorf("%w: 云端语音拒绝访问，请检查系统时间与网络", ErrEngineUnavailable)
+					continue
+				}
+			}
+			return nil, fmt.Errorf("%w: 云端语音拒绝访问，请检查系统时间与网络", ErrEngineUnavailable)
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("%w: 云端语音列表 HTTP %d", ErrEngineUnavailable, resp.StatusCode)
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, readErr)
+		}
+		voices, err := parseEdgeVoices(body)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, err)
+		}
+		if len(voices) == 0 {
+			return nil, fmt.Errorf("%w: 云端未返回可用音色", ErrEngineUnavailable)
+		}
+		return voices, nil
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%w: 云端语音列表 HTTP %d", ErrEngineUnavailable, resp.StatusCode)
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, edgeMaxBody))
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, err)
-	}
-	voices, err := parseEdgeVoices(body)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEngineUnavailable, err)
-	}
-	if len(voices) == 0 {
-		return nil, fmt.Errorf("%w: 云端未返回可用音色", ErrEngineUnavailable)
-	}
-	return voices, nil
+	return nil, fmt.Errorf("%w: 云端语音拒绝访问，请检查系统时间与网络", ErrEngineUnavailable)
 }
 
 type edgeVoiceRow struct {
@@ -146,107 +151,12 @@ type edgeVoiceRow struct {
 	Locale       string `json:"Locale"`
 }
 
-type edgeCuratedVoice struct {
-	VoiceID     string
-	DisplayName string
-	Gender      string
-	Group       string
-	Rank        int
-}
-
-// edgeCuratedZh supplements Microsoft list metadata with Chinese labels
-// and finer male/female/style groups for the settings picker.
-var edgeCuratedZh = []edgeCuratedVoice{
-	{VoiceID: "zh-CN-XiaoxiaoNeural", DisplayName: "晓晓 · 温柔女声（推荐）", Gender: "female", Group: "云端中文 · 女声 · 温柔", Rank: 0},
-	{VoiceID: "zh-CN-XiaoyiNeural", DisplayName: "晓伊 · 活泼女声", Gender: "female", Group: "云端中文 · 女声 · 活泼", Rank: 1},
-	{VoiceID: "zh-CN-XiaomoNeural", DisplayName: "晓墨 · 知性女声", Gender: "female", Group: "云端中文 · 女声 · 知性", Rank: 2},
-	{VoiceID: "zh-CN-XiaoxuanNeural", DisplayName: "晓萱 · 新闻播报女声", Gender: "female", Group: "云端中文 · 女声 · 新闻", Rank: 3},
-	{VoiceID: "zh-CN-XiaoruiNeural", DisplayName: "晓睿 · 客服女声", Gender: "female", Group: "云端中文 · 女声 · 客服", Rank: 4},
-	{VoiceID: "zh-CN-XiaohanNeural", DisplayName: "晓涵 · 温暖女声", Gender: "female", Group: "云端中文 · 女声 · 温柔", Rank: 5},
-	{VoiceID: "zh-CN-XiaomengNeural", DisplayName: "晓梦 · 故事女声", Gender: "female", Group: "云端中文 · 女声 · 故事", Rank: 6},
-	{VoiceID: "zh-CN-XiaoshuangNeural", DisplayName: "晓双 · 童声", Gender: "female", Group: "云端中文 · 童声", Rank: 7},
-	{VoiceID: "zh-CN-XiaoyanNeural", DisplayName: "晓颜 · 客服女声", Gender: "female", Group: "云端中文 · 女声 · 客服", Rank: 8},
-	{VoiceID: "zh-CN-XiaoyouNeural", DisplayName: "晓悠 · 儿童女声", Gender: "female", Group: "云端中文 · 童声", Rank: 9},
-	{VoiceID: "zh-CN-XiaozhenNeural", DisplayName: "晓甄 · 情感女声", Gender: "female", Group: "云端中文 · 女声 · 情感", Rank: 10},
-	{VoiceID: "zh-CN-YunxiNeural", DisplayName: "云希 · 阳光男声（推荐）", Gender: "male", Group: "云端中文 · 男声 · 阳光", Rank: 11},
-	{VoiceID: "zh-CN-YunjianNeural", DisplayName: "云健 · 体育解说男声", Gender: "male", Group: "云端中文 · 男声 · 解说", Rank: 12},
-	{VoiceID: "zh-CN-YunxiaNeural", DisplayName: "云夏 · 少年男声", Gender: "male", Group: "云端中文 · 男声 · 少年", Rank: 13},
-	{VoiceID: "zh-CN-YunyangNeural", DisplayName: "云扬 · 新闻男声", Gender: "male", Group: "云端中文 · 男声 · 新闻", Rank: 14},
-	{VoiceID: "zh-CN-YunfengNeural", DisplayName: "云枫 · 沉稳男声", Gender: "male", Group: "云端中文 · 男声 · 沉稳", Rank: 15},
-	{VoiceID: "zh-CN-YunhaoNeural", DisplayName: "云皓 · 广告男声", Gender: "male", Group: "云端中文 · 男声 · 广告", Rank: 16},
-	{VoiceID: "zh-CN-YunyeNeural", DisplayName: "云野 · 情感男声", Gender: "male", Group: "云端中文 · 男声 · 情感", Rank: 17},
-	{VoiceID: "zh-CN-YunzeNeural", DisplayName: "云泽 · 纪录片男声", Gender: "male", Group: "云端中文 · 男声 · 纪录片", Rank: 18},
-	{VoiceID: "zh-TW-HsiaoChenNeural", DisplayName: "晓臻 · 台湾女声", Gender: "female", Group: "云端中文 · 港台", Rank: 20},
-	{VoiceID: "zh-TW-HsiaoYuNeural", DisplayName: "晓雨 · 台湾女声", Gender: "female", Group: "云端中文 · 港台", Rank: 21},
-	{VoiceID: "zh-TW-YunJheNeural", DisplayName: "云哲 · 台湾男声", Gender: "male", Group: "云端中文 · 港台", Rank: 22},
-	{VoiceID: "zh-HK-HiuGaaiNeural", DisplayName: "晓佳 · 粤语女声", Gender: "female", Group: "云端中文 · 粤语", Rank: 23},
-	{VoiceID: "zh-HK-HiuMaanNeural", DisplayName: "晓曼 · 粤语女声", Gender: "female", Group: "云端中文 · 粤语", Rank: 24},
-	{VoiceID: "zh-HK-WanLungNeural", DisplayName: "云龙 · 粤语男声", Gender: "male", Group: "云端中文 · 粤语", Rank: 25},
-}
-
-func edgeCuratedMeta(voiceID string) (edgeCuratedVoice, bool) {
-	for _, row := range edgeCuratedZh {
-		if row.VoiceID == voiceID {
-			return row, true
-		}
-	}
-	return edgeCuratedVoice{}, false
-}
-
-func mergeEdgeCuratedVoices(voices []Voice) []Voice {
-	byID := map[string]Voice{}
-	order := make([]string, 0, len(voices)+len(edgeCuratedZh))
-	for _, v := range voices {
-		if cur, ok := edgeCuratedMeta(v.VoiceID); ok {
-			v.DisplayName = cur.DisplayName
-			v.Group = cur.Group
-			v.Gender = cur.Gender
-		}
-		byID[v.VoiceID] = v
-		order = append(order, v.VoiceID)
-	}
-	for _, cur := range edgeCuratedZh {
-		if _, ok := byID[cur.VoiceID]; ok {
-			continue
-		}
-		lang := "zh-CN"
-		if i := strings.Index(cur.VoiceID, "-"); i > 0 {
-			if j := strings.Index(cur.VoiceID[i+1:], "-"); j > 0 {
-				lang = cur.VoiceID[:i+1+j]
-			}
-		}
-		byID[cur.VoiceID] = Voice{
-			VoiceID:     cur.VoiceID,
-			DisplayName: cur.DisplayName,
-			Gender:      cur.Gender,
-			Lang:        lang,
-			Group:       cur.Group,
-		}
-		order = append(order, cur.VoiceID)
-	}
-	out := make([]Voice, 0, len(byID))
-	seen := map[string]bool{}
-	for _, id := range order {
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		if v, ok := byID[id]; ok {
-			out = append(out, v)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return edgeVoiceRank(out[i]) < edgeVoiceRank(out[j])
-	})
-	return out
-}
-
 func parseEdgeVoices(raw []byte) ([]Voice, error) {
 	var rows []edgeVoiceRow
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	out := make([]Voice, 0, len(rows))
+	api := make([]Voice, 0, len(rows))
 	for _, row := range rows {
 		if row.ShortName == "" || !strings.Contains(row.ShortName, "Neural") {
 			continue
@@ -258,63 +168,25 @@ func parseEdgeVoices(raw []byte) ([]Voice, error) {
 		case "male":
 			gender = "male"
 		}
-		name := row.FriendlyName
-		if rest, ok := strings.CutPrefix(name, "Microsoft "); ok {
-			if i := strings.Index(rest, " Online"); i > 0 {
-				name = rest[:i]
-			}
-		}
-		if name == "" {
-			name = row.ShortName
-		}
-		group := edgeVoiceGroup(row.Locale, gender)
-		if cur, ok := edgeCuratedMeta(row.ShortName); ok {
-			name = cur.DisplayName
-			group = cur.Group
-			gender = cur.Gender
-		}
-		out = append(out, Voice{
+		api = append(api, Voice{
 			VoiceID:     row.ShortName,
-			DisplayName: name,
+			DisplayName: row.ShortName,
 			Gender:      gender,
 			Lang:        row.Locale,
-			Group:       group,
 		})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return edgeVoiceRank(out[i]) < edgeVoiceRank(out[j])
-	})
-	return mergeEdgeCuratedVoices(out), nil
-}
-
-func edgeVoiceGroup(locale, gender string) string {
-	if locale == "zh-CN" {
-		if gender == "male" {
-			return "云端中文 · 男声"
-		}
-		return "云端中文 · 女声"
-	}
-	if locale == "zh-TW" || locale == "zh-HK" {
-		return "云端中文 · 港台粤语"
-	}
-	if strings.HasPrefix(locale, "zh-") {
-		return "云端中文 · 方言"
-	}
-	return "云端外语"
+	return expandEdgeMandarinVoices(api), nil
 }
 
 func edgeVoiceRank(v Voice) int {
-	if cur, ok := edgeCuratedMeta(v.VoiceID); ok {
-		return cur.Rank
+	if preset, ok := edgePresetMeta(v.VoiceID); ok {
+		return preset.Rank
 	}
-	if v.VoiceID == edgeDefaultVoice {
+	if v.VoiceID == edgeDefaultVoice || strings.HasPrefix(v.VoiceID, edgeDefaultVoice+edgeStyleVoiceSep) {
 		return 0
 	}
 	if v.Lang == "zh-CN" {
 		return 30
-	}
-	if strings.HasPrefix(v.Lang, "zh-") {
-		return 40
 	}
 	return 100
 }
@@ -346,11 +218,39 @@ func edgeSSML(in SynthesizeInput) string {
 			lang = voice[:i+1+j]
 		}
 	}
-	return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="` + lang + `">` +
-		`<voice name="` + voice + `">` +
-		`<prosody rate="` + signedPercent(ratePct) + `" volume="` + strconv.Itoa(vol) + `">` +
+	style := strings.TrimSpace(in.Style)
+	if style == "" && edgeVoiceSupportsChatStyle(voice) {
+		style = "chat"
+	}
+	inner := `<prosody rate="` + signedPercent(ratePct) + `" pitch="+6%" volume="` + strconv.Itoa(vol) + `">` +
 		text.String() +
-		`</prosody></voice></speak>`
+		`</prosody>`
+	if style != "" {
+		inner = `<mstts:express-as style="` + xmlEscapeAttr(style) + `" styledegree="1.2">` + inner + `</mstts:express-as>`
+	}
+	ns := `xmlns="http://www.w3.org/2001/10/synthesis"`
+	if style != "" {
+		ns += ` xmlns:mstts="https://www.w3.org/2001/mstts"`
+	}
+	return `<speak version="1.0" ` + ns + ` xml:lang="` + lang + `">` +
+		`<voice name="` + voice + `">` +
+		inner +
+		`</voice></speak>`
+}
+
+func edgeVoiceSupportsChatStyle(voice string) bool {
+	switch voice {
+	case "zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-XiaohanNeural", "zh-CN-XiaoxuanNeural", "zh-CN-YunxiNeural":
+		return true
+	default:
+		return false
+	}
+}
+
+func xmlEscapeAttr(s string) string {
+	var b bytes.Buffer
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }
 
 func signedPercent(n int) string {
@@ -389,5 +289,8 @@ func edgeSetHeaders(h http.Header) {
 	major := strings.SplitN(edgeChromiumFull, ".", 2)[0]
 	h.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"+major+".0.0.0 Safari/537.36 Edg/"+major+".0.0.0")
 	h.Set("Accept", "*/*")
+	h.Set("Accept-Encoding", "gzip, deflate, br")
 	h.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	h.Set("Sec-CH-UA", `"Chromium";v="`+major+`", "Microsoft Edge";v="`+major+`", "Not;A Brand";v="99"`)
+	h.Set("Sec-CH-UA-Mobile", "?0")
 }

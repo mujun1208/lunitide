@@ -172,7 +172,13 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 		// family): the player waits and retries instead of breaking.
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "语音引擎启动中，请稍候", true)
 	case errors.Is(err, tts.ErrSynthesisFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M95-002", "该段语音合成失败", false)
+		msg := "该段语音合成失败"
+		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "Forbidden") {
+			msg = "云端语音被拒绝（请检查系统时间与网络，或改用「自然语音」本机引擎）"
+		} else if strings.Contains(err.Error(), "云端") {
+			msg = "云端语音合成失败（请检查网络，或改用「自然语音」本机引擎）"
+		}
+		return bridge.Failure(r.ID, r.TraceID, "M95-002", msg, false)
 	default:
 		log.Printf("tts bridge failure: %v", err)
 		return bridge.Failure(r.ID, r.TraceID, "M95-002", "该段语音合成失败", false)

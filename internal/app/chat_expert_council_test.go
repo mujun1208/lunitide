@@ -59,6 +59,13 @@ func TestBuildExpertCouncilConfigRequiresTwoExperts(t *testing.T) {
 	}
 }
 
+func TestBuildExpertCouncilConfigSkipsCompanion(t *testing.T) {
+	e := &Engine{}
+	if cfg := e.buildExpertCouncilConfig(t.Context(), expertCouncilInputs{Companion: true, TurnText: "请三位专家评审架构"}); cfg != nil {
+		t.Fatal("companion voice mode should skip expert council")
+	}
+}
+
 func TestSkipExpertCouncilStillBlocksCouncil(t *testing.T) {
 	e := &Engine{}
 	if cfg := e.buildExpertCouncilConfig(t.Context(), expertCouncilInputs{TurnText: "帮我在桌面创建一个文件夹"}); cfg != nil {

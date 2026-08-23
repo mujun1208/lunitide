@@ -16,20 +16,21 @@ func TestParseEdgeVoicesRanksXiaoxiaoFirst(t *testing.T) {
 		{"ShortName":"en-US-AriaNeural","FriendlyName":"Microsoft Aria Online (Natural) - English (United States)","Gender":"Female","Locale":"en-US"},
 		{"ShortName":"zh-CN-YunxiNeural","FriendlyName":"Microsoft Yunxi Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"},
 		{"ShortName":"zh-CN-XiaoxiaoNeural","FriendlyName":"Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)","Gender":"Female","Locale":"zh-CN"},
-		{"ShortName":"zh-CN-HuihuiRUS","FriendlyName":"Huihui","Gender":"Female","Locale":"zh-CN"}
+		{"ShortName":"zh-CN-XiaoyiNeural","FriendlyName":"Microsoft Xiaoyi Online (Natural) - Chinese (Mainland)","Gender":"Female","Locale":"zh-CN"},
+		{"ShortName":"zh-CN-YunjianNeural","FriendlyName":"Microsoft Yunjian Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"},
+		{"ShortName":"zh-CN-YunxiaNeural","FriendlyName":"Microsoft Yunxia Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"},
+		{"ShortName":"zh-CN-YunyangNeural","FriendlyName":"Microsoft Yunyang Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"}
 	]`)
 	voices, err := parseEdgeVoices(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(voices) < 3 {
-		t.Fatalf("len=%d, classic non-neural should be dropped and curated voices merged", len(voices))
+	if len(voices) != 50 {
+		t.Fatalf("len=%d, want 50 Mandarin presets", len(voices))
 	}
-	if voices[0].VoiceID != edgeDefaultVoice || voices[0].DisplayName != "晓晓 · 温柔女声（推荐）" {
-		t.Fatalf("first = %+v, want Xiaoxiao curated label", voices[0])
-	}
-	if voices[0].Group != "云端中文 · 女声 · 温柔" {
-		t.Fatalf("groups = %+v", voices[0])
+	wantFirst := edgeVoiceStyleID(edgeDefaultVoice, "chat")
+	if voices[0].VoiceID != wantFirst || voices[0].DisplayName != "晓晓 · 温柔日常（推荐）" {
+		t.Fatalf("first = %+v, want Xiaoxiao chat preset", voices[0])
 	}
 }
 
@@ -43,6 +44,9 @@ func TestEdgeSSMLEscapesAndMapsRate(t *testing.T) {
 	}
 	if !strings.Contains(ssml, `xml:lang="zh-CN"`) {
 		t.Fatalf("lang: %s", ssml)
+	}
+	if !strings.Contains(ssml, `style="chat"`) || !strings.Contains(ssml, "mstts:express-as") {
+		t.Fatalf("chat style missing: %s", ssml)
 	}
 }
 
@@ -81,14 +85,21 @@ func TestEdgeVoicesUsesInjectedHTTP(t *testing.T) {
 		if r.URL.Query().Get("Sec-MS-GEC") == "" {
 			t.Fatal("missing Sec-MS-GEC")
 		}
-		_, _ = w.Write([]byte(`[{"ShortName":"zh-CN-XiaoxiaoNeural","FriendlyName":"Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)","Gender":"Female","Locale":"zh-CN"}]`))
+		_, _ = w.Write([]byte(`[
+			{"ShortName":"zh-CN-XiaoxiaoNeural","FriendlyName":"Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)","Gender":"Female","Locale":"zh-CN"},
+			{"ShortName":"zh-CN-XiaoyiNeural","FriendlyName":"Microsoft Xiaoyi Online (Natural) - Chinese (Mainland)","Gender":"Female","Locale":"zh-CN"},
+			{"ShortName":"zh-CN-YunjianNeural","FriendlyName":"Microsoft Yunjian Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"},
+			{"ShortName":"zh-CN-YunxiNeural","FriendlyName":"Microsoft Yunxi Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"},
+			{"ShortName":"zh-CN-YunxiaNeural","FriendlyName":"Microsoft Yunxia Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"},
+			{"ShortName":"zh-CN-YunyangNeural","FriendlyName":"Microsoft Yunyang Online (Natural) - Chinese (Mainland)","Gender":"Male","Locale":"zh-CN"}
+		]`))
 	}))
 	defer srv.Close()
 	eng := NewEdgeEngine().(*edgeEngine)
 	eng.voicesURL = srv.URL
 	eng.client = srv.Client()
 	voices, err := eng.Voices()
-	if err != nil || len(voices) < len(edgeCuratedZh) || voices[0].VoiceID != edgeDefaultVoice {
+	if err != nil || len(voices) != 50 || voices[0].VoiceID != edgeVoiceStyleID(edgeDefaultVoice, "chat") {
 		t.Fatalf("voices=%+v err=%v", voices, err)
 	}
 }
@@ -106,6 +117,9 @@ func TestEdgeSynthesizeUsesInjectedSynth(t *testing.T) {
 	}
 	if got.VoiceID != edgeDefaultVoice {
 		t.Fatalf("HKEY voice should fall back to Xiaoxiao, got %s", got.VoiceID)
+	}
+	if got.Style != "chat" {
+		t.Fatalf("default style = %q, want chat", got.Style)
 	}
 	if res.WavBase64 != "d2F2" {
 		t.Fatalf("wav = %s", res.WavBase64)

@@ -18,6 +18,12 @@ import {
   endpointingForText,
   isPermanentSpeechError,
   speechProfile,
+  VOICE_PEAK,
+  companionRecognitionLang,
+  idleMeterLevel,
+  shouldRestartStalledRecognition,
+  speechEngineHint,
+  STALL_RESTART_AFTER_MS,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -56,7 +62,7 @@ describe('endpointingForText', () => {
 
 describe('shouldDeferCommit', () => {
   test('waits briefly before accepting a non-terminal phrase', () => {
-    expect(shouldDeferCommit('帮我在桌面', 200)).toBe(true)
+    expect(shouldDeferCommit('帮我在桌面', 40)).toBe(true)
     expect(shouldDeferCommit('帮我在桌面', MIN_UTTERANCE_MS)).toBe(false)
     expect(shouldDeferCommit('好的。', 100)).toBe(false)
   })
@@ -94,8 +100,9 @@ describe('shouldHoldRecognition', () => {
     expect(shouldHoldRecognition(false, 800, 800)).toBe(false)
   })
 
-  test('echo guard is long enough for speaker ring-out', () => {
-    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(500)
+  test('echo guard balances fast re-listen with speaker ring-out', () => {
+    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(350)
+    expect(ECHO_GUARD_MS).toBeLessThanOrEqual(700)
   })
 })
 
@@ -105,7 +112,7 @@ describe('speechProfile', () => {
     const normal = speechProfile('normal')
     expect(noisy.voicePeak).toBeGreaterThan(normal.voicePeak)
     expect(noisy.minVoiceHoldMs).toBeGreaterThan(0)
-    expect(normal.minVoiceHoldMs).toBeGreaterThan(0)
+    expect(normal.minVoiceHoldMs).toBe(0)
   })
 })
 
@@ -122,5 +129,49 @@ describe('isPermanentSpeechError', () => {
     expect(isPermanentSpeechError('aborted')).toBe(false)
     expect(isPermanentSpeechError('audio-capture')).toBe(false)
     expect(isPermanentSpeechError(undefined)).toBe(false)
+  })
+})
+
+describe('companionRecognitionLang', () => {
+  test('maps Chinese navigator tags to zh-CN for Windows Speech Runtime', () => {
+    expect(companionRecognitionLang('zh-Hans-CN')).toBe('zh-CN')
+    expect(companionRecognitionLang('zh')).toBe('zh-CN')
+    expect(companionRecognitionLang('en-US')).toBe('en-US')
+    expect(companionRecognitionLang('')).toBe('zh-CN')
+  })
+})
+
+describe('idleMeterLevel', () => {
+  test('stays below the voice peak so fake rings never look like speech', () => {
+    for (let tick = 0; tick < 80; tick += 1) {
+      for (let index = 0; index < 12; index += 1) {
+        expect(idleMeterLevel(tick, index)).toBeLessThan(VOICE_PEAK)
+      }
+    }
+  })
+})
+
+describe('shouldRestartStalledRecognition', () => {
+  test('never aborts an in-flight utterance or a fresh session', () => {
+    expect(shouldRestartStalledRecognition({
+      speechActive: true, hasText: false, held: false, restarting: false, msSinceStart: 8000,
+    })).toBe(false)
+    expect(shouldRestartStalledRecognition({
+      speechActive: false, hasText: false, held: false, restarting: false, msSinceStart: 400,
+    })).toBe(false)
+    expect(shouldRestartStalledRecognition({
+      speechActive: false, hasText: true, held: false, restarting: false, msSinceStart: 8000,
+    })).toBe(false)
+    expect(shouldRestartStalledRecognition({
+      speechActive: false, hasText: false, held: false, restarting: false, msSinceStart: 1800,
+    })).toBe(true)
+    expect(STALL_RESTART_AFTER_MS).toBeLessThanOrEqual(2000)
+  })
+})
+
+describe('speechEngineHint', () => {
+  test('does not treat aborted as a user-facing failure', () => {
+    expect(speechEngineHint('aborted')).toBe('')
+    expect(speechEngineHint('audio-capture')).toMatch(/麦克风/)
   })
 })

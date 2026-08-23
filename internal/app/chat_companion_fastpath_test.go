@@ -14,6 +14,19 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
+func TestCompanionSpeakFallbackUsesGenericVoiceLine(t *testing.T) {
+	out := companionSpeakFallback(gateway.Response{
+		Message:   gateway.Message{Content: ""},
+		Reasoning: "嗯，你好呀！我在呢。后面还有很长的内心独白…",
+	})
+	if out != "嗯，我在呢，稍等我一下。" {
+		t.Fatalf("got %q", out)
+	}
+	if companionSpeakFallback(gateway.Response{Message: gateway.Message{Content: "直接回答。"}}) != "直接回答。" {
+		t.Fatal("content should win")
+	}
+}
+
 func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	requests := make(chan gateway.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
@@ -42,6 +55,12 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	}
 	if !strings.Contains(system, "第一句") || !strings.Contains(system, "闲聊立刻回答") || !strings.Contains(system, "调用对应工具") {
 		t.Fatalf("companion voice instruction missing: %q", system)
+	}
+	if !strings.Contains(system, "身份记忆") || !strings.Contains(system, "月汐") || !strings.Contains(system, "私人助理") {
+		t.Fatalf("companion identity memory missing: %q", system)
+	}
+	if !strings.Contains(system, "不要原样复读") {
+		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
 	if strings.Contains(system, "可用技能目录") {
 		t.Fatalf("idle companion injected skill catalog: %q", system)
@@ -97,7 +116,7 @@ type errCompanionReader struct{ err error }
 func (r errCompanionReader) ListMessages(context.Context, string, string, int) ([]contextapp.Message, error) {
 	return nil, r.err
 }
-func (errCompanionReader) SumTokens(context.Context, string, string, string, string) (int64, error) {
+func (r errCompanionReader) SumTokens(context.Context, string, string, string, string) (int64, error) {
 	return 0, nil
 }
 
@@ -178,6 +197,24 @@ func TestCompanionWantsTools(t *testing.T) {
 	}
 	if !companionWantsTools("打开网页") || !companionWantsTools("搜一下今天新闻") {
 		t.Fatal("action chat must request tools")
+	}
+}
+
+func TestCompanionOpeningAck(t *testing.T) {
+	if got := companionOpeningAck("一场大雨淋湿了眼睛。"); got != "嗯，我听到了。" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionOpeningAck("你好"); got != "嗨，我在呢。" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCompanionToolLeadIn(t *testing.T) {
+	if got := companionToolLeadIn("web.search"); got != "好，我帮你查一下。" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionToolLeadIn("cc.click"); got != "好，我来操作电脑。" {
+		t.Fatalf("got %q", got)
 	}
 }
 
