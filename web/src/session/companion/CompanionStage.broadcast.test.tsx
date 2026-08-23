@@ -198,7 +198,7 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('speaking')
-  expect(tts.enqueueCalls.length).toBe(1) // streaming reply only — no filler ack
+  expect(tts.enqueueCalls.length).toBe(2) // instant backchannel + streamed reply
 
   automation.runs = [run({ id: '01ARZ3NDEKTSV4RRFFQ69G5F98', jobName: '并发任务' }), ...automation.runs]
   await flush(30_000)

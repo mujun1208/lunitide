@@ -23,7 +23,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionReplyStallMs, looksLikePlaybackEcho, prepareSpeech, takeSpeakableChunk } from './companionText'
+import { cleanForSpeech, cleanUserTranscript, companionInstantAck, compactSpeech, companionReplyStallMs, looksLikePlaybackEcho, prepareSpeech, takeSpeakableChunk } from './companionText'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
 import { ECHO_GUARD_MS, INTERRUPT_ECHO_MS, startCompanionSpeech, type CompanionSpeechHandle } from './speech'
 import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
@@ -780,13 +780,27 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
       speakingRef.current = false
-      lastSpokenRef.current = ''
       lastActivitySpokenRef.current = ''
       setStreamTick(0)
       setInterimText('')
       setLocalError(undefined)
       playerRef.current?.interrupt()
-      setRounds([{ role: 'user', text: text }])
+      const ack = companionInstantAck(text)
+      lastSpokenRef.current = ack
+      setRounds([{ role: 'user', text }, { role: 'assistant', text: ack }])
+      if (ttsAvailable !== false && settings.autoSpeak) {
+        const spoken = cleanForSpeech(ack)
+        if (spoken) {
+          const player = ensurePlayer()
+          const voiceId = activeVoiceId()
+          player.configure(voiceId, settings.rate, settings.volume, settings)
+          player.enqueue([spoken], { ...settings, voiceId }, {
+            onEngineFallback: handleEngineFallback,
+            onGain: value => setGain(speakingGain(value)),
+            onFinished: () => setGain(0),
+          })
+        }
+      }
       if (replacing) {
         onCancel?.()
         if (stateRef.current === 'thinking') machine.dispatch({ type: 'BARGE_IN' })
@@ -799,10 +813,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         return
       }
       machine.dispatch({ type: 'RECOGNIZED_FINAL' })
-      onSend(text)
+      onSendRef.current(text)
       syncSpeechModes()
     },
-    [machine, onCancel, onSend, syncSpeechModes],
+    [activeVoiceId, ensurePlayer, handleEngineFallback, machine, onCancel, settings, syncSpeechModes, ttsAvailable],
   )
 
   useEffect(() => {
