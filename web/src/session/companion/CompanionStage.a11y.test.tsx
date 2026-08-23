@@ -282,6 +282,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(statusRegion(container).textContent).toContain('对答中')
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
+    expect(liveLog(container).textContent).toContain('嗯，')
+    expect(tts.enqueueCalls[0]?.segments.join('')).toContain('嗯，')
     // Thinking stays interruptible: moon click can cancel a slow reply.
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在回应')
@@ -312,7 +314,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     )
     await waitFor(() => expect(stateOf(container)).toBe('speaking'))
     expect(statusRegion(container).textContent).toContain('说话中')
-    expect(tts.enqueueCalls.length).toBe(1) // streaming reply only — no filler ack
+    expect(tts.enqueueCalls.length).toBe(2) // instant backchannel + streamed reply
     expect(tts.configuredWith).toContain('zh-female')
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在说话，点击打断朗读')

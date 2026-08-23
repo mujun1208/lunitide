@@ -39,9 +39,9 @@ vi.mock('./companion/ensureCompanionCapabilities', () => ({
 vi.mock('./companion/speech', () => ({
   ECHO_GUARD_MS: 700,
   INTERRUPT_ECHO_MS: 160,
-  startCompanionSpeech: (callbacks: { onFinal: (transcript: string) => void }) => {
-    speech.callbacks = callbacks
-    return speech.start(callbacks)
+  startCompanionSpeech: (options: { onFinal: (transcript: string) => void }) => {
+    speech.callbacks = options
+    return speech.start(options)
   },
 }))
 
@@ -79,7 +79,18 @@ const NOW = '2025-01-01T00:00:00Z'
 const project: ProjectDTO = { id: P, name: 'Runtime', projectCode: 'ITM00001', type: 'implementation', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
 const session: SessionDTO = { id: S, projectId: P, title: '月伴对话', pinned: false, status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
 const sessionBridge: SessionBridge = { list: vi.fn().mockResolvedValue({ items: [session] }), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
-const provider: ProviderDTO = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', name: 'Ready', protocol: 'openai_compatible', baseUrl: 'https://example.test', models: [{ modelId: 'model', displayName: 'Model', isDefault: true }], status: 'enabled', credentialState: 'configured', createdAt: NOW, updatedAt: NOW, version: 1 }
+const provider: ProviderDTO = {
+  id: '01ARZ3NDEKTSV4RRFFQ69G5FAB',
+  name: 'Ready',
+  protocol: 'openai_compatible',
+  baseUrl: 'https://example.test',
+  models: [{ modelId: 'model', displayName: 'Model', isDefault: true }],
+  status: 'enabled',
+  credentialState: 'configured',
+  createdAt: NOW,
+  updatedAt: NOW,
+  version: 1,
+}
 
 it('does not auto-resume a retryable companion chat.start failure with the work prompt', async () => {
   const start = vi.fn().mockRejectedValue(new BridgeClientError('上下文装配暂时不可用', 'CONTEXT_ASSEMBLY_FAILED', true, 'engine'))
@@ -115,4 +126,43 @@ it('does not auto-resume a retryable companion chat.start failure with the work 
   expect(start).toHaveBeenCalledOnce()
   expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
   fireEvent.keyDown(stage, { key: 'Escape' })
+})
+
+it('starts companion turns with the model selected on the home page', async () => {
+  const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
+  const chosen: ProviderDTO = {
+    ...provider,
+    models: [
+      { modelId: 'm-one', displayName: 'Model One', isDefault: true },
+      { modelId: 'm-two', displayName: 'Model Two', isDefault: false },
+    ],
+  }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={messages}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      initialProviderId={chosen.id}
+      initialModelId="m-two"
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [chosen] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('你好月汐')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'm-two' })
 })
