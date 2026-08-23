@@ -34,6 +34,8 @@ type SynthesizeInput struct {
 	RefEndpoint   string
 	RefWavPath    string
 	RefPromptText string
+	// Style is an optional Edge neural speaking style (chat, affectionate…).
+	Style string
 }
 
 // Engine selector values carried by tts.synthesize payloads.

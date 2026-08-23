@@ -167,6 +167,11 @@ func clipExpertCouncilBody(body []byte) string {
 }
 
 func (e *Engine) buildExpertCouncilConfig(ctx context.Context, in expertCouncilInputs) *expertCouncilConfig {
+	// Voice companion is single-persona (月汐); expert deliberation adds
+	// latency before the first spoken token and breaks the phone-call feel.
+	if in.Companion {
+		return nil
+	}
 	if e.m8expert == nil || skipExpertCouncil(in.TurnText) {
 		return nil
 	}

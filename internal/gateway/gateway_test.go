@@ -104,9 +104,9 @@ func TestDisableReasoningHints(t *testing.T) {
 	}
 }
 
-func TestDisableReasoningHint400IsStripped(t *testing.T) {
+func TestDisableReasoningKeepsThinkingDisabledWhenEnableThinkingRejected(t *testing.T) {
 	f := &fakeConnector{responses: []*http.Response{
-		response(400, `unknown field thinking`),
+		response(400, `unknown field enable_thinking`),
 		response(200, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`),
 	}}
 	_, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, DisableReasoning: true})
@@ -117,8 +117,30 @@ func TestDisableReasoningHint400IsStripped(t *testing.T) {
 		t.Fatalf("requests=%d, want 2", len(f.requests))
 	}
 	second, _ := io.ReadAll(f.requests[1].Body)
-	if strings.Contains(string(second), "enable_thinking") || strings.Contains(string(second), `"thinking"`) {
-		t.Fatalf("stripped retry still has thinking hints: %s", second)
+	if strings.Contains(string(second), "enable_thinking") {
+		t.Fatalf("enable_thinking should be stripped first: %s", second)
+	}
+	if !strings.Contains(string(second), `"type":"disabled"`) {
+		t.Fatalf("thinking.disabled must survive enable_thinking 400: %s", second)
+	}
+}
+
+func TestDisableReasoningHint400IsStripped(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{
+		response(400, `unknown field enable_thinking`),
+		response(400, `unknown field thinking`),
+		response(200, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`),
+	}}
+	_, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}, DisableReasoning: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.requests) != 3 {
+		t.Fatalf("requests=%d, want 3", len(f.requests))
+	}
+	third, _ := io.ReadAll(f.requests[2].Body)
+	if strings.Contains(string(third), "enable_thinking") || strings.Contains(string(third), `"thinking"`) {
+		t.Fatalf("fully stripped retry still has thinking hints: %s", third)
 	}
 }
 

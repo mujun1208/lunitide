@@ -53,6 +53,7 @@ const (
 	preferenceInjectMaxBytes = 2048
 	companionMaxTokens       = 2048
 	companionMaxMessages     = 24
+	companionMaxToolLoopSteps = 10
 	// chatMaxTokens leaves headroom after long reasoning so a short tool
 	// call still fits. Dumping a full HTML game under 4096 truncated the
 	// tool JSON and surfaced “出错了，无法完成。”
@@ -120,6 +121,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// ccapp, workspace tools, etc. without pausing for visual approval.
 	if p.Companion {
 		mode = executionModeFullAccess
+		e.ensureCompanionRuntimeCapabilities(ctx)
 	}
 
 	turnText := lastUserChatText(p.Messages)
@@ -134,7 +136,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// sentences stay short so synthesis overlaps playback. Tools stay
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
-		instruction += "\n\n你正在和用户实时语音对话（月伴）。关闭思考，立刻开口，像打电话一样边想边说。请严格遵守：\n- 禁止内部推理、禁止先规划再说话；第一句 8–20 字，必须以。？！结尾\n- 之后每句 15–35 字，同样用。？！收尾，便于边生成边朗读\n- 禁止 Markdown、代码块、表格、列表\n- 闲聊立刻回答，不要先调工具\n- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或 browser.act\n- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐）；不要用 command.run 猜路径\n- 播歌/播放：若本会话已打开音乐软件（见下方会话上下文），必须用 media.play（target=foreground，query=歌名/歌手）在该软件内搜索并播放；禁止改用网页或 netease/qqmusic。用户一句里同时要求打开软件并播放时，先 desktop.open 再 media.play target=foreground。仅当用户明确要网页版或未打开桌面音乐软件时，才用 target=browser|netease|qqmusic\n- 建文件夹/写文件：workspace.write 或 command.run\n- 操作电脑：command.run；电脑控制开启时用 cc.*（含 media_play 快捷键）\n- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+		instruction += companionPersonaInstruction()
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -576,6 +578,75 @@ func (e *Engine) peekLastUserMessage(ctx context.Context, sessionID string) stri
 	return strings.TrimSpace(best.Content)
 }
 
+func companionPersonaInstruction() string {
+	return "\n\n[身份记忆] 你叫月汐。你是用户的专属私人助理。这是长期记忆，每一轮都成立：被问名字、你是谁、你叫什么，都回答「我是月汐，你的私人助理」。不要自称助手、模型、AI，不要用岳西、月西、悦溪、月夕等谐音。\n\n你正在和用户实时语音通话（月伴）。像真人打电话：有温度、有情绪、反应快。禁止内部思考/推理/规划，收到话立刻开口，边生成边说话。请严格遵守：\n" +
+		"- 禁止输出 thinking/推理/分析过程；第一个可见字必须在 1 秒内开始流出\n" +
+		"- 禁止说「我想想」「让我想一想」「稍等我思考」；开口就是回答本身\n" +
+		"- 第一句 6–18 字，必须以。？！结尾，带感情（轻快、体贴，可「好呀」「嗯」）\n" +
+		"- 之后每句 12–28 字，同样用。？！收尾，便于边生成边朗读\n" +
+		"- 语气自然有人味儿：像闺蜜/老友聊天，不要机械复读「好的我明白了」\n" +
+		"- 不要原样复读用户刚说的话；听到问候就热情回一句，再等用户说正事\n" +
+		"- 禁止 Markdown、代码块、表格、列表、括号旁白\n" +
+		"- 闲聊立刻回答，不要先调工具\n" +
+		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
+		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
+		"- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或 browser.act\n" +
+		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐）；不要用 command.run 猜路径\n" +
+		"- 播歌/播放：若本会话已打开音乐软件（见下方会话上下文），必须用 media.play（target=foreground，query=歌名/歌手；没说具体歌时用 query=热门）在该软件内搜索并播放；禁止 cc.screen_capture 看屏点按，禁止改用网页或 netease/qqmusic。用户一句里同时要求打开软件并播放时，先 desktop.open 再 media.play target=foreground。仅当用户明确要网页版或未打开桌面音乐软件时，才用 target=browser|netease|qqmusic\n" +
+		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
+		"- 操作电脑：command.run；电脑控制开启时用 cc.*（含 media_play 快捷键）\n" +
+		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+}
+
+// companionSpeakFallback returns a short speakable line when the model
+// produced no user-facing content. Voice mode never promotes reasoning text.
+func companionSpeakFallback(result gateway.Response) string {
+	if t := strings.TrimSpace(result.Message.Content); t != "" {
+		return t
+	}
+	return "嗯，我在呢，稍等我一下。"
+}
+
+// companionOpeningAck is spoken immediately when a voice turn starts so the
+// user never sits on a silent "thinking" pill while context assembles.
+func companionOpeningAck(userText string) string {
+	text := strings.TrimSpace(userText)
+	if text == "" {
+		return "嗯，我在。"
+	}
+	if strings.Contains(text, "？") || strings.Contains(text, "?") {
+		return "嗯，"
+	}
+	for _, greet := range []string{"你好", "您好", "嗨", "嘿", "在吗", "在不在"} {
+		if strings.HasPrefix(text, greet) {
+			return "嗨，我在呢。"
+		}
+	}
+	if strings.ContainsAny(text, "。！!…") && len([]rune(text)) >= 4 {
+		return "嗯，我听到了。"
+	}
+	return "嗯，"
+}
+
+// companionToolLeadIn gives a speakable line before a tool runs without model text.
+func companionToolLeadIn(toolName string) string {
+	switch toolName {
+	case "web.search", "web.fetch":
+		return "好，我帮你查一下。"
+	case "desktop.open":
+		return "好，我来打开。"
+	case "media.play":
+		return "好，我来播放。"
+	case "skill.invoke":
+		return "好，我用技能处理一下。"
+	default:
+		if strings.HasPrefix(toolName, "cc.") {
+			return "好，我来操作电脑。"
+		}
+		return "好，我马上处理。"
+	}
+}
+
 // companionWantsTools is the voice fast-path gate: idle chat must not ship
 // tool schemas (they dominate TTFT). Action-shaped utterances keep the full
 // toolset so 月伴 can still search, open pages, or write files.
@@ -586,7 +657,7 @@ func companionWantsTools(text string) bool {
 	}
 	lower := strings.ToLower(text)
 	for _, needle := range []string{
-		"搜索", "搜一下", "搜网页", "打开", "播放", "播一首", "播歌", "音乐", "听歌",
+		"搜索", "搜一下", "搜网页", "打开", "播放", "播一首", "播歌", "音乐", "听歌", "随便", "放一首",
 		"查一下", "查询", "查火车", "查航班", "火车票", "航班",
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
@@ -1656,21 +1727,29 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			turn.Injected = append(turn.Injected, prev.Injected...)
 		}
 		e.saveTurnCheckpoint(sessionID, turn)
-		for step := 0; step < maxToolLoopSteps; step++ {
+		toolLoopLimit := maxToolLoopSteps
+		if state.companion {
+			toolLoopLimit = companionMaxToolLoopSteps
+		}
+		for step := 0; step < toolLoopLimit; step++ {
 			_ = e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText)
 			stepTextStart := assistantText.Len()
 			result, streamErr = a.Stream(op, credential, req, func(d gateway.Delta) error {
-				if d.Reasoning != "" && thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
-					reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
-					thinkingText.WriteString(reasoning)
-					if pendingThinking == "" && reasoning != "" {
-						pendingThinkingSince = time.Now()
+				if d.Reasoning != "" {
+					if thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
+						reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
+						thinkingText.WriteString(reasoning)
+						if pendingThinking == "" && reasoning != "" {
+							pendingThinkingSince = time.Now()
+						}
+						pendingThinking += reasoning
+						force := !pendingThinkingSince.IsZero() && time.Since(pendingThinkingSince) >= thinkingFlushInterval
+						if err := flushThinking(force); err != nil {
+							return err
+						}
 					}
-					pendingThinking += reasoning
-					force := !pendingThinkingSince.IsZero() && time.Since(pendingThinkingSince) >= thinkingFlushInterval
-					if err := flushThinking(force); err != nil {
-						return err
-					}
+					// Companion voice mode: reasoning_content is discarded — never
+					// spoken aloud and never shown as thinking in the UI.
 				}
 				if d.Text != "" {
 					assistantText.WriteString(d.Text)
@@ -1680,6 +1759,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				return nil
 			})
+			if streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 {
+				if fallback := companionSpeakFallback(result); fallback != "" {
+					assistantText.WriteString(fallback)
+					if err := sendDeltaChunks(send, fallback); err != nil {
+						return err
+					}
+				}
+			}
 			var gatewayErr *gateway.Error
 			if streamErr != nil && !toolsFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
 				// Some compatible text models reject function definitions. Retry once
@@ -1751,6 +1838,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				break
 			}
 			usedTools = true
+			if state.companion && assistantText.Len() == stepTextStart && len(result.Message.ToolCalls) > 0 {
+				lead := companionToolLeadIn(result.Message.ToolCalls[0].Name)
+				assistantText.WriteString(lead)
+				if err := sendDeltaChunks(send, lead); err != nil {
+					return err
+				}
+			}
 			req.Messages = append(req.Messages, result.Message)
 			// Parallel subagents: same-turn subagent.spawn calls are
 			// pre-started (bounded) so independent research subagents
@@ -1776,6 +1870,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				drainParallelToolFutures(op, parallelFutures)
 			}()
+			desktopOpenedMusic := false
 			for _, call := range result.Message.ToolCalls {
 				if seen[call.ID] {
 					return errors.New("duplicate tool call id")
@@ -1951,13 +2046,27 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, nil)
 				}()
 				if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
-					if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
-						return prepareErr
+					if state.companion && mode == executionModeFullAccess {
+						if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
+							return prepareErr
+						}
+						var decideErr error
+						r, decideErr = e.tools.DecideScoped(op, sessionID, call.ID, digest, true, toolruntime.ApprovalScopeSession)
+						if decideErr != nil {
+							toolErr = decideErr
+						} else {
+							e.persistApprovedToolResult(op, sessionID, call.ID, digest, r)
+							toolErr = nil
+						}
+					} else {
+						if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
+							return prepareErr
+						}
+						if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: "approval required"}}); sendErr != nil {
+							return sendErr
+						}
+						return nil
 					}
-					if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: "approval required"}}); sendErr != nil {
-						return sendErr
-					}
-					return nil
 				}
 				summary := r.Output
 				if toolErr != nil {
@@ -1972,6 +2081,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					completedDigests[digest] = summary
 					if state.companion {
 						e.noteCompanionToolSuccess(sessionID, call.Name, call.Arguments, summary)
+					}
+					if call.Name == "desktop.open" {
+						ctx := e.loadCompanionContext(sessionID)
+						if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
+							desktopOpenedMusic = true
+						}
 					}
 				}
 				toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
@@ -1990,6 +2105,47 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
 			}
+			if desktopOpenedMusic && companionTurnWantsMusicPlay(turn.Goal) {
+				hasMediaPlay := false
+				for _, call := range result.Message.ToolCalls {
+					if call.Name == "media.play" {
+						hasMediaPlay = true
+						break
+					}
+				}
+				if !hasMediaPlay {
+					if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
+						callID := "auto-" + ulid.Make().String()
+						name := "media.play"
+						digest := toolruntime.Digest(name, playArgs)
+						if digest != "" {
+							if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(name, playArgs))}}); err != nil {
+								return err
+							}
+							r, toolErr := e.executeUserToolWithCompanion(op, mode, sessionID, name, playArgs, nil)
+							summary := r.Output
+							if toolErr != nil {
+								summary = toolErr.Error()
+								if !strings.HasPrefix(summary, "ok:false") {
+									summary = "ok:false\n" + summary
+								}
+								turn.ToolFailed = true
+							} else {
+								completedDigests[digest] = summary
+							}
+							summary = clipToolSummary(summary)
+							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: summary}}); err != nil {
+								return err
+							}
+							req.Messages = append(req.Messages,
+								gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: playArgs}}},
+								gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+							)
+							turn.LastTools = append(turn.LastTools, name)
+						}
+					}
+				}
+			}
 			for _, call := range result.Message.ToolCalls {
 				turn.LastTools = append(turn.LastTools, call.Name)
 			}
@@ -2004,7 +2160,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		if streamErr == nil {
 			notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
 			if turn.ToolFailed {
-				notice = ""
+				if failNotice := createTurnFailureNotice(turn.LastTools, assistantText.String()); failNotice != "" {
+					notice = failNotice
+				} else if notice == "" {
+					notice = "这次操作没成功，请再说具体一点让我重试。\n"
+				}
 			}
 			if notice == "" && assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
 				notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
@@ -2033,8 +2193,22 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	if err == nil {
 		finalizationClaimed = e.claimStreamFinalization(state)
 	}
+	if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
+		if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
+			assistantText.Reset()
+			assistantText.WriteString(next)
+			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+		}
+	}
 	if err == nil && finalizationClaimed && sessionID != "" && e.messages != nil {
 		text := assistantText.String()
+		if text == "" && turn.ToolFailed && len(turn.LastTools) > 0 {
+			if failNotice := createTurnFailureNotice(turn.LastTools, ""); failNotice != "" {
+				text = failNotice
+				assistantText.WriteString(failNotice)
+				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: failNotice}})
+			}
+		}
 		if text != "" {
 			usage := messageapp.AssistantUsage{
 				Provider:     string(p.Protocol),
@@ -2048,13 +2222,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				messageID = msg.ID
 				e.appendMessageArtifacts(sessionID, messageID, turnArtifacts)
 			}
-		}
-	}
-	if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
-		if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
-			assistantText.Reset()
-			assistantText.WriteString(next)
-			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 		}
 	}
 	terminal := bridge.Event{Type: e.selectTerminal(id, state, err)}
@@ -2106,6 +2273,44 @@ func createTurnClosingNotice(tools []string, assistantText string) string {
 		return ""
 	}
 	return "我已经做完了。\n"
+}
+
+func createTurnFailureNotice(tools []string, assistantText string) string {
+	if assistantTextContainsDone(assistantText) {
+		return ""
+	}
+	trimmed := strings.TrimSpace(assistantText)
+	if trimmed != "" && (strings.Contains(trimmed, "失败") || strings.Contains(trimmed, "没能") || strings.Contains(trimmed, "无法")) {
+		return ""
+	}
+	openedDesktop := false
+	triedMedia := false
+	usedVision := false
+	for _, name := range tools {
+		switch name {
+		case "desktop.open":
+			openedDesktop = true
+		case "media.play":
+			triedMedia = true
+		default:
+			if strings.HasPrefix(name, "cc.") {
+				usedVision = true
+			}
+		}
+	}
+	if openedDesktop && !triedMedia {
+		return "软件已经打开了，但还没开始播放。你可以再说「随便放一首」或歌名让我继续。\n"
+	}
+	if triedMedia {
+		return "这次没能开始播放。你可以再说「随便放一首」或具体歌名让我再试。\n"
+	}
+	if usedVision {
+		return "这次没能通过看屏幕完成操作。播放音乐请让我用 media.play，你可以再说「随便放一首」。\n"
+	}
+	if hasActingComputerTool(tools) {
+		return "这次操作没成功，请再说具体一点让我重试。\n"
+	}
+	return ""
 }
 
 func hasActingComputerTool(tools []string) bool {

@@ -136,6 +136,7 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 	var last error
 	maxAttempts := attempts(a.o, in, stream)
 	sanitized := false
+	strippedEnableThinking := false
 	strippedThinking := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		body, err := marshalBounded(p, a.o.MaxRequestBytes)
@@ -169,10 +170,15 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			// ...). On a 400 with tools attached, retry exactly once with
 			// sanitized schemas before giving up; the chat layer then
 			// falls back to plain dialogue with this reason surfaced.
-			if resp.StatusCode == http.StatusBadRequest && in.DisableReasoning && !strippedThinking && (p.Thinking != nil || p.EnableThinking != nil) {
+			if resp.StatusCode == http.StatusBadRequest && in.DisableReasoning && !strippedEnableThinking && p.EnableThinking != nil {
+				strippedEnableThinking = true
+				p.EnableThinking = nil
+				attempt--
+				continue
+			}
+			if resp.StatusCode == http.StatusBadRequest && in.DisableReasoning && !strippedThinking && p.Thinking != nil {
 				strippedThinking = true
 				p.Thinking = nil
-				p.EnableThinking = nil
 				attempt--
 				continue
 			}

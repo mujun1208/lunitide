@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+func TestCreateTurnFailureNotice(t *testing.T) {
+	if got := createTurnFailureNotice([]string{"desktop.open"}, ""); !strings.Contains(got, "还没开始播放") {
+		t.Fatalf("desktop-only failure = %q", got)
+	}
+	if got := createTurnFailureNotice([]string{"media.play"}, ""); !strings.Contains(got, "没能开始播放") {
+		t.Fatalf("media failure = %q", got)
+	}
+	if got := createTurnFailureNotice([]string{"cc.screen_capture"}, ""); !strings.Contains(got, "media.play") {
+		t.Fatalf("vision failure = %q", got)
+	}
+	if got := createTurnFailureNotice([]string{"desktop.open"}, "已完成播放。"); got != "" {
+		t.Fatalf("done text must not add failure notice: %q", got)
+	}
+}
+
 func TestCreateTurnClosingNotice(t *testing.T) {
 	if got := createTurnClosingNotice([]string{"workspace.write", "skill.create"}, ""); !strings.Contains(got, "技能中心") {
 		t.Fatalf("skill.create notice = %q", got)

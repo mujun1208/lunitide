@@ -16,7 +16,7 @@ func bundledWorkflowInjection() string {
 		"- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n" +
 		"- 桌面 HTML 小游戏：必须用 html.gen（template=penalty-shootout；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n" +
 		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个。禁止把桌面上其它无关文件一起打开。\n" +
-		"- 播放音乐/视频：若本会话已 desktop.open 音乐软件，续播用 media.play target=foreground；否则 media.play（action=play，query=歌名/歌手，target=netease|qqmusic|browser）。禁止只打开窗口或网页就结束。\n" +
+		"- 播放音乐/视频：若本会话已 desktop.open 音乐软件，续播用 media.play target=foreground（没说歌名时 query=热门）；否则 media.play（action=play，query=歌名/歌手，target=netease|qqmusic|browser）。禁止 cc.screen_capture 看屏点按，禁止只打开窗口或网页就结束。\n" +
 		"- 暂停/下一首：media.play action=pause|next|prev。\n" +
 		"使用规则：匹配上述场景时直接执行。用户已发布的技能见下方目录，用 skill.invoke。\n" +
 		"执行纪律：用户给出明确任务后，本轮连续调用工具直到完成或遇到真实阻塞（缺权限、缺无法推断的信息）。不要在勘查后停下等待确认，不要分段汇报后结束本轮。批量任务一次性做完再给最终结果。运行中若用户又发了新任务（帮我打开/开发/播放等），等本轮结束后再单独做，不要和当前任务绑在一起。上一轮已成功或失败即闭环。同一指令只执行一次，不要重复打开/创建/播放。一次性电脑操作（写文件、打开网页、播放歌曲）做完即停，不要循环重复同一动作。\n"

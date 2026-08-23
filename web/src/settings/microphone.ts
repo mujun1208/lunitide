@@ -10,6 +10,11 @@ export function saveMicrophoneId(deviceId:string):void{
 
 export function microphoneConstraints():MediaStreamConstraints{
  const deviceId=selectedMicrophoneId()
- const audio:MediaTrackConstraints={echoCancellation:true,noiseSuppression:true,autoGainControl:true,...(deviceId?{deviceId:{exact:deviceId}}:{})}
+  const audio: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
+  }
  return{audio}
 }

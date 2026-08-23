@@ -6,12 +6,35 @@
 // sentences) and at most 20 segments per reply.
 export const MAX_SEGMENT_CHARS = 500
 export const MAX_SEGMENTS = 20
-/** First audible chunk: speak almost immediately (2 chars) so voice tracks the stream. */
+/** First audible chunk: speak once ~2 chars land or a sentence ends. */
 export const FIRST_SPEAK_CHARS = 2
 /** Later chunks prefer a full sentence before speaking. */
-export const FOLLOW_SPEAK_CHARS = 22
-/** First comma clause must be long enough to sound like a breath, not a stutter. */
-export const FIRST_COMMA_MIN_CHARS = 10
+export const FOLLOW_SPEAK_CHARS = 8
+/** First comma clause must be long enough to sound natural, not a stutter. */
+export const FIRST_COMMA_MIN_CHARS = 3
+/**
+ * First-token watchdog. sendAndChat marks the turn `streaming` before
+ * chat.start returns, so 5–6s used to cancel a live DeepSeek V4 request
+ * during TTFT. Voice turns wait for a real answer token, not a connecting
+ * spinner.
+ */
+export const COMPANION_FIRST_TOKEN_STREAMING_MS = 12_000
+export const COMPANION_FIRST_TOKEN_CONNECTING_MS = 6_000
+export const COMPANION_AFTER_TOKEN_MS = 45_000
+
+export function companionInstantAck(userText: string): string {
+  const text = userText.trim()
+  if (!text) return '嗯，我在。'
+  if (/^(你好|您好|嗨|嘿|在吗|在不在)/.test(text)) return '嗨，我在呢。'
+  if (/[？?]$/.test(text)) return '嗯，'
+  if (/[。！!…]$/.test(text) && text.length >= 4) return '嗯，我听到了。'
+  return '嗯，'
+}
+
+export function companionReplyStallMs(chatStreaming: boolean, hasAssistantText: boolean): number {
+  if (hasAssistantText) return COMPANION_AFTER_TOKEN_MS
+  return chatStreaming ? COMPANION_FIRST_TOKEN_STREAMING_MS : COMPANION_FIRST_TOKEN_CONNECTING_MS
+}
 
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
@@ -114,7 +137,8 @@ const INCOMPLETE_TAIL =
   /(?:儿|的|了|在|把|给|和|与|或|到|从|往|向|帮|请|要|想|能|会|这|那|哪|啥|吗|呢|吧|啊|呀|哦|嗯|一个|一下|什么|怎么|哪里|哪儿|桌面|文件|文件夹|打开|列出|找|搜索|软件|音乐|汽水)$/u
 
 const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
-  [/越席|月西|悦溪|跃溪|月息/g, '月汐'],
+  [/岳西|越席|月西|悦溪|跃溪|月息|悦西|悦希|月希|月夕|月惜|越汐/g, '月汐'],
+  [/你好岳西|你好月西|你好悦溪|你好月夕/g, '你好月汐'],
   [/店面文件|店面的/g, '桌面文件'],
   [/打开店面/g, '打开桌面'],
   [/气水音乐|起水音乐|七水音乐|汽水音月/g, '汽水音乐'],
@@ -122,13 +146,19 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/帮我打开一个/g, '帮我打开'],
 ]
 
+/** Whole greetings / acknowledgements — commit quickly even without punctuation. */
+const COMPLETE_SHORT_UTTERANCE =
+  /^(?:你好(?:月汐|啊|呀)?|嗨|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好)$/
+
 /** True when the recognizer likely stopped mid-thought — wait longer before commit. */
 export function looksIncompleteUtterance(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
   if (/[。？！?!…]$/.test(trimmed)) return false
+  if (COMPLETE_SHORT_UTTERANCE.test(trimmed)) return false
   if (INCOMPLETE_TAIL.test(trimmed)) return true
-  return Array.from(trimmed).length <= 5
+  // Only treat very short oral fillers as incomplete — not 3–5 char greetings.
+  return Array.from(trimmed).length <= 2
 }
 
 export function cleanUserTranscript(raw: string): string {
@@ -152,10 +182,12 @@ export function cleanUserTranscript(raw: string): string {
 export function looksLikePlaybackEcho(heard: string, spoken: string): boolean {
   const a = compactSpeech(heard)
   const b = compactSpeech(spoken)
-  if (a.length < 4 || b.length < 4) return false
-  if (b.includes(a) || a.includes(b)) return true
+  if (!a || !b) return false
+  // Laptop speaker bleed often comes back as a short fragment of the last line.
+  if (a.length >= 2 && b.includes(a)) return true
+  if (b.length >= 4 && a.includes(b)) return true
   const window = Math.min(6, a.length)
-  if (window < 6) return false
+  if (window < 4) return false
   for (let i = 0; i <= a.length - window; i++) {
     if (b.includes(a.slice(i, i + window))) return true
   }
@@ -167,9 +199,8 @@ export function looksLikePlaybackEcho(heard: string, spoken: string): boolean {
  * Offsets are in the raw `pending` string (same indexing as assistantText)
  * so the caller can advance spokenUpTo without cleaning first.
  *
- * Real-time voice: prefer a complete sentence; on the first chunk speak
- * as soon as two characters land; later chunks wait for punctuation or
- * a slightly longer prefix so playback stays natural.
+ * Real-time voice: prefer a complete sentence; on the first chunk start
+ * speaking as soon as ~4 chars land or a breath (comma) is long enough.
  */
 export function takeSpeakableChunk(pending: string, isFirst: boolean, force = false): { text: string; consumed: number } | null {
   if (!pending.trim()) return null
@@ -188,7 +219,7 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean, force = fa
   if (isFirst && clause && Array.from(clause[1]).length >= FIRST_COMMA_MIN_CHARS) {
     return { text: clause[1], consumed: clause[1].length }
   }
-  if (!isFirst && !force && !/[。？！!?\n]/.test(pending)) return null
+  if (!isFirst && !force && !/[。？！!?\n]/.test(pending) && Array.from(pending).length < FOLLOW_SPEAK_CHARS) return null
   if (Array.from(pending).length < forceAt && !force) return null
   if (force) {
     return { text: pending, consumed: pending.length }

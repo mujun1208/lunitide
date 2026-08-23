@@ -626,6 +626,8 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .setting-desc{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5}
 .setting-select{border:1px solid var(--line);border-radius:8px;background:var(--bg2);
   color:var(--ink);padding:8px 10px;font-size:12px;min-width:120px}
+.setting-hotkey{justify-self:end;min-width:140px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);font:inherit;cursor:pointer}
+.setting-hotkey.capturing{border-color:var(--glow);box-shadow:0 0 0 2px rgba(127,180,255,.22)}
 .toggle{justify-self:end;width:38px;height:22px;border-radius:999px;
   background:#263246;border:1px solid var(--line);padding:2px;display:flex;
   cursor:pointer;transition:.2s;border:none}
@@ -1198,13 +1200,14 @@ html.companion-active .drawer-toggle{display:none}
 .reduce-motion .companion-moon.state-thinking .companion-moon-halo{opacity:.5}
 .reduce-motion .companion-stage .companion-stars i{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
-/* 当前一轮对话的字幕条：宽度随内容收缩，高度封顶后内部滚动，完整显示长句 */
-.companion-subtitles{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(720px,86vw);max-height:190px;padding:4px 16px;border:1px solid rgba(143,170,216,.16);border-radius:999px;background:rgba(6,11,20,.55);backdrop-filter:blur(6px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;transition:opacity .8s ease,transform .8s ease}
+/* 当前一轮对话的字幕条：圆角卡片，完整显示正在说的话 */
+.companion-subtitles{position:absolute;bottom:132px;left:50%;transform:translateX(-50%);width:min(720px,86vw);max-height:220px;padding:10px 18px;border:1px solid rgba(143,170,216,.22);border-radius:18px;background:rgba(6,11,20,.72);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;z-index:4;transition:opacity .8s ease,transform .8s ease}
 /* 回合结束后的退场：字幕条整体淡出下滑，舞台回到纯月面 */
 .companion-subtitles.retiring{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
 .companion-subtitles:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
 .companion-subtitle-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(143,170,216,.4) transparent;padding:2px 6px 2px 0}
 .companion-subtitle-hint{margin:1px 0;color:var(--muted);font-size:11.5px;text-align:center;white-space:nowrap}
+.companion-subtitle-hint.warn{color:#a8dcff;white-space:normal}
 .companion-line{margin:2px 0;font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
 /* 流式字幕：新字符像风吹沙一样淡淡飘入（虚化→清晰、轻位移→归位） */
 .stream-chars .sand{display:inline;opacity:0;animation:companionSandIn .08s ease-out forwards}
@@ -1229,10 +1232,13 @@ html.companion-active .drawer-toggle{display:none}
 .companion-mic.state-listening{border-color:var(--tide1)!important;background:rgba(63,214,255,.14)!important;color:var(--tide1);box-shadow:0 0 0 4px rgba(63,214,255,.16),0 0 24px rgba(63,214,255,.3);animation:companionMicPulse 1.4s ease-in-out infinite}
 @keyframes companionMicPulse{0%,100%{box-shadow:0 0 0 3px rgba(63,214,255,.14),0 0 18px rgba(63,214,255,.24)}50%{box-shadow:0 0 0 6px rgba(63,214,255,.2),0 0 30px rgba(63,214,255,.4)}}
 .companion-mic.state-thinking{opacity:.55}
-.companion-tts-toggle,.companion-type-toggle,.companion-exit{padding:9px 14px!important;border-radius:999px!important;background:rgba(14,24,40,.9)!important;color:var(--ink)!important;font-size:12.5px}
-/* 退出按钮固定在左上角：脱离流式布局，永远不被字幕条/月亮遮挡，Esc 同效 */
-.companion-exit{position:absolute;top:22px;left:26px;z-index:5;border:1px solid rgba(143,170,216,.35)!important}
-.companion-exit:hover{border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
+.companion-tts-toggle,.companion-type-toggle,.companion-exit,.companion-interrupt{padding:9px 14px!important;border-radius:999px!important;background:rgba(14,24,40,.9)!important;color:var(--ink)!important;font-size:12.5px}
+/* 退出 + 打断固定在左上角：脱离流式布局，永远不被字幕条/月亮遮挡 */
+.companion-chrome{position:absolute;top:22px;left:26px;z-index:5;display:flex;gap:8px;align-items:center}
+.companion-exit,.companion-interrupt{position:static;border:1px solid rgba(143,170,216,.35)!important}
+.companion-exit:hover,.companion-interrupt:hover:not(:disabled){border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
+.companion-interrupt:disabled{opacity:.4;cursor:default}
+.companion-interrupt-key{margin-left:6px;opacity:.72;font-size:11px}
 .companion-tts-toggle:disabled{opacity:.45}
 .reduce-motion .companion-mic.state-listening{animation:none}
 .companion-entry{width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:16px!important;color:var(--moon)!important;text-shadow:0 0 10px rgba(127,180,255,.55)}
@@ -1249,10 +1255,14 @@ html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,htm
 .skill-add-option small{color:var(--muted);font-size:11px;line-height:1.5}
 .skill-center-notice{padding:8px 12px;margin-bottom:12px;border:1px solid rgba(63,214,255,.3);border-radius:8px;background:rgba(63,214,255,.08);color:var(--tide1);font-size:12px}
 /* 月伴模式：实时转写文字（灰色 + 闪烁光标，表示"正在听"） */
-.companion-line.interim{color:var(--muted);font-style:italic}
-.companion-line.interim .who{background:rgba(143,170,216,.16);color:var(--muted)}
-.interim-text{opacity:.72}
+.companion-line.interim{color:#d7ecff;font-style:normal}
+.companion-line.interim .who{background:rgba(63,214,255,.2);color:var(--tide1)}
+.interim-text{opacity:1}
 .interim-cursor{display:inline-block;margin-left:1px;color:var(--tide1);animation:interimBlink .8s step-end infinite}
+.companion-line.interim.listening{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.companion-mic-live{display:inline-flex;align-items:center;gap:2px;height:18px;padding:0 2px}
+.companion-mic-live i{display:block;width:3px;height:calc(4px + var(--speech-level,0.06) * 14px);border-radius:99px;background:linear-gradient(180deg,#70a7ff,#3fd6ff);transition:height 70ms linear}
+.interim-listening{color:#a8dcff;font-size:13px;letter-spacing:.02em}
 @keyframes interimBlink{50%{opacity:0}}
 @media(max-width:480px){.skill-add-options{grid-template-columns:1fr}}
 @media(max-width:900px){.skill-center-layout{grid-template-columns:1fr;grid-template-rows:minmax(200px,1fr) minmax(240px,1fr);gap:12px}.skill-center-layout>.split-resizer{display:none}.skill-detail{min-height:240px}.skill-center-toolbar{flex-wrap:wrap}.skill-search{margin-left:0}}@media(max-width:680px){.skill-center,.expert-center-page{padding:66px 14px 20px}.skill-center-header{align-items:flex-start;flex-direction:column}.skill-status-tabs{max-width:100%;overflow-x:auto}.skill-table-inner{min-width:560px}}

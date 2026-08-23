@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
+	github.com/gorilla/websocket v1.5.3
 	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/xuri/excelize/v2 v2.11.0

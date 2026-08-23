@@ -106,13 +106,39 @@ func (e *Engine) noteCompanionToolSuccess(sessionID, toolName string, args json.
 	}
 }
 
+func companionTurnWantsMusicPlay(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, needle := range []string{
+		"播放", "播一首", "播歌", "放一首", "来一首", "随便", "任意", "随机", "听歌", "一首",
+		"play", "song", "music",
+	} {
+		if strings.Contains(t, needle) || strings.Contains(strings.ToLower(t), strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func companionDefaultMusicQuery(text string) string {
+	t := strings.TrimSpace(text)
+	for _, needle := range []string{"随便", "任意", "随机", "一首", "来点", "放首", "播首"} {
+		if strings.Contains(t, needle) {
+			return "热门"
+		}
+	}
+	return "热门"
+}
+
 func companionPlayFollowUp(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return false
 	}
 	for _, needle := range []string{
-		"播放", "播一首", "播歌", "放一首", "来一首", "听", "暂停", "下一首", "上一首", "切歌",
+		"播放", "播一首", "播歌", "放一首", "来一首", "随便", "任意", "随机", "暂停", "下一首", "上一首", "切歌",
 		"play", "pause", "next", "skip",
 	} {
 		if strings.Contains(t, needle) {
@@ -120,6 +146,31 @@ func companionPlayFollowUp(text string) bool {
 		}
 	}
 	return false
+}
+
+func companionMusicQueryFollowUp(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	if companionPlayFollowUp(t) {
+		return true
+	}
+	runes := []rune(t)
+	if len(runes) < 2 || len(runes) > 24 {
+		return false
+	}
+	for _, idle := range []string{
+		"你好", "在吗", "谢谢", "再见", "嗯嗯", "好的", "是啊", "不是", "为什么", "怎么", "什么", "今天", "天气",
+	} {
+		if strings.Contains(t, idle) {
+			return false
+		}
+	}
+	if strings.ContainsAny(t, "？?！!。，,；;：:") {
+		return false
+	}
+	return true
 }
 
 func (e *Engine) companionWantsToolsForTurn(sessionID, text string) bool {
@@ -132,6 +183,9 @@ func (e *Engine) companionWantsToolsForTurn(sessionID, text string) bool {
 	ctx := e.loadCompanionContext(sessionID)
 	if ctx.ActiveAppName == "" {
 		return false
+	}
+	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
+		return companionMusicQueryFollowUp(text)
 	}
 	return companionPlayFollowUp(text)
 }
@@ -155,7 +209,7 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	}
 	b.WriteString("。")
 	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
-		b.WriteString("这是音乐类软件：用户只说「播放/播歌/来一首/歌手或歌名」时，必须用 media.play（target=foreground，query=歌名或歌手），在该已打开软件里搜索并播放；禁止改用 browser、netease、qqmusic 或网页搜索。")
+		b.WriteString("这是音乐类软件：用户只说「播放/播歌/来一首/随便放一首/歌手或歌名」时，必须用 media.play（target=foreground，query=歌名或歌手；没说具体歌时用 query=热门），在该已打开软件里搜索并播放；禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
 	} else {
 		b.WriteString("用户后续要在该软件里继续操作时，优先在该前台窗口内完成，不要另开网页或无关程序。")
 	}
@@ -196,14 +250,18 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 	ctx := e.loadCompanionContext(sessionID)
 	useForeground := target == "foreground" || target == "app" || target == "desktop"
 	if !useForeground && (target == "" || target == "auto") {
-		if ctx.ActiveAppName != "" && strings.TrimSpace(a.Query) != "" {
+		if ctx.ActiveAppName != "" {
 			if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
 				useForeground = true
 			}
 		}
 	}
-	if !useForeground || strings.TrimSpace(a.Query) == "" {
+	if !useForeground {
 		return args
+	}
+	query := strings.TrimSpace(a.Query)
+	if query == "" {
+		query = "热门"
 	}
 	app := strings.TrimSpace(a.App)
 	if app == "" {
@@ -211,7 +269,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 	}
 	out, err := json.Marshal(map[string]string{
 		"action": action,
-		"query":  strings.TrimSpace(a.Query),
+		"query":  query,
 		"target": "foreground",
 		"app":    app,
 	})
@@ -219,6 +277,26 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 		return args
 	}
 	return out
+}
+
+func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMessage, bool) {
+	if !companionTurnWantsMusicPlay(goal) {
+		return nil, false
+	}
+	ctx := e.loadCompanionContext(sessionID)
+	if ctx.ActiveAppName == "" || (ctx.Kind != "music_app" && !looksLikeMusicAppName(ctx.ActiveAppName)) {
+		return nil, false
+	}
+	raw, err := json.Marshal(map[string]string{
+		"action": "play",
+		"query":  companionDefaultMusicQuery(goal),
+		"target": "foreground",
+		"app":    ctx.ActiveAppName,
+	})
+	if err != nil {
+		return nil, false
+	}
+	return e.resolveMediaPlayArgs(sessionID, raw), true
 }
 
 func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {

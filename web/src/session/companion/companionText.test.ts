@@ -4,7 +4,23 @@
 // with the 500-char comma re-split and the 20-segment truncation
 // notice.
 import { describe, expect, test } from 'vitest'
-import { MAX_SEGMENT_CHARS, MAX_SEGMENTS, cleanForSpeech, cleanUserTranscript, looksLikePlaybackEcho, looksIncompleteUtterance, mergeShortSegments, prepareSpeech, segmentForSpeech, takeSpeakableChunk } from './companionText'
+import {
+  COMPANION_AFTER_TOKEN_MS,
+  COMPANION_FIRST_TOKEN_CONNECTING_MS,
+  COMPANION_FIRST_TOKEN_STREAMING_MS,
+  MAX_SEGMENT_CHARS,
+  MAX_SEGMENTS,
+  cleanForSpeech,
+  cleanUserTranscript,
+  companionInstantAck,
+  companionReplyStallMs,
+  looksLikePlaybackEcho,
+  looksIncompleteUtterance,
+  mergeShortSegments,
+  prepareSpeech,
+  segmentForSpeech,
+  takeSpeakableChunk,
+} from './companionText'
 
 describe('cleanForSpeech', () => {
   test('replaces code fences and inline code with the spoken notice', () => {
@@ -67,17 +83,42 @@ describe('prepareSpeech', () => {
 
 describe('takeSpeakableChunk', () => {
   test('starts the first utterance once enough unpunctuated text has arrived', () => {
+    expect(takeSpeakableChunk('你', true)).toBeNull()
     expect(takeSpeakableChunk('你好', true)).toEqual({
+      text: '你好',
+      consumed: '你好'.length,
+    })
+    expect(takeSpeakableChunk('你好月汐', true)).toEqual({
       text: '你好',
       consumed: 2,
     })
+    expect(takeSpeakableChunk('月汐', true)).toEqual({
+      text: '月汐',
+      consumed: 2,
+    })
+    const sentence = '你好，我是月汐，你的私人助理。'
+    expect(takeSpeakableChunk(sentence, true)).toEqual({
+      text: sentence,
+      consumed: sentence.length,
+    })
   })
 
-  test('waits for a full comma clause on the first chunk when it is still short', () => {
-    expect(takeSpeakableChunk('今晚是满月，', true)).toBeNull()
+  test('speaks a short first comma clause once it is long enough', () => {
+    expect(takeSpeakableChunk('你，', true)).toBeNull()
+    expect(takeSpeakableChunk('今晚，', true)).toEqual({
+      text: '今晚，',
+      consumed: '今晚，'.length,
+    })
     expect(takeSpeakableChunk('今晚是满月，适合抬头看看。', true)).toEqual({
       text: '今晚是满月，适合抬头看看。',
       consumed: '今晚是满月，适合抬头看看。'.length,
+    })
+  })
+
+  test('speaks a long first comma clause without waiting for the rest', () => {
+    expect(takeSpeakableChunk('今晚月色真的很好，', true)).toEqual({
+      text: '今晚月色真的很好，',
+      consumed: '今晚月色真的很好，'.length,
     })
   })
 
@@ -102,6 +143,8 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('帮我在桌面儿')).toBe(true)
     expect(looksIncompleteUtterance('帮我打开桌面。')).toBe(false)
     expect(looksIncompleteUtterance('好的')).toBe(true)
+    expect(looksIncompleteUtterance('你好月汐')).toBe(false)
+    expect(looksIncompleteUtterance('你好')).toBe(false)
   })
 })
 
@@ -121,6 +164,9 @@ describe('cleanUserTranscript', () => {
   test('corrects common speech-recognition homophones', () => {
     expect(cleanUserTranscript('帮我打开店面文件')).toBe('帮我打开桌面文件')
     expect(cleanUserTranscript('打开气水音乐')).toBe('打开汽水音乐')
+    expect(cleanUserTranscript('你好岳西')).toBe('你好月汐')
+    expect(cleanUserTranscript('岳西，岳西')).toBe('月汐，月汐')
+    expect(cleanUserTranscript('你好月夕')).toBe('你好月汐')
   })
 })
 
@@ -128,10 +174,30 @@ describe('looksLikePlaybackEcho', () => {
   test('treats a recognizer copy of the spoken reply as echo', () => {
     expect(looksLikePlaybackEcho('今晚是满月，适合抬头。', '今晚是满月，适合抬头。')).toBe(true)
     expect(looksLikePlaybackEcho('今晚是满月适合抬头', '今晚是满月，适合抬头。')).toBe(true)
+    expect(looksLikePlaybackEcho('嗨我在呢', '嗨，我在呢。')).toBe(true)
+    expect(looksLikePlaybackEcho('我在呢', '嗨，我在呢。')).toBe(true)
   })
 
   test('does not treat a new question as echo of the previous reply', () => {
     expect(looksLikePlaybackEcho('帮我打开桌面协议', '今晚是满月，适合抬头。')).toBe(false)
     expect(looksLikePlaybackEcho('嗯', '今晚是满月，适合抬头。')).toBe(false)
+  })
+})
+
+describe('companionInstantAck', () => {
+  test('returns a short spoken line for common voice turns', () => {
+    expect(companionInstantAck('你好月汐')).toBe('嗨，我在呢。')
+    expect(companionInstantAck('今晚月色如何？')).toBe('嗯，')
+    expect(companionInstantAck('一场大雨淋湿了眼睛。')).toBe('嗯，我听到了。')
+    expect(companionInstantAck('嗯')).toBe('嗯，')
+  })
+})
+
+describe('companionReplyStallMs', () => {
+  test('gives a live stream time for DeepSeek V4 first token', () => {
+    expect(companionReplyStallMs(true, false)).toBe(COMPANION_FIRST_TOKEN_STREAMING_MS)
+    expect(companionReplyStallMs(false, false)).toBe(COMPANION_FIRST_TOKEN_CONNECTING_MS)
+    expect(companionReplyStallMs(true, true)).toBe(COMPANION_AFTER_TOKEN_MS)
+    expect(COMPANION_FIRST_TOKEN_STREAMING_MS).toBeGreaterThanOrEqual(8_000)
   })
 })
