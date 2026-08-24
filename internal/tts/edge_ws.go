@@ -26,6 +26,12 @@ const (
 	edgeAudioDelim   = "Path:audio\r\n"
 	edgeOutputFmt    = "audio-24khz-48kbitrate-mono-mp3"
 	edgeMaxFrame     = 4 << 20
+	// A parked socket is reused only while Microsoft is still likely to
+	// hold it open; past that a fresh dial is cheaper than a timeout.
+	edgeConnMaxIdle = 20 * time.Second
+	edgeConnMaxAge  = 200 * time.Second
+	// How long a reused socket may stay silent before we give up on it.
+	edgeWarmFirstFrameTimeout = 6 * time.Second
 )
 
 func edgeTimestamp(now time.Time) string {
@@ -85,26 +91,98 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 	return SynthesizeResult{}, false, lastErr
 }
 
+// edgeConn is a synthesis socket kept warm between turns.
+type edgeConn struct {
+	conn       *websocket.Conn
+	host       string
+	path       string
+	createdAt  time.Time
+	usedAt     time.Time
+	configured bool
+}
+
+// takeWarmConn removes the pooled connection and returns it when it still
+// matches the target and is young enough to trust. Caller holds connMu.
+func (e *edgeEngine) takeWarmConn(host, path string) *edgeConn {
+	c := e.conn
+	if c == nil {
+		return nil
+	}
+	e.conn = nil
+	now := time.Now()
+	if c.host != host || c.path != path ||
+		now.Sub(c.usedAt) > edgeConnMaxIdle || now.Sub(c.createdAt) > edgeConnMaxAge {
+		c.conn.Close()
+		return nil
+	}
+	return c
+}
+
+// keepConn parks a healthy connection for the next turn. Caller holds connMu.
+func (e *edgeEngine) keepConn(c *edgeConn) {
+	c.usedAt = time.Now()
+	if e.conn != nil && e.conn != c {
+		e.conn.conn.Close()
+	}
+	e.conn = c
+}
+
 func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in SynthesizeInput, gec string) (SynthesizeResult, bool, error) {
+	e.connMu.Lock()
+	defer e.connMu.Unlock()
+
+	// A parked socket that died quietly would otherwise block the read
+	// until the 25s request deadline, so its first frame gets a short
+	// leash and a failure just falls through to a fresh dial below.
+	if warm := e.takeWarmConn(host, path); warm != nil {
+		res, fb, err := edgeSynthesizeTurn(ctx, warm, in, edgeWarmFirstFrameTimeout)
+		if err == nil {
+			e.keepConn(warm)
+			return res, fb, nil
+		}
+		warm.conn.Close()
+	}
+
 	conn, err := dialEdgeWS(ctx, host, path, gec)
 	if err != nil {
 		return SynthesizeResult{}, false, err
 	}
-	defer conn.Close()
+	fresh := &edgeConn{conn: conn, host: host, path: path, createdAt: time.Now()}
+	res, fb, err := edgeSynthesizeTurn(ctx, fresh, in, 0)
+	if err != nil {
+		conn.Close()
+		return SynthesizeResult{}, false, err
+	}
+	e.keepConn(fresh)
+	return res, fb, nil
+}
 
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = conn.SetReadDeadline(deadline)
+// edgeSynthesizeTurn runs one request/response turn on an open socket.
+// firstFrameTimeout caps the wait for the first reply (0 = request deadline).
+func edgeSynthesizeTurn(ctx context.Context, c *edgeConn, in SynthesizeInput, firstFrameTimeout time.Duration) (SynthesizeResult, bool, error) {
+	conn := c.conn
+	deadline, hasDeadline := ctx.Deadline()
+	if hasDeadline {
 		_ = conn.SetWriteDeadline(deadline)
+		_ = conn.SetReadDeadline(deadline)
+	}
+	if firstFrameTimeout > 0 {
+		first := time.Now().Add(firstFrameTimeout)
+		if !hasDeadline || first.Before(deadline) {
+			_ = conn.SetReadDeadline(first)
+		}
 	}
 
 	ts := edgeTimestamp(time.Now())
-	config := "X-Timestamp:" + ts + "\r\n" +
-		"Content-Type:application/json; charset=utf-8\r\n" +
-		"Path:speech.config\r\n\r\n" +
-		`{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"` + edgeOutputFmt + `"}}}}` + "\r\n"
-	if err := conn.WriteMessage(websocket.TextMessage, []byte(config)); err != nil {
-		return SynthesizeResult{}, false, fmt.Errorf("%w: %v", ErrSynthesisFailed, err)
+	if !c.configured {
+		config := "X-Timestamp:" + ts + "\r\n" +
+			"Content-Type:application/json; charset=utf-8\r\n" +
+			"Path:speech.config\r\n\r\n" +
+			`{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"` + edgeOutputFmt + `"}}}}` + "\r\n"
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(config)); err != nil {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: %v", ErrSynthesisFailed, err)
+		}
+		c.configured = true
 	}
 
 	requestID := edgeRequestID()
@@ -117,10 +195,17 @@ func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in
 	}
 
 	var audio []byte
+	pending := true
 	for {
 		mt, payload, err := conn.ReadMessage()
 		if err != nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: %v", ErrSynthesisFailed, err)
+		}
+		if pending {
+			pending = false
+			if hasDeadline {
+				_ = conn.SetReadDeadline(deadline)
+			}
 		}
 		switch mt {
 		case websocket.CloseMessage:

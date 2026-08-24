@@ -3,16 +3,23 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatBridge, MessageBridge, ProjectBridge, ProviderBridge, SessionBridge } from './bridge/client'
 import type { ProjectDTO } from './generated/bridge'
+import type { CompanionSpeechHandle } from './session/companion/speech'
 import { App, PERSONAL_CHAT_PROJECT } from './App'
 
 const speech = vi.hoisted(() => ({
   start: vi.fn(),
   callbacks: undefined as { onFinal: (transcript: string) => void } | undefined,
-  handle: () => ({
+  // Typed against the real handle so adding a method to
+  // CompanionSpeechHandle fails typecheck here instead of throwing
+  // "not a function" deep inside a React effect at runtime.
+  handle: (): CompanionSpeechHandle => ({
     stop: vi.fn(),
     setAssistantPlayback: vi.fn(),
     setCommitPaused: vi.fn(),
     setBargeInActive: vi.fn(),
+    pulseRecognition: vi.fn(),
+    forceCommit: vi.fn(),
+    resumeCapture: vi.fn(),
   }),
 }))
 
@@ -39,6 +46,7 @@ vi.mock('./session/companion/ensureCompanionCapabilities', () => ({
 vi.mock('./session/companion/speech', () => ({
   ECHO_GUARD_MS: 700,
   INTERRUPT_ECHO_MS: 160,
+  shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (options: { onFinal: (transcript: string) => void }) => {
     speech.callbacks = options
     return speech.start(options)

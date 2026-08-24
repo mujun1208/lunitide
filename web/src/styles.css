@@ -1201,7 +1201,7 @@ html.companion-active .drawer-toggle{display:none}
 .reduce-motion .companion-stage .companion-stars i{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
 /* 当前一轮对话的字幕条：圆角卡片，完整显示正在说的话 */
-.companion-subtitles{position:absolute;bottom:132px;left:50%;transform:translateX(-50%);width:min(720px,86vw);max-height:220px;padding:10px 18px;border:1px solid rgba(143,170,216,.22);border-radius:18px;background:rgba(6,11,20,.72);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;z-index:4;transition:opacity .8s ease,transform .8s ease}
+.companion-subtitles{position:absolute;bottom:132px;left:50%;transform:translateX(-50%);width:min(720px,86vw);max-height:min(42vh,320px);padding:10px 18px;border:1px solid rgba(143,170,216,.22);border-radius:18px;background:rgba(6,11,20,.72);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;z-index:4;transition:opacity .8s ease,transform .8s ease}
 /* 回合结束后的退场：字幕条整体淡出下滑，舞台回到纯月面 */
 .companion-subtitles.retiring{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
 .companion-subtitles:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
@@ -1261,7 +1261,7 @@ html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,htm
 .interim-cursor{display:inline-block;margin-left:1px;color:var(--tide1);animation:interimBlink .8s step-end infinite}
 .companion-line.interim.listening{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .companion-mic-live{display:inline-flex;align-items:center;gap:2px;height:18px;padding:0 2px}
-.companion-mic-live i{display:block;width:3px;height:calc(4px + var(--speech-level,0.06) * 14px);border-radius:99px;background:linear-gradient(180deg,#70a7ff,#3fd6ff);transition:height 70ms linear}
+.companion-mic-live i{display:block;width:3px;height:calc(5px + var(--speech-level,0.06) * 22px);border-radius:99px;background:linear-gradient(180deg,#70a7ff,#3fd6ff);transition:height 70ms linear}
 .interim-listening{color:#a8dcff;font-size:13px;letter-spacing:.02em}
 @keyframes interimBlink{50%{opacity:0}}
 @media(max-width:480px){.skill-add-options{grid-template-columns:1fr}}
@@ -1655,3 +1655,10 @@ html[data-theme="light"] .asset-btn-secondary:hover{background:rgba(0,138,197,.0
 .session-folder-panel,.local-explorer{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
 .session-folder-panel header,.local-explorer header{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .primary-actions button.active{background:rgba(74,125,204,.18);border-color:rgba(74,125,204,.45)}
+
+/* Root crash fallback: keeps the window usable when a render throws. */
+.root-error{max-width:640px;margin:14vh auto;padding:2rem;display:flex;flex-direction:column;gap:.9rem;background:var(--bg2);border:1px solid var(--line);border-radius:14px}
+.root-error h1{margin:0;font-size:1.15rem;color:var(--ink)}
+.root-error p{margin:0;color:var(--muted)}
+.root-error pre{margin:0;padding:.75rem;background:var(--bg3);border:1px solid var(--rule);border-radius:10px;color:var(--err);font-family:var(--mono);font-size:.82rem;white-space:pre-wrap;word-break:break-word;max-height:9rem;overflow:auto}
+.root-error button{align-self:flex-start}

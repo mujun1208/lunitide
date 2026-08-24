@@ -1,17 +1,16 @@
 // companionText.ts implements the M9.5 speech cleaning and segmentation
 // rules (T-9.5.3.1): markdown symbols stripped, code blocks replaced
 // with 「代码已省略」, URLs reduced to their domain, emoji removed
-// (SAPI does not read them), then split on 。？！and newlines with a
-// hard 500-char cap per segment (comma re-split for over-long
-// sentences) and at most 20 segments per reply.
-export const MAX_SEGMENT_CHARS = 500
+// (SAPI does not read them). Conversational replies stay one clip so
+// TTS does not pause at every period. Only replies over 1200 chars
+// split, with a comma re-split for over-long sentences, at most 20
+// segments per reply.
+export const MAX_SEGMENT_CHARS = 1200
 export const MAX_SEGMENTS = 20
-/** First audible chunk: speak once ~2 chars land or a sentence ends. */
-export const FIRST_SPEAK_CHARS = 2
-/** Later chunks prefer a full sentence before speaking. */
-export const FOLLOW_SPEAK_CHARS = 8
-/** First comma clause must be long enough to sound natural, not a stutter. */
-export const FIRST_COMMA_MIN_CHARS = 3
+/** First unpunctuated flush: only used when the stream stalls, never to slice commas. */
+export const FIRST_SPEAK_CHARS = 4
+/** Later stalled tails may flush a bit later so a sentence can still land. */
+export const FOLLOW_SPEAK_CHARS = 4
 /**
  * First-token watchdog. sendAndChat marks the turn `streaming` before
  * chat.start returns, so 5–6s used to cancel a live DeepSeek V4 request
@@ -65,8 +64,13 @@ export function cleanForSpeech(raw: string): string {
 }
 
 export function segmentForSpeech(cleaned: string): string[] {
+  const text = cleaned.trim()
+  if (!text) return []
+  const compact = text.replace(/\n+/g, '')
+  if (Array.from(compact).length <= MAX_SEGMENT_CHARS) return [compact]
+
   const segments: string[] = []
-  const sentences = cleaned
+  const sentences = text
     .split(/(?<=[。？！\n])/)
     .map(part => part.trim())
     .filter(part => part.length > 0)
@@ -133,8 +137,29 @@ const MID_FILLERS = /([，,。！？；;])\s*(?:嗯+|啊+|呃+)(?=\s|[，,。！
 const TRAILING_FILLERS = /[，,、\s]+(?:嗯+|啊+|呃+)\s*$/u
 
 /** Shannon-style local cleanup: drop oral fillers while keeping the user's meaning. */
+/**
+ * Words that still need their object: 「合肥的」「帮我打开」 really are
+ * mid-sentence, so endpointing waits for the rest.
+ */
 const INCOMPLETE_TAIL =
-  /(?:儿|的|了|在|把|给|和|与|或|到|从|往|向|帮|请|要|想|能|会|这|那|哪|啥|吗|呢|吧|啊|呀|哦|嗯|一个|一下|什么|怎么|哪里|哪儿|桌面|文件|文件夹|打开|列出|找|搜索|软件|音乐|汽水)$/u
+  /(?:儿|的|把|给|和|与|或|从|往|向|在|到|去|来|做|说|问|查|看|听|用|帮|请|要|想|能|会|可|以|这|那|哪|啥|一个|一下|怎么)$/u
+
+/**
+ * Sentence-final particles and question words. 「我知道了」「你在干什么」
+ * are whole turns; treating them as mid-sentence added 1.6–2.2s of dead
+ * air to a large share of ordinary Chinese speech.
+ */
+const COMPLETE_TAIL =
+  /(?:了|吗|吧|呢|啊|呀|哦|嘛|什么|怎么样|怎么办|哪里|哪儿|多少|几点|为什么|好不好|行不行)$/u
+
+/** Bare modal/auxiliary starts — Windows often marks these isFinal mid-sentence. */
+const INCOMPLETE_STARTERS =
+  /^(?:你可以|你能|帮我|请你|能不能|是不是|要不要|我想|我要)$/u
+/** Command still waiting for the action: 「你可以帮我…」 */
+const INCOMPLETE_OPENERS =
+  /^(?:你可以|你能|能不能|请你帮|麻烦你)/u
+/** Phrase ended on the helper, not the task. */
+const INCOMPLETE_ENDINGS = /(?:帮我|给我|为我)$/u
 
 const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/岳西|越席|月西|悦溪|跃溪|月息|悦西|悦希|月希|月夕|月惜|越汐/g, '月汐'],
@@ -148,7 +173,7 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
 
 /** Whole greetings / acknowledgements — commit quickly even without punctuation. */
 const COMPLETE_SHORT_UTTERANCE =
-  /^(?:你好(?:月汐|啊|呀)?|嗨|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好)$/
+  /^(?:你好(?:月汐|啊|呀)?|嗨|嘿|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好|好的|好啊|嗯嗯|月汐|停|停下|别说了|继续)$/
 
 /** True when the recognizer likely stopped mid-thought — wait longer before commit. */
 export function looksIncompleteUtterance(text: string): boolean {
@@ -156,9 +181,13 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (!trimmed) return false
   if (/[。？！?!…]$/.test(trimmed)) return false
   if (COMPLETE_SHORT_UTTERANCE.test(trimmed)) return false
+  if (INCOMPLETE_STARTERS.test(trimmed)) return true
+  if (INCOMPLETE_ENDINGS.test(trimmed) && Array.from(trimmed).length <= 6) return true
+  if (INCOMPLETE_OPENERS.test(trimmed) && Array.from(trimmed).length <= 5) return true
+  if (COMPLETE_TAIL.test(trimmed)) return false
   if (INCOMPLETE_TAIL.test(trimmed)) return true
-  // Only treat very short oral fillers as incomplete — not 3–5 char greetings.
-  return Array.from(trimmed).length <= 2
+  // Short unpunctuated fragments like「你可以」are mid-command, not a turn.
+  return Array.from(trimmed).length <= 3
 }
 
 export function cleanUserTranscript(raw: string): string {
@@ -199,31 +228,21 @@ export function looksLikePlaybackEcho(heard: string, spoken: string): boolean {
  * Offsets are in the raw `pending` string (same indexing as assistantText)
  * so the caller can advance spokenUpTo without cleaning first.
  *
- * Real-time voice: prefer a complete sentence; on the first chunk start
- * speaking as soon as ~4 chars land or a breath (comma) is long enough.
+ * Speak whole sentences so TTS is one continuous reading, not comma clips.
+ * Commas stay inside the sentence. If the stream stalls with no period,
+ * `force` flushes the leftover as a single clip.
  */
 export function takeSpeakableChunk(pending: string, isFirst: boolean, force = false): { text: string; consumed: number } | null {
   if (!pending.trim()) return null
-  const sentence = /^([\s\S]*?[。？！!?\n])/.exec(pending)
-  if (sentence && sentence[1].replace(/\s/g, '').length > 0) {
-    return { text: sentence[1], consumed: sentence[1].length }
+  // Buffer every complete sentence currently in hand so punctuation does
+  // not become a clip boundary — one synth of “你好呀。我是月汐。”
+  // sounds like one breath, not two readings.
+  const sentences = /^((?:[\s\S]*?[。？！!?\n])+)/.exec(pending)
+  if (sentences && sentences[1].replace(/\s/g, '').length > 0) {
+    return { text: sentences[1], consumed: sentences[1].length }
   }
-  const forceAt = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
-  const clause = /^([\s\S]*?[，,、；;])/.exec(pending)
-  if (isFirst && clause && Array.from(clause[1]).length < FIRST_COMMA_MIN_CHARS && !/[。？！!?\n]/.test(pending)) {
-    return null
-  }
-  if (isFirst && clause && Array.from(clause[1]).length >= FIRST_COMMA_MIN_CHARS && /[。？！!?\n]/.test(pending.slice(clause[1].length))) {
-    return null
-  }
-  if (isFirst && clause && Array.from(clause[1]).length >= FIRST_COMMA_MIN_CHARS) {
-    return { text: clause[1], consumed: clause[1].length }
-  }
-  if (!isFirst && !force && !/[。？！!?\n]/.test(pending) && Array.from(pending).length < FOLLOW_SPEAK_CHARS) return null
-  if (Array.from(pending).length < forceAt && !force) return null
-  if (force) {
-    return { text: pending, consumed: pending.length }
-  }
-  const prefix = Array.from(pending).slice(0, forceAt).join('')
-  return { text: prefix, consumed: prefix.length }
+  if (!force) return null
+  const minChars = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
+  if (Array.from(pending).length < minChars) return null
+  return { text: pending, consumed: pending.length }
 }

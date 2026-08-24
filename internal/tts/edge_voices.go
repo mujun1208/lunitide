@@ -96,6 +96,18 @@ func edgeParseStyleVoiceID(voiceID string) (baseVoice, style string) {
 	return voiceID, ""
 }
 
+// edgeVoiceSupportsStyle answers from the same catalog the voice picker
+// offers, so a per-sentence style swap can never send a base voice a style
+// Microsoft does not publish for it.
+func edgeVoiceSupportsStyle(baseVoice, style string) bool {
+	for _, row := range edgeMandarinPresets {
+		if row.BaseVoice == baseVoice && row.Style == style {
+			return true
+		}
+	}
+	return false
+}
+
 func edgePresetMeta(voiceID string) (edgeMandarinPreset, bool) {
 	for _, row := range edgeMandarinPresets {
 		if edgeVoiceStyleID(row.BaseVoice, row.Style) == voiceID {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/oklog/ulid/v2"
 
@@ -234,25 +235,85 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 			return strings.TrimSpace(resp.Message.Content), spent, nil
 		}
 		req.Messages = append(req.Messages, resp.Message)
-		for _, call := range resp.Message.ToolCalls {
-			summary := ""
-			if !allowed[call.Name] {
-				summary = "refused: tool not allowed for profile " + profile.ID
-			} else {
-				r, toolErr := e.tools.Execute(ctx, toolruntime.FullAccess, sessionID, call.Name, call.Arguments, false)
-				if toolErr != nil {
-					summary = toolErr.Error()
-				} else {
-					summary = r.Output
-				}
-			}
-			if len(summary) > 4096 {
-				summary = summary[:4096]
-			}
-			req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+		req.Messages = append(req.Messages, e.runSubagentToolCalls(ctx, sessionID, profile, allowed, resp.Message.ToolCalls)...)
+	}
+	// Running out of steps used to discard the entire delegation: several
+	// rounds of reads and searches were paid for and then thrown away, and
+	// the parent got an error instead of findings. Asking once more with the
+	// tools removed leaves the model no way to answer except in prose, so
+	// the work already done comes back as a report.
+	req.Tools = nil
+	req.Messages = append(req.Messages, gateway.Message{
+		Role:    gateway.RoleUser,
+		Content: "Step budget reached. Report what you found so far in prose, and say plainly what is still unverified. No tool calls.",
+	})
+	resp, err := a.Complete(ctx, credential, req)
+	if err != nil {
+		return "", spent, fmt.Errorf("subagent exceeded max steps and could not summarize: %w", err)
+	}
+	spent += int64(resp.Usage.TotalTokens)
+	report := strings.TrimSpace(resp.Message.Content)
+	if report == "" {
+		return "", spent, errors.New("subagent exceeded max steps without a final report")
+	}
+	return report, spent, nil
+}
+
+// runSubagentToolCalls executes one step's tool calls and returns their tool
+// messages in the original call order, which the tool protocol requires.
+//
+// A delegated investigation is mostly independent reads — three files, two
+// greps — and running them one after another was the slowest part of every
+// subagent turn while the main chat loop already overlapped the same calls.
+// Eligibility reuses chat_parallel.go's verified read-only contract rather
+// than inventing a second one; anything outside it still runs inline.
+func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, profile subagentProfileDef, allowed map[string]bool, calls []gateway.ToolCall) []gateway.Message {
+	summaries := make([]string, len(calls))
+	// Distinct indices, so the background writes below never overlap the
+	// inline ones.
+	spawned := make([]bool, len(calls))
+	var wg sync.WaitGroup
+	started := 0
+	for i, call := range calls {
+		if !allowed[call.Name] {
+			summaries[i] = "refused: tool not allowed for profile " + profile.ID
+			spawned[i] = true
+			continue
+		}
+		if len(calls) < 2 || started >= maxParallelToolCalls || !parallelToolEligible(call.Name) {
+			continue
+		}
+		started++
+		spawned[i] = true
+		wg.Add(1)
+		go func(i int, call gateway.ToolCall) {
+			defer wg.Done()
+			summaries[i] = e.runSubagentTool(ctx, sessionID, call)
+		}(i, call)
+	}
+	for i, call := range calls {
+		if !spawned[i] {
+			summaries[i] = e.runSubagentTool(ctx, sessionID, call)
 		}
 	}
-	return "", spent, errors.New("subagent exceeded max steps without a final report")
+	wg.Wait()
+	out := make([]gateway.Message, len(calls))
+	for i, call := range calls {
+		summary := summaries[i]
+		if len(summary) > 4096 {
+			summary = summary[:4096]
+		}
+		out[i] = gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary}
+	}
+	return out
+}
+
+func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call gateway.ToolCall) string {
+	r, err := e.tools.Execute(ctx, toolruntime.FullAccess, sessionID, call.Name, call.Arguments, false)
+	if err != nil {
+		return err.Error()
+	}
+	return r.Output
 }
 
 func toolNameSet(tools []gateway.ToolDefinition) map[string]bool {

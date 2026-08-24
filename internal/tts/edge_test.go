@@ -50,6 +50,38 @@ func TestEdgeSSMLEscapesAndMapsRate(t *testing.T) {
 	}
 }
 
+func TestEdgeSSMLFollowsTheSentenceMood(t *testing.T) {
+	happy := edgeSSML(SynthesizeInput{Text: "太好了，那我们出发吧！", VoiceID: "zh-CN-XiaoxiaoNeural", Volume: 80})
+	if !strings.Contains(happy, `style="cheerful"`) || !strings.Contains(happy, `styledegree="1.8"`) {
+		t.Fatalf("cheerful line: %s", happy)
+	}
+	soft := edgeSSML(SynthesizeInput{Text: "别担心，慢慢来就好。", VoiceID: "zh-CN-XiaoxiaoNeural", Volume: 80})
+	if !strings.Contains(soft, `style="gentle"`) || !strings.Contains(soft, `pitch="+2%"`) {
+		t.Fatalf("gentle line: %s", soft)
+	}
+	ask := edgeSSML(SynthesizeInput{Text: "你今天过得怎么样？", VoiceID: "zh-CN-XiaoxiaoNeural", Volume: 80})
+	if !strings.Contains(ask, `style="chat"`) || !strings.Contains(ask, `pitch="+9%"`) {
+		t.Fatalf("question line: %s", ask)
+	}
+}
+
+func TestEdgeSSMLKeepsAnExplicitPersonaAndUnsupportedStyles(t *testing.T) {
+	// 「晓晓 · 新闻播报」 is the user's pick: an excited sentence must not
+	// silently turn it into the cheerful persona.
+	chosen := edgeSSML(SynthesizeInput{Text: "太好了！", VoiceID: "zh-CN-XiaoxiaoNeural", Style: "newscast", Volume: 80})
+	if !strings.Contains(chosen, `style="newscast"`) {
+		t.Fatalf("explicit style overridden: %s", chosen)
+	}
+	// Yunyang publishes no cheerful preset — the base style stays put.
+	if edgeVoiceSupportsStyle("zh-CN-YunyangNeural", "cheerful") {
+		t.Fatal("Yunyang should not advertise cheerful")
+	}
+	flat := edgeSSML(SynthesizeInput{Text: "太好了！", VoiceID: "zh-CN-YunyangNeural", Style: "chat", Volume: 80})
+	if !strings.Contains(flat, `style="chat"`) {
+		t.Fatalf("unsupported style used: %s", flat)
+	}
+}
+
 func TestEdgeSecMSGECIsStableInsideThe300sWindow(t *testing.T) {
 	a := time.Date(2026, 8, 19, 5, 0, 10, 0, time.UTC)
 	b := a.Add(10 * time.Second)

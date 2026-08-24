@@ -160,13 +160,13 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
 })
 
 describe('speechAudioBounds', () => {
-  test('trims leading and trailing silence while keeping an 8ms pad', () => {
+  test('trims leading and trailing silence while keeping an 18ms pad', () => {
     const sampleRate = 1000
     const channel = new Float32Array(200)
     for (let i = 50; i < 120; i++) channel[i] = 0.5
     const { start, length } = speechAudioBounds(channel, sampleRate)
-    expect(start).toBe(42)
-    expect(start + length).toBe(128)
+    expect(start).toBe(32)
+    expect(start + length).toBe(138)
   })
 
   test('keeps the full buffer when the audible span is shorter than 40ms', () => {
@@ -180,11 +180,25 @@ describe('speechAudioBounds', () => {
 })
 
 describe('TtsPlayer streaming prefetch', () => {
-  test('enqueue synthesizes later segments while the first clip is still playing', async () => {
+  test('enqueue joins a batch of sentences into one synth so playback does not chop', async () => {
     const player = new TtsPlayer()
     player.enqueue(['一句。', '两句。', '三句。'], defaultCompanionSettings(), {})
-    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(1))
+    expect(bridge.synthesize.mock.calls[0][0].text).toBe('一句。两句。三句。')
     await vi.waitFor(() => expect(playEvents.length).toBe(1))
+    bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
+    player.interrupt()
+  })
+
+  test('later enqueue joins the hold tail instead of starting a new synth per sentence', async () => {
+    const player = new TtsPlayer()
+    player.enqueue(['一句。'], defaultCompanionSettings(), {})
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(1))
+    player.enqueue(['两句。'], defaultCompanionSettings(), {})
+    player.enqueue(['三句。'], defaultCompanionSettings(), {})
+    await vi.advanceTimersByTimeAsync(100)
+    expect(bridge.synthesize).toHaveBeenCalledTimes(1)
+    expect(player.isBusy()).toBe(true)
     bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
     player.interrupt()
   })

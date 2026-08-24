@@ -26,6 +26,44 @@ export interface TtsPlayerCallbacks {
 
 let sharedAudioContext: AudioContext | null = null
 
+/**
+ * Hard cap of the tts.synthesize bridge schema (tts.MaxSegmentChars = 500).
+ * The renderer segments for subtitles at a much larger size, so a long
+ * reply used to reach the engine as one over-long request, fail schema
+ * validation, and trip the 3-failure circuit breaker — a whole answer
+ * lost. The player owns the engine contract, so it splits here.
+ */
+export const ENGINE_MAX_CHARS = 480
+
+/** Split on clause boundaries so an over-long reply still sounds natural. */
+export function splitForEngine(text: string): string[] {
+  if (Array.from(text).length <= ENGINE_MAX_CHARS) return text.trim() ? [text] : []
+  const out: string[] = []
+  let current = ''
+  const push = (value: string) => {
+    if (value.trim()) out.push(value)
+  }
+  for (const clause of text.split(/(?<=[。？！!?；;，,\n])/)) {
+    if (Array.from(clause).length > ENGINE_MAX_CHARS) {
+      push(current)
+      current = ''
+      const runes = Array.from(clause)
+      for (let i = 0; i < runes.length; i += ENGINE_MAX_CHARS) {
+        push(runes.slice(i, i + ENGINE_MAX_CHARS).join(''))
+      }
+      continue
+    }
+    if (Array.from(current + clause).length > ENGINE_MAX_CHARS && current) {
+      push(current)
+      current = clause
+    } else {
+      current += clause
+    }
+  }
+  push(current)
+  return out
+}
+
 /** Engine routing extras carried alongside voiceId/rate/volume so the
  *  prefetch synthesizer replays the exact same engine payload. */
 export type SynthExtras = Pick<CompanionSettings, 'engine' | 'refEndpoint'>
@@ -84,10 +122,44 @@ export class TtsPlayer {
   private currentVolume = 80
   private currentExtras: SynthExtras = { engine: 'natural', refEndpoint: '' }
   private activeQueueCallbacks: TtsPlayerCallbacks | null = null
+  /** Streaming text not yet sent to the engine — later sentences join this
+   *  so a turn is one (or two) clips, not one synth per period. */
+  private holdTail = ''
+  private lastEnqueueAt = 0
 
   /** True while a clip is synthesizing or playing — used to pause mic commit. */
   isBusy(): boolean {
-    return this.queueProcessing || this.pendingSegments.length > 0 || this.activeSources.size > 0
+    return this.queueProcessing || this.pendingSegments.length > 0 || this.holdTail.length > 0 || this.activeSources.size > 0
+  }
+
+  /** Join streaming sentences into one synth instead of one Edge request per period. */
+  private maybePromoteTail(force = false): void {
+    if (!this.holdTail.trim()) return
+    const last = this.pendingSegments[this.pendingSegments.length - 1]
+    if (last && !this.prefetchQueue.some(q => q.index === last.index)) {
+      // Merging is what keeps a reply one continuous reading, but it must
+      // not grow a segment past what the engine will accept.
+      if (Array.from(last.text + this.holdTail).length <= ENGINE_MAX_CHARS) {
+        last.text += this.holdTail
+        this.holdTail = ''
+        return
+      }
+    }
+    if (!force) {
+      // Never start a second clip while the first is synthesizing or still
+      // playing — tool-call gaps must not chop a paragraph into pauses.
+      if (this.queueProcessing) return
+      const remaining =
+        this.ctx && this.timelineEnd > 0 ? Math.max(0, this.timelineEnd - this.ctx.currentTime) : 0
+      const stalled = performance.now() - this.lastEnqueueAt >= 400
+      if (!stalled && remaining > 0.15) return
+      if (remaining > 1.2) return
+    }
+    for (const part of splitForEngine(this.holdTail)) {
+      this.pendingSegments.push({ text: part, index: this.nextEnqueueIndex++ })
+    }
+    this.holdTail = ''
+    this.fillPrefetch(this.queueProcessing ? this.queueGeneration : this.queueGeneration + 1)
   }
 
   private async synthesizeReadySegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
@@ -190,7 +262,7 @@ export class TtsPlayer {
     const source = ctx.createBufferSource()
     source.buffer = playable
     source.connect(this.gainNode)
-    const overlap = this.timelineEnd > ctx.currentTime + 0.08 ? 0.052 : 0
+    const overlap = this.timelineEnd > ctx.currentTime + 0.08 ? 0.14 : 0
     const startAt = this.timelineEnd > ctx.currentTime ? this.timelineEnd - overlap : ctx.currentTime
     this.timelineEnd = startAt + playable.duration
     this.activeSources.add(source)
@@ -213,15 +285,29 @@ export class TtsPlayer {
    *  clip can be scheduled onto the still-running timeline). */
   private waitForTimeline(generation: number, queueGeneration?: number): Promise<void> {
     return new Promise(resolve => {
+      let lastAudioTime = this.ctx?.currentTime ?? 0
+      let frozenChecks = 0
       const check = () => {
         const stale =
           queueGeneration !== undefined
             ? queueGeneration !== this.queueGeneration
             : generation !== this.generation
         if (stale) return resolve()
+        this.maybePromoteTail()
         if (this.pendingSegments.length > 0) return resolve()
+        if (this.holdTail.trim()) {
+          setTimeout(check, 20)
+          return
+        }
         if (!this.ctx || !this.timelineEnd || this.ctx.currentTime >= this.timelineEnd - 0.03) return resolve()
-        setTimeout(check, 40)
+        if (this.ctx.state !== 'running') return resolve()
+        const audioTime = this.ctx.currentTime
+        if (audioTime <= lastAudioTime + 1e-4) frozenChecks++
+        else frozenChecks = 0
+        lastAudioTime = audioTime
+        // Suspended/frozen clocks never advance: do not hold the queue.
+        if (frozenChecks >= 8) return resolve()
+        setTimeout(check, 20)
       }
       check()
     })
@@ -266,9 +352,11 @@ export class TtsPlayer {
       this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: bytes[0] === 0xff || (bytes[0] === 0x49 && bytes[1] === 0x44) ? 'audio/mpeg' : 'audio/wav' }))
 
       let settled = false
+      let watchdog = 0
       const finish = (ok: boolean) => {
         if (settled) return
         settled = true
+        window.clearTimeout(watchdog)
         audio.removeEventListener('ended', onEnded)
         audio.removeEventListener('error', onError)
         this.stopGainLoop(callbacks)
@@ -287,11 +375,12 @@ export class TtsPlayer {
       audio.src = this.blobUrl
       this.activeCleanup = cleanup
       this.startGainLoop(callbacks)
+      watchdog = window.setTimeout(() => finish(false), 12_000)
       void (async () => {
         try {
           await audio.play()
         } catch {
-          await unlockTtsAudio()
+          void unlockTtsAudio()
           try {
             await audio.play()
           } catch {
@@ -309,9 +398,9 @@ export class TtsPlayer {
 
   /** Play one prepared segment. Returns false when both paths fail. */
   private async playSegment(seg: ReadySegment, generation: number, queueGeneration: number | undefined, callbacks: TtsPlayerCallbacks): Promise<boolean> {
-    await unlockTtsAudio()
+    void unlockTtsAudio()
     const ctx = this.ensureGraph()
-    if (ctx?.state === 'suspended') await ctx.resume().catch(() => {})
+    if (ctx?.state === 'suspended') void ctx.resume().catch(() => {})
     if (seg.buffer && ctx?.state === 'running' && this.scheduleBuffer(seg.buffer, callbacks)) return true
     try {
       return await this.playSegmentFallback(seg.wavBase64, generation, callbacks)
@@ -321,7 +410,8 @@ export class TtsPlayer {
   }
 
   /** Serially speak the segments; resolves through onFinished. */
-  async speak(segments: string[], settings: CompanionSettings, callbacks: TtsPlayerCallbacks): Promise<void> {
+  async speak(rawSegments: string[], settings: CompanionSettings, callbacks: TtsPlayerCallbacks): Promise<void> {
+    const segments = rawSegments.flatMap(splitForEngine)
     if (!segments.length) {
       callbacks.onFinished?.('completed')
       return
@@ -439,21 +529,26 @@ export class TtsPlayer {
    *  appended to the pending queue and played in order without interrupting
    *  the currently active segment. Call `flush()` after the stream ends. */
   enqueue(segments: string[], settings: CompanionSettings, callbacks: TtsPlayerCallbacks): void {
-    if (!segments.length) return
+    const text = segments.filter(s => s.trim()).join('')
+    if (!text) return
     unlockTtsAudio()
     this.configure(settings.voiceId || '', settings.rate, settings.volume, settings)
-    const startIndex = this.nextEnqueueIndex
-    this.nextEnqueueIndex += segments.length
-    this.pendingSegments.push(...segments.map((text, i) => ({ text, index: startIndex + i })))
     this.activeQueueCallbacks = callbacks
-    this.fillPrefetch(this.queueProcessing ? this.queueGeneration : this.queueGeneration + 1)
+    this.lastEnqueueAt = performance.now()
+    this.holdTail += text
+    this.maybePromoteTail()
     if (!this.queueProcessing) {
+      this.maybePromoteTail(true)
       void this.processQueue(callbacks)
     }
   }
 
   /** P0-1: Flush remaining queue and resolve when all queued segments are done. */
   async flush(callbacks: TtsPlayerCallbacks): Promise<void> {
+    this.maybePromoteTail(true)
+    if (!this.queueProcessing && this.pendingSegments.length > 0) {
+      void this.processQueue(callbacks)
+    }
     return new Promise(resolve => {
       const finish = () => {
         callbacks.onFinished?.('completed')
@@ -549,9 +644,16 @@ export class TtsPlayer {
       // adds a clip so it can join the still-running timeline.
       if (scheduledAny) await this.waitForTimeline(this.generation, gen)
       if (gen !== this.queueGeneration) return
+      this.maybePromoteTail()
       if (this.pendingSegments.length > 0) continue
+      if (this.holdTail.trim()) {
+        await this.waitForTimeline(this.generation, gen)
+        if (gen !== this.queueGeneration) return
+        this.maybePromoteTail()
+        if (this.pendingSegments.length > 0) continue
+      }
       this.queueProcessing = false
-      if (this.pendingSegments.length > 0) {
+      if (this.pendingSegments.length > 0 || this.holdTail.trim()) {
         void this.processQueue(callbacks)
         return
       }
@@ -565,7 +667,7 @@ export class TtsPlayer {
     const callbacks = this.activeQueueCallbacks
     if (!callbacks) return
     for (const item of this.pendingSegments) {
-      if (this.prefetchQueue.length >= 3) return
+      if (this.prefetchQueue.length >= 1) return
       if (this.prefetchQueue.some(q => q.index === item.index)) continue
       const text = item.text
       const prepare = async (): Promise<ReadySegment | null> => {
@@ -606,6 +708,8 @@ export class TtsPlayer {
     this.pendingSegments = []
     this.queueProcessing = false
     this.nextEnqueueIndex = 0
+    this.holdTail = ''
+    this.lastEnqueueAt = 0
     // Stop every scheduled source at once: both the sounding segment
     // and the already-scheduled (silent) followers on the timeline.
     for (const source of this.activeSources) {
@@ -691,11 +795,25 @@ export function getTtsAudioState(): 'running' | 'suspended' | 'unsupported' {
 export function unlockTtsAudio(): Promise<void> {
   try {
     sharedAudioContext = sharedAudioContext ?? new AudioContext()
-    if (sharedAudioContext.state === 'suspended') return sharedAudioContext.resume().then(() => undefined).catch(() => {})
+    if (sharedAudioContext.state === 'suspended') {
+      // Never await resume(): without a user gesture it can hang forever,
+      // which used to freeze the TTS queue (subtitles moving, no voice).
+      void sharedAudioContext.resume().catch(() => {})
+    }
   } catch {
     sharedAudioContext = null
   }
   return Promise.resolve()
+}
+
+/** The Web Audio graph unlocked by a user gesture — reuse it for the mic meter. */
+export function sharedTtsAudioContext(): AudioContext | null {
+  try {
+    if (!sharedAudioContext || sharedAudioContext.state === 'closed') return null
+    return sharedAudioContext
+  } catch {
+    return null
+  }
 }
 
 function isEngineUnavailable(error: unknown): boolean {
@@ -722,13 +840,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/** Find the audible span of a mono/first channel, keeping 8ms of pad so
+/** Find the audible span of a mono/first channel, keeping 18ms of pad so
  *  concatenated clips do not click. Used to strip SAPI/GPT-SoVITS
  *  leading and trailing silence that otherwise becomes a pause between
  *  sentences. */
 export function speechAudioBounds(channel: Float32Array, sampleRate: number): { start: number; length: number } {
   const threshold = 0.012
-  const pad = Math.max(1, Math.floor(sampleRate * 0.008))
+  const pad = Math.max(1, Math.floor(sampleRate * 0.018))
   let start = 0
   let end = channel.length - 1
   while (start < channel.length && Math.abs(channel[start]) < threshold) start++

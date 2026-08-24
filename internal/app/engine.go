@@ -1506,7 +1506,7 @@ func providerFailure(request bridge.Request, err error) bridge.Response {
 	case errors.Is(err, provider.ErrConflict):
 		return bridge.Failure(request.ID, request.TraceID, "PROVIDER_VERSION_CONFLICT", "供应商已被修改，请刷新后重试", false)
 	case errors.Is(err, provider.ErrCredentialReentryRequired):
-		return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_REENTRY_REQUIRED", "地址或协议变更需要重新提交凭据", false)
+		return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_REENTRY_REQUIRED", "地址或协议变更需要重新提交凭据。本地 LM Studio 可在 API Key 栏填写任意占位（例如 lm-studio）。", false)
 	case errors.Is(err, providerapp.ErrIdempotencyKeyRequired):
 		return bridge.Failure(request.ID, request.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, providerapp.ErrIdempotencyConflict):

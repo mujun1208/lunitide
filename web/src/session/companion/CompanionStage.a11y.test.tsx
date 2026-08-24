@@ -31,6 +31,7 @@ const speech = vi.hoisted(() => ({
     setBargeInActive: vi.fn(),
     pulseRecognition: vi.fn(),
     forceCommit: vi.fn(),
+    resumeCapture: vi.fn(),
   }),
 }))
 
@@ -66,6 +67,18 @@ vi.mock('../../bridge/client', async importOriginal => {
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 700,
   INTERRUPT_ECHO_MS: 160,
+  shouldShowSpeechSetupHint: (input: {
+    listening: boolean
+    hasInterim: boolean
+    listenSeconds: number
+    heardThisVisit: boolean
+    hasUserRound: boolean
+  }) =>
+    input.listening &&
+    !input.hasInterim &&
+    input.listenSeconds >= 20 &&
+    !input.heardThisVisit &&
+    !input.hasUserRound,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {
     speech.callbacks = callbacks
     return speech.start(callbacks)
@@ -237,6 +250,16 @@ describe('MC-06 hands-free auto conversation', () => {
     expect(speech.start).toHaveBeenCalledTimes(1)
   })
 
+  test('paints the first interim words immediately', async () => {
+    speech.start.mockResolvedValue(speech.handle())
+    const { container } = await renderStage()
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onInterim?.('你好月汐')
+    })
+    expect(liveLog(container).textContent).toContain('你好月汐')
+  })
+
   test('a failed auto attempt stays silent: faint hint, no error banner, stage idle', async () => {
     const { container } = await renderStage()
     const hint = await waitFor(() => {
@@ -282,8 +305,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(statusRegion(container).textContent).toContain('对答中')
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
-    expect(liveLog(container).textContent).toContain('嗯，')
-    expect(tts.enqueueCalls[0]?.segments.join('')).toContain('嗯，')
+    expect(liveLog(container).textContent).not.toContain('嗯，')
+    expect(tts.enqueueCalls).toHaveLength(0)
     // Thinking stays interruptible: moon click can cancel a slow reply.
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在回应')
@@ -314,7 +337,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     )
     await waitFor(() => expect(stateOf(container)).toBe('speaking'))
     expect(statusRegion(container).textContent).toContain('说话中')
-    expect(tts.enqueueCalls.length).toBe(2) // instant backchannel + streamed reply
+    expect(tts.enqueueCalls.length).toBe(1) // streamed reply only; no instant backchannel
     expect(tts.configuredWith).toContain('zh-female')
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在说话，点击打断朗读')
@@ -388,9 +411,10 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(onExit).not.toHaveBeenCalled()
   })
 
-  test('a new utterance replaces the previous turn captions', async () => {
+  test('a new utterance clears the previous round and shows only this turn', async () => {
     const onSend = vi.fn()
-    speech.start.mockResolvedValue(speech.handle())
+    const handle = speech.handle()
+    speech.start.mockResolvedValue(handle)
     const { container, rerender } = await renderStage({ onSend })
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     await act(async () => {
@@ -408,6 +432,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(liveLog(container).textContent).toContain('今晚是满月，适合抬头。')
     fireEvent.click(moonBody(container))
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    expect(handle.resumeCapture).toHaveBeenCalled()
     await act(async () => {
       speech.callbacks!.onInterim?.('下一句')
     })
@@ -422,7 +447,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(liveLog(container).textContent).not.toContain('今晚月色如何')
   })
 
-  test('returns to idle after a streamed reply finishes so subtitles can fade', async () => {
+  test('returns to idle after a streamed reply finishes and keeps this round visible', async () => {
     const onSend = vi.fn()
     speech.start.mockResolvedValue(speech.handle())
     const { container, rerender } = await renderStage({ onSend })
@@ -453,6 +478,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
     })
     await waitFor(() => expect(stateOf(container)).toBe('idle'), { timeout: 2000 })
     expect(statusRegion(container).textContent).not.toContain('说话中')
+    expect(liveLog(container).textContent).toContain('你好')
+    expect(liveLog(container).textContent).toContain('最近怎么样')
   })
 
   test('allows microphone when chat config is still loading', async () => {

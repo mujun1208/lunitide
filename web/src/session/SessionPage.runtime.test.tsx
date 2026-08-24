@@ -16,7 +16,10 @@ const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Ready',protoco
 const providers={list:vi.fn().mockResolvedValue({items:[provider]})} as unknown as ProviderBridge
 const micBase={echoCancellation:true,noiseSuppression:true,autoGainControl:true}
 const micDefault={audio:micBase}
-const micDevice=(id:string)=>({audio:{...micBase,deviceId:{exact:id}}})
+// `ideal`, not `exact`: unplugging a USB mic must not hard-fail getUserMedia.
+// A missing device silently falls back to the default, and speech.ts writes the
+// device actually acquired back to storage, so a stale id self-heals.
+const micDevice=(id:string)=>({audio:{...micBase,deviceId:{ideal:id}}})
 
 async function open(props:Partial<React.ComponentProps<typeof SessionPage>>={}){
  const user=userEvent.setup()
