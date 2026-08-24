@@ -1016,6 +1016,13 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || len(a.Argv) == 0 || len(a.Argv) > commandMaxArgv {
 			return Result{}, errors.New("command denied")
 		}
+		// Checked before every mode branch below, because those branches are
+		// all reachable without a human in the loop: a companion voice turn
+		// upgrades itself to full access, and full-disk lifts the allowlist
+		// entirely. This floor has no opt-out.
+		if reason := hardlineRefusal(a.Argv); reason != "" {
+			return Result{}, commandFailure("refused, this cannot be undone (" + reason + "). Run it yourself in a terminal if you really mean it.")
+		}
 		// Full-disk opt-in lifts the whitelist for user conversations that
 		// came in through ExecuteUnconfined: any argv runs with the max
 		// deadline; every other path keeps matching the built-in plus user

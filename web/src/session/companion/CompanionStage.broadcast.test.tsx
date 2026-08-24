@@ -26,6 +26,7 @@ const speech = vi.hoisted(() => ({
     setBargeInActive: vi.fn(),
     pulseRecognition: vi.fn(),
     forceCommit: vi.fn(),
+    resumeCapture: vi.fn(),
   }),
 }))
 
@@ -60,6 +61,18 @@ vi.mock('../../bridge/client', async importOriginal => {
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 700,
   INTERRUPT_ECHO_MS: 160,
+  shouldShowSpeechSetupHint: (input: {
+    listening: boolean
+    hasInterim: boolean
+    listenSeconds: number
+    heardThisVisit: boolean
+    hasUserRound: boolean
+  }) =>
+    input.listening &&
+    !input.hasInterim &&
+    input.listenSeconds >= 20 &&
+    !input.heardThisVisit &&
+    !input.hasUserRound,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {
     speech.callbacks = callbacks
     return speech.start(callbacks)
@@ -198,7 +211,7 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('speaking')
-  expect(tts.enqueueCalls.length).toBe(2) // instant backchannel + streamed reply
+  expect(tts.enqueueCalls.length).toBe(1) // streamed reply only; no instant backchannel
 
   automation.runs = [run({ id: '01ARZ3NDEKTSV4RRFFQ69G5F98', jobName: '并发任务' }), ...automation.runs]
   await flush(30_000)

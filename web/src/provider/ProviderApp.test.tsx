@@ -47,3 +47,39 @@ it('blocks credential-less update after submitted credential and CAS conflict un
  render(<ProviderApp bridge={bridge}/>);await user.click(await screen.findByRole('button',{name:/Demo/}));await user.click(screen.getByRole('button',{name:'编辑'}));await user.click(screen.getByRole('button',{name:'显示已保存 API Key'}));const secret=await screen.findByLabelText(/^API Key/);await waitFor(()=>expect(secret).toHaveValue('saved-key'));await user.clear(secret);await user.type(secret,'replacement');await user.click(screen.getByRole('button',{name:'安全保存'}))
  expect(await screen.findByText('凭据已提交但配置未保存，请重新输入 API Key')).toBeInTheDocument();expect(await screen.findByText('保存发生并发冲突')).toBeInTheDocument();await user.click(screen.getByRole('button',{name:'安全保存'}));expect(update).toHaveBeenCalledOnce();expect(bridge.submitCredential).toHaveBeenCalledOnce()
 })
+
+it('rebinds a local OpenAI-compatible origin change with a placeholder credential',async()=>{
+ const local={...provider,name:'LM Studio',baseUrl:'http://127.0.0.1:1234'}
+ const saved={...local,baseUrl:'http://192.168.31.100:1234',version:2}
+ const update=vi.fn().mockResolvedValue(saved)
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[local]}),get:vi.fn().mockResolvedValue(local),update})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/LM Studio/}))
+ await user.click(screen.getByRole('button',{name:'编辑'}))
+ const url=screen.getByLabelText('基础 URL')
+ await user.clear(url)
+ await user.type(url,'http://192.168.31.100:1234')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(bridge.submitCredential).toHaveBeenCalledOnce())
+ expect(vi.mocked(bridge.submitCredential).mock.calls[0][0].credential).toBe('lm-studio')
+ await waitFor(()=>expect(update).toHaveBeenCalledOnce())
+ expect(vi.mocked(update).mock.calls[0][0].credentialSubmissionId).toBe(credential.credentialSubmissionId)
+})
+
+it('asks for API Key re-entry when a remote origin changes',async()=>{
+ const update=vi.fn().mockResolvedValue(provider)
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[provider]}),get:vi.fn().mockResolvedValue(provider),update})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ await user.click(screen.getByRole('button',{name:'编辑'}))
+ const url=screen.getByLabelText('基础 URL')
+ await user.clear(url)
+ await user.type(url,'https://example.org/v1')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ expect(await screen.findByRole('status')).toHaveTextContent(/重新填写 API Key|lm-studio/)
+ expect(update).not.toHaveBeenCalled()
+ expect(bridge.submitCredential).not.toHaveBeenCalled()
+})
+

@@ -6,10 +6,12 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
-import { looksIncompleteUtterance } from './companionText'
-import { unlockTtsAudio } from './ttsPlayer'
+import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
+import { sharedTtsAudioContext, unlockTtsAudio } from './ttsPlayer'
 
-type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
+type SpeechRecognitionHypothesis = { transcript: string; confidence?: number }
+type SpeechRecognitionResultLike = { 0: SpeechRecognitionHypothesis; length: number; isFinal: boolean } & Record<number, SpeechRecognitionHypothesis>
+type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> }
 type SpeechRecognitionLike = {
   lang: string
   continuous: boolean
@@ -33,8 +35,10 @@ const speechRecognitionConstructor = () =>
 export interface CompanionSpeechCallbacks {
   /** A final transcript arrived — sent straight to ChatBridge by the stage. */
   onFinal: (transcript: string) => void
-  /** Unused: automatic voice barge-in is off; interrupt is a button. */
+  /** The user talked over her: cut the reply and start their turn. */
   onBargeIn?: (transcript: string) => void
+  /** Text currently being spoken aloud — used to tell echo from the user. */
+  spokenText?: () => string
   /** Interim transcript (real-time) — shown as a live caption while the user talks. */
   onInterim?: (transcript: string) => void
   /** Acoustic start of speech, even before the first transcript. */
@@ -73,7 +77,7 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
 export interface CompanionSpeechHandle {
   /** Stop recognition and release the microphone immediately. */
   stop: () => void
-  /** Assistant TTS active — mute the mic and ignore recognizer output. */
+  /** Assistant TTS active — mute the mic, keep recognition warm, ignore output. */
   setAssistantPlayback: (active: boolean, echoGuardMs?: number) => void
   /** Pause silence-based commit while thinking/speaking. */
   setCommitPaused: (paused: boolean) => void
@@ -83,49 +87,56 @@ export interface CompanionSpeechHandle {
   pulseRecognition: () => void
   /** Force-send the current assembled transcript (fallback when endpointing stalls). */
   forceCommit: () => void
+  /** After a user gesture: resume Web Audio and (re)start recognition if it is dead. */
+  resumeCapture: () => void
 }
 
-/** Commit after this much analyser silence once we already have text. */
-export const UTTERANCE_SILENCE_MS = 180
-/** Commit when interim/final text stops changing (Windows SR re-fires the same interim). */
+/** Commit after this much analyser silence once we already have a complete phrase.
+ *  Fast after a real stop (~0.3s), still WeChat-like: never slice mid-clause.
+ *  End-of-speech → send stays well under the 2–3s user cap. */
+export const UTTERANCE_SILENCE_MS = 280
+/** Commit when complete interim/final text stops changing. */
 export const UTTERANCE_STABLE_MS = 220
-/** Incomplete-looking phrases (mid-command tails) need a longer stable window. */
-export const INCOMPLETE_STABLE_MS = 480
+/** Incomplete-looking phrases (mid-command tails) wait for the rest of the sentence. */
+export const INCOMPLETE_STABLE_MS = 900
 /** Incomplete phrases also tolerate a longer trailing pause before commit. */
-export const INCOMPLETE_SILENCE_MS = 360
+export const INCOMPLETE_SILENCE_MS = 900
+/** After Windows isFinal on a fragment, wait this long for more tokens before commit. */
+export const INCOMPLETE_HOLD_MS = 1600
+/** Hard ceiling: if Windows never sends the rest of the sentence, stop waiting. */
+export const INCOMPLETE_HARD_MS = 2200
 /** Minimum time with text on screen before we accept a non-terminal commit. */
-export const MIN_UTTERANCE_MS = 220
-/** Force-commit if the same transcript sits unchanged while listening. */
-export const STUCK_TRANSCRIPT_MS = 600
-/** Restart SR when mic hears voice but no transcript arrives. */
-export const VOICE_WITHOUT_TEXT_MS = 700
+export const MIN_UTTERANCE_MS = 140
+/** Force-commit only after the transcript AND the mic have been quiet. Ceiling for “I stopped talking”. */
+export const STUCK_TRANSCRIPT_MS = 1800
+/** Restart SR only after this long of real mic energy with no transcript. */
+export const VOICE_WITHOUT_TEXT_MS = 1200
 /** How long since the last SR token before a voice-energy restart. */
-export const VOICE_RESTART_RESULT_MS = 500
+export const VOICE_RESTART_RESULT_MS = 2500
 /** Minimum gap between stall-recovery restarts (avoids WebView SR crashes). */
 export const STALL_RESTART_GAP_MS = 1600
-/** Release getUserMedia this long before SpeechRecognition.start(). */
-export const MIC_RELEASE_BEFORE_SR_MS = 350
-/** Recycle a silent WebView SR session quickly. Windows `continuous=true`
- *  often starts without throwing and then never emits results; waiting
- *  several seconds here is what made quiet/normal speech look like
- *  “还没听清”. One-shot sessions end on their own — this only kicks
- *  zombie continuous sessions or a hung start(). Never stop() while
+/** Recycle a silent WebView SR session only after Windows has had time to
+ *  return the first token. Restarting at ~2s aborted in-flight recognition
+ *  and made every utterance look like “听不到”. Never stop() while
  *  speechActive or text is already on screen. */
-export const STALL_RESTART_AFTER_MS = 1800
+export const STALL_RESTART_AFTER_MS = 8000
+/** After TTS, a zombie Windows SR session must recycle quickly. */
+export const STALL_RESTART_AFTER_PLAYBACK_MS = 500
 
-/** Energy above this (0–1 peak) counts as voice for endpointing. */
-export const VOICE_PEAK = 0.07
+/** Energy above this (0–1 peak) counts as voice for endpointing.
+ *  Low enough that quiet speech keeps the utterance open; idle rings stay below. */
+export const VOICE_PEAK = 0.03
 /** Stronger peak while assistant speaks — avoids TTS bleed despite AEC. */
 export const BARGE_IN_PEAK = 0.16
 
 export function speechProfile(environment: SpeechEnvironment = 'normal'): SpeechProfile {
   if (environment === 'noisy') {
     return {
-      voicePeak: 0.12,
-      utteranceSilenceMs: 420,
-      utteranceStableMs: 480,
+      voicePeak: 0.08,
+      utteranceSilenceMs: 100,
+      utteranceStableMs: 120,
       bargeInPeakDelta: 0.04,
-      minVoiceHoldMs: 200,
+      minVoiceHoldMs: 50,
     }
   }
   return {
@@ -141,12 +152,34 @@ export const BARGE_IN_HOLD_MS = 90
 /** After TTS ends, ignore mic/SR until speaker ring-out dies.
  *  Laptop speakers + built-in mic leave 300–600ms of residual echo even
  *  with Chromium/WASAPI AEC — shorter guards transcribe her own voice. */
-export const ECHO_GUARD_MS = 420
+export const ECHO_GUARD_MS = 90
 /** After a click interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 80
 
 /** Sustained loud voice during assistant TTS playback (energy-only barge-in). */
 export const BARGE_IN_PLAYBACK_HOLD_MS = 80
+
+/** Recognized characters needed to cut in while she is speaking. */
+export const BARGE_IN_MIN_CHARS = 2
+/** She is only thinking (no audio out): ask for a longer utterance so the
+ *  late tail of the sentence we just sent cannot restart the turn. */
+export const BARGE_IN_THINKING_MIN_CHARS = 4
+/** Ignore transcripts for this long after a barge-in fired. */
+export const BARGE_IN_GUARD_MS = 800
+/** Let the just-committed utterance settle before a new one may replace it. */
+export const BARGE_IN_SETTLE_MS = 1200
+
+/**
+ * True when what the recognizer just heard is the user talking over the
+ * assistant rather than the assistant's own voice returning through the
+ * speaker. `spoken` is the text currently being played aloud.
+ */
+export function shouldBargeInOverPlayback(heard: string, spoken: string, minChars = BARGE_IN_MIN_CHARS): boolean {
+  const text = heard.trim()
+  if (!text) return false
+  if (looksLikePlaybackEcho(text, spoken)) return false
+  return Array.from(text).length >= minChars
+}
 
 export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number, allowPlaybackBargeIn = false): boolean {
   if (allowPlaybackBargeIn) return now < guardUntil
@@ -179,6 +212,23 @@ export function shouldDeferCommit(text: string, textSinceMs: number): boolean {
   return textSinceMs < MIN_UTTERANCE_MS
 }
 
+/** Incomplete fragments (“你可以”, “合肥的”) must wait for more tokens.
+ *  Windows isFinal + speechend is not end-of-speech. */
+export function shouldCommitIncomplete(input: {
+  silentForMs: number
+  silenceMs: number
+  msSinceLastResult: number
+  speechActive: boolean
+  holdMs?: number
+  hardMs?: number
+}): boolean {
+  const holdMs = input.holdMs ?? INCOMPLETE_HOLD_MS
+  const hardMs = input.hardMs ?? INCOMPLETE_HARD_MS
+  if (input.msSinceLastResult < holdMs) return false
+  if (input.speechActive && input.msSinceLastResult < hardMs) return false
+  return input.silentForMs >= input.silenceMs || input.msSinceLastResult >= hardMs
+}
+
 export function shouldBargeIn(hasText: boolean, voiceForMs: number, holdMs = BARGE_IN_HOLD_MS): boolean {
   return hasText && voiceForMs >= holdMs
 }
@@ -195,9 +245,32 @@ export function companionRecognitionLang(navigatorLanguage = typeof navigator !=
   return lang
 }
 
+/** Prefer a longer interim overlay so Windows revisions replace, not duplicate, the caption. */
+export function overlayTranscript(finals: string, interim: string): string {
+  const f = finals.trim()
+  const i = interim.trim()
+  if (!i) return f
+  if (!f) return i
+  if (i.includes(f) || i.startsWith(f)) return i
+  if (f.includes(i)) return f
+  return `${f}${i}`
+}
+
+/** Pick the highest-confidence alternative (WeChat-like matching). */
+export function pickRecognitionTranscript(result: { length: number; [index: number]: { transcript: string; confidence?: number } | undefined }): string {
+  let best = result[0]
+  if (!best) return ''
+  const n = result.length ?? 1
+  for (let i = 1; i < n; i++) {
+    const alt = result[i]
+    if (alt && (alt.confidence ?? 0) > (best.confidence ?? 0)) best = alt
+  }
+  return best.transcript ?? ''
+}
+
 /** Idle moon rings must stay below VOICE_PEAK so they never look like speech. */
 export function idleMeterLevel(t: number, index: number): number {
-  return 0.018 + 0.022 * Math.abs(Math.sin(t * 0.6 + index * 0.45))
+  return 0.012 + 0.014 * Math.abs(Math.sin(t * 0.6 + index * 0.45))
 }
 
 export function shouldRestartStalledRecognition(input: {
@@ -210,6 +283,21 @@ export function shouldRestartStalledRecognition(input: {
 }): boolean {
   if (input.speechActive || input.hasText || input.held || input.restarting) return false
   return input.msSinceStart >= (input.minSessionMs ?? STALL_RESTART_AFTER_MS)
+}
+
+/** Windows setup copy is only for a first listen that never produced text.
+ *  After a successful turn, sitting in “listening” is normal — do not
+ *  blame the OS for silence. */
+export function shouldShowSpeechSetupHint(input: {
+  listening: boolean
+  hasInterim: boolean
+  listenSeconds: number
+  heardThisVisit: boolean
+  hasUserRound: boolean
+}): boolean {
+  if (!input.listening || input.hasInterim) return false
+  if (input.heardThisVisit || input.hasUserRound) return false
+  return input.listenSeconds >= 20
 }
 
 export function speechEngineHint(error?: string): string {
@@ -230,7 +318,13 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   }
   let recognition: SpeechRecognitionLike | undefined
   let stream: MediaStream | undefined
+  let meterStream: MediaStream | undefined
+  let micSource: MediaStreamAudioSourceNode | undefined
   let context: AudioContext | undefined
+  let ownsContext = false
+  let analyser: AnalyserNode | undefined
+  let spectrum: Uint8Array<ArrayBuffer> | undefined
+  let waveform: Uint8Array<ArrayBuffer> | undefined
   let frame = 0
   let finished = false
   let recSilenceTimer = 0
@@ -250,15 +344,20 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let lastResultAt = performance.now()
   let lastRecognitionPulseAt = 0
   let lastStartAt = 0
-  /** WebView2 often accepts continuous=true then stays mute. Prefer one-shot. */
-  let preferContinuous = false
+  /** Same as the chat composer: continuous listen so a sentence is not cut. */
+  let preferContinuous = true
   let keepAliveTimer = 0
   let commitHintTimer = 0
   let voiceEnergyWithoutTextSince = 0
   let recognitionAlive = false
   const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now(), playbackBargeIn)
+  let recycleAfterPlayback = false
+  let lastPlaybackEndedAt = 0
   const muteMic = (muted: boolean) => {
     stream?.getAudioTracks().forEach(track => {
+      track.enabled = !muted
+    })
+    meterStream?.getAudioTracks().forEach(track => {
       track.enabled = !muted
     })
   }
@@ -269,10 +368,15 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     window.clearTimeout(restartTimer)
     window.clearTimeout(echoTimer)
     window.clearTimeout(commitHintTimer)
+    meterStream?.getTracks().forEach(track => track.stop())
+    meterStream = undefined
+    micSource?.disconnect()
+    micSource = undefined
     stream?.getTracks().forEach(track => track.stop())
     stream = undefined
-    void context?.close()
+    if (ownsContext) void context?.close()
     context = undefined
+    ownsContext = false
     callbacks.onLevels?.(Array.from({ length: MOON_RING_BINS }, () => 0))
   }
   return (async () => {
@@ -280,32 +384,27 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     const withEcho = (value: MediaStreamConstraints): MediaStreamConstraints => {
       const audio = value.audio
       if (audio === false) return value
-      const extra = { echoCancellation: true as const, noiseSuppression: true as const, autoGainControl: true as const }
+      // Keep AEC (TTS later). Do not gate the first words with noise
+      // suppression — it makes quiet first-round speech late or missing.
+      const extra = { echoCancellation: true as const, noiseSuppression: false as const, autoGainControl: true as const }
       return { audio: audio === true || audio == null ? extra : { ...audio, ...extra } }
     }
     constraints = withEcho(constraints)
-    let media: MediaStream
-    try {
-      media = await navigator.mediaDevices.getUserMedia(constraints)
-    } catch (error) {
-      const name = error instanceof DOMException ? error.name : ''
-      if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
-        saveMicrophoneId('')
-        constraints = withEcho({ audio: true })
-        media = await navigator.mediaDevices.getUserMedia(constraints)
-      } else throw error
-    }
-    stream = media
     void unlockTtsAudio()
-    // Probe permission on the saved device, then release capture so WebView2
-    // SpeechRecognition owns WASAPI. Holding getUserMedia makes the level meter
-    // move while SR hears silence; analyser-driven restarts then abort every
-    // utterance before Windows returns text.
-    const deviceId = media.getAudioTracks()[0]?.getSettings()?.deviceId
-    if (deviceId) saveMicrophoneId(deviceId)
-    media.getTracks().forEach(track => track.stop())
-    stream = undefined
-    await new Promise<void>(resolve => window.setTimeout(resolve, MIC_RELEASE_BEFORE_SR_MS))
+    const gumPromise = (async (): Promise<MediaStream> => {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : ''
+        if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
+          saveMicrophoneId('')
+          return await navigator.mediaDevices.getUserMedia(withEcho({ audio: true }))
+        }
+        throw error
+      }
+    })()
+    // Analyser is display-only. Start SpeechRecognition in this turn — before
+    // awaiting getUserMedia — so the first utterance is not a 1–3s blank listen.
     let finals = ''
     let interim = ''
     let lastVoiceAt = performance.now()
@@ -314,16 +413,15 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     let utteranceVoiceSince = 0
     let lastStallRestartAt = 0
     let speechActive = false
-    const assembled = () => {
-      const f = finals.trim()
-      const i = interim.trim()
-      if (!i) return f
-      if (!f) return i
-      if (f.includes(i)) return f
-      return `${f}${i}`
-    }
+    const assembled = () => overlayTranscript(finals, interim)
+    const recognitionAlreadyRunning = (error: unknown) =>
+      (error instanceof DOMException && error.name === 'InvalidStateError') ||
+      (error instanceof Error && /already started|invalid state/i.test(error.message))
     const startRecognition = () => {
-      if (finished || !recognition || recognitionHeld()) return false
+      // Echo-hold blocks commit, never a warm start — first tokens must paint
+      // the moment Windows SR returns them. Keep the session alive during TTS
+      // (mic is muted) so the next user turn is not a 0.5–2s cold start.
+      if (finished || !recognition) return false
       const tryStart = (continuous: boolean) => {
         recognition!.continuous = continuous
         recognition!.start()
@@ -336,15 +434,28 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       try {
         return tryStart(preferContinuous)
-      } catch {
-        if (recognitionAlive) return true
+      } catch (error) {
+        if (recognitionAlreadyRunning(error)) {
+          recognitionAlive = true
+          return true
+        }
+        recognitionAlive = false
         try {
           return tryStart(!preferContinuous)
-        } catch {
+        } catch (retryError) {
+          if (recognitionAlreadyRunning(retryError)) {
+            recognitionAlive = true
+            return true
+          }
           recognitionAlive = false
           return false
         }
       }
+    }
+    const ensureRecognitionRunning = (clearTranscript = false) => {
+      recRestarting = false
+      if (recognitionAlive) return
+      if (!startRecognition()) restartRecognition(clearTranscript)
     }
     const restartRecognition = (clearTranscript = true) => {
       if (finished || !recognition) return
@@ -368,26 +479,32 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       restartTimer = window.setTimeout(() => {
         recRestarting = false
-        if (finished || !recognition || recognitionHeld()) return
+        if (finished || !recognition) return
+        if (!assistantPlayback && recognitionHeld()) return
         startRecognition()
       }, 60)
     }
     const restartIfStalled = () => {
-      if (finished || recRestarting || recognitionHeld() || assembled().trim() || speechActive) return
+      if (finished || assistantPlayback || recRestarting || recognitionHeld() || assembled().trim() || speechActive) return
       const now = performance.now()
+      const recentlyAfterPlayback = lastPlaybackEndedAt > 0 && now - lastPlaybackEndedAt < 15_000
       if (!shouldRestartStalledRecognition({
         speechActive,
         hasText: false,
         held: recognitionHeld(),
         restarting: recRestarting,
         msSinceStart: now - lastStartAt,
+        minSessionMs: recentlyAfterPlayback ? STALL_RESTART_AFTER_PLAYBACK_MS : STALL_RESTART_AFTER_MS,
       })) return
       if (now - lastStallRestartAt < STALL_RESTART_GAP_MS) return
       lastStallRestartAt = now
       if (!recognitionAlive) {
-        if (!startRecognition()) restartRecognition(false)
+        ensureRecognitionRunning(false)
         return
       }
+      // A living session after TTS is warm, not a zombie. Recycling it
+      // at 500ms aborts the user's first words on the next turn.
+      if (recentlyAfterPlayback) return
       restartRecognition(false)
     }
     const scheduleRecognitionAfterGuard = () => {
@@ -395,7 +512,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       const wait = Math.max(20, echoGuardUntil - performance.now() + 20)
       restartTimer = window.setTimeout(() => {
         if (finished || recognitionHeld()) return
-        if (!assembled().trim()) restartRecognition()
+        if (recognitionAlive) return
+        if (!assembled().trim()) ensureRecognitionRunning()
         else tryCommitFromSilence(lastVoiceAt)
       }, wait)
     }
@@ -405,21 +523,71 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (finished || commitPaused || recognitionHeld()) return
         const current = assembled().trim()
         if (!current) return
+        // Windows marks phrase fragments isFinal ("你可以"). Never fast-commit those.
+        if (looksIncompleteUtterance(current)) return
         if (current === text || text.includes(current) || current.includes(text)) commit(current)
       }, delayMs)
     }
+    let lastCommittedCompact = ''
+    let lastCommittedAt = 0
+    let bargeGuardUntil = 0
+    const compactCommit = (value: string) => value.replace(/\s/g, '')
     const commit = (text: string) => {
       if (finished || !text || recognitionHeld() || assistantPlayback) return
+      const compact = compactCommit(text)
+      const now = performance.now()
+      if (compact === lastCommittedCompact && now - lastCommittedAt < 1500) return
       window.clearTimeout(commitHintTimer)
+      lastCommittedCompact = compact
+      lastCommittedAt = now
       if (duplex) {
         callbacks.onFinal(text)
-        restartRecognition(true)
+        finals = ''
+        interim = ''
+        bargeVoiceSince = 0
+        utteranceVoiceSince = 0
+        firstTextAt = 0
+        lastTextChangeAt = performance.now()
+        lastResultAt = performance.now()
+        callbacks.onInterim?.('')
+        // Keep the Windows session warm for every later turn.
         return
       }
       finished = true
       recognition?.stop()
       teardown()
       callbacks.onFinal(text)
+    }
+    /**
+     * She is thinking or speaking and the user starts talking again. Real
+     * conversation lets that cut in. Two guards keep it honest: her own
+     * voice coming back through the speaker is dropped as echo, and the
+     * late tail of the sentence we just sent can never restart the turn.
+     */
+    const maybeInterruptTurn = (raw: string) => {
+      if (!callbacks.onBargeIn) return
+      const text = raw.trim()
+      if (!text) return
+      const now = performance.now()
+      if (now < bargeGuardUntil) return
+      if (assistantPlayback && !shouldBargeInOverPlayback(text, callbacks.spokenText?.() ?? '')) {
+        // Speaker bleed: drop it so echo never accumulates into a turn.
+        if (looksLikePlaybackEcho(text, callbacks.spokenText?.() ?? '')) {
+          finals = ''
+          interim = ''
+        }
+        return
+      }
+      if (!assistantPlayback) {
+        if (Array.from(text).length < BARGE_IN_THINKING_MIN_CHARS) return
+        if (now - lastCommittedAt < BARGE_IN_SETTLE_MS) return
+      }
+      const compact = compactCommit(text)
+      if (lastCommittedCompact && (compact.includes(lastCommittedCompact) || lastCommittedCompact.includes(compact))) return
+      bargeGuardUntil = now + BARGE_IN_GUARD_MS
+      finals = ''
+      interim = ''
+      callbacks.onBargeIn(text)
     }
     const tryBargeIn = (rawPeak: number) => {
       if (finished || !duplex || !bargeIn || !bargeInActive || !callbacks.onBargeIn) return
@@ -463,8 +631,35 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       const { stableMs, silenceMs } = endpointingForText(text, profile)
       const silentFor = performance.now() - voiceAt
       const stableFor = performance.now() - lastTextChangeAt
+      const incomplete = looksIncompleteUtterance(text)
+      // Windows often isFinal + speechend on「你可以」/「合肥的」while the user
+      // is still talking. Hold until tokens go stale and the mic is quiet.
+      if (incomplete) {
+        const staleFor = performance.now() - lastResultAt
+        if (
+          speechActive &&
+          staleFor >= INCOMPLETE_HOLD_MS &&
+          staleFor < INCOMPLETE_HARD_MS &&
+          performance.now() - lastStallRestartAt >= STALL_RESTART_GAP_MS
+        ) {
+          lastStallRestartAt = performance.now()
+          restartRecognition(false)
+          return
+        }
+        if (
+          shouldCommitIncomplete({
+            silentForMs: silentFor,
+            silenceMs,
+            msSinceLastResult: staleFor,
+            speechActive,
+          })
+        ) {
+          commit(text)
+        }
+        return
+      }
       const punctuated = /[。？！?!…]$/.test(text)
-      const stableTarget = punctuated ? Math.min(stableMs, 180) : stableMs
+      const stableTarget = punctuated ? Math.min(stableMs, 120) : stableMs
       if (shouldCommitStable(true, stableFor, stableTarget)) {
         commit(text)
         return
@@ -472,22 +667,65 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (shouldCommitUtterance(true, silentFor, silenceMs)) commit(text)
     }
     const paintLevels = () => {
+      if (context?.state === 'suspended') void context.resume()
       const t = performance.now() / 160
-      const speaking = speechActive || !!assembled().trim()
-      const levels = Array.from({ length: MOON_RING_BINS }, (_, index) => {
-        if (!speaking) return idleMeterLevel(t, index)
-        return 0.28 + 0.55 * Math.abs(Math.sin(t * 1.7 + index * 0.7))
-      })
+      let peak = 0
+      let levels: number[]
+      const wave = waveform
+      const spec = spectrum
+      if (analyser && wave && spec) {
+        analyser.getByteTimeDomainData(wave)
+        analyser.getByteFrequencyData(spec)
+        for (let i = 0; i < wave.length; i++) peak = Math.max(peak, Math.abs(wave[i]! - 128))
+        const energyNow = peak / 128
+        const bucket = Math.max(1, Math.floor(spec.length / MOON_RING_BINS))
+        levels = Array.from({ length: MOON_RING_BINS }, (_, index) => {
+          let bin = 0
+          for (let i = index * bucket; i < Math.min(spec.length, (index + 1) * bucket); i++) bin = Math.max(bin, spec[i]!)
+          const mag = Math.max(bin / 255, energyNow)
+          if (mag < 0.02) return 0.05
+          return Math.min(1, 0.12 + Math.pow(mag, 0.55) * 0.88)
+        })
+      } else {
+        levels = Array.from({ length: MOON_RING_BINS }, (_, index) => idleMeterLevel(t, index))
+      }
+      const energy = peak / 128
+      const now = performance.now()
+      if (energy >= profile.voicePeak) {
+        speechActive = true
+        lastVoiceAt = now
+        callbacks.onVoiceEnergy?.()
+        if (!assembled().trim()) voiceEnergyWithoutTextSince = voiceEnergyWithoutTextSince || now
+        else voiceEnergyWithoutTextSince = 0
+      } else if (now - lastVoiceAt > profile.utteranceSilenceMs) {
+        speechActive = false
+        voiceEnergyWithoutTextSince = 0
+      }
       callbacks.onLevels?.(levels)
+      tryBargeIn(peak * 2)
+      if (
+        duplex &&
+        !assistantPlayback &&
+        !recognitionAlive &&
+        energy >= profile.voicePeak &&
+        !assembled().trim() &&
+        voiceEnergyWithoutTextSince &&
+        now - voiceEnergyWithoutTextSince >= VOICE_WITHOUT_TEXT_MS &&
+        now - lastResultAt >= VOICE_RESTART_RESULT_MS
+      ) {
+        voiceEnergyWithoutTextSince = now
+        restartRecognition(false)
+      }
+      tryCommitFromSilence(lastVoiceAt)
+      restartIfStalled()
       frame = requestAnimationFrame(paintLevels)
     }
-    paintLevels()
     const rec: SpeechRecognitionLike = new Recognition()
     recognition = rec
     rec.lang = companionRecognitionLang()
-    rec.continuous = false
+    rec.continuous = true
     rec.interimResults = true
-    rec.maxAlternatives = 1
+    rec.maxAlternatives = 3
     const markSpeech = () => {
       if (finished) return
       speechActive = true
@@ -499,20 +737,17 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     rec.onsoundstart = markSpeech
     rec.onspeechstart = markSpeech
     rec.onspeechend = () => {
-      speechActive = false
-      tryCommitFromSilence(lastVoiceAt)
+      // Do not clear speechActive or commit: Windows fires speechend at
+      // clause boundaries ("你可以") while the user is still speaking.
     }
     rec.onaudiostart = () => {
       recognitionAlive = true
-      // Audio graph is live — treat as hearing even before the first token
-      // so quiet speech still lights the caption strip.
-      callbacks.onVoiceEnergy?.()
     }
     rec.onresult = event => {
       const held = recognitionHeld()
       const before = assembled()
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const piece = event.results[i][0].transcript
+        const piece = pickRecognitionTranscript(event.results[i])
         if (event.results[i].isFinal) {
           finals += piece
           interim = ''
@@ -524,6 +759,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       const next = assembled().trim()
       if (next) {
         lastResultAt = now
+        lastVoiceAt = now
+        speechActive = true
         voiceEnergyWithoutTextSince = 0
         if (!utteranceVoiceSince) utteranceVoiceSince = now
       }
@@ -531,12 +768,21 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         lastTextChangeAt = now
         if (!firstTextAt) firstTextAt = now
       }
-      if (assistantPlayback) return
+      if (assistantPlayback) {
+        maybeInterruptTurn(next)
+        return
+      }
       if (next) callbacks.onInterim?.(next)
       else if (!held) callbacks.onInterim?.('')
       if (held && !playbackBargeIn) return
-      if (next && /[。？！?!…]$/.test(next)) scheduleFinalCommit(next, 160)
-      if (event.results[event.results.length - 1]?.isFinal && next) scheduleFinalCommit(next, 80)
+      if (commitPaused) {
+        maybeInterruptTurn(next)
+        return
+      }
+      if (next && !looksIncompleteUtterance(next)) {
+        if (/[。？！?!…]$/.test(next)) scheduleFinalCommit(next, 50)
+        else if (event.results[event.results.length - 1]?.isFinal) scheduleFinalCommit(next, 100)
+      }
       window.clearTimeout(recSilenceTimer)
       if (next && !commitPaused) {
         const { stableMs } = endpointingForText(next, profile)
@@ -567,9 +813,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (duplex && (event?.error === 'no-speech' || event?.error === 'network' || event?.error === 'audio-capture')) {
         window.clearTimeout(restartTimer)
         restartTimer = window.setTimeout(() => {
-          if (finished || !recognition || recognitionHeld()) return
+          if (finished || !recognition) return
+          if (assistantPlayback) {
+            if (!recognitionAlive) startRecognition()
+            return
+          }
+          if (recognitionHeld()) return
+          // stop() during an in-flight utterance drops the rest of the sentence.
+          if (event?.error === 'no-speech' && assembled().trim()) return
           restartRecognition(false)
-        }, event?.error === 'no-speech' ? 180 : 420)
+        }, event?.error === 'no-speech' ? (assistantPlayback ? 40 : 300) : 420)
         return
       }
       if (duplex) return
@@ -581,9 +834,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       recognitionAlive = false
       if (finished) return
       if (recRestarting) return
-      const text = assembled().trim()
-      if (text && !recognitionHeld()) {
-        commit(text)
+      // Windows often stops between clauses ("你可以帮我" then the rest).
+      // Never commit on engine stop — keep the hypothesis and wait for more,
+      // or for silence/stable endpointing.
+      if (assistantPlayback) {
+        startRecognition()
         return
       }
       if (recognitionHeld()) {
@@ -594,22 +849,80 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         restartTimer = window.setTimeout(() => {
           if (finished || !recognition || recognitionHeld()) return
           if (!startRecognition()) restartRecognition(false)
-        }, 80)
+        }, 40)
+        return
+      }
+      const text = assembled().trim()
+      if (text) {
+        if (looksIncompleteUtterance(text)) return
+        commit(text)
         return
       }
       finished = true
       teardown()
       callbacks.onEndWithoutFinal?.()
     }
-    window.setTimeout(() => {
-      if (!finished) startRecognition()
-    }, 40)
+    startRecognition()
+    let media: MediaStream
+    try {
+      media = await gumPromise
+    } catch (error) {
+      finished = true
+      try {
+        recognition?.stop()
+      } catch {
+        /* engine may already be stopped */
+      }
+      teardown()
+      throw error
+    }
+    stream = media
+    media.getAudioTracks().forEach(track => {
+      track.enabled = true
+    })
+    const deviceId = media.getAudioTracks()[0]?.getSettings()?.deviceId
+    if (deviceId) saveMicrophoneId(deviceId)
+    const AudioContextClass =
+      window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    const shared = sharedTtsAudioContext()
+    if (shared) {
+      context = shared
+      ownsContext = false
+    } else if (AudioContextClass) {
+      context = new AudioContextClass()
+      ownsContext = true
+    }
+    if (context) {
+      if (context.state === 'suspended') void context.resume().catch(() => undefined)
+      analyser = context.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.5
+      spectrum = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
+      waveform = new Uint8Array(new ArrayBuffer(analyser.fftSize))
+      try {
+        meterStream = new MediaStream(media.getAudioTracks().map(track => track.clone()))
+      } catch {
+        meterStream = media
+      }
+      micSource = context.createMediaStreamSource(meterStream)
+      micSource.connect(analyser)
+    }
+    paintLevels()
     keepAliveTimer = window.setInterval(() => {
-      if (finished || recognitionHeld() || recRestarting) return
+      if (finished || recRestarting) return
+      if (assistantPlayback) {
+        if (!recognitionAlive) startRecognition()
+        return
+      }
+      if (recognitionHeld()) return
       const text = assembled().trim()
       const stableFor = performance.now() - lastTextChangeAt
       if (text) {
-        if (stableFor >= STUCK_TRANSCRIPT_MS) commit(text)
+        if (looksIncompleteUtterance(text)) {
+          tryCommitFromSilence(lastVoiceAt)
+          return
+        }
+        if (!speechActive && stableFor >= STUCK_TRANSCRIPT_MS) commit(text)
         return
       }
       if (speechActive) return
@@ -628,40 +941,50 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         playbackApplied = active
         playbackEchoGuardMs = echoGuardMs
         assistantPlayback = active
-        // Never arm playback barge-in. Laptop speaker + built-in mic cannot
-        // reliably tell TTS echo from the user (browser AEC still leaks the
-        // same-language female voice). She talks to the end; click the moon
-        // to stop. After playback, echo-guard then listen.
-        playbackBargeIn = false
+        // The mic stays hot while she speaks so the user can cut in like on
+        // a real call. Energy alone cannot tell her voice from theirs
+        // (laptop speaker + built-in mic, same-language female voice), so
+        // the decision is made on the transcript: anything matching what we
+        // are playing is dropped as echo, anything else interrupts.
+        playbackBargeIn = active && !!callbacks.onBargeIn
         window.clearTimeout(echoTimer)
         bargeVoiceSince = 0
         if (active) {
+          recycleAfterPlayback = false
           finals = ''
           interim = ''
           firstTextAt = 0
           lastTextChangeAt = performance.now()
           callbacks.onInterim?.('')
-          muteMic(true)
-          recRestarting = true
-          try {
-            recognition?.stop()
-          } catch {
-            /* already stopped */
-          }
+          muteMic(!playbackBargeIn)
+          recRestarting = false
+          // Keep the recognizer warm. Stopping it here forces a cold Windows
+          // SR start after every reply (0.5–2s before the next caption).
+          // The mic is muted; onresult is ignored while assistantPlayback.
           return
         }
         playbackBargeIn = false
+        lastPlaybackEndedAt = performance.now()
         muteMic(false)
         echoGuardUntil = performance.now() + Math.max(0, echoGuardMs)
+        recycleAfterPlayback = false
+        ensureRecognitionRunning(false)
         echoTimer = window.setTimeout(() => {
           if (finished || assistantPlayback) return
-          if (!recognitionAlive) restartRecognition()
+          ensureRecognitionRunning(false)
         }, Math.max(0, echoGuardMs))
       },
       setCommitPaused: (paused: boolean) => {
         if (paused === commitPausedApplied) return
         commitPausedApplied = paused
         commitPaused = paused
+        if (paused) {
+          finals = ''
+          interim = ''
+          firstTextAt = 0
+          lastTextChangeAt = performance.now()
+          callbacks.onInterim?.('')
+        }
       },
       setBargeInActive: (active: boolean) => {
         if (active === bargeInActiveApplied) return
@@ -673,6 +996,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (finished || recognitionHeld() || recRestarting) return
         const text = assembled().trim()
         if (text) {
+          if (looksIncompleteUtterance(text)) return
           commit(text)
           return
         }
@@ -682,13 +1006,35 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           held: recognitionHeld(),
           restarting: recRestarting,
           msSinceStart: performance.now() - lastStartAt,
+          minSessionMs: lastPlaybackEndedAt > 0 && performance.now() - lastPlaybackEndedAt < 15_000
+            ? STALL_RESTART_AFTER_PLAYBACK_MS
+            : STALL_RESTART_AFTER_MS,
         })) return
+        if (recognitionAlive && lastPlaybackEndedAt > 0 && performance.now() - lastPlaybackEndedAt < 15_000) return
         lastRecognitionPulseAt = performance.now()
         restartRecognition(false)
       },
       forceCommit: () => {
+        if (speechActive || assistantPlayback || commitPaused) return
         const text = assembled().trim()
-        if (text) commit(text)
+        if (!text) return
+        if (looksIncompleteUtterance(text)) return
+        commit(text)
+      },
+      resumeCapture: () => {
+        if (finished) return
+        void context?.resume()
+        if (assistantPlayback) return
+        muteMic(false)
+        stream?.getAudioTracks().forEach(track => {
+          track.enabled = true
+        })
+        meterStream?.getAudioTracks().forEach(track => {
+          track.enabled = true
+        })
+        if (recRestarting) return
+        recycleAfterPlayback = false
+        ensureRecognitionRunning(false)
       },
     }
   })().catch(error => {

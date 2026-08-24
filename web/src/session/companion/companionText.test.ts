@@ -51,12 +51,12 @@ describe('cleanForSpeech', () => {
 })
 
 describe('segmentForSpeech', () => {
-  test('splits on terminal punctuation and newlines', () => {
-    expect(segmentForSpeech('第一句。第二句？第三句！\n第四行')).toEqual(['第一句。', '第二句？', '第三句！', '第四行'])
+  test('keeps a conversational reply as one continuous clip', () => {
+    expect(segmentForSpeech('第一句。第二句？第三句！\n第四行')).toEqual(['第一句。第二句？第三句！第四行'])
   })
 
-  test('caps each segment at 500 chars with comma re-split', () => {
-    const long = `${'前'.repeat(300)}，${'后'.repeat(300)}。`
+  test('caps each segment at 1200 chars with comma re-split', () => {
+    const long = `${'前'.repeat(700)}，${'后'.repeat(700)}。`
     const segments = segmentForSpeech(long)
     expect(segments.length).toBeGreaterThan(1)
     for (const segment of segments) expect(Array.from(segment).length).toBeLessThanOrEqual(MAX_SEGMENT_CHARS)
@@ -64,7 +64,7 @@ describe('segmentForSpeech', () => {
   })
 
   test('truncates at 20 segments and appends the notice', () => {
-    const segments = segmentForSpeech(Array.from({ length: 30 }, (_, i) => `第${i}句。`).join(''))
+    const segments = segmentForSpeech(Array.from({ length: 30 }, () => `${'字'.repeat(80)}。`).join(''))
     expect(segments.length).toBe(MAX_SEGMENTS)
     expect(segments[MAX_SEGMENTS - 1]).toContain('后续内容请看字幕')
   })
@@ -73,7 +73,7 @@ describe('segmentForSpeech', () => {
 describe('prepareSpeech', () => {
   test('cleans before segmenting so code bodies are never read aloud', () => {
     const segments = prepareSpeech('```\nsecret()\n```\n好的。')
-    expect(segments).toEqual(['代码已省略', '好的。'])
+    expect(segments).toEqual(['代码已省略好的。'])
   })
 
   test('merges short acknowledgement segments for smoother playback', () => {
@@ -82,58 +82,47 @@ describe('prepareSpeech', () => {
 })
 
 describe('takeSpeakableChunk', () => {
-  test('starts the first utterance once enough unpunctuated text has arrived', () => {
+  test('does not speak unpunctuated fragments until a sentence lands', () => {
     expect(takeSpeakableChunk('你', true)).toBeNull()
-    expect(takeSpeakableChunk('你好', true)).toEqual({
-      text: '你好',
-      consumed: '你好'.length,
-    })
-    expect(takeSpeakableChunk('你好月汐', true)).toEqual({
-      text: '你好',
-      consumed: 2,
-    })
-    expect(takeSpeakableChunk('月汐', true)).toEqual({
-      text: '月汐',
-      consumed: 2,
-    })
+    expect(takeSpeakableChunk('你好', true)).toBeNull()
+    expect(takeSpeakableChunk('你好月汐', true)).toBeNull()
+    expect(takeSpeakableChunk('今晚，', true)).toBeNull()
+    expect(takeSpeakableChunk('今晚月色真的很好，', true)).toBeNull()
+  })
+
+  test('speaks a whole sentence in one clip, including commas', () => {
     const sentence = '你好，我是月汐，你的私人助理。'
     expect(takeSpeakableChunk(sentence, true)).toEqual({
       text: sentence,
       consumed: sentence.length,
     })
-  })
-
-  test('speaks a short first comma clause once it is long enough', () => {
-    expect(takeSpeakableChunk('你，', true)).toBeNull()
-    expect(takeSpeakableChunk('今晚，', true)).toEqual({
-      text: '今晚，',
-      consumed: '今晚，'.length,
-    })
     expect(takeSpeakableChunk('今晚是满月，适合抬头看看。', true)).toEqual({
       text: '今晚是满月，适合抬头看看。',
       consumed: '今晚是满月，适合抬头看看。'.length,
     })
-  })
-
-  test('speaks a long first comma clause without waiting for the rest', () => {
-    expect(takeSpeakableChunk('今晚月色真的很好，', true)).toEqual({
-      text: '今晚月色真的很好，',
-      consumed: '今晚月色真的很好，'.length,
+    expect(takeSpeakableChunk('今晚月色真的很好，适合出门走走。', true)).toEqual({
+      text: '今晚月色真的很好，适合出门走走。',
+      consumed: '今晚月色真的很好，适合出门走走。'.length,
     })
   })
 
   test('keeps later chunks as whole sentences so playback is not chopped', () => {
-    expect(takeSpeakableChunk('然后我再', false)).toBeNull()
+    expect(takeSpeakableChunk('然后我', false)).toBeNull()
     expect(takeSpeakableChunk('然后我再给你一些建议。最后总结。', false)).toEqual({
-      text: '然后我再给你一些建议。',
-      consumed: '然后我再给你一些建议。'.length,
+      text: '然后我再给你一些建议。最后总结。',
+      consumed: '然后我再给你一些建议。最后总结。'.length,
     })
   })
 
   test('force-flushes a stalled unpunctuated tail so later turns do not hang the voice', () => {
-    expect(takeSpeakableChunk('然后我再', false, true)).toEqual({
-      text: '然后我再',
-      consumed: '然后我再'.length,
+    expect(takeSpeakableChunk('你', true, true)).toBeNull()
+    expect(takeSpeakableChunk('你好月汐', true, true)).toEqual({
+      text: '你好月汐',
+      consumed: '你好月汐'.length,
+    })
+    expect(takeSpeakableChunk('然后我再给你', false, true)).toEqual({
+      text: '然后我再给你',
+      consumed: '然后我再给你'.length,
     })
   })
 })
@@ -142,9 +131,32 @@ describe('looksIncompleteUtterance', () => {
   test('flags mid-command tails and short fragments', () => {
     expect(looksIncompleteUtterance('帮我在桌面儿')).toBe(true)
     expect(looksIncompleteUtterance('帮我打开桌面。')).toBe(false)
-    expect(looksIncompleteUtterance('好的')).toBe(true)
+    expect(looksIncompleteUtterance('好的')).toBe(false)
+    expect(looksIncompleteUtterance('帮我打开桌面')).toBe(false)
     expect(looksIncompleteUtterance('你好月汐')).toBe(false)
     expect(looksIncompleteUtterance('你好')).toBe(false)
+    expect(looksIncompleteUtterance('你可以')).toBe(true)
+    expect(looksIncompleteUtterance('帮我')).toBe(true)
+    expect(looksIncompleteUtterance('你能')).toBe(true)
+    expect(looksIncompleteUtterance('你可以帮我')).toBe(true)
+    expect(looksIncompleteUtterance('你能帮我')).toBe(true)
+    expect(looksIncompleteUtterance('请你帮我')).toBe(true)
+    expect(looksIncompleteUtterance('合肥的')).toBe(true)
+    expect(looksIncompleteUtterance('合肥的天气怎么样')).toBe(false)
+  })
+
+  test('treats sentence-final particles and question words as whole turns', () => {
+    // These used to wait out the 1.6–2.2s incomplete hold before sending.
+    expect(looksIncompleteUtterance('我知道了')).toBe(false)
+    expect(looksIncompleteUtterance('太好了')).toBe(false)
+    expect(looksIncompleteUtterance('你在干什么')).toBe(false)
+    expect(looksIncompleteUtterance('你现在在哪儿')).toBe(false)
+    expect(looksIncompleteUtterance('这个多少钱')).toBe(false)
+    expect(looksIncompleteUtterance('可以帮我看看吗')).toBe(false)
+    // Real dangling words still wait for the rest of the sentence.
+    expect(looksIncompleteUtterance('我想去')).toBe(true)
+    expect(looksIncompleteUtterance('帮我查')).toBe(true)
+    expect(looksIncompleteUtterance('明天的')).toBe(true)
   })
 })
 

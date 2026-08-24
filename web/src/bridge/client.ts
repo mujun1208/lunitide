@@ -233,7 +233,27 @@ export function createProviderBridge(transport: WebViewTransport, defaultDeadlin
  const request=<T>(method:BridgeMethod,payload:object,deadlineMs=defaultDeadlineMs,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid();const mutation=mutationMethods.has(method)?checkedAttempt(method as MutationMethod,payload,attempt):undefined;const secretSubmission=method==='provider.credential.submit';const outgoing=mutation?.payload??(secretSubmission?payload:clone(payload));const message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId:ulid(),method,sentAt:new Date().toISOString(),payload:outgoing,deadlineMs:Math.min(30_000,Math.max(1,deadlineMs)),...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,message.traceId))},message.deadlineMs+250);pending.set(id,{method,resolve,reject,timer});try{transport.postMessage(message);if(secretSubmission&&isObj(outgoing)&&typeof outgoing.credential==='string')outgoing.credential=''}catch{clearTimeout(timer);pending.delete(id);if(secretSubmission&&isObj(outgoing)&&typeof outgoing.credential==='string')outgoing.credential='';reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,message.traceId))}})}
  return {get:p=>request('provider.get',p),list:(p={})=>request('provider.list',p),create:(p,o)=>request('provider.create',p,defaultDeadlineMs,o?.attempt),update:(p,o)=>request('provider.update',p,defaultDeadlineMs,o?.attempt),delete:(p,o)=>request('provider.delete',p,defaultDeadlineMs,o?.attempt),revealCredential:p=>request('provider.credential.reveal',p),submitCredential:p=>request('provider.credential.submit',p),syncModels:(p,o)=>request('provider.model.sync',p,30_000,o?.attempt),test:p=>request('provider.test',p,30_000)}
 }
-function webview():WebViewTransport{const v=window.chrome?.webview;if(!v)throw new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,'renderer');return v}
+// A bridge call must never throw synchronously: most facades below are
+// reached from React render paths and effects, where a throw unmounts the
+// whole tree and leaves a blank window. Resolving the host object lazily
+// keeps every facade constructible before WebView2 exists — the failure
+// then travels the normal postMessage path, which already rejects with
+// BRIDGE_UNAVAILABLE. Listeners registered too early are replayed once the
+// host object appears, so a late WebView2 does not strand the singletons.
+const earlyListeners:Array<(event:MessageEvent<BridgeResponse>)=>void>=[]
+let boundHost:WebViewTransport|undefined
+function host():WebViewTransport|undefined{
+ const v=window.chrome?.webview
+ if(!v)return undefined
+ if(boundHost!==v){boundHost=v;for(const listener of earlyListeners)v.addEventListener('message',listener)}
+ return v
+}
+const lazyTransport:WebViewTransport={
+ postMessage(value){const v=host();if(!v)throw new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,'renderer');v.postMessage(value)},
+ addEventListener(type,listener){const v=host();if(v)v.addEventListener(type,listener);else earlyListeners.push(listener)},
+ removeEventListener(type,listener){const v=host();if(v)v.removeEventListener(type,listener);const at=earlyListeners.indexOf(listener);if(at>=0)earlyListeners.splice(at,1)},
+}
+function webview():WebViewTransport{return lazyTransport}
 export function createUIThemeBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):UIThemeBridge{const core=createSimpleBridge(transport,{},defaultDeadlineMs);return{set:p=>core.request('ui.theme.set',p)}}
 let uiThemeSingleton:UIThemeBridge|undefined
 export function getUIThemeBridge():UIThemeBridge{return uiThemeSingleton??=createUIThemeBridge(webview())}

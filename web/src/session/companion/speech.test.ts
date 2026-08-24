@@ -23,7 +23,15 @@ import {
   idleMeterLevel,
   shouldRestartStalledRecognition,
   speechEngineHint,
+  shouldShowSpeechSetupHint,
   STALL_RESTART_AFTER_MS,
+  overlayTranscript,
+  pickRecognitionTranscript,
+  shouldCommitIncomplete,
+  INCOMPLETE_HOLD_MS,
+  INCOMPLETE_HARD_MS,
+  shouldBargeInOverPlayback,
+  BARGE_IN_MIN_CHARS,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -57,14 +65,51 @@ describe('endpointingForText', () => {
       stableMs: UTTERANCE_STABLE_MS,
       silenceMs: UTTERANCE_SILENCE_MS,
     })
+    expect(looksIncompleteUtterance('帮我打开桌面')).toBe(false)
+    expect(endpointingForText('帮我打开桌面', speechProfile('normal'))).toEqual({
+      stableMs: UTTERANCE_STABLE_MS,
+      silenceMs: UTTERANCE_SILENCE_MS,
+    })
   })
 })
 
 describe('shouldDeferCommit', () => {
   test('waits briefly before accepting a non-terminal phrase', () => {
-    expect(shouldDeferCommit('帮我在桌面', 40)).toBe(true)
+    expect(shouldDeferCommit('帮我在桌面', MIN_UTTERANCE_MS - 1)).toBe(true)
     expect(shouldDeferCommit('帮我在桌面', MIN_UTTERANCE_MS)).toBe(false)
     expect(shouldDeferCommit('好的。', 100)).toBe(false)
+  })
+})
+
+describe('shouldCommitIncomplete', () => {
+  test('does not commit「你可以」on a short pause or while speech is still active', () => {
+    expect(shouldCommitIncomplete({
+      silentForMs: INCOMPLETE_SILENCE_MS,
+      silenceMs: INCOMPLETE_SILENCE_MS,
+      msSinceLastResult: 700,
+      speechActive: false,
+    })).toBe(false)
+    expect(shouldCommitIncomplete({
+      silentForMs: 2000,
+      silenceMs: INCOMPLETE_SILENCE_MS,
+      msSinceLastResult: INCOMPLETE_HOLD_MS,
+      speechActive: true,
+    })).toBe(false)
+  })
+
+  test('commits a fragment only after tokens go stale and the mic is quiet', () => {
+    expect(shouldCommitIncomplete({
+      silentForMs: INCOMPLETE_SILENCE_MS,
+      silenceMs: INCOMPLETE_SILENCE_MS,
+      msSinceLastResult: INCOMPLETE_HOLD_MS,
+      speechActive: false,
+    })).toBe(true)
+    expect(shouldCommitIncomplete({
+      silentForMs: 200,
+      silenceMs: INCOMPLETE_SILENCE_MS,
+      msSinceLastResult: INCOMPLETE_HARD_MS,
+      speechActive: true,
+    })).toBe(true)
   })
 })
 
@@ -101,8 +146,8 @@ describe('shouldHoldRecognition', () => {
   })
 
   test('echo guard balances fast re-listen with speaker ring-out', () => {
-    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(350)
-    expect(ECHO_GUARD_MS).toBeLessThanOrEqual(700)
+    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(80)
+    expect(ECHO_GUARD_MS).toBeLessThanOrEqual(300)
   })
 })
 
@@ -164,8 +209,14 @@ describe('shouldRestartStalledRecognition', () => {
     })).toBe(false)
     expect(shouldRestartStalledRecognition({
       speechActive: false, hasText: false, held: false, restarting: false, msSinceStart: 1800,
+    })).toBe(false)
+    expect(shouldRestartStalledRecognition({
+      speechActive: false, hasText: false, held: false, restarting: false, msSinceStart: 8000,
     })).toBe(true)
-    expect(STALL_RESTART_AFTER_MS).toBeLessThanOrEqual(2000)
+    expect(STALL_RESTART_AFTER_MS).toBeGreaterThanOrEqual(6000)
+    expect(shouldRestartStalledRecognition({
+      speechActive: false, hasText: false, held: false, restarting: false, msSinceStart: 1200, minSessionMs: 1200,
+    })).toBe(true)
   })
 })
 
@@ -173,5 +224,60 @@ describe('speechEngineHint', () => {
   test('does not treat aborted as a user-facing failure', () => {
     expect(speechEngineHint('aborted')).toBe('')
     expect(speechEngineHint('audio-capture')).toMatch(/麦克风/)
+  })
+})
+
+describe('shouldShowSpeechSetupHint', () => {
+  test('hides Windows setup copy once this visit has already recognized speech', () => {
+    expect(shouldShowSpeechSetupHint({
+      listening: true, hasInterim: false, listenSeconds: 25, heardThisVisit: false, hasUserRound: false,
+    })).toBe(true)
+    expect(shouldShowSpeechSetupHint({
+      listening: true, hasInterim: false, listenSeconds: 25, heardThisVisit: true, hasUserRound: false,
+    })).toBe(false)
+    expect(shouldShowSpeechSetupHint({
+      listening: true, hasInterim: false, listenSeconds: 25, heardThisVisit: false, hasUserRound: true,
+    })).toBe(false)
+    expect(shouldShowSpeechSetupHint({
+      listening: true, hasInterim: true, listenSeconds: 25, heardThisVisit: false, hasUserRound: false,
+    })).toBe(false)
+  })
+})
+
+describe('overlayTranscript', () => {
+  test('lets a longer interim replace a prefix final instead of duplicating it', () => {
+    expect(overlayTranscript('今天合肥', '今天合肥的天气怎么样')).toBe('今天合肥的天气怎么样')
+    expect(overlayTranscript('打开桌面', '打开桌面')).toBe('打开桌面')
+    expect(overlayTranscript('你好', '')).toBe('你好')
+  })
+})
+
+describe('pickRecognitionTranscript', () => {
+  test('picks the highest-confidence alternative', () => {
+    expect(pickRecognitionTranscript({
+      0: { transcript: '今天合肥的天气怎么养', confidence: 0.4 },
+      1: { transcript: '今天合肥的天气怎么样', confidence: 0.91 },
+      length: 2,
+    })).toBe('今天合肥的天气怎么样')
+  })
+})
+
+describe('shouldBargeInOverPlayback', () => {
+  const spoken = '今天合肥多云，气温二十六度，出门记得带把伞。'
+
+  test('lets the user cut in while she is speaking', () => {
+    expect(shouldBargeInOverPlayback('等一下', spoken)).toBe(true)
+    expect(shouldBargeInOverPlayback('换个话题', spoken)).toBe(true)
+  })
+
+  test('ignores her own voice coming back through the speaker', () => {
+    expect(shouldBargeInOverPlayback('气温二十六度', spoken)).toBe(false)
+    expect(shouldBargeInOverPlayback('出门记得带把伞', spoken)).toBe(false)
+  })
+
+  test('needs real words, not a one-character blip', () => {
+    expect(shouldBargeInOverPlayback('嗯', spoken)).toBe(false)
+    expect(shouldBargeInOverPlayback('', spoken)).toBe(false)
+    expect(BARGE_IN_MIN_CHARS).toBe(2)
   })
 })

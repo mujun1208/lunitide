@@ -47,6 +47,12 @@ type edgeEngine struct {
 	voices    []Voice
 	voicesAt  time.Time
 	clockSkew time.Duration
+
+	// Warm synthesis socket. A fresh TLS+WebSocket handshake costs
+	// 150–300ms on every sentence, which lands as dead air before the
+	// companion speaks; the connection is kept between turns instead.
+	connMu sync.Mutex
+	conn   *edgeConn
 }
 
 // NewEdgeEngine talks to Microsoft's free Read Aloud endpoint.
@@ -222,20 +228,71 @@ func edgeSSML(in SynthesizeInput) string {
 	if style == "" && edgeVoiceSupportsChatStyle(voice) {
 		style = "chat"
 	}
-	inner := `<prosody rate="` + signedPercent(ratePct) + `" pitch="+6%" volume="` + strconv.Itoa(vol) + `">` +
+	expr := edgeExpressionFor(voice, style, in.Text)
+	inner := `<prosody rate="` + signedPercent(ratePct) + `" pitch="` + expr.pitch + `" volume="` + strconv.Itoa(vol) + `">` +
 		text.String() +
 		`</prosody>`
-	if style != "" {
-		inner = `<mstts:express-as style="` + xmlEscapeAttr(style) + `" styledegree="1.2">` + inner + `</mstts:express-as>`
+	if expr.style != "" {
+		inner = `<mstts:express-as style="` + xmlEscapeAttr(expr.style) + `" styledegree="` + expr.degree + `">` + inner + `</mstts:express-as>`
 	}
 	ns := `xmlns="http://www.w3.org/2001/10/synthesis"`
-	if style != "" {
+	if expr.style != "" {
 		ns += ` xmlns:mstts="https://www.w3.org/2001/mstts"`
 	}
 	return `<speak version="1.0" ` + ns + ` xml:lang="` + lang + `">` +
 		`<voice name="` + voice + `">` +
 		inner +
 		`</voice></speak>`
+}
+
+// edgeExpression is how one utterance is delivered: the persona style, how
+// strongly it is applied, and the pitch. Reading a whole call with one
+// fixed setting is what makes cloud TTS sound like a reader rather than
+// someone talking, so each clip is tuned to its own sentence.
+type edgeExpression struct {
+	style  string
+	degree string
+	pitch  string
+}
+
+var (
+	edgeCheerfulHints = []string{"太好了", "真棒", "恭喜", "哈哈", "开心", "好耶", "不错", "喜欢", "期待", "厉害", "当然"}
+	edgeGentleHints   = []string{"别担心", "没关系", "慢慢来", "辛苦了", "早点休息", "好好休息", "注意身体", "抱歉", "对不起", "不好意思", "难过", "陪着你"}
+)
+
+func edgeExpressionFor(voice, style, text string) edgeExpression {
+	expr := edgeExpression{style: style, degree: "1.5", pitch: "+6%"}
+	switch {
+	case edgeTextHasAny(text, edgeCheerfulHints) || strings.Contains(text, "！"):
+		expr.degree, expr.pitch = "1.8", "+10%"
+		if edgeStyleIsNeutral(style) && edgeVoiceSupportsStyle(voice, "cheerful") {
+			expr.style = "cheerful"
+		}
+	case edgeTextHasAny(text, edgeGentleHints):
+		expr.degree, expr.pitch = "1.2", "+2%"
+		if edgeStyleIsNeutral(style) && edgeVoiceSupportsStyle(voice, "gentle") {
+			expr.style = "gentle"
+		}
+	case strings.ContainsAny(text, "？?"):
+		expr.degree, expr.pitch = "1.6", "+9%"
+	}
+	return expr
+}
+
+// edgeStyleIsNeutral marks the plain conversational personas — the only
+// ones a sentence may move away from. An explicit 「轻柔耳语」/「新闻播报」
+// pick belongs to the user and is never overridden.
+func edgeStyleIsNeutral(style string) bool {
+	return style == "" || style == "chat" || style == "assistant"
+}
+
+func edgeTextHasAny(text string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func edgeVoiceSupportsChatStyle(voice string) bool {

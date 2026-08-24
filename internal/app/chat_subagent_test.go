@@ -263,3 +263,98 @@ func TestParallelSubagentFuturesBoundedAtThree(t *testing.T) {
 		<-ch
 	}
 }
+
+// Overlapping the reads must not reorder them: the tool protocol pairs each
+// result with its call by position as well as by id, so a concurrency bug
+// here would hand the model another call's output.
+func TestSubagentToolCallsKeepCallOrder(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	profile, _, ok := resolveSubagentProfile(subTestPolicy(), "explore")
+	if !ok {
+		t.Fatal("explore profile missing")
+	}
+	allowed := map[string]bool{"workspace.list": true, "workspace.read": true}
+	calls := []gateway.ToolCall{
+		{ID: "a", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`)},
+		{ID: "b", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"x","content":"y"}`)},
+		{ID: "c", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`)},
+		{ID: "d", Name: "workspace.read", Arguments: json.RawMessage(`{"path":"missing.txt"}`)},
+	}
+	msgs := e.runSubagentToolCalls(context.Background(), subTestSession, profile, allowed, calls)
+	if len(msgs) != len(calls) {
+		t.Fatalf("got %d messages for %d calls", len(msgs), len(calls))
+	}
+	for i, m := range msgs {
+		if m.ToolCallID != calls[i].ID {
+			t.Fatalf("message %d carries id %q, want %q", i, m.ToolCallID, calls[i].ID)
+		}
+		if m.Role != gateway.RoleTool {
+			t.Fatalf("message %d role = %q", i, m.Role)
+		}
+	}
+	// A tool outside the profile is refused rather than silently executed,
+	// and the refusal stays on its own call.
+	if !strings.Contains(msgs[1].Content, "not allowed") {
+		t.Fatalf("write call was not refused: %q", msgs[1].Content)
+	}
+}
+
+// neverFinishesAdapter keeps calling tools for as long as it is offered any,
+// which is how a subagent burns its whole step budget. Once the tools are
+// taken away it can only answer in prose.
+type neverFinishesAdapter struct {
+	calls       int
+	toollessReq bool
+}
+
+func (a *neverFinishesAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+	a.calls++
+	if len(req.Tools) == 0 {
+		a.toollessReq = true
+		return gateway.Response{
+			Message: gateway.Message{Content: "partial findings: read 3 files, the config still needs checking"},
+			Usage:   gateway.Usage{TotalTokens: 7},
+		}, nil
+	}
+	return gateway.Response{
+		Message: gateway.Message{ToolCalls: []gateway.ToolCall{{
+			ID: "loop", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`),
+		}}},
+		Usage: gateway.Usage{TotalTokens: 3},
+	}, nil
+}
+
+func (a *neverFinishesAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
+	return gateway.Response{}, errors.New("not used")
+}
+
+func (a *neverFinishesAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, errors.New("not used")
+}
+
+// Hitting the step ceiling used to throw away every tool result the subagent
+// had already paid for and hand the parent an error. The findings have to
+// survive instead.
+func TestSubagentOutOfStepsStillReportsWhatItFound(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	adapter := &neverFinishesAdapter{}
+	profile, _, ok := resolveSubagentProfile(subTestPolicy(), "explore")
+	if !ok {
+		t.Fatal("explore profile missing")
+	}
+	report, spent, err := e.executeSubagentLoop(context.Background(), adapter, nil, "model-x", subTestSession, "survey", subagentDefaultBudgetTokens, profile)
+	if err != nil {
+		t.Fatalf("exhausted subagent returned an error instead of a report: %v", err)
+	}
+	if !strings.Contains(report, "partial findings") {
+		t.Fatalf("report = %q", report)
+	}
+	if !adapter.toollessReq {
+		t.Fatal("the closing call still offered tools, so the model could keep looping")
+	}
+	// Every step plus the closing call is billed, so the parent's budget
+	// accounting stays honest.
+	if want := int64(profile.MaxSteps*3 + 7); spent != want {
+		t.Fatalf("spent = %d, want %d", spent, want)
+	}
+}
