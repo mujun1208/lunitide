@@ -63,10 +63,18 @@ jobs:
       - name: Select MinGW compiler
         shell: pwsh
         run: |
-          $gcc = Get-ChildItem C:\ProgramData\chocolatey\lib\mingw\tools -Filter gcc.exe -Recurse | Select-Object -First 1
-          if (-not $gcc) { throw "Pinned MinGW gcc.exe was not installed" }
+          # Only the roots chocolatey unpacks the pinned package into, so the
+          # toolchain stays the one the step above installed rather than
+          # whatever gcc the runner image happens to ship.
+          $roots = @('C:\ProgramData\mingw64', 'C:\ProgramData\chocolatey\lib\mingw\tools')
+          $gcc = $roots |
+            Where-Object { Test-Path $_ } |
+            ForEach-Object { Get-ChildItem $_ -Filter gcc.exe -Recurse -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+          if (-not $gcc) { throw "Pinned MinGW gcc.exe was not found under: $($roots -join ', ')" }
           $gcc.Directory.FullName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          & $gcc.FullName --version
       - name: Run Go race tests
         run: go test -race ./...
       - name: Race-test authentic Electron credential adoption
