@@ -1,2 +1,8 @@
 migrations/*.sql text eol=lf
 
+# The generator writes LF and `npm run verify:bridge` byte-compares its output
+# against these files. Without a pinned eol they check out as CRLF on Windows,
+# and every one of them reports drift that does not exist.
+web/src/generated/bridge.ts text eol=lf
+internal/bridge/schema_generated.go text eol=lf
+internal/contract/schema_generated_test.go text eol=lf
