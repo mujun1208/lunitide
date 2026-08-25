@@ -14,10 +14,7 @@ import { startLocalAsr, type LocalAsrHandle } from './localAsr'
 import { MOON_RING_BINS } from './MoonSphere'
 import {
   ECHO_GUARD_MS,
-  endpointingForText,
-  shouldCommitIncomplete,
-  shouldCommitStable,
-  shouldCommitUtterance,
+  localTurnEnded,
   shouldDeferCommit,
   speechProfile,
   type CompanionSpeechHandle,
@@ -114,14 +111,14 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     const trimmed = text.trim()
     if (!trimmed) return
     const now = Date.now()
-    const sinceText = now - lastTextAt
     if (shouldDeferCommit(trimmed, now - textSince)) return
-    const { stableMs, silenceMs } = endpointingForText(trimmed, profile)
-    const silentForMs = lastVoiceAt ? now - lastVoiceAt : 0
-    const ready = looksIncompleteUtterance(trimmed)
-      ? shouldCommitIncomplete({ silentForMs, silenceMs, msSinceLastResult: sinceText, speechActive })
-      : shouldCommitUtterance(true, silentForMs, silenceMs) || shouldCommitStable(true, sinceText, stableMs)
-    if (ready) void recycle('final')
+    const ended = localTurnEnded({
+      speechActive,
+      silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
+      msSinceLastResult: now - lastTextAt,
+      incomplete: looksIncompleteUtterance(trimmed),
+    })
+    if (ended) void recycle('final')
   }
 
   asr = await startLocalAsr({

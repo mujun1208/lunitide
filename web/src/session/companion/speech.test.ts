@@ -28,6 +28,10 @@ import {
   shouldCommitIncomplete,
   INCOMPLETE_HOLD_MS,
   INCOMPLETE_HARD_MS,
+  localTurnEnded,
+  LOCAL_SILENCE_MS,
+  LOCAL_INCOMPLETE_SILENCE_MS,
+  LOCAL_TEXT_SETTLE_MS,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -244,6 +248,45 @@ describe('pickRecognitionTranscript', () => {
       1: { transcript: '今天合肥的天气怎么样', confidence: 0.91 },
       length: 2,
     })).toBe('今天合肥的天气怎么样')
+  })
+})
+
+describe('when a locally-recognized turn has ended', () => {
+  const stopped = {
+    speechActive: false,
+    silentForMs: LOCAL_SILENCE_MS + 50,
+    msSinceLastResult: LOCAL_TEXT_SETTLE_MS + 50,
+    incomplete: false,
+  }
+
+  test('ends once the room is quiet and the transcript has settled', () => {
+    expect(localTurnEnded(stopped)).toBe(true)
+  })
+
+  test('does not end while the speaker is still going', () => {
+    // The failure this exists for: the model stops emitting mid-sentence, the
+    // old rule read that as the end of the turn, and the sentence was answered
+    // half-said.
+    expect(localTurnEnded({ ...stopped, speechActive: true })).toBe(false)
+    expect(localTurnEnded({ ...stopped, silentForMs: 200 })).toBe(false)
+  })
+
+  test('does not end while the transcript is still growing', () => {
+    expect(localTurnEnded({ ...stopped, msSinceLastResult: 100 })).toBe(false)
+  })
+
+  test('gives an unfinished-sounding phrase longer to be finished', () => {
+    const incomplete = { ...stopped, incomplete: true }
+    expect(localTurnEnded(incomplete)).toBe(false)
+    expect(localTurnEnded({ ...incomplete, silentForMs: LOCAL_INCOMPLETE_SILENCE_MS + 50 })).toBe(true)
+  })
+
+  test('still ends on a microphone whose level never reaches the speech gate', () => {
+    // A quiet device, or noise suppression that flattens everything. Gating
+    // the turn on evidence the hardware cannot produce would leave that user
+    // waiting forever, so the transcript going quiet stands in for it.
+    expect(localTurnEnded({ ...stopped, silentForMs: undefined })).toBe(false)
+    expect(localTurnEnded({ ...stopped, silentForMs: undefined, msSinceLastResult: LOCAL_SILENCE_MS + 50 })).toBe(true)
   })
 })
 

@@ -85,14 +85,16 @@ export async function installLocalAsr(modelId?: string) {
 /**
  * Opens a recognition session and streams the microphone into it.
  *
- * Frames are dropped rather than queued when the engine falls behind. A
- * backlog would be the wrong repair: audio that arrives late is audio the
- * recognizer will transcribe after the user has stopped talking, and a queue
- * that grows during a stutter never drains within the utterance.
+ * The microphone is opened before the session rather than after it. Opening a
+ * session can mean waiting for the engine to load a model, which takes
+ * seconds; doing that first meant the user pressed the button, started
+ * talking, and was recorded by nothing at all until it finished. Audio
+ * captured in that window waits in the queue below and goes in as soon as
+ * there is somewhere to put it.
  */
 export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<LocalAsrHandle> {
   const bridge = getVoiceBridge()
-  let sessionId = (await bridge.start({ language: 'zh-CN' })).sessionId
+  let sessionId = ''
 
   let closed = false
   let muted = false
@@ -112,7 +114,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     if (closed) return
     const dying = sessionId
     stop()
-    void bridge.stop({ sessionId: dying }).catch(() => {})
+    if (dying) void bridge.stop({ sessionId: dying }).catch(() => {})
     callbacks.onError?.(error instanceof Error ? error : new Error(String(error)))
   }
 
@@ -149,7 +151,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
   }
 
   const pump = () => {
-    if (closed || swapping || inFlight) return
+    if (closed || swapping || inFlight || !sessionId) return
     const pcm = takePending()
     if (!pcm) return
     const owner = sessionId
@@ -180,32 +182,36 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     }
   }
 
+  capture = await startPcmCapture({
+    onFrame: frame => {
+      // The level drives the meter, so it is reported even while muted —
+      // otherwise the rings freeze every time the assistant speaks.
+      callbacks.onLevel?.(frame.peak)
+      if (closed || muted) return
+      pending.push({ base64: frame.base64, samples: frame.samples })
+      pendingSamples += frame.samples.length
+      // An engine that has fallen behind for this long is not going to
+      // catch up within the utterance, and an unbounded queue would trade
+      // the missing characters for growing memory and a caption drifting
+      // ever further behind the speaker.
+      while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
+        pendingSamples -= pending.shift()!.samples.length
+      }
+      pump()
+    },
+    onError: fail,
+  })
+
   try {
-    capture = await startPcmCapture({
-      onFrame: frame => {
-        // The level drives the meter, so it is reported even while muted —
-        // otherwise the rings freeze every time the assistant speaks.
-        callbacks.onLevel?.(frame.peak)
-        if (closed || muted) return
-        pending.push({ base64: frame.base64, samples: frame.samples })
-        pendingSamples += frame.samples.length
-        // An engine that has fallen behind for this long is not going to
-        // catch up within the utterance, and an unbounded queue would trade
-        // the missing characters for growing memory and a caption drifting
-        // ever further behind the speaker.
-        while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
-          pendingSamples -= pending.shift()!.samples.length
-        }
-        pump()
-      },
-      onError: fail,
-    })
+    sessionId = (await bridge.start({ language: 'zh-CN' })).sessionId
   } catch (error) {
-    // The session is already open on the engine side; leaving it there would
-    // hold the recognizer for a turn that never happens.
-    void bridge.stop({ sessionId }).catch(() => {})
+    // Nothing to retire on the engine side — the session never opened — but
+    // the microphone is ours and is already running.
+    stop()
     throw error
   }
+  // Whatever was said while the engine was loading its model.
+  pump()
 
   return {
     finish: async () => {

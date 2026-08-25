@@ -153,6 +153,52 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
   return hasText && stableForMs >= stableMs
 }
 
+/** Real silence that ends a locally-recognized turn. */
+export const LOCAL_SILENCE_MS = 700
+/** A phrase that reads as unfinished is given longer to be finished. */
+export const LOCAL_INCOMPLETE_SILENCE_MS = 1200
+/** A turn never ends while the transcript is still growing. */
+export const LOCAL_TEXT_SETTLE_MS = 280
+
+/**
+ * Whether a locally-recognized turn has ended.
+ *
+ * The cloud recognizer says so itself: Windows runs its own endpointing and
+ * marks a result final. A local streaming model says nothing of the kind. It
+ * emits text when it has text and goes quiet both when the speaker has
+ * finished and when it is merely between tokens, and the two look identical
+ * from here.
+ *
+ * Treating them as identical is what cut sentences in half. The shared rules
+ * end a turn after a fifth of a second of unchanged text, which for the cloud
+ * recognizer means the user stopped and for this one is an ordinary gap in
+ * the middle of a sentence — so a sentence was committed half-said, answered
+ * half-said, and the rest of it arrived during the reply and was discarded.
+ *
+ * The turn therefore ends on the room going quiet, agreed by two independent
+ * signals: the energy gate says nobody is speaking, and the transcript has
+ * stopped growing. Either alone is wrong — someone pausing for breath trips
+ * the first, and a model running behind the audio trips the second.
+ */
+export function localTurnEnded(input: {
+  speechActive: boolean
+  /** Undefined when the level has never crossed the speech gate. */
+  silentForMs: number | undefined
+  msSinceLastResult: number
+  incomplete: boolean
+}): boolean {
+  if (input.speechActive) return false
+  if (input.msSinceLastResult < LOCAL_TEXT_SETTLE_MS) return false
+  const quiet = input.incomplete ? LOCAL_INCOMPLETE_SILENCE_MS : LOCAL_SILENCE_MS
+  // A microphone whose level never reaches the speech gate — a quiet device,
+  // or aggressive noise suppression — still has to be able to end a turn.
+  // Requiring the energy signal outright would leave that user waiting
+  // forever for a reply, gated on evidence their hardware cannot produce, so
+  // the transcript going quiet stands in for it.
+  if (input.silentForMs === undefined) return input.msSinceLastResult >= quiet
+  return input.silentForMs >= quiet
+}
+
 export function endpointingForText(text: string, profile: SpeechProfile): { stableMs: number; silenceMs: number } {
   if (looksIncompleteUtterance(text)) {
     return { stableMs: INCOMPLETE_STABLE_MS, silenceMs: INCOMPLETE_SILENCE_MS }
