@@ -105,10 +105,14 @@ func TestStageBridgeMissingTypedNilAndProjectNotFound(t *testing.T) {
 		t.Fatalf("typed nil %#v", x)
 	}
 	real, _, _ := stageEngine(t)
+	// Minted after the engine rather than reused from above; see the note in
+	// TestSessionBridgeMissingTypedNilAndProjectNotFound. Standing up a real
+	// store outlives the request's three-second deadline under -race, and the
+	// call was refused as expired before it reached the project lookup.
+	r = validRequest("stage.create", `{"projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","phase":1,"title":"Alpha"}`)
 	r.IdempotencyKey = "missing-parent"
-	r.Payload = json.RawMessage(`{"projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","phase":1,"title":"Alpha"}`)
 	if x := real.Handle(context.Background(), r); x.OK || x.Error.Code != "PROJECT_NOT_FOUND" {
-		t.Fatalf("missing parent %#v", x)
+		t.Fatalf("missing parent: ok=%v error=%+v", x.OK, x.Error)
 	}
 }
 
