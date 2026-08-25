@@ -28,7 +28,6 @@ const speech = vi.hoisted(() => ({
     stop: speech.stop,
     setAssistantPlayback: vi.fn(),
     setCommitPaused: vi.fn(),
-    setBargeInActive: vi.fn(),
     pulseRecognition: vi.fn(),
     forceCommit: vi.fn(),
     resumeCapture: vi.fn(),

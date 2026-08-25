@@ -8,11 +8,9 @@ import {
   INCOMPLETE_STABLE_MS,
   INCOMPLETE_SILENCE_MS,
   MIN_UTTERANCE_MS,
-  BARGE_IN_HOLD_MS,
   ECHO_GUARD_MS,
   shouldCommitUtterance,
   shouldCommitStable,
-  shouldBargeIn,
   shouldHoldRecognition,
   shouldDeferCommit,
   endpointingForText,
@@ -125,18 +123,6 @@ describe('shouldCommitStable', () => {
   })
 })
 
-describe('shouldBargeIn', () => {
-  test('requires sustained voice once text is present', () => {
-    expect(shouldBargeIn(true, 0)).toBe(false)
-    expect(shouldBargeIn(true, BARGE_IN_HOLD_MS - 1)).toBe(false)
-    expect(shouldBargeIn(true, BARGE_IN_HOLD_MS)).toBe(true)
-  })
-
-  test('never fires without assembled text', () => {
-    expect(shouldBargeIn(false, BARGE_IN_HOLD_MS)).toBe(false)
-  })
-})
-
 describe('shouldHoldRecognition', () => {
   test('holds during playback unless playback barge-in is enabled', () => {
     expect(shouldHoldRecognition(true, 0, 1000)).toBe(true)
@@ -156,8 +142,8 @@ describe('speechProfile', () => {
     const noisy = speechProfile('noisy')
     const normal = speechProfile('normal')
     expect(noisy.voicePeak).toBeGreaterThan(normal.voicePeak)
-    expect(noisy.minVoiceHoldMs).toBeGreaterThan(0)
-    expect(normal.minVoiceHoldMs).toBe(0)
+    expect(noisy.utteranceSilenceMs).toBeLessThan(normal.utteranceSilenceMs)
+    expect(noisy.utteranceStableMs).toBeLessThan(normal.utteranceStableMs)
   })
 })
 

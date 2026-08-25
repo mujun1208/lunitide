@@ -677,7 +677,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     speechSyncRef.current = next
     handle.setCommitPaused(next.commitPaused)
     handle.setAssistantPlayback(next.playback, next.echoGuardMs)
-    handle.setBargeInActive(false)
   }, [])
 
   const releaseSpeakingTurn = useCallback(() => {
@@ -822,7 +821,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setInterimText('')
     void startCompanionSpeech({
       duplex: true,
-      bargeIn: false,
       environment: settingsRef.current.speechEnvironment,
       onInterim: transcript => {
         const next = transcript.trim()

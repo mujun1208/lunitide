@@ -61,15 +61,11 @@ export interface SpeechProfile {
   voicePeak: number
   utteranceSilenceMs: number
   utteranceStableMs: number
-  bargeInPeakDelta: number
-  minVoiceHoldMs: number
 }
 
 export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
   /** Keep mic + recognition alive between turns (phone-call loop). */
   duplex?: boolean
-  /** Kept for API compatibility; automatic voice barge-in is always off. */
-  bargeIn?: boolean
   /** Tighter endpointing when cafes / background voices are present. */
   environment?: SpeechEnvironment
 }
@@ -81,8 +77,6 @@ export interface CompanionSpeechHandle {
   setAssistantPlayback: (active: boolean, echoGuardMs?: number) => void
   /** Pause silence-based commit while thinking/speaking. */
   setCommitPaused: (paused: boolean) => void
-  /** No-op when false (default). Automatic voice barge-in stays off. */
-  setBargeInActive: (active: boolean) => void
   /** Restart the recognizer if it stalled (listening with no transcript). */
   pulseRecognition: () => void
   /** Force-send the current assembled transcript (fallback when endpointing stalls). */
@@ -126,8 +120,6 @@ export const STALL_RESTART_AFTER_PLAYBACK_MS = 500
 /** Energy above this (0–1 peak) counts as voice for endpointing.
  *  Low enough that quiet speech keeps the utterance open; idle rings stay below. */
 export const VOICE_PEAK = 0.03
-/** Stronger peak while assistant speaks — avoids TTS bleed despite AEC. */
-export const BARGE_IN_PEAK = 0.16
 
 export function speechProfile(environment: SpeechEnvironment = 'normal'): SpeechProfile {
   if (environment === 'noisy') {
@@ -135,29 +127,20 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
       voicePeak: 0.08,
       utteranceSilenceMs: 100,
       utteranceStableMs: 120,
-      bargeInPeakDelta: 0.04,
-      minVoiceHoldMs: 50,
     }
   }
   return {
     voicePeak: VOICE_PEAK,
     utteranceSilenceMs: UTTERANCE_SILENCE_MS,
     utteranceStableMs: UTTERANCE_STABLE_MS,
-      bargeInPeakDelta: 0.03,
-      minVoiceHoldMs: 0,
-    }
+  }
 }
-/** Sustained voice before a barge-in fires during thinking. Playback uses energy gate. */
-export const BARGE_IN_HOLD_MS = 90
 /** After TTS ends, ignore mic/SR until speaker ring-out dies.
  *  Laptop speakers + built-in mic leave 300–600ms of residual echo even
  *  with Chromium/WASAPI AEC — shorter guards transcribe her own voice. */
 export const ECHO_GUARD_MS = 90
 /** After a click interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 80
-
-/** Sustained loud voice during assistant TTS playback (energy-only barge-in). */
-export const BARGE_IN_PLAYBACK_HOLD_MS = 80
 
 /** Recognized characters needed to cut in while she is speaking. */
 export const BARGE_IN_MIN_CHARS = 2
@@ -184,10 +167,6 @@ export function shouldBargeInOverPlayback(heard: string, spoken: string, minChar
 export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number, allowPlaybackBargeIn = false): boolean {
   if (allowPlaybackBargeIn) return now < guardUntil
   return playback || now < guardUntil
-}
-
-export function shouldBargeInDuringPlayback(peak: number, voiceForMs: number, holdMs = BARGE_IN_PLAYBACK_HOLD_MS): boolean {
-  return peak >= BARGE_IN_PEAK && voiceForMs >= holdMs
 }
 
 export function shouldCommitUtterance(hasText: boolean, silentForMs: number, silenceMs = UTTERANCE_SILENCE_MS): boolean {
@@ -227,10 +206,6 @@ export function shouldCommitIncomplete(input: {
   if (input.msSinceLastResult < holdMs) return false
   if (input.speechActive && input.msSinceLastResult < hardMs) return false
   return input.silentForMs >= input.silenceMs || input.msSinceLastResult >= hardMs
-}
-
-export function shouldBargeIn(hasText: boolean, voiceForMs: number, holdMs = BARGE_IN_HOLD_MS): boolean {
-  return hasText && voiceForMs >= holdMs
 }
 
 export const PERMANENT_SPEECH_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported'])
@@ -309,8 +284,7 @@ export function speechEngineHint(error?: string): string {
 }
 
 export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
-  const { duplex = false, bargeIn: _unusedBargeIn = false, environment = 'normal', ...callbacks } = options
-  const bargeIn = false
+  const { duplex = false, environment = 'normal', ...callbacks } = options
   const profile = speechProfile(environment)
   const Recognition = speechRecognitionConstructor()
   if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
@@ -330,9 +304,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let recSilenceTimer = 0
   let restartTimer = 0
   let assistantPlayback = false
-  let bargeInActive = false
   let commitPaused = false
-  let bargeVoiceSince = 0
   let recRestarting = false
   let echoGuardUntil = 0
   let echoTimer = 0
@@ -340,7 +312,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let playbackApplied = false
   let playbackEchoGuardMs = ECHO_GUARD_MS
   let commitPausedApplied = false
-  let bargeInActiveApplied = false
   let lastResultAt = performance.now()
   let lastRecognitionPulseAt = 0
   let lastStartAt = 0
@@ -462,7 +433,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (clearTranscript) {
         finals = ''
         interim = ''
-        bargeVoiceSince = 0
         utteranceVoiceSince = 0
         firstTextAt = 0
         lastTextChangeAt = performance.now()
@@ -544,7 +514,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         callbacks.onFinal(text)
         finals = ''
         interim = ''
-        bargeVoiceSince = 0
         utteranceVoiceSince = 0
         firstTextAt = 0
         lastTextChangeAt = performance.now()
@@ -588,39 +557,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       finals = ''
       interim = ''
       callbacks.onBargeIn(text)
-    }
-    const tryBargeIn = (rawPeak: number) => {
-      if (finished || !duplex || !bargeIn || !bargeInActive || !callbacks.onBargeIn) return
-      const peak = rawPeak / 255
-      if (assistantPlayback) {
-        if (!playbackBargeIn) {
-          bargeVoiceSince = 0
-          return
-        }
-        if (peak >= BARGE_IN_PEAK) {
-          if (!bargeVoiceSince) bargeVoiceSince = performance.now()
-          else if (shouldBargeInDuringPlayback(peak, performance.now() - bargeVoiceSince)) {
-            bargeVoiceSince = 0
-            callbacks.onBargeIn(assembled().trim() || '')
-            restartRecognition()
-          }
-        } else bargeVoiceSince = 0
-        return
-      }
-      if (recognitionHeld()) {
-        bargeVoiceSince = 0
-        return
-      }
-      const text = assembled()
-      if (!text) return
-      if (peak >= profile.voicePeak + profile.bargeInPeakDelta) {
-        if (!bargeVoiceSince) bargeVoiceSince = performance.now()
-        else if (shouldBargeIn(true, performance.now() - bargeVoiceSince)) {
-          bargeVoiceSince = 0
-          callbacks.onBargeIn(text)
-          restartRecognition()
-        }
-      } else bargeVoiceSince = 0
     }
     const tryCommitFromSilence = (voiceAt: number) => {
       if (finished || commitPaused || recognitionHeld() || assistantPlayback) return
@@ -702,7 +638,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         voiceEnergyWithoutTextSince = 0
       }
       callbacks.onLevels?.(levels)
-      tryBargeIn(peak * 2)
       if (
         duplex &&
         !assistantPlayback &&
@@ -948,7 +883,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         // are playing is dropped as echo, anything else interrupts.
         playbackBargeIn = active && !!callbacks.onBargeIn
         window.clearTimeout(echoTimer)
-        bargeVoiceSince = 0
         if (active) {
           recycleAfterPlayback = false
           finals = ''
@@ -985,12 +919,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           lastTextChangeAt = performance.now()
           callbacks.onInterim?.('')
         }
-      },
-      setBargeInActive: (active: boolean) => {
-        if (active === bargeInActiveApplied) return
-        bargeInActiveApplied = active
-        bargeInActive = active
-        if (!active) bargeVoiceSince = 0
       },
       pulseRecognition: () => {
         if (finished || recognitionHeld() || recRestarting) return
