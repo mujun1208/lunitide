@@ -35,6 +35,13 @@ let sharedAudioContext: AudioContext | null = null
  */
 export const ENGINE_MAX_CHARS = 480
 
+/**
+ * How much of the sounding clip must remain before the tail is handed to the
+ * engine. Synthesis is a network round trip of a few hundred milliseconds, so
+ * a lead shorter than that guarantees the speaker runs dry waiting for it.
+ */
+const SYNTH_LEAD_SECONDS = 1.5
+
 /** Split on clause boundaries so an over-long reply still sounds natural. */
 export function splitForEngine(text: string): string[] {
   if (Array.from(text).length <= ENGINE_MAX_CHARS) return text.trim() ? [text] : []
@@ -115,6 +122,13 @@ export class TtsPlayer {
    *  ongoing, processed FIFO without interrupting the active segment. */
   private pendingSegments: Array<{ text: string; index: number }> = []
   private queueProcessing = false
+  /**
+   * A synthesis request for the streaming queue is in flight. Tracked
+   * separately from queueProcessing, which stays true for the whole reply:
+   * text arriving while the engine is busy should join the next clip, but
+   * text arriving while a clip is merely *playing* must not wait.
+   */
+  private inFlightSynths = 0
   private queueGeneration = 0
   private nextEnqueueIndex = 0
   private currentVoiceId = ''
@@ -146,14 +160,20 @@ export class TtsPlayer {
       }
     }
     if (!force) {
-      // Never start a second clip while the first is synthesizing or still
-      // playing — tool-call gaps must not chop a paragraph into pauses.
-      if (this.queueProcessing) return
+      // Exactly one clip in preparation at a time. Allowing more chops a
+      // paragraph into separate readings; allowing none starves the timeline,
+      // which is what used to happen — playback alone held the tail back, so
+      // nothing was synthesized until the model stopped writing and the whole
+      // wait for the engine landed as silence after her first sentence.
+      if (this.inFlightSynths > 0 || this.prefetchQueue.length > 0 || this.pendingSegments.length > 0) return
       const remaining =
         this.ctx && this.timelineEnd > 0 ? Math.max(0, this.timelineEnd - this.ctx.currentTime) : 0
       const stalled = performance.now() - this.lastEnqueueAt >= 400
-      if (!stalled && remaining > 0.15) return
-      if (remaining > 1.2) return
+      // Hand the tail over while the sounding clip still has enough left to
+      // cover the round trip. Everything arriving before that moment merges
+      // into it, so waiting longer buys continuity — but waiting past this
+      // point buys a gap instead.
+      if (!stalled && remaining > SYNTH_LEAD_SECONDS) return
     }
     for (const part of splitForEngine(this.holdTail)) {
       this.pendingSegments.push({ text: part, index: this.nextEnqueueIndex++ })
@@ -162,7 +182,22 @@ export class TtsPlayer {
     this.fillPrefetch(this.queueProcessing ? this.queueGeneration : this.queueGeneration + 1)
   }
 
+  /**
+   * Counts the request in flight so the tail merges into it instead of
+   * queueing a second one behind it. Every path that reaches the engine —
+   * the queue, its prefetches, and speak() — goes through here, which is why
+   * the count lives at this level rather than at each call site.
+   */
   private async synthesizeReadySegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
+    this.inFlightSynths++
+    try {
+      return await this.requestSegment(text, callbacks)
+    } finally {
+      this.inFlightSynths--
+    }
+  }
+
+  private async requestSegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
     const bridge = getTtsBridge()
     const engines = companionEngineProbeOrder(this.currentExtras.engine)
     let lastError: unknown
