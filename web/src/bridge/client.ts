@@ -129,6 +129,7 @@ import {
   type OrgSummaryPayload,type OrgSummaryResult,type OrgCreatePayload,type OrgCreateResult,type OrgSwitchPayload,type OrgSwitchResult,type OrgActivatePayload,type OrgActivateResult,type OrgSuspendPayload,type OrgSuspendResult,type OrgSpaceListPayload,type OrgSpaceListResult,type OrgSpaceCreatePayload,type OrgSpaceCreateResult,type OrgMemberListPayload,type OrgMemberListResult,type OrgMemberInvitePayload,type OrgMemberInviteResult,type OrgMemberRevokePayload,type OrgMemberRevokeResult,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
+  type VoiceStatusResult,type VoiceInstallPayload,type VoiceInstallResult,type VoiceStartPayload,type VoiceStartResult,type VoiceAppendPayload,type VoiceAppendResult,type VoiceFinishPayload,type VoiceFinishResult,type VoiceStopPayload,type VoiceStopResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
   type ConversationsRootGetResult,type ConversationsRootSelectResult,type ConversationsRootSetPayload,type ConversationsRootSetResult,
   type SessionFolderGetPayload,type SessionFolderGetResult,type SessionFolderListPayload,type SessionFolderListResult,type SessionFolderOpenPayload,type SessionFolderOpenResult,
@@ -1108,6 +1109,19 @@ export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesRe
 export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir}),ensureRefEngine:payload=>core.request('tts.ensureRefEngine',payload??{})}}
 let ttsSingleton:TtsBridge|undefined
 export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()}
+
+// Local speech recognition — voice.status / install / start / append /
+// finish / stop. Audio goes up a frame at a time and each reply carries the
+// partial transcript back, so no second channel is needed for captions.
+// append gets a tight deadline because a frame that has not been answered by
+// the time the next one is captured is already too late to draw; install
+// returns immediately with progress rather than holding a request open for a
+// transfer measured in minutes.
+export type{VoiceStatusResult,VoiceInstallPayload,VoiceInstallResult,VoiceStartPayload,VoiceStartResult,VoiceAppendPayload,VoiceAppendResult,VoiceFinishPayload,VoiceFinishResult,VoiceStopPayload,VoiceStopResult}
+export interface VoiceBridge{status():Promise<VoiceStatusResult>;install(payload?:VoiceInstallPayload):Promise<VoiceInstallResult>;start(payload?:VoiceStartPayload):Promise<VoiceStartResult>;append(payload:VoiceAppendPayload):Promise<VoiceAppendResult>;finish(payload:VoiceFinishPayload):Promise<VoiceFinishResult>;stop(payload?:VoiceStopPayload):Promise<VoiceStopResult>}
+export function createVoiceBridge(transport:WebViewTransport=webview()):VoiceBridge{const core=createSimpleBridge(transport,{},8_000);const frameCore=createSimpleBridge(transport,{},2_000);const startCore=createSimpleBridge(transport,{},30_000);return{status:()=>core.request('voice.status',{}),install:payload=>core.request('voice.install',payload??{}),start:payload=>startCore.request('voice.start',payload??{}),append:payload=>frameCore.request('voice.append',payload),finish:payload=>core.request('voice.finish',payload),stop:payload=>core.request('voice.stop',payload??{})}}
+let voiceSingleton:VoiceBridge|undefined
+export function getVoiceBridge():VoiceBridge{return voiceSingleton??=createVoiceBridge()}
 
 // M7 MCP server settings bridge — mcp.list / add / toggle / health /
 // market.search (T-7.8.5 settings page data source) + mcp6.presets.list

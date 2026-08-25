@@ -10,3 +10,5 @@ func spawnServer(string, []string, int) (*sherpaServer, error) {
 }
 
 func (s *sherpaServer) stop() {}
+
+func ensureFirewallRule(string) {}

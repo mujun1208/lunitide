@@ -258,6 +258,17 @@ func main() {
 	// and a local reference-timbre (voice-clone) service. Machines without
 	// SAPI still expose the cloud and ref engines.
 	engine.SetM9TtsService(tts.NewService(tts.NewRouterEngine(tts.NewPlatformEngine())))
+	// Local speech recognition, the companion's other ear. Nothing is
+	// downloaded or started here: wiring the service only makes voice.status
+	// answerable, and the engine and its model arrive when a user asks for
+	// them. A machine that never opens the companion never pays for this.
+	if voiceRoot, err := dataRoot.PrepareSubdirectory("voice"); err != nil {
+		log.Printf("voice directory unavailable; local recognition stays off: %v", err)
+	} else {
+		voiceService := app.NewVoiceService(voiceRoot.Path(), "")
+		engine.SetVoiceService(voiceService)
+		defer voiceService.Close()
+	}
 	// M9 slice-1: org foundation - the org-admin bridge service derives the
 	// verified org context from the persisted operator binding (ADR-011);
 	// payloads never carry an org scope.

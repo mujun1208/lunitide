@@ -211,6 +211,11 @@ type Engine struct {
 	// M9.5 Moon Companion: offline SAPI text-to-speech runtime.
 	m9tts *tts.Service
 
+	// Local speech recognition, the other half of the companion's ears.
+	// Nil until wired, which is the state every test and the host see until
+	// a user turns the feature on.
+	voice *VoiceService
+
 	// M9 slice-1: org-admin bridge service (org.* methods, T-9.1.3).
 	m9org *m9app.OrgAdminService
 
@@ -574,6 +579,12 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTtsCancel:                     handleTtsCancel,
 	bridge.MethodTtsRefAudios:                  handleTtsRefAudios,
 	bridge.MethodTtsEnsureRefEngine:            handleTtsEnsureRefEngine,
+	bridge.MethodVoiceStatus:                   handleVoiceStatus,
+	bridge.MethodVoiceInstall:                  handleVoiceInstall,
+	bridge.MethodVoiceStart:                    handleVoiceStart,
+	bridge.MethodVoiceAppend:                   handleVoiceAppend,
+	bridge.MethodVoiceFinish:                   handleVoiceFinish,
+	bridge.MethodVoiceStop:                     handleVoiceStop,
 	bridge.MethodOrgSummary:                    handleOrgSummary,
 	bridge.MethodOrgCreate:                     handleOrgCreate,
 	bridge.MethodOrgSwitch:                     handleOrgSwitch,
