@@ -463,6 +463,15 @@ func (r *RedTeamRunner) runProcTree(ctx context.Context) (*RedTeamRecord, error)
 		sp, err := r.rtSpec("spawn-bomb", func(s *LaunchSpec) {
 			s.Args = rtHelperArgs("spawn-bomb", string(cfgj))
 			s.Quotas.MaxProcs = 4 // root + 3 grandchildren max
+			// This record is about the process quota, so that quota has to
+			// be the limit the tree actually reaches. The default 384MiB
+			// envelope holds one child comfortably and four race-instrumented
+			// ones not at all: the kernel killed grandchildren on memory,
+			// each death freed a process slot, and later spawns succeeded
+			// while the active-process limit was honoured throughout. The
+			// record read that as a fork bomb getting through. Still far
+			// under the 4GiB policy ceiling.
+			s.Quotas.MemoryCapBytes = 1 << 30
 		})
 		if err != nil {
 			return err

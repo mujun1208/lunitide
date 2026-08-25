@@ -33,12 +33,31 @@ type Harness struct {
 // POC spawn quotas: tight enough to prove enforcement, loose enough for a
 // Go test binary runtime.
 const (
-	pocMaxProcs        = 4
-	pocMemoryCap       = 192 << 20 // 192MiB job commit cap
-	pocResourceRequest = 512 << 20 // probe asks for 512MiB
-	pocSpawnTimeout    = 60 * time.Second
-	pocForkCount       = 16
+	pocMaxProcs  = 4
+	pocMemoryCap = 192 << 20 // 192MiB job commit cap, one child
+	// proctree is the one probe that deliberately fills the job up to the
+	// active-process quota, so the cap has to cover pocMaxProcs copies of
+	// the child rather than one.
+	pocProcTreeMemoryCap = 1 << 30   // 1GiB
+	pocResourceRequest   = 512 << 20 // probe asks for 512MiB
+	pocSpawnTimeout      = 60 * time.Second
+	pocForkCount         = 16
 )
+
+// jobMemoryCap answers the commit cap for one probe's job object.
+//
+// Sizing every probe for a single child was wrong for proctree: the kernel
+// killed the whole job on the memory quota before the process quota that
+// probe exists to prove was ever reached, and the harness read EOF where the
+// report frame should have been. It only showed up under -race, where the
+// child is the race-instrumented test binary and several copies of it no
+// longer fit in a cap that one copy does.
+func jobMemoryCap(probe string) uint64 {
+	if probe == AssumptionProcTree {
+		return pocProcTreeMemoryCap
+	}
+	return pocMemoryCap
+}
 
 func NewHarness(exe string, helper func(probe string, cfg ProbeConfig) []string, base string) *Harness {
 	return &Harness{Exe: exe, HelperArgs: helper, Base: base, now: time.Now}
@@ -152,7 +171,7 @@ func (h *Harness) spawnProbe(ctx context.Context, probe string, cfg ProbeConfig)
 		Dir:            cfg.Root,
 		Env:            MinimalEnv(os.Environ(), []string{"SystemRoot", "LUNITIDE_STDIO_POC_PROBE"}, map[string]string{"LUNITIDE_STDIO_POC_PROBE": "1"}),
 		MaxProcs:       pocMaxProcs,
-		MemoryCapBytes: pocMemoryCap,
+		MemoryCapBytes: jobMemoryCap(probe),
 		Timeout:        pocSpawnTimeout,
 	}
 	p, err := spawn(ctx, spec)

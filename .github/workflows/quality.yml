@@ -24,7 +24,12 @@ jobs:
       - name: Verify generated Bridge and RPC contracts
         run: npm run verify:bridge
       - name: Test Go
-        run: go test ./...
+        # The per-package default is 10 minutes. internal/storage/sqlite alone
+        # runs two minutes on a developer machine because most of its tests
+        # open a fresh database and replay every migration, and a hosted runner
+        # is several times slower than that. An explicit budget keeps a slow
+        # runner from being reported as a hang.
+        run: go test -timeout 20m ./...
       - name: Test authentic Electron credential adoption
         run: npm run test:electron-adoption:e2e
       - name: Vet Go
@@ -76,7 +81,16 @@ jobs:
           "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           & $gcc.FullName --version
       - name: Run Go race tests
-        run: go test -race ./...
+        # Measured locally, race instrumentation costs this tree about 23x:
+        # internal/workspace goes from 18s to 415s. Most of the suite is
+        # dominated by tests that open a fresh database, and the pure-Go SQLite
+        # driver is exactly the kind of allocation-heavy code the detector
+        # punishes hardest. That puts internal/app (140s) and
+        # internal/storage/sqlite (118s) near an hour each, which is why they
+        # blew the 10-minute default; in every timeout the test in flight had
+        # been running seconds, so the packages are slow, not stuck. Packages
+        # run concurrently, so the job costs about one of them, not their sum.
+        run: go test -race -timeout 90m ./...
       - name: Race-test authentic Electron credential adoption
         shell: pwsh
         run: ./test/electron-safe-storage/run-adoption-e2e.ps1 -Race
