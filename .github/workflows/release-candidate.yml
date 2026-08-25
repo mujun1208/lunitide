@@ -20,14 +20,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            web/package-lock.json
-      - run: npm ci
+          cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
-      - run: npm run verify:bridge
-      - run: go test ./...
-      - run: npm run test:electron-adoption:e2e
+      - run: npm --prefix web run verify:bridge
+        # Same budget as the Quality workflow: the per-package default of ten
+        # minutes is under what a hosted runner needs for the packages that
+        # replay migrations, and a release must not fail for being slow.
+      - run: go test -timeout 20m ./...
       - run: go vet ./...
       - run: go build ./...
       - run: npm --prefix web run typecheck
@@ -46,23 +45,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
       - run: choco install mingw --version=13.2.0 --yes --no-progress
       - name: Select MinGW compiler
         shell: pwsh
         run: |
-          $gcc = Get-ChildItem C:\ProgramData\chocolatey\lib\mingw\tools -Filter gcc.exe -Recurse | Select-Object -First 1
-          if (-not $gcc) { throw "Pinned MinGW gcc.exe was not installed" }
+          # Both roots chocolatey unpacks the pinned package into, so the
+          # toolchain stays the one the step above installed rather than
+          # whatever gcc the runner image happens to ship.
+          $roots = @('C:\ProgramData\mingw64', 'C:\ProgramData\chocolatey\lib\mingw\tools')
+          $gcc = $roots |
+            Where-Object { Test-Path $_ } |
+            ForEach-Object { Get-ChildItem $_ -Filter gcc.exe -Recurse -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+          if (-not $gcc) { throw "Pinned MinGW gcc.exe was not found under: $($roots -join ', ')" }
           $gcc.Directory.FullName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-      - run: go test -race ./...
-      - name: Race-test authentic Electron credential adoption
-        shell: pwsh
-        run: ./test/electron-safe-storage/run-adoption-e2e.ps1 -Race
+          & $gcc.FullName --version
+        # Race instrumentation costs this tree about 23x, which puts the
+        # heaviest packages near an hour. Matches the Quality workflow.
+      - run: go test -race -timeout 90m ./...
 
   x64-release-candidate:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')

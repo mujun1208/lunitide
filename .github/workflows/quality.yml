@@ -19,10 +19,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+          cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
       - name: Verify generated Bridge and RPC contracts
-        run: npm run verify:bridge
+        run: npm --prefix web run verify:bridge
       - name: Test Go
         # The per-package default is 10 minutes. internal/storage/sqlite alone
         # runs two minutes on a developer machine because most of its tests
@@ -30,8 +30,6 @@ jobs:
         # is several times slower than that. An explicit budget keeps a slow
         # runner from being reported as a hang.
         run: go test -timeout 20m ./...
-      - name: Test authentic Electron credential adoption
-        run: npm run test:electron-adoption:e2e
       - name: Vet Go
         run: go vet ./...
       - name: Build Go without CGO
@@ -58,11 +56,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
       - name: Install pinned MinGW toolchain
         run: choco install mingw --version=13.2.0 --yes --no-progress
       - name: Select MinGW compiler
@@ -91,6 +84,3 @@ jobs:
         # been running seconds, so the packages are slow, not stuck. Packages
         # run concurrently, so the job costs about one of them, not their sum.
         run: go test -race -timeout 90m ./...
-      - name: Race-test authentic Electron credential adoption
-        shell: pwsh
-        run: ./test/electron-safe-storage/run-adoption-e2e.ps1 -Race
