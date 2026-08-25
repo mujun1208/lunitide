@@ -16,7 +16,6 @@ export type CompanionEvent =
   | { type: 'PLAYBACK_ENDED' } // all segments finished
   | { type: 'INTERRUPT' } // Esc or moon click during speaking
   | { type: 'MIC_CLICK_WHILE_SPEAKING' } // composite: cancel TTS then listen
-  | { type: 'BARGE_IN' } // voice interrupt during speaking/thinking (duplex)
   | { type: 'AWAIT_MORE' } // TTS drained mid-stream; keep listening while the model continues
 
 interface CompanionSnapshot {
@@ -29,13 +28,16 @@ type CompanionAction = CompanionEvent | { type: 'GUARD_REJECT'; from: CompanionS
 const transitionTable: Record<CompanionState, Partial<Record<CompanionEvent['type'], CompanionState>>> = {
   idle: { MIC_ACTIVATE: 'listening' },
   listening: { MIC_CANCEL: 'idle', RECOGNIZED_FINAL: 'thinking', MIC_ACTIVATE: 'listening' },
-  thinking: { REPLY_COMPLETED: 'speaking', REPLY_TERMINAL: 'idle', INTERRUPT: 'idle', BARGE_IN: 'listening' },
+  thinking: { REPLY_COMPLETED: 'speaking', REPLY_TERMINAL: 'idle', INTERRUPT: 'idle' },
+  // Her turn ends by the 打断 button (INTERRUPT / MIC_CLICK_WHILE_SPEAKING) or
+  // by her finishing (PLAYBACK_ENDED). There is deliberately no event here for
+  // the microphone: what it hears mid-reply is her own voice more often than
+  // the user's, and nothing in the text tells them apart.
   speaking: {
     PLAYBACK_ENDED: 'idle',
     INTERRUPT: 'idle',
     // Composite transition: internally speaking -> idle -> listening.
     MIC_CLICK_WHILE_SPEAKING: 'listening',
-    BARGE_IN: 'listening',
     AWAIT_MORE: 'thinking',
   },
 }

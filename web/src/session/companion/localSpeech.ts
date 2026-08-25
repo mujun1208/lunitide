@@ -13,9 +13,6 @@ import { looksIncompleteUtterance } from './companionText'
 import { startLocalAsr, type LocalAsrHandle } from './localAsr'
 import { MOON_RING_BINS } from './MoonSphere'
 import {
-  BARGE_IN_GUARD_MS,
-  BARGE_IN_SETTLE_MS,
-  BARGE_IN_THINKING_MIN_CHARS,
   ECHO_GUARD_MS,
   endpointingForText,
   shouldCommitIncomplete,
@@ -62,7 +59,6 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   let unmuteTimer = 0
   let commitPaused = false
   let recycling = false
-  let lastCommittedAt = 0
   let ticker = 0
 
   const resetUtterance = () => {
@@ -92,7 +88,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
    * the companion's own voice coming back through the microphone, which must
    * reset the recognizer without ever reaching the stage.
    */
-  const recycle = async (emit: 'final' | 'barge-in' | false) => {
+  const recycle = async (emit: 'final' | false) => {
     if (!asr || closed || recycling) return
     recycling = true
     const carried = text.trim()
@@ -105,15 +101,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       // sending the slightly staler copy the user already saw as a caption.
       const final = settled || carried
       if (!final) return
-      lastCommittedAt = Date.now()
-      if (emit === 'barge-in') {
-        // The tail of the sentence that just fired keeps arriving for a moment
-        // after it; without this it would immediately barge in on itself.
-        guardUntil = lastCommittedAt + BARGE_IN_GUARD_MS
-        options.onBargeIn?.(final)
-      } else {
-        options.onFinal(final)
-      }
+      options.onFinal(final)
     } catch (error) {
       fail(error)
     } finally {
@@ -165,24 +153,12 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         announcedSpeech = true
         options.onSpeechStart?.()
       }
-      if (playback) {
-        // Nothing heard while she is speaking may end her turn. The
-        // microphone is muted for the whole reply, so anything arriving here
-        // is audio captured either side of the boundary; it is dropped, and
-        // the recycle at the boundary clears the recognizer behind it.
-        return
-      }
-      if (commitPaused) {
-        // She is thinking, so nothing is coming out of the speakers and there
-        // is no echo to reject. The risk is the opposite one: the late tail of
-        // the sentence just sent restarting the turn it belongs to. That is
-        // what the longer utterance and the settle window are for.
-        if (
-          Array.from(trimmed).length >= BARGE_IN_THINKING_MIN_CHARS &&
-          now - lastCommittedAt >= BARGE_IN_SETTLE_MS
-        ) {
-          void recycle('barge-in')
-        }
+      if (playback || commitPaused) {
+        // Her turn. Nothing the microphone reports can end it — that is the
+        // 打断 button's job — and the microphone is muted for the whole of
+        // it anyway, so anything arriving here was captured around a
+        // boundary. Dropped, and the recycle at the boundary clears the
+        // recognizer behind it.
         return
       }
       options.onInterim?.(next)

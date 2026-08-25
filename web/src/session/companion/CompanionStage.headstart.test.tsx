@@ -168,7 +168,11 @@ test('an unpunctuated tail still waits for the stream to stall', async () => {
   expect(spokenText()).toBe('嗨我在呢')
 })
 
-test('talking over her cuts the reply and starts the new turn', async () => {
+test('nothing she hears mid-reply takes the turn back', async () => {
+  // The only two ways out of her turn are the 打断 button and her finishing.
+  // A transcript arriving mid-reply is speaker echo far more often than it is
+  // the user, and there is no reading of the text that separates the two
+  // reliably — so it is dropped rather than acted on, and the reply survives.
   const onSend = vi.fn()
   const onCancel = vi.fn()
   const props = { ...baseProps, onSend, onCancel }
@@ -185,14 +189,14 @@ test('talking over her cuts the reply and starts the new turn', async () => {
   expect(stateOf(utils.container)).toBe('speaking')
 
   await act(async () => {
-    speech.callbacks!.onBargeIn!('等一下换个话题')
+    speech.callbacks!.onFinal('等一下换个话题')
   })
   await flush(0)
 
-  expect(onCancel).toHaveBeenCalled()
-  expect(onSend).toHaveBeenCalledWith('等一下换个话题')
-  expect(stateOf(utils.container)).toBe('thinking')
-  expect(tts.playing).toBe(false)
+  expect(onCancel).not.toHaveBeenCalled()
+  expect(onSend).toHaveBeenCalledTimes(1)
+  expect(stateOf(utils.container)).toBe('speaking')
+  expect(tts.playing).toBe(true)
 })
 
 test('keeps the microphone shut across the gap between her sentences', async () => {

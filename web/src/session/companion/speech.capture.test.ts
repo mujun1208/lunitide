@@ -174,14 +174,13 @@ describe('startCompanionSpeech capture graph', () => {
     // the user or her own voice returning through the speaker is a guess, and
     // losing it truncated her answer mid-word — a television, someone else in
     // the room, or a late recognition of her own sentence all did it.
-    // Interrupting is the 打断 button's job, and it still works here.
-    const onBargeIn = vi.fn()
+    // Interrupting is the 打断 button's job.
+    const onFinal = vi.fn()
     const spoken = '今天合肥多云，气温二十六度，出门记得带把伞。'
     const handle = await startCompanionSpeech({
       duplex: true,
-      onFinal: vi.fn(),
+      onFinal,
       onError: vi.fn(),
-      onBargeIn,
       spokenText: () => spoken,
     })
 
@@ -189,7 +188,7 @@ describe('startCompanionSpeech capture graph', () => {
     expect(micTrack.enabled).toBe(false)
     recognition.onresult?.(heard('出门记得带把伞'))
     recognition.onresult?.(heard('等一下，换个话题'))
-    expect(onBargeIn).not.toHaveBeenCalled()
+    expect(onFinal).not.toHaveBeenCalled()
 
     handle.setAssistantPlayback(false)
     expect(micTrack.enabled).toBe(true)

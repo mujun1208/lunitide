@@ -694,22 +694,24 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const handle = speechHandleRef.current
     if (!handle) return
     const state = stateRef.current
-    // The whole reply, not just the parts of it that are sounding.
+    // Her turn is hers, start to end.
     //
-    // 'speaking' is not enough on its own: when the engine drains while the
-    // model is still writing, AWAIT_MORE drops the machine back to
-    // 'thinking', and keying the microphone off the state reopened it in
-    // exactly that gap — a gap that on speakerphone is still full of the
-    // sentence she just finished. The echo was then read as the user
-    // starting a new turn, which is what made her answer her own voice.
+    // There are exactly two ways back to the user's turn: the 打断 button
+    // (or its hotkey), and her finishing. The microphone is not one of them,
+    // so it stays shut for the whole of her turn — while she is thinking,
+    // while she is talking, and across the gaps in between where the engine
+    // has run dry and the model is still writing.
     //
-    // So the microphone stays shut from the first sentence handed to the
-    // engine until the reply is finished and silent.
+    // Narrower versions of this rule kept failing on speakerphone, and each
+    // time for the same reason: whatever window was left open was a window
+    // her own voice could come back through, and a transcript cannot be
+    // told apart from the user's by any test worth trusting. A closed
+    // microphone needs no such test.
     const speakingAloud = state === 'speaking' || speakingRef.current
     const assistantBusy = state === 'thinking' || speakingAloud
     const next = {
       commitPaused: assistantBusy,
-      playback: speakingAloud,
+      playback: assistantBusy,
       echoGuardMs: interruptEchoRef.current ? INTERRUPT_ECHO_MS : ECHO_GUARD_MS,
     }
     interruptEchoRef.current = false
@@ -764,33 +766,16 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   }, [chatStatus, error, localError, machine, syncSpeechModes])
 
   const beginUserTurn = useCallback(
-    (transcript: string, viaBargeIn: boolean) => {
-      // Talking over her cuts the reply, the way a real call works. Anything
-      // else arriving mid-playback is speaker echo and stays ignored.
-      if (stateRef.current === 'speaking' && !viaBargeIn) {
+    (transcript: string) => {
+      // Her turn ends by the 打断 button or by her finishing, never by
+      // something the microphone heard. Anything arriving while she still
+      // holds the turn is speaker echo caught around a boundary.
+      if (stateRef.current === 'speaking' || stateRef.current === 'thinking') {
         setInterimText('')
         return
       }
       cancelCaptionFade()
       const text = cleanUserTranscript(transcript)
-      const replacing = viaBargeIn || stateRef.current === 'thinking'
-      if (!text && replacing) {
-        if (looksLikePlaybackEcho(transcript, lastSpokenRef.current)) {
-          setInterimText('')
-          return
-        }
-        silentRestartsRef.current = 0
-        spokenUpToRef.current = 0
-        speakingRef.current = false
-        setStreamTick(0)
-        setInterimText('')
-        playerRef.current?.interrupt()
-        setGain(0)
-        onCancel?.()
-        if (stateRef.current === 'thinking' || stateRef.current === 'speaking') machine.dispatch({ type: 'BARGE_IN' })
-        syncSpeechModes()
-        return
-      }
       if (!text) return
       if (looksLikePlaybackEcho(text, lastSpokenRef.current)) {
         setInterimText('')
@@ -806,10 +791,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       setLocalError(undefined)
       playerRef.current?.interrupt()
       setRounds([{ role: 'user', text }])
-      if (replacing) {
-        onCancel?.()
-        if (stateRef.current === 'thinking' || stateRef.current === 'speaking') machine.dispatch({ type: 'BARGE_IN' })
-      } else if (stateRef.current === 'idle') {
+      if (stateRef.current === 'idle') {
         machine.dispatch({ type: 'MIC_ACTIVATE' })
       }
       if (!chatReadyRef.current) {
@@ -822,7 +804,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       onSendRef.current(text)
       syncSpeechModes()
     },
-    [machine, onCancel, syncSpeechModes],
+    [machine, syncSpeechModes],
   )
 
   useEffect(() => {
@@ -904,13 +886,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       onEngineHint: message => setEngineHint(message),
       onFinal: transcript => {
         setHeardThisVisit(true)
-        beginUserTurn(transcript, false)
+        beginUserTurn(transcript)
       },
       spokenText: () => lastSpokenRef.current,
-      onBargeIn: transcript => {
-        setHeardThisVisit(true)
-        beginUserTurn(transcript, true)
-      },
       onError: issue => {
         speechHandleRef.current = undefined
         // A local recognizer that dies mid-session under 'auto' is a fallback,
