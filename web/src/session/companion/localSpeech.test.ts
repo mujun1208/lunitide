@@ -141,6 +141,33 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
+  it('does not carry what she said into the user\u2019s next turn', async () => {
+    // Her voice off the speaker used to be written into the utterance buffer
+    // and only then refused, so it was still sitting there when her turn
+    // ended. A beat later it surfaced as a caption flashing her own last line
+    // back at the user, and could be committed as though they had said it.
+    const stage = harness()
+    stage.say('好的，我把会议改到下午三点了')
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    handle.setAssistantPlayback(true)
+    await vi.advanceTimersByTimeAsync(200)
+    onTranscript('好的我把会议改到下午三点了', false)
+    await vi.advanceTimersByTimeAsync(200)
+
+    // Her turn ends and the user starts a fresh sentence.
+    handle.setAssistantPlayback(false, 0)
+    asr.commit.mockResolvedValue('那帮我订个会议室。')
+    await vi.advanceTimersByTimeAsync(100)
+    onTranscript('那帮我订个会议室。', false)
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(stage.onFinal).toHaveBeenCalledWith('那帮我订个会议室。')
+    for (const [caption] of stage.onInterim.mock.calls) {
+      expect(caption).not.toContain('会议改到下午三点')
+    }
+  })
+
   it('keeps the microphone muted for the whole reply, then reopens it', async () => {
     const stage = harness()
     const handle = await startLocalCompanionSpeech(stage.options)
@@ -178,7 +205,7 @@ describe('startLocalCompanionSpeech', () => {
     }
   })
 
-  it('never commits while she is thinking or speaking', async () => {
+  it('never commits while she is thinking or speaking, then or later', async () => {
     const stage = harness()
     asr.commit.mockResolvedValue('那算了')
     const handle = await startLocalCompanionSpeech(stage.options)
@@ -188,9 +215,17 @@ describe('startLocalCompanionSpeech', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(stage.onFinal).not.toHaveBeenCalled()
 
+    // Nor once her turn ends. Holding it until then was how her own voice,
+    // heard while she was talking, arrived as the user's next sentence.
     handle.setCommitPaused(false)
     await vi.advanceTimersByTimeAsync(300)
-    expect(stage.onFinal).toHaveBeenCalledWith('那算了')
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    // What the user actually says next commits normally.
+    asr.commit.mockResolvedValue('那帮我改一下。')
+    onTranscript('那帮我改一下。', false)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(stage.onFinal).toHaveBeenCalledWith('那帮我改一下。')
   })
 
   it('paints the ring from the microphone level', async () => {

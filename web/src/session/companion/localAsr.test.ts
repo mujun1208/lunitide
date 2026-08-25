@@ -13,6 +13,7 @@ type FrameSink = (frame: { base64: string; samples: Int16Array; peak: number }) 
 let emitFrame: FrameSink = () => {}
 let failCapture: ((error: Error) => void) | undefined
 const stopCapture = vi.fn()
+const flushCapture = vi.fn()
 let captureRejects: Error | undefined
 
 vi.mock('../../bridge/client', () => ({
@@ -25,7 +26,7 @@ vi.mock('./pcmCapture', () => ({
     if (captureRejects) throw captureRejects
     emitFrame = options.onFrame
     failCapture = options.onError
-    return { stop: stopCapture, mute: vi.fn(), resume: vi.fn() }
+    return { stop: stopCapture, mute: vi.fn(), resume: vi.fn(), flush: flushCapture, setMuted: vi.fn() }
   }),
 }))
 
@@ -88,10 +89,11 @@ describe('startLocalAsr', () => {
     expect(stopCapture).toHaveBeenCalled()
   })
 
-  it('drops frames while one is in flight rather than queueing them', async () => {
-    // A backlog is the wrong repair. Audio delivered late is transcribed
-    // after the user stopped talking, and a queue built during a stutter
-    // never drains inside the utterance.
+  it('keeps audio captured while a request is in flight instead of dropping it', async () => {
+    // Frames used to be discarded whenever a request was outstanding. A
+    // discarded frame is a tenth of a second the recognizer never hears, and
+    // it came back as the missing characters in the middle of a sentence —
+    // so what arrives during a round trip is queued and sent behind it.
     let release: (value: { text: string; final: boolean }) => void = () => {}
     bridge.append.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
 
@@ -100,14 +102,65 @@ describe('startLocalAsr', () => {
     emitFrame(frame())
     emitFrame(frame())
     await settle()
-
     expect(bridge.append).toHaveBeenCalledTimes(1)
 
     release({ text: 'x', final: false })
     await settle()
+
+    // The two frames held back go out together, carrying both frames' samples
+    // rather than one frame's worth.
+    expect(bridge.append).toHaveBeenCalledTimes(2)
+    const second = bridge.append.mock.calls[1]![0] as { pcm: string }
+    const single = bridge.append.mock.calls[0]![0] as { pcm: string }
+    expect(second.pcm.length).toBeGreaterThan(single.pcm.length)
+  })
+
+  it('sends the part of the sentence still held back before ending the turn', async () => {
+    // The capture accumulator keeps whatever did not fill a whole frame, which
+    // is the last fraction of a second of speech. Nothing else asks for it, so
+    // without this the final syllable of every utterance was discarded —
+    // 「你好月汐」 came back as 「你好」.
+    const handle = await startLocalAsr({})
     emitFrame(frame())
     await settle()
-    expect(bridge.append).toHaveBeenCalledTimes(2)
+
+    bridge.finish.mockResolvedValue({ text: '你好月汐' })
+    await expect(handle.commit()).resolves.toBe('你好月汐')
+    expect(flushCapture).toHaveBeenCalled()
+  })
+
+  it('loses one sentence, not the microphone, when a turn fails to transcribe', async () => {
+    // This used to run through the same path as a dead engine: one failed
+    // commit stopped capture for good, so the first turn worked and every
+    // turn after it was met with silence.
+    const onError = vi.fn()
+    const onTranscriptLost = vi.fn()
+    const handle = await startLocalAsr({ onError, onTranscriptLost })
+    emitFrame(frame())
+    await settle()
+
+    bridge.finish.mockRejectedValueOnce(new Error('decode timed out'))
+    bridge.start.mockResolvedValueOnce({ sessionId: 'v2' })
+    await expect(handle.commit()).resolves.toBe('')
+    expect(onTranscriptLost).toHaveBeenCalledTimes(1)
+    expect(onError).not.toHaveBeenCalled()
+    expect(stopCapture).not.toHaveBeenCalled()
+
+    // The next sentence still reaches the engine, on the session opened
+    // alongside the failed one.
+    emitFrame(frame())
+    await settle()
+    expect(bridge.append).toHaveBeenLastCalledWith({ sessionId: 'v2', pcm: 'AAAA' })
+  })
+
+  it('does not retire a session that was never given any audio', async () => {
+    // The turn boundary at the start and end of every reply lands here with a
+    // muted microphone. Retiring a session that heard silence cost two round
+    // trips and asked the recognizer to decode an empty utterance.
+    const handle = await startLocalAsr({})
+    await expect(handle.commit()).resolves.toBe('')
+    expect(bridge.finish).not.toHaveBeenCalled()
+    expect(bridge.start).toHaveBeenCalledTimes(1)
   })
 
   it('reports the microphone level for every frame, dropped or not', async () => {
