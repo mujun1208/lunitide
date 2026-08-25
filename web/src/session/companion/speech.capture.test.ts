@@ -168,7 +168,13 @@ describe('startCompanionSpeech capture graph', () => {
     handle.stop()
   })
 
-  test('stays listening through playback so the user can talk over her', async () => {
+  test('mutes the mic for the whole reply, so nothing heard can end her turn', async () => {
+    // The microphone used to stay open here so the user could cut in by
+    // talking. Deciding from a transcript whether a couple of characters were
+    // the user or her own voice returning through the speaker is a guess, and
+    // losing it truncated her answer mid-word — a television, someone else in
+    // the room, or a late recognition of her own sentence all did it.
+    // Interrupting is the 打断 button's job, and it still works here.
     const onBargeIn = vi.fn()
     const spoken = '今天合肥多云，气温二十六度，出门记得带把伞。'
     const handle = await startCompanionSpeech({
@@ -178,24 +184,13 @@ describe('startCompanionSpeech capture graph', () => {
       onBargeIn,
       spokenText: () => spoken,
     })
-    handle.setAssistantPlayback(true)
-    expect(micTrack.enabled).toBe(true)
-    // Her own line returning through the speaker is not an interruption.
-    recognition.onresult?.(heard('出门记得带把伞'))
-    expect(onBargeIn).not.toHaveBeenCalled()
-    recognition.onresult?.(heard('等一下，换个话题'))
-    expect(onBargeIn).toHaveBeenCalledWith('等一下，换个话题')
-    handle.stop()
-  })
 
-  test('mutes the mic during playback when the stage cannot handle a cut-in', async () => {
-    const handle = await startCompanionSpeech({
-      duplex: true,
-      onFinal: vi.fn(),
-      onError: vi.fn(),
-    })
     handle.setAssistantPlayback(true)
     expect(micTrack.enabled).toBe(false)
+    recognition.onresult?.(heard('出门记得带把伞'))
+    recognition.onresult?.(heard('等一下，换个话题'))
+    expect(onBargeIn).not.toHaveBeenCalled()
+
     handle.setAssistantPlayback(false)
     expect(micTrack.enabled).toBe(true)
     handle.stop()

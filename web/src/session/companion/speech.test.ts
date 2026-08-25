@@ -28,8 +28,8 @@ import {
   shouldCommitIncomplete,
   INCOMPLETE_HOLD_MS,
   INCOMPLETE_HARD_MS,
-  shouldBargeInOverPlayback,
-  BARGE_IN_MIN_CHARS,
+  BARGE_IN_THINKING_MIN_CHARS,
+  BARGE_IN_SETTLE_MS,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -124,9 +124,10 @@ describe('shouldCommitStable', () => {
 })
 
 describe('shouldHoldRecognition', () => {
-  test('holds during playback unless playback barge-in is enabled', () => {
+  test('holds for the whole reply, and past it until the speaker rings out', () => {
+    // Unconditional during playback: the microphone cannot end her turn while
+    // she is speaking, only the 打断 button can.
     expect(shouldHoldRecognition(true, 0, 1000)).toBe(true)
-    expect(shouldHoldRecognition(true, 0, 1000, true)).toBe(false)
     expect(shouldHoldRecognition(false, 800, 700)).toBe(true)
     expect(shouldHoldRecognition(false, 800, 800)).toBe(false)
   })
@@ -248,22 +249,12 @@ describe('pickRecognitionTranscript', () => {
   })
 })
 
-describe('shouldBargeInOverPlayback', () => {
-  const spoken = '今天合肥多云，气温二十六度，出门记得带把伞。'
-
-  test('lets the user cut in while she is speaking', () => {
-    expect(shouldBargeInOverPlayback('等一下', spoken)).toBe(true)
-    expect(shouldBargeInOverPlayback('换个话题', spoken)).toBe(true)
-  })
-
-  test('ignores her own voice coming back through the speaker', () => {
-    expect(shouldBargeInOverPlayback('气温二十六度', spoken)).toBe(false)
-    expect(shouldBargeInOverPlayback('出门记得带把伞', spoken)).toBe(false)
-  })
-
-  test('needs real words, not a one-character blip', () => {
-    expect(shouldBargeInOverPlayback('嗯', spoken)).toBe(false)
-    expect(shouldBargeInOverPlayback('', spoken)).toBe(false)
-    expect(BARGE_IN_MIN_CHARS).toBe(2)
+describe('cutting in while she is thinking', () => {
+  // The microphone can still end a turn here, because nothing is coming out
+  // of the speaker to be mistaken for the user. What it must not do is let
+  // the tail of the sentence just sent restart the turn it belongs to.
+  test('asks for more than a stray syllable, and for the last turn to settle', () => {
+    expect(BARGE_IN_THINKING_MIN_CHARS).toBeGreaterThanOrEqual(4)
+    expect(BARGE_IN_SETTLE_MS).toBeGreaterThanOrEqual(1000)
   })
 })
