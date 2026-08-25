@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/agentrunapp"
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/commandworker"
 	"github.com/lunitide/lunitide/internal/domain/agentrun"
 )
@@ -96,8 +97,15 @@ func TestCommandServiceCwdMustMatchExecuteGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := <-gotSpec
-	if spec.Dir != filepath.Join(root, "safe") {
-		t.Fatalf("dir=%q", spec.Dir)
+	// Compared canonically because the spec carries the directory as the
+	// operating system names it, which differs from however this test's
+	// temp root happened to be spelled.
+	wantDir, err := canonpath.Canonical(filepath.Join(root, "safe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Dir != wantDir {
+		t.Fatalf("dir=%q want %q", spec.Dir, wantDir)
 	}
 	if len(spec.Args) != 3 || spec.Args[0] != "test" || spec.Args[1] != "-count=1" || spec.Args[2] != "./..." {
 		t.Fatalf("argv=%v", spec.Args)

@@ -4,9 +4,27 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// linkDirectory creates a directory reparse point, which is what these tests
+// are actually about. Creating a symlink needs a privilege most developer
+// machines do not grant, and falling straight to Skip there left the reparse
+// refusals covered only on CI — long enough for an unrelated bug to sit in
+// the same function unnoticed. A junction is the same kind of reparse point
+// and needs no privilege, so it stands in when symlinks are unavailable.
+func linkDirectory(t *testing.T, link, target string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err == nil {
+		return
+	}
+	out, err := exec.Command("cmd.exe", "/d", "/s", "/c", "mklink", "/J", link, target).CombinedOutput()
+	if err != nil {
+		t.Skipf("neither symlink nor junction is available: %v: %s", err, out)
+	}
+}
 
 func TestPurgeRejectsWrongTarget(t *testing.T) {
 	base := t.TempDir()
@@ -27,9 +45,7 @@ func TestPurgeRejectsReparseRoot(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(base, dataDirectoryName)); err != nil {
-		t.Skipf("directory symlink unavailable: %v", err)
-	}
+	linkDirectory(t, filepath.Join(base, dataDirectoryName), outside)
 	if err := purge(base, filepath.Join(base, dataDirectoryName)); err == nil {
 		t.Fatal("reparse root accepted")
 	}
@@ -50,9 +66,7 @@ func TestPurgeDeletesTreeButDoesNotFollowChildReparse(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
-		t.Skipf("directory symlink unavailable: %v", err)
-	}
+	linkDirectory(t, filepath.Join(root, "link"), outside)
 	if err := purge(base, root); err != nil {
 		t.Fatal(err)
 	}

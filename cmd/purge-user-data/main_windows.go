@@ -90,7 +90,7 @@ func removeChildren(dir windows.Handle, path, rootFinal string) error {
 	if err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(path)
+	entries, err := readDirByHandle(dir, path)
 	if err != nil {
 		return fmt.Errorf("enumerate %q: %w", path, err)
 	}
@@ -138,6 +138,33 @@ func removeChildren(dir windows.Handle, path, rootFinal string) error {
 	return nil
 }
 
+// readDirByHandle lists a directory through the handle already pinned to it.
+//
+// Re-opening it by path was wrong twice over. It hands the directory a second
+// chance to be swapped between the pin and the read, which is the race
+// openPinned exists to close. And it cannot succeed at all: the pinned handle
+// holds DELETE access while sharing only read and write, so the kernel
+// refuses any open whose share mode does not also permit deletion. Purging a
+// data directory with anything in it failed on that sharing violation every
+// time; only the empty-directory and refusal paths were ever covered, because
+// the tests around them skip on machines that cannot create a symlink.
+func readDirByHandle(dir windows.Handle, path string) ([]os.DirEntry, error) {
+	proc := windows.CurrentProcess()
+	var dup windows.Handle
+	if err := windows.DuplicateHandle(proc, dir, proc, &dup, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		return nil, err
+	}
+	// The os.File takes ownership of the duplicate and closes it; the
+	// caller's handle stays open and pinned.
+	f := os.NewFile(uintptr(dup), path)
+	if f == nil {
+		_ = windows.CloseHandle(dup)
+		return nil, fmt.Errorf("pinned directory handle is not usable")
+	}
+	defer f.Close()
+	return f.ReadDir(-1)
+}
+
 func openPinned(path string) (windows.Handle, windows.ByHandleFileInformation, error) {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -145,7 +172,9 @@ func openPinned(path string) (windows.Handle, windows.ByHandleFileInformation, e
 	}
 	// OPEN_REPARSE_POINT avoids following the opened component. No SHARE_DELETE
 	// pins its name; DELETE allows handle-relative disposition.
-	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES|windows.DELETE|windows.SYNCHRONIZE, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	// FILE_LIST_DIRECTORY lets readDirByHandle enumerate through this same
+	// handle instead of opening the directory a second time by path.
+	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES|windows.FILE_LIST_DIRECTORY|windows.DELETE|windows.SYNCHRONIZE, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
 	if err != nil {
 		return 0, windows.ByHandleFileInformation{}, err
 	}

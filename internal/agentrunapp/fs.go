@@ -25,6 +25,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/domain/agentrun"
 )
 
@@ -186,15 +187,28 @@ func (a fsAccess) resolve(rel string) (string, error) {
 	if rel != "" && !validFsRelPath(rel) {
 		return "", ErrFsPathInvalid
 	}
-	joined := filepath.Join(a.root, filepath.FromSlash(rel))
-	resolved, err := filepath.EvalSymlinks(joined)
+	// Both sides of the containment test have to be spelled the same way.
+	// Resolving only the child and comparing it against the root as it was
+	// spelled at registration reports an escape for every path in a
+	// workspace that sits under a short-name or redirected directory.
+	// Canonicalizing here rather than trusting the caller keeps that from
+	// depending on which entry point registered the workspace.
+	root, err := canonpath.Canonical(a.root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", ErrFsNotFound
 		}
 		return "", err
 	}
-	rest, err := filepath.Rel(a.root, resolved)
+	joined := filepath.Join(root, filepath.FromSlash(rel))
+	resolved, err := canonpath.Canonical(joined)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", ErrFsNotFound
+		}
+		return "", err
+	}
+	rest, err := filepath.Rel(root, resolved)
 	if err != nil || rest == ".." || strings.HasPrefix(rest, ".."+string(filepath.Separator)) || filepath.IsAbs(rest) {
 		return "", ErrFsPathInvalid
 	}

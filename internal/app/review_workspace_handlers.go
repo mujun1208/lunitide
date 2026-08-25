@@ -12,6 +12,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/domain/agentrun"
 )
 
@@ -140,7 +141,7 @@ func canonicalWorkspaceRoot(path string) (string, error) {
 	if path == "" || len(path) > 1024 || !filepath.IsAbs(path) {
 		return "", errors.New("root must be an absolute path")
 	}
-	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
+	resolved, err := canonpath.Canonical(filepath.Clean(path))
 	if err != nil {
 		return "", err
 	}

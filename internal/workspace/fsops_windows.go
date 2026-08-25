@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"golang.org/x/sys/windows"
 )
 
@@ -55,7 +56,7 @@ func (r *SecureRoot) OpenSecure(rel string) (*os.File, error) {
 		windows.CloseHandle(h)
 		return nil, err
 	}
-	if !withinRoot(r.root, final) {
+	if !withinRoot(r.canonicalRootPath(), final) {
 		windows.CloseHandle(h)
 		return nil, ErrPathEscape
 	}
@@ -110,6 +111,31 @@ func (r *SecureRoot) WriteAtomic(rel string, data []byte, perm os.FileMode) erro
 	to, _ := windows.UTF16PtrFromString(full)
 	defer os.Remove(name)
 	return windows.MoveFileEx(from, to, windows.MOVEFILE_WRITE_THROUGH|windows.MOVEFILE_REPLACE_EXISTING)
+}
+
+// canonicalRootPath answers the root the way the OS names it, so it can be
+// compared against a GetFinalPathNameByHandle result.
+//
+// The root is opened without OPEN_REPARSE_POINT on purpose. A junction on the
+// way *to* the workspace is the address the user chose and has to be followed;
+// only reparse points below the root can redirect a relative path out of it,
+// and guardParents still refuses every one of those.
+//
+// Falls back to the spelled root when the root cannot be opened, which means
+// it does not exist yet — and then no leaf inside it exists either, so the
+// comparison this feeds is unreachable.
+func (r *SecureRoot) canonicalRootPath() string {
+	r.canonMu.Lock()
+	defer r.canonMu.Unlock()
+	if r.canonical != "" {
+		return r.canonical
+	}
+	final, err := canonpath.Canonical(r.root)
+	if err != nil {
+		return r.root
+	}
+	r.canonical = final
+	return final
 }
 
 // parentGuard pins every directory component with OPEN_REPARSE_POINT so a

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // ErrPathEscape is the WS-002 refusal: the path escapes or attempts to
@@ -76,7 +77,21 @@ func ValidateRelPath(rel string) error {
 }
 
 // SecureRoot pins one canonical workspace root for path-safe operations.
-type SecureRoot struct{ root string }
+type SecureRoot struct {
+	root string
+
+	// The handle layer compares against a path the OS produced, which has
+	// 8.3 components expanded and every reparse point followed. The root as
+	// the caller spelled it has been through neither, so the two are not
+	// comparable until the root is put in the same namespace: a workspace
+	// under a junction — OneDrive redirects Documents this way — or under a
+	// short-name profile directory otherwise fails containment on every
+	// single file inside it. Resolved on first use rather than in the
+	// constructor because callers routinely pin a root that WriteAtomic
+	// creates later, and cached because it is on every read.
+	canonMu   sync.Mutex
+	canonical string
+}
 
 // NewSecureRoot validates that the root is a clean absolute local path (no
 // UNC/device prefix) and returns a pinned root.

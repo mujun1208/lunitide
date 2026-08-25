@@ -263,6 +263,29 @@ func TestCompletedJournalStressBeyondEntryLimit(t *testing.T) {
 	c, store, _ := testCoordinator(t)
 	now := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	c.now = func() time.Time { return now }
+
+	// What this test is about is accounting: completing a submission has to
+	// release its journal slot, or the coordinator would jam at the entry
+	// limit. Proving that needs more submissions than the limit, and each
+	// one commits the journal several times — twenty thousand commits, each
+	// paying two fsyncs, an atomic replace and two ACL writes. That is the
+	// right behavior for a credential journal and every other test here
+	// exercises it, but at this volume it is the whole runtime: forty
+	// seconds on a developer SSD and past the ten-minute test deadline on a
+	// CI runner with a virtual disk and a live virus scanner. Swapping the
+	// durability machinery for a plain write keeps the bytes, the reload
+	// and the reconciliation real while making the loop affordable.
+	journalPath, err := c.root.FilePath(journalName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.saveOverride = func(b []byte) (SaveResult, error) {
+		if err := os.WriteFile(journalPath, b, 0o600); err != nil {
+			return NotCommitted, err
+		}
+		return Committed, nil
+	}
+
 	const submissions = maxJournalEntries + 1
 	for i := 0; i < submissions; i++ {
 		h := hash(fmt.Sprintf("stress-%d", i))

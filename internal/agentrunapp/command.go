@@ -405,7 +405,15 @@ func (s *Service) CommandStart(ctx context.Context, key, actor string, request a
 			return err
 		}
 		// Pin after final spec resolution but before consuming approval.
-		startGuard, err = commandworker.PinWorkingDirectory(access.root, spec.Dir)
+		// The guard walks from root to cwd refusing reparse points, so it
+		// needs both spelled alike: spec.Dir came back canonicalized from
+		// access.resolve, and access.root is still spelled however the
+		// workspace was registered.
+		pinRoot, err := access.resolve("")
+		if err != nil {
+			return err
+		}
+		startGuard, err = commandworker.PinWorkingDirectory(pinRoot, spec.Dir)
 		if err != nil {
 			return err
 		}
