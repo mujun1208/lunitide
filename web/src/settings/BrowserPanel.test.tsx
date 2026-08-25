@@ -40,7 +40,12 @@ it('renders the five mode cards with the active mode checked', async () => {
   const group = await screen.findByRole('radiogroup', { name: '浏览器连接模式' })
   const cards = group.querySelectorAll('.br-mode-card')
   expect(cards).toHaveLength(5)
-  expect(screen.getByRole('radio', { name: /内置 WebView2/ })).toHaveAttribute('aria-checked', 'true')
+  // The cards render before the settings request resolves, every one of them
+  // unchecked, so waiting for the group only proves the shell mounted. The
+  // checked state is the thing that arrives late and the thing to wait for.
+  await waitFor(() =>
+    expect(screen.getByRole('radio', { name: /内置 WebView2/ })).toHaveAttribute('aria-checked', 'true'),
+  )
   expect(screen.getByRole('radio', { name: /每次询问/ })).toHaveAttribute('aria-checked', 'false')
 })
 
