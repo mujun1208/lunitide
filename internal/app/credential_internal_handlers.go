@@ -8,7 +8,6 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 )
 
@@ -218,47 +217,4 @@ func handleCredentialAdoptionResolve(e *Engine, ctx context.Context, request bri
 		return providerFailure(request, err)
 	}
 	return bridge.Success(request.ID, map[string]bool{"adopted": ok})
-}
-
-func handleElectronCredentialPlan(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var p struct {
-		Tuples []providerapp.ElectronCredentialTuple `json:"tuples"`
-	}
-	s, ok := e.providers.(electronCredentialMigrationService)
-	if decodePayload(r.Payload, &p) != nil || !ok {
-		return invalidProviderPayload(r, "Electron credential plan")
-	}
-	plans, err := s.PlanElectronCredentials(ctx, p.Tuples)
-	if err != nil {
-		return providerFailure(r, err)
-	}
-	return bridge.Success(r.ID, plans)
-}
-func handleElectronCredentialAdopt(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var p providerapp.ElectronCredentialAdoption
-	s, ok := e.providers.(electronCredentialMigrationService)
-	if decodePayload(r.Payload, &p) != nil || !ok {
-		return invalidProviderPayload(r, "Electron credential adoption")
-	}
-	receipt, err := s.AdoptElectronCredential(ctx, r.IdempotencyKey, p)
-	if err != nil {
-		return providerFailure(r, err)
-	}
-	return bridge.Success(r.ID, map[string]string{"receipt": receipt})
-}
-func handleElectronCredentialDisposition(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var p struct {
-		SourceFingerprint string `json:"sourceFingerprint"`
-		ItemFingerprint   string `json:"itemFingerprint"`
-		Disposition       string `json:"disposition"`
-	}
-	s, ok := e.providers.(electronCredentialMigrationService)
-	if decodePayload(r.Payload, &p) != nil || !ok {
-		return invalidProviderPayload(r, "Electron credential disposition")
-	}
-	tuple := providerapp.ElectronCredentialTuple{SourceFingerprint: p.SourceFingerprint, ItemFingerprint: p.ItemFingerprint}
-	if err := s.DispositionElectronCredential(ctx, tuple, p.Disposition); err != nil {
-		return providerFailure(r, err)
-	}
-	return bridge.Success(r.ID, map[string]bool{"ok": true})
 }

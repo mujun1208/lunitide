@@ -51,22 +51,6 @@ type ClaimedEvent struct {
 	LeaseUntil time.Time
 }
 
-type ElectronCredentialTuple struct {
-	SourceFingerprint string `json:"sourceFingerprint"`
-	ItemFingerprint   string `json:"itemFingerprint"`
-}
-type ElectronCredentialPlan struct {
-	ElectronCredentialTuple
-	ProviderID string            `json:"providerId"`
-	Version    int64             `json:"version"`
-	Origin     string            `json:"origin"`
-	Protocol   provider.Protocol `json:"protocol"`
-}
-type ElectronCredentialAdoption struct {
-	ElectronCredentialPlan
-	CredentialRef string `json:"credentialRef"`
-}
-
 type Tx interface {
 	Get(context.Context, string) (provider.Provider, error)
 	Create(context.Context, provider.Provider) (provider.Provider, error)
@@ -177,34 +161,6 @@ func (s *Service) ResolveCredentialBinding(ctx context.Context, id string) (secr
 		return secret.Ref{}, false, errors.New("credential binding resolver unavailable")
 	}
 	return resolver.ResolveCredentialBinding(ctx, id)
-}
-
-func (s *Service) PlanElectronCredentials(ctx context.Context, tuples []ElectronCredentialTuple) ([]ElectronCredentialPlan, error) {
-	r, ok := s.read.(interface {
-		PlanElectronCredentials(context.Context, []ElectronCredentialTuple) ([]ElectronCredentialPlan, error)
-	})
-	if !ok {
-		return nil, errors.New("Electron credential migration unavailable")
-	}
-	return r.PlanElectronCredentials(ctx, tuples)
-}
-func (s *Service) AdoptElectronCredential(ctx context.Context, key string, in ElectronCredentialAdoption) (string, error) {
-	r, ok := s.read.(interface {
-		AdoptElectronCredential(context.Context, string, ElectronCredentialAdoption) (string, error)
-	})
-	if !ok {
-		return "", errors.New("Electron credential migration unavailable")
-	}
-	return r.AdoptElectronCredential(ctx, key, in)
-}
-func (s *Service) DispositionElectronCredential(ctx context.Context, tuple ElectronCredentialTuple, disposition string) error {
-	r, ok := s.read.(interface {
-		DispositionElectronCredential(context.Context, ElectronCredentialTuple, string) error
-	})
-	if !ok {
-		return errors.New("Electron credential migration unavailable")
-	}
-	return r.DispositionElectronCredential(ctx, tuple, disposition)
 }
 
 func digest(v any) (string, []byte, error) {

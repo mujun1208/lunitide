@@ -238,14 +238,6 @@ func run() error {
 	}
 	defer coordinator.Close()
 	credentialHandler := &credentialsubmission.HostHandler{Coordinator: coordinator, Engine: client, Secrets: secretService}
-	migrationCtx, cancelMigration := context.WithTimeout(context.Background(), 20*time.Second)
-	migrationErr := credentialHandler.RunElectronCredentialAdoption(migrationCtx)
-	cancelMigration()
-	if migrationErr != nil {
-		// The underlying discovery/platform error may contain a legacy path.
-		// Pending items remain retryable on the next startup.
-		fmt.Fprintln(os.Stderr, "Electron credential migration was deferred and will be retried on next startup")
-	}
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
 	defer stopCleanup()
 	credentialHandler.StartCleanupWorker(cleanupCtx)

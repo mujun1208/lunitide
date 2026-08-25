@@ -26,10 +26,10 @@ Electron/Python `0.2.1` is retained only as a regression baseline and a historic
 | Host-only DPAPI secrets, lease broker and crash-safe credential submission/adoption/cleanup | Complete | recovery, replay, wrong-binding, concurrency and integration tests | Closed |
 | OpenAI-compatible and Anthropic gateway, pinned DNS/SSRF/TLS policy, streaming/cancel/terminal arbitration | Complete | gateway/network/stream tests, including exactly-once aggregate usage | Closed |
 | React Provider UI and generated Bridge contracts | Complete | schema drift gate, TypeScript check, 32 Renderer tests, production Vite build | Closed |
-| Electron metadata and authentic Chromium `safeStorage` migration | Complete | fail-fast `npm run test:electron-adoption:e2e` | Closed |
+| Electron metadata and authentic Chromium `safeStorage` migration | Removed in 0.4.01 | The prototype was never released; the one machine that ran it recorded `credential=adopted` on 2026-08-11, so the import had no remaining reader. Prototype, migration code and npm toolchain deleted; migration 0088 drops the bookkeeping tables | Closed |
 | Native release layout, pinned WebView2Loader, PE/export/manifest/content checks, exact binary version binding, NSIS lifecycle scripts | Complete | local positive/negative stage and installer verification plus CI workflow | Closed internally |
 | WebView2 profile isolation and failure-safe installer replacement | Complete | secured `%LOCALAPPDATA%\\Lunitide\\WebView2` profile; sibling stage/backup/restore installer flow | Closed internally |
-| Windows CGO race detector | Workflow complete, including authentic Electron adoption under `-race` | `.github/workflows/quality.yml` and `.github/workflows/release-candidate.yml`; no remote run is available in this repository yet | External evidence required |
+| Windows CGO race detector | Workflow complete | `.github/workflows/quality.yml` and `.github/workflows/release-candidate.yml`; no remote run is available in this repository yet | External evidence required |
 | Install/upgrade/retain/reinstall/`/PURGE` on disposable Win10 and Win11 | Script complete | `.github/workflows/release-candidate.yml`; current local profile is intentionally rejected because it contains an installation; client matrix must cover Evergreen WebView2 present and absent | External evidence required |
 | Authenticode publisher signing and timestamp | Build policy complete and fail-closed | Production build signs/verifies all three app-owned PE files before the manifest, then signs/verifies the installer; no certificate exists on this machine | External credential required |
 | Committed source baseline | Complete | P0/P1 `0.3.0` baseline changeset; release tag intentionally withheld | Closed |
@@ -70,11 +70,10 @@ This evidence does not replace the external Win10/Win11 lifecycle, final-commit 
 go test ./...
 go vet ./...
 go build ./...
-npm run verify:bridge
+npm --prefix web run verify:bridge
 npm --prefix web run typecheck
 npm --prefix web test -- --run
 npm --prefix web run build
-npm run test:electron-adoption:e2e
 
 # Staging does not publish an installer and may run unsigned.
 ./release/Build-Release.ps1 -SkipInstaller

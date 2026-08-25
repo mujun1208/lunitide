@@ -59,6 +59,13 @@ func (s *Store) UpsertMemorySettings(ctx context.Context, settings m8core.Memory
 		})
 }
 
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 // ListFactsPaged returns the newest version of each fact matching the
 // optional state/scope filter, newest first, plus the match total.
 func (s *Store) ListFactsPaged(ctx context.Context, state, scope string, limit, offset int) ([]m8core.FactRow, int, error) {
