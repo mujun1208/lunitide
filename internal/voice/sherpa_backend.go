@@ -204,9 +204,10 @@ type sherpaSession struct {
 	// Append and Finish can be called from different goroutines.
 	writeMu sync.Mutex
 
-	mu     sync.Mutex
-	latest string
-	err    error
+	mu          sync.Mutex
+	latest      string
+	latestFinal bool
+	err         error
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -280,12 +281,21 @@ func (s *sherpaSession) readLoop() {
 			continue
 		}
 		s.mu.Lock()
-		s.latest = transcript.Text
+		s.latest, s.latestFinal = transcript.Text, transcript.Final
 		s.mu.Unlock()
 		if s.onTranscript != nil {
 			s.onTranscript(transcript)
 		}
 	}
+}
+
+// Latest reports what the recognizer has heard so far and whether it has
+// settled. The bridge rides this back on the reply to each audio frame, so a
+// caption updates at the rate speech arrives without a second channel.
+func (s *sherpaSession) Latest() (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strings.TrimSpace(s.latest), s.latestFinal
 }
 
 // best returns the most complete transcript seen.

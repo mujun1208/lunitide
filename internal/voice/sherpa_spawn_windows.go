@@ -28,6 +28,10 @@ func spawnServer(executable string, args []string, port int) (*sherpaServer, err
 		return nil, fmt.Errorf("%w: recognizer not installed: %v", ErrBackendUnavailable, err)
 	}
 
+	// Before the child ever listens, so the firewall has a rule to match
+	// against and never raises its prompt.
+	ensureFirewallRule(executable)
+
 	log := newTailBuffer(8 << 10)
 	cmd := exec.Command(executable, args...)
 	// The runtime's DLLs sit beside the executable, and Windows searches the
