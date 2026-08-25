@@ -23,7 +23,7 @@
    → SQLite / Windows DPAPI
    ```
 
-   Electron、Node 主进程和 Python Engine 仅是旧版功能原型、回归基线和迁移输入，**不得承载任何新增生产能力**。
+   Electron、Node 主进程和 Python Engine 曾是旧版功能原型、回归基线和迁移输入，现已全部删除（见 3.2）。
 3. P0/P1 的核心代码和本地生产门禁已条件关闭，但仍不是正式发布：缺 Authenticode 正式证书/可信时间戳、Win10/Win11 干净机生命周期、WebView2 Runtime present/absent 矩阵、最终提交的远程 Windows CGO race、真实外部旧数据迁移验收及最终 release tag。
 4. P2 中 Project create/list 和 Session create/list 已提交；Message append/list 已基本实现，但仍未提交、仍有两个 Renderer 测试失败，因此不能称为完成。
 5. 用户新增硬性要求：单个 Session 必须支持至少约 **1M token 级逻辑历史**，支持准确、可追溯、版本化的上下文压缩及跨窗口 handoff。当前仅完成了不可变消息存储与安全分页地基；token ledger、prompt assembly、checkpoint、自动压缩和 handoff 均未实现。
@@ -185,19 +185,13 @@ flowchart LR
 - WebView2 用户数据目录使用受保护的 `%LOCALAPPDATA%\Lunitide\WebView2`，不能放安装目录；
 - 安装目录不保存用户数据；默认卸载保留 `%LOCALAPPDATA%\Lunitide`，只有显式 `/PURGE` 才删除。
 
-### 3.2 旧 Electron/Python 的地位
+### 3.2 旧 Electron/Python 的地位（已删除）
 
-根 `package.json` 中的 Electron 0.2.1、`src`/`engine` 等旧实现只是：
+根 `package.json` 中的 Electron 0.2.1、`src`/`engine` 等旧实现曾是功能回归参考、`safeStorage` 迁移来源，以及外部迁移验收前的兼容输入。三项使命均已结束：迁移于 2026-08-11 完成并落到 DPAPI，Python FastAPI engine 早被命名管道上的 Go engine 取代，两棵树已从仓库删除。
 
-- 功能回归参考；
-- Electron `safeStorage` 真实迁移来源；
-- P1 外部迁移验收前必须暂时保留的兼容输入。
+保留的禁止事项：
 
-禁止事项：
-
-- 不得在 Electron 主进程或 Python Engine 增加新的生产功能；
-- 不得让正式原生安装包携带 Electron、Node Runtime、Python、FastAPI 或 PyInstaller payload；
-- 在真实外部迁移矩阵验收完成之前不得删除旧迁移来源；
+- 不得让正式原生安装包携带 Electron、Node Runtime、Python、FastAPI 或 PyInstaller payload——`release/Verify-Layout.ps1` 用精确白名单加显式模式双重拦截；
 - 删除旧来源后必须在最终树重跑全部本地和远程门禁，再创建 tag。
 
 ---
