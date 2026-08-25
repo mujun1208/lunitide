@@ -4,7 +4,16 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: '/',
   plugins: [react()],
-  build: { outDir: 'dist', emptyOutDir: true },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    // Assets under the inline limit become data: URLs, which is a saving for
+    // an icon and a defect for an AudioWorklet: the renderer's CSP allows
+    // scripts from 'self' only, and addModule() on a data: URL is refused at
+    // runtime. Nothing catches that — the build succeeds, the types check,
+    // and voice capture fails on the user's machine. Keep the worklet a file.
+    assetsInlineLimit: (filePath: string) => (filePath.endsWith('Worklet.js') ? false : undefined),
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
