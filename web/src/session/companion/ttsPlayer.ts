@@ -140,6 +140,8 @@ export class TtsPlayer {
    *  so a turn is one (or two) clips, not one synth per period. */
   private holdTail = ''
   private lastEnqueueAt = 0
+  /** Measured cost of one synthesis round trip; see observeSynthDuration. */
+  private synthSeconds = 0
 
   /** True while a clip is synthesizing or playing — used to pause mic commit. */
   isBusy(): boolean {
@@ -172,8 +174,11 @@ export class TtsPlayer {
       // Hand the tail over while the sounding clip still has enough left to
       // cover the round trip. Everything arriving before that moment merges
       // into it, so waiting longer buys continuity — but waiting past this
-      // point buys a gap instead.
-      if (!stalled && remaining > SYNTH_LEAD_SECONDS) return
+      // point buys a gap instead. The lead is measured rather than assumed:
+      // a fixed 1.5s is wide enough on a warm socket and far too narrow
+      // behind a proxy, which is where the gap between her first and second
+      // sentence was coming from.
+      if (!stalled && remaining > this.synthLeadSeconds()) return
     }
     for (const part of splitForEngine(this.holdTail)) {
       this.pendingSegments.push({ text: part, index: this.nextEnqueueIndex++ })
@@ -190,11 +195,37 @@ export class TtsPlayer {
    */
   private async synthesizeReadySegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
     this.inFlightSynths++
+    const started = performance.now()
     try {
       return await this.requestSegment(text, callbacks)
     } finally {
       this.inFlightSynths--
+      this.observeSynthDuration((performance.now() - started) / 1000)
     }
+  }
+
+  /**
+   * Remember how long the engine actually takes, so the lead can be sized
+   * against this machine and this network instead of a guess.
+   *
+   * Rises immediately and falls slowly. A round trip that suddenly takes
+   * three seconds has to widen the lead on the very next sentence or the
+   * speaker runs dry; one that comes back fast might just be a cache hit,
+   * and narrowing the lead on that evidence would re-open the gap the next
+   * time the network sags.
+   */
+  private observeSynthDuration(seconds: number): void {
+    if (!Number.isFinite(seconds) || seconds <= 0) return
+    this.synthSeconds = seconds > this.synthSeconds ? seconds : this.synthSeconds * 0.8 + seconds * 0.2
+  }
+
+  /** How much of the sounding clip must remain before the tail is handed over. */
+  private synthLeadSeconds(): number {
+    // Half again what synthesis has been costing, plus a fixed margin for
+    // decode and scheduling. Floored at the old constant so a fast first
+    // turn does not cut the lead below what a cold socket needs, and capped
+    // so a one-off stall cannot swallow a whole reply into one clip.
+    return Math.min(6, Math.max(SYNTH_LEAD_SECONDS, this.synthSeconds * 1.5 + 0.3))
   }
 
   private async requestSegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
