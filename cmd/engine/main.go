@@ -114,16 +114,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer store.Close()
-	// Electron 0.1-0.2.1 stored provider metadata under its roaming userData
-	// directory. Import is intentionally internal/startup-only: the public
-	// migration Bridge methods remain disabled until their DTO contract exists.
-	statuses, migrationErr := store.RunDiscoveredElectronProviderMetadata(ctx)
-	if migrationErr != nil {
-		log.Printf("Electron provider metadata migration skipped: %v", migrationErr)
-	}
-	for _, status := range statuses {
-		log.Printf("Electron provider metadata migration: state=%s processed=%d imported=%d duplicates=%d conflicts=%d", status.State, status.Processed, status.Imported, status.Duplicates, status.Conflicts)
-	}
 	providerService := providerapp.New(store, store)
 	projectService := projectapp.New(store, store)
 	sessionService := sessionapp.New(store, store)
@@ -300,7 +290,6 @@ func main() {
 	} else if recovered.Runs+recovered.Steps+recovered.ToolCalls+recovered.Effects > 0 {
 		log.Printf("durable run recovery: runs=%d steps=%d tools=%d effects=%d", recovered.Runs, recovered.Steps, recovered.ToolCalls, recovered.Effects)
 	}
-	engine.SetMigrationService(app.NewMigrationAdapter(store))
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
 	engine.SetupHandoffService(store)
 	toolRoot, err := dataRoot.PrepareSubdirectory("tool-workspaces")

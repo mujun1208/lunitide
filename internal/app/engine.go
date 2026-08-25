@@ -108,12 +108,6 @@ type CompactionSummaryReader interface {
 type compactionCoverageReader interface {
 	GetLatestCompactionCheckpoint(ctx context.Context, sessionID string) (string, int64, error)
 }
-type electronCredentialMigrationService interface {
-	PlanElectronCredentials(context.Context, []providerapp.ElectronCredentialTuple) ([]providerapp.ElectronCredentialPlan, error)
-	AdoptElectronCredential(context.Context, string, providerapp.ElectronCredentialAdoption) (string, error)
-	DispositionElectronCredential(context.Context, providerapp.ElectronCredentialTuple, string) error
-}
-
 type Engine struct {
 	providers          ProviderService
 	projects           ProjectService
@@ -125,7 +119,6 @@ type Engine struct {
 	memories           MemoryService
 	ontology           OntologyService
 	skills             SkillService
-	migration          MigrationService
 	messageReader      contextapp.Reader
 	tokenRepo          token.Repository
 	compactionTrigger  *compactionapp.Trigger
@@ -477,9 +470,6 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodSkillDisable:                  handleSkillDisable,
 	bridge.MethodSkillCatalogList:              handleSkillCatalogList,
 	bridge.MethodSkillInstall:                  handleSkillInstall,
-	bridge.MethodMigrationInspect:              handleMigrationInspect,
-	bridge.MethodMigrationRun:                  handleMigrationRun,
-	bridge.MethodMigrationStatus:               handleMigrationStatus,
 	bridge.MethodTerminalStart:                 handleTerminalStart,
 	bridge.MethodTerminalInput:                 handleTerminalInput,
 	bridge.MethodTerminalResize:                handleTerminalResize,
@@ -606,9 +596,6 @@ var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.Method("internal.credential-cleanup.complete"):          handleCredentialCleanupComplete,
 	bridge.Method("internal.credential-cleanup.retry"):             handleCredentialCleanupRetry,
 	bridge.Method("internal.provider.credential-binding.resolve"):  handleCredentialBindingResolve,
-	bridge.Method("internal.electron-credential.plan"):             handleElectronCredentialPlan,
-	bridge.Method("internal.electron-credential.adopt"):            handleElectronCredentialAdopt,
-	bridge.Method("internal.electron-credential.disposition"):      handleElectronCredentialDisposition,
 }
 
 type providerDTO struct {
@@ -674,9 +661,6 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 	e.skills = skills
 	return e
 }
-
-// SetMigrationService wires the migration service into the engine.
-func (e *Engine) SetMigrationService(m MigrationService) { e.migration = m }
 
 func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) { e.tools = r }
 
