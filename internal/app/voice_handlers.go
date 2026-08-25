@@ -142,6 +142,19 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		return bridge.Failure(r.ID, r.TraceID, "VOICE-001", "本地识别模型未知", false)
 	}
 	ready := e.voice.ready(ctx)
+	if ready {
+		// Start loading the refiner's weights now rather than when a session
+		// opens. Everything is on disk, so this only happens for someone who
+		// has already chosen local recognition.
+		//
+		// Opening a session is too late to be useful on the first turn: the
+		// model takes seconds to load and the user is done speaking before it
+		// finishes, so their opening sentence — the one that decides whether
+		// they think this works — was the only one transcribed by the rough
+		// streaming model. The stage asks for status when it mounts, which
+		// buys most of that load.
+		e.voice.warmRefiner()
+	}
 	var downloadBytes int64
 	for _, bundle := range e.voice.bundles() {
 		downloadBytes += bundle.TotalBytes()

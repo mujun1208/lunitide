@@ -144,6 +144,17 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       const now = Date.now()
       // Audio captured before the guard closed is the speaker, not the user.
       if (now < guardUntil) return
+      if (playback || commitPaused) {
+        // Her turn, so this is her own voice off the speaker — dropped
+        // before it is recorded, not after.
+        //
+        // Recording it first and refusing to act on it was not enough: the
+        // buffer still held her sentence when her turn ended, so it surfaced
+        // a beat later as a caption flashing her own last line back at the
+        // user, and could be committed as though they had said it. Nothing
+        // heard during her turn belongs to the user's next one.
+        return
+      }
       const trimmed = next.trim()
       if (!trimmed || trimmed === text.trim()) return
       text = next
@@ -153,15 +164,14 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         announcedSpeech = true
         options.onSpeechStart?.()
       }
-      if (playback || commitPaused) {
-        // Her turn. Nothing the microphone reports can end it — that is the
-        // 打断 button's job — and the microphone is muted for the whole of
-        // it anyway, so anything arriving here was captured around a
-        // boundary. Dropped, and the recycle at the boundary clears the
-        // recognizer behind it.
-        return
-      }
       options.onInterim?.(next)
+    },
+    onTranscriptLost: () => {
+      // The microphone is still live, so the repair is to say it again. Said
+      // out loud because the alternative is a sentence that vanishes with no
+      // explanation, which reads as the companion ignoring the user.
+      resetUtterance()
+      options.onEngineHint?.('刚才那句没听清，请再说一遍')
     },
     onError: fail,
   })
@@ -197,7 +207,10 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         }, echoGuardMs)
       }
       // Whatever landed either side of the boundary belongs to the turn that
-      // just ended, so the recognizer restarts clean for the next one.
+      // just ended. Cleared here and now rather than when the commit below
+      // comes back, so there is no window where the next turn can start on
+      // top of the last one's words.
+      resetUtterance()
       void recycle(false)
     },
     forceCommit: () => {
