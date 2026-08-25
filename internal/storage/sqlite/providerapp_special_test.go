@@ -21,7 +21,7 @@ func (c fixedClock) Now() time.Time { return c.at }
 
 func openAppStore(t *testing.T, name string) *Store {
 	t.Helper()
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), name+".db"))
+	s, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), name+".db"))
 	if err != nil {
 		t.Fatal(err)
 	}

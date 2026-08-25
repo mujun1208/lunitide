@@ -25,7 +25,7 @@ import (
 // bridge with deterministic execution ports.
 func newM7RuntimeEngineHarness(t *testing.T) (*Engine, *m7app.ToolgapService, *m7app.McpRuntimeService) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m7rt.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7rt.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

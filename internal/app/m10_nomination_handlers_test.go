@@ -18,7 +18,7 @@ import (
 
 func newNominationEngine(t *testing.T) *Engine {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m10nom.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m10nom.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

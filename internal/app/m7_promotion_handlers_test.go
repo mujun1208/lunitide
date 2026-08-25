@@ -17,7 +17,7 @@ import (
 // so the promotion handlers can be exercised end-to-end through the bridge.
 func newM7PromotionEngineHarness(t *testing.T) *Engine {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "m7prmh.db"))
+	store, err := sqlite.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7prmh.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestReleasePromotionHandlerGuards(t *testing.T) {
 }
 
 func TestReleasePromotionHandlerServiceUnavailable(t *testing.T) {
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "m7prmu.db"))
+	store, err := sqlite.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7prmu.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,7 @@ const (
 
 func orchestrationStore(t *testing.T, path string) *Store {
 	t.Helper()
-	s, err := Open(context.Background(), path)
+	s, err := OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

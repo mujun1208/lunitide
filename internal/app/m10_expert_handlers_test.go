@@ -16,7 +16,7 @@ import (
 
 func newScenarioEngine(t *testing.T) *Engine {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m10scen.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m10scen.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

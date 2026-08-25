@@ -24,7 +24,7 @@ import (
 
 func openSliceStore(t *testing.T) *storage.Store {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m8-slices.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m8-slices.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

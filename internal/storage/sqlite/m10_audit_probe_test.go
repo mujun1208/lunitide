@@ -12,7 +12,7 @@ import (
 // the whole business write back at runtime.
 func TestM10AuditActionsAccepted(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "m10-audit.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "m10-audit.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

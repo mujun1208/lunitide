@@ -16,7 +16,7 @@ import (
 )
 
 func TestGetLatestCompactionSummaryNoActiveSummary(t *testing.T) {
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "summary.db"))
+	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "summary.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestGetLatestCompactionSummaryNoActiveSummary(t *testing.T) {
 }
 
 func TestGetLatestCompactionSummaryPropagatesDatabaseError(t *testing.T) {
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "summary-error.db"))
+	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "summary-error.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestGetLatestCompactionSummaryPropagatesDatabaseError(t *testing.T) {
 
 func TestSumTokenLedgerAfterSeqUsesCanonicalIdentityAndRevision(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "low-watermark-tokenizer.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "low-watermark-tokenizer.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestSumTokenLedgerAfterSeqUsesCanonicalIdentityAndRevision(t *testing.T) {
 // already represents.
 func TestGetLatestCompactionCheckpointAnswersCoverage(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "coverage.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "coverage.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestGetLatestCompactionCheckpointAnswersCoverage(t *testing.T) {
 
 func TestMessageSchemaRejectsUnsupportedMultipartMessage(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "multipart-compaction.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "multipart-compaction.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

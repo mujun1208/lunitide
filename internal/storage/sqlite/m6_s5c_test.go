@@ -18,7 +18,7 @@ import (
 
 func newS5Store(t *testing.T) *Store {
 	t.Helper()
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "m6.db"))
+	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

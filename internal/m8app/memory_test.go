@@ -22,7 +22,7 @@ func (c *fakeClock) Now() time.Time { return c.now }
 
 func openMemoryService(t *testing.T) (*m8app.MemoryService, *fakeClock) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m8-memory.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m8-memory.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

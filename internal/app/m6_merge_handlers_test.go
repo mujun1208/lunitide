@@ -45,7 +45,7 @@ type m6MergeHarness struct {
 
 func newM6MergeHarness(t *testing.T) *m6MergeHarness {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m6merge.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6merge.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

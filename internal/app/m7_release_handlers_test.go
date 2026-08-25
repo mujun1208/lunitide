@@ -15,7 +15,7 @@ import (
 // review service review.submit depends on) onto a fresh store.
 func newM7ReleaseHarness(t *testing.T) (*Engine, *sqlite.Store) {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "m7rel.db"))
+	store, err := sqlite.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7rel.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

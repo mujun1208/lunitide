@@ -21,7 +21,7 @@ import (
 func fsHarness(t *testing.T) (*m5.FsService, string, string) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "m5-fs.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "m5-fs.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

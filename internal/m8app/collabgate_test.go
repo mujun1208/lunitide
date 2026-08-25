@@ -33,7 +33,7 @@ func (f *fakeEvidence) Aggregate(ctx context.Context, subjectID string, windowSt
 
 func openGateService(t *testing.T, ev m8core.GateEvidence) (*m8app.CollabGateService, *fakeEvidence, *fakeClock) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m8-gate.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m8-gate.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestGateConfirmSingleUseTokenLifecycle(t *testing.T) {
 // preflight also refuses with the drift code and revokes the decision.
 func TestGateBindingDriftRollsBackToDisabled(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m8-gate-drift.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m8-gate-drift.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

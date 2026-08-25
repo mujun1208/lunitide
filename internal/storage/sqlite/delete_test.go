@@ -25,7 +25,7 @@ import (
 // must be deleted BEFORE messages and sessions.
 func TestDeleteSessionRecordsTombstones(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "tombstone.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "tombstone.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestDeleteSessionRecordsTombstones(t *testing.T) {
 // is a no-op (idempotent) and does not error.
 func TestDeleteSessionIdempotent(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "idempotent.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "idempotent.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestDeleteSessionIdempotent(t *testing.T) {
 func TestDeleteSessionDecrementsMessageUsageCounters(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "delete-message-usage.db")
-	store, err := Open(ctx, path)
+	store, err := OpenTemplated(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestDeleteSessionDecrementsMessageUsageCounters(t *testing.T) {
 	if err = store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(ctx, path)
+	reopened, err := OpenTemplated(ctx, path)
 	if err != nil {
 		t.Fatalf("reopen after session delete: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestDeleteSessionDecrementsMessageUsageCounters(t *testing.T) {
 func TestDeleteProjectDecrementsWorkspaceMessageUsage(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "delete-project-message-usage.db")
-	store, err := Open(ctx, path)
+	store, err := OpenTemplated(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestDeleteProjectDecrementsWorkspaceMessageUsage(t *testing.T) {
 	if err = store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(ctx, path)
+	reopened, err := OpenTemplated(ctx, path)
 	if err != nil {
 		t.Fatalf("reopen after project delete: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestDeleteProjectWorkspaceUsageInvariantFailsClosed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			store, err := Open(ctx, filepath.Join(t.TempDir(), "delete-project-invariant.db"))
+			store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "delete-project-invariant.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -311,7 +311,7 @@ func TestDeleteProjectWorkspaceUsageInvariantFailsClosed(t *testing.T) {
 // tombstones for all sessions under the project.
 func TestDeleteProjectRecordsTombstones(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "proj-tombstone.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "proj-tombstone.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestDeleteProjectRecordsTombstones(t *testing.T) {
 // twice is a no-op (INSERT OR IGNORE).
 func TestRecordTombstoneIdempotent(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "tombstone-idempotent.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "tombstone-idempotent.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

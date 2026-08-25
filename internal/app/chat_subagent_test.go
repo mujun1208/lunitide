@@ -55,7 +55,7 @@ func (a *subagentFakeAdapter) Discover(context.Context, []byte) (gateway.Discove
 
 func newSubagentChatEngine(t *testing.T) *Engine {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "sub.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "sub.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ type m6Harness struct {
 
 func newM6Harness(t *testing.T) *m6Harness {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m6.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

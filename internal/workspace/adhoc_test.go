@@ -49,7 +49,7 @@ func newRunID(t *testing.T, store *storage.Store) string {
 func adhocHarness(t *testing.T) (*workspace.AdHocService, *fakeClock, *storage.Store) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "m5-adhoc.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "m5-adhoc.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

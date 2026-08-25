@@ -66,7 +66,7 @@ func (f *fakeCcHost) ActiveWindow() (string, string, error) {
 func newCcService(t *testing.T) (*ccapp.Service, *fakeCcHost, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "cc-control.db")
-	store, err := Open(context.Background(), path)
+	store, err := OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
