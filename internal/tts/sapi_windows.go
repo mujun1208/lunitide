@@ -251,9 +251,19 @@ func (w *voiceWorker) synth(in SynthesizeInput) (SynthesizeResult, bool, error) 
 		return zero, false, fmt.Errorf("%w: invalid wav output", ErrSynthesisFailed)
 	}
 	seconds := float64(len(data)-wavHeaderBytes) / float64(wavSamplesPerSecond*wavBytesPerSample)
+	hint := math.Round(seconds*100) / 100
+	if hint <= 0 {
+		// Two-decimal rounding turns anything under 5ms into a flat zero,
+		// which reads downstream as "there is no audio here" — and the
+		// renderer schedules the following segment off this number. A clip
+		// short enough to round away still has to be given time to play.
+		// A voice that cannot pronounce the requested script produces
+		// exactly this, so it is not a theoretical case.
+		hint = 0.01
+	}
 	return SynthesizeResult{
 		WavBase64:    base64.StdEncoding.EncodeToString(data),
-		DurationHint: math.Round(seconds*100) / 100,
+		DurationHint: hint,
 	}, false, nil
 }
 

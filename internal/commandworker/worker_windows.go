@@ -91,6 +91,9 @@ func (g *directoryStartGuard) Close() error {
 // PinWorkingDirectory opens root and every directory down to cwd without
 // following reparse points. FILE_SHARE_DELETE is deliberately omitted, so
 // rename/delete substitution is blocked until CreateProcess consumes cwd.
+// Both arguments must already be spelled the same way; canonicalizing them
+// here would be wrong, because following a reparse point to compare it is
+// also following it past the refusal below.
 func PinWorkingDirectory(root, cwd string) (StartGuard, error) {
 	root = filepath.Clean(root)
 	cwd = filepath.Clean(cwd)

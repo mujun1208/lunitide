@@ -62,32 +62,23 @@ func guardChangeSetPath(access fsAccess, rel string) (*changeSetPathGuard, error
 	}
 	g := &changeSetPathGuard{}
 	current := filepath.Clean(access.root)
-	components := []string{""}
-	if parent := filepath.Dir(filepath.FromSlash(rel)); parent != "." {
-		components = append(components, strings.Split(parent, string(filepath.Separator))...)
+	// The root is pinned like every other component but is not held to the
+	// reparse rule: a junction on the way *to* the workspace is the address
+	// the user registered, and OneDrive hands out redirected Documents
+	// folders by default. Refusing it rejected every file operation in such
+	// a workspace. Only components below the root can redirect a relative
+	// path out of it, and those are still opened with OPEN_REPARSE_POINT
+	// and refused.
+	if err := g.pin(current, true); err != nil {
+		return nil, err
 	}
-	for _, component := range components {
-		if component != "" {
+	if parent := filepath.Dir(filepath.FromSlash(rel)); parent != "." {
+		for _, component := range strings.Split(parent, string(filepath.Separator)) {
 			current = filepath.Join(current, component)
+			if err := g.pin(current, false); err != nil {
+				return nil, err
+			}
 		}
-		p, err := windows.UTF16PtrFromString(current)
-		if err != nil {
-			g.Close()
-			return nil, err
-		}
-		h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-		if err != nil {
-			g.Close()
-			return nil, err
-		}
-		var info windows.ByHandleFileInformation
-		err = windows.GetFileInformationByHandle(h, &info)
-		if err != nil || info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
-			windows.CloseHandle(h)
-			g.Close()
-			return nil, fmt.Errorf("reparse/non-directory component rejected: %s", current)
-		}
-		g.handles = append(g.handles, h)
 	}
 	// Inspect an existing leaf without following it. Missing is expected for an
 	// apply-create and for reverting an applied delete.
@@ -111,6 +102,36 @@ func guardChangeSetPath(access fsAccess, rel string) (*changeSetPathGuard, error
 		return nil, err
 	}
 	return g, nil
+}
+
+// pin opens one directory component and holds the handle for the lifetime of
+// the guard, so it cannot be swapped between this check and the write. isRoot
+// follows a reparse point instead of refusing it; see guardChangeSetPath.
+func (g *changeSetPathGuard) pin(dir string, isRoot bool) error {
+	p, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		g.Close()
+		return err
+	}
+	flags := uint32(windows.FILE_FLAG_BACKUP_SEMANTICS)
+	if !isRoot {
+		flags |= windows.FILE_FLAG_OPEN_REPARSE_POINT
+	}
+	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, flags, 0)
+	if err != nil {
+		g.Close()
+		return err
+	}
+	var info windows.ByHandleFileInformation
+	err = windows.GetFileInformationByHandle(h, &info)
+	reparse := !isRoot && info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0
+	if err != nil || reparse || info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+		windows.CloseHandle(h)
+		g.Close()
+		return fmt.Errorf("reparse/non-directory component rejected: %s", dir)
+	}
+	g.handles = append(g.handles, h)
+	return nil
 }
 
 func (g *changeSetPathGuard) Close() error {

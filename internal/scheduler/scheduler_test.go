@@ -98,15 +98,32 @@ func TestStoreRunAppendListAndTrim(t *testing.T) {
 }
 
 // captureNotifier records notifications for assertions.
+//
+// A run notifies near the end of its goroutine, after the executor returns,
+// after the run row is appended and after the fire hooks. Waiting on any of
+// those earlier signals and then reading rows is a race the test loses on a
+// loaded machine, so waitFor is the synchronisation point for anything the
+// notification follows.
 type captureNotifier struct {
 	mu   sync.Mutex
 	rows []string
+	sig  chan struct{}
+}
+
+func newCaptureNotifier() *captureNotifier {
+	return &captureNotifier{sig: make(chan struct{}, 8)}
 }
 
 func (c *captureNotifier) Notify(title, body string) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.rows = append(c.rows, title+"|"+body)
+	c.mu.Unlock()
+	// Non-blocking so a notifier built without a channel, or one that
+	// outruns its reader, never stalls the scheduler.
+	select {
+	case c.sig <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -114,6 +131,18 @@ func (c *captureNotifier) len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.rows)
+}
+
+func (c *captureNotifier) waitFor(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for c.len() < n {
+		select {
+		case <-c.sig:
+		case <-deadline:
+			t.Fatalf("waited for %d notifications, saw %d", n, c.len())
+		}
+	}
 }
 
 func TestSchedulerFiresDueJobSingleFlightNotifiesAndPersists(t *testing.T) {
@@ -133,7 +162,7 @@ func TestSchedulerFiresDueJobSingleFlightNotifiesAndPersists(t *testing.T) {
 		ready <- struct{}{}
 		return Outcome{Summary: "日报完成\n明细略", TotalTokens: 42}
 	}
-	notify := &captureNotifier{}
+	notify := newCaptureNotifier()
 	s := New(store, executor, notify)
 
 	// Seed nextFire so the job is due right now.
@@ -149,10 +178,7 @@ func TestSchedulerFiresDueJobSingleFlightNotifiesAndPersists(t *testing.T) {
 
 	<-ready
 	// Wait for the async finalize (run row + notify + reschedule).
-	deadline := time.Now().Add(2 * time.Second)
-	for notify.len() < 1 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	notify.waitFor(t, 1)
 	if got, ok := calls.Load(job.ID); !ok || got.(int) != 1 {
 		t.Fatalf("executor calls = %v, want exactly 1", got)
 	}
@@ -180,6 +206,11 @@ func TestSchedulerFiresDueJobSingleFlightNotifiesAndPersists(t *testing.T) {
 	if err != nil || !parsed.After(now) {
 		t.Fatalf("nextFire = %s (%v)", next, err)
 	}
+	// A run clears itself from the running set in a deferred call, which is
+	// the one step that happens after the notification waited on above.
+	for deadline := time.Now().Add(2 * time.Second); len(snap.RunningJobs) != 0 && time.Now().Before(deadline); snap = s.Snapshot() {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if len(snap.RunningJobs) != 0 {
 		t.Fatalf("running jobs leaked: %+v", snap.RunningJobs)
 	}
@@ -189,22 +220,19 @@ func TestSchedulerFailureRunNotifiesFailure(t *testing.T) {
 	store := newTestStore(t)
 	job := validJob("failing", "*/5 * * * *")
 	_ = store.PutJob(job)
-	notify := &captureNotifier{}
-	done := make(chan struct{})
+	notify := newCaptureNotifier()
 	s := New(store, func(context.Context, Job) Outcome {
 		return Outcome{Err: errors.New("模型网关超时")}
 	}, notify)
-	s.fireHooks = append(s.fireHooks, func(string, string, Outcome) { close(done) })
 	now := time.Now().UTC().Truncate(time.Minute)
 	s.mu.Lock()
 	s.nextFire[job.ID] = now.Add(-time.Minute)
 	s.mu.Unlock()
 	s.fireDue(now)
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("run did not finish")
-	}
+	// The run appends its row before it notifies, so this one wait covers
+	// both assertions. The fire hook this used to wait on runs earlier
+	// still, which is why the notification was routinely not there yet.
+	notify.waitFor(t, 1)
 	if notify.len() != 1 || !strings.Contains(notify.rows[0], "失败") {
 		t.Fatalf("notify rows = %+v", notify.rows)
 	}

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -100,7 +101,9 @@ func New(root string) (*Runtime, error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
-	real, err := filepath.EvalSymlinks(root)
+	// Pinned in the operating system's own spelling, because every
+	// containment check below compares a resolved child against it.
+	real, err := canonpath.Canonical(root)
 	if err != nil {
 		return nil, err
 	}
@@ -722,7 +725,7 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 		if write {
 			return "", errors.New("workspace root is not writable")
 		}
-		real, err := filepath.EvalSymlinks(p)
+		real, err := canonpath.Canonical(p)
 		if err != nil {
 			return "", err
 		}
@@ -734,7 +737,7 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 			return "", err
 		}
 	}
-	realParent, err := filepath.EvalSymlinks(parent)
+	realParent, err := canonpath.Canonical(parent)
 	if err != nil {
 		return "", err
 	}
@@ -743,7 +746,7 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 		return "", errors.New("path escape")
 	}
 	if !write {
-		real, err := filepath.EvalSymlinks(p)
+		real, err := canonpath.Canonical(p)
 		if err != nil {
 			return "", err
 		}
@@ -1512,8 +1515,17 @@ func (r *Runtime) containedRead(root, relPath string) (string, error) {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
 		return "", errors.New("path traversal")
 	}
+	// r.root is canonicalized once in New, but this root arrives from a
+	// caller and has not been. Comparing a resolved child against an
+	// unresolved root reports an escape for every file under a short-name
+	// or redirected directory, so canonicalize both and compare like with
+	// like.
+	root, err := canonpath.Canonical(root)
+	if err != nil {
+		return "", err
+	}
 	p := filepath.Join(root, clean)
-	real, err := filepath.EvalSymlinks(p)
+	real, err := canonpath.Canonical(p)
 	if err != nil {
 		return "", err
 	}
