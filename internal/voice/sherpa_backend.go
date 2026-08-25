@@ -107,6 +107,23 @@ func (b *SherpaBackend) Start(ctx context.Context, opts SessionOptions) (Session
 	return session, nil
 }
 
+// Warm starts the recognizer's process so the first session does not pay for
+// it.
+//
+// Start blocks until the child accepts connections, which is a model load and
+// takes seconds. Doing that when the user activates the microphone means they
+// spend those seconds talking to a session that does not exist yet — and,
+// because the renderer opens the microphone only once the session is up, to a
+// device that is not even recording. Called from the status check the stage
+// makes when it mounts, which is far enough ahead to cover it.
+func (b *SherpaBackend) Warm(ctx context.Context) error {
+	if err := b.Ready(ctx); err != nil {
+		return err
+	}
+	_, err := b.ensureServer(ctx)
+	return err
+}
+
 // ensureServer returns a running server, starting one if needed.
 func (b *SherpaBackend) ensureServer(ctx context.Context) (*sherpaServer, error) {
 	b.mu.Lock()

@@ -42,6 +42,28 @@ type VoiceService struct {
 	installing bool
 
 	counter atomic.Uint64
+
+	// One load at a time per engine. The status call that triggers a warm-up
+	// is made by every screen that mentions voice, and a model load holds a
+	// mutex for seconds, so without this they would queue up behind each
+	// other and keep loading long after the first one succeeded.
+	warmingStream  warmOnce
+	warmingRefiner warmOnce
+}
+
+// warmOnce runs at most one warm-up at a time, and lets a later caller try
+// again once it has finished. Not sync.Once: a load that failed because the
+// model was still downloading has to be retried when it is not.
+type warmOnce struct{ running atomic.Bool }
+
+func (w *warmOnce) run(fn func()) {
+	if !w.running.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer w.running.Store(false)
+		fn()
+	}()
 }
 
 // NewVoiceService wires a recognizer rooted at a directory holding bundles.
@@ -82,23 +104,36 @@ func (s *VoiceService) Close() {
 	}
 }
 
-// warmRefiner starts the non-streaming recognizer's process in the
-// background, detached from the request that triggered it.
-func (s *VoiceService) warmRefiner() {
+// warmEngines starts both recognizers' processes in the background, detached
+// from the request that triggered it.
+//
+// Both, not just the refiner. Loading the streaming model is what a session
+// blocks on, so leaving it until the microphone is activated puts the whole
+// load between the user pressing the button and anything being recorded.
+func (s *VoiceService) warmEngines() {
+	// Its own context for each: the bridge request that triggered this is
+	// answered in milliseconds and would cancel the load long before a
+	// model finishes.
+	if streaming, ok := s.backend.(*voice.SherpaBackend); ok {
+		s.warmingStream.run(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := streaming.Warm(ctx); err != nil {
+				log.Printf("voice: warm recognizer: %v", err)
+			}
+		})
+	}
 	if s.refiner == nil {
 		return
 	}
 	refiner := s.refiner
-	go func() {
-		// Its own context: the bridge request that opened the session is
-		// answered in milliseconds and would cancel this long before a
-		// model finishes loading.
+	s.warmingRefiner.run(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		if err := refiner.Warm(ctx); err != nil {
 			log.Printf("voice: warm refiner: %v", err)
 		}
-	}()
+	})
 }
 
 // ready reports whether a turn could start right now.
@@ -153,7 +188,7 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		// they think this works — was the only one transcribed by the rough
 		// streaming model. The stage asks for status when it mounts, which
 		// buys most of that load.
-		e.voice.warmRefiner()
+		e.voice.warmEngines()
 	}
 	var downloadBytes int64
 	for _, bundle := range e.voice.bundles() {
@@ -307,7 +342,7 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	// Load the refiner's model while the user is still talking. It is not
 	// waited on: a session that opens must open now, and a refiner that is
 	// not ready by the time they stop simply does not refine that turn.
-	e.voice.warmRefiner()
+	e.voice.warmEngines()
 
 	id := fmt.Sprintf("v%d", e.voice.counter.Add(1))
 	e.voice.mu.Lock()

@@ -200,12 +200,39 @@ describe('startLocalAsr', () => {
     expect(onError).toHaveBeenCalledTimes(1)
   })
 
-  it('does not strand an engine session when the microphone will not open', async () => {
-    // start() already opened a session; failing to capture must not leave it
-    // holding the recognizer for a turn that will never happen.
+  it('opens no engine session at all when the microphone will not open', async () => {
+    // The microphone is acquired first, so a refused permission costs nothing
+    // on the engine side. It used to be the other way round, which both left
+    // a session to clean up here and, in the normal case, kept the microphone
+    // shut for however long the engine took to load its model.
     captureRejects = new Error('permission denied')
     await expect(startLocalAsr({})).rejects.toThrow('permission denied')
-    expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
+    expect(bridge.start).not.toHaveBeenCalled()
+    expect(bridge.stop).not.toHaveBeenCalled()
+  })
+
+  it('keeps what was said while the engine was still loading its model', async () => {
+    // Opening a session can mean waiting seconds for a model to load. The
+    // microphone is already running by then, and the user is already talking
+    // — 「我上来说话说了好几次，他都没反应」 was this window, when nothing
+    // was recording at all.
+    let openSession: (value: { sessionId: string }) => void = () => {}
+    bridge.start.mockReturnValueOnce(new Promise(resolve => { openSession = resolve }))
+
+    const starting = startLocalAsr({})
+    await settle()
+    emitFrame(frame())
+    emitFrame(frame())
+    await settle()
+    expect(bridge.append).not.toHaveBeenCalled()
+
+    openSession({ sessionId: 'v1' })
+    await starting
+    await settle()
+
+    // Both frames reach the recognizer, joined into the first request.
+    expect(bridge.append).toHaveBeenCalledTimes(1)
+    expect(bridge.append.mock.calls[0]![0]).toMatchObject({ sessionId: 'v1' })
   })
 
   it('is safe to cancel twice and to finish after cancelling', async () => {
