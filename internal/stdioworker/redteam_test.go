@@ -21,8 +21,18 @@ func rtChildMain(mode, cfgArg string) int {
 	if err := json.Unmarshal([]byte(cfgArg), &cfg); err != nil {
 		return 2
 	}
-	if mode == "grandchild" { // fork-bomb grandchild: sleep and die quietly
-		time.Sleep(2 * time.Second)
+	if mode == "grandchild" {
+		// Sleeps until the job object reaps it. The lifetime matters to what
+		// the proctree record is able to prove: the active-process quota
+		// bounds how many run *at once*, and the record measures it by
+		// counting successful starts. A grandchild that exits during the
+		// spawn loop frees its slot and lets a later start succeed without
+		// the quota ever being exceeded, so a short sleep turns a correct
+		// kernel into a failed record — which is what a race-instrumented
+		// binary, slow enough to stretch the loop past two seconds, did.
+		// Outliving the run also means the tree can only be gone afterwards
+		// because the job killed it, which is the other half of the record.
+		time.Sleep(10 * time.Minute)
 		return 0
 	}
 	child, err := ChildFromEnv(os.Getenv, os.Stdout)
