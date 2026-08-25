@@ -65,6 +65,7 @@ type HandoffTx interface {
 	PutHandoff(m8core.Handoff) error
 	GetHandoff(id string) (m8core.Handoff, error)
 	TransitionHandoff(id, from, to string) error
+	AcceptHandoffAt(id, at string) error
 	GetTombstoneByRoot(rootRef string) (m8core.Tombstone, bool, error)
 	PutTombstone(m8core.Tombstone) error
 	TombstoneFacts(rootRef, scopeID string) (int64, error)
@@ -233,14 +234,21 @@ func (s *HandoffService) AcceptHandoff(ctx context.Context, in HandoffAcceptInpu
 			return fmt.Errorf("%w: %s", ErrHandoffExpired, in.HandoffID)
 		}
 		if idem {
-			out = HandoffAcceptResult{HandoffID: h.ID, State: m8core.HandoffAccepted, EffectiveAt: h.CreatedAt}
+			// The time the offer was accepted, not the time it was
+			// offered. Rows accepted before migration 0087 recorded no
+			// acceptance time and can only fall back to creation.
+			effective := h.AcceptedAt
+			if effective == "" {
+				effective = h.CreatedAt
+			}
+			out = HandoffAcceptResult{HandoffID: h.ID, State: m8core.HandoffAccepted, EffectiveAt: effective}
 			return nil
 		}
 		if state != m8core.HandoffSent {
 			return fmt.Errorf("%w: state %s", ErrHandoffRedacted, h.State)
 		}
 		effective := now.Format(time.RFC3339)
-		if err := tx.TransitionHandoff(h.ID, m8core.HandoffSent, m8core.HandoffAccepted); err != nil {
+		if err := tx.AcceptHandoffAt(h.ID, effective); err != nil {
 			return err
 		}
 		if _, err := tx.AppendAuditEvent(audit.Event{

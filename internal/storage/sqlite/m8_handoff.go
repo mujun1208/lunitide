@@ -26,12 +26,18 @@ func (r *AgentRuntimeRepository) TransactHandoff(ctx context.Context, fn func(m8
 	})
 }
 
-const m8handoffColumns = `id,sender,receiver,manifest,redaction_log,state,expires_at,created_at`
+const m8handoffColumns = `id,sender,receiver,manifest,redaction_log,state,expires_at,created_at,accepted_at`
 
 func scanHandoff(s interface{ Scan(...any) error }) (m8core.Handoff, error) {
 	var h m8core.Handoff
+	// accepted_at is NULL until the offer is accepted, and stays NULL on rows
+	// accepted before migration 0087 added the column.
+	var accepted *string
 	err := s.Scan(&h.ID, &h.Sender, &h.Receiver, &h.Manifest, &h.RedactionLog,
-		&h.State, &h.ExpiresAt, &h.CreatedAt)
+		&h.State, &h.ExpiresAt, &h.CreatedAt, &accepted)
+	if accepted != nil {
+		h.AcceptedAt = *accepted
+	}
 	return h, err
 }
 
@@ -51,6 +57,26 @@ func (t *agentRuntimeTx) GetHandoff(id string) (m8core.Handoff, error) {
 		return h, m8core.ErrNotFound
 	}
 	return h, t.fail(err)
+}
+
+// AcceptHandoffAt is the guarded sent -> accepted CAS, stamping the moment the
+// offer became effective in the same statement that changes the state so the
+// two can never disagree.
+func (t *agentRuntimeTx) AcceptHandoffAt(id, at string) error {
+	res, err := t.tx.ExecContext(t.ctx,
+		`UPDATE handoffs SET state=?, accepted_at=? WHERE id=? AND state=?`,
+		m8core.HandoffAccepted, at, id, m8core.HandoffSent)
+	if err != nil {
+		return t.fail(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return t.fail(err)
+	}
+	if n == 0 {
+		return m8core.ErrNotFound
+	}
+	return nil
 }
 
 // TransitionHandoff is the guarded sent -> terminal CAS.

@@ -65,6 +65,10 @@ type Handoff struct {
 	State        string
 	ExpiresAt    string
 	CreatedAt    string
+	// AcceptedAt is when the offer was accepted, empty until it is. A
+	// repeated accept replays this rather than recomputing, so the effective
+	// time an accepted handoff reports never moves.
+	AcceptedAt string
 }
 
 // AcceptGuard decides the handoff.accept outcome: expired refusals answer
