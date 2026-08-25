@@ -28,7 +28,7 @@ type recoveryHarness struct {
 func newRecoveryHarness(t *testing.T) *recoveryHarness {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "m5-recovery.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "m5-recovery.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

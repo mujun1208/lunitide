@@ -19,7 +19,7 @@ import (
 
 func TestCreateAttachmentRejectsCrossProjectSessionAtomically(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "scope.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "scope.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestCreateAttachmentRejectsCrossProjectSessionAtomically(t *testing.T) {
 
 func TestDeleteSessionRemovesOnlySessionAttachmentsAndSchedulesCleanup(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "delete-scope.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "delete-scope.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestDeleteSessionRemovesOnlySessionAttachmentsAndSchedulesCleanup(t *testin
 
 func TestGetAttachmentForDeletionHidesParsedTextAndFindsTombstone(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "attachment-delete.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "attachment-delete.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

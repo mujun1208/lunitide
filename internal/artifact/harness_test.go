@@ -19,7 +19,7 @@ import (
 // openTestStore opens a fresh migrated SQLite store.
 func openTestStore(t *testing.T) (*storage.Store, error) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m5-artifact.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m5-artifact.db"))
 	if err != nil {
 		return nil, err
 	}

@@ -24,7 +24,7 @@ import (
 func messageEngine(t *testing.T) (*Engine, string, string, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "message.db")
-	store, e := storage.Open(context.Background(), path)
+	store, e := storage.OpenTemplated(context.Background(), path)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -289,7 +289,7 @@ func TestMessageBridgeQuotaEnforcement(t *testing.T) {
 
 func TestMessageBridgeDurableResultsSurviveReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "durable.db")
-	store, e := storage.Open(context.Background(), path)
+	store, e := storage.OpenTemplated(context.Background(), path)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -319,7 +319,7 @@ func TestMessageBridgeDurableResultsSurviveReopen(t *testing.T) {
 		t.Fatalf("append: %#v", resp)
 	}
 	store.Close()
-	store2, e := storage.Open(context.Background(), path)
+	store2, e := storage.OpenTemplated(context.Background(), path)
 	if e != nil {
 		t.Fatal(e)
 	}

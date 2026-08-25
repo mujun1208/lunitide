@@ -29,7 +29,7 @@ import (
 func newS5CServices(t *testing.T) (*storage.Store, *m6app.IntegrationService, *m6app.HealthService,
 	*m6app.SkillImportService, *m6app.RoutingService, *m6app.CloudService, m6app.UnitOfWork) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m6.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

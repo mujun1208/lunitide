@@ -49,7 +49,7 @@ const errcovKey = "errcov-key-1"
 // row (T-5.5.1 convert).
 func convertSetup(t *testing.T, ctx context.Context) (*workspace.ConvertService, string, string) {
 	t.Helper()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "m5-errcov-cvt.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "m5-errcov-cvt.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

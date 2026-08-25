@@ -27,7 +27,7 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "m5-run.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "m5-run.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

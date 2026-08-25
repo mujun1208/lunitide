@@ -21,7 +21,7 @@ import (
 
 func newS5CRouteEngine(t *testing.T) *Engine {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "s5croute.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "s5croute.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

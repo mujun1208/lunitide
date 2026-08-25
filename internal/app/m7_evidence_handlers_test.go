@@ -27,7 +27,7 @@ type m7EvidenceHarness struct {
 func newM7EvidenceHarness(t *testing.T) *m7EvidenceHarness {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "m7evd.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "m7evd.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

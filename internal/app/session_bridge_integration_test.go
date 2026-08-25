@@ -23,7 +23,7 @@ import (
 func sessionEngine(t *testing.T) (*Engine, string, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "session.db")
-	store, e := storage.Open(context.Background(), path)
+	store, e := storage.OpenTemplated(context.Background(), path)
 	if e != nil {
 		t.Fatal(e)
 	}

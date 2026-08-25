@@ -11,7 +11,7 @@ import (
 
 func TestTokenLedgerPersistsIdentityAndSupportsRevisions(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "ledger.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "ledger.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

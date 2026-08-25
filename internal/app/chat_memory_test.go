@@ -21,7 +21,7 @@ import (
 
 func openAppMemory(t *testing.T) (*m8app.MemoryService, *m8app.MemoryOpsService, *m8app.NominationService) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "chat-memory.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "chat-memory.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

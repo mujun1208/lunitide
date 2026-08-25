@@ -44,7 +44,7 @@ const (
 func scopeSealDB(t *testing.T) *sql.DB {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "m5-scope-seal.db")
-	store, err := storage.Open(context.Background(), path)
+	store, err := storage.OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -48,7 +48,7 @@ func seedHandoff(t *testing.T, s *Store, sameProject bool) (string, string) {
 }
 
 func TestValidateAndRecordImportRejectsCrossProject(t *testing.T) {
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
+	s, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestValidateAndRecordImportRejectsCrossProject(t *testing.T) {
 }
 
 func TestActivateCapsuleRejectsCrossProjectTransactionally(t *testing.T) {
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
+	s, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestActivateCapsuleRejectsCrossProjectTransactionally(t *testing.T) {
 }
 
 func TestActivateCapsuleRejectsExpiredAtBoundary(t *testing.T) {
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
+	s, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +100,12 @@ func TestActivateCapsuleRejectsExpiredAtBoundary(t *testing.T) {
 
 func TestConcurrentActivationsOnlyOneWins(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "handoff.db")
-	a, err := Open(context.Background(), path)
+	a, err := OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	b, err := Open(context.Background(), path)
+	b, err := OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestConcurrentActivationsOnlyOneWins(t *testing.T) {
 }
 
 func TestActivateVsRevokeFirstTerminalWins(t *testing.T) {
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
+	s, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "handoff.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,12 +156,12 @@ func TestActivateVsRevokeFirstTerminalWins(t *testing.T) {
 
 func TestConcurrentRevokeVsImportSerialized(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "handoff.db")
-	a, err := Open(context.Background(), path)
+	a, err := OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	b, err := Open(context.Background(), path)
+	b, err := OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

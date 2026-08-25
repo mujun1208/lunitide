@@ -25,7 +25,7 @@ const agentRunExpandedBudgetJSON = `"budget":{"maxModelTurns":16,"maxToolCalls":
 
 func agentRunEngine(t *testing.T) (*Engine, string, *storage.Store) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "agentrun.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "agentrun.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

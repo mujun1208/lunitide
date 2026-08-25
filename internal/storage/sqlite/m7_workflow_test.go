@@ -14,7 +14,7 @@ import (
 
 func newM7WorkflowService(t *testing.T) (*m7app.WorkflowService, *Store, string) {
 	t.Helper()
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "m7.db"))
+	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ import (
 func runPlanEngine(t *testing.T) (*Engine, string, *storage.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "runplan.db")
-	store, err := storage.Open(context.Background(), path)
+	store, err := storage.OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

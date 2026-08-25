@@ -31,7 +31,7 @@ type m6DelegationHarness struct {
 
 func newM6DelegationHarness(t *testing.T) *m6DelegationHarness {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m6dlg.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6dlg.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

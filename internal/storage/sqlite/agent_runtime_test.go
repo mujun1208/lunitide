@@ -35,7 +35,7 @@ const (
 
 func openRuntimeStore(t *testing.T) *Store {
 	t.Helper()
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

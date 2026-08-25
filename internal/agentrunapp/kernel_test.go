@@ -23,7 +23,7 @@ import (
 func runtimeHarness(t *testing.T, budget agentrun.Budget) (*agentrunapp.Service, *storage.Store, agentrun.AgentRun) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "runtime.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

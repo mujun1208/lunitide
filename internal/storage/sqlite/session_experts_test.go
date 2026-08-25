@@ -14,7 +14,7 @@ import (
 
 func TestSessionExpertMountsReplaceAndList(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "session-experts.db"))
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "session-experts.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

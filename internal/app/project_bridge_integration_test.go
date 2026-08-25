@@ -18,7 +18,7 @@ import (
 const validProjectCreateJSON = `{"name":"Alpha Project","type":"implementation","description":"desc","client":"客户A","planStart":"2026-01-01","planEnd":"2026-12-31"}`
 
 func TestProjectBridgeCreateReplayConflictAndList(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestProjectBridgeCreateReplayConflictAndList(t *testing.T) {
 }
 
 func TestProjectBridgeRejectsNullAndOversizedPayloads(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-invalid.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project-invalid.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestProjectHandlersFailSafelyWithoutService(t *testing.T) {
 }
 
 func TestProjectBridgeConcurrentSameKeyReplay(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-concurrent.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project-concurrent.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestProjectBridgeConcurrentSameKeyReplay(t *testing.T) {
 }
 
 func TestProjectCapacityMapsToStableNonRetryableError(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-capacity.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project-capacity.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestProjectCapacityMapsToStableNonRetryableError(t *testing.T) {
 }
 
 func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-lifecycle.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project-lifecycle.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 }
 
 func TestProjectListOmitsEmptyCloseFieldsAndKeepsRFC3339NanoTimes(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "project-list-shape.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project-list-shape.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

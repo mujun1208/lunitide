@@ -103,7 +103,7 @@ type promotionHarness struct {
 
 func newPromotionHarness(t *testing.T) *promotionHarness {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "m7prm.db"))
+	store, err := sqlite.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7prm.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,7 +20,7 @@ type m6ExecHarness struct {
 
 func newM6ExecHarness(t *testing.T) *m6ExecHarness {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m6exec.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6exec.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestConnectorSnapshotScopeDenied(t *testing.T) {
 // Upstream fetch failure maps to the integration-unavailable code (matrix
 // dependency column: CRD-001/HLT-001).
 func TestConnectorSnapshotUpstreamFailure(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m6fail.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m6fail.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

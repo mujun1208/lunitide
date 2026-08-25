@@ -94,7 +94,7 @@ type updateHarness struct {
 func newUpdateHarness(t *testing.T) *updateHarness {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "m7upd.db")
-	store, err := sqlite.Open(context.Background(), path)
+	store, err := sqlite.OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestAuditLedgerIsWorm(t *testing.T) {
 func newUpdateEngineHarness(t *testing.T) (*Engine, *m7app.UpdateService, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "m7updb.db")
-	store, err := sqlite.Open(context.Background(), path)
+	store, err := sqlite.OpenTemplated(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

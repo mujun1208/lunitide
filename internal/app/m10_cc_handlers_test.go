@@ -17,7 +17,7 @@ import (
 
 func newCcEngine(t *testing.T) (*Engine, *ccapp.Service) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "m10cc.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m10cc.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

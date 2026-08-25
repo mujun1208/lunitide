@@ -12,7 +12,7 @@ import (
 )
 
 func TestProviderBridgeCRUDIdempotencyAndCAS(t *testing.T) {
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "provider-bridge.db"))
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "provider-bridge.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

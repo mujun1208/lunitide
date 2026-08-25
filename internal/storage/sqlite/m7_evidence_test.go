@@ -17,7 +17,7 @@ import (
 // snapshot — the minimum fixture for evidence-graph tests.
 func newM7EvidenceHarness(t *testing.T) (*m7app.TraceService, *m7app.GateService, *m7app.ReviewService, *Store, string) {
 	t.Helper()
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "m7evd.db"))
+	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "m7evd.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
