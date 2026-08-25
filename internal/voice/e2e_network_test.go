@@ -174,7 +174,18 @@ func TestE2EMandarinClipsAreRecognized(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	backend := &SherpaBackend{Root: root, ModelID: DefaultModel, Startup: 5 * time.Minute}
+	// With the refiner attached, because that is the configuration a user
+	// runs and the transcript it produces is the one that reaches the
+	// language model. Asserting these words against the streaming model
+	// alone would be asking a 14 MB caption model to do a job it was
+	// deliberately relieved of — it returns 平凡 for 频繁 and always will.
+	refiner := &Refiner{Root: root, Startup: 5 * time.Minute}
+	if err := refiner.Warm(ctx); err != nil {
+		t.Skipf("refiner not installed; run TestE2ERefinerIsInstallableFromTheCatalogueAsWritten first: %v", err)
+	}
+	defer refiner.Shutdown()
+
+	backend := &SherpaBackend{Root: root, ModelID: DefaultModel, Startup: 5 * time.Minute, Refiner: refiner}
 	if err := backend.Ready(ctx); err != nil {
 		t.Skipf("model not installed; run TestE2ELocalRecognitionHearsRealSpeech first: %v", err)
 	}
