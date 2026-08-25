@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os/exec"
 	"strings"
@@ -28,6 +29,11 @@ type SherpaBackend struct {
 	// Startup bounds the wait for the server to accept connections. Loading
 	// a 226 MB model off a cold disk is not instant.
 	Startup time.Duration
+	// Refiner, when set, re-recognizes each finished utterance and its text
+	// is the one returned. Nil leaves the streaming transcript as the
+	// answer, which is what the tests that only exercise streaming want and
+	// what a machine with only the small model installed gets.
+	Refiner Transcriber
 
 	mu     sync.Mutex
 	server *sherpaServer
@@ -91,7 +97,12 @@ func (b *SherpaBackend) Start(ctx context.Context, opts SessionOptions) (Session
 		return nil, fmt.Errorf("%w: connect to recognizer: %v%s", ErrBackendUnavailable, err, server.log.suffix())
 	}
 
-	session := &sherpaSession{conn: conn, onTranscript: opts.OnTranscript, closed: make(chan struct{})}
+	session := &sherpaSession{
+		conn:         conn,
+		onTranscript: opts.OnTranscript,
+		closed:       make(chan struct{}),
+		refiner:      b.Refiner,
+	}
 	go session.readLoop()
 	return session, nil
 }
@@ -195,10 +206,18 @@ func freePort() (int, error) {
 	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
+// utteranceLimitBytes caps the audio held for refinement: sixty seconds, the
+// same ceiling the non-streaming server is configured with. Past it the
+// recording stops growing rather than the session failing — the streaming
+// transcript still covers the whole turn, and a monologue this long is not
+// the case this feature is for.
+const utteranceLimitBytes = 60 * SampleRate * Channels * BytesPerSample
+
 // sherpaSession is one utterance, or one continuous stretch of listening.
 type sherpaSession struct {
 	conn         *websocket.Conn
 	onTranscript func(Transcript)
+	refiner      Transcriber
 
 	// writeMu serializes writes: gorilla permits one concurrent writer, and
 	// Append and Finish can be called from different goroutines.
@@ -208,6 +227,10 @@ type sherpaSession struct {
 	latest      string
 	latestFinal bool
 	err         error
+	// utterance keeps the audio the refiner will re-read. Held here rather
+	// than by the caller because the caller hands over one frame at a time
+	// and has no reason to know a second recognizer exists.
+	utterance []byte
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -224,6 +247,14 @@ func (s *sherpaSession) Append(_ context.Context, pcm []byte) error {
 	default:
 	}
 
+	if s.refiner != nil {
+		s.mu.Lock()
+		if room := utteranceLimitBytes - len(s.utterance); room > 0 {
+			s.utterance = append(s.utterance, pcm[:min(len(pcm), room)]...)
+		}
+		s.mu.Unlock()
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if err := s.conn.WriteMessage(websocket.BinaryMessage, pcmToFloat32(pcm)); err != nil {
@@ -233,12 +264,25 @@ func (s *sherpaSession) Append(_ context.Context, pcm []byte) error {
 }
 
 // Finish tells the recognizer no more audio is coming and returns the text.
+//
+// When a refiner is configured this is where the turn's accurate transcript
+// comes from, so it costs one decode — a fifth of a second for a normal
+// sentence — before the caller sees anything. That is spent here rather than
+// in the caller because every caller would otherwise have to know to spend it.
 func (s *sherpaSession) Finish(ctx context.Context) (string, error) {
+	// Both recognizers are asked at once. Nothing the refiner needs comes
+	// from the streaming one — it has held the audio since Append — so doing
+	// them in order would add the streaming flush and the decode together,
+	// at the exact moment the user has stopped talking and is waiting. On
+	// this repository's clips that ordering cost 400-750ms; overlapping them
+	// costs whichever is slower, which is usually the flush.
+	refined := s.refineAsync(ctx)
+
 	s.writeMu.Lock()
 	err := s.conn.WriteMessage(websocket.TextMessage, []byte(doneRequest))
 	s.writeMu.Unlock()
 	if err != nil {
-		return s.best(), fmt.Errorf("voice: close audio stream: %w", err)
+		return refined(s.best()), fmt.Errorf("voice: close audio stream: %w", err)
 	}
 
 	// The reader closes the channel when the server acknowledges. Waiting on
@@ -246,9 +290,71 @@ func (s *sherpaSession) Finish(ctx context.Context) (string, error) {
 	// deadline rather than the turn.
 	select {
 	case <-s.closed:
-		return s.best(), s.finalError()
+		streamed := s.best()
+		if failure := s.finalError(); failure != nil {
+			return streamed, failure
+		}
+		return refined(streamed), nil
 	case <-ctx.Done():
 		return s.best(), ctx.Err()
+	}
+}
+
+// refineAsync starts the second recognizer on the recorded utterance and
+// returns the function that waits for its answer.
+//
+// Every failure yields the streaming transcript instead. That is the whole
+// point of keeping it: this path involves a second process, a second model
+// and a socket, and a turn where any of them misbehaves should cost accuracy,
+// not the user's sentence. The failure is logged because a refiner that is
+// quietly never working would otherwise look identical to one that is — the
+// user would just find the recognizer worse than it was promised to be, with
+// nothing anywhere saying why.
+func (s *sherpaSession) refineAsync(ctx context.Context) func(streamed string) string {
+	keep := func(streamed string) string { return streamed }
+	if s.refiner == nil {
+		return keep
+	}
+	s.mu.Lock()
+	pcm := s.utterance
+	s.mu.Unlock()
+	if len(pcm) == 0 {
+		return keep
+	}
+
+	type answer struct {
+		text string
+		err  error
+	}
+	// Buffered so the goroutine can finish and exit even when the caller
+	// gave up on it — an abandoned decode is bounded by the refiner's own
+	// budget, and blocking it forever on an unread channel would not be.
+	done := make(chan answer, 1)
+	go func() {
+		text, err := s.refiner.Transcribe(ctx, pcm)
+		done <- answer{text, err}
+	}()
+
+	return func(streamed string) string {
+		select {
+		case got := <-done:
+			if got.err != nil {
+				log.Printf("voice: refine utterance (%d ms): %v", FrameDurationMillis(pcm), got.err)
+				return streamed
+			}
+			if strings.TrimSpace(got.text) == "" {
+				// The streaming model heard words and the accurate one
+				// heard none. Trusting the empty result would turn a
+				// working turn into silence.
+				if streamed != "" {
+					log.Printf("voice: refiner returned nothing for %d ms of audio; keeping streamed text", FrameDurationMillis(pcm))
+				}
+				return streamed
+			}
+			return got.text
+		case <-ctx.Done():
+			return streamed
+		}
 	}
 }
 

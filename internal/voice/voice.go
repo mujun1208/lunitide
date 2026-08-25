@@ -84,6 +84,24 @@ type Session interface {
 	Close() error
 }
 
+// Transcriber re-reads a finished utterance in one pass.
+//
+// Separate from Backend because the two are asked different questions. A
+// Backend is fed audio as it arrives and answers continuously, which is what
+// a caption needs and what forces it to guess at a word before the sentence
+// that would disambiguate it has been spoken. A Transcriber is handed the
+// whole utterance and answers once, which is slower to start and markedly
+// more accurate — see DefaultRefiner for the measurements.
+//
+// An interface rather than the concrete refiner so a session can be tested
+// without a subprocess, and so a hosted recognizer can take the same slot
+// later without touching the session code.
+type Transcriber interface {
+	// Transcribe returns what was said. An error means the caller should
+	// keep whatever the streaming recognizer produced.
+	Transcribe(ctx context.Context, pcm []byte) (string, error)
+}
+
 // Backend is a recognizer that can be asked for sessions.
 type Backend interface {
 	// Name identifies the backend in diagnostics and in the status the
@@ -116,6 +134,12 @@ var (
 
 // ErrSessionClosed is returned by Append and Finish once the session is done.
 var ErrSessionClosed = errors.New("voice session closed")
+
+// ErrNoAudio means a turn ended with nothing to recognize. Distinguished from
+// a failure because it is the ordinary result of the user pressing the button
+// and saying nothing, and the caller's response is to do nothing rather than
+// to report a fault.
+var ErrNoAudio = errors.New("voice: no audio in utterance")
 
 // Errors from the installer.
 var (

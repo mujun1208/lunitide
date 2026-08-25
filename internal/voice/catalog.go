@@ -104,12 +104,38 @@ const (
 	// ModelZipformerZh14M is the small one, for a slow connection or a
 	// machine with little room.
 	ModelZipformerZh14M = "streaming-zipformer-zh-14m"
+	// ModelOfflineParaformerZh is the non-streaming recognizer that produces
+	// the text actually sent to the language model.
+	ModelOfflineParaformerZh = "offline-paraformer-zh"
 )
 
-// DefaultModel is what a user who does not choose gets. Accuracy wins: the
-// complaint that started this work was that the recognizer mis-heard, and a
-// 200 MB difference is paid once while a wrong transcript is paid every turn.
-const DefaultModel = ModelParaformerZhEn
+// DefaultModel is the streaming model, and its job is now the caption.
+//
+// It used to be the 226 MB bilingual Paraformer, chosen because the complaint
+// that started this work was that the recognizer mis-heard. Measuring settled
+// the question differently: on this repository's own recordings the streaming
+// model hears 礼拜二 as 里拜二 and 频繁 as 平反, and no streaming model can do
+// much better, because it has to commit to a word before it has heard the end
+// of the sentence. The fix was not a bigger streaming model but a
+// non-streaming one after the fact — see DefaultRefiner.
+//
+// Which leaves the streaming model doing what it is good at: showing the user
+// that something is listening, and giving the endpointing rules a piece of
+// text to judge. Both survive a rough transcript, because it is replaced by
+// the accurate one before anybody acts on it. So the small model does, and
+// the 200 MB goes to the recognizer whose output is believed.
+const DefaultModel = ModelZipformerZh14M
+
+// DefaultRefiner is the non-streaming recognizer run over the finished
+// utterance, whose text is the one that reaches the language model.
+//
+// Measured against SenseVoice on the same four clips: this one reads 频繁 and
+// 礼拜二 and inline English correctly where SenseVoice returns 平繁, 礼拜2 and
+// OSOS, and it decodes at RTF 0.036 against 0.055. SenseVoice's one advantage
+// is punctuation, which is worth less here than a content word: a language
+// model reads unpunctuated Mandarin without trouble and cannot recover a word
+// it was never given.
+const DefaultRefiner = ModelOfflineParaformerZh
 
 // The MinSizeRel build with the MSVC runtime linked statically (MT) and
 // text-to-speech compiled out. Static linkage is the reason for the choice:
@@ -166,7 +192,40 @@ const (
 	paraformerRevision = "8e40c43232a1c5c66c82111efc5820d3accca11b"
 	zipformerRepo      = "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23"
 	zipformerRevision  = "204ad334e2e683fd295359930cc16fc0432a23ac"
+	offlineRepo        = "sherpa-onnx-paraformer-zh-2023-09-14"
+	offlineRevision    = "def027084691107096b5ebba69785756d63de6c5"
 )
+
+// The recognizer whose transcript is believed.
+//
+// One file rather than the encoder/decoder pair the streaming models use: a
+// non-streaming Paraformer is a single graph. Only the int8 weights are
+// fetched, for the same reason as everywhere else here — the fp32 copy in the
+// same repository is four times the size and the difference is not audible.
+var modelOfflineParaformer = Bundle{
+	ID:     ModelOfflineParaformerZh,
+	Kind:   BundleModel,
+	Title:  "中文精确识别模型",
+	Detail: "Paraformer 非流式，说完一句后重新识别，约 232 MB",
+	Downloads: []Download{
+		{
+			Path:   "model.int8.onnx",
+			URLs:   hfBlob(offlineRepo, offlineRevision, "model.int8.onnx"),
+			SHA256: "f36a0433bcf096bd6d6f11b80a3ac8bed110bdca632fe0d731df8d1a84475945",
+			Bytes:  243371218,
+		},
+		{
+			Path: "tokens.txt",
+			URLs: hfBlob(offlineRepo, offlineRevision, "tokens.txt"),
+			// The same vocabulary as the streaming bilingual model, byte for
+			// byte. Not shared between the bundles anyway: a bundle that
+			// depends on another bundle's files cannot be installed or
+			// removed on its own.
+			SHA256: "59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6",
+			Bytes:  75756,
+		},
+	},
+}
 
 // Fourteen million parameters, Mandarin only, and it fits in the space the
 // other model uses for its token table. Worth offering: a user on a metered
@@ -214,7 +273,19 @@ const (
 	ArchParaformer ModelArchitecture = "paraformer"
 	// ArchTransducer is an encoder/decoder/joiner triple.
 	ArchTransducer ModelArchitecture = "transducer"
+	// ArchOfflineParaformer is the non-streaming Paraformer: one file, and
+	// it sees the whole utterance before it commits to any of it.
+	ArchOfflineParaformer ModelArchitecture = "offline-paraformer"
+	// ArchSenseVoice is the multilingual non-streaming encoder.
+	ArchSenseVoice ModelArchitecture = "sense-voice"
 )
+
+// Streaming reports whether an architecture can be fed audio as it arrives.
+// The non-streaming ones are handed a finished utterance instead, and are
+// driven by a different server binary.
+func (a ModelArchitecture) Streaming() bool {
+	return a == ArchParaformer || a == ArchTransducer
+}
 
 // Architecture reports how a model bundle is wired. Derived from the bundle
 // rather than stored on it so a caller cannot describe a paraformer as a
@@ -225,13 +296,27 @@ func Architecture(bundleID string) (ModelArchitecture, error) {
 		return ArchParaformer, nil
 	case ModelZipformerZh14M:
 		return ArchTransducer, nil
+	case ModelOfflineParaformerZh:
+		return ArchOfflineParaformer, nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrUnknownBundle, bundleID)
 }
 
 // Models lists the installable models in the order a chooser should show
 // them: recommended first.
-func Models() []Bundle { return []Bundle{modelParaformer, modelZipformer} }
+func Models() []Bundle {
+	return []Bundle{modelZipformer, modelParaformer, modelOfflineParaformer}
+}
+
+// RequiredBundles lists everything local recognition needs on disk, in the
+// order it should be downloaded: the engine, then the model that draws the
+// caption, then the one that produces the text.
+//
+// Ordered so that a download interrupted halfway leaves the user with the
+// cheap parts already done rather than 232 MB of a model they cannot run.
+func RequiredBundles() []Bundle {
+	return []Bundle{runtimeSherpa, modelZipformer, modelOfflineParaformer}
+}
 
 // Runtime is the engine bundle every model needs.
 func Runtime() Bundle { return runtimeSherpa }
