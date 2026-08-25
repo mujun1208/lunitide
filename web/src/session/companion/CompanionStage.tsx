@@ -134,6 +134,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const spokenUpToRef = useRef(0)
   /** Streaming TTS: whether we are currently speaking (streaming or final). */
   const speakingRef = useRef(false)
+  /** Forwards syncSpeechModes to effects declared above it. */
+  const syncSpeechModesRef = useRef<() => void>(() => {})
   /** Last TTS text — used to drop speaker→mic echo as a fake user turn. */
   const lastSpokenRef = useRef('')
   /** Ignore recognizer output until this time — covers TTS + speaker ring-out. */
@@ -364,6 +366,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
       player.configure(voiceId, settings.rate, settings.volume, settings)
+      // Close the microphone now, before the first sample reaches the
+      // speaker. The state machine will not say 'speaking' until the model
+      // has finished writing, which is far too late on speakerphone.
+      speakingRef.current = true
+      syncSpeechModesRef.current()
       player.enqueue([cleaned], { ...settings, voiceId }, {
         onEngineFallback: handleEngineFallback,
         onGain: value => setGain(speakingGain(value)),
@@ -371,6 +378,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           setGain(0)
           echoUntilRef.current = performance.now() + ECHO_GUARD_MS
           setStreamTick(t => t + 1)
+          // Only once the reply is over. Draining mid-stream means she has
+          // more to say and is waiting on the model for it; reopening the
+          // microphone there is what let her own last sentence back in.
+          if (playerRef.current?.isBusy() !== true && chatStatusRef.current !== 'streaming') {
+            speakingRef.current = false
+            syncSpeechModesRef.current()
+          }
           if (reason !== 'completed' || playerRef.current?.isBusy()) return
           if (stateRef.current !== 'speaking') return
           if (shouldAwaitMoreReply()) machine.dispatch({ type: 'AWAIT_MORE' })
@@ -443,6 +457,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         // player joins them onto one timeline.
         const head = spokenUpToRef.current === 0 ? takeSpeakableChunk(spoken, true, false) : null
         const opening = head && head.consumed < spoken.length ? head.text : ''
+        speakingRef.current = true
+        syncSpeechModesRef.current()
         if (opening) player.enqueue([opening], { ...settings, voiceId }, callbacks)
         player.enqueue([opening ? spoken.slice(opening.length) : spoken], { ...settings, voiceId }, callbacks)
         void player.flush({
@@ -577,6 +593,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
       player.configure(voiceId, settings.rate, settings.volume, settings)
+      speakingRef.current = true
+      syncSpeechModesRef.current()
       setCircuitBroken(false)
       void player.speak(segments, { ...settings, voiceId }, {
         onEngineFallback: handleEngineFallback,
@@ -650,6 +668,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     playerRef.current?.interrupt()
     setGain(0)
     speakingRef.current = false
+    syncSpeechModesRef.current()
     setCircuitBroken(false)
     setStreamTick(0)
     interruptEchoRef.current = true
@@ -661,6 +680,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     onCancel?.()
     spokenUpToRef.current = 0
     speakingRef.current = false
+    syncSpeechModesRef.current()
     setStreamTick(0)
     playerRef.current?.interrupt()
     setGain(0)
@@ -674,7 +694,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const handle = speechHandleRef.current
     if (!handle) return
     const state = stateRef.current
-    const speakingAloud = state === 'speaking'
+    // The whole reply, not just the parts of it that are sounding.
+    //
+    // 'speaking' is not enough on its own: when the engine drains while the
+    // model is still writing, AWAIT_MORE drops the machine back to
+    // 'thinking', and keying the microphone off the state reopened it in
+    // exactly that gap — a gap that on speakerphone is still full of the
+    // sentence she just finished. The echo was then read as the user
+    // starting a new turn, which is what made her answer her own voice.
+    //
+    // So the microphone stays shut from the first sentence handed to the
+    // engine until the reply is finished and silent.
+    const speakingAloud = state === 'speaking' || speakingRef.current
     const assistantBusy = state === 'thinking' || speakingAloud
     const next = {
       commitPaused: assistantBusy,
@@ -690,6 +721,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     handle.setCommitPaused(next.commitPaused)
     handle.setAssistantPlayback(next.playback, next.echoGuardMs)
   }, [])
+  syncSpeechModesRef.current = syncSpeechModes
 
   const releaseSpeakingTurn = useCallback(() => {
     setGain(0)

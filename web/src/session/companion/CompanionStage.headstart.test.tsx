@@ -20,9 +20,10 @@ const speech = vi.hoisted(() => ({
   start: vi.fn(),
   callbacks: undefined as CapturedSpeech | undefined,
   stop: vi.fn(),
+  setAssistantPlayback: vi.fn(),
   handle: () => ({
     stop: speech.stop,
-    setAssistantPlayback: vi.fn(),
+    setAssistantPlayback: speech.setAssistantPlayback,
     setCommitPaused: vi.fn(),
     pulseRecognition: vi.fn(),
     forceCommit: vi.fn(),
@@ -104,6 +105,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   speech.callbacks = undefined
   speech.start.mockReset()
+  speech.setAssistantPlayback.mockReset()
   speech.start.mockResolvedValue(speech.handle())
   tts.enqueueCalls = []
   tts.playing = false
@@ -191,6 +193,40 @@ test('talking over her cuts the reply and starts the new turn', async () => {
   expect(onSend).toHaveBeenCalledWith('等一下换个话题')
   expect(stateOf(utils.container)).toBe('thinking')
   expect(tts.playing).toBe(false)
+})
+
+test('keeps the microphone shut across the gap between her sentences', async () => {
+  // She finishes a sentence while the model is still writing the next one.
+  // The engine drains, AWAIT_MORE drops the machine back to 'thinking', and
+  // the microphone used to reopen right there — into a room still carrying
+  // the sentence she just said out loud. On speakerphone that echo came
+  // back as a transcript and was taken for the user starting a new turn, so
+  // she answered herself. The reply is one turn; the microphone stays shut
+  // for all of it.
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('讲讲今天的安排')
+  })
+  await flush(0)
+
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText="上午没有会。" />)
+  })
+  await flush(0)
+  expect(speech.setAssistantPlayback).toHaveBeenLastCalledWith(true, expect.any(Number))
+  // Everything before this point is the microphone being set up for the
+  // user's own turn; only what happens after she starts is at issue.
+  const shutAt = speech.setAssistantPlayback.mock.calls.length
+
+  // The engine runs dry with the stream still open.
+  await act(async () => {
+    tts.playing = false
+    tts.enqueueCalls[0].callbacks.onFinished?.('completed')
+  })
+  await flush(400)
+  const reopened = speech.setAssistantPlayback.mock.calls.slice(shutAt).filter(call => call[0] === false)
+  expect(reopened).toHaveLength(0)
 })
 
 test('hands the speech layer what is currently being spoken, for echo rejection', async () => {
