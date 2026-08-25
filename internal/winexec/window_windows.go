@@ -4,6 +4,7 @@ package winexec
 
 import (
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -25,8 +26,8 @@ var (
 )
 
 const (
-	swRestore                 = 9
-	processQueryLimitedInfoW  = 0x1000
+	swRestore                = 9
+	processQueryLimitedInfoW = 0x1000
 )
 
 type windowMatch struct {
@@ -34,8 +35,60 @@ type windowMatch struct {
 	hwnd     uintptr
 }
 
+// EnumWindows carries exactly one uintptr of caller state through to the
+// callback. Handing it a Go pointer is not sound: the garbage collector does
+// not trace a uintptr, so nothing keeps the target alive for the duration of
+// the enumeration, and converting it back is the round trip go vet refuses.
+// A token into a registry the collector can see costs a map lookup per window
+// and removes the hazard.
+var (
+	windowMatchMu  sync.Mutex
+	windowMatchSeq uintptr
+	windowMatches  = map[uintptr]*windowMatch{}
+)
+
+// enumWindowsCallbackPtr is built once. syscall.NewCallback draws from a
+// fixed-size table that is never reclaimed, so minting a callback per
+// enumeration exhausts it after a couple of thousand window activations and
+// panics — in a process that stays open all day, which this one does.
+var enumWindowsCallbackPtr = sync.OnceValue(func() uintptr {
+	return syscall.NewCallback(enumWindowsCallback)
+})
+
+// enumerateWindows runs one EnumWindows pass against m, which the callback
+// fills in on a hit.
+func enumerateWindows(m *windowMatch) {
+	windowMatchMu.Lock()
+	windowMatchSeq++
+	token := windowMatchSeq
+	windowMatches[token] = m
+	windowMatchMu.Unlock()
+	defer func() {
+		windowMatchMu.Lock()
+		delete(windowMatches, token)
+		windowMatchMu.Unlock()
+	}()
+	_, _, _ = procEnumWindows.Call(enumWindowsCallbackPtr(), token)
+}
+
+func lookupWindowMatch(token uintptr) *windowMatch {
+	windowMatchMu.Lock()
+	defer windowMatchMu.Unlock()
+	return windowMatches[token]
+}
+
 func enumWindowsCallback(hwnd uintptr, lParam uintptr) uintptr {
 	if hwnd == 0 {
+		return 1
+	}
+	// Resolved before any per-window work: an unknown token has nowhere to
+	// record a hit, so continuing would only burn syscalls.
+	match := lookupWindowMatch(lParam)
+	if match == nil {
+		return 0
+	}
+	frag := match.fragment
+	if frag == "" {
 		return 1
 	}
 	visible, _, _ := procIsWindowVisible.Call(hwnd)
@@ -46,11 +99,6 @@ func enumWindowsCallback(hwnd uintptr, lParam uintptr) uintptr {
 	n, _, _ := procGetWindowTextWWin.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	title := strings.ToLower(windows.UTF16ToString(buf[:n]))
 	process := strings.ToLower(windowProcessName(hwnd))
-	match := (*windowMatch)(unsafe.Pointer(lParam))
-	frag := match.fragment
-	if frag == "" {
-		return 1
-	}
 	if strings.Contains(title, frag) || strings.Contains(process, frag) {
 		match.hwnd = hwnd
 		return 0
@@ -91,19 +139,13 @@ func ActivateWindowMatching(fragment string) error {
 		return nil
 	}
 	match := windowMatch{fragment: frag}
-	procEnumWindows.Call(
-		syscall.NewCallback(enumWindowsCallback),
-		uintptr(unsafe.Pointer(&match)),
-	)
+	enumerateWindows(&match)
 	if match.hwnd == 0 {
 		stem := strings.TrimSuffix(frag, ".lnk")
 		stem = strings.TrimSuffix(stem, ".exe")
 		if stem != frag {
 			match = windowMatch{fragment: stem}
-			procEnumWindows.Call(
-				syscall.NewCallback(enumWindowsCallback),
-				uintptr(unsafe.Pointer(&match)),
-			)
+			enumerateWindows(&match)
 		}
 	}
 	if match.hwnd == 0 {
