@@ -11,7 +11,7 @@ React Renderer → frame-aware WebView2 Bridge → Go Desktop Host
 → authenticated Windows Named Pipe → Go Core Engine → SQLite / DPAPI
 ```
 
-Electron/Python `0.2.1` is retained only as a regression baseline and a historical migration input. Native release layout verification rejects Electron, Node Runtime, Python, FastAPI, PyInstaller, and their runtime payloads.
+The Electron/Python `0.2.1` prototype has been deleted. Its one job — carrying legacy `safeStorage` credentials into DPAPI — finished on 2026-08-11, and the Python engine it fronted had already been superseded by the Go engine over a named pipe. Native release layout verification rejects Electron, Node Runtime, Python, FastAPI, PyInstaller, and their runtime payloads.
 
 ## Acceptance matrix
 

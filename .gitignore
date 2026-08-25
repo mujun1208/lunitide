@@ -2,8 +2,6 @@ node_modules/
 web/node_modules/
 web/dist/
 dist/
-dist-engine/
-build-engine/
 /build/
 /release/out/
 /release/out-final/
