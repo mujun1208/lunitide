@@ -1,16 +1,11 @@
 {
   "name": "lunitide",
-  "version": "0.2.1",
   "description": "Lunitide 月汐 - local-first AI desktop workspace",
-  "main": "./out/main/index.js",
   "author": "Lunitide",
   "license": "UNLICENSED",
   "private": true,
+  "comment": "A task runner, not a package. The desktop app is Go plus WebView2; the renderer is a separate package under web/ with its own lockfile. Nothing here has dependencies, so the root needs no install. The shipped version lives in VERSION, which the release workflow checks against the tag.",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "npm run typecheck && electron-vite build",
-    "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "generate:bridge": "npm --prefix web run generate:bridge",
     "verify:bridge": "npm --prefix web run verify:bridge",
     "test:web": "npm --prefix web run test:bounded",
@@ -18,78 +13,8 @@
     "setup:engine": "python -m venv .venv && .venv\\Scripts\\python.exe -m pip install --disable-pip-version-check -r engine/requirements-dev.txt",
     "test:engine": ".venv\\Scripts\\python.exe -m pytest engine/tests -q",
     "test:engine:smoke": ".venv\\Scripts\\python.exe engine/tests/smoke_process.py",
-    "verify:m1": "npm run typecheck && npm run test:engine && npm run test:engine:smoke && npm run build",
     "build:engine": ".venv\\Scripts\\python.exe -m PyInstaller --noconfirm --clean engine/lunitide-engine.spec",
     "release:x64": "powershell -NoProfile -ExecutionPolicy Bypass -File release/Build-Release.ps1",
-    "release:x64:stage": "powershell -NoProfile -ExecutionPolicy Bypass -File release/Build-Release.ps1 -SkipInstaller",
-    "test:electron-adoption:e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File test/electron-safe-storage/run-adoption-e2e.ps1",
-    "verify:m2": "npm run typecheck && npm run test:engine && npm run test:engine:smoke && npm run build"
-  },
-  "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.6.2",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "zustand": "^5.0.8"
-  },
-  "devDependencies": {
-    "@types/node": "^24.3.0",
-    "@types/react": "^19.1.12",
-    "@types/react-dom": "^19.1.9",
-    "@vitejs/plugin-react": "^5.0.2",
-    "electron": "^38.0.0",
-    "electron-builder": "^26.0.12",
-    "electron-vite": "^4.0.0",
-    "typescript": "^5.9.2",
-    "vite": "^7.1.3"
-  },
-  "productName": "Lunitide 月汐",
-  "build": {
-    "appId": "com.lunitide.desktop",
-    "productName": "Lunitide 月汐",
-    "artifactName": "Lunitide-Setup-${version}-${arch}.${ext}",
-    "directories": {
-      "output": "release",
-      "buildResources": "resources"
-    },
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "dist/lunitide-engine",
-        "to": "engine",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/lunitide-icon.ico",
-        "to": "lunitide-icon.ico"
-      }
-    ],
-    "asar": true,
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "resources/lunitide-icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true,
-      "shortcutName": "Lunitide 月汐",
-      "deleteAppDataOnUninstall": false,
-      "runAfterFinish": true
-    }
+    "release:x64:stage": "powershell -NoProfile -ExecutionPolicy Bypass -File release/Build-Release.ps1 -SkipInstaller"
   }
 }

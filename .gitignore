@@ -1,7 +1,6 @@
 node_modules/
 web/node_modules/
 web/dist/
-out/
 dist/
 dist-engine/
 build-engine/
@@ -9,10 +8,8 @@ build-engine/
 /release/out/
 /release/out-final/
 /release/matrix-evidence-*.json
-/release/win-unpacked/
 /release/Lunitide-Setup-*.exe
 /release/Lunitide-Setup-*.exe.blockmap
-/release/builder-debug.yml
 .release-cache/
 .venv/
 __pycache__/
