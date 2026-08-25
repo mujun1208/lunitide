@@ -106,6 +106,13 @@ func TestHandoffAcceptExpiryAndIdempotency(t *testing.T) {
 	store := openSliceStore(t)
 	svc := m8app.NewHandoffService(store.AgentRuntimeRepository(), "local-user")
 	ctx := context.Background()
+	// Driven rather than read, so the offer, the accept and the replay each
+	// land in a different second. On the wall clock they usually share one,
+	// and then a replay that recomputed the effective time instead of
+	// replaying the stored one still matched — the assertion below only bit
+	// when the machine was slow enough to cross a second boundary.
+	clock := &fakeClock{now: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
+	svc.SetClock(clock)
 
 	id := ulid.Make().String()
 	_, err := svc.OfferHandoff(ctx, m8app.OfferHandoffInput{
@@ -119,15 +126,20 @@ func TestHandoffAcceptExpiryAndIdempotency(t *testing.T) {
 	if _, err := svc.ReadHandoff(ctx, id); !errors.Is(err, m8app.ErrHandoffNotAccepted) {
 		t.Fatalf("read-before-accept err = %v, want ErrHandoffNotAccepted", err)
 	}
-	// Accept answers accepted.
+	// Accept answers accepted, effective when it was accepted rather than
+	// when it was offered.
+	clock.now = clock.now.Add(90 * time.Second)
+	accepted := clock.now.Format(time.RFC3339)
 	res, err := svc.AcceptHandoff(ctx, m8app.HandoffAcceptInput{HandoffID: id, RequestID: "req-h1"})
-	if err != nil || res.State != "accepted" || res.EffectiveAt == "" {
-		t.Fatalf("accept = %+v err=%v", res, err)
+	if err != nil || res.State != "accepted" || res.EffectiveAt != accepted {
+		t.Fatalf("accept = %+v err=%v, want effectiveAt %s", res, err, accepted)
 	}
-	// Repeated accept is idempotent with the original effectiveAt.
+	// Repeated accept is idempotent with the original effectiveAt: a caller
+	// that retries has to be told the same moment as the caller that won.
+	clock.now = clock.now.Add(90 * time.Second)
 	res2, err := svc.AcceptHandoff(ctx, m8app.HandoffAcceptInput{HandoffID: id, RequestID: "req-h2"})
-	if err != nil || res2.EffectiveAt != res.EffectiveAt {
-		t.Fatalf("re-accept = %+v err=%v, want same effectiveAt", res2, err)
+	if err != nil || res2.EffectiveAt != accepted {
+		t.Fatalf("re-accept = %+v err=%v, want effectiveAt %s", res2, err, accepted)
 	}
 	// Manifest readable after accept.
 	if m, err := svc.ReadHandoff(ctx, id); err != nil || m != `{"k":"v"}` {
