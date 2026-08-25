@@ -120,10 +120,15 @@ func TestSessionBridgeMissingTypedNilAndProjectNotFound(t *testing.T) {
 		t.Fatalf("typed nil %#v", x)
 	}
 	real, _, _ := sessionEngine(t)
+	// Minted after the engine rather than reused from above. A request
+	// carries a three-second deadline from the moment it is built, and
+	// standing up a real store replays every migration; under -race that
+	// setup outlives the request, and this call was answered
+	// REQUEST_DEADLINE_EXCEEDED before it ever reached the project lookup.
+	r = validRequest("session.create", `{"projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","title":"Alpha"}`)
 	r.IdempotencyKey = "missing-parent"
-	r.Payload = json.RawMessage(`{"projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","title":"Alpha"}`)
 	if x := real.Handle(context.Background(), r); x.OK || x.Error.Code != "PROJECT_NOT_FOUND" {
-		t.Fatalf("missing parent %#v", x)
+		t.Fatalf("missing parent: ok=%v error=%+v", x.OK, x.Error)
 	}
 }
 
