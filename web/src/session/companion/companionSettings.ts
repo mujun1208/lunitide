@@ -9,6 +9,16 @@ export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref'
 /** normal = default endpointing; noisy = tighter mic gate for cafes / shared rooms. */
 export type SpeechEnvironment = 'normal' | 'noisy'
 
+/**
+ * Which recognizer transcribes the microphone.
+ *
+ * `auto` prefers the local model once it is installed and falls back to the
+ * system recognizer, which is the right default: the local one keeps audio on
+ * the machine and works offline, but it is a large download nobody should be
+ * made to wait for before speaking.
+ */
+export type SpeechRecognizer = 'auto' | 'cloud' | 'local'
+
 export interface InterruptHotkey {
   /** KeyboardEvent.key, letters stored lowercase. */
   key: string
@@ -27,6 +37,8 @@ export interface CompanionSettings {
   interruptHotkey: InterruptHotkey
   /** Tighter voice gate + longer silence before commit in loud environments. */
   speechEnvironment: SpeechEnvironment
+  /** Local model vs system recognizer for speech-to-text. */
+  recognizer: SpeechRecognizer
   voiceId: string
   rate: number
   volume: number
@@ -73,6 +85,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   fullDuplex: true,
   interruptHotkey: { ...DEFAULT_INTERRUPT_HOTKEY },
   speechEnvironment: 'normal',
+  recognizer: 'auto',
   voiceId: '',
   rate: 2,
   volume: 88,
@@ -106,6 +119,10 @@ export function loadCompanionSettings(): CompanionSettings {
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
       interruptHotkey,
       speechEnvironment: parsed.speechEnvironment === 'noisy' ? 'noisy' : fallback.speechEnvironment,
+      // Absent for anyone who saved settings before the local recognizer
+      // existed, which is exactly what the 'auto' default is for — no rev bump,
+      // because bumping it would also reset unrelated fields.
+      recognizer: isRecognizer(parsed.recognizer) ? parsed.recognizer : fallback.recognizer,
       voiceId,
       rate: clampInt(parsed.rate ?? fallback.rate, -10, 10),
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),
@@ -130,6 +147,10 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 
 function isEngine(value: unknown): value is CompanionEngine {
   return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref'
+}
+
+function isRecognizer(value: unknown): value is SpeechRecognizer {
+  return value === 'auto' || value === 'cloud' || value === 'local'
 }
 
 function clampInt(value: unknown, lo: number, hi: number): number {

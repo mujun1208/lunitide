@@ -25,6 +25,24 @@ export interface LocalAsrHandle {
   finish: () => Promise<string>
   /** Abandons the utterance without waiting for a result. */
   cancel: () => void
+  /**
+   * Closes the current utterance and opens the next one, keeping the
+   * microphone open throughout.
+   *
+   * This is how utterance boundaries are drawn. The alternative — one long
+   * session with the caller tracking which prefix it has already sent — falls
+   * apart the moment the recognizer revises a word it had already emitted,
+   * because the prefix the caller committed no longer matches the text it is
+   * slicing. Recycling the session resets the decoder at exactly the boundary
+   * the caller chose, and costs one bridge round trip.
+   */
+  commit: () => Promise<string>
+  /**
+   * Stops feeding audio without releasing the device. Used while the
+   * assistant is speaking: reacquiring a microphone takes long enough to
+   * clip the start of the user's next sentence.
+   */
+  setMuted: (muted: boolean) => void
 }
 
 /**
@@ -58,9 +76,11 @@ export async function installLocalAsr(modelId?: string) {
  */
 export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<LocalAsrHandle> {
   const bridge = getVoiceBridge()
-  const { sessionId } = await bridge.start({ language: 'zh-CN' })
+  let sessionId = (await bridge.start({ language: 'zh-CN' })).sessionId
 
   let closed = false
+  let muted = false
+  let swapping = false
   let inFlight = false
   let capture: PcmCaptureHandle | undefined
 
@@ -72,23 +92,31 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
 
   const fail = (error: unknown) => {
     if (closed) return
+    const dying = sessionId
     stop()
-    void bridge.stop({ sessionId }).catch(() => {})
+    void bridge.stop({ sessionId: dying }).catch(() => {})
     callbacks.onError?.(error instanceof Error ? error : new Error(String(error)))
   }
 
   try {
     capture = await startPcmCapture({
       onFrame: frame => {
+        // The level drives the meter, so it is reported even while muted —
+        // otherwise the rings freeze every time the assistant speaks.
         callbacks.onLevel?.(frame.peak)
-        if (closed || inFlight) return
+        if (closed || muted || swapping || inFlight) return
+        const owner = sessionId
         inFlight = true
         bridge
-          .append({ sessionId, pcm: frame.base64 })
+          .append({ sessionId: owner, pcm: frame.base64 })
           .then(result => {
-            if (result.text) callbacks.onTranscript?.(result.text, result.final)
+            // A reply from a session that has since been retired describes an
+            // utterance the caller has already been given.
+            if (result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
           })
-          .catch(fail)
+          .catch(error => {
+            if (owner === sessionId) fail(error)
+          })
           .finally(() => {
             inFlight = false
           })
@@ -113,6 +141,27 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
       if (closed) return
       stop()
       void bridge.stop({ sessionId }).catch(() => {})
+    },
+    commit: async () => {
+      if (closed || swapping) return ''
+      swapping = true
+      const retiring = sessionId
+      try {
+        const [{ text }, next] = await Promise.all([
+          bridge.finish({ sessionId: retiring }),
+          bridge.start({ language: 'zh-CN' }),
+        ])
+        sessionId = next.sessionId
+        return text
+      } catch (error) {
+        fail(error)
+        return ''
+      } finally {
+        swapping = false
+      }
+    },
+    setMuted: next => {
+      muted = next
     },
   }
 }

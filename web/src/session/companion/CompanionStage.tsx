@@ -24,8 +24,17 @@ import {
   voiceIdForEngineSwitch,
 } from './companionSettings'
 import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionReplyStallMs, looksLikePlaybackEcho, prepareSpeech, takeSpeakableChunk } from './companionText'
+import { localAsrStatus } from './localAsr'
+import { startLocalCompanionSpeech } from './localSpeech'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
-import { ECHO_GUARD_MS, INTERRUPT_ECHO_MS, shouldShowSpeechSetupHint, startCompanionSpeech, type CompanionSpeechHandle } from './speech'
+import {
+  ECHO_GUARD_MS,
+  INTERRUPT_ECHO_MS,
+  shouldShowSpeechSetupHint,
+  startCompanionSpeech,
+  type CompanionSpeechHandle,
+  type CompanionSpeechOptions,
+} from './speech'
 import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
@@ -93,6 +102,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const subtitleListRef = useRef<HTMLDivElement>(null)
   const entryFocusRef = useRef<Element | null>(null)
   const speechHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
+  /** Probed once: whether the local model is installed and the sidecar starts. */
+  const localAsrReadyRef = useRef(false)
+  const activeRecognizerRef = useRef<'cloud' | 'local'>('cloud')
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
@@ -806,6 +818,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     },
   })
 
+  // Asked once per mount, not per turn: the answer only changes when the user
+  // installs the model, and that happens in settings, behind a remount.
+  useEffect(() => {
+    let alive = true
+    void localAsrStatus().then(status => {
+      if (alive) localAsrReadyRef.current = status?.supported === true && status.ready === true
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const startListening = useCallback((auto: boolean) => {
     setLocalError(undefined)
     setEngineHint('')
@@ -819,7 +843,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       return
     }
     setInterimText('')
-    void startCompanionSpeech({
+    const speechOptions: CompanionSpeechOptions = {
       duplex: true,
       environment: settingsRef.current.speechEnvironment,
       onInterim: transcript => {
@@ -857,6 +881,16 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       },
       onError: issue => {
         speechHandleRef.current = undefined
+        // A local recognizer that dies mid-session under 'auto' is a fallback,
+        // not something to make the user read and act on. An explicit choice
+        // is never overridden: quietly switching to the system recognizer
+        // would ship audio off the machine for someone who asked it not to be.
+        if (activeRecognizerRef.current === 'local' && settingsRef.current.recognizer === 'auto') {
+          localAsrReadyRef.current = false
+          activeRecognizerRef.current = 'cloud'
+          void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
+          return
+        }
         autoLoopRef.current = false
         setLocalError(issue)
         if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
@@ -869,20 +903,39 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           machine.dispatch({ type: 'MIC_CANCEL' })
         }
       },
-    })
-      .then(handle => {
-        if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-        speechHandleRef.current = handle
-        handle.resumeCapture()
-        syncSpeechModes()
-        autoLoopRef.current = true
-        setHintVisible(false)
-        void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
-      })
+    }
+
+    const adoptHandle = (handle: CompanionSpeechHandle) => {
+      if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
+      speechHandleRef.current = handle
+      handle.resumeCapture()
+      syncSpeechModes()
+      autoLoopRef.current = true
+      setHintVisible(false)
+      void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
+    }
+
+    const abandon = (issue: BridgeClientError) => {
+      autoLoopRef.current = false
+      if (auto) setHintVisible(true)
+      else setLocalError(issue)
+    }
+
+    const preferLocal =
+      settingsRef.current.recognizer === 'local' ||
+      (settingsRef.current.recognizer === 'auto' && localAsrReadyRef.current)
+    activeRecognizerRef.current = preferLocal ? 'local' : 'cloud'
+    const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
+    void open(speechOptions)
+      .then(adoptHandle)
       .catch(issue => {
-        autoLoopRef.current = false
-        if (auto) setHintVisible(true)
-        else setLocalError(issue)
+        if (preferLocal && settingsRef.current.recognizer === 'auto') {
+          localAsrReadyRef.current = false
+          activeRecognizerRef.current = 'cloud'
+          void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
+          return
+        }
+        abandon(issue)
       })
   }, [beginUserTurn, machine, syncSpeechModes])
 
