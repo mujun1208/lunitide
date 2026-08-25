@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
+import { BARGE_IN_SETTLE_MS } from './speech'
 
 const asr = {
   finish: vi.fn(),
@@ -169,6 +170,51 @@ describe('startLocalCompanionSpeech', () => {
     expect(asr.setMuted).toHaveBeenCalledWith(true)
     await vi.advanceTimersByTimeAsync(400)
     expect(asr.setMuted).toHaveBeenLastCalledWith(false)
+  })
+
+  it('lets the user interrupt while she is only thinking', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('算了不用查了')
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    handle.setCommitPaused(true)
+    // Nothing is playing, so there is no echo to compare against — the guard
+    // is the settle window after the sentence that started her thinking.
+    await vi.advanceTimersByTimeAsync(BARGE_IN_SETTLE_MS + 100)
+    onTranscript('算了不用查了', false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(stage.onBargeIn).toHaveBeenCalledWith('算了不用查了')
+  })
+
+  it('does not let the tail of the sent sentence restart the turn', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('帮我查一下天气。')
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    // A real turn: the sentence commits, she starts thinking, and the last
+    // words of that same sentence are still arriving from the recognizer.
+    onTranscript('帮我查一下天气。', false)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(stage.onFinal).toHaveBeenCalledTimes(1)
+
+    handle.setCommitPaused(true)
+    onTranscript('查一下天气', false)
+    await vi.advanceTimersByTimeAsync(200)
+
+    expect(stage.onBargeIn).not.toHaveBeenCalled()
+  })
+
+  it('ignores a short cough while she is thinking', async () => {
+    const stage = harness()
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    handle.setCommitPaused(true)
+    await vi.advanceTimersByTimeAsync(BARGE_IN_SETTLE_MS + 100)
+    onTranscript('嗯', false)
+    await vi.advanceTimersByTimeAsync(200)
+
+    expect(stage.onBargeIn).not.toHaveBeenCalled()
   })
 
   it('never commits while she is thinking or speaking', async () => {
