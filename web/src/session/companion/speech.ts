@@ -35,8 +35,6 @@ const speechRecognitionConstructor = () =>
 export interface CompanionSpeechCallbacks {
   /** A final transcript arrived — sent straight to ChatBridge by the stage. */
   onFinal: (transcript: string) => void
-  /** The user talked over her: cut the reply and start their turn. */
-  onBargeIn?: (transcript: string) => void
   /** Text currently being spoken aloud — used to tell echo from the user. */
   spokenText?: () => string
   /** Interim transcript (real-time) — shown as a live caption while the user talks. */
@@ -141,19 +139,6 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
 export const ECHO_GUARD_MS = 90
 /** After a click interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 80
-
-/** Recognized characters needed to cut in while she is thinking.
- *
- *  Thinking is the only state the microphone can still end a turn in — while
- *  she is speaking, only the 打断 button can. There is no audio out here, so
- *  nothing to mistake for the user; the risk is the opposite one, the late
- *  tail of the sentence just sent restarting the turn it belongs to, which
- *  is what this and the settle window below are sized against. */
-export const BARGE_IN_THINKING_MIN_CHARS = 4
-/** Ignore transcripts for this long after a barge-in fired. */
-export const BARGE_IN_GUARD_MS = 800
-/** Let the just-committed utterance settle before a new one may replace it. */
-export const BARGE_IN_SETTLE_MS = 1200
 
 /** Recognition is ignored while she speaks, and while the speaker rings out. */
 export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number): boolean {
@@ -490,7 +475,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     let lastCommittedCompact = ''
     let lastCommittedAt = 0
-    let bargeGuardUntil = 0
     const compactCommit = (value: string) => value.replace(/\s/g, '')
     const commit = (text: string) => {
       if (finished || !text || recognitionHeld() || assistantPlayback) return
@@ -518,38 +502,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       callbacks.onFinal(text)
     }
     /**
-     * She is thinking and the user starts talking again — a correction, or
-     * the rest of a sentence they paused in the middle of. That cuts in.
+     * Her turn is hers until the 打断 button ends it or she finishes.
      *
-     * While she is *speaking* it does not, whatever the microphone reports.
-     * The mic is muted for the length of the reply, and anything that slips
-     * through either side of that boundary is dropped rather than weighed:
-     * deciding from a transcript whether two characters were the user or her
-     * own voice returning is a guess, and losing it truncates her answer
-     * mid-word. The 打断 button and its hotkey are the way to stop her, and
-     * are what the setting describing this already points the user to.
+     * Nothing the microphone reports gets a say, so what reaches here is
+     * discarded rather than weighed. It is discarded rather than ignored
+     * because audio caught around a turn boundary would otherwise sit in the
+     * buffer and be delivered as the opening of whatever the user says next.
      */
-    const maybeInterruptTurn = (raw: string) => {
-      if (!callbacks.onBargeIn) return
-      const text = raw.trim()
-      if (!text) return
-      const now = performance.now()
-      if (now < bargeGuardUntil) return
-      if (assistantPlayback) {
-        // Cleared, not kept: audio caught around the boundary must not
-        // accumulate into the user's next utterance.
-        finals = ''
-        interim = ''
-        return
-      }
-      if (Array.from(text).length < BARGE_IN_THINKING_MIN_CHARS) return
-      if (now - lastCommittedAt < BARGE_IN_SETTLE_MS) return
-      const compact = compactCommit(text)
-      if (lastCommittedCompact && (compact.includes(lastCommittedCompact) || lastCommittedCompact.includes(compact))) return
-      bargeGuardUntil = now + BARGE_IN_GUARD_MS
+    const dropWhatSheHeardOfHerself = () => {
       finals = ''
       interim = ''
-      callbacks.onBargeIn(text)
     }
     const tryCommitFromSilence = (voiceAt: number) => {
       if (finished || commitPaused || recognitionHeld() || assistantPlayback) return
@@ -697,14 +659,14 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (!firstTextAt) firstTextAt = now
       }
       if (assistantPlayback) {
-        maybeInterruptTurn(next)
+        dropWhatSheHeardOfHerself()
         return
       }
       if (next) callbacks.onInterim?.(next)
       else if (!held) callbacks.onInterim?.('')
       if (held) return
       if (commitPaused) {
-        maybeInterruptTurn(next)
+        dropWhatSheHeardOfHerself()
         return
       }
       if (next && !looksIncompleteUtterance(next)) {

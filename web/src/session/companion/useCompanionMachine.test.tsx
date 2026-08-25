@@ -15,7 +15,6 @@ const EVENTS: CompanionEvent['type'][] = [
   'PLAYBACK_ENDED',
   'INTERRUPT',
   'MIC_CLICK_WHILE_SPEAKING',
-  'BARGE_IN',
   'AWAIT_MORE',
 ]
 
@@ -31,11 +30,9 @@ describe('useCompanionMachine transition matrix', () => {
     ['thinking', 'REPLY_COMPLETED', 'speaking'],
     ['thinking', 'REPLY_TERMINAL', 'idle'],
     ['thinking', 'INTERRUPT', 'idle'],
-    ['thinking', 'BARGE_IN', 'listening'],
     ['speaking', 'PLAYBACK_ENDED', 'idle'],
     ['speaking', 'INTERRUPT', 'idle'],
     ['speaking', 'MIC_CLICK_WHILE_SPEAKING', 'listening'],
-    ['speaking', 'BARGE_IN', 'listening'],
     ['speaking', 'AWAIT_MORE', 'thinking'],
   ]
 

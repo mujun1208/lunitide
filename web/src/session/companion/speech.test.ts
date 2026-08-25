@@ -28,8 +28,6 @@ import {
   shouldCommitIncomplete,
   INCOMPLETE_HOLD_MS,
   INCOMPLETE_HARD_MS,
-  BARGE_IN_THINKING_MIN_CHARS,
-  BARGE_IN_SETTLE_MS,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -249,12 +247,12 @@ describe('pickRecognitionTranscript', () => {
   })
 })
 
-describe('cutting in while she is thinking', () => {
-  // The microphone can still end a turn here, because nothing is coming out
-  // of the speaker to be mistaken for the user. What it must not do is let
-  // the tail of the sentence just sent restart the turn it belongs to.
-  test('asks for more than a stray syllable, and for the last turn to settle', () => {
-    expect(BARGE_IN_THINKING_MIN_CHARS).toBeGreaterThanOrEqual(4)
-    expect(BARGE_IN_SETTLE_MS).toBeGreaterThanOrEqual(1000)
+describe('who may end her turn', () => {
+  test('recognition is held for all of it, thinking and speaking alike', () => {
+    // The two ways back to the user's turn are the 打断 button and her
+    // finishing. Neither is a transcript, so recognition is simply held —
+    // there is no threshold here to tune because there is no decision left
+    // to make.
+    expect(shouldHoldRecognition(true, 0, 1000)).toBe(true)
   })
 })

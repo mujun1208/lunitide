@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
-import { BARGE_IN_SETTLE_MS } from './speech'
 
 const asr = {
   finish: vi.fn(),
@@ -29,7 +28,6 @@ const { startLocalCompanionSpeech } = await import('./localSpeech')
 
 const harness = () => {
   const onFinal = vi.fn()
-  const onBargeIn = vi.fn()
   const onInterim = vi.fn()
   const onError = vi.fn()
   const onLevels = vi.fn()
@@ -37,7 +35,6 @@ const harness = () => {
   let spoken = ''
   return {
     onFinal,
-    onBargeIn,
     onInterim,
     onError,
     onLevels,
@@ -47,7 +44,6 @@ const harness = () => {
     },
     options: {
       onFinal,
-      onBargeIn,
       onInterim,
       onError,
       onLevels,
@@ -142,7 +138,6 @@ describe('startLocalCompanionSpeech', () => {
     onTranscript('我帮你把这件事安排好了', false)
     await vi.advanceTimersByTimeAsync(500)
 
-    expect(stage.onBargeIn).not.toHaveBeenCalled()
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
@@ -162,49 +157,25 @@ describe('startLocalCompanionSpeech', () => {
     expect(asr.setMuted).toHaveBeenLastCalledWith(false)
   })
 
-  it('lets the user interrupt while she is only thinking', async () => {
-    const stage = harness()
-    asr.commit.mockResolvedValue('算了不用查了')
-    const handle = await startLocalCompanionSpeech(stage.options)
+  it('gives the turn back for nothing it hears while she is thinking', async () => {
+    // Once she has the turn, only the 打断 button takes it back. That covers
+    // the tail of the sentence that started her thinking, a cough, and a
+    // fully-formed sentence the user changed their mind and said out loud —
+    // there is no transcript that can distinguish them well enough to bet a
+    // turn on, so none of them get one.
+    for (const heard of ['算了不用查了', '查一下天气', '嗯']) {
+      const stage = harness()
+      asr.commit.mockResolvedValue(heard)
+      const handle = await startLocalCompanionSpeech(stage.options)
 
-    handle.setCommitPaused(true)
-    // Nothing is playing, so there is no echo to compare against — the guard
-    // is the settle window after the sentence that started her thinking.
-    await vi.advanceTimersByTimeAsync(BARGE_IN_SETTLE_MS + 100)
-    onTranscript('算了不用查了', false)
-    await vi.advanceTimersByTimeAsync(0)
+      handle.setCommitPaused(true)
+      await vi.advanceTimersByTimeAsync(2000)
+      onTranscript(heard, false)
+      await vi.advanceTimersByTimeAsync(400)
 
-    expect(stage.onBargeIn).toHaveBeenCalledWith('算了不用查了')
-  })
-
-  it('does not let the tail of the sent sentence restart the turn', async () => {
-    const stage = harness()
-    asr.commit.mockResolvedValue('帮我查一下天气。')
-    const handle = await startLocalCompanionSpeech(stage.options)
-
-    // A real turn: the sentence commits, she starts thinking, and the last
-    // words of that same sentence are still arriving from the recognizer.
-    onTranscript('帮我查一下天气。', false)
-    await vi.advanceTimersByTimeAsync(400)
-    expect(stage.onFinal).toHaveBeenCalledTimes(1)
-
-    handle.setCommitPaused(true)
-    onTranscript('查一下天气', false)
-    await vi.advanceTimersByTimeAsync(200)
-
-    expect(stage.onBargeIn).not.toHaveBeenCalled()
-  })
-
-  it('ignores a short cough while she is thinking', async () => {
-    const stage = harness()
-    const handle = await startLocalCompanionSpeech(stage.options)
-
-    handle.setCommitPaused(true)
-    await vi.advanceTimersByTimeAsync(BARGE_IN_SETTLE_MS + 100)
-    onTranscript('嗯', false)
-    await vi.advanceTimersByTimeAsync(200)
-
-    expect(stage.onBargeIn).not.toHaveBeenCalled()
+      expect(stage.onFinal).not.toHaveBeenCalled()
+      handle.stop()
+    }
   })
 
   it('never commits while she is thinking or speaking', async () => {
