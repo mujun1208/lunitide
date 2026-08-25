@@ -18,7 +18,6 @@ import {
   BARGE_IN_THINKING_MIN_CHARS,
   ECHO_GUARD_MS,
   endpointingForText,
-  shouldBargeInOverPlayback,
   shouldCommitIncomplete,
   shouldCommitStable,
   shouldCommitUtterance,
@@ -72,8 +71,6 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     textSince = 0
     announcedSpeech = false
   }
-
-  const spoken = () => options.spokenText?.() ?? ''
 
   const teardown = () => {
     closed = true
@@ -169,9 +166,10 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         options.onSpeechStart?.()
       }
       if (playback) {
-        // Mid-reply the only question worth asking is whether this is the user
-        // talking over her or her own sentence echoing back.
-        if (shouldBargeInOverPlayback(trimmed, spoken())) void recycle('barge-in')
+        // Nothing heard while she is speaking may end her turn. The
+        // microphone is muted for the whole reply, so anything arriving here
+        // is audio captured either side of the boundary; it is dropped, and
+        // the recycle at the boundary clears the recognizer behind it.
         return
       }
       if (commitPaused) {
@@ -203,15 +201,25 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       if (closed || active === playback) return
       playback = active
       guardUntil = Date.now() + echoGuardMs
-      // The microphone stays open: muting it here is what makes a companion
-      // impossible to interrupt. Only the feed into the recognizer pauses, and
-      // only for the guard window, where the speaker ramp is loudest and echo
-      // cancellation has not converged yet. The level meter keeps running.
+      // Muted for the whole reply, not just the ramp.
+      //
+      // Leaving it open was how the user could cut in by talking, and the
+      // cost of that was a decision no transcript can make reliably: two
+      // characters that did not match the sentence currently playing ended
+      // her turn, so a television, someone else in the room, or her own voice
+      // recognized a beat late truncated the answer mid-word. Interrupting is
+      // the 打断 button's job — it is unambiguous, it is what the setting
+      // describing this behaviour already tells the user to reach for, and it
+      // works while she is thinking too, where the microphone still does.
+      //
+      // Muting also removes echo as a category rather than guessing at it.
       window.clearTimeout(unmuteTimer)
       asr?.setMuted(true)
-      unmuteTimer = window.setTimeout(() => {
-        if (!closed) asr?.setMuted(false)
-      }, echoGuardMs)
+      if (!active) {
+        unmuteTimer = window.setTimeout(() => {
+          if (!closed) asr?.setMuted(false)
+        }, echoGuardMs)
+      }
       // Whatever landed either side of the boundary belongs to the turn that
       // just ended, so the recognizer restarts clean for the next one.
       void recycle(false)

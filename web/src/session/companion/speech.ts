@@ -6,7 +6,7 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
-import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
+import { looksIncompleteUtterance } from './companionText'
 import { sharedTtsAudioContext, unlockTtsAudio } from './ttsPlayer'
 
 type SpeechRecognitionHypothesis = { transcript: string; confidence?: number }
@@ -142,30 +142,21 @@ export const ECHO_GUARD_MS = 90
 /** After a click interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 80
 
-/** Recognized characters needed to cut in while she is speaking. */
-export const BARGE_IN_MIN_CHARS = 2
-/** She is only thinking (no audio out): ask for a longer utterance so the
- *  late tail of the sentence we just sent cannot restart the turn. */
+/** Recognized characters needed to cut in while she is thinking.
+ *
+ *  Thinking is the only state the microphone can still end a turn in — while
+ *  she is speaking, only the 打断 button can. There is no audio out here, so
+ *  nothing to mistake for the user; the risk is the opposite one, the late
+ *  tail of the sentence just sent restarting the turn it belongs to, which
+ *  is what this and the settle window below are sized against. */
 export const BARGE_IN_THINKING_MIN_CHARS = 4
 /** Ignore transcripts for this long after a barge-in fired. */
 export const BARGE_IN_GUARD_MS = 800
 /** Let the just-committed utterance settle before a new one may replace it. */
 export const BARGE_IN_SETTLE_MS = 1200
 
-/**
- * True when what the recognizer just heard is the user talking over the
- * assistant rather than the assistant's own voice returning through the
- * speaker. `spoken` is the text currently being played aloud.
- */
-export function shouldBargeInOverPlayback(heard: string, spoken: string, minChars = BARGE_IN_MIN_CHARS): boolean {
-  const text = heard.trim()
-  if (!text) return false
-  if (looksLikePlaybackEcho(text, spoken)) return false
-  return Array.from(text).length >= minChars
-}
-
-export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number, allowPlaybackBargeIn = false): boolean {
-  if (allowPlaybackBargeIn) return now < guardUntil
+/** Recognition is ignored while she speaks, and while the speaker rings out. */
+export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number): boolean {
   return playback || now < guardUntil
 }
 
@@ -308,7 +299,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let recRestarting = false
   let echoGuardUntil = 0
   let echoTimer = 0
-  let playbackBargeIn = false
   let playbackApplied = false
   let playbackEchoGuardMs = ECHO_GUARD_MS
   let commitPausedApplied = false
@@ -321,7 +311,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let commitHintTimer = 0
   let voiceEnergyWithoutTextSince = 0
   let recognitionAlive = false
-  const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now(), playbackBargeIn)
+  const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now())
   let recycleAfterPlayback = false
   let lastPlaybackEndedAt = 0
   const muteMic = (muted: boolean) => {
@@ -528,10 +518,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       callbacks.onFinal(text)
     }
     /**
-     * She is thinking or speaking and the user starts talking again. Real
-     * conversation lets that cut in. Two guards keep it honest: her own
-     * voice coming back through the speaker is dropped as echo, and the
-     * late tail of the sentence we just sent can never restart the turn.
+     * She is thinking and the user starts talking again — a correction, or
+     * the rest of a sentence they paused in the middle of. That cuts in.
+     *
+     * While she is *speaking* it does not, whatever the microphone reports.
+     * The mic is muted for the length of the reply, and anything that slips
+     * through either side of that boundary is dropped rather than weighed:
+     * deciding from a transcript whether two characters were the user or her
+     * own voice returning is a guess, and losing it truncates her answer
+     * mid-word. The 打断 button and its hotkey are the way to stop her, and
+     * are what the setting describing this already points the user to.
      */
     const maybeInterruptTurn = (raw: string) => {
       if (!callbacks.onBargeIn) return
@@ -539,18 +535,15 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (!text) return
       const now = performance.now()
       if (now < bargeGuardUntil) return
-      if (assistantPlayback && !shouldBargeInOverPlayback(text, callbacks.spokenText?.() ?? '')) {
-        // Speaker bleed: drop it so echo never accumulates into a turn.
-        if (looksLikePlaybackEcho(text, callbacks.spokenText?.() ?? '')) {
-          finals = ''
-          interim = ''
-        }
+      if (assistantPlayback) {
+        // Cleared, not kept: audio caught around the boundary must not
+        // accumulate into the user's next utterance.
+        finals = ''
+        interim = ''
         return
       }
-      if (!assistantPlayback) {
-        if (Array.from(text).length < BARGE_IN_THINKING_MIN_CHARS) return
-        if (now - lastCommittedAt < BARGE_IN_SETTLE_MS) return
-      }
+      if (Array.from(text).length < BARGE_IN_THINKING_MIN_CHARS) return
+      if (now - lastCommittedAt < BARGE_IN_SETTLE_MS) return
       const compact = compactCommit(text)
       if (lastCommittedCompact && (compact.includes(lastCommittedCompact) || lastCommittedCompact.includes(compact))) return
       bargeGuardUntil = now + BARGE_IN_GUARD_MS
@@ -709,7 +702,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       if (next) callbacks.onInterim?.(next)
       else if (!held) callbacks.onInterim?.('')
-      if (held && !playbackBargeIn) return
+      if (held) return
       if (commitPaused) {
         maybeInterruptTurn(next)
         return
@@ -876,12 +869,12 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         playbackApplied = active
         playbackEchoGuardMs = echoGuardMs
         assistantPlayback = active
-        // The mic stays hot while she speaks so the user can cut in like on
-        // a real call. Energy alone cannot tell her voice from theirs
-        // (laptop speaker + built-in mic, same-language female voice), so
-        // the decision is made on the transcript: anything matching what we
-        // are playing is dropped as echo, anything else interrupts.
-        playbackBargeIn = active && !!callbacks.onBargeIn
+        // The mic is muted for the length of the reply. It was left hot for a
+        // while so the user could cut in by talking, but neither energy nor
+        // transcript can reliably tell her voice from theirs — laptop
+        // speaker, built-in mic, same language, same gender — and every false
+        // positive cut her off in the middle of a word. Interrupting is the
+        // 打断 button's job.
         window.clearTimeout(echoTimer)
         if (active) {
           recycleAfterPlayback = false
@@ -890,14 +883,13 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           firstTextAt = 0
           lastTextChangeAt = performance.now()
           callbacks.onInterim?.('')
-          muteMic(!playbackBargeIn)
+          muteMic(true)
           recRestarting = false
           // Keep the recognizer warm. Stopping it here forces a cold Windows
           // SR start after every reply (0.5–2s before the next caption).
           // The mic is muted; onresult is ignored while assistantPlayback.
           return
         }
-        playbackBargeIn = false
         lastPlaybackEndedAt = performance.now()
         muteMic(false)
         echoGuardUntil = performance.now() + Math.max(0, echoGuardMs)

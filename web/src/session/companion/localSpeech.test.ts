@@ -125,7 +125,11 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).toHaveBeenCalledWith('就按这个来。')
   })
 
-  it('interrupts playback when the user talks over her', async () => {
+  it('lets nothing the microphone hears end her turn while she speaks', async () => {
+    // Words that plainly are an interruption, and words that are plainly her
+    // own coming back through the speaker, are treated the same way: dropped.
+    // Telling them apart takes a guess, and a wrong guess cuts her off in the
+    // middle of a word. The 打断 button does not have to guess.
     const stage = harness()
     stage.say('我帮你把这件事安排好了')
     asr.commit.mockResolvedValue('等一下先别说了')
@@ -135,20 +139,6 @@ describe('startLocalCompanionSpeech', () => {
     await vi.advanceTimersByTimeAsync(200)
 
     onTranscript('等一下先别说了', false)
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(stage.onBargeIn).toHaveBeenCalledWith('等一下先别说了')
-    expect(stage.onFinal).not.toHaveBeenCalled()
-  })
-
-  it('does not mistake her own voice for an interruption', async () => {
-    const stage = harness()
-    stage.say('我帮你把这件事安排好了')
-    const handle = await startLocalCompanionSpeech(stage.options)
-
-    handle.setAssistantPlayback(true)
-    await vi.advanceTimersByTimeAsync(200)
-
     onTranscript('我帮你把这件事安排好了', false)
     await vi.advanceTimersByTimeAsync(500)
 
@@ -156,18 +146,18 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
-  it('drops what the microphone hears while the speaker ramps up', async () => {
+  it('keeps the microphone muted for the whole reply, then reopens it', async () => {
     const stage = harness()
     const handle = await startLocalCompanionSpeech(stage.options)
 
     handle.setAssistantPlayback(true, 400)
-    onTranscript('刺啦', false)
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(1000)
+    // Still muted long after the guard window: it stays shut until she
+    // stops, which is what removes echo as a category rather than guessing
+    // at it from the transcript.
+    expect(asr.setMuted).toHaveBeenLastCalledWith(true)
 
-    expect(stage.onBargeIn).not.toHaveBeenCalled()
-    // The feed pauses for the guard, but the microphone itself stays open —
-    // muting it is what makes a companion impossible to interrupt.
-    expect(asr.setMuted).toHaveBeenCalledWith(true)
+    handle.setAssistantPlayback(false, 400)
     await vi.advanceTimersByTimeAsync(400)
     expect(asr.setMuted).toHaveBeenLastCalledWith(false)
   })
