@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/commandworker"
 )
 
@@ -192,8 +193,17 @@ func TestCommandStartCwdMustMatchExecuteGrant(t *testing.T) {
 		}
 		select {
 		case spec := <-runnerCalled:
-			if spec.Dir != filepath.Join(root, "safe") {
-				t.Fatalf("dir=%q", spec.Dir)
+			// The worker is pinned to the directory's real name, with short
+			// components like RUNNER~1 expanded, while t.TempDir reports
+			// whatever spelling TMP happens to carry. Comparing the two
+			// directly only works where the profile name is short enough to
+			// need no 8.3 alias — true on a developer laptop, false on CI.
+			wantDir, err := canonpath.Canonical(filepath.Join(root, "safe"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if spec.Dir != wantDir {
+				t.Fatalf("dir=%q, want %q", spec.Dir, wantDir)
 			}
 			if len(spec.Args) != 3 || spec.Args[0] != "test" || spec.Args[1] != "-count=1" || spec.Args[2] != "./..." {
 				t.Fatalf("argv=%v", spec.Args)

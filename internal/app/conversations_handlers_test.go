@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -32,8 +33,17 @@ func TestResolveSessionArtifactTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != file {
-		t.Fatalf("expected %q, got %q", file, got)
+	// The resolver reports where the file really is, which on Windows means
+	// short components like RUNNER~1 expanded to their real names. t.TempDir
+	// reports whatever spelling TMP carries, so the expectation has to be put
+	// in the same terms; otherwise this passes only where the profile name is
+	// short enough to need no 8.3 alias.
+	want, err := canonpath.Canonical(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 
 	if _, err := e.resolveSessionArtifactTarget(session, `..\..\..\windows\system.ini`); err == nil {
