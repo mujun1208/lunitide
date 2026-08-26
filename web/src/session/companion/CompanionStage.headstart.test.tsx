@@ -233,6 +233,48 @@ test('keeps the microphone shut across the gap between her sentences', async () 
   expect(reopened).toHaveLength(0)
 })
 
+test('reopens the microphone once the machine says the turn is the user\u2019s again', async () => {
+  // The third turn used to arrive with the stage reading 聆听中 and nothing
+  // underneath it listening. speakingRef is set wherever audio is handed to
+  // the engine and cleared wherever one finishes, which is more places than
+  // reliably agree, and one missed reset was permanent: it kept the reply
+  // "in progress" forever, which shut the microphone, stopped the recognizer
+  // and disabled both repairs that would have noticed — each of them declines
+  // to act during her turn.
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('讲讲今天的安排')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText="上午没有会。" />)
+  })
+  await flush(0)
+  expect(speech.setAssistantPlayback).toHaveBeenLastCalledWith(true, expect.any(Number))
+
+  // The engine runs dry while the model is still writing, which is the case
+  // that skips the reset: it is deliberately not done here, because more of
+  // the reply is still coming and the microphone must stay shut across the
+  // gap.
+  await act(async () => {
+    tts.playing = false
+    tts.enqueueCalls.at(-1)!.callbacks.onFinished?.('completed')
+  })
+  await flush(400)
+
+  // Then the reply ends without ever speaking again — cancelled, failed, or
+  // finished with nothing further to say — and the turn returns to the user
+  // by a route that never touches the flag.
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} chatStatus="cancelled" assistantText="上午没有会。" />)
+  })
+  await flush(1200)
+
+  expect(stateOf(utils.container)).toBe('listening')
+  expect(speech.setAssistantPlayback).toHaveBeenLastCalledWith(false, expect.any(Number))
+})
+
 test('hands the speech layer what is currently being spoken, for echo rejection', async () => {
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(600)

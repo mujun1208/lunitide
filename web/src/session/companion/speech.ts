@@ -102,7 +102,7 @@ export const MIN_UTTERANCE_MS = 140
 /** Last-resort commit when the transcript AND the mic have been quiet.
  *  A ceiling, so it has to sit above the window a turn normally ends in —
  *  below it, this fires first and becomes the real endpointing rule. */
-export const STUCK_TRANSCRIPT_MS = 3000
+export const STUCK_TRANSCRIPT_MS = 2400
 /** Restart SR only after this long of real mic energy with no transcript.
  *  Windows returns a first interim within a few hundred milliseconds of
  *  speech, so a second of talking with nothing on screen is already wrong. */
@@ -163,9 +163,9 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
 }
 
 /** Silence that ends a turn: how long a pause means "I have finished". */
-export const TURN_END_SILENCE_MS = 2000
+export const TURN_END_SILENCE_MS = 1200
 /** A phrase that reads as unfinished is given longer to be finished. */
-export const TURN_END_INCOMPLETE_SILENCE_MS = 2600
+export const TURN_END_INCOMPLETE_SILENCE_MS = 1900
 /** A turn never ends while the transcript is still growing. */
 export const TURN_END_TEXT_SETTLE_MS = 400
 

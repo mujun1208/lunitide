@@ -44,7 +44,7 @@ import {
  * doing at 1.6s, committing sentences before the user had finished saying
  * them.
  */
-const FORCE_COMMIT_MS = 3400
+const FORCE_COMMIT_MS = 2700
 import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
@@ -717,6 +717,17 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // her own voice could come back through, and a transcript cannot be
     // told apart from the user's by any test worth trusting. A closed
     // microphone needs no such test.
+    // 'listening' and 'idle' are the machine saying her turn is over, and it
+    // outranks the flag.
+    //
+    // speakingRef is set on every path that hands audio to the engine and
+    // cleared on every path that finishes one, which is more places than stay
+    // in agreement — and a single missed reset used to be permanent. It kept
+    // assistantBusy true, which shut the microphone, stopped the recognizer,
+    // and disabled both of the repairs that would have noticed, since each of
+    // them declines to act during her turn. The stage said 聆听中 and nothing
+    // underneath it was listening.
+    if (state === 'listening' || state === 'idle') speakingRef.current = false
     const speakingAloud = state === 'speaking' || speakingRef.current
     const assistantBusy = state === 'thinking' || speakingAloud
     const next = {
