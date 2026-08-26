@@ -439,14 +439,25 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         return
       }
       const speakable = ttsAvailable !== false && settings.autoSpeak
-      const completionLine = assistantText.trim() || activityStatus?.trim() || ''
+      const reply = assistantText.trim()
+      const completionLine = reply || activityStatus?.trim() || ''
       if (!completionLine.trim()) {
+        machine.dispatch({ type: 'REPLY_TERMINAL' })
+        return
+      }
+      // A turn that produced no words of her own ends on a tool's status
+      // line — 「做完了」, 「失败了」. Those are worth reading and not worth
+      // hearing: they are the machine reporting on itself, and spoken aloud
+      // they sound like her answer to a question nobody asked. Shown in the
+      // caption below, and the turn ends there.
+      if (!reply) {
+        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: completionLine }))
         machine.dispatch({ type: 'REPLY_TERMINAL' })
         return
       }
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
       // then flush the queue and transition the machine.
-      const remaining = assistantText.trim() ? assistantText.slice(spokenUpToRef.current) : completionLine
+      const remaining = assistantText.slice(spokenUpToRef.current)
       const segments = prepareSpeech(remaining).filter(seg => {
         if (!seg.trim()) return false
         if (looksLikePlaybackEcho(seg, lastSpokenRef.current) && compactSpeech(seg).length <= compactSpeech(lastSpokenRef.current).length + 4) {
@@ -513,23 +524,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       return
     }
     if (chatStatus === 'failed' || chatStatus === 'cancelled') {
-      if (!handledReplyRef.current && chatStatus === 'failed' && ttsAvailable !== false && settings.autoSpeak) {
+      // Read, not heard. A failure is already on screen as a banner and a
+      // caption; saying it out loud spends a second and a half of the user's
+      // time telling them something they can see, in a voice meant for
+      // conversation.
+      if (!handledReplyRef.current && chatStatus === 'failed') {
         handledReplyRef.current = true
-        const player = ensurePlayer()
-        const voiceId = activeVoiceId()
-        player.configure(voiceId, settings.rate, settings.volume, settings)
-        player.enqueue(['抱歉，这次任务没有完成。'], { ...settings, voiceId }, {
-          onEngineFallback: handleEngineFallback,
-          onGain: value => setGain(speakingGain(value)),
-          onFinished: () => {
-            setGain(0)
-            speakingRef.current = false
-            if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
-            else if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
-          },
-        })
-        void player.flush({ onFinished: () => machine.dispatch({ type: 'REPLY_TERMINAL' }) })
-        return
+        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: '抱歉，这次任务没有完成。' }))
       }
       if (stateRef.current === 'thinking') {
         machine.dispatch({ type: 'REPLY_TERMINAL' })
