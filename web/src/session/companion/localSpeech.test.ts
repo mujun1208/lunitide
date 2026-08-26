@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
-import { LOCAL_SILENCE_MS } from './speech'
+import { TURN_END_INCOMPLETE_SILENCE_MS, TURN_END_SILENCE_MS } from './speech'
 
 const asr = {
   finish: vi.fn(),
@@ -78,7 +78,7 @@ describe('startLocalCompanionSpeech', () => {
     await vi.advanceTimersByTimeAsync(350)
     expect(stage.onFinal).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(LOCAL_SILENCE_MS)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS)
     expect(stage.onFinal).toHaveBeenCalledWith('今天天气很好')
   })
 
@@ -90,10 +90,10 @@ describe('startLocalCompanionSpeech', () => {
     onTranscript('你可以', false)
     // The settle window that would commit a complete sentence must not commit
     // a dangling one: "你可以" is the middle of a request, not a request.
-    await vi.advanceTimersByTimeAsync(600)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
     expect(stage.onFinal).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(TURN_END_INCOMPLETE_SILENCE_MS)
     expect(stage.onFinal).toHaveBeenCalledWith('你可以')
   })
 
@@ -116,7 +116,7 @@ describe('startLocalCompanionSpeech', () => {
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('就按这个来。', false)
-    await vi.advanceTimersByTimeAsync(LOCAL_SILENCE_MS + 200)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
     // Losing the sentence would be worse than sending the copy the user
     // already watched appear in the caption.
     expect(stage.onFinal).toHaveBeenCalledWith('就按这个来。')
@@ -162,7 +162,7 @@ describe('startLocalCompanionSpeech', () => {
 
     // Now they stop, and the rest of the sentence lands.
     onTranscript('我说你之前的问题也不能全怪我', false)
-    for (let tick = 0; tick < 24; tick++) {
+    for (let elapsed = 0; elapsed < TURN_END_SILENCE_MS + 400; elapsed += 60) {
       onLevel(0)
       await vi.advanceTimersByTimeAsync(60)
     }
@@ -188,7 +188,7 @@ describe('startLocalCompanionSpeech', () => {
     asr.commit.mockResolvedValue('那帮我订个会议室。')
     await vi.advanceTimersByTimeAsync(100)
     onTranscript('那帮我订个会议室。', false)
-    await vi.advanceTimersByTimeAsync(LOCAL_SILENCE_MS + 200)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
 
     expect(stage.onFinal).toHaveBeenCalledWith('那帮我订个会议室。')
     for (const [caption] of stage.onInterim.mock.calls) {
@@ -252,7 +252,7 @@ describe('startLocalCompanionSpeech', () => {
     // What the user actually says next commits normally.
     asr.commit.mockResolvedValue('那帮我改一下。')
     onTranscript('那帮我改一下。', false)
-    await vi.advanceTimersByTimeAsync(LOCAL_SILENCE_MS + 200)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
     expect(stage.onFinal).toHaveBeenCalledWith('那帮我改一下。')
   })
 
