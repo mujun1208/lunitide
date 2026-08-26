@@ -28,6 +28,10 @@ import {
   shouldCommitIncomplete,
   INCOMPLETE_HOLD_MS,
   INCOMPLETE_HARD_MS,
+  shouldReplaceSilentRecognizer,
+  VOICE_WITHOUT_TEXT_MS,
+  VOICE_RESTART_RESULT_MS,
+  STALL_RESTART_GAP_MS,
   turnEnded,
   TURN_END_SILENCE_MS,
   TURN_END_INCOMPLETE_SILENCE_MS,
@@ -248,6 +252,44 @@ describe('pickRecognitionTranscript', () => {
       1: { transcript: '今天合肥的天气怎么样', confidence: 0.91 },
       length: 2,
     })).toBe('今天合肥的天气怎么样')
+  })
+})
+
+describe('replacing a recognizer that is hearing speech but returning nothing', () => {
+  const silent = {
+    hasText: false,
+    voiceForMs: VOICE_WITHOUT_TEXT_MS + 50,
+    msSinceLastResult: VOICE_RESTART_RESULT_MS + 50,
+    msSinceLastRestart: STALL_RESTART_GAP_MS + 50,
+  }
+
+  test('replaces it, whatever the session claims about being alive', () => {
+    // The bug this exists for: the test used to require the session to have
+    // already reported itself dead, so a Windows session that started,
+    // reported audio and then never returned a token was left in place. The
+    // user talked to it, saw nothing, and waited out an eight-second stall
+    // timer before anything was repaired.
+    expect(shouldReplaceSilentRecognizer(silent)).toBe(true)
+  })
+
+  test('leaves a recognizer that has produced anything at all', () => {
+    // Restarting mid-utterance discards the rest of the sentence, which is
+    // why an empty transcript is part of the condition rather than a detail.
+    expect(shouldReplaceSilentRecognizer({ ...silent, hasText: true })).toBe(false)
+  })
+
+  test('gives a healthy engine time to return its first token', () => {
+    expect(shouldReplaceSilentRecognizer({ ...silent, voiceForMs: 200 })).toBe(false)
+    expect(shouldReplaceSilentRecognizer({ ...silent, msSinceLastResult: 300 })).toBe(false)
+  })
+
+  test('does not restart faster than the engine can survive', () => {
+    expect(shouldReplaceSilentRecognizer({ ...silent, msSinceLastRestart: 100 })).toBe(false)
+  })
+
+  test('acts well before the stall timer it used to depend on', () => {
+    expect(VOICE_RESTART_RESULT_MS).toBeLessThan(STALL_RESTART_AFTER_MS)
+    expect(VOICE_WITHOUT_TEXT_MS).toBeLessThan(STALL_RESTART_AFTER_MS)
   })
 })
 

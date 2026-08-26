@@ -103,10 +103,15 @@ export const MIN_UTTERANCE_MS = 140
  *  A ceiling, so it has to sit above the window a turn normally ends in —
  *  below it, this fires first and becomes the real endpointing rule. */
 export const STUCK_TRANSCRIPT_MS = 3000
-/** Restart SR only after this long of real mic energy with no transcript. */
-export const VOICE_WITHOUT_TEXT_MS = 1200
-/** How long since the last SR token before a voice-energy restart. */
-export const VOICE_RESTART_RESULT_MS = 2500
+/** Restart SR only after this long of real mic energy with no transcript.
+ *  Windows returns a first interim within a few hundred milliseconds of
+ *  speech, so a second of talking with nothing on screen is already wrong. */
+export const VOICE_WITHOUT_TEXT_MS = 900
+/** How long since the last SR token before a voice-energy restart.
+ *  Bounds how long a dead session can swallow speech before it is replaced,
+ *  so it is kept just above the time a healthy engine takes to return its
+ *  first token rather than well clear of it. */
+export const VOICE_RESTART_RESULT_MS = 1400
 /** Minimum gap between stall-recovery restarts (avoids WebView SR crashes). */
 export const STALL_RESTART_GAP_MS = 1600
 /** Recycle a silent WebView SR session only after Windows has had time to
@@ -268,6 +273,33 @@ export function pickRecognitionTranscript(result: { length: number; [index: numb
 /** Idle moon rings must stay below VOICE_PEAK so they never look like speech. */
 export function idleMeterLevel(t: number, index: number): number {
   return 0.012 + 0.014 * Math.abs(Math.sin(t * 0.6 + index * 0.45))
+}
+
+/**
+ * Whether a recognizer that is being spoken to but has produced nothing
+ * should be replaced.
+ *
+ * Deliberately says nothing about whether the session claims to be running.
+ * That test used to be here, and it skipped this repair in exactly the case
+ * it exists for: a Windows session that started, reported audio, and then
+ * never returned a token still looks alive. The only other repair refuses to
+ * act while the user is speaking and otherwise waits eight seconds from the
+ * start of the session, so a dead recognizer swallowed whole sentences and
+ * the user had to say them again.
+ *
+ * Requiring an empty transcript is what makes replacing it safe: there is no
+ * utterance in flight to lose.
+ */
+export function shouldReplaceSilentRecognizer(input: {
+  hasText: boolean
+  voiceForMs: number
+  msSinceLastResult: number
+  msSinceLastRestart: number
+}): boolean {
+  if (input.hasText) return false
+  if (input.voiceForMs < VOICE_WITHOUT_TEXT_MS) return false
+  if (input.msSinceLastResult < VOICE_RESTART_RESULT_MS) return false
+  return input.msSinceLastRestart >= STALL_RESTART_GAP_MS
 }
 
 export function shouldRestartStalledRecognition(input: {
@@ -655,14 +687,22 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (
         duplex &&
         !assistantPlayback &&
-        !recognitionAlive &&
         energy >= profile.voicePeak &&
-        !assembled().trim() &&
         voiceEnergyWithoutTextSince &&
-        now - voiceEnergyWithoutTextSince >= VOICE_WITHOUT_TEXT_MS &&
-        now - lastResultAt >= VOICE_RESTART_RESULT_MS
+        shouldReplaceSilentRecognizer({
+          hasText: !!assembled().trim(),
+          voiceForMs: now - voiceEnergyWithoutTextSince,
+          msSinceLastResult: now - lastResultAt,
+          msSinceLastRestart: now - lastStallRestartAt,
+        })
       ) {
         voiceEnergyWithoutTextSince = now
+        lastStallRestartAt = now
+        // The replacement runs in the other mode. Whether Windows returns
+        // anything is machine-dependent, and continuous is the mode that just
+        // produced nothing here — retrying it identically is the one option
+        // already known not to work on this machine.
+        preferContinuous = !preferContinuous
         restartRecognition(false)
       }
       tryCommitFromSilence(lastVoiceAt)
