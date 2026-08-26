@@ -72,6 +72,7 @@ func (f *fakeCcHost) QuitApp(string) (int, ccapp.WindowInfo, error) {
 }
 func (f *fakeCcHost) MenuClick(string) error        { return nil }
 func (f *fakeCcHost) SetValue(string, string) error { return nil }
+func (f *fakeCcHost) InvokeUI(string) error         { return nil }
 
 func TestCcConfigLifecycleThroughBridge(t *testing.T) {
 	e, _ := newCcEngine(t)
@@ -228,5 +229,17 @@ func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Fatalf("tool set mismatch: got %d want %d (%v)", len(got), len(want), got)
+	}
+	for _, d := range defs {
+		switch d.Name {
+		case "cc.keyboard_type":
+			if !strings.Contains(d.Description, "cc.window_focus") {
+				t.Fatalf("keyboard_type should mention window_focus first: %q", d.Description)
+			}
+		case "cc.window_focus":
+			if !strings.Contains(d.Description, "cc.keyboard_type") {
+				t.Fatalf("window_focus should mention keyboard_type pairing: %q", d.Description)
+			}
+		}
 	}
 }

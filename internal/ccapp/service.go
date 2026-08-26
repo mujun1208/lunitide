@@ -290,6 +290,9 @@ type Host interface {
 	QuitApp(query string) (closed int, sample WindowInfo, err error)
 	MenuClick(path string) error
 	SetValue(target, value string) error
+	// InvokeUI activates a named foreground accessibility node via
+	// IAccessible::accDoDefaultAction (DoDefaultAction / Invoke).
+	InvokeUI(target string) error
 }
 
 // Clock is the injectable time source.
@@ -1015,13 +1018,15 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		return nil, nil
 	case ToolWindowFocus:
 		var a struct {
-			Title string `json:"title"`
+			Title   string `json:"title"`
+			Process string `json:"process"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
 		}
-		if strings.TrimSpace(a.Title) == "" || utf8.RuneCountInString(a.Title) > 200 {
-			return nil, fmt.Errorf("%w: title", ErrCcInputFiltered)
+		q := windowFocusQuery(a.Title, a.Process)
+		if q == "" || utf8.RuneCountInString(q) > 200 {
+			return nil, fmt.Errorf("%w: title or process", ErrCcInputFiltered)
 		}
 		return nil, nil
 	case ToolObserveDialog:
@@ -1458,21 +1463,34 @@ func (s *Service) sensitiveForeground(buttons []string) string {
 	return SensitiveSurfaceReason(title, process, "", buttons)
 }
 
-func (s *Service) clickTargetByName(name string) (sx, sy int, hit string, err error) {
-	if reason := s.sensitiveForeground([]string{name}); reason != "" {
-		return 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
+func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy int, hit string, err error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", 0, 0, "", fmt.Errorf("%w: empty UI target", ErrCcInputFiltered)
 	}
-	if h, ok := s.lookupHit(name); ok {
-		return h.SX, h.SY, h.Name, nil
+	if reason := s.sensitiveForeground([]string{query}); reason != "" {
+		return "", 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
+	}
+	if validNodeID(query) {
+		if h, ok := s.lookupHit(query); ok {
+			name := strings.TrimSpace(h.Name)
+			if name == "" {
+				return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
+			}
+			return name, h.SX, h.SY, h.Name, nil
+		}
+	}
+	if h, ok := s.lookupHit(query); ok && strings.TrimSpace(h.Name) != "" {
+		return h.Name, h.SX, h.SY, h.Name, nil
 	}
 	nodes, err := s.host.ObserveUI(80)
 	if err != nil {
-		return 0, 0, "", err
+		return "", 0, 0, "", err
 	}
 	if reason := s.sensitiveForeground(nodeNames(nodes)); reason != "" {
-		return 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
+		return "", 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
 	}
-	want := strings.ToLower(strings.TrimSpace(name))
+	want := strings.ToLower(query)
 	var best *UINode
 	bestScore := 0
 	for i := range nodes {
@@ -1480,7 +1498,7 @@ func (s *Service) clickTargetByName(name string) (sx, sy int, hit string, err er
 		got := strings.ToLower(strings.TrimSpace(n.Name))
 		score := 0
 		switch {
-		case strings.EqualFold(n.ID, name):
+		case strings.EqualFold(n.ID, query):
 			score = 120
 		case got == want:
 			score = 100
@@ -1493,9 +1511,13 @@ func (s *Service) clickTargetByName(name string) (sx, sy int, hit string, err er
 		}
 	}
 	if best == nil || bestScore == 0 {
-		return 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, name)
+		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
 	}
-	return best.X + best.W/2, best.Y + best.H/2, best.Name, nil
+	name := strings.TrimSpace(best.Name)
+	if name == "" {
+		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
+	}
+	return name, best.X + best.W/2, best.Y + best.H/2, name, nil
 }
 
 func (s *Service) mapUINodes(nodes []UINode) []UINode {
@@ -1545,9 +1567,12 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			if query == "" {
 				query = name
 			}
-			sx, sy, hit, err := s.clickTargetByName(query)
+			invokeName, sx, sy, hit, err := s.resolveNamedTarget(query)
 			if err != nil {
 				return "", nil, err
+			}
+			if err := s.host.InvokeUI(invokeName); err == nil {
+				return s.verifyAfter(fmt.Sprintf("invoked %q via accessibility", hit))
 			}
 			if err := s.host.MouseMove(sx, sy); err != nil {
 				return "", nil, err
@@ -1689,10 +1714,11 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		return string(raw), nil, nil
 	case ToolWindowFocus:
 		var a struct {
-			Title string `json:"title"`
+			Title   string `json:"title"`
+			Process string `json:"process"`
 		}
 		_ = json.Unmarshal(args, &a)
-		info, err := s.host.FocusWindow(strings.TrimSpace(a.Title))
+		info, err := s.host.FocusWindow(windowFocusQuery(a.Title, a.Process))
 		if err != nil {
 			return "", nil, err
 		}

@@ -59,6 +59,15 @@ func processStem(process string) string {
 	return strings.TrimSuffix(strings.TrimSuffix(name, ".lnk"), ".exe")
 }
 
+// windowFocusQuery resolves cc.window_focus args: title substring or process
+// fragment (either field may be set; title wins when both are present).
+func windowFocusQuery(title, process string) string {
+	if q := strings.TrimSpace(title); q != "" {
+		return q
+	}
+	return strings.TrimSpace(process)
+}
+
 func windowQueryScore(w WindowInfo, query string) int {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {

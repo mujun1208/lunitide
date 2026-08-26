@@ -1,6 +1,10 @@
 package ccapp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestMatchWindowPrefersExactTitle(t *testing.T) {
 	wins := []WindowInfo{
@@ -52,5 +56,32 @@ func TestSplitMenuPath(t *testing.T) {
 	got = SplitMenuPath("文件/保存")
 	if len(got) != 2 || got[0] != "文件" || got[1] != "保存" {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestWindowFocusQueryPrefersTitle(t *testing.T) {
+	if got := windowFocusQuery("Notes", "notepad.exe"); got != "Notes" {
+		t.Fatalf("got %q", got)
+	}
+	if got := windowFocusQuery("", "notepad.exe"); got != "notepad.exe" {
+		t.Fatalf("got %q", got)
+	}
+	if windowFocusQuery("  ", "  ") != "" {
+		t.Fatal("empty query")
+	}
+}
+
+func TestClampClipboardCapsRunes(t *testing.T) {
+	long := strings.Repeat("月", CcMaxClipboardRunes+50)
+	got := clampClipboard(long)
+	if utf8.RuneCountInString(got) != CcMaxClipboardRunes {
+		t.Fatalf("runes = %d want %d", utf8.RuneCountInString(got), CcMaxClipboardRunes)
+	}
+	if got == long {
+		t.Fatal("should truncate")
+	}
+	short := "hello"
+	if clampClipboard(short) != short {
+		t.Fatal("short text unchanged")
 	}
 }
