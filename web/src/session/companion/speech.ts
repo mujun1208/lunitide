@@ -6,7 +6,7 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
-import { looksIncompleteUtterance } from './companionText'
+import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
 import { sharedTtsAudioContext, unlockTtsAudio } from './ttsPlayer'
 
 type SpeechRecognitionHypothesis = { transcript: string; confidence?: number }
@@ -99,8 +99,10 @@ export const INCOMPLETE_HOLD_MS = 1600
 export const INCOMPLETE_HARD_MS = 2200
 /** Minimum time with text on screen before we accept a non-terminal commit. */
 export const MIN_UTTERANCE_MS = 140
-/** Force-commit only after the transcript AND the mic have been quiet. Ceiling for “I stopped talking”. */
-export const STUCK_TRANSCRIPT_MS = 1800
+/** Last-resort commit when the transcript AND the mic have been quiet.
+ *  A ceiling, so it has to sit above the window a turn normally ends in —
+ *  below it, this fires first and becomes the real endpointing rule. */
+export const STUCK_TRANSCRIPT_MS = 3000
 /** Restart SR only after this long of real mic energy with no transcript. */
 export const VOICE_WITHOUT_TEXT_MS = 1200
 /** How long since the last SR token before a voice-energy restart. */
@@ -139,6 +141,8 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
 export const ECHO_GUARD_MS = 90
 /** After a click interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 80
+/** How long after her turn a transcript may still be her, not the user. */
+export const PLAYBACK_TAIL_MS = 2500
 
 /** Recognition is ignored while she speaks, and while the speaker rings out. */
 export function shouldHoldRecognition(playback: boolean, guardUntil: number, now: number): boolean {
@@ -153,34 +157,30 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
   return hasText && stableForMs >= stableMs
 }
 
-/** Real silence that ends a locally-recognized turn. */
-export const LOCAL_SILENCE_MS = 700
+/** Silence that ends a turn: how long a pause means "I have finished". */
+export const TURN_END_SILENCE_MS = 2000
 /** A phrase that reads as unfinished is given longer to be finished. */
-export const LOCAL_INCOMPLETE_SILENCE_MS = 1200
+export const TURN_END_INCOMPLETE_SILENCE_MS = 2600
 /** A turn never ends while the transcript is still growing. */
-export const LOCAL_TEXT_SETTLE_MS = 280
+export const TURN_END_TEXT_SETTLE_MS = 400
 
 /**
- * Whether a locally-recognized turn has ended.
+ * Whether the user has finished speaking.
  *
- * The cloud recognizer says so itself: Windows runs its own endpointing and
- * marks a result final. A local streaming model says nothing of the kind. It
- * emits text when it has text and goes quiet both when the speaker has
- * finished and when it is merely between tokens, and the two look identical
- * from here.
+ * One rule for both recognizers, because the question is about the speaker,
+ * not the engine. They used to answer it separately and were wrong in the
+ * same direction: the cloud path ended a turn after ~220ms of unchanged
+ * text, the local path after ~280ms of quiet, and both of those are ordinary
+ * gaps in the middle of a sentence. 「你好月汐」 was committed as 「你好」
+ * and answered as 「你好」, with the rest arriving during the reply, where it
+ * was correctly discarded as hers.
  *
- * Treating them as identical is what cut sentences in half. The shared rules
- * end a turn after a fifth of a second of unchanged text, which for the cloud
- * recognizer means the user stopped and for this one is an ordinary gap in
- * the middle of a sentence — so a sentence was committed half-said, answered
- * half-said, and the rest of it arrived during the reply and was discarded.
- *
- * The turn therefore ends on the room going quiet, agreed by two independent
- * signals: the energy gate says nobody is speaking, and the transcript has
- * stopped growing. Either alone is wrong — someone pausing for breath trips
- * the first, and a model running behind the audio trips the second.
+ * A turn ends on the room staying quiet for as long as someone pauses when
+ * they have genuinely finished, agreed by two independent signals — either
+ * alone is wrong, since a breath still trips the energy gate and a recognizer
+ * running behind the audio still trips the transcript.
  */
-export function localTurnEnded(input: {
+export function turnEnded(input: {
   speechActive: boolean
   /** Undefined when the level has never crossed the speech gate. */
   silentForMs: number | undefined
@@ -188,8 +188,8 @@ export function localTurnEnded(input: {
   incomplete: boolean
 }): boolean {
   if (input.speechActive) return false
-  if (input.msSinceLastResult < LOCAL_TEXT_SETTLE_MS) return false
-  const quiet = input.incomplete ? LOCAL_INCOMPLETE_SILENCE_MS : LOCAL_SILENCE_MS
+  if (input.msSinceLastResult < TURN_END_TEXT_SETTLE_MS) return false
+  const quiet = input.incomplete ? TURN_END_INCOMPLETE_SILENCE_MS : TURN_END_SILENCE_MS
   // A microphone whose level never reaches the speech gate — a quiet device,
   // or aggressive noise suppression — still has to be able to end a turn.
   // Requiring the energy signal outright would leave that user waiting
@@ -345,6 +345,15 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now())
   let recycleAfterPlayback = false
   let lastPlaybackEndedAt = 0
+  /**
+   * Silences the streams this module owns: the analyser feed and the meter.
+   *
+   * Not the recognizer. Web Speech opens its own capture inside the engine and
+   * never looks at these tracks, so this does nothing to what Windows hears —
+   * a fact worth stating because the code once relied on the opposite, muted
+   * here while she was speaking, and had her whole reply transcribed anyway.
+   * Keeping the recognizer from hearing her means stopping the recognizer.
+   */
   const muteMic = (muted: boolean) => {
     stream?.getAudioTracks().forEach(track => {
       track.enabled = !muted
@@ -559,18 +568,30 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       finals = ''
       interim = ''
     }
+    /**
+     * Whether this is her reply reaching us after her turn is already over.
+     *
+     * Stopping the recognizer for the length of the reply removes most of
+     * this, but not the last of it: the engine can report an utterance it was
+     * still holding when it was stopped, and a speaker takes a moment to stop
+     * ringing. Bounded to just after her turn, so a user who genuinely repeats
+     * her words later is not silenced for it.
+     */
+    const echoOfHerReply = (text: string) => {
+      if (!lastPlaybackEndedAt) return false
+      if (performance.now() - lastPlaybackEndedAt > PLAYBACK_TAIL_MS) return false
+      return looksLikePlaybackEcho(text, callbacks.spokenText?.() ?? '')
+    }
     const tryCommitFromSilence = (voiceAt: number) => {
       if (finished || commitPaused || recognitionHeld() || assistantPlayback) return
       const text = assembled().trim()
       if (!text) return
       const textSince = firstTextAt ? performance.now() - firstTextAt : 0
       if (shouldDeferCommit(text, textSince)) return
-      const { stableMs, silenceMs } = endpointingForText(text, profile)
-      const silentFor = performance.now() - voiceAt
-      const stableFor = performance.now() - lastTextChangeAt
       const incomplete = looksIncompleteUtterance(text)
       // Windows often isFinal + speechend on「你可以」/「合肥的」while the user
-      // is still talking. Hold until tokens go stale and the mic is quiet.
+      // is still talking. A session that has gone quiet mid-sentence is kicked
+      // rather than committed, so the rest of the sentence can still arrive.
       if (incomplete) {
         const staleFor = performance.now() - lastResultAt
         if (
@@ -583,25 +604,17 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           restartRecognition(false)
           return
         }
-        if (
-          shouldCommitIncomplete({
-            silentForMs: silentFor,
-            silenceMs,
-            msSinceLastResult: staleFor,
-            speechActive,
-          })
-        ) {
-          commit(text)
-        }
-        return
       }
-      const punctuated = /[。？！?!…]$/.test(text)
-      const stableTarget = punctuated ? Math.min(stableMs, 120) : stableMs
-      if (shouldCommitStable(true, stableFor, stableTarget)) {
+      if (
+        turnEnded({
+          speechActive,
+          silentForMs: voiceAt ? performance.now() - voiceAt : undefined,
+          msSinceLastResult: performance.now() - lastTextChangeAt,
+          incomplete,
+        })
+      ) {
         commit(text)
-        return
       }
-      if (shouldCommitUtterance(true, silentFor, silenceMs)) commit(text)
     }
     const paintLevels = () => {
       if (context?.state === 'suspended') void context.resume()
@@ -708,6 +721,10 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         dropWhatSheHeardOfHerself()
         return
       }
+      if (next && echoOfHerReply(next)) {
+        dropWhatSheHeardOfHerself()
+        return
+      }
       if (next) callbacks.onInterim?.(next)
       else if (!held) callbacks.onInterim?.('')
       if (held) return
@@ -750,10 +767,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         window.clearTimeout(restartTimer)
         restartTimer = window.setTimeout(() => {
           if (finished || !recognition) return
-          if (assistantPlayback) {
-            if (!recognitionAlive) startRecognition()
-            return
-          }
+          // Her turn: stay stopped rather than reviving a session whose only
+          // possible input is the speakers.
+          if (assistantPlayback) return
           if (recognitionHeld()) return
           // stop() during an in-flight utterance drops the rest of the sentence.
           if (event?.error === 'no-speech' && assembled().trim()) return
@@ -774,7 +790,10 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       // Never commit on engine stop — keep the hypothesis and wait for more,
       // or for silence/stable endpointing.
       if (assistantPlayback) {
-        startRecognition()
+        // Her turn: it was stopped on purpose and must stay stopped. Starting
+        // it again here is how it came to hear her whole reply — the engine
+        // is deaf to the muted tracks, so a running session transcribes the
+        // speakers.
         return
       }
       if (recognitionHeld()) {
@@ -846,10 +865,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     paintLevels()
     keepAliveTimer = window.setInterval(() => {
       if (finished || recRestarting) return
-      if (assistantPlayback) {
-        if (!recognitionAlive) startRecognition()
-        return
-      }
+      if (assistantPlayback) return
       if (recognitionHeld()) return
       const text = assembled().trim()
       const stableFor = performance.now() - lastTextChangeAt
@@ -893,13 +909,29 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           callbacks.onInterim?.('')
           muteMic(true)
           recRestarting = false
-          // Keep the recognizer warm. Stopping it here forces a cold Windows
-          // SR start after every reply (0.5–2s before the next caption).
-          // The mic is muted; onresult is ignored while assistantPlayback.
+          // The recognizer is stopped, not just ignored.
+          //
+          // It used to be left running to stay warm, on the understanding
+          // that muting the microphone kept it from hearing her and that
+          // onresult would discard anything that slipped through. Neither
+          // held: Web Speech captures audio itself and never saw the muted
+          // tracks, so it listened to the entire reply through the speaker,
+          // held the transcript, and delivered it the moment the guard came
+          // off — arriving as the user's next question, in her words.
+          //
+          // Nothing needs recognition during her turn now that only the 打断
+          // button can end it, so the warm session bought a cold start back
+          // and paid for it with that.
+          recognition?.stop()
+          recognitionAlive = false
           return
         }
         lastPlaybackEndedAt = performance.now()
         muteMic(false)
+        // Whatever the engine may still report about her turn belongs to it.
+        finals = ''
+        interim = ''
+        firstTextAt = 0
         echoGuardUntil = performance.now() + Math.max(0, echoGuardMs)
         recycleAfterPlayback = false
         ensureRecognitionRunning(false)

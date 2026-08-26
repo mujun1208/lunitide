@@ -153,7 +153,12 @@ describe('startCompanionSpeech capture graph', () => {
     handle.stop()
   })
 
-  test('TTS mutes the mic without stopping a live recognizer', async () => {
+  test('stops the recognizer while she speaks, and starts a fresh one after', async () => {
+    // It used to be left running to stay warm, because muting the microphone
+    // was believed to keep it from hearing her. Web Speech captures audio
+    // itself and never saw those tracks, so it transcribed the whole reply
+    // off the speaker and handed it over the moment the guard lifted — the
+    // user's next question arrived in her words.
     const handle = await startCompanionSpeech({
       duplex: true,
       onFinal: vi.fn(),
@@ -161,10 +166,37 @@ describe('startCompanionSpeech capture graph', () => {
     })
     recognition.start.mockClear()
     recognition.stop.mockClear()
+
     handle.setAssistantPlayback(true)
-    expect(recognition.stop).not.toHaveBeenCalled()
+    expect(recognition.stop).toHaveBeenCalled()
+
     handle.setAssistantPlayback(false)
-    expect(recognition.start).not.toHaveBeenCalled()
+    expect(recognition.start).toHaveBeenCalled()
+    handle.stop()
+  })
+
+  test('does not report what it heard of her as the user talking', async () => {
+    const onInterim = vi.fn()
+    const onFinal = vi.fn()
+    const spoken = '我能帮你可多啦，办公上也能搭把手，像做表格文档、生成PPT这些。'
+    const handle = await startCompanionSpeech({
+      duplex: true,
+      onFinal,
+      onInterim,
+      onError: vi.fn(),
+      spokenText: () => spoken,
+    })
+
+    handle.setAssistantPlayback(true)
+    recognition.onresult?.(heard('办公上也能搭把手像做表格文档生成PPT这些'))
+    handle.setAssistantPlayback(false)
+    onInterim.mockClear()
+    // Arriving late, after the guard has lifted, which is when the engine
+    // used to hand over everything it had buffered during the reply.
+    recognition.onresult?.(heard('办公上也能搭把手像做表格文档生成PPT这些'))
+
+    expect(onFinal).not.toHaveBeenCalled()
+    for (const [caption] of onInterim.mock.calls) expect(caption).toBe('')
     handle.stop()
   })
 

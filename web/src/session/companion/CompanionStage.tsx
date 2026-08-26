@@ -35,6 +35,16 @@ import {
   type CompanionSpeechHandle,
   type CompanionSpeechOptions,
 } from './speech'
+
+/**
+ * Last resort when endpointing never fires at all.
+ *
+ * Has to sit above the window a turn normally ends in (TURN_END_* in
+ * speech.ts) or it becomes the endpointing rule itself — which is what it was
+ * doing at 1.6s, committing sentences before the user had finished saying
+ * them.
+ */
+const FORCE_COMMIT_MS = 3400
 import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
@@ -862,16 +872,21 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       environment: settingsRef.current.speechEnvironment,
       onInterim: transcript => {
         const next = transcript.trim()
+        // Her own voice off the speaker is not a caption.
+        //
+        // This test used to guard only the round below, while the caption was
+        // painted from the line above it unconditionally — so an echo was
+        // kept out of the transcript and put on screen anyway, replacing the
+        // user's question with a garbled copy of the reply until the next
+        // update cleared it.
+        if (next && looksLikePlaybackEcho(next, lastSpokenRef.current)) return
         cancelCaptionFade()
         setInterimText(transcript)
         if (!next) return
         setVoiceHeard(true)
         setHeardThisVisit(true)
         setEngineHint('')
-        if (
-          (stateRef.current === 'listening' || stateRef.current === 'idle') &&
-          !looksLikePlaybackEcho(next, lastSpokenRef.current)
-        ) {
+        if (stateRef.current === 'listening' || stateRef.current === 'idle') {
           setRounds([{ role: 'user', text: next }])
         }
       },
@@ -1003,7 +1018,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       if (stateRef.current !== 'listening' || exitedRef.current) return
       if (!interimText.trim()) return
       speechHandleRef.current?.forceCommit()
-    }, 1600)
+    }, FORCE_COMMIT_MS)
     return () => window.clearTimeout(timer)
   }, [machine.state, interimText])
 
@@ -1158,6 +1173,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }
   }
 
+  /** A caption is live only during the turn it belongs to. */
+  const liveCaption = machine.state === 'listening' && !!interimText.trim()
+
   return (
     <div
       className="companion-stage"
@@ -1263,11 +1281,15 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           {rounds.map((round, index) => (
             <SubtitleRow
               key={round.role}
-              round={round.role === 'user' && interimText.trim() ? { ...round, text: interimText } : round}
-              live={round.role === 'user' && machine.state === 'listening' && !!interimText.trim()}
+              // Only while listening. A caption belongs to the turn being
+              // spoken, and anything arriving outside one is late audio from
+              // the turn before — overwriting the question already on screen
+              // with it is what made the subtitles jump.
+              round={round.role === 'user' && liveCaption ? { ...round, text: interimText } : round}
+              live={round.role === 'user' && liveCaption}
             />
           ))}
-          {interimText.trim() && !rounds.some(round => round.role === 'user') && (
+          {liveCaption && !rounds.some(round => round.role === 'user') && (
             <SubtitleRow round={{ role: 'user', text: interimText }} live />
           )}
           {!rounds.length && !interimText && machine.state !== 'listening' && (
