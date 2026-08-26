@@ -40,9 +40,14 @@ func (f *fakeCcHost) MouseMove(x, y int) error           { return nil }
 func (f *fakeCcHost) MouseClick(string, int) error       { return nil }
 func (f *fakeCcHost) KeyboardType(string) error          { return nil }
 func (f *fakeCcHost) KeyboardShortcut([]string) error    { return nil }
+func (f *fakeCcHost) MouseScroll(int) error              { return nil }
 func (f *fakeCcHost) ScreenCapture() ([]byte, error)     { return nil, nil }
 func (f *fakeCcHost) ActiveWindow() (string, string, error) {
 	return f.title, f.process, nil
+}
+func (f *fakeCcHost) ObserveDialogs() ([]ccapp.DialogSnapshot, error) { return nil, nil }
+func (f *fakeCcHost) ConfirmDialog(string) (ccapp.DialogSnapshot, error) {
+	return ccapp.DialogSnapshot{}, nil
 }
 
 func TestCcConfigLifecycleThroughBridge(t *testing.T) {

@@ -595,7 +595,7 @@ func companionPersonaInstruction() string {
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐）；不要用 command.run 猜路径\n" +
 		"- 播歌/播放：若本会话已打开音乐软件（见下方会话上下文），必须用 media.play（target=foreground，query=歌名/歌手；没说具体歌时用 query=热门）在该软件内搜索并播放；禁止 cc.screen_capture 看屏点按，禁止改用网页或 netease/qqmusic。用户一句里同时要求打开软件并播放时，先 desktop.open 再 media.play target=foreground。仅当用户明确要网页版或未打开桌面音乐软件时，才用 target=browser|netease|qqmusic\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
-		"- 操作电脑：command.run；电脑控制开启时用 cc.*（含 media_play 快捷键）\n" +
+		"- 操作电脑：电脑控制开启时用 cc.*。看全桌面用 cc.screen_capture（整张虚拟桌面）；之后鼠标坐标必须用你看到的那张图的像素，不要用原始桌面分辨率。普通对话框先 cc.observe_dialog（可 waitMs），确认是 Yes/OK/确认/是/确定 后再 cc.confirm_dialog；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。滚动用 cc.mouse_click scroll=±1。command.run 仅在需要跑命令时用\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 }
 
@@ -663,6 +663,7 @@ func companionWantsTools(text string) bool {
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
 		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水",
+		"截图", "屏幕", "对话框", "确认", "点击", "鼠标", "电脑",
 		"search", "open http", "play song", "install",
 	} {
 		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
@@ -1029,13 +1030,12 @@ func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
 	}
 }
 
-// ccToolDefinitions are the six M10 wave-4 computer-control tools. They
-// are appended to the model tool list only when the ccapp service is
-// wired and the operator enabled the domain (M10-CC-012 keeps them hidden
-// otherwise, and the armed emergency latch hides them too). Subagents
-// never see them: readOnlyEngineToolDefinitions stays file-read-only and
-// runs sub-sessions in FullAccess, which would bypass the confirmation
-// gate.
+// ccToolDefinitions are the M10 computer-control tools. They are appended
+// to the model tool list only when the ccapp service is wired and the
+// operator enabled the domain (M10-CC-012 keeps them hidden otherwise, and
+// the armed emergency latch hides them too). Subagents never see them:
+// readOnlyEngineToolDefinitions stays file-read-only and runs sub-sessions
+// in FullAccess, which would bypass the confirmation gate.
 func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
 	if e.ccctrl == nil {
 		return nil
@@ -1045,13 +1045,31 @@ func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
 		return nil
 	}
 	return []gateway.ToolDefinition{
-		{Name: "cc.mouse_move", Description: "Move the mouse cursor to absolute screen pixel coordinates", Schema: []byte(`{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},"required":["x","y"],"additionalProperties":false}`)},
-		{Name: "cc.mouse_click", Description: "Click the mouse at the current cursor position", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"}},"additionalProperties":false}`)},
-		{Name: "cc.keyboard_type", Description: "Type literal text through synthetic keyboard input (no control characters)", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096}},"required":["text"],"additionalProperties":false}`)},
+		{Name: "cc.mouse_move", Description: "Move the mouse to pixel coordinates of the latest cc.screen_capture image (origin top-left of that image). If you have not captured yet, use virtual-desktop pixels.", Schema: []byte(`{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},"required":["x","y"],"additionalProperties":false}`)},
+		{Name: "cc.mouse_click", Description: "Click or scroll. Optional x,y are in the latest screenshot image pixels (same space as cc.mouse_move). scroll is wheel notches (-12..12). Default is a left click at the current cursor.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"scroll":{"type":"integer","minimum":-12,"maximum":12,"description":"wheel notches; when set, no click"}},"additionalProperties":false}`)},
+		{Name: "cc.keyboard_type", Description: "Type literal text (including Chinese) through synthetic keyboard input; no control characters", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096}},"required":["text"],"additionalProperties":false}`)},
 		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s or media_play); system-reserved combos are refused", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}}},"required":["keys"],"additionalProperties":false}`)},
-		{Name: "cc.screen_capture", Description: "Capture the screen as a PNG image saved into the session workspace", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+		{Name: "cc.screen_capture", Description: "Capture the entire virtual desktop (all monitors) as PNG. You receive a downscaled image; mouse x,y must use that image's pixel coordinates. Do not screenshot-click music apps; use media.play.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
 		{Name: "cc.get_active_window", Description: "Answer the foreground window title and process name", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+		{Name: "cc.observe_dialog", Description: "List visible standard dialogs and their buttons via UI Automation / accessibility. Prefer this over screenshot-click for Yes/OK/确认. Optional waitMs (0-5000) waits for a dialog to appear.", Schema: []byte(`{"type":"object","properties":{"waitMs":{"type":"integer","minimum":0,"maximum":5000}},"additionalProperties":false}`)},
+		{Name: "cc.confirm_dialog", Description: "Click a standard confirm button (Yes/OK/确认/是/确定) found by accessibility. Refuses UAC, elevation, and file Open/Save dialogs. Never auto-accept unknown files.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","description":"ok|yes|confirm or a caption; default auto"}},"additionalProperties":false}`)},
 	}
+}
+
+const maxCaptureVisionImages = 2
+
+func appendCaptureVision(images []gateway.Image, mime string, data []byte) []gateway.Image {
+	if len(data) == 0 {
+		return images
+	}
+	if mime == "" {
+		mime = "image/png"
+	}
+	images = append(images, gateway.Image{MIME: mime, Data: data})
+	if len(images) > maxCaptureVisionImages {
+		images = images[len(images)-maxCaptureVisionImages:]
+	}
+	return images
 }
 
 // skillToolDefinitions exposes published skills as one model-callable tool
@@ -2105,6 +2123,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return err
 				}
 				req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+				if toolErr == nil && len(r.VisionData) > 0 {
+					req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
+				}
 			}
 			if desktopOpenedMusic && companionTurnWantsMusicPlay(turn.Goal) {
 				hasMediaPlay := false

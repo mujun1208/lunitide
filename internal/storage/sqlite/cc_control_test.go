@@ -1,9 +1,14 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,6 +30,10 @@ type fakeCcHost struct {
 	typed     []string
 	shortcuts [][]string
 	captures  int
+	png       []byte
+	dialogs   []ccapp.DialogSnapshot
+	confirmed []string
+	confirmErr error
 }
 
 func newFakeCcHost() *fakeCcHost {
@@ -55,12 +64,44 @@ func (f *fakeCcHost) KeyboardShortcut(keys []string) error {
 	f.shortcuts = append(f.shortcuts, keys)
 	return nil
 }
+func (f *fakeCcHost) MouseScroll(notches int) error {
+	return nil
+}
 func (f *fakeCcHost) ScreenCapture() ([]byte, error) {
 	f.captures++
+	if len(f.png) > 0 {
+		return f.png, nil
+	}
 	return []byte{0x89, 0x50, 0x4E, 0x47}, nil
 }
 func (f *fakeCcHost) ActiveWindow() (string, string, error) {
 	return f.title, f.process, nil
+}
+
+func (f *fakeCcHost) ObserveDialogs() ([]ccapp.DialogSnapshot, error) {
+	return append([]ccapp.DialogSnapshot(nil), f.dialogs...), nil
+}
+
+func (f *fakeCcHost) ConfirmDialog(button string) (ccapp.DialogSnapshot, error) {
+	if f.confirmErr != nil {
+		return ccapp.DialogSnapshot{}, f.confirmErr
+	}
+	for _, d := range f.dialogs {
+		if !d.Confirmable {
+			continue
+		}
+		if ccapp.ConfirmButtonName(d.Buttons, button) == "" {
+			continue
+		}
+		f.confirmed = append(f.confirmed, button)
+		return d, nil
+	}
+	for _, d := range f.dialogs {
+		if d.Refused != "" {
+			return d, fmt.Errorf("%w: %s", ccapp.ErrCcRiskBlocked, d.Refused)
+		}
+	}
+	return ccapp.DialogSnapshot{}, errors.New("no confirmable dialog")
 }
 
 func newCcService(t *testing.T) (*ccapp.Service, *fakeCcHost, string) {
@@ -425,5 +466,105 @@ func TestCcScreenCaptureAndWindow(t *testing.T) {
 	}
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if !strings.Contains(out.Summary, "desktop") {
+		t.Fatalf("capture should name the desktop: %s", out.Summary)
+	}
+}
+
+func TestCcMouseMoveMapsVisionPixelsToDesktop(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 2400, 1600)
+
+	cap, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deskW, deskH, visW, visH int
+	if _, err := fmt.Sscanf(cap.Summary, "captured desktop %dx%d; use image coordinates %dx%d", &deskW, &deskH, &visW, &visH); err != nil || deskW != 2400 || deskH != 1600 || visW <= 0 || visH <= 0 {
+		t.Fatalf("capture summary %q", cap.Summary)
+	}
+	vx, vy := visW/2, visH/2
+	wantX, wantY := ccapp.MapCapturePoint(vx, vy, visW, visH, deskW, deskH)
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove,
+		[]byte(fmt.Sprintf(`{"x":%d,"y":%d}`, vx, vy)), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.moves) != 1 || host.moves[0] != [2]int{wantX, wantY} {
+		t.Fatalf("move = %v want [%d %d] (vision %d,%d of %dx%d → desktop %dx%d)",
+			host.moves, wantX, wantY, vx, vy, visW, visH, deskW, deskH)
+	}
+}
+
+func encodeTestPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 80, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestCcObserveAndConfirmDialog(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+
+	observed, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveDialog, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(observed.Summary, `"count":0`) {
+		t.Fatalf("empty observe = %s", observed.Summary)
+	}
+
+	host.dialogs = []ccapp.DialogSnapshot{{
+		Title: "要保存更改吗？", Process: "notepad.exe", Class: "#32770",
+		Buttons: []string{"确定", "取消"}, Confirmable: true,
+	}}
+	clicked, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolConfirmDialog, []byte(`{"button":"ok"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(clicked.Summary, "确定") || len(host.confirmed) != 1 {
+		t.Fatalf("confirm outcome %q confirmed=%v", clicked.Summary, host.confirmed)
+	}
+
+	host.dialogs = []ccapp.DialogSnapshot{{
+		Title: "用户账户控制", Process: "consent.exe",
+		Buttons: []string{"是", "否"}, Confirmable: false, Refused: "uac dialog",
+	}}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolConfirmDialog, []byte(`{}`), true); !errors.Is(err, ccapp.ErrCcRiskBlocked) {
+		t.Fatalf("UAC confirm should be blocked, got %v", err)
+	}
+
+	entries, err := svc.GetAuditLog(ctx, 20, "", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("expected observe+confirm+blocked UAC in ledger, got %d", len(entries))
+	}
+	foundObserve, foundConfirm, foundUAC := false, false, false
+	for _, e := range entries {
+		switch {
+		case e.Tool == ccapp.ToolObserveDialog && e.Status == ccapp.StatusExecuted:
+			foundObserve = true
+		case e.Tool == ccapp.ToolConfirmDialog && e.Status == ccapp.StatusExecuted:
+			foundConfirm = true
+		case e.Tool == ccapp.ToolConfirmDialog && e.Status == ccapp.StatusBlocked:
+			foundUAC = true
+		}
+	}
+	if !foundObserve || !foundConfirm || !foundUAC {
+		t.Fatalf("ledger missing dialog rows: %+v", entries)
 	}
 }

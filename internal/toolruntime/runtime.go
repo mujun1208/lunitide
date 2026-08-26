@@ -78,14 +78,16 @@ type Runtime struct {
 	wsFTSReady bool
 	wsIdxMu    sync.Mutex
 	wsRootMu   map[string]*sync.Mutex
-	// ccExec runs the six cc.* computer-control tools through the ccapp
+	// ccExec runs the cc.* computer-control tools through the ccapp
 	// service (injected by the host; nil keeps them unavailable).
 	ccExec func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
 }
 type Result struct {
-	Output   string    `json:"output"`
-	Digest   string    `json:"digest"`
-	Artifact *Artifact `json:"artifact,omitempty"`
+	Output     string    `json:"output"`
+	Digest     string    `json:"digest"`
+	Artifact   *Artifact `json:"artifact,omitempty"`
+	VisionMIME string    `json:"-"`
+	VisionData []byte    `json:"-"`
 }
 
 type Artifact struct {
@@ -302,8 +304,8 @@ func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (netw
 	r.fetchWeb = f
 }
 
-// SetCcExecutor installs the computer-control executor backing the six
-// cc.* agent tools (ccapp.Service.ExecuteTool).
+// SetCcExecutor installs the computer-control executor backing the cc.*
+// agent tools (ccapp.Service.ExecuteTool).
 func (r *Runtime) SetCcExecutor(f func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)) {
 	r.ccExec = f
 }
@@ -1386,6 +1388,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		"cc.keyboard_shortcut", "cc.screen_capture", "cc.get_active_window":
 		return r.runCcTool(ctx, mode, session, name, args, approved, unconfined)
 	default:
+		if ccapp.IsCcTool(name) {
+			return r.runCcTool(ctx, mode, session, name, args, approved, unconfined)
+		}
 		return Result{}, errors.New("unknown tool")
 	}
 }
@@ -1417,6 +1422,10 @@ func (r *Runtime) runCcTool(ctx context.Context, mode Mode, session, name string
 		}
 		res.Artifact = &Artifact{Kind: "image", Path: rel}
 		res.Output = fmt.Sprintf("%s (saved %s)", outcome.Summary, rel)
+		if data, mime, ve := ccapp.PrepareVisionImage(outcome.CapturePNG); ve == nil && len(data) > 0 {
+			res.VisionMIME = mime
+			res.VisionData = data
+		}
 	}
 	return res, nil
 }

@@ -17,7 +17,14 @@ func (unavailableHost) MouseClick(button string, clicks int) error {
 }
 func (unavailableHost) KeyboardType(text string) error          { return ErrCcEngineUnavailable }
 func (unavailableHost) KeyboardShortcut(keys []string) error    { return ErrCcEngineUnavailable }
+func (unavailableHost) MouseScroll(int) error                   { return ErrCcEngineUnavailable }
 func (unavailableHost) ScreenCapture() ([]byte, error)          { return nil, ErrCcEngineUnavailable }
 func (unavailableHost) ActiveWindow() (string, string, error) {
 	return "", "", ErrCcEngineUnavailable
+}
+func (unavailableHost) ObserveDialogs() ([]DialogSnapshot, error) {
+	return nil, ErrCcEngineUnavailable
+}
+func (unavailableHost) ConfirmDialog(string) (DialogSnapshot, error) {
+	return DialogSnapshot{}, ErrCcEngineUnavailable
 }

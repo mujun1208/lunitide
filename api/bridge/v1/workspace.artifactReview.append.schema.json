@@ -21,7 +21,7 @@
       "maxLength": 64
     },
     "kind": {
-      "enum": ["html", "xlsx", "docx", "pptx", "pdf"]
+      "enum": ["html", "xlsx", "docx", "pptx", "pdf", "image"]
     },
     "path": {
       "type": "string",
@@ -52,7 +52,7 @@
         "type": "string"
       },
       "kind": {
-        "enum": ["html", "xlsx", "docx", "pptx", "pdf"]
+        "enum": ["html", "xlsx", "docx", "pptx", "pdf", "image"]
       },
       "path": {
         "type": "string"

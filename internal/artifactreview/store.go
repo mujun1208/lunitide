@@ -45,7 +45,7 @@ type Review struct {
 // KindValid accepts the artifact kinds the chat pipeline can emit.
 func KindValid(kind string) bool {
 	switch kind {
-	case "html", "xlsx", "docx", "pptx", "pdf":
+	case "html", "xlsx", "docx", "pptx", "pdf", "image":
 		return true
 	}
 	return false

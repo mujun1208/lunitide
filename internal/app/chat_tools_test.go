@@ -274,6 +274,15 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(bundledWorkflowInjection(), "desktop.open") || !strings.Contains(bundledWorkflowInjection(), "闭环") {
 		t.Fatal("desktop open and closed-loop workflow missing")
 	}
+	if !strings.Contains(bundledWorkflowInjection(), "cc.observe_dialog") || !strings.Contains(bundledWorkflowInjection(), "cc.confirm_dialog") {
+		t.Fatal("dialog confirm workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "cc.screen_capture") {
+		t.Fatal("whole-desktop capture workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "该图像素") {
+		t.Fatal("capture workflow must require image-pixel mouse coords")
+	}
 	if !strings.Contains(chatRichMarkdownInstruction(), "mermaid") || !strings.Contains(chatRichMarkdownInstruction(), "powershell") {
 		t.Fatal("rich markdown instruction missing")
 	}
@@ -333,5 +342,15 @@ func TestMcpToolDefinitionsSwitchToSearchWhenCatalogIsLarge(t *testing.T) {
 	}
 	if !strings.Contains(out, "tool_a") {
 		t.Fatalf("search miss: %s", out)
+	}
+}
+
+func TestAppendCaptureVisionKeepsLastTwo(t *testing.T) {
+	var images []gateway.Image
+	images = appendCaptureVision(images, "image/png", []byte("one"))
+	images = appendCaptureVision(images, "image/jpeg", []byte("two"))
+	images = appendCaptureVision(images, "image/png", []byte("three"))
+	if len(images) != 2 || string(images[0].Data) != "two" || string(images[1].Data) != "three" {
+		t.Fatalf("images=%#v", images)
 	}
 }

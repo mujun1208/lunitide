@@ -27,6 +27,9 @@ func (e *Engine) ensureCompanionRuntimeCapabilities(ctx context.Context) {
 	if cfg.Enabled && !cfg.EmergencyStopped {
 		return
 	}
+	if cfg.EmergencyStopped {
+		return
+	}
 	enabled := true
 	level := ccapp.LevelStandard
 	_, _ = e.ccctrl.UpdateConfig(ctx, ccapp.SettingsPatch{

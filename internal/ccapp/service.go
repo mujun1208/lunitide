@@ -3,7 +3,7 @@
 // blocklist, rate and confirm caps, emergency-stop latch), the append-only
 // operation ledger, and the three-layer interception pipeline (intent /
 // risk classification, input filtering, foreground-process monitoring)
-// behind the six cc.* agent tools. Critical operations require the
+// behind the cc.* agent tools. Critical operations require the
 // allow_critical switch plus manual confirmation; emergency stop latches
 // every tool call until the operator re-runs the enable flow.
 package ccapp
@@ -67,6 +67,8 @@ const (
 	ToolKeyboardShortcut = "cc.keyboard_shortcut"
 	ToolScreenCapture    = "cc.screen_capture"
 	ToolGetActiveWindow  = "cc.get_active_window"
+	ToolObserveDialog    = "cc.observe_dialog"
+	ToolConfirmDialog    = "cc.confirm_dialog"
 
 	RiskLow      = "low"
 	RiskMedium   = "medium"
@@ -101,10 +103,11 @@ const (
 	CcMaxBlocklistEntryLen = 128
 )
 
-// ccTools is the frozen six-tool set.
+// ccTools is the computer-control agent tool set.
 var ccTools = map[string]bool{
 	ToolMouseMove: true, ToolMouseClick: true, ToolKeyboardType: true,
 	ToolKeyboardShortcut: true, ToolScreenCapture: true, ToolGetActiveWindow: true,
+	ToolObserveDialog: true, ToolConfirmDialog: true,
 }
 
 // IsCcTool reports whether name belongs to the frozen cc tool set.
@@ -148,7 +151,7 @@ func Code(err error) string {
 // system consoles where synthetic input could escalate privileges.
 var DefaultProcessBlocklist = []string{
 	"cmd.exe", "powershell.exe", "pwsh.exe", "regedit.exe",
-	"taskmgr.exe", "mmc.exe", "eventvwr.exe",
+	"taskmgr.exe", "mmc.exe", "eventvwr.exe", "consent.exe",
 }
 
 // forbiddenCombos are always rejected at the input-filter layer no matter
@@ -238,8 +241,11 @@ type Host interface {
 	MouseClick(button string, clicks int) error
 	KeyboardType(text string) error
 	KeyboardShortcut(keys []string) error
+	MouseScroll(notches int) error
 	ScreenCapture() (png []byte, err error)
 	ActiveWindow() (title, process string, err error)
+	ObserveDialogs() ([]DialogSnapshot, error)
+	ConfirmDialog(button string) (DialogSnapshot, error)
 }
 
 // Clock is the injectable time source.
@@ -301,6 +307,8 @@ type Service struct {
 	limit  rateWindow
 	emuMu  sync.Mutex
 	emuAt  time.Time
+	capMu  sync.Mutex
+	capVisW, capVisH, capDeskW, capDeskH int
 }
 
 // New returns a Service over the given unit of work with the platform
@@ -314,6 +322,36 @@ func (s *Service) SetClock(c Clock) { s.clock = c }
 
 // SetHost substitutes the control host (tests).
 func (s *Service) SetHost(h Host) { s.host = h }
+
+func (s *Service) rememberCapture(png []byte) {
+	dw, dh, vw, vh := visionDimensions(png)
+	s.capMu.Lock()
+	s.capDeskW, s.capDeskH, s.capVisW, s.capVisH = dw, dh, vw, vh
+	s.capMu.Unlock()
+}
+
+func (s *Service) mapPoint(x, y int) (int, int) {
+	s.capMu.Lock()
+	vw, vh, dw, dh := s.capVisW, s.capVisH, s.capDeskW, s.capDeskH
+	s.capMu.Unlock()
+	return MapCapturePoint(x, y, vw, vh, dw, dh)
+}
+
+func (s *Service) rejectOutOfBounds(x, y int) error {
+	w, h := s.host.ScreenSize()
+	s.capMu.Lock()
+	if s.capVisW > w {
+		w = s.capVisW
+	}
+	if s.capVisH > h {
+		h = s.capVisH
+	}
+	s.capMu.Unlock()
+	if w > 0 && h > 0 && (x < 0 || y < 0 || x > w || y > h) {
+		return fmt.Errorf("%w: coordinates out of bounds %d,%d", ErrCcInputFiltered, x, y)
+	}
+	return nil
+}
 
 type systemClock struct{}
 
@@ -515,9 +553,9 @@ func clampReason(reason string) string {
 // (layer 1: intent recognition).
 func classifyRisk(tool string, normalizedShortcut []string) string {
 	switch tool {
-	case ToolMouseMove, ToolGetActiveWindow:
+	case ToolMouseMove, ToolGetActiveWindow, ToolObserveDialog:
 		return RiskLow
-	case ToolMouseClick, ToolKeyboardType, ToolScreenCapture:
+	case ToolMouseClick, ToolKeyboardType, ToolScreenCapture, ToolConfirmDialog:
 		return RiskMedium
 	case ToolKeyboardShortcut:
 		if isCriticalCombo(normalizedShortcut) {
@@ -571,7 +609,7 @@ func isCriticalCombo(normalized []string) bool {
 // screenAffecting reports whether a tool acts on the shared desktop and
 // therefore rides the foreground-process gate (layer 3).
 func screenAffecting(tool string) bool {
-	return tool != ToolGetActiveWindow
+	return tool != ToolGetActiveWindow && tool != ToolObserveDialog
 }
 
 func blocklistHit(blocklist []string, process string) bool {
@@ -667,6 +705,10 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 
 	summary, capture, execErr := s.runHost(tool, args, shortcut)
 	if execErr != nil {
+		if errors.Is(execErr, ErrCcRiskBlocked) {
+			s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": execErr.Error()}, ts)
+			return Outcome{}, execErr
+		}
 		s.recordAudit(ctx, session, tool, risk, StatusFailed, "", map[string]any{"reason": execErr.Error()}, ts)
 		return Outcome{}, fmt.Errorf("%w: %v", ErrCcExecFailed, execErr)
 	}
@@ -692,26 +734,31 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
 		}
-		w, h := s.host.ScreenSize()
-		if w > 0 && h > 0 && (a.X < 0 || a.Y < 0 || a.X > w || a.Y > h) {
-			return nil, fmt.Errorf("%w: coordinates out of bounds %d,%d", ErrCcInputFiltered, a.X, a.Y)
-		}
 		if a.X < 0 || a.Y < 0 || a.X > 65535 || a.Y > 65535 {
 			return nil, fmt.Errorf("%w: coordinates out of range", ErrCcInputFiltered)
+		}
+		if err := s.rejectOutOfBounds(a.X, a.Y); err != nil {
+			return nil, err
 		}
 		return nil, nil
 	case ToolMouseClick:
 		var a struct {
 			Button string `json:"button"`
 			Clicks int    `json:"clicks"`
+			X      *int   `json:"x"`
+			Y      *int   `json:"y"`
+			Scroll int    `json:"scroll"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
 		}
+		if a.Scroll < -12 || a.Scroll > 12 {
+			return nil, fmt.Errorf("%w: scroll", ErrCcInputFiltered)
+		}
 		if a.Button == "" {
 			a.Button = "left"
 		}
-		if a.Button != "left" && a.Button != "right" && a.Button != "middle" {
+		if a.Scroll == 0 && a.Button != "left" && a.Button != "right" && a.Button != "middle" {
 			return nil, fmt.Errorf("%w: button %q", ErrCcInputFiltered, a.Button)
 		}
 		if a.Clicks < 1 {
@@ -719,6 +766,17 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		}
 		if a.Clicks > 3 {
 			return nil, fmt.Errorf("%w: clicks", ErrCcInputFiltered)
+		}
+		if (a.X == nil) != (a.Y == nil) {
+			return nil, fmt.Errorf("%w: x and y must be paired", ErrCcInputFiltered)
+		}
+		if a.X != nil {
+			if *a.X < 0 || *a.Y < 0 || *a.X > 65535 || *a.Y > 65535 {
+				return nil, fmt.Errorf("%w: coordinates out of range", ErrCcInputFiltered)
+			}
+			if err := s.rejectOutOfBounds(*a.X, *a.Y); err != nil {
+				return nil, err
+			}
 		}
 		return nil, nil
 	case ToolKeyboardType:
@@ -758,6 +816,28 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
 		}
 		return nil, nil
+	case ToolObserveDialog:
+		var a struct {
+			WaitMs int `json:"waitMs"`
+		}
+		if dec.Decode(&a) != nil {
+			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
+		}
+		if a.WaitMs < 0 || a.WaitMs > 5000 {
+			return nil, fmt.Errorf("%w: waitMs", ErrCcInputFiltered)
+		}
+		return nil, nil
+	case ToolConfirmDialog:
+		var a struct {
+			Button string `json:"button"`
+		}
+		if dec.Decode(&a) != nil {
+			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
+		}
+		if len([]rune(a.Button)) > 32 {
+			return nil, fmt.Errorf("%w: button", ErrCcInputFiltered)
+		}
+		return nil, nil
 	}
 	return nil, fmt.Errorf("%w: tool", ErrCcSchema)
 }
@@ -771,14 +851,18 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			Y int `json:"y"`
 		}
 		_ = json.Unmarshal(args, &a)
-		if err := s.host.MouseMove(a.X, a.Y); err != nil {
+		dx, dy := s.mapPoint(a.X, a.Y)
+		if err := s.host.MouseMove(dx, dy); err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("moved cursor to (%d,%d)", a.X, a.Y), nil, nil
+		return fmt.Sprintf("moved cursor to (%d,%d)", dx, dy), nil, nil
 	case ToolMouseClick:
 		var a struct {
 			Button string `json:"button"`
 			Clicks int    `json:"clicks"`
+			X      *int   `json:"x"`
+			Y      *int   `json:"y"`
+			Scroll int    `json:"scroll"`
 		}
 		_ = json.Unmarshal(args, &a)
 		if a.Button == "" {
@@ -786,6 +870,18 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		if a.Clicks < 1 {
 			a.Clicks = 1
+		}
+		if a.X != nil && a.Y != nil {
+			dx, dy := s.mapPoint(*a.X, *a.Y)
+			if err := s.host.MouseMove(dx, dy); err != nil {
+				return "", nil, err
+			}
+		}
+		if a.Scroll != 0 {
+			if err := s.host.MouseScroll(a.Scroll); err != nil {
+				return "", nil, err
+			}
+			return fmt.Sprintf("scrolled %d notch(es)", a.Scroll), nil, nil
 		}
 		if err := s.host.MouseClick(a.Button, a.Clicks); err != nil {
 			return "", nil, err
@@ -810,13 +906,53 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("captured screen (%d bytes png)", len(png)), png, nil
+		s.rememberCapture(png)
+		deskW, deskH, visW, visH := visionDimensions(png)
+		if deskW == 0 {
+			deskW, deskH = s.host.ScreenSize()
+			visW, visH = deskW, deskH
+		}
+		return fmt.Sprintf("captured desktop %dx%d; use image coordinates %dx%d for cc.mouse_move/cc.mouse_click", deskW, deskH, visW, visH), png, nil
 	case ToolGetActiveWindow:
 		title, process, err := s.host.ActiveWindow()
 		if err != nil {
 			return "", nil, err
 		}
 		return fmt.Sprintf("active window: %s (process: %s)", title, process), nil, nil
+	case ToolObserveDialog:
+		var a struct {
+			WaitMs int `json:"waitMs"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if a.WaitMs > 0 {
+			time.Sleep(time.Duration(a.WaitMs) * time.Millisecond)
+		}
+		snaps, err := s.host.ObserveDialogs()
+		if err != nil {
+			return "", nil, err
+		}
+		if snaps == nil {
+			snaps = []DialogSnapshot{}
+		}
+		raw, err := json.Marshal(map[string]any{"count": len(snaps), "dialogs": snaps})
+		if err != nil {
+			return "", nil, err
+		}
+		return string(raw), nil, nil
+	case ToolConfirmDialog:
+		var a struct {
+			Button string `json:"button"`
+		}
+		_ = json.Unmarshal(args, &a)
+		snap, err := s.host.ConfirmDialog(strings.TrimSpace(a.Button))
+		if err != nil {
+			return "", nil, err
+		}
+		caption := ConfirmButtonName(snap.Buttons, a.Button)
+		if caption == "" {
+			caption = "confirm"
+		}
+		return formatDialogSummary("clicked "+caption+" on", snap), nil, nil
 	}
 	return "", nil, fmt.Errorf("unknown tool %q", tool)
 }

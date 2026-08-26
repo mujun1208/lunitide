@@ -61,7 +61,7 @@ export function useCcStatus(sessionId: string, liveTool?: string, liveToolStatus
   }, [sessionId])
 
   const status = deriveStatus(config, liveTool, liveToolStatus, lastAction)
-  const detail = statusDetail(status, config, lastAction)
+  const detail = statusDetail(status, config, lastAction, liveTool)
   return { status, enabled: config?.enabled ?? false, detail, lastAction, emergencyStop }
 }
 
@@ -81,10 +81,14 @@ function deriveStatus(
   return 'idle'
 }
 
-function statusDetail(status: CcSessionStatus, config: CcGetConfigResult | null | undefined, lastAction?: AuditRow): string {
+function statusDetail(status: CcSessionStatus, config: CcGetConfigResult | null | undefined, lastAction?: AuditRow, liveTool?: string): string {
   if (status === 'stopped') return '已紧急停止，全部电脑控制操作被熔断'
   if (status === 'paused') return '高危操作等待你的确认'
-  if (status === 'running') return '电脑控制操作执行中'
+  if (status === 'running') {
+    if (liveTool === 'cc.observe_dialog' || liveTool === 'cc.confirm_dialog') return '正在用无障碍接口观察或确认对话框'
+    if (liveTool === 'cc.screen_capture') return '正在截取整个桌面'
+    return '电脑控制操作执行中'
+  }
   if (status === 'blocked' && lastAction) {
     const layer = lastAction.layer ? `（${layerLabel(lastAction.layer)}）` : ''
     return `最近一次操作被安全拦截${layer}：${lastAction.detail}`
