@@ -176,20 +176,16 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return bridge.Failure(r.ID, r.TraceID, "VOICE-001", "本地识别模型未知", false)
 	}
+	// Deliberately does not warm the engines.
+	//
+	// It did briefly, to get the model loading before the microphone was
+	// activated. But every screen that mentions voice asks for status,
+	// including the companion stage on mount, and having the models on disk
+	// does not mean they are the recognizer in use — so someone on the cloud
+	// recognizer had two child processes and several hundred megabytes
+	// started behind them, and a firewall prompt with them, every time they
+	// opened voice mode. Status is a question, not an instruction.
 	ready := e.voice.ready(ctx)
-	if ready {
-		// Start loading the refiner's weights now rather than when a session
-		// opens. Everything is on disk, so this only happens for someone who
-		// has already chosen local recognition.
-		//
-		// Opening a session is too late to be useful on the first turn: the
-		// model takes seconds to load and the user is done speaking before it
-		// finishes, so their opening sentence — the one that decides whether
-		// they think this works — was the only one transcribed by the rough
-		// streaming model. The stage asks for status when it mounts, which
-		// buys most of that load.
-		e.voice.warmEngines()
-	}
 	var downloadBytes int64
 	for _, bundle := range e.voice.bundles() {
 		downloadBytes += bundle.TotalBytes()

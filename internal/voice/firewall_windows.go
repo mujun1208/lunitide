@@ -21,11 +21,15 @@ import (
 // rule denies rather than allows, the answer holds even if some other
 // installer later flips the default. Loopback is never filtered by Windows
 // Firewall, so our own connection to 127.0.0.1 is unaffected.
+//
+// Writing the rule needs administrator rights, which this per-user install
+// does not have and does not ask for — see addFirewallRule. So the rule is a
+// convenience for machines where it happens to be writable, not something
+// any behaviour here depends on.
 
 const firewallRuleName = "Lunitide 本地语音识别"
 
-// firewallOnce keeps this to one attempt per run. A user who declines the
-// elevation should not be asked again every time they speak.
+// firewallOnce keeps this to one attempt per run.
 var firewallOnce sync.Once
 
 // ensureFirewallRule adds the block rule if it is missing.
@@ -59,19 +63,21 @@ func firewallRuleExists() bool {
 	return !strings.Contains(string(out), "No rules match")
 }
 
-// addFirewallRule writes the rule, elevating because netsh cannot add one
-// without administrator rights and this installer runs per-user.
+// addFirewallRule writes the rule if this process happens to have the rights
+// to, and gives up quietly if it does not.
 //
-// The elevation is requested through PowerShell's Start-Process -Verb RunAs
-// rather than by relaunching ourselves elevated: only the netsh call needs
-// the privilege, and an app that asks to run as administrator to hold a
-// conversation is asking for far more than it needs.
+// It used to ask for them, through PowerShell's Start-Process -Verb RunAs.
+// That is a bad trade and it showed: the rule exists to spare the user one
+// firewall prompt, and buying it with a User Account Control prompt — which
+// is more alarming, names "网络命令外壳" rather than this app, and returned
+// on every launch — costs more than the prompt it prevents. Nothing here is
+// worth elevation. Windows still blocks unsolicited inbound by default, so
+// the machine is no less protected without the rule; the user may simply see
+// the firewall ask about the recognizer once.
 func addFirewallRule(executable string) {
-	script := "Start-Process -FilePath netsh -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList " +
-		"'advfirewall','firewall','add','rule'," +
-		"'name=" + firewallRuleName + "','dir=in','action=block'," +
-		"'program=" + executable + "','enable=yes'"
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+		"name="+firewallRuleName, "dir=in", "action=block",
+		"program="+executable, "enable=yes")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow, HideWindow: true}
 	_ = cmd.Run()
 }
