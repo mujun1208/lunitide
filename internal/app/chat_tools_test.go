@@ -277,6 +277,15 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(bundledWorkflowInjection(), "cc.observe_dialog") || !strings.Contains(bundledWorkflowInjection(), "cc.confirm_dialog") {
 		t.Fatal("dialog confirm workflow missing")
 	}
+	if !strings.Contains(bundledWorkflowInjection(), "cc.observe_ui") || !strings.Contains(bundledWorkflowInjection(), "cc.window_focus") || !strings.Contains(bundledWorkflowInjection(), "cc.mouse_drag") {
+		t.Fatal("OpenClaw-parity cc workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "输入前先") {
+		t.Fatal("window focus-before-type workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "cc.window_action") || !strings.Contains(bundledWorkflowInjection(), "cc.app_quit") || !strings.Contains(bundledWorkflowInjection(), "cc.paste") {
+		t.Fatal("desktop-ops cc workflow missing")
+	}
 	if !strings.Contains(bundledWorkflowInjection(), "cc.screen_capture") {
 		t.Fatal("whole-desktop capture workflow missing")
 	}

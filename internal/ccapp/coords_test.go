@@ -17,6 +17,35 @@ func TestMapCapturePointScalesVisionToDesktop(t *testing.T) {
 	}
 }
 
+func TestMapScreenToVisionRoundTrip(t *testing.T) {
+	visX, visY := 100, 50
+	deskX, deskY := MapCapturePoint(visX, visY, 1280, 720, 2560, 1440)
+	backX, backY := MapScreenToVision(deskX, deskY, 0, 0, 1280, 720, 2560, 1440)
+	if backX != visX || backY != visY {
+		t.Fatalf("round-trip %d,%d → %d,%d → %d,%d", visX, visY, deskX, deskY, backX, backY)
+	}
+	ox, oy := -1920, 0
+	sx, sy := ox+deskX, oy+deskY
+	imgX, imgY := MapScreenToVision(sx, sy, ox, oy, 1280, 720, 2560, 1440)
+	if imgX != visX || imgY != visY {
+		t.Fatalf("origin-aware map = %d,%d", imgX, imgY)
+	}
+}
+
+func TestProjectRectIdentityAndOrigin(t *testing.T) {
+	x, y, w, h := ProjectRect(-1880, 80, 200, 100, -1920, 0, 400, 300, 400, 300)
+	if x != 40 || y != 80 || w != 200 || h != 100 {
+		t.Fatalf("origin map = %d,%d %dx%d", x, y, w, h)
+	}
+}
+
+func TestProjectRectScalesIntoVision(t *testing.T) {
+	x, y, w, h := ProjectRect(1280, 720, 256, 144, 0, 0, 1280, 720, 2560, 1440)
+	if x != 640 || y != 360 || w != 128 || h != 72 {
+		t.Fatalf("scaled rect = %d,%d %dx%d want 640,360 128x72", x, y, w, h)
+	}
+}
+
 func TestScaledSizeMatchesMaxEdge(t *testing.T) {
 	w, h := scaledSize(3840, 2160, 1280)
 	if w != 1280 || h != 720 {

@@ -3,11 +3,10 @@
 package ccapp
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"image"
-	"image/png"
+	"sync"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -16,7 +15,10 @@ import (
 
 // PlatformHost answers the Windows control host backed by User32 SendInput
 // (mouse/keyboard), GDI (screen capture) and the foreground-window query.
-func PlatformHost() Host { return &windowsHost{} }
+func PlatformHost() Host {
+	enableDPIAwareness()
+	return &windowsHost{}
+}
 
 // ── User32 / GDI bindings ───────────────────────────────────────────────────
 
@@ -32,9 +34,24 @@ var (
 	procGetWindowThreadProcID = user32.NewProc("GetWindowThreadProcessId")
 	procGetDC                 = user32.NewProc("GetDC")
 	procReleaseDC             = user32.NewProc("ReleaseDC")
+	procSetCursorPos          = user32.NewProc("SetCursorPos")
+	procGetCursorPos          = user32.NewProc("GetCursorPos")
+	procSetProcessDpiCtx      = user32.NewProc("SetProcessDpiAwarenessContext")
+	procGetWindowRect         = user32.NewProc("GetWindowRect")
+	procShowWindow            = user32.NewProc("ShowWindow")
+	procPrintWindow           = user32.NewProc("PrintWindow")
+	procAttachThreadInput     = user32.NewProc("AttachThreadInput")
+	procBringWindowToTop      = user32.NewProc("BringWindowToTop")
+	procSetFocus              = user32.NewProc("SetFocus")
+	procIsIconic              = user32.NewProc("IsIconic")
+	procAllowSetForeground    = user32.NewProc("AllowSetForegroundWindow")
+	procGetCurrentThreadId    = kernel32.NewProc("GetCurrentThreadId")
+	procPostMessageW          = user32.NewProc("PostMessageW")
+	procMoveWindow            = user32.NewProc("MoveWindow")
 
 	procCreateCompatibleDC  = gdi32.NewProc("CreateCompatibleDC")
 	procCreateCompatibleBmp = gdi32.NewProc("CreateCompatibleBitmap")
+	procCreateDIBSection    = gdi32.NewProc("CreateDIBSection")
 	procSelectObject        = gdi32.NewProc("SelectObject")
 	procDeleteObject        = gdi32.NewProc("DeleteObject")
 	procDeleteDC            = gdi32.NewProc("DeleteDC")
@@ -47,12 +64,12 @@ var (
 )
 
 const (
-	smCXScreen          = 0
-	smCYScreen          = 1
-	smXVIRTUALSCREEN    = 76
-	smYVIRTUALSCREEN    = 77
-	smCXVIRTUALSCREEN   = 78
-	smCYVIRTUALSCREEN   = 79
+	smCXScreen        = 0
+	smCYScreen        = 1
+	smXVIRTUALSCREEN  = 76
+	smYVIRTUALSCREEN  = 77
+	smCXVIRTUALSCREEN = 78
+	smCYVIRTUALSCREEN = 79
 
 	inputMouse    = 0
 	inputKeyboard = 1
@@ -65,6 +82,7 @@ const (
 	mouseEventfMiddleDown  = 0x0020
 	mouseEventfMiddleUp    = 0x0040
 	mouseEventfWheel       = 0x0800
+	mouseEventfHWheel      = 0x1000
 	mouseEventfVirtualDesk = 0x4000
 	mouseEventfAbsolute    = 0x8000
 
@@ -79,7 +97,30 @@ const (
 	biRgb        = 0
 
 	processQueryLimitedInformation = 0x1000
+	swShow                         = 5
+	swRestore                      = 9
+	pwRenderFullContent            = 2
+	vkMenu                         = 0x12
+	asfwAny                        = ^uintptr(0)
 )
+
+// ptrFromUintptr converts a Win32 pointer stored as uintptr back to
+// unsafe.Pointer via address-of indirection (vet-safe; see webviewhost).
+func ptrFromUintptr(p uintptr) unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&p))
+}
+
+var dpiOnce sync.Once
+
+func enableDPIAwareness() {
+	dpiOnce.Do(func() {
+		// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4 == ^uintptr(3)
+		if r, _, _ := procSetProcessDpiCtx.Call(^uintptr(3)); r != 0 {
+			return
+		}
+		_, _, _ = user32.NewProc("SetProcessDPIAware").Call()
+	})
+}
 
 // mouseEvent mirrors the Win32 INPUT union with the MOUSEINPUT arm active.
 // The union begins after the 8-byte-aligned type word on x64.
@@ -124,7 +165,7 @@ var virtualKeyCodes = map[string]uint16{
 	"k": 0x4B, "l": 0x4C, "m": 0x4D, "n": 0x4E, "o": 0x4F,
 	"p": 0x50, "q": 0x51, "r": 0x52, "s": 0x53, "t": 0x54,
 	"u": 0x55, "v": 0x56, "w": 0x57, "x": 0x58, "y": 0x59,
-	"z": 0x5A,
+	"z":  0x5A,
 	"f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74,
 	"f6": 0x75, "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79,
 	"f11": 0x7A, "f12": 0x7B, "f13": 0x7C, "f14": 0x7D, "f15": 0x7E,
@@ -134,6 +175,8 @@ var virtualKeyCodes = map[string]uint16{
 }
 
 type windowsHost struct{}
+
+var _ Host = (*windowsHost)(nil)
 
 func (h *windowsHost) Available() bool { return true }
 
@@ -160,24 +203,6 @@ func virtualScreenSize() (int, int) {
 	return int(int32(w)), int(int32(h))
 }
 
-// absoluteCoords maps pixel coordinates onto the SendInput 0..65535 range.
-func (h *windowsHost) absoluteCoords(x, y int) (int32, int32) {
-	w, v := h.ScreenSize()
-	if w <= 0 || v <= 0 {
-		w, v = 1, 1
-	}
-	clamp := func(n, max int) int32 {
-		if n < 0 {
-			n = 0
-		}
-		if n > max {
-			n = max
-		}
-		return int32((n * 65535) / max)
-	}
-	return clamp(x, w), clamp(y, v)
-}
-
 func sendMouse(events []mouseEvent) error {
 	if len(events) == 0 {
 		return nil
@@ -202,12 +227,26 @@ func sendKeys(events []keyEvent) error {
 	return nil
 }
 
+func (h *windowsHost) ScreenOrigin() (int, int) {
+	x, y, _, _ := virtualScreenRect()
+	return x, y
+}
+
+func (h *windowsHost) CursorPosition() (int, int, error) {
+	var pt struct{ X, Y int32 }
+	ok, _, err := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+	if ok == 0 {
+		return 0, 0, fmt.Errorf("getcursorpos: %w", err)
+	}
+	return int(pt.X), int(pt.Y), nil
+}
+
 func (h *windowsHost) MouseMove(x, y int) error {
-	ax, ay := h.absoluteCoords(x, y)
-	return sendMouse([]mouseEvent{{
-		Type: inputMouse, Dx: ax, Dy: ay,
-		Flag: mouseEventfMove | mouseEventfAbsolute | mouseEventfVirtualDesk,
-	}})
+	ok, _, err := procSetCursorPos.Call(uintptr(int32(x)), uintptr(int32(y)))
+	if ok == 0 {
+		return fmt.Errorf("setcursorpos: %w", err)
+	}
+	return nil
 }
 
 func (h *windowsHost) MouseClick(button string, clicks int) error {
@@ -232,6 +271,14 @@ func (h *windowsHost) MouseClick(button string, clicks int) error {
 }
 
 func (h *windowsHost) MouseScroll(notches int) error {
+	return sendWheel(notches, mouseEventfWheel)
+}
+
+func (h *windowsHost) MouseScrollH(notches int) error {
+	return sendWheel(notches, mouseEventfHWheel)
+}
+
+func sendWheel(notches int, flag uint32) error {
 	if notches == 0 {
 		return nil
 	}
@@ -243,8 +290,47 @@ func (h *windowsHost) MouseScroll(notches int) error {
 	}
 	delta := int32(notches) * 120
 	return sendMouse([]mouseEvent{{
-		Type: inputMouse, Data: uint32(delta), Flag: mouseEventfWheel,
+		Type: inputMouse, Data: uint32(delta), Flag: flag,
 	}})
+}
+
+func (h *windowsHost) MouseDrag(x1, y1, x2, y2 int) error {
+	if err := h.MouseMove(x1, y1); err != nil {
+		return err
+	}
+	time.Sleep(20 * time.Millisecond)
+	if err := sendMouse([]mouseEvent{{Type: inputMouse, Flag: mouseEventfLeftDown}}); err != nil {
+		return err
+	}
+	dx := x2 - x1
+	dy := y2 - y1
+	dist := dx*dx + dy*dy
+	steps := 8
+	if dist > 1600 {
+		steps = 16
+	}
+	if dist > 40000 {
+		steps = 24
+	}
+	for i := 1; i <= steps; i++ {
+		x := x1 + dx*i/steps
+		y := y1 + dy*i/steps
+		if err := h.MouseMove(x, y); err != nil {
+			_ = sendMouse([]mouseEvent{{Type: inputMouse, Flag: mouseEventfLeftUp}})
+			return err
+		}
+		time.Sleep(8 * time.Millisecond)
+	}
+	return sendMouse([]mouseEvent{{Type: inputMouse, Flag: mouseEventfLeftUp}})
+}
+
+func (h *windowsHost) EnsureForeground() error {
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	if hwnd == 0 {
+		return nil
+	}
+	forceForeground(hwnd)
+	return nil
 }
 
 // vkFromRune answers the virtual-key code for one printable rune.
@@ -341,76 +427,45 @@ func (h *windowsHost) ActiveWindow() (string, string, error) {
 	return title, process, nil
 }
 
-func (h *windowsHost) ScreenCapture() ([]byte, error) {
-	originX, originY, w, v := virtualScreenRect()
-	if w <= 0 || v <= 0 {
-		return nil, errors.New("invalid screen size")
+func forceForeground(hwnd uintptr) {
+	if hwnd == 0 {
+		return
 	}
-	screenDC, _, _ := procGetDC.Call(0)
-	if screenDC == 0 {
-		return nil, errors.New("getdc failed")
+	if iconic, _, _ := procIsIconic.Call(hwnd); iconic != 0 {
+		_, _, _ = procShowWindow.Call(hwnd, uintptr(swRestore))
+	} else {
+		_, _, _ = procShowWindow.Call(hwnd, uintptr(swShow))
 	}
-	defer procReleaseDC.Call(0, screenDC)
-	memDC, _, _ := procCreateCompatibleDC.Call(screenDC)
-	if memDC == 0 {
-		return nil, errors.New("createdc failed")
+	_, _, _ = procAllowSetForeground.Call(asfwAny)
+	// A brief Alt tap satisfies Windows' foreground-lock so typing and
+	// clicks land on the window we just restored, not Lunitide itself.
+	_ = sendKeys([]keyEvent{
+		{Type: inputKeyboard, WVk: vkMenu},
+		{Type: inputKeyboard, WVk: vkMenu, Flag: keyEventfKeyUp},
+	})
+	fg, _, _ := procGetForegroundWindow.Call()
+	curThread, _, _ := procGetCurrentThreadId.Call()
+	var fgPid, targetPid uint32
+	fgThread, _, _ := procGetWindowThreadProcID.Call(fg, uintptr(unsafe.Pointer(&fgPid)))
+	targetThread, _, _ := procGetWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&targetPid)))
+	if fgThread != 0 && fgThread != curThread {
+		_, _, _ = procAttachThreadInput.Call(curThread, fgThread, 1)
+		defer procAttachThreadInput.Call(curThread, fgThread, 0)
 	}
-	defer procDeleteDC.Call(memDC)
-	bmp, _, _ := procCreateCompatibleBmp.Call(screenDC, uintptr(w), uintptr(v))
-	if bmp == 0 {
-		return nil, errors.New("createbitmap failed")
+	if targetThread != 0 && targetThread != curThread && targetThread != fgThread {
+		_, _, _ = procAttachThreadInput.Call(curThread, targetThread, 1)
+		defer procAttachThreadInput.Call(curThread, targetThread, 0)
 	}
-	defer procDeleteObject.Call(bmp)
-	old, _, _ := procSelectObject.Call(memDC, bmp)
-	defer procSelectObject.Call(memDC, old)
-	if ok, _, _ := procBitBlt.Call(memDC, 0, 0, uintptr(w), uintptr(v),
-		screenDC, uintptr(originX), uintptr(originY), srccopy|captureBlt); ok == 0 {
-		return nil, errors.New("bitblt failed")
-	}
+	_, _, _ = procBringWindowToTop.Call(hwnd)
+	_, _, _ = procSetForeground.Call(hwnd)
+	_, _, _ = procSetFocus.Call(hwnd)
+}
 
-	type bitmapInfoHeader struct {
-		BiSize          uint32
-		BiWidth         int32
-		BiHeight        int32
-		BiPlanes        uint16
-		BiBitCount      uint16
-		BiCompression   uint32
-		BiSizeImage     uint32
-		BiXPelsPerMeter int32
-		BiYPelsPerMeter int32
-		BiClrUsed       uint32
-		BiClrImportant  uint32
+func windowRect(hwnd uintptr) (x, y, w, h int) {
+	var r struct{ Left, Top, Right, Bottom int32 }
+	ok, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	if ok == 0 {
+		return 0, 0, 0, 0
 	}
-	var bmi bitmapInfoHeader
-	bmi.BiSize = uint32(unsafe.Sizeof(bmi))
-	bmi.BiWidth = int32(w)
-	bmi.BiHeight = -int32(v) // top-down rows
-	bmi.BiPlanes = 1
-	bmi.BiBitCount = 32
-	bmi.BiCompression = biRgb
-
-	row := int(w) * 4 // 32bpp rows are already DWORD aligned
-	pixels := make([]byte, row*int(v))
-	if ok, _, _ := procGetDIBits.Call(memDC, bmp, 0, uintptr(v),
-		uintptr(unsafe.Pointer(&pixels[0])), uintptr(unsafe.Pointer(&bmi)),
-		dibRgbColors); ok == 0 {
-		return nil, errors.New("getdibits failed")
-	}
-
-	img := image.NewRGBA(image.Rect(0, 0, int(w), int(v)))
-	for y := 0; y < int(v); y++ {
-		src := pixels[y*row:]
-		dst := img.Pix[y*img.Stride : y*img.Stride+int(w)*4]
-		for x := 0; x < int(w); x++ {
-			dst[x*4+0] = src[x*4+2] // BGRA → RGBA
-			dst[x*4+1] = src[x*4+1]
-			dst[x*4+2] = src[x*4+0]
-			dst[x*4+3] = 0xFF
-		}
-	}
-	var out bytes.Buffer
-	if err := png.Encode(&out, img); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	return int(r.Left), int(r.Top), int(r.Right - r.Left), int(r.Bottom - r.Top)
 }

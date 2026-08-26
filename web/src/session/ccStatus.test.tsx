@@ -58,6 +58,12 @@ it('derives paused and running from the live cc tool activity', async () => {
   const dialog = renderHook(() => useCcStatus('01ARZ3NDEKTSV4RRFFQ69G5FAV', 'cc.confirm_dialog', 'tool_started'))
   await waitFor(() => expect(dialog.result.current.status).toBe('running'))
   expect(dialog.result.current.detail).toContain('对话框')
+  const ui = renderHook(() => useCcStatus('01ARZ3NDEKTSV4RRFFQ69G5FAV', 'cc.observe_ui', 'tool_started'))
+  await waitFor(() => expect(ui.result.current.status).toBe('running'))
+  expect(ui.result.current.detail).toContain('控件')
+  const drag = renderHook(() => useCcStatus('01ARZ3NDEKTSV4RRFFQ69G5FAV', 'cc.mouse_drag', 'tool_started'))
+  await waitFor(() => expect(drag.result.current.status).toBe('running'))
+  expect(drag.result.current.detail).toContain('拖拽')
   // Non-cc tools never project machine actuation states.
   const other = renderHook(() => useCcStatus('01ARZ3NDEKTSV4RRFFQ69G5FAV', 'workspace.read', 'tool_started'))
   await waitFor(() => expect(other.result.current.status).toBe('idle'))

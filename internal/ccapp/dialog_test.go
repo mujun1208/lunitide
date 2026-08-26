@@ -59,6 +59,21 @@ func TestConfirmButtonAliases(t *testing.T) {
 	}
 }
 
+func TestSensitiveSurfaceReason(t *testing.T) {
+	if got := SensitiveSurfaceReason("用户账户控制", "consent.exe", "#32770", []string{"是", "否"}); got != "uac dialog" {
+		t.Fatalf("UAC = %q", got)
+	}
+	if got := SensitiveSurfaceReason("打开", "explorer.exe", "#32770", []string{"打开", "取消"}); got != "file open/save dialog" {
+		t.Fatalf("picker = %q", got)
+	}
+	if got := SensitiveSurfaceReason("要保存更改吗？", "notepad.exe", "#32770", []string{"确定", "取消"}); got != "" {
+		t.Fatalf("ordinary dialog should not be sensitive, got %q", got)
+	}
+	if got := SensitiveSurfaceReason("Notes", "notepad.exe", "", nil); got != "" {
+		t.Fatalf("ordinary window should not be sensitive, got %q", got)
+	}
+}
+
 func TestIsConfirmButton(t *testing.T) {
 	for _, cap := range []string{"OK", "Yes", "确定", "确认", "是", "&OK"} {
 		if !IsConfirmButton(cap) {

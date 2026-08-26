@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
 )
@@ -20,20 +22,35 @@ var errBoom = errors.New("boom")
 
 // fakeCcHost records host calls without touching the real desktop.
 type fakeCcHost struct {
-	available bool
-	w, h      int
-	process   string
-	title     string
-	moveErr   error
-	moves     [][2]int
-	clicks    []string
-	typed     []string
-	shortcuts [][]string
-	captures  int
-	png       []byte
-	dialogs   []ccapp.DialogSnapshot
-	confirmed []string
-	confirmErr error
+	available   bool
+	w, h        int
+	process     string
+	title       string
+	moveErr     error
+	moves       [][2]int
+	clicks      []string
+	typed       []string
+	shortcuts   [][]string
+	captures    int
+	png         []byte
+	originX     int
+	originY     int
+	cursorX     int
+	cursorY     int
+	drags       [][4]int
+	windows     []ccapp.WindowInfo
+	uiNodes     []ccapp.UINode
+	clip        string
+	focused     []string
+	dialogs     []ccapp.DialogSnapshot
+	confirmed   []string
+	confirmErr  error
+	flipCapture bool
+	winX, winY  int
+	actions     []string
+	quits       []string
+	menus       []string
+	values      [][2]string
 }
 
 func newFakeCcHost() *fakeCcHost {
@@ -45,11 +62,16 @@ func (f *fakeCcHost) Available() bool { return f.available }
 func (f *fakeCcHost) ScreenSize() (int, int) {
 	return f.w, f.h
 }
+func (f *fakeCcHost) ScreenOrigin() (int, int) { return f.originX, f.originY }
+func (f *fakeCcHost) CursorPosition() (int, int, error) {
+	return f.cursorX, f.cursorY, nil
+}
 func (f *fakeCcHost) MouseMove(x, y int) error {
 	if f.moveErr != nil {
 		return f.moveErr
 	}
 	f.moves = append(f.moves, [2]int{x, y})
+	f.cursorX, f.cursorY = x, y
 	return nil
 }
 func (f *fakeCcHost) MouseClick(button string, clicks int) error {
@@ -67,15 +89,101 @@ func (f *fakeCcHost) KeyboardShortcut(keys []string) error {
 func (f *fakeCcHost) MouseScroll(notches int) error {
 	return nil
 }
+func (f *fakeCcHost) MouseScrollH(int) error { return nil }
+func (f *fakeCcHost) MouseDrag(x1, y1, x2, y2 int) error {
+	f.drags = append(f.drags, [4]int{x1, y1, x2, y2})
+	return nil
+}
+func (f *fakeCcHost) EnsureForeground() error { return nil }
 func (f *fakeCcHost) ScreenCapture() ([]byte, error) {
 	f.captures++
 	if len(f.png) > 0 {
-		return f.png, nil
+		out := append([]byte(nil), f.png...)
+		if f.flipCapture && len(out) > 8 {
+			out[8] ^= byte(f.captures)
+		}
+		return out, nil
 	}
 	return []byte{0x89, 0x50, 0x4E, 0x47}, nil
 }
+func (f *fakeCcHost) WindowCapture(query string) ([]byte, int, int, error) {
+	raw, err := f.ScreenCapture()
+	return raw, f.winX, f.winY, err
+}
 func (f *fakeCcHost) ActiveWindow() (string, string, error) {
 	return f.title, f.process, nil
+}
+func (f *fakeCcHost) ListWindows() ([]ccapp.WindowInfo, error) {
+	if f.windows == nil {
+		return []ccapp.WindowInfo{{
+			ID: "0x1", Title: f.title, Process: f.process, Foreground: true,
+			W: f.w, H: f.h,
+		}}, nil
+	}
+	return append([]ccapp.WindowInfo(nil), f.windows...), nil
+}
+func (f *fakeCcHost) FocusWindow(query string) (ccapp.WindowInfo, error) {
+	f.focused = append(f.focused, query)
+	wins, _ := f.ListWindows()
+	if info, ok := ccapp.MatchWindow(wins, query); ok {
+		f.title, f.process = info.Title, info.Process
+		info.Foreground = true
+		for i := range f.windows {
+			f.windows[i].Foreground = f.windows[i].ID != "" && f.windows[i].ID == info.ID
+			if !f.windows[i].Foreground && info.ID == "" {
+				f.windows[i].Foreground = f.windows[i].Title == info.Title && f.windows[i].Process == info.Process
+			}
+		}
+		return info, nil
+	}
+	if len(wins) == 0 {
+		return ccapp.WindowInfo{}, errors.New("no window")
+	}
+	return wins[0], nil
+}
+func (f *fakeCcHost) ObserveUI(maxNodes int) ([]ccapp.UINode, error) {
+	return append([]ccapp.UINode(nil), f.uiNodes...), nil
+}
+func (f *fakeCcHost) ClipboardGet() (string, error) { return f.clip, nil }
+func (f *fakeCcHost) ClipboardSet(text string) error {
+	f.clip = text
+	return nil
+}
+func (f *fakeCcHost) WindowAction(query, op string, x, y, w, h int) (ccapp.WindowInfo, error) {
+	f.actions = append(f.actions, op+":"+query)
+	wins, _ := f.ListWindows()
+	if len(wins) == 0 {
+		return ccapp.WindowInfo{}, errors.New("no window")
+	}
+	if info, ok := ccapp.MatchWindow(wins, query); ok {
+		return info, nil
+	}
+	return wins[0], nil
+}
+func (f *fakeCcHost) QuitApp(query string) (int, ccapp.WindowInfo, error) {
+	f.quits = append(f.quits, query)
+	wins, _ := f.ListWindows()
+	hits := ccapp.MatchWindows(wins, query)
+	if len(hits) == 0 {
+		if info, ok := ccapp.MatchWindow(wins, query); ok {
+			hits = []ccapp.WindowInfo{info}
+		}
+	}
+	if len(hits) == 0 && len(wins) > 0 {
+		hits = []ccapp.WindowInfo{wins[0]}
+	}
+	if len(hits) == 0 {
+		return 0, ccapp.WindowInfo{}, errors.New("no window")
+	}
+	return len(hits), hits[0], nil
+}
+func (f *fakeCcHost) MenuClick(path string) error {
+	f.menus = append(f.menus, path)
+	return nil
+}
+func (f *fakeCcHost) SetValue(target, value string) error {
+	f.values = append(f.values, [2]string{target, value})
+	return nil
 }
 
 func (f *fakeCcHost) ObserveDialogs() ([]ccapp.DialogSnapshot, error) {
@@ -299,6 +407,8 @@ func TestCcInputFilter(t *testing.T) {
 		{ccapp.ToolKeyboardShortcut, `{"keys":["ctrl","meta"]}`},
 		{ccapp.ToolKeyboardShortcut, `{"keys":["ctrl"]}`},
 		{ccapp.ToolKeyboardShortcut, `{"keys":["alt","ctrl","delete"]}`},
+		{ccapp.ToolWait, `{"ms":8001}`},
+		{ccapp.ToolMouseDrag, `{"x1":-1,"y1":0,"x2":1,"y2":1}`},
 	}
 	for _, tc := range cases {
 		if _, err := svc.ExecuteTool(ctx, "s1", tc.tool, []byte(tc.args), true); !errors.Is(err, ccapp.ErrCcInputFiltered) {
@@ -498,6 +608,35 @@ func TestCcMouseMoveMapsVisionPixelsToDesktop(t *testing.T) {
 	}
 }
 
+func TestCcMouseDragMapsVisionPixelsToDesktop(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.originX, host.originY = -1920, 0
+	host.png = encodeTestPNG(t, 2400, 1600)
+
+	cap, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deskW, deskH, visW, visH int
+	if _, err := fmt.Sscanf(cap.Summary, "captured desktop %dx%d; use image coordinates %dx%d", &deskW, &deskH, &visW, &visH); err != nil || visW <= 0 || visH <= 0 {
+		t.Fatalf("capture summary %q", cap.Summary)
+	}
+	x1, y1 := visW/4, visH/4
+	x2, y2 := visW/2, visH/2
+	mx1, my1 := ccapp.MapCapturePoint(x1, y1, visW, visH, deskW, deskH)
+	mx2, my2 := ccapp.MapCapturePoint(x2, y2, visW, visH, deskW, deskH)
+	want := [4]int{host.originX + mx1, host.originY + my1, host.originX + mx2, host.originY + my2}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag,
+		[]byte(fmt.Sprintf(`{"x1":%d,"y1":%d,"x2":%d,"y2":%d}`, x1, y1, x2, y2)), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.drags) != 1 || host.drags[0] != want {
+		t.Fatalf("drag = %v want %v", host.drags, want)
+	}
+}
+
 func encodeTestPNG(t *testing.T, w, h int) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -566,5 +705,492 @@ func TestCcObserveAndConfirmDialog(t *testing.T) {
 	}
 	if !foundObserve || !foundConfirm || !foundUAC {
 		t.Fatalf("ledger missing dialog rows: %+v", entries)
+	}
+}
+
+func TestCcOpenClawParityTools(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
+	host.clip = "hello"
+
+	listed, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowList, []byte(`{}`), false)
+	if err != nil || !strings.Contains(listed.Summary, "notepad.exe") {
+		t.Fatalf("window list: %v %s", err, listed.Summary)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowFocus, []byte(`{"title":"Notepad"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.focused) != 1 {
+		t.Fatalf("focus calls = %v", host.focused)
+	}
+
+	ui, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false)
+	if err != nil || !strings.Contains(ui.Summary, `"role":"button"`) {
+		t.Fatalf("observe ui: %v %s", err, ui.Summary)
+	}
+
+	clip, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolClipboard, []byte(`{"op":"get"}`), true)
+	if err != nil || !strings.Contains(clip.Summary, "hello") {
+		t.Fatalf("clipboard get: %v %s", err, clip.Summary)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolClipboard, []byte(`{"op":"set","text":"月汐"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if host.clip != "月汐" {
+		t.Fatalf("clipboard set = %q", host.clip)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag, []byte(`{"x1":10,"y1":10,"x2":40,"y2":40}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.drags) != 1 {
+		t.Fatalf("drags = %v", host.drags)
+	}
+
+	waited, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWait, []byte(`{"ms":1,"until":"timeout"}`), false)
+	if err != nil || !strings.Contains(waited.Summary, "waited") {
+		t.Fatalf("wait: %v %s", err, waited.Summary)
+	}
+
+	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	if err != nil || !strings.Contains(named.Summary, "保存") {
+		t.Fatalf("named click: %v %s", err, named.Summary)
+	}
+	if len(host.moves) == 0 || host.moves[len(host.moves)-1] != [2]int{70, 92} {
+		t.Fatalf("named click should hit node centre, moves=%v", host.moves)
+	}
+}
+
+func TestCcEmergencyStopBlocksNewTools(t *testing.T) {
+	svc, _, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	if _, err := svc.EmergencyStop(ctx, "tester", "halt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{ccapp.ToolMouseDrag, ccapp.ToolWindowList, ccapp.ToolObserveUI, ccapp.ToolClipboard, ccapp.ToolWait} {
+		args := []byte(`{}`)
+		switch tool {
+		case ccapp.ToolMouseDrag:
+			args = []byte(`{"x1":1,"y1":1,"x2":2,"y2":2}`)
+		case ccapp.ToolClipboard:
+			args = []byte(`{"op":"get"}`)
+		case ccapp.ToolWait:
+			args = []byte(`{"ms":1}`)
+		}
+		if _, err := svc.ExecuteTool(ctx, "s1", tool, args, true); !errors.Is(err, ccapp.ErrCcEmergency) {
+			t.Fatalf("%s expected emergency, got %v", tool, err)
+		}
+	}
+}
+
+func TestCcClickMapsImagePixelsThroughCaptureOrigin(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.originX, host.originY = -1920, 0
+	host.png = encodeTestPNG(t, 400, 300)
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"x":40,"y":80,"button":"left"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(host.moves) != 1 || host.moves[0] != [2]int{-1880, 80} {
+		t.Fatalf("click move = %v want [-1880 80]", host.moves)
+	}
+	if len(host.clicks) != 1 || host.clicks[0] != "left" {
+		t.Fatalf("clicks = %v", host.clicks)
+	}
+	if !strings.Contains(out.Summary, "clicked") {
+		t.Fatalf("click summary %q", out.Summary)
+	}
+}
+
+func TestCcWindowCaptureRemapsClicksIntoWindow(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 400, 300)
+	host.winX, host.winY = 100, 50
+
+	cap, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{"target":"window","title":"Notepad"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cap.Summary, "window") {
+		t.Fatalf("window capture summary %q", cap.Summary)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, []byte(`{"x":10,"y":20}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.moves) != 1 || host.moves[0] != [2]int{110, 70} {
+		t.Fatalf("window-space move = %v want [110 70]", host.moves)
+	}
+}
+
+func TestCcObserveUIProjectsBoundsIntoImageSpace(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.originX, host.originY = -1920, 0
+	host.png = encodeTestPNG(t, 400, 300)
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: -1880, Y: 80, W: 60, H: 24}}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	ui, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ui.Summary, `"x":40`) || !strings.Contains(ui.Summary, `"y":80`) {
+		t.Fatalf("ui nodes should be in image pixels, got %s", ui.Summary)
+	}
+}
+
+func TestCcClickVerifyReturnsNewFrameWhenPixelsChange(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.flipCapture = true
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	before := host.captures
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"button":"left"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.captures != before+1 {
+		t.Fatalf("verify capture skipped, captures=%d", host.captures)
+	}
+	if len(out.CapturePNG) == 0 || !strings.Contains(out.Summary, "screen updated") {
+		t.Fatalf("expected verify screenshot, summary=%q png=%d", out.Summary, len(out.CapturePNG))
+	}
+}
+
+func TestCcWaitUntilChangeReturnsNewScreenshot(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.flipCapture = true
+
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWait, []byte(`{"ms":800,"until":"change"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.CapturePNG) == 0 || !strings.Contains(out.Summary, "desktop after wait") {
+		t.Fatalf("wait-until-change = %q png=%d", out.Summary, len(out.CapturePNG))
+	}
+}
+
+func TestCcWaitMsZeroIsImmediate(t *testing.T) {
+	svc, _, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWait, []byte(`{"ms":0}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Summary != "waited 0ms" {
+		t.Fatalf("wait 0 = %q", out.Summary)
+	}
+}
+
+func TestCcTypeFocusesNamedWindow(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 64, 64)
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardType, []byte(`{"text":"hello","window":"Notepad"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.focused) != 1 || host.focused[0] != "Notepad" {
+		t.Fatalf("focus = %v", host.focused)
+	}
+	if len(host.typed) != 1 || host.typed[0] != "hello" {
+		t.Fatalf("typed = %v", host.typed)
+	}
+}
+
+func TestCcClickRejectsCoordinatesOutsideLastImage(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 400, 300)
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, []byte(`{"x":500,"y":10}`), false); !errors.Is(err, ccapp.ErrCcInputFiltered) {
+		t.Fatalf("expected out-of-bounds filter, got %v", err)
+	}
+}
+
+func TestCcDesktopOpsTools(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 64, 64)
+	host.windows = []ccapp.WindowInfo{
+		{ID: "0x10", Title: "Untitled - Notepad", Process: "notepad.exe", Foreground: true, W: 400, H: 300},
+		{ID: "0x11", Title: "Notes", Process: "notepad.exe", W: 200, H: 100},
+	}
+
+	listed, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolAppList, []byte(`{}`), false)
+	if err != nil || !strings.Contains(listed.Summary, "notepad.exe") {
+		t.Fatalf("app list: %v %s", err, listed.Summary)
+	}
+
+	restored, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowAction, []byte(`{"op":"restore","title":"Notepad"}`), false)
+	if err != nil || !strings.Contains(restored.Summary, "restore") {
+		t.Fatalf("restore: %v %s", err, restored.Summary)
+	}
+	if len(host.actions) != 1 || host.actions[0] != "restore:Notepad" {
+		t.Fatalf("actions = %v", host.actions)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowAction, []byte(`{"op":"close","title":"Notepad"}`), false); !errors.Is(err, ccapp.ErrCcConfirmRequired) {
+		t.Fatalf("close without confirm: %v", err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowAction, []byte(`{"op":"close","title":"Notepad"}`), true); err != nil {
+		t.Fatal(err)
+	}
+
+	quit, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolAppQuit, []byte(`{"name":"notepad.exe"}`), true)
+	if err != nil || !strings.Contains(quit.Summary, "quit") {
+		t.Fatalf("quit: %v %s", err, quit.Summary)
+	}
+	if len(host.quits) != 1 {
+		t.Fatalf("quits = %v", host.quits)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolPaste, []byte(`{"text":"月汐"}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if host.clip != "月汐" {
+		t.Fatalf("paste clip = %q", host.clip)
+	}
+	if len(host.shortcuts) == 0 {
+		t.Fatal("paste should send ctrl+v")
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolPress, []byte(`{"key":"enter","count":2}`), false); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMenuClick, []byte(`{"path":"File > Save"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.menus) != 1 || host.menus[0] != "File > Save" {
+		t.Fatalf("menus = %v", host.menus)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolSetValue, []byte(`{"target":"Name","value":"Ada"}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.values) != 1 || host.values[0] != [2]string{"Name", "Ada"} {
+		t.Fatalf("values = %v", host.values)
+	}
+}
+
+func TestCcQuitProtectedProcessBlocked(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.windows = []ccapp.WindowInfo{{
+		ID: "0x1", Title: "File Explorer", Process: "explorer.exe", Foreground: true, W: 800, H: 600,
+	}}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolAppQuit, []byte(`{"name":"explorer.exe"}`), true); !errors.Is(err, ccapp.ErrCcRiskBlocked) {
+		t.Fatalf("expected protected block, got %v", err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowAction, []byte(`{"op":"close","title":"File Explorer"}`), true); !errors.Is(err, ccapp.ErrCcRiskBlocked) {
+		t.Fatalf("expected close protected block, got %v", err)
+	}
+}
+
+func TestCcWindowListMapsBoundsIntoImageSpace(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.originX, host.originY = -1920, 0
+	host.png = encodeTestPNG(t, 400, 300)
+	host.windows = []ccapp.WindowInfo{{
+		ID: "0x1", Title: "Notes", Process: "notepad.exe", Foreground: true,
+		X: -1880, Y: 80, W: 200, H: 100,
+	}}
+
+	before, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowList, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed struct {
+		Count   int                `json:"count"`
+		Space   string             `json:"space"`
+		Windows []ccapp.WindowInfo `json:"windows"`
+	}
+	if err := json.Unmarshal([]byte(before.Summary), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Space != "screen" || listed.Count != 1 || listed.Windows[0].X != 40 {
+		t.Fatalf("pre-capture list = %s", before.Summary)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowList, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(after.Summary), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Space != "image" || listed.Windows[0].X != 40 || listed.Windows[0].Y != 80 || listed.Windows[0].W != 200 || listed.Windows[0].H != 100 {
+		t.Fatalf("post-capture list = %s", after.Summary)
+	}
+}
+
+func TestCcWindowListCapsCount(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.windows = make([]ccapp.WindowInfo, ccapp.CcMaxListedWindows+8)
+	for i := range host.windows {
+		host.windows[i] = ccapp.WindowInfo{
+			ID: fmt.Sprintf("0x%x", i+1), Title: fmt.Sprintf("W%d", i), Process: "app.exe", W: 10, H: 10,
+		}
+	}
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowList, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(out.Summary), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Count != ccapp.CcMaxListedWindows {
+		t.Fatalf("count = %d want %d", listed.Count, ccapp.CcMaxListedWindows)
+	}
+}
+
+func TestCcClipboardGetTruncatesAndSetRejectsOversize(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.clip = strings.Repeat("月", ccapp.CcMaxClipboardRunes+64)
+	got, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolClipboard, []byte(`{"op":"get"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Text  string `json:"text"`
+		Runes int    `json:"runes"`
+	}
+	if err := json.Unmarshal([]byte(got.Summary), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Runes != ccapp.CcMaxClipboardRunes || utf8.RuneCountInString(payload.Text) != ccapp.CcMaxClipboardRunes {
+		t.Fatalf("get cap = runes %d text %d", payload.Runes, utf8.RuneCountInString(payload.Text))
+	}
+	over := `{"op":"set","text":"` + strings.Repeat("a", ccapp.CcMaxClipboardRunes+1) + `"}`
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolClipboard, []byte(over), true); !errors.Is(err, ccapp.ErrCcInputFiltered) {
+		t.Fatalf("oversize set: %v", err)
+	}
+}
+
+func TestCcObserveDialogMapsButtonBounds(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.originX, host.originY = -1920, 0
+	host.png = encodeTestPNG(t, 400, 300)
+	host.dialogs = []ccapp.DialogSnapshot{{
+		Title: "要保存更改吗？", Process: "notepad.exe", Class: "#32770",
+		X: -1880, Y: 80, W: 200, H: 100,
+		Buttons:     []string{"确定", "取消"},
+		Confirmable: true,
+		Nodes: []ccapp.UINode{
+			{Role: "button", Name: "确定", X: -1860, Y: 140, W: 60, H: 24},
+		},
+	}}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveDialog, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Count   int `json:"count"`
+		Space   string
+		Dialogs []ccapp.DialogSnapshot `json:"dialogs"`
+	}
+	if err := json.Unmarshal([]byte(out.Summary), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Count != 1 || payload.Dialogs[0].X != 40 || payload.Dialogs[0].Y != 80 {
+		t.Fatalf("dialog bounds = %s", out.Summary)
+	}
+	if len(payload.Dialogs[0].Nodes) != 1 || payload.Dialogs[0].Nodes[0].Name != "确定" || payload.Dialogs[0].Nodes[0].X != 60 {
+		t.Fatalf("dialog nodes = %s", out.Summary)
+	}
+}
+
+func TestCcObserveUIRefusesUAC(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 64, 64)
+	host.title, host.process = "用户账户控制", "consent.exe"
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "是", X: 10, Y: 10, W: 40, H: 20}}
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Summary, `"refused":"uac dialog"`) || !strings.Contains(out.Summary, `"count":0`) {
+		t.Fatalf("UAC observe = %s", out.Summary)
+	}
+}
+
+func TestCcFocusThenTypeHitsTargetWindow(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 64, 64)
+	host.title, host.process = "Lunitide", "lunitide.exe"
+	host.windows = []ccapp.WindowInfo{
+		{ID: "0xA", Title: "Lunitide", Process: "lunitide.exe", Foreground: true, W: 400, H: 300},
+		{ID: "0xB", Title: "Untitled - Notepad", Process: "notepad.exe", W: 800, H: 600},
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowFocus, []byte(`{"title":"Notepad"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if host.process != "notepad.exe" {
+		t.Fatalf("focus should switch fake foreground, process=%s", host.process)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardType, []byte(`{"text":"hello"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.focused) < 1 || host.focused[0] != "Notepad" {
+		t.Fatalf("focus calls = %v", host.focused)
+	}
+	if len(host.typed) != 1 || host.typed[0] != "hello" {
+		t.Fatalf("typed = %v", host.typed)
 	}
 }
