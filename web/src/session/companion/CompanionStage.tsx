@@ -45,6 +45,16 @@ import {
  * them.
  */
 const FORCE_COMMIT_MS = 2700
+
+/**
+ * How long speech may reach the microphone with nothing transcribed before
+ * the stage says so.
+ *
+ * Long enough not to fire on the gap between a word and its transcription,
+ * short enough that a user talking to a recognizer that has stopped
+ * answering finds out while they are still talking rather than afterwards.
+ */
+const RECOGNIZER_DEAF_MS = 2500
 import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
@@ -102,6 +112,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const pendingCaptionFadeRef = useRef(false)
   const roundsRef = useRef<SubtitleRound[]>([])
   const [voiceHeard, setVoiceHeard] = useState(false)
+  /** When the microphone last carried speech, whatever the recognizer did. */
+  const voiceEnergyAtRef = useRef(0)
+  const interimTextRef = useRef('')
+  const [deafRecognizer, setDeafRecognizer] = useState(false)
   const [heardThisVisit, setHeardThisVisit] = useState(false)
   const [listenSeconds, setListenSeconds] = useState(0)
   const [engineHint, setEngineHint] = useState('')
@@ -906,8 +920,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         setHeardThisVisit(true)
       },
       onVoiceEnergy: () => {
-        /* Analyser ticks on room noise and speaker echo. Bars and “正在听”
-           wait for real speech (speechstart / interim). */
+        // Hearing the user is the microphone's business, not the
+        // recognizer's.
+        //
+        // This used to do nothing, so 「正在听…」 waited on a transcript.
+        // That ties the one piece of feedback saying "your voice is
+        // arriving" to the one thing most likely to be broken, and when the
+        // recognizer returned nothing the stage looked deaf even though
+        // audio was coming in the whole time. The two are separate
+        // questions and the user can only debug them if we answer them
+        // separately.
+        setVoiceHeard(true)
+        voiceEnergyAtRef.current = performance.now()
       },
       onEngineHint: message => setEngineHint(message),
       onFinal: transcript => {
@@ -1004,6 +1028,23 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }, delay)
     return () => window.clearTimeout(timer)
   }, [machine.state, startListening, syncSpeechModes])
+
+  // Audio arriving with no transcript behind it is a specific, nameable
+  // failure, and one the user has no way to tell apart from a dead
+  // microphone unless it is said. Reported rather than repaired here: the
+  // repairs live in the speech layer, and this is what tells the user their
+  // voice is getting in while one of them runs.
+  useEffect(() => {
+    if (machine.state !== 'listening') {
+      setDeafRecognizer(false)
+      return
+    }
+    const timer = window.setInterval(() => {
+      const heardRecently = performance.now() - voiceEnergyAtRef.current < RECOGNIZER_DEAF_MS
+      setDeafRecognizer(heardRecently && !interimTextRef.current.trim())
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [machine.state])
 
   useEffect(() => {
     if (machine.state !== 'listening') {
@@ -1186,6 +1227,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   /** A caption is live only during the turn it belongs to. */
   const liveCaption = machine.state === 'listening' && !!interimText.trim()
+  interimTextRef.current = interimText
 
   return (
     <div
@@ -1311,7 +1353,14 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           {machine.state === 'listening' && engineHint && (
             <p className="companion-subtitle-hint warn">{engineHint}</p>
           )}
-          {shouldShowSpeechSetupHint({
+          {deafRecognizer && (
+            <p className="companion-subtitle-hint warn">
+              {activeRecognizerRef.current === 'local'
+                ? '听到你的声音了，本机识别还没有出字…'
+                : '听到你的声音了，系统识别还没有出字…'}
+            </p>
+          )}
+          {!deafRecognizer && shouldShowSpeechSetupHint({
             listening: machine.state === 'listening',
             hasInterim: !!interimText.trim(),
             listenSeconds,
