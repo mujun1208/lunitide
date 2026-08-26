@@ -56,8 +56,15 @@ export interface CompanionSettings {
 const STORAGE_KEY = 'lunitide:companion'
 const SETTINGS_REV = 9
 
-/** Reliable local-first probe order when the primary engine fails. */
-const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['natural', 'edge', 'sapi']
+/** Reliable probe order when the primary engine fails.
+ *
+ *  'natural' is deliberately absent. Reaching the OneCore neural voices means
+ *  mirroring their tokens into HKCU so classic SAPI enumerates them, and on
+ *  the machines this was tested against SAPI does not merge that hive — the
+ *  mirror is byte-for-byte complete, the engine CLSID is registered for both
+ *  bitnesses, and GetVoices still returns only the HKLM tokens. Probing it
+ *  costs a round trip to arrive back where 'sapi' already is. */
+const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['edge', 'sapi']
 
 export function companionEngineProbeOrder(primary: CompanionEngine): CompanionEngine[] {
   if (primary === 'ref') return ['ref', ...ENGINE_PROBE_FALLBACK]
@@ -112,9 +119,14 @@ export function loadCompanionSettings(): CompanionSettings {
     let wakeWord = typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord
     if (rev < SETTINGS_REV) {
       wakeWord = false
-      if (engine === 'natural' && voiceId === '') {
-        engine = 'edge'
-      }
+    }
+    // The OneCore engine is no longer offered: it could not be reached
+    // through SAPI, so anyone left on it had a companion that showed
+    // captions and never spoke. Moved rather than left broken, and the
+    // stale voice id goes with it — its tokens do not exist for SAPI.
+    if (engine === 'natural') {
+      engine = 'edge'
+      voiceId = ''
     }
     const interruptHotkey = parseInterruptHotkey(
       (parsed as Partial<CompanionSettings> & { interruptHotkey?: unknown }).interruptHotkey,

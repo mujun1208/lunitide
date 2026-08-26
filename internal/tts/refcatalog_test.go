@@ -1,5 +1,5 @@
-// refcatalog_test.go covers the built-in 18-voice character catalogue:
-// integrity (unique files, four style groups), voice-ID resolution,
+// refcatalog_test.go covers the built-in character catalogue:
+// integrity (unique files, distinct style groups), voice-ID resolution,
 // speed-factor mapping, service health probing and preset-driven
 // synthesis through the ref engine.
 package tts
@@ -16,8 +16,9 @@ import (
 )
 
 func TestRefPresetCatalogIntegrity(t *testing.T) {
-	// 18 role-play presets + 32 hot-pack presets = 50 timbres across
-	// 10 style groups (4 role-play + 6 hot).
+	// 50 timbres across 11 style groups: 4 role-play, 6 hot-pack, and the
+	// 台湾腔 pair, which is its own group because it is the accent people
+	// ask for by name rather than a style of delivery.
 	if len(refPresets) != 50 {
 		t.Fatalf("preset count = %d, want 50", len(refPresets))
 	}
@@ -33,8 +34,8 @@ func TestRefPresetCatalogIntegrity(t *testing.T) {
 		}
 		groups[p.Group] = true
 	}
-	if len(groups) != 10 {
-		t.Fatalf("style groups = %d, want 10 (%v)", len(groups), groups)
+	if len(groups) != 11 {
+		t.Fatalf("style groups = %d, want 11 (%v)", len(groups), groups)
 	}
 
 	voices := RefVoices()

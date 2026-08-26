@@ -72,6 +72,9 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 		}
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音频文件不存在", ErrSynthesisFailed)
 	}
+	// A narration sample running to a minute is a perfectly good timbre and
+	// an impossible prompt; trimmed to the window rather than refused.
+	refWav = refPromptClip(refWav)
 	body, _ := json.Marshal(map[string]any{
 		"text":              in.Text,
 		"text_lang":         "zh",
