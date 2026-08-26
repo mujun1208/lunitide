@@ -51,6 +51,8 @@ type fakeCcHost struct {
 	quits       []string
 	menus       []string
 	values      [][2]string
+	invokes     []string
+	invokeFail  map[string]error
 }
 
 func newFakeCcHost() *fakeCcHost {
@@ -183,6 +185,15 @@ func (f *fakeCcHost) MenuClick(path string) error {
 }
 func (f *fakeCcHost) SetValue(target, value string) error {
 	f.values = append(f.values, [2]string{target, value})
+	return nil
+}
+func (f *fakeCcHost) InvokeUI(target string) error {
+	f.invokes = append(f.invokes, target)
+	if f.invokeFail != nil {
+		if err := f.invokeFail[target]; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -762,8 +773,56 @@ func TestCcOpenClawParityTools(t *testing.T) {
 	if err != nil || !strings.Contains(named.Summary, "保存") {
 		t.Fatalf("named click: %v %s", err, named.Summary)
 	}
-	if len(host.moves) == 0 || host.moves[len(host.moves)-1] != [2]int{70, 92} {
-		t.Fatalf("named click should hit node centre, moves=%v", host.moves)
+	if len(host.invokes) != 1 || host.invokes[0] != "保存" {
+		t.Fatalf("named click should invoke accessibility, invokes=%v", host.invokes)
+	}
+	if len(host.moves) != 0 || len(host.clicks) != 0 {
+		t.Fatalf("named invoke should not center-click, moves=%v clicks=%v", host.moves, host.clicks)
+	}
+}
+
+func TestCcNamedClickFallsBackToCenterWhenInvokeFails(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
+	host.invokeFail = map[string]error{"保存": errors.New("invoke unavailable")}
+
+	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	if err != nil || !strings.Contains(named.Summary, "保存") {
+		t.Fatalf("named click fallback: %v %s", err, named.Summary)
+	}
+	if len(host.invokes) != 1 || host.invokes[0] != "保存" {
+		t.Fatalf("should try invoke first, invokes=%v", host.invokes)
+	}
+	if len(host.moves) != 1 || host.moves[0] != [2]int{70, 92} {
+		t.Fatalf("fallback should center-click, moves=%v", host.moves)
+	}
+	if len(host.clicks) != 1 || host.clicks[0] != "left" {
+		t.Fatalf("fallback clicks=%v", host.clicks)
+	}
+}
+
+func TestCcNamedClickByObserveIDInvokesAccessibilityName(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "OK", X: 10, Y: 10, W: 40, H: 20}}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false); err != nil {
+		t.Fatal(err)
+	}
+	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"id":"B1"}`), true)
+	if err != nil || !strings.Contains(named.Summary, "invoked") {
+		t.Fatalf("id click: %v %s", err, named.Summary)
+	}
+	if len(host.invokes) != 1 || host.invokes[0] != "OK" {
+		t.Fatalf("id click should invoke node name, invokes=%v", host.invokes)
+	}
+	if len(host.moves) != 0 {
+		t.Fatalf("id invoke should not mouse-move, moves=%v", host.moves)
 	}
 }
 
@@ -1192,5 +1251,27 @@ func TestCcFocusThenTypeHitsTargetWindow(t *testing.T) {
 	}
 	if len(host.typed) != 1 || host.typed[0] != "hello" {
 		t.Fatalf("typed = %v", host.typed)
+	}
+}
+
+func TestCcWindowFocusByProcess(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.windows = []ccapp.WindowInfo{
+		{ID: "0xA", Title: "Lunitide", Process: "lunitide.exe", Foreground: true, W: 400, H: 300},
+		{ID: "0xB", Title: "Untitled - Notepad", Process: "notepad.exe", W: 800, H: 600},
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowFocus, []byte(`{"process":"notepad"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.focused) != 1 || host.focused[0] != "notepad" {
+		t.Fatalf("focus calls = %v", host.focused)
+	}
+	if host.process != "notepad.exe" {
+		t.Fatalf("foreground process = %q", host.process)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowFocus, []byte(`{}`), true); !errors.Is(err, ccapp.ErrCcInputFiltered) {
+		t.Fatalf("empty focus query: %v", err)
 	}
 }
