@@ -46,7 +46,14 @@ func agentRunEngine(t *testing.T) (*Engine, string, *storage.Store) {
 		t.Fatal(err)
 	}
 	e := NewEngineWithSessions(providerapp.New(store, store), projects, sessions, "test", nil)
-	e.SetAgentRunService(agentrunapp.New(store.AgentRuntimeRepository()))
+	runs := agentrunapp.New(store.AgentRuntimeRepository())
+	e.SetAgentRunService(runs)
+	// Registered after the store's own cleanup so it runs before it: a
+	// command writes its result from a goroutine that outlives the request,
+	// and closing the store underneath that transaction leaves the database
+	// file open — which on Windows makes t.TempDir's removal fail and the
+	// test with it, long after every assertion has passed.
+	t.Cleanup(runs.DrainCommands)
 	return e, sess.ID, store
 }
 

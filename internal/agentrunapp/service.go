@@ -58,6 +58,13 @@ type Service struct {
 	runCommand CommandRunner
 	cmdMu      sync.Mutex
 	cmdCancels map[string]context.CancelFunc
+	// cmdRunning counts the launched commands that have not yet written
+	// their result. A finished command writes it from its own goroutine, in
+	// its own transaction, after the call that started it has long returned
+	// — so without this there is no moment at which the caller can say the
+	// work is over, and nothing that owns the database can be shut down
+	// without cutting a write in half.
+	cmdRunning sync.WaitGroup
 
 	// M4-G web access: fetchWeb retrieves URLs through the SSRF-pinned
 	// transport (default defaultWebFetch).
@@ -72,6 +79,22 @@ func New(u UnitOfWork) *Service {
 // command jobs without spawning real processes.
 func (s *Service) SetCommandRunner(r CommandRunner) {
 	s.runCommand = r
+}
+
+// DrainCommands blocks until every launched command has written its result.
+//
+// A command reports its outcome from its own goroutine in its own
+// transaction, long after the call that started it returned, so "the request
+// finished" and "the database is idle" are different moments. Anything that
+// closes the store has to wait for the second one: a connection still inside
+// a transaction is not closed by sql.DB.Close, which on Windows leaves the
+// database file open and undeletable, and in production would mean tearing
+// down storage underneath a half-written result.
+func (s *Service) DrainCommands() {
+	if s == nil {
+		return
+	}
+	s.cmdRunning.Wait()
 }
 
 func (s *Service) available() error {
