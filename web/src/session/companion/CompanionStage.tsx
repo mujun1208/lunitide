@@ -128,6 +128,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const speechHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
   /** Probed once: whether the local model is installed and the sidecar starts. */
   const localAsrReadyRef = useRef(false)
+  /** The probe itself, so a turn starting before it answers can wait. */
+  const localAsrProbeRef = useRef<Promise<boolean> | undefined>(undefined)
   const activeRecognizerRef = useRef<'cloud' | 'local'>('cloud')
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
@@ -869,10 +871,19 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   // Asked once per mount, not per turn: the answer only changes when the user
   // installs the model, and that happens in settings, behind a remount.
+  //
+  // Kept as the promise, not just its result. The stage starts listening the
+  // moment it mounts, which is before a bridge round trip can answer — so a
+  // caller reading the result alone always read the initial false and chose
+  // the system recognizer. Under 'auto' that made the local model
+  // unreachable by construction, however plainly the settings screen said it
+  // was installed, and the choice was never revisited afterwards.
   useEffect(() => {
+    const probe = localAsrStatus().then(status => status?.supported === true && status.ready === true)
+    localAsrProbeRef.current = probe
     let alive = true
-    void localAsrStatus().then(status => {
-      if (alive) localAsrReadyRef.current = status?.supported === true && status.ready === true
+    void probe.then(ready => {
+      if (alive) localAsrReadyRef.current = ready
     })
     return () => {
       alive = false
@@ -981,22 +992,34 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       else setLocalError(issue)
     }
 
-    const preferLocal =
-      settingsRef.current.recognizer === 'local' ||
-      (settingsRef.current.recognizer === 'auto' && localAsrReadyRef.current)
-    activeRecognizerRef.current = preferLocal ? 'local' : 'cloud'
-    const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
-    void open(speechOptions)
-      .then(adoptHandle)
-      .catch(issue => {
+    const begin = async () => {
+      // 'auto' means "local when it is there", so it has to know whether it
+      // is there. Waiting on the probe is the whole point: the first turn
+      // starts before it has answered, and taking its default answer chose
+      // the system recognizer permanently.
+      const installed =
+        settingsRef.current.recognizer === 'auto'
+          ? await (localAsrProbeRef.current ?? Promise.resolve(localAsrReadyRef.current))
+          : false
+      if (exitedRef.current) return
+      const preferLocal =
+        settingsRef.current.recognizer === 'local' ||
+        (settingsRef.current.recognizer === 'auto' && installed)
+      activeRecognizerRef.current = preferLocal ? 'local' : 'cloud'
+      const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
+      try {
+        adoptHandle(await open(speechOptions))
+      } catch (issue) {
         if (preferLocal && settingsRef.current.recognizer === 'auto') {
           localAsrReadyRef.current = false
           activeRecognizerRef.current = 'cloud'
           void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
           return
         }
-        abandon(issue)
-      })
+        abandon(issue as BridgeClientError)
+      }
+    }
+    void begin()
   }, [beginUserTurn, machine, syncSpeechModes])
 
   useEffect(() => {
