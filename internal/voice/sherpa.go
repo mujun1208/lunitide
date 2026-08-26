@@ -36,6 +36,16 @@ type sherpaResult struct {
 	IsFinal bool `json:"is_final"`
 }
 
+// TurnEndSilenceSeconds is how long the user has to stop talking for the turn
+// to be treated as finished.
+//
+// The one number in the pipeline a user can feel directly: it is the gap
+// between them finishing a sentence and anything happening. Too short cuts
+// them off mid-thought, too long makes the companion seem slow to react, and
+// the tolerable range is narrow enough that this is worth stating in one
+// place rather than deriving.
+const TurnEndSilenceSeconds = 1.2
+
 // doneMarker is what the server sends after the client says it has finished
 // sending audio. It is not JSON, so it must be recognised before parsing.
 const doneMarker = "Done!"
@@ -103,11 +113,34 @@ func serverArgs(arch ModelArchitecture, modelDir string, port int) ([]string, er
 		// usefully redraw; 30ms still lands well inside the time it takes
 		// to say the next syllable.
 		"--loop-interval-ms=30",
-		// Endpointing is decided upstream: the renderer already runs the
-		// tiered rules that know when a Chinese clause is unfinished, and a
-		// second opinion here would cut utterances the renderer is still
-		// holding open.
-		"--enable-endpoint=false",
+		// Let the recognizer say when a turn ended.
+		//
+		// This was disabled, with endpointing left to rules in the renderer
+		// that watched microphone energy and how long the transcript had
+		// stopped changing. Neither is evidence about the speaker: a level
+		// meter cannot tell a pause from a full stop, and a transcript that
+		// stops growing means the decoder is between tokens as often as it
+		// means the sentence is over. Turns were cut in half accordingly —
+		// 「你好月汐」 committed and answered as 「你好」.
+		//
+		// The engine decides it from the decoder itself, which is what every
+		// production voice stack does with a VAD in this position, and it is
+		// already in the binary we ship.
+		"--enable-endpoint=true",
+		// Rule 2: silence after something was actually said. This is the
+		// rule that ends an ordinary turn, and it is the one number a user
+		// feels — the wait between finishing a sentence and being answered.
+		"--rule2-min-trailing-silence=" + strconv.FormatFloat(TurnEndSilenceSeconds, 'f', 2, 64),
+		// Rule 1 fires on trailing silence whether or not anything was said,
+		// which would end "turns" made of room noise. Requiring speech makes
+		// it a ceiling on a long pause mid-sentence rather than a second,
+		// shorter version of rule 2.
+		"--rule1-must-contain-nonsilence=true",
+		// After a segment with nothing in it, start the encoder clean. A
+		// session here spans a whole conversation, and carrying state across
+		// every silence is how a recognizer that worked for two turns starts
+		// missing the beginning of the third.
+		"--reset-encoder=true",
 	}
 
 	switch arch {

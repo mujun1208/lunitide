@@ -16,6 +16,13 @@ export type SpeechEnvironment = 'normal' | 'noisy'
  * system recognizer, which is the right default: the local one keeps audio on
  * the machine and works offline, but it is a large download nobody should be
  * made to wait for before speaking.
+ *
+ * The fallback really is a fallback, not an equal option. The system
+ * recognizer captures its own audio inside the engine, so this side cannot
+ * mute it while the companion speaks — it transcribed her replies off the
+ * speakers and delivered them as the user's next question — and it cannot be
+ * asked when a turn ended, which left that decision to a level meter. Both
+ * are properties of the API, not bugs above it.
  */
 export type SpeechRecognizer = 'auto' | 'cloud' | 'local'
 
