@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { VoiceInstallResult, VoiceStatusResult } from '../bridge/client'
 import type { CompanionSettings, SpeechRecognizer } from '../session/companion/companionSettings'
-import { installLocalAsr, localAsrStatus } from '../session/companion/localAsr'
+import { installLocalAsr, localAsrStatus, selectLocalAsrModel } from '../session/companion/localAsr'
 
 const POLL_MS = 700
 
@@ -69,6 +69,20 @@ export function LocalAsrRow({ companion, save }: Props): React.JSX.Element | nul
     pump()
   }, [pump])
 
+  const chooseModel = useCallback((modelId: string) => {
+    // Told to the engine, not just remembered: it holds the running
+    // recognizer, and a preference nothing acts on is worse than no
+    // preference at all.
+    void selectLocalAsrModel(modelId)
+      .then(() => localAsrStatus())
+      .then(next => {
+        if (alive.current && next) setStatus(next)
+      })
+      .catch(() => {
+        /* The row keeps showing the model the engine reports. */
+      })
+  }, [])
+
   // A build without the recognizer must not advertise it. Until the probe
   // answers, the row stays hidden rather than flashing a control that is about
   // to disappear.
@@ -123,6 +137,30 @@ export function LocalAsrRow({ companion, save }: Props): React.JSX.Element | nul
           {ready ? '已安装' : downloading ? '下载中…' : failed ? '重试下载' : '下载安装'}
         </button>
       </div>
+      {status.models.length > 1 && (
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">字幕模型</div>
+            <div className="setting-desc">
+              说话时实时出字的那个。最终送给模型的文本由离线模型重新识别，所以这里选的是字幕的快慢与体积，不是最终准确度。
+            </div>
+          </div>
+          <select
+            className="setting-input"
+            aria-label="字幕模型"
+            value={status.modelId}
+            disabled={downloading}
+            onChange={event => chooseModel(event.target.value)}
+          >
+            {status.models.map(model => (
+              <option key={model.id} value={model.id}>
+                {model.title}（{megabytes(model.sizeBytes)}
+                {model.installed ? ' · 已下载' : ' · 需下载'}）
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </>
   )
 }

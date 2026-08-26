@@ -368,6 +368,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'voice.append',
   'voice.finish',
   'voice.install',
+  'voice.select',
   'voice.start',
   'voice.status',
   'voice.stop',

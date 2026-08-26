@@ -308,6 +308,26 @@ func Models() []Bundle {
 	return []Bundle{modelZipformer, modelParaformer, modelOfflineParaformer}
 }
 
+// StreamingModels lists the models a user actually chooses between.
+//
+// Only the streaming half is a choice. The refiner is not an alternative to
+// these — it runs after them, on the finished utterance, and its text is what
+// reaches the language model either way. Offering all three together would
+// present a pipeline stage as if it were a competitor to another stage.
+func StreamingModels() []Bundle {
+	return []Bundle{modelZipformer, modelParaformer}
+}
+
+// IsStreamingModel reports whether a bundle ID names a caption model.
+func IsStreamingModel(id string) bool {
+	for _, b := range StreamingModels() {
+		if b.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // RequiredBundles lists everything local recognition needs on disk, in the
 // order it should be downloaded: the engine, then the model that draws the
 // caption, then the one that produces the text.

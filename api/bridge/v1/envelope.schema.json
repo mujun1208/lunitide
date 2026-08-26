@@ -346,6 +346,7 @@
         "voice.append",
         "voice.finish",
         "voice.install",
+        "voice.select",
         "voice.start",
         "voice.status",
         "voice.stop",
