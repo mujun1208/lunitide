@@ -491,7 +491,9 @@ func (s *Service) launchCommand(jobID string, spec commandworker.Spec, guard com
 	}
 	s.cmdCancels[jobID] = cancel
 	s.cmdMu.Unlock()
+	s.cmdRunning.Add(1)
 	go func() {
+		defer s.cmdRunning.Done()
 		defer guard.Close()
 		defer func() {
 			cancel()

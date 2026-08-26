@@ -37,6 +37,11 @@ func runtimeHarness(t *testing.T, budget agentrun.Budget) (*agentrunapp.Service,
 		t.Fatal(err)
 	}
 	svc := agentrunapp.New(store.AgentRuntimeRepository())
+	// After store.Close so Drain runs first: a launched command writes its
+	// result from a goroutine that outlives CommandStart, and closing the
+	// store underneath that transaction leaves the database file open —
+	// which on Windows makes t.TempDir's removal fail.
+	t.Cleanup(svc.DrainCommands)
 	run, err := svc.Start(ctx, "kernel-start", "test", map[string]string{"sessionId": sess.ID}, sess.ID, budget)
 	if err != nil {
 		t.Fatal(err)
