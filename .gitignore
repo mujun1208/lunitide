@@ -9,6 +9,8 @@ dist/
 /release/Lunitide-Setup-*.exe
 /release/Lunitide-Setup-*.exe.blockmap
 .release-cache/
+# Build tools fetched on demand (nuget.exe for NuGet signature verification).
+.tools/
 .venv/
 __pycache__/
 .pytest_cache/
