@@ -104,6 +104,30 @@ func (s *VoiceService) Close() {
 	}
 }
 
+// selectModel points the caption recognizer at a different model and retires
+// everything running on the old one.
+func (s *VoiceService) selectModel(modelID string) {
+	s.mu.Lock()
+	if s.modelID == modelID {
+		s.mu.Unlock()
+		return
+	}
+	s.modelID = modelID
+	sessions := s.sessions
+	s.sessions = map[string]voice.Session{}
+	s.mu.Unlock()
+
+	for _, session := range sessions {
+		_ = session.Close()
+	}
+	if backend, ok := s.backend.(*voice.SherpaBackend); ok {
+		backend.ModelID = modelID
+		// The child process holds the previous weights and cannot be told
+		// about new ones, so it goes and the next session starts a new one.
+		backend.Shutdown()
+	}
+}
+
 // warmEngines starts both recognizers' processes in the background, detached
 // from the request that triggered it.
 //
@@ -198,11 +222,23 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil {
 		title = refiner.Title
 	}
+	models := make([]map[string]any, 0, len(voice.StreamingModels()))
+	for _, bundle := range voice.StreamingModels() {
+		models = append(models, map[string]any{
+			"id":    bundle.ID,
+			"title": bundle.Title,
+			// What this choice costs on disk, which is the only reason to
+			// prefer one over the other once both work.
+			"sizeBytes": bundle.TotalBytes(),
+			"installed": e.voice.installer.Installed(bundle),
+		})
+	}
 	return bridge.Success(r.ID, map[string]any{
 		"supported":  true,
 		"ready":      ready,
 		"modelId":    model.ID,
 		"modelTitle": title,
+		"models":     models,
 		// What a first-time user is about to be asked to download. Reported
 		// even once installed, because the settings screen shows it.
 		"downloadBytes": downloadBytes,
@@ -395,6 +431,33 @@ func handleVoiceFinish(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		return bridge.Failure(r.ID, r.TraceID, "VOICE-007", "识别失败："+truncate(err.Error(), 256), true)
 	}
 	return bridge.Success(r.ID, map[string]any{"text": text})
+}
+
+// handleVoiceSelect switches which model draws the caption.
+//
+// The running recognizer is stopped rather than reconfigured: a sherpa server
+// is started with its model on the command line and holds those weights for
+// its lifetime, so a new model means a new process. Sessions in flight go
+// with it — the alternative is a turn whose first half was transcribed by one
+// model and whose second half was transcribed by another.
+func handleVoiceSelect(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ModelID string `json:"modelId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || p.ModelID == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.select 参数无效", false)
+	}
+	if e.voice == nil {
+		return bridge.Failure(r.ID, r.TraceID, "VOICE-002", "本地识别不可用", false)
+	}
+	if !voice.IsStreamingModel(p.ModelID) {
+		return bridge.Failure(r.ID, r.TraceID, "VOICE-001", "本地识别模型未知", false)
+	}
+	e.voice.selectModel(p.ModelID)
+	return bridge.Success(r.ID, map[string]any{
+		"modelId": p.ModelID,
+		"ready":   e.voice.ready(ctx),
+	})
 }
 
 func handleVoiceStop(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

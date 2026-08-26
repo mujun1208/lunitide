@@ -83,6 +83,17 @@ export async function installLocalAsr(modelId?: string) {
 }
 
 /**
+ * Points the caption recognizer at a different model.
+ *
+ * Retires the running one, so the next turn starts on the chosen weights
+ * rather than the previous process finishing the conversation on the old
+ * ones.
+ */
+export async function selectLocalAsrModel(modelId: string) {
+  return getVoiceBridge().select({ modelId })
+}
+
+/**
  * Opens a recognition session and streams the microphone into it.
  *
  * The microphone is opened before the session rather than after it. Opening a

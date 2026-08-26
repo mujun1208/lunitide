@@ -77,6 +77,60 @@ func TestVoiceStartWithoutAModelSaysSoRatherThanFailingInside(t *testing.T) {
 	}
 }
 
+func TestVoiceStatusOffersTheCaptionModelsToChooseFrom(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetVoiceService(NewVoiceService(t.TempDir(), ""))
+
+	resp := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	if !resp.OK {
+		t.Fatalf("voice.status = %+v", resp)
+	}
+	models, _ := resp.Payload.(map[string]any)["models"].([]map[string]any)
+	if len(models) != len(voice.StreamingModels()) {
+		t.Fatalf("models = %+v; want the streaming models", models)
+	}
+	// Size is the whole reason to prefer one, so a chooser that cannot show
+	// it is not offering a choice.
+	for _, model := range models {
+		if size, _ := model["sizeBytes"].(int64); size <= 0 {
+			t.Errorf("model %v has no size", model["id"])
+		}
+	}
+	// The refiner runs after these rather than instead of them; listing it
+	// here would present one stage of the pipeline as a rival to another.
+	for _, model := range models {
+		if model["id"] == voice.DefaultRefiner {
+			t.Error("the refiner is not an alternative to the caption model")
+		}
+	}
+}
+
+func TestVoiceSelectSwitchesTheCaptionModel(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetVoiceService(NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M))
+
+	resp := e.Handle(context.Background(), validRequest("voice.select", `{"modelId":"`+voice.ModelParaformerZhEn+`"}`))
+	if !resp.OK {
+		t.Fatalf("voice.select = %+v", resp)
+	}
+	status := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	if got := status.Payload.(map[string]any)["modelId"]; got != voice.ModelParaformerZhEn {
+		t.Errorf("modelId after select = %v; want the chosen model", got)
+	}
+}
+
+func TestVoiceSelectRefusesAModelThatIsNotACaptionModel(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetVoiceService(NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M))
+
+	for _, id := range []string{"no-such-model", voice.DefaultRefiner, voice.RuntimeSherpa} {
+		resp := e.Handle(context.Background(), validRequest("voice.select", `{"modelId":"`+id+`"}`))
+		if resp.OK || resp.Error == nil || resp.Error.Code != "VOICE-001" {
+			t.Errorf("voice.select %q = %+v; want VOICE-001", id, resp)
+		}
+	}
+}
+
 func TestVoiceInstallRejectsAnUnknownModel(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetVoiceService(NewVoiceService(t.TempDir(), ""))
