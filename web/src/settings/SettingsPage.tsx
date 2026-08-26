@@ -922,9 +922,14 @@ const CC_RISK_LABELS: Record<string, string> = { low: '低', medium: '中', high
 const CC_STATUS_LABELS: Record<string, string> = { executed: '已执行', blocked: '已拦截', denied: '已拒绝', failed: '失败', stopped: '已停止' }
 const CC_LAYER_LABELS: Record<string, string> = { intent: '意图识别', 'input-filter': '输入过滤', 'process-monitor': '进程监控' }
 const CC_TOOL_LABELS: Record<string, string> = {
-  'cc.mouse_move': '移动鼠标', 'cc.mouse_click': '点击鼠标', 'cc.keyboard_type': '键盘输入',
+  'cc.mouse_move': '移动鼠标', 'cc.mouse_click': '点击鼠标', 'cc.mouse_drag': '拖拽',
+  'cc.keyboard_type': '键盘输入',
   'cc.keyboard_shortcut': '组合键', 'cc.screen_capture': '全桌面截图', 'cc.get_active_window': '活动窗口',
+  'cc.window_list': '窗口列表', 'cc.window_focus': '聚焦窗口',
   'cc.observe_dialog': '观察对话框', 'cc.confirm_dialog': '确认对话框',
+  'cc.observe_ui': '界面节点', 'cc.wait': '等待界面', 'cc.clipboard': '剪贴板',
+  'cc.window_action': '窗口操作', 'cc.app_list': '应用列表', 'cc.app_quit': '退出应用',
+  'cc.paste': '粘贴', 'cc.press': '按键', 'cc.menu_click': '菜单', 'cc.set_value': '填写控件',
 }
 const CC_LEVEL_META: Record<'standard' | 'strict', { label: string; desc: string }> = {
   standard: { label: '标准', desc: '高危操作（组合键等）需人工确认；极高风险默认拦截' },
@@ -1026,7 +1031,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     <div className="setting-group">
       <div className="setting-group-title">电脑控制</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">允许模型操作本机：鼠标（含滚轮）/ 键盘 / 全桌面截图 / 对话框确认 / 窗口查询。截图后的点击坐标与画面像素一致。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。紧急停止后月伴不会自动重新打开。</div>
+          <div className="setting-desc">允许模型操作本机：截图 / 界面节点 / 对话框 / 窗口列表与聚焦 / 鼠标（点击、拖拽、滚轮）/ 键盘（对指定应用先聚焦再输入）/ 剪贴板（纯文本）。点击坐标与截图像素一致；点按钮优先用界面节点或对话框观察，不要盲点。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。紧急停止后月伴不会自动重新打开。</div>
         {settings && (
           <div className="setting-label" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span>当前状态：</span>

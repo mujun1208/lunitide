@@ -119,6 +119,74 @@ func TestCcToolPlainOutcome(t *testing.T) {
 	}
 }
 
+func TestCcNewToolsRouteThroughExecutor(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	seen := map[string]bool{}
+	r.SetCcExecutor(func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error) {
+		seen[tool] = true
+		return ccapp.Outcome{Tool: tool, Summary: tool + " ok"}, nil
+	})
+	for _, tool := range []string{"cc.mouse_drag", "cc.window_list", "cc.window_focus", "cc.observe_ui", "cc.wait", "cc.clipboard", "cc.window_action", "cc.app_list", "cc.app_quit", "cc.paste", "cc.press", "cc.menu_click", "cc.set_value"} {
+		args := json.RawMessage(`{}`)
+		switch tool {
+		case "cc.mouse_drag":
+			args = json.RawMessage(`{"x1":1,"y1":1,"x2":2,"y2":2}`)
+		case "cc.window_focus":
+			args = json.RawMessage(`{"title":"Notepad"}`)
+		case "cc.clipboard":
+			args = json.RawMessage(`{"op":"get"}`)
+		case "cc.wait":
+			args = json.RawMessage(`{"ms":1}`)
+		case "cc.window_action":
+			args = json.RawMessage(`{"op":"restore"}`)
+		case "cc.app_quit":
+			args = json.RawMessage(`{"name":"notepad.exe"}`)
+		case "cc.paste":
+			args = json.RawMessage(`{"text":"hi"}`)
+		case "cc.press":
+			args = json.RawMessage(`{"key":"enter"}`)
+		case "cc.menu_click":
+			args = json.RawMessage(`{"path":"File > Save"}`)
+		case "cc.set_value":
+			args = json.RawMessage(`{"target":"Name","value":"Ada"}`)
+		}
+		if _, err := r.Execute(context.Background(), FullAccess, "s01", tool, args, true); err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+	}
+	if len(seen) != 13 {
+		t.Fatalf("routed %v", seen)
+	}
+}
+
+func TestCcClickVerifyPersistsScreenshotArtifact(t *testing.T) {
+	root := t.TempDir()
+	r, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	r.SetCcExecutor(func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error) {
+		return ccapp.Outcome{Tool: tool, Summary: "clicked left mouse 1 time(s); screen updated 100x100 (use image 100x100)", CapturePNG: png}, nil
+	})
+	out, err := r.Execute(context.Background(), Approval, session, "cc.mouse_click", json.RawMessage(`{"button":"left"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Artifact == nil || out.Artifact.Kind != "image" {
+		t.Fatalf("verify screenshot should appear as image artifact, got %+v", out.Artifact)
+	}
+	if len(out.VisionData) == 0 {
+		t.Fatal("verify screenshot should be passed to the model")
+	}
+}
+
 func TestCcObserveDialogRoutesThroughExecutor(t *testing.T) {
 	r, err := Open(t.TempDir())
 	if err != nil {

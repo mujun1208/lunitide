@@ -36,19 +36,42 @@ type fakeCcHost struct {
 
 func (f *fakeCcHost) Available() bool                    { return true }
 func (f *fakeCcHost) ScreenSize() (int, int)             { return 1920, 1080 }
+func (f *fakeCcHost) ScreenOrigin() (int, int)           { return 0, 0 }
+func (f *fakeCcHost) CursorPosition() (int, int, error)  { return 0, 0, nil }
 func (f *fakeCcHost) MouseMove(x, y int) error           { return nil }
 func (f *fakeCcHost) MouseClick(string, int) error       { return nil }
+func (f *fakeCcHost) MouseDrag(int, int, int, int) error { return nil }
 func (f *fakeCcHost) KeyboardType(string) error          { return nil }
 func (f *fakeCcHost) KeyboardShortcut([]string) error    { return nil }
 func (f *fakeCcHost) MouseScroll(int) error              { return nil }
+func (f *fakeCcHost) MouseScrollH(int) error             { return nil }
+func (f *fakeCcHost) EnsureForeground() error            { return nil }
 func (f *fakeCcHost) ScreenCapture() ([]byte, error)     { return nil, nil }
+func (f *fakeCcHost) WindowCapture(string) ([]byte, int, int, error) {
+	return nil, 0, 0, nil
+}
 func (f *fakeCcHost) ActiveWindow() (string, string, error) {
 	return f.title, f.process, nil
+}
+func (f *fakeCcHost) ListWindows() ([]ccapp.WindowInfo, error) { return nil, nil }
+func (f *fakeCcHost) FocusWindow(string) (ccapp.WindowInfo, error) {
+	return ccapp.WindowInfo{Title: f.title, Process: f.process}, nil
 }
 func (f *fakeCcHost) ObserveDialogs() ([]ccapp.DialogSnapshot, error) { return nil, nil }
 func (f *fakeCcHost) ConfirmDialog(string) (ccapp.DialogSnapshot, error) {
 	return ccapp.DialogSnapshot{}, nil
 }
+func (f *fakeCcHost) ObserveUI(int) ([]ccapp.UINode, error) { return nil, nil }
+func (f *fakeCcHost) ClipboardGet() (string, error)         { return "", nil }
+func (f *fakeCcHost) ClipboardSet(string) error             { return nil }
+func (f *fakeCcHost) WindowAction(string, string, int, int, int, int) (ccapp.WindowInfo, error) {
+	return ccapp.WindowInfo{Title: f.title, Process: f.process}, nil
+}
+func (f *fakeCcHost) QuitApp(string) (int, ccapp.WindowInfo, error) {
+	return 1, ccapp.WindowInfo{Title: f.title, Process: f.process}, nil
+}
+func (f *fakeCcHost) MenuClick(string) error        { return nil }
+func (f *fakeCcHost) SetValue(string, string) error { return nil }
 
 func TestCcConfigLifecycleThroughBridge(t *testing.T) {
 	e, _ := newCcEngine(t)
@@ -172,5 +195,38 @@ func TestCcExecuteToolAuditedThroughBridge(t *testing.T) {
 	filtered := e.Handle(ctx, nominationRequest("cc.getAuditLog", `{"limit":20,"status":"blocked"}`))
 	if !filtered.OK || !strings.Contains(string(mustJSON(filtered.Payload)), "process-monitor") {
 		t.Fatalf("blocked filter missing process-monitor row: %+v", filtered.Payload)
+	}
+}
+
+func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
+	e, _ := newCcEngine(t)
+	if defs := e.ccToolDefinitions(); len(defs) != 0 {
+		t.Fatalf("cc tools must stay hidden while disabled, got %d", len(defs))
+	}
+	if res := e.Handle(context.Background(), nominationRequest("cc.updateConfig", `{"enabled":true}`)); !res.OK {
+		t.Fatalf("enable failed: %+v", res.Error)
+	}
+	defs := e.ccToolDefinitions()
+	want := []string{
+		"cc.mouse_move", "cc.mouse_click", "cc.mouse_drag",
+		"cc.keyboard_type", "cc.keyboard_shortcut",
+		"cc.screen_capture", "cc.get_active_window",
+		"cc.window_list", "cc.window_focus",
+		"cc.observe_dialog", "cc.confirm_dialog", "cc.observe_ui",
+		"cc.wait", "cc.clipboard",
+		"cc.window_action", "cc.app_list", "cc.app_quit",
+		"cc.paste", "cc.press", "cc.menu_click", "cc.set_value",
+	}
+	got := map[string]bool{}
+	for _, d := range defs {
+		got[d.Name] = true
+	}
+	for _, name := range want {
+		if !got[name] {
+			t.Fatalf("missing tool %s in %v", name, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("tool set mismatch: got %d want %d (%v)", len(got), len(want), got)
 	}
 }

@@ -18,7 +18,8 @@ func bundledWorkflowInjection() string {
 		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个。禁止把桌面上其它无关文件一起打开。\n" +
 		"- 播放音乐/视频：若本会话已 desktop.open 音乐软件，续播用 media.play target=foreground（没说歌名时 query=热门）；否则 media.play（action=play，query=歌名/歌手，target=netease|qqmusic|browser）。禁止 cc.screen_capture 看屏点按，禁止只打开窗口或网页就结束。\n" +
 		"- 暂停/下一首：media.play action=pause|next|prev。\n" +
-		"- 看全桌面：电脑控制开启时用 cc.screen_capture（虚拟桌面全屏，含所有显示器）；截图会作为视觉输入回传。随后的鼠标坐标必须用该图像素。\n" +
+		"- 看全桌面：电脑控制开启时用 cc.screen_capture（虚拟桌面全屏，含所有显示器；target=foreground/window 可只截当前或指定窗口）。截图会作为视觉输入回传。随后的鼠标坐标必须用该图像素。点按钮优先 cc.observe_ui 再 cc.mouse_click name=控件名，不要盲点。\n" +
+		"- 窗口：cc.window_list 列出，cc.window_focus 激活已运行应用；输入前先 cc.window_focus（或 keyboard_type 的 window=）。未运行的用 desktop.open。最小化/还原/移动/关闭用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器/UAC）。拖拽用 cc.mouse_drag。粘贴用 cc.paste；按键用 cc.press；菜单用 cc.menu_click；填表用 cc.set_value。UI 动画未结束用 cc.wait until=change。\n" +
 		"- 对话框确认：先 cc.observe_dialog，若是普通 Yes/OK/确认/是/确定 再用 cc.confirm_dialog。禁止确认 UAC、提权、打开/保存文件对话框，禁止自动接受未知文件。不要靠截图盲点。\n" +
 		"使用规则：匹配上述场景时直接执行。用户已发布的技能见下方目录，用 skill.invoke。\n" +
 		"执行纪律：用户给出明确任务后，本轮连续调用工具直到完成或遇到真实阻塞（缺权限、缺无法推断的信息）。不要在勘查后停下等待确认，不要分段汇报后结束本轮。批量任务一次性做完再给最终结果。运行中若用户又发了新任务（帮我打开/开发/播放等），等本轮结束后再单独做，不要和当前任务绑在一起。上一轮已成功或失败即闭环。同一指令只执行一次，不要重复打开/创建/播放。一次性电脑操作（写文件、打开网页、播放歌曲）做完即停，不要循环重复同一动作。\n"

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	objidClient = 0xFFFFFFFC
-	rolePushBtn = 0x2B
+	objidClient  = 0xFFFFFFFC
+	rolePushBtn  = 0x2B
 	roleSplitBtn = 0x3E
 
 	bmClick   = 0x00F5
@@ -22,24 +22,27 @@ const (
 	idYes     = 6
 
 	vtI4       = 3
+	vtBSTR     = 8
 	vtDispatch = 9
 )
 
 var (
-	oleacc              = windows.NewLazySystemDLL("oleacc.dll")
-	oleaut32            = windows.NewLazySystemDLL("oleaut32.dll")
-	ole32               = windows.NewLazySystemDLL("ole32.dll")
+	oleacc   = windows.NewLazySystemDLL("oleacc.dll")
+	oleaut32 = windows.NewLazySystemDLL("oleaut32.dll")
+	ole32    = windows.NewLazySystemDLL("ole32.dll")
 
-	procGetClassNameW   = user32.NewProc("GetClassNameW")
-	procIsWindowVisible = user32.NewProc("IsWindowVisible")
-	procEnumWindowsCC   = user32.NewProc("EnumWindows")
+	procGetClassNameW    = user32.NewProc("GetClassNameW")
+	procIsWindow         = user32.NewProc("IsWindow")
+	procIsWindowVisible  = user32.NewProc("IsWindowVisible")
+	procEnumWindowsCC    = user32.NewProc("EnumWindows")
 	procEnumChildWindows = user32.NewProc("EnumChildWindows")
-	procSendMessageW    = user32.NewProc("SendMessageW")
+	procSendMessageW     = user32.NewProc("SendMessageW")
 	procGetWindowTextLen = user32.NewProc("GetWindowTextLengthW")
-	procSetForeground   = user32.NewProc("SetForegroundWindow")
+	procSetForeground    = user32.NewProc("SetForegroundWindow")
 
 	procAccessibleObjectFromWindow = oleacc.NewProc("AccessibleObjectFromWindow")
 	procSysFreeString              = oleaut32.NewProc("SysFreeString")
+	procSysAllocString             = oleaut32.NewProc("SysAllocString")
 	procCoInitializeEx             = ole32.NewProc("CoInitializeEx")
 	procCoUninitialize             = ole32.NewProc("CoUninitialize")
 )
@@ -103,6 +106,9 @@ func enumTopLevelProc(hwnd uintptr, lParam uintptr) uintptr {
 	if st == nil {
 		return 1
 	}
+	if len(st.dialogs) >= CcMaxObserveDialogs {
+		return 0
+	}
 	vis, _, _ := procIsWindowVisible.Call(hwnd)
 	if vis == 0 {
 		return 1
@@ -110,11 +116,13 @@ func enumTopLevelProc(hwnd uintptr, lParam uintptr) uintptr {
 	title := windowText(hwnd)
 	class := windowClass(hwnd)
 	_, process, _ := windowProcess(hwnd)
+	x, y, w, h := windowRect(hwnd)
 	d := liveDialog{
 		snap: DialogSnapshot{
 			Title:   title,
 			Process: process,
 			Class:   class,
+			X:       x, Y: y, W: w, H: h,
 		},
 		hwnd:       hwnd,
 		buttonHwnd: map[string]uintptr{},
@@ -130,6 +138,9 @@ func enumTopLevelProc(hwnd uintptr, lParam uintptr) uintptr {
 	looksDialog := class == "#32770" || ok || reason == "uac dialog" || reason == "elevation dialog" || reason == "file open/save dialog"
 	if !looksDialog {
 		return 1
+	}
+	if d.snap.Refused == "" {
+		attachDialogNodes(&d)
 	}
 	st.dialogs = append(st.dialogs, d)
 	return 1
@@ -179,6 +190,24 @@ func addButton(d *liveDialog, label string, hwnd uintptr) {
 	d.snap.Buttons = append(d.snap.Buttons, label)
 	if hwnd != 0 {
 		d.buttonHwnd[normalizeButton(label)] = hwnd
+	}
+}
+
+func attachDialogNodes(d *liveDialog) {
+	if d == nil {
+		return
+	}
+	for _, label := range d.snap.Buttons {
+		if len(d.snap.Nodes) >= CcMaxDialogNodes {
+			return
+		}
+		x, y, w, h := d.snap.X, d.snap.Y, d.snap.W, d.snap.H
+		if hwnd := d.buttonHwnd[normalizeButton(label)]; hwnd != 0 {
+			x, y, w, h = windowRect(hwnd)
+		}
+		d.snap.Nodes = append(d.snap.Nodes, UINode{
+			Role: "button", Name: label, X: x, Y: y, W: w, H: h,
+		})
 	}
 }
 
@@ -320,8 +349,9 @@ func clickDialogButton(d *liveDialog, caption string) error {
 }
 
 func comVtbl(obj uintptr, idx uintptr) uintptr {
-	vtbl := *(*uintptr)(unsafe.Pointer(obj))
-	return *(*uintptr)(unsafe.Pointer(vtbl + idx*unsafe.Sizeof(uintptr(0))))
+	vtbl := *(*uintptr)(ptrFromUintptr(obj))
+	slot := vtbl + idx*unsafe.Sizeof(uintptr(0))
+	return *(*uintptr)(ptrFromUintptr(slot))
 }
 
 func comRelease(obj uintptr) {
@@ -395,7 +425,7 @@ func accName(acc uintptr, child variant) string {
 		return ""
 	}
 	defer procSysFreeString.Call(bstr)
-	return windows.UTF16PtrToString((*uint16)(unsafe.Pointer(bstr)))
+	return windows.UTF16PtrToString((*uint16)(ptrFromUintptr(bstr)))
 }
 
 func accRole(acc uintptr, child variant) uint32 {

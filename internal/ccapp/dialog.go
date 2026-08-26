@@ -11,7 +11,12 @@ type DialogSnapshot struct {
 	Title       string   `json:"title"`
 	Process     string   `json:"process"`
 	Class       string   `json:"class,omitempty"`
+	X           int      `json:"x,omitempty"`
+	Y           int      `json:"y,omitempty"`
+	W           int      `json:"w,omitempty"`
+	H           int      `json:"h,omitempty"`
 	Buttons     []string `json:"buttons"`
+	Nodes       []UINode `json:"nodes,omitempty"`
 	Confirmable bool     `json:"confirmable"`
 	Refused     string   `json:"refused,omitempty"`
 }
@@ -68,6 +73,17 @@ func ClassifyDialog(title, process, class string, buttons []string) (confirmable
 	}
 	_ = class
 	return true, ""
+}
+
+// SensitiveSurfaceReason reports UAC / elevation / file Open-Save surfaces
+// that computer-control must not click or confirm. Ordinary windows return "".
+func SensitiveSurfaceReason(title, process, class string, buttons []string) string {
+	_, reason := ClassifyDialog(title, process, class, buttons)
+	switch reason {
+	case "uac dialog", "elevation dialog", "file open/save dialog":
+		return reason
+	}
+	return ""
 }
 
 func looksLikeFilePicker(title string, buttons []string) bool {

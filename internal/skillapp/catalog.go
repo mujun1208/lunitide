@@ -43,6 +43,9 @@ var uiComponentsSkillMD []byte
 //go:embed bundled/design-system/SKILL.md
 var designSystemSkillMD []byte
 
+//go:embed bundled/computer-control/SKILL.md
+var computerControlSkillMD []byte
+
 // ErrTemplateUnknown answers an install request naming a catalog id that
 // does not exist; ErrTemplateInstalled answers a name+version collision.
 var (
@@ -198,6 +201,13 @@ func designSystemManifest() map[string]any {
 	}, "\n\n--- Lunitide 集成 ---\n审计现有 CSS/Tailwind 变量；token 与规范写入工作区文档。重构时小步提交。用中文输出检查清单。")
 }
 
+func computerControlManifest() map[string]any {
+	return bundledManifest(computerControlSkillMD, []string{
+		"操作电脑", "电脑控制", "computer control", "computer-control", "点一下", "帮我点",
+		"截个屏", "切窗口", "按回车", "粘贴", "桌面操作", "peekaboo",
+	}, "\n\n--- Lunitide 集成 ---\n只用已启用的 cc.* 工具，禁止 command.run 模拟键鼠。启动未运行应用用 desktop.open；播歌用 media.play；网页用 browser.act。禁止确认 UAC/提权/打开保存对话框。用中文短报进度。")
+}
+
 // catalogTemplates is the frozen local market list. Entry points point at
 // the builtin pipeline namespace; manifests keep the trigger keywords the
 // matcher scores and the working agreement the model sees on invoke.
@@ -273,6 +283,15 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint:  "builtin://design-system",
 		Manifest:    designSystemManifest(),
 		Featured:    true, Bundled: true, Source: "Codex 推荐",
+	},
+	{
+		ID: "computer-control", Name: "computer-control", DisplayName: "computer-control",
+		Description: "Operate this Windows PC with cc.* tools: screenshot, named click, type, paste, press, windows, menus. This PC only.",
+		Category:    "办公协作", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://computer-control",
+		Manifest:    computerControlManifest(),
+		Featured:    true, Bundled: true, Source: "月汐",
 	},
 	{
 		ID: "expert-manager", Name: "expert-manager", DisplayName: "expert-manager",

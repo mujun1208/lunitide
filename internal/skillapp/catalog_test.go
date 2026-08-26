@@ -19,7 +19,7 @@ func TestCatalogTemplatesWellFormed(t *testing.T) {
 		}
 		if !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" && tpl.ID != "plugin-creator" &&
 			tpl.ID != "find-skills" && tpl.ID != "brainstorming" && tpl.ID != "pm-skill" && tpl.ID != "super-coders" &&
-			tpl.ID != "frontend-design" && tpl.ID != "ui-components" && tpl.ID != "design-system" {
+			tpl.ID != "frontend-design" && tpl.ID != "ui-components" && tpl.ID != "design-system" && tpl.ID != "computer-control" {
 			t.Fatalf("template name must use tpl- prefix: %q", tpl.Name)
 		}
 		if seen[tpl.ID] {

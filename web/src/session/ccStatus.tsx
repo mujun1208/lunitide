@@ -86,7 +86,16 @@ function statusDetail(status: CcSessionStatus, config: CcGetConfigResult | null 
   if (status === 'paused') return '高危操作等待你的确认'
   if (status === 'running') {
     if (liveTool === 'cc.observe_dialog' || liveTool === 'cc.confirm_dialog') return '正在用无障碍接口观察或确认对话框'
+    if (liveTool === 'cc.observe_ui') return '正在读取界面控件'
     if (liveTool === 'cc.screen_capture') return '正在截取整个桌面'
+    if (liveTool === 'cc.window_list' || liveTool === 'cc.window_focus') return '正在查找或切换窗口'
+    if (liveTool === 'cc.mouse_drag') return '正在拖拽'
+    if (liveTool === 'cc.wait') return '正在等待界面变化'
+    if (liveTool === 'cc.clipboard') return '正在读写剪贴板'
+    if (liveTool === 'cc.window_action' || liveTool === 'cc.app_list' || liveTool === 'cc.app_quit') return '正在管理窗口或应用'
+    if (liveTool === 'cc.paste' || liveTool === 'cc.press') return '正在键盘输入'
+    if (liveTool === 'cc.menu_click') return '正在点菜单'
+    if (liveTool === 'cc.set_value') return '正在填写控件'
     return '电脑控制操作执行中'
   }
   if (status === 'blocked' && lastAction) {

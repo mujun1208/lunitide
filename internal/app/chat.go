@@ -49,10 +49,10 @@ type executionMode string
 // appended to the system instruction are bounded so they never crowd out
 // the conversation context.
 const (
-	preferenceInjectMaxItems = 8
-	preferenceInjectMaxBytes = 2048
-	companionMaxTokens       = 2048
-	companionMaxMessages     = 24
+	preferenceInjectMaxItems  = 8
+	preferenceInjectMaxBytes  = 2048
+	companionMaxTokens        = 2048
+	companionMaxMessages      = 24
 	companionMaxToolLoopSteps = 10
 	// chatMaxTokens leaves headroom after long reasoning so a short tool
 	// call still fits. Dumping a full HTML game under 4096 truncated the
@@ -77,20 +77,20 @@ const (
 
 func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var p struct {
-		ProviderID        string            `json:"providerId"`
-		ModelID           string            `json:"modelId"`
-		SessionID         string            `json:"sessionId"`
-		Messages          []gateway.Message `json:"messages"`
-		ExecutionMode     executionMode     `json:"executionMode"`
-		ContextRefs       []struct {
+		ProviderID    string            `json:"providerId"`
+		ModelID       string            `json:"modelId"`
+		SessionID     string            `json:"sessionId"`
+		Messages      []gateway.Message `json:"messages"`
+		ExecutionMode executionMode     `json:"executionMode"`
+		ContextRefs   []struct {
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
-		Companion         bool              `json:"companion"`
-		ProjectID         string            `json:"projectId"`
-		ProjectPhase      int               `json:"projectPhase"`
-		ProjectPhaseLabel string            `json:"projectPhaseLabel"`
-		SubagentPolicy    json.RawMessage   `json:"subagentPolicy"`
+		Companion         bool            `json:"companion"`
+		ProjectID         string          `json:"projectId"`
+		ProjectPhase      int             `json:"projectPhase"`
+		ProjectPhaseLabel string          `json:"projectPhaseLabel"`
+		SubagentPolicy    json.RawMessage `json:"subagentPolicy"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -595,7 +595,7 @@ func companionPersonaInstruction() string {
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐）；不要用 command.run 猜路径\n" +
 		"- 播歌/播放：若本会话已打开音乐软件（见下方会话上下文），必须用 media.play（target=foreground，query=歌名/歌手；没说具体歌时用 query=热门）在该软件内搜索并播放；禁止 cc.screen_capture 看屏点按，禁止改用网页或 netease/qqmusic。用户一句里同时要求打开软件并播放时，先 desktop.open 再 media.play target=foreground。仅当用户明确要网页版或未打开桌面音乐软件时，才用 target=browser|netease|qqmusic\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
-		"- 操作电脑：电脑控制开启时用 cc.*。看全桌面用 cc.screen_capture（整张虚拟桌面）；之后鼠标坐标必须用你看到的那张图的像素，不要用原始桌面分辨率。普通对话框先 cc.observe_dialog（可 waitMs），确认是 Yes/OK/确认/是/确定 后再 cc.confirm_dialog；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。滚动用 cc.mouse_click scroll=±1。command.run 仅在需要跑命令时用\n" +
+		"- 操作电脑：电脑控制开启时用 cc.*。先 cc.screen_capture（或 cc.observe_ui）看清界面，再动手；鼠标坐标必须用你看到的那张图的像素。点按钮优先 cc.observe_ui 后 cc.mouse_click id=B1 或 name=控件名，或 cc.observe_dialog 后再 cc.confirm_dialog，不要盲点像素。普通对话框确认是 Yes/OK/确认/是/确定 后再点；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。拖拽用 cc.mouse_drag；切窗口用 cc.window_list 再 cc.window_focus（已在运行的应用），对指定应用先 cc.window_focus 再 keyboard_type。启动未打开的应用用 desktop.open。关/最小化/移动窗口用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器）。滚动用 cc.mouse_click scroll=±1。按回车用 cc.press key=enter。粘贴用 cc.paste。菜单用 cc.menu_click。填输入框优先 cc.set_value。UI 未就绪用 cc.wait until=change。剪贴板用 cc.clipboard（纯文本）。command.run 仅在需要跑命令时用\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 }
 
@@ -1046,13 +1046,26 @@ func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
 	}
 	return []gateway.ToolDefinition{
 		{Name: "cc.mouse_move", Description: "Move the mouse to pixel coordinates of the latest cc.screen_capture image (origin top-left of that image). If you have not captured yet, use virtual-desktop pixels.", Schema: []byte(`{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},"required":["x","y"],"additionalProperties":false}`)},
-		{Name: "cc.mouse_click", Description: "Click or scroll. Optional x,y are in the latest screenshot image pixels (same space as cc.mouse_move). scroll is wheel notches (-12..12). Default is a left click at the current cursor.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"scroll":{"type":"integer","minimum":-12,"maximum":12,"description":"wheel notches; when set, no click"}},"additionalProperties":false}`)},
-		{Name: "cc.keyboard_type", Description: "Type literal text (including Chinese) through synthetic keyboard input; no control characters", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096}},"required":["text"],"additionalProperties":false}`)},
-		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s or media_play); system-reserved combos are refused", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}}},"required":["keys"],"additionalProperties":false}`)},
-		{Name: "cc.screen_capture", Description: "Capture the entire virtual desktop (all monitors) as PNG. You receive a downscaled image; mouse x,y must use that image's pixel coordinates. Do not screenshot-click music apps; use media.play.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-		{Name: "cc.get_active_window", Description: "Answer the foreground window title and process name", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-		{Name: "cc.observe_dialog", Description: "List visible standard dialogs and their buttons via UI Automation / accessibility. Prefer this over screenshot-click for Yes/OK/确认. Optional waitMs (0-5000) waits for a dialog to appear.", Schema: []byte(`{"type":"object","properties":{"waitMs":{"type":"integer","minimum":0,"maximum":5000}},"additionalProperties":false}`)},
+		{Name: "cc.mouse_click", Description: "Click or scroll. Always screenshot first (cc.screen_capture) and click in THAT image's pixels — never guess screen resolution. Prefer name= or id= (B1) from the latest cc.observe_ui node. scroll is wheel notches (-12..12); scrollAxis=horizontal uses the horizontal wheel. After a click the tool returns a fresh screenshot so you can verify the hit. Never click UAC / elevation / file Open-Save dialogs.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"scroll":{"type":"integer","minimum":-12,"maximum":12,"description":"wheel notches; when set, no click"},"scrollAxis":{"type":"string","enum":["vertical","horizontal"],"description":"default vertical"},"name":{"type":"string","maxLength":80,"description":"accessibility node name from cc.observe_ui; preferred over x,y"},"id":{"type":"string","maxLength":8,"description":"node id like B1 from cc.observe_ui"}},"additionalProperties":false}`)},
+		{Name: "cc.mouse_drag", Description: "Left-button drag from (x1,y1) to (x2,y2) in the latest screenshot image pixels. Use for sliders, selecting text, or drag-and-drop. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"x1":{"type":"integer","minimum":0,"maximum":65535},"y1":{"type":"integer","minimum":0,"maximum":65535},"x2":{"type":"integer","minimum":0,"maximum":65535},"y2":{"type":"integer","minimum":0,"maximum":65535}},"required":["x1","y1","x2","y2"],"additionalProperties":false}`)},
+		{Name: "cc.keyboard_type", Description: "Type literal text (including Chinese) into the focused window. When targeting a specific app, call cc.window_focus first (or pass window=title/process fragment); otherwise input may hit the companion. Restores the last user app if the companion stole focus. No control characters. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096},"window":{"type":"string","maxLength":200,"description":"optional title or process fragment to focus first"}},"required":["text"],"additionalProperties":false}`)},
+		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s or media_play); system-reserved combos are refused. Optional window focuses a match first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}},"window":{"type":"string","maxLength":200}},"required":["keys"],"additionalProperties":false}`)},
+		{Name: "cc.screen_capture", Description: "REQUIRED before any pixel click/drag: capture the screen as an image. target=desktop (default) is the entire virtual desktop (all monitors, DPI-aware). target=foreground captures the active window. target=window plus title= captures a named window. You receive a downscaled image; ALL later mouse x,y MUST use that image's pixel coordinates (top-left of the image is 0,0). Do not screenshot-click music apps; use media.play. Prefer cc.observe_ui or cc.observe_dialog for buttons when possible. Never confirm UAC.", Schema: []byte(`{"type":"object","properties":{"target":{"type":"string","enum":["desktop","foreground","window"],"description":"default desktop"},"title":{"type":"string","maxLength":200,"description":"window title/process when target=window"}},"additionalProperties":false}`)},
+		{Name: "cc.get_active_window", Description: "Answer the foreground window title, process name, and cursor position (screen + image pixels if a screenshot is in context)", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+		{Name: "cc.window_list", Description: "List visible top-level windows (title, process, id, bounds), capped at 64. After a screenshot, bounds are in that image's pixels (space=image); otherwise desktop pixels (space=screen). Call cc.window_focus before typing into an app; use desktop.open to launch an app that is not running.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+		{Name: "cc.window_focus", Description: "Bring a running window to the foreground by title or process fragment (or id like 0xHWND). Restores minimized windows. After this, cc.keyboard_type / cc.press / cc.paste land in that window. Does not launch new apps — use desktop.open for that.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200}},"required":["title"],"additionalProperties":false}`)},
+		{Name: "cc.observe_dialog", Description: "List visible standard dialogs and clickable buttons (name, role, bounds) via accessibility. Bounds are in the latest screenshot image pixels when a capture exists. Prefer this over screenshot-click for Yes/OK/确认. UAC / elevation / file Open-Save are listed as refused, never confirmable. Optional waitMs (0-5000) waits for a dialog to appear.", Schema: []byte(`{"type":"object","properties":{"waitMs":{"type":"integer","minimum":0,"maximum":5000}},"additionalProperties":false}`)},
 		{Name: "cc.confirm_dialog", Description: "Click a standard confirm button (Yes/OK/确认/是/确定) found by accessibility. Refuses UAC, elevation, and file Open/Save dialogs. Never auto-accept unknown files.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","description":"ok|yes|confirm or a caption; default auto"}},"additionalProperties":false}`)},
+		{Name: "cc.observe_ui", Description: "Summarize actionable accessibility nodes (buttons, links, edits, tabs, lists) on the foreground window, with Peekaboo-style id badges (B1, E1) on the screenshot. Bounds are in the latest screenshot image pixels. Prefer clicking id= or name= over guessing pixels. Caps at 40 nodes (maxNodes up to 80). Refuses UAC / elevation / file Open-Save (no clickable nodes).", Schema: []byte(`{"type":"object","properties":{"maxNodes":{"type":"integer","minimum":0,"maximum":80}},"additionalProperties":false}`)},
+		{Name: "cc.wait", Description: "Pause so the UI can settle. until=timeout (default) sleeps ms (0-8000). until=change polls screenshots until pixels change or ms elapses, then returns the new image if it changed.", Schema: []byte(`{"type":"object","properties":{"ms":{"type":"integer","minimum":0,"maximum":8000},"until":{"type":"string","enum":["timeout","change"]}},"additionalProperties":false}`)},
+		{Name: "cc.clipboard", Description: "Read or write the local clipboard as Unicode text only (this PC; no files). op=get returns text truncated to 8192 characters; op=set writes text (max 8192).", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["get","set"]},"text":{"type":"string","maxLength":8192}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "cc.window_action", Description: "Arrange a running window: op=minimize|maximize|restore|move|resize|hide|close. title is a title/process fragment or 0xHWND; empty title means the foreground window. move uses screen x,y (from cc.window_list); resize uses w,h. close/hide of explorer/UAC/Lunitide is refused. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["close","minimize","maximize","restore","move","resize","hide"]},"title":{"type":"string","maxLength":200},"x":{"type":"integer","minimum":-32768,"maximum":65535},"y":{"type":"integer","minimum":-32768,"maximum":65535},"w":{"type":"integer","minimum":1,"maximum":65535},"h":{"type":"integer","minimum":1,"maximum":65535}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "cc.app_list", Description: "List unique processes that currently have visible windows. Use cc.window_focus to switch; desktop.open to launch something that is not running; cc.app_quit to close.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+		{Name: "cc.app_quit", Description: "Close matching visible windows with WM_CLOSE (not TerminateProcess). title or name is a title/process fragment. Refuses explorer, UAC, and other protected processes.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200},"name":{"type":"string","maxLength":200}},"additionalProperties":false}`)},
+		{Name: "cc.paste", Description: "Paste into the focused window (Ctrl+V). If text is set, write it to the clipboard first. Optional window focuses a match first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","maxLength":8192},"window":{"type":"string","maxLength":200}},"additionalProperties":false}`)},
+		{Name: "cc.press", Description: "Press one non-modifier key (enter, tab, esc, backspace, arrows, a–z, f1–f12, …) count times (1–8). Combos stay on cc.keyboard_shortcut. Optional window focuses first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"key":{"type":"string","minLength":1,"maxLength":24},"count":{"type":"integer","minimum":1,"maximum":8},"window":{"type":"string","maxLength":200}},"required":["key"],"additionalProperties":false}`)},
+		{Name: "cc.menu_click", Description: "Click a menu path on the focused window via accessibility (e.g. File > Save or 文件/保存). Optional window focuses first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":240},"window":{"type":"string","maxLength":200}},"required":["path"],"additionalProperties":false}`)},
+		{Name: "cc.set_value", Description: "Set an edit/combobox value by accessibility name or the latest cc.observe_ui id (E1). Optional window focuses first. Prefer this over click+type for named fields. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"target":{"type":"string","minLength":1,"maxLength":80},"value":{"type":"string","maxLength":4096},"window":{"type":"string","maxLength":200}},"required":["target","value"],"additionalProperties":false}`)},
 	}
 }
 
