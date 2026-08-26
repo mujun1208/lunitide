@@ -313,6 +313,28 @@ func (h *windowsHost) MenuClick(path string) error {
 	return nil
 }
 
+func (h *windowsHost) InvokeUI(target string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return fmt.Errorf("empty UI target")
+	}
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	if hwnd == 0 {
+		return fmt.Errorf("no foreground window")
+	}
+	_, _, _ = procCoInitializeEx.Call(0, uintptr(windows.COINIT_MULTITHREADED))
+	defer procCoUninitialize.Call()
+	acc := accessibleFromWindow(hwnd)
+	if acc == 0 {
+		return fmt.Errorf("no accessible object")
+	}
+	defer comRelease(acc)
+	if invokeNamedOn(acc, target) {
+		return nil
+	}
+	return fmt.Errorf("no UI node matching %q", target)
+}
+
 func (h *windowsHost) SetValue(target, value string) error {
 	hwnd, _, _ := procGetForegroundWindow.Call()
 	if hwnd == 0 {
