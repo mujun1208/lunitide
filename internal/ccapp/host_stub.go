@@ -65,3 +65,4 @@ func (unavailableHost) MenuClick(string) error { return ErrCcEngineUnavailable }
 func (unavailableHost) SetValue(string, string) error {
 	return ErrCcEngineUnavailable
 }
+func (unavailableHost) InvokeUI(string) error { return ErrCcEngineUnavailable }
