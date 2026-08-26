@@ -141,9 +141,22 @@ func TestServerArgsCarryThePortAndTokens(t *testing.T) {
 	if !strings.Contains(joined, "tokens.txt") {
 		t.Errorf("tokens not passed through: %v", args)
 	}
-	// Endpointing is decided by the renderer's tiered Chinese rules; a
-	// second opinion in the server cuts utterances it is still holding open.
-	if !strings.Contains(joined, "--enable-endpoint=false") {
-		t.Errorf("server-side endpointing should be off: %v", args)
+	// The recognizer decides when a turn ended, from the decoder's own state
+	// and the silence it measured. This was off, with the decision left to
+	// rules above the bridge that watched microphone level and how long the
+	// transcript had been unchanged — neither of which is evidence about the
+	// speaker, and both of which are shorter than an ordinary pause, so
+	// 「你好月汐」 was committed and answered as 「你好」.
+	if !strings.Contains(joined, "--enable-endpoint=true") {
+		t.Errorf("server-side endpointing should be on: %v", args)
+	}
+	// The wait between the user finishing and being answered.
+	if !strings.Contains(joined, "--rule2-min-trailing-silence=1.20") {
+		t.Errorf("turn-end silence not passed through: %v", args)
+	}
+	// Rule 1 ignores whether anything was said, so without this it ends
+	// "turns" made of room noise on a shorter clock than rule 2.
+	if !strings.Contains(joined, "--rule1-must-contain-nonsilence=true") {
+		t.Errorf("rule 1 would fire on silence alone: %v", args)
 	}
 }

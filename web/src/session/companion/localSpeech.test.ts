@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
-import { TURN_END_INCOMPLETE_SILENCE_MS, TURN_END_SILENCE_MS } from './speech'
+import { ENDPOINT_BACKSTOP_MS } from './localSpeech'
 
 const asr = {
   finish: vi.fn(),
@@ -67,34 +67,44 @@ afterEach(() => {
 })
 
 describe('startLocalCompanionSpeech', () => {
-  it('commits a complete sentence once the speaker has stopped', async () => {
+  it('commits when the recognizer says the speaker stopped', async () => {
     const stage = harness()
     asr.commit.mockResolvedValue('今天天气很好')
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('今天天气很好', false)
     expect(stage.onInterim).toHaveBeenCalledWith('今天天气很好')
-
     await vi.advanceTimersByTimeAsync(350)
     expect(stage.onFinal).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS)
+    onTranscript('今天天气很好', true)
+    await vi.advanceTimersByTimeAsync(50)
     expect(stage.onFinal).toHaveBeenCalledWith('今天天气很好')
   })
 
-  it('holds an unfinished phrase instead of cutting the user off', async () => {
+  it('does not end a turn the recognizer has not ended', async () => {
+    // 「你可以」 is the middle of a request, and so is any pause between two
+    // clauses. This side used to decide from microphone level and how long
+    // the transcript had been unchanged, which is what cut 「你好月汐」 down
+    // to 「你好」. The recognizer decides it from the decoder and the silence
+    // it measured; until it says so, the turn is still the user's.
     const stage = harness()
     asr.commit.mockResolvedValue('你可以')
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('你可以', false)
-    // The settle window that would commit a complete sentence must not commit
-    // a dangling one: "你可以" is the middle of a request, not a request.
-    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
+    await vi.advanceTimersByTimeAsync(2500)
     expect(stage.onFinal).not.toHaveBeenCalled()
+  })
 
-    await vi.advanceTimersByTimeAsync(TURN_END_INCOMPLETE_SILENCE_MS)
-    expect(stage.onFinal).toHaveBeenCalledWith('你可以')
+  it('does not wait forever on a recognizer that stops reporting endpoints', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('帮我看看明天的安排')
+    await startLocalCompanionSpeech(stage.options)
+
+    onTranscript('帮我看看明天的安排', false)
+    await vi.advanceTimersByTimeAsync(ENDPOINT_BACKSTOP_MS + 300)
+    expect(stage.onFinal).toHaveBeenCalledWith('帮我看看明天的安排')
   })
 
   it('keeps the utterance open while the user is still adding to it', async () => {
@@ -116,7 +126,8 @@ describe('startLocalCompanionSpeech', () => {
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('就按这个来。', false)
-    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
+    onTranscript('就按这个来。', true)
+    await vi.advanceTimersByTimeAsync(100)
     // Losing the sentence would be worse than sending the copy the user
     // already watched appear in the caption.
     expect(stage.onFinal).toHaveBeenCalledWith('就按这个来。')
@@ -142,30 +153,22 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
-  it('waits for the speaker to stop, not for the model to pause', async () => {
-    // 「我说你之前的问题也」 — a sentence answered half-said. The shared rules
-    // end a turn after a fifth of a second of unchanged text, which is what
-    // the cloud recognizer does when the user has stopped and what this one
-    // does between tokens. The energy gate is the signal that separates them.
+  it('lets the rest of the sentence arrive before committing it', async () => {
+    // 「我说你之前的问题也」 — the half of a sentence that used to be answered
+    // as though it were the whole of it, because the transcript had paused.
     const stage = harness()
     asr.commit.mockResolvedValue('我说你之前的问题也不能全怪我')
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('我说你之前的问题也', false)
-    // Still talking: the microphone keeps reporting speech even though the
-    // recognizer has emitted nothing new for well over the old threshold.
     for (let tick = 0; tick < 12; tick++) {
       onLevel(0.3)
       await vi.advanceTimersByTimeAsync(60)
     }
     expect(stage.onFinal).not.toHaveBeenCalled()
 
-    // Now they stop, and the rest of the sentence lands.
-    onTranscript('我说你之前的问题也不能全怪我', false)
-    for (let elapsed = 0; elapsed < TURN_END_SILENCE_MS + 400; elapsed += 60) {
-      onLevel(0)
-      await vi.advanceTimersByTimeAsync(60)
-    }
+    onTranscript('我说你之前的问题也不能全怪我', true)
+    await vi.advanceTimersByTimeAsync(50)
     expect(stage.onFinal).toHaveBeenCalledWith('我说你之前的问题也不能全怪我')
   })
 
@@ -187,8 +190,8 @@ describe('startLocalCompanionSpeech', () => {
     handle.setAssistantPlayback(false, 0)
     asr.commit.mockResolvedValue('那帮我订个会议室。')
     await vi.advanceTimersByTimeAsync(100)
-    onTranscript('那帮我订个会议室。', false)
-    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
+    onTranscript('那帮我订个会议室。', true)
+    await vi.advanceTimersByTimeAsync(100)
 
     expect(stage.onFinal).toHaveBeenCalledWith('那帮我订个会议室。')
     for (const [caption] of stage.onInterim.mock.calls) {
@@ -251,8 +254,8 @@ describe('startLocalCompanionSpeech', () => {
 
     // What the user actually says next commits normally.
     asr.commit.mockResolvedValue('那帮我改一下。')
-    onTranscript('那帮我改一下。', false)
-    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
+    onTranscript('那帮我改一下。', true)
+    await vi.advanceTimersByTimeAsync(100)
     expect(stage.onFinal).toHaveBeenCalledWith('那帮我改一下。')
   })
 

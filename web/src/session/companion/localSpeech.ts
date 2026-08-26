@@ -9,13 +9,11 @@
  * companion interrupting on one engine but not the other.
  */
 import { BridgeClientError } from '../../bridge/client'
-import { looksIncompleteUtterance } from './companionText'
 import { startLocalAsr, type LocalAsrHandle } from './localAsr'
 import { MOON_RING_BINS } from './MoonSphere'
 import {
   ECHO_GUARD_MS,
   shouldDeferCommit,
-  turnEnded,
   speechProfile,
   type CompanionSpeechHandle,
   type CompanionSpeechOptions,
@@ -23,6 +21,16 @@ import {
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
+
+/**
+ * How long to wait on an engine that has stopped reporting endpoints.
+ *
+ * Only reached when the recognizer never says a turn ended, so it is sized to
+ * be unmistakably longer than a pause someone leaves mid-sentence. A shorter
+ * value here does not make the companion quicker — the engine answers first
+ * in every healthy turn — it only makes it interrupt.
+ */
+export const ENDPOINT_BACKSTOP_MS = 3500
 
 /** Peak that paints a full ring. Chosen so normal speech sits mid-scale. */
 const FULL_SCALE_PEAK = 0.35
@@ -106,19 +114,24 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     }
   }
 
+  /**
+   * The engine's endpoint is what ends a turn. This is the backstop for a
+   * recognizer that stops reporting them at all.
+   *
+   * Deliberately much longer than the engine's own window, so it stays a
+   * backstop: the previous rules here decided turns from microphone energy
+   * and how long the transcript had been unchanged, and both of those are
+   * shorter than an ordinary pause mid-sentence. They ended turns half-said.
+   */
   const evaluate = () => {
     if (closed || recycling || playback || commitPaused) return
     const trimmed = text.trim()
     if (!trimmed) return
     const now = Date.now()
     if (shouldDeferCommit(trimmed, now - textSince)) return
-    const ended = turnEnded({
-      speechActive,
-      silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
-      msSinceLastResult: now - lastTextAt,
-      incomplete: looksIncompleteUtterance(trimmed),
-    })
-    if (ended) void recycle('final')
+    if (speechActive) return
+    if (now - lastTextAt < ENDPOINT_BACKSTOP_MS) return
+    void recycle('final')
   }
 
   asr = await startLocalAsr({
@@ -136,7 +149,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         speechActive = false
       }
     },
-    onTranscript: next => {
+    onTranscript: (next, final) => {
       if (closed) return
       const now = Date.now()
       // Audio captured before the guard closed is the speaker, not the user.
@@ -153,15 +166,21 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         return
       }
       const trimmed = next.trim()
-      if (!trimmed || trimmed === text.trim()) return
-      text = next
-      lastTextAt = now
-      if (!textSince) textSince = now
-      if (!announcedSpeech) {
-        announcedSpeech = true
-        options.onSpeechStart?.()
+      if (!trimmed) return
+      if (trimmed !== text.trim()) {
+        text = next
+        lastTextAt = now
+        if (!textSince) textSince = now
+        if (!announcedSpeech) {
+          announcedSpeech = true
+          options.onSpeechStart?.()
+        }
+        options.onInterim?.(next)
       }
-      options.onInterim?.(next)
+      // The engine has decided the speaker stopped. It reaches that from the
+      // decoder's own state and the trailing silence it measured, which is
+      // the evidence this side of the bridge never had.
+      if (final) void recycle('final')
     },
     onTranscriptLost: () => {
       // The microphone is still live, so the repair is to say it again. Said
