@@ -376,6 +376,14 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventToolCompleted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "xlsx.gen", ArgsDigest: strings.Repeat("b", 64), Summary: "wrote report.xlsx", Artifact: &bridge.ArtifactEvent{Kind: "xlsx", Path: "report.xlsx", Content: "binary"}}
 		}, false},
+		{"tool completed image artifact", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("b", 64), Summary: "captured desktop", Artifact: &bridge.ArtifactEvent{Kind: "image", Path: "screen-capture.png"}}
+		}, true},
+		{"tool completed image artifact with body", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("b", 64), Summary: "captured desktop", Artifact: &bridge.ArtifactEvent{Kind: "image", Path: "screen-capture.png", Content: "binary"}}
+		}, false},
 		{"approval required", func(e *bridge.Event) {
 			e.Type = bridge.EventApprovalRequired
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("c", 64), Summary: "approval required"}
@@ -453,6 +461,27 @@ func TestSanitizeKeepsHTMLPreviewAndDropsHTTPSArtifactPath(t *testing.T) {
 	sanitizeEvent(&drop)
 	if drop.Tool.Artifact != nil {
 		t.Fatalf("https artifact path must be stripped, got %#v", drop.Tool.Artifact)
+	}
+}
+
+func TestSanitizeKeepsImagePNGArtifact(t *testing.T) {
+	keep := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
+		CallID: "call-1", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("a", 64),
+		Summary: "captured desktop 1920x1080",
+		Artifact: &bridge.ArtifactEvent{Kind: "image", Path: `captures\screen-capture.png`},
+	}}
+	sanitizeEvent(&keep)
+	if keep.Tool.Artifact == nil || keep.Tool.Artifact.Kind != "image" || keep.Tool.Artifact.Path != "captures/screen-capture.png" {
+		t.Fatalf("png screenshot must survive sanitizer: %#v", keep.Tool.Artifact)
+	}
+	drop := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
+		CallID: "call-2", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("b", 64),
+		Summary: "captured desktop",
+		Artifact: &bridge.ArtifactEvent{Kind: "image", Path: "screen-capture.jpg"},
+	}}
+	sanitizeEvent(&drop)
+	if drop.Tool.Artifact != nil {
+		t.Fatalf("non-png image must be stripped, got %#v", drop.Tool.Artifact)
 	}
 }
 

@@ -362,7 +362,8 @@
             "xlsx",
             "docx",
             "pptx",
-            "pdf"
+            "pdf",
+            "image"
           ]
         },
         "path": {

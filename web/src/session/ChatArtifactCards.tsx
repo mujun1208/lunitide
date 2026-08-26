@@ -3,8 +3,8 @@ import { sessionFolderBridge, type StreamArtifact } from '../bridge/client'
 
 export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 
-const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF' }
-const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦' }
+const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图' }
+const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣' }
 
 export function ChatArtifactCards({
   sessionId,

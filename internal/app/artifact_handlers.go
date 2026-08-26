@@ -21,7 +21,7 @@ import (
 // artifactKindValid accepts the kinds the chat pipeline can emit as cards.
 func artifactKindValid(kind string) bool {
 	switch kind {
-	case "html", "xlsx", "docx", "pptx", "pdf":
+	case "html", "xlsx", "docx", "pptx", "pdf", "image":
 		return true
 	}
 	return false

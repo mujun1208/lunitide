@@ -20,7 +20,10 @@ export async function ensureCompanionCapabilities(): Promise<CompanionCapability
   }
   try {
     const cfg = await ccBridge.getConfig()
-    if (!cfg.enabled || cfg.emergencyStoppedAt) {
+    if (cfg.emergencyStopped) {
+      return { fullAccess, ccEnabled: false }
+    }
+    if (!cfg.enabled) {
       await ccBridge.updateConfig({ enabled: true, securityLevel: 'standard', actor: 'companion' })
     }
     ccEnabled = true

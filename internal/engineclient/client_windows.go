@@ -438,6 +438,14 @@ func validRendererArtifact(a *bridge.ArtifactEvent) error {
 		if a.Content != "" {
 			return errors.New("invalid tool artifact")
 		}
+	case "image":
+		if a.Content != "" {
+			return errors.New("invalid tool artifact")
+		}
+		lower := strings.ToLower(a.Path)
+		if !strings.HasSuffix(lower, ".png") {
+			return errors.New("invalid tool artifact")
+		}
 	default:
 		return errors.New("invalid tool artifact")
 	}
@@ -540,6 +548,11 @@ func validStreamArtifact(a *bridge.ArtifactEvent) error {
 	case "html":
 		return nil
 	case "xlsx", "docx", "pptx", "pdf":
+		if a.Content != "" {
+			return errors.New("invalid tool artifact")
+		}
+		return nil
+	case "image":
 		if a.Content != "" {
 			return errors.New("invalid tool artifact")
 		}

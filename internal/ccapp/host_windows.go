@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -46,22 +47,31 @@ var (
 )
 
 const (
-	smCXScreen = 0
-	smCYScreen = 1
+	smCXScreen          = 0
+	smCYScreen          = 1
+	smXVIRTUALSCREEN    = 76
+	smYVIRTUALSCREEN    = 77
+	smCXVIRTUALSCREEN   = 78
+	smCYVIRTUALSCREEN   = 79
 
 	inputMouse    = 0
 	inputKeyboard = 1
 
-	mouseEventfMove       = 0x0001
-	mouseEventfLeftDown   = 0x0002
-	mouseEventfLeftUp     = 0x0004
-	mouseEventfRightDown  = 0x0008
-	mouseEventfRightUp    = 0x0010
-	mouseEventfMiddleDown = 0x0020
-	mouseEventfMiddleUp   = 0x0040
-	mouseEventfAbsolute   = 0x8000
+	mouseEventfMove        = 0x0001
+	mouseEventfLeftDown    = 0x0002
+	mouseEventfLeftUp      = 0x0004
+	mouseEventfRightDown   = 0x0008
+	mouseEventfRightUp     = 0x0010
+	mouseEventfMiddleDown  = 0x0020
+	mouseEventfMiddleUp    = 0x0040
+	mouseEventfWheel       = 0x0800
+	mouseEventfVirtualDesk = 0x4000
+	mouseEventfAbsolute    = 0x8000
 
-	keyEventfKeyUp = 0x0002
+	keyEventfKeyUp   = 0x0002
+	keyEventfUnicode = 0x0004
+
+	captureBlt = 0x40000000
 
 	srccopy = 0x00CC0020
 
@@ -128,9 +138,26 @@ type windowsHost struct{}
 func (h *windowsHost) Available() bool { return true }
 
 func (h *windowsHost) ScreenSize() (int, int) {
-	w, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
-	v, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
-	return int(int32(w)), int(int32(v))
+	w, hgt := virtualScreenSize()
+	if w <= 0 || hgt <= 0 {
+		cw, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
+		ch, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
+		return int(int32(cw)), int(int32(ch))
+	}
+	return w, hgt
+}
+
+func virtualScreenRect() (x, y, w, h int) {
+	vx, _, _ := procGetSystemMetrics.Call(uintptr(smXVIRTUALSCREEN))
+	vy, _, _ := procGetSystemMetrics.Call(uintptr(smYVIRTUALSCREEN))
+	vw, vh := virtualScreenSize()
+	return int(int32(vx)), int(int32(vy)), vw, vh
+}
+
+func virtualScreenSize() (int, int) {
+	w, _, _ := procGetSystemMetrics.Call(uintptr(smCXVIRTUALSCREEN))
+	h, _, _ := procGetSystemMetrics.Call(uintptr(smCYVIRTUALSCREEN))
+	return int(int32(w)), int(int32(h))
 }
 
 // absoluteCoords maps pixel coordinates onto the SendInput 0..65535 range.
@@ -179,7 +206,7 @@ func (h *windowsHost) MouseMove(x, y int) error {
 	ax, ay := h.absoluteCoords(x, y)
 	return sendMouse([]mouseEvent{{
 		Type: inputMouse, Dx: ax, Dy: ay,
-		Flag: mouseEventfMove | mouseEventfAbsolute,
+		Flag: mouseEventfMove | mouseEventfAbsolute | mouseEventfVirtualDesk,
 	}})
 }
 
@@ -204,6 +231,22 @@ func (h *windowsHost) MouseClick(button string, clicks int) error {
 	return sendMouse(events)
 }
 
+func (h *windowsHost) MouseScroll(notches int) error {
+	if notches == 0 {
+		return nil
+	}
+	if notches > 12 {
+		notches = 12
+	}
+	if notches < -12 {
+		notches = -12
+	}
+	delta := int32(notches) * 120
+	return sendMouse([]mouseEvent{{
+		Type: inputMouse, Data: uint32(delta), Flag: mouseEventfWheel,
+	}})
+}
+
 // vkFromRune answers the virtual-key code for one printable rune.
 func vkFromRune(r rune) uint16 {
 	switch {
@@ -225,13 +268,23 @@ func vkFromRune(r rune) uint16 {
 
 func (h *windowsHost) KeyboardType(text string) error {
 	runes := []rune(text)
-	events := make([]keyEvent, 0, len(runes)*2)
+	events := make([]keyEvent, 0, len(runes)*4)
 	for _, r := range runes {
-		vk := vkFromRune(r)
-		if vk == 0 {
-			continue // unsupported runes are skipped, not injected
+		switch r {
+		case '\t', '\n', '\r':
+			vk := vkFromRune(r)
+			events = append(events,
+				keyEvent{Type: inputKeyboard, WVk: vk},
+				keyEvent{Type: inputKeyboard, WVk: vk, Flag: keyEventfKeyUp},
+			)
+		default:
+			for _, unit := range utf16.Encode([]rune{r}) {
+				events = append(events,
+					keyEvent{Type: inputKeyboard, WScan: unit, Flag: keyEventfUnicode},
+					keyEvent{Type: inputKeyboard, WScan: unit, Flag: keyEventfUnicode | keyEventfKeyUp},
+				)
+			}
 		}
-		events = append(events, keyEvent{Type: inputKeyboard, WVk: vk})
 	}
 	return sendKeys(events)
 }
@@ -289,7 +342,7 @@ func (h *windowsHost) ActiveWindow() (string, string, error) {
 }
 
 func (h *windowsHost) ScreenCapture() ([]byte, error) {
-	w, v := h.ScreenSize()
+	originX, originY, w, v := virtualScreenRect()
 	if w <= 0 || v <= 0 {
 		return nil, errors.New("invalid screen size")
 	}
@@ -311,7 +364,7 @@ func (h *windowsHost) ScreenCapture() ([]byte, error) {
 	old, _, _ := procSelectObject.Call(memDC, bmp)
 	defer procSelectObject.Call(memDC, old)
 	if ok, _, _ := procBitBlt.Call(memDC, 0, 0, uintptr(w), uintptr(v),
-		screenDC, 0, 0, srccopy); ok == 0 {
+		screenDC, uintptr(originX), uintptr(originY), srccopy|captureBlt); ok == 0 {
 		return nil, errors.New("bitblt failed")
 	}
 

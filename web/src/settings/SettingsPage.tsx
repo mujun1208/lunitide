@@ -923,7 +923,8 @@ const CC_STATUS_LABELS: Record<string, string> = { executed: '已执行', blocke
 const CC_LAYER_LABELS: Record<string, string> = { intent: '意图识别', 'input-filter': '输入过滤', 'process-monitor': '进程监控' }
 const CC_TOOL_LABELS: Record<string, string> = {
   'cc.mouse_move': '移动鼠标', 'cc.mouse_click': '点击鼠标', 'cc.keyboard_type': '键盘输入',
-  'cc.keyboard_shortcut': '组合键', 'cc.screen_capture': '屏幕截图', 'cc.get_active_window': '活动窗口',
+  'cc.keyboard_shortcut': '组合键', 'cc.screen_capture': '全桌面截图', 'cc.get_active_window': '活动窗口',
+  'cc.observe_dialog': '观察对话框', 'cc.confirm_dialog': '确认对话框',
 }
 const CC_LEVEL_META: Record<'standard' | 'strict', { label: string; desc: string }> = {
   standard: { label: '标准', desc: '高危操作（组合键等）需人工确认；极高风险默认拦截' },
@@ -1025,7 +1026,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     <div className="setting-group">
       <div className="setting-group-title">电脑控制</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">允许模型通过六类工具操作本机（鼠标 / 键盘 / 截图 / 窗口查询）。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。</div>
+        <div className="setting-desc">允许模型操作本机：鼠标（含滚轮）/ 键盘 / 全桌面截图 / 对话框确认 / 窗口查询。截图后的点击坐标与画面像素一致。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。紧急停止后月伴不会自动重新打开。</div>
         {settings && (
           <div className="setting-label" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span>当前状态：</span>

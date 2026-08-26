@@ -251,7 +251,7 @@ export function Workspace({
   }
 
   const artifactCards: ArtifactCard[] = toolActivities
-    .filter(a => a.status === 'tool_completed' && a.artifact)
+    .filter(a => a.status === 'tool_completed' && a.artifact && a.artifact.kind !== 'image')
     .map(a => ({
       callId: a.callId,
       toolName: a.name,

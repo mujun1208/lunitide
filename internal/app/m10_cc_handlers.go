@@ -10,7 +10,7 @@ import (
 // M10 wave-4 computer-control handlers: cc.getConfig/updateConfig,
 // cc.getAuditLog and cc.emergencyStop. Error mapping follows the M10 wire
 // contract (M10-CC-001~012); the three-layer interception pipeline and the
-// six cc.* agent tools live in ccapp behind the tool runtime.
+// cc.* agent tools live in ccapp behind the tool runtime.
 
 func handleCcGetConfig(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}

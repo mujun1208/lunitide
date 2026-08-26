@@ -806,7 +806,7 @@ let skillSingleton: SkillBridge | undefined
 export function getSkillBridge(): SkillBridge { return skillSingleton ??= createSkillBridge(webview()) }
 export const skillBridge: SkillBridge = { get: p => getSkillBridge().get(p), list: p => getSkillBridge().list(p), create: (p, o) => getSkillBridge().create(p, o), update: (p, o) => getSkillBridge().update(p, o), delete: (p, o) => getSkillBridge().delete(p, o), match: p => getSkillBridge().match(p), publish: p => getSkillBridge().publish(p), deprecate: p => getSkillBridge().deprecate(p), disable: p => getSkillBridge().disable(p),invoke:p=>getSkillBridge().invoke!(p),execute:p=>getSkillBridge().execute!(p),catalogList:p=>getSkillBridge().catalogList!(p),install:p=>getSkillBridge().install!(p),categorySet:p=>getSkillBridge().categorySet!(p) }
 
-export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf';path:string;content:string}
+export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image';path:string;content:string}
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'thinking';thinking:{text:string}}
@@ -829,6 +829,7 @@ const isStreamArtifact=(artifact:unknown):artifact is StreamArtifact=>{
  switch(artifact.kind){
   case'html':return/\.html?$/i.test(path)&&new TextEncoder().encode(artifact.content).length<=184320
   case'xlsx':case'docx':case'pptx':case'pdf':return artifact.content===''
+  case'image':return/\.png$/i.test(path)&&artifact.content===''
   default:return false
  }
 }

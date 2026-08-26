@@ -342,7 +342,7 @@ func main() {
 	})
 	engine.SetToolRuntime(tools)
 	defer tools.Close()
-	// M10 wave-4: the six cc.* agent tools execute through the ccapp
+	// M10 wave-4: the cc.* agent tools execute through the ccapp
 	// service (three-layer interception, risk gate, audit ledger).
 	tools.SetCcExecutor(ccSvc.ExecuteTool)
 	// stdio MCP sessions sandbox under the tool workspaces tree (M6-MCP-004

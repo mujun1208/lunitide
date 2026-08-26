@@ -92,6 +92,9 @@ func TestCcScreenCapturePersistsArtifact(t *testing.T) {
 	if out.Artifact == nil || out.Artifact.Kind != "image" || !strings.HasSuffix(out.Artifact.Path, ".png") {
 		t.Fatalf("expected png artifact, got %+v", out.Artifact)
 	}
+	if out.VisionMIME != "image/png" || len(out.VisionData) != len(png) {
+		t.Fatalf("expected vision passthrough, mime=%s n=%d", out.VisionMIME, len(out.VisionData))
+	}
 	data, err := os.ReadFile(filepath.Join(root, session, out.Artifact.Path))
 	if err != nil || len(data) != len(png) {
 		t.Fatalf("artifact bytes mismatch: %v %d", err, len(data))
@@ -113,5 +116,26 @@ func TestCcToolPlainOutcome(t *testing.T) {
 	}
 	if out.Artifact != nil || !strings.Contains(out.Output, "notepad.exe") {
 		t.Fatalf("unexpected outcome: %+v", out)
+	}
+}
+
+func TestCcObserveDialogRoutesThroughExecutor(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.SetCcExecutor(func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error) {
+		if tool != "cc.observe_dialog" {
+			t.Fatalf("unexpected tool %s", tool)
+		}
+		return ccapp.Outcome{Tool: tool, Summary: `{"count":0,"dialogs":[]}`}, nil
+	})
+	out, err := r.Execute(context.Background(), FullAccess, "s01", "cc.observe_dialog", json.RawMessage(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, `"count":0`) {
+		t.Fatalf("unexpected observe output: %s", out.Output)
 	}
 }
