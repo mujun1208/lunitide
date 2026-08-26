@@ -110,7 +110,7 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
 })
 
 describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)', () => {
-  test('falls back to natural when edge synthesis fails', async () => {
+  test('falls back to the local engine when edge synthesis fails', async () => {
     bridge.synthesize.mockImplementation(async (payload: TtsSynthesizePayload) => {
       if (payload.engine === 'edge') throw new Error('M95-002 该段语音合成失败')
       return okResult()
@@ -121,7 +121,7 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
       onEngineFallback: engine => engines.push(engine),
     })
     await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(2))
-    expect(engines).toEqual(['natural'])
+    expect(engines).toEqual(['sapi'])
     bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
     player.interrupt()
   })

@@ -37,11 +37,21 @@ type refPreset struct {
 	PackDir string // empty → DefaultRefPackDir; "hot" → DefaultRefPackDirHot
 }
 
-// refPresets picks 18 distinct role timbres across four style groups so
-// the Moon Companion can switch persona without touching files. Every
-// reference WAV must stay inside GPT-SoVITS's 3–10s clone window (all
-// entries verified: 3.1s–6s at 24kHz mono).
+// refPresets is the role-timbre catalogue the settings dropdown offers.
+//
+// Every reference WAV must sit inside GPT-SoVITS's 3-10s clone window. That
+// used to be asserted in this comment and nowhere else, and it stopped being
+// true the moment the catalogue grew past the original eighteen: ten of the
+// additions were between 2.4s and 84s, and each of them was a voice the user
+// could pick from the dropdown and then find simply did not work.
+// TestRefPresetsResolveToRealFiles now checks it, so the claim and the code
+// cannot drift apart again.
 var refPresets = []refPreset{
+	// 台湾腔, one of each. First because they are what a user asking for a
+	// natural companion voice usually means by it.
+	{"优质台湾腔.wav", "female", "台湾腔 · 推荐", "hot"},
+	{"台湾男青年音故事讲述.wav", "male", "台湾腔 · 推荐", "hot"},
+
 	{"甜心少女.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
 	{"甜美萌妹.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
 	{"超嗲萌妹.wav", "female", "甜美女声 · 萝莉 / 萌妹", ""},
@@ -77,7 +87,6 @@ var refPresets = []refPreset{
 	{"温柔御妈.wav", "female", "热门音色 · 温柔御姐", "hot"},
 	{"温软姐姐 柔和质感.wav", "female", "热门音色 · 温柔御姐", "hot"},
 	{"女-温柔、冷酷、亦正亦邪.wav", "female", "热门音色 · 温柔御姐", "hot"},
-	{"纯欲狐狸精.wav", "female", "热门音色 · 温柔御姐", "hot"},
 	{"中音磁性女声旁白.wav", "female", "热门音色 · 温柔御姐", "hot"},
 
 	// 气场 / 古风 (female, 4)
@@ -103,9 +112,12 @@ var refPresets = []refPreset{
 
 	// 权威 / 霸总 (male, 3)
 	{"掌门师叔、帝王高管.wav", "male", "热门音色 · 权威霸总", "hot"},
-	{"霸总.wav", "male", "热门音色 · 权威霸总", "hot"},
 	{"老年人旁白（男）.wav", "male", "热门音色 · 权威霸总", "hot"},
 }
+
+// Two clips from the packs are left out rather than trimmed: 纯欲狐狸精 at
+// 2.4s and 霸总 at 2.9s. Trimming shortens, and both are already under the
+// three seconds GPT-SoVITS needs to hear a timbre.
 
 // RefVoices returns the built-in preset catalogue for tts.voices.
 func RefVoices() []Voice {

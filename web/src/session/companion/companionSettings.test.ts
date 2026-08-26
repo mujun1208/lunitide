@@ -39,7 +39,12 @@ describe('companionSettings voice default', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(9)
   })
 
-  test('rev-1 OneCore installs keep natural when a local voice was chosen', () => {
+  test('an install left on OneCore is moved off it, voice id and all', () => {
+    // Keeping their choice was the kinder-looking option right up until the
+    // engine turned out to be unreachable: SAPI does not enumerate the
+    // mirrored OneCore tokens, so honouring the preference meant a companion
+    // that showed captions and never spoke. The voice id goes too — those
+    // tokens do not exist for any engine still on offer.
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       enabled: true,
       autoSpeak: true,
@@ -51,10 +56,8 @@ describe('companionSettings voice default', () => {
       refEndpoint: '',
     }))
     const loaded = loadCompanionSettings()
-    expect(loaded.engine).toBe('natural')
-    expect(loaded.voiceId).toBe('HKEY_LOCAL_MACHINE\\x')
-    expect(loaded.wakeWord).toBe(false)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(9)
+    expect(loaded.engine).toBe('edge')
+    expect(loaded.voiceId).toBe('')
   })
 
   test('rev-2 installs gain full-duplex defaults and a manual interrupt hotkey', () => {
@@ -75,11 +78,11 @@ describe('companionSettings voice default', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(9)
   })
 
-  test('an explicit later OneCore choice is kept', () => {
+  test('even a deliberate OneCore choice is moved, because it cannot work', () => {
     saveCompanionSettings({ ...defaultCompanionSettings(), engine: 'natural', voiceId: 'local-voice' })
     const loaded = loadCompanionSettings()
-    expect(loaded.engine).toBe('natural')
-    expect(loaded.voiceId).toBe('local-voice')
+    expect(loaded.engine).toBe('edge')
+    expect(loaded.voiceId).toBe('')
   })
 
   test('new installs default wake word off', () => {
@@ -89,9 +92,12 @@ describe('companionSettings voice default', () => {
 })
 
 describe('companion engine fallback helpers', () => {
-  test('probe order prefers local engines after the primary', () => {
-    expect(companionEngineProbeOrder('edge')).toEqual(['edge', 'natural', 'sapi'])
-    expect(companionEngineProbeOrder('natural')).toEqual(['natural', 'edge', 'sapi'])
+  test('falls back to the engines that can actually answer', () => {
+    expect(companionEngineProbeOrder('edge')).toEqual(['edge', 'sapi'])
+    expect(companionEngineProbeOrder('ref')).toEqual(['ref', 'edge', 'sapi'])
+    // OneCore is not probed at all: the probe would cost a round trip to
+    // land back on 'sapi', which is already next in the list.
+    expect(companionEngineProbeOrder('edge')).not.toContain('natural')
   })
 
   test('drops cloud voice ids when falling back to OneCore', () => {
