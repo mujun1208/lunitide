@@ -31,20 +31,29 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 	if got := createTurnClosingNotice([]string{"workspace.read"}, ""); got != "" {
 		t.Fatalf("unrelated tools should not close the turn: %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"workspace.write"}, ""); !strings.Contains(got, "我已经做完了") {
-		t.Fatalf("acting tool notice = %q", got)
+	if got := createTurnClosingNotice([]string{"workspace.write"}, ""); got != "" {
+		t.Fatalf("acting tool must not say 我已经做完了: %q", got)
 	}
 	if got := createTurnClosingNotice([]string{"command.run", "web.fetch"}, "文件已写入，已完成。"); got != "" {
 		t.Fatalf("already-done text must not spam: %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"html.gen"}, ""); !strings.Contains(got, "我已经做完了") {
-		t.Fatalf("html.gen notice = %q", got)
+	if got := createTurnClosingNotice([]string{"html.gen"}, ""); got != "" {
+		t.Fatalf("html.gen must not say 我已经做完了: %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"desktop.open"}, ""); !strings.Contains(got, "我已经做完了") {
-		t.Fatalf("desktop.open notice = %q", got)
+	if got := createTurnClosingNotice([]string{"desktop.open"}, ""); got != "" {
+		t.Fatalf("desktop.open must not say 我已经做完了: %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"web.search"}, ""); !strings.Contains(got, "我已经做完了") {
-		t.Fatalf("web.search notice = %q", got)
+	if got := createTurnClosingNotice([]string{"web.search"}, ""); got != "" {
+		t.Fatalf("web.search must not say 我已经做完了: %q", got)
+	}
+}
+
+func TestCompanionPersonaForbidsTaskDonePhrases(t *testing.T) {
+	got := companionPersonaInstruction()
+	for _, phrase := range []string{"我做完了", "我已经做完了", "任务已完成", "禁止内部思考", "我想想"} {
+		if !strings.Contains(got, phrase) {
+			t.Fatalf("persona must forbid %q", phrase)
+		}
 	}
 }
 

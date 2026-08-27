@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.group.create.schema.json",
+  "title": "people.group.create payload",
+  "x-method": "people.group.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "ownerSubjectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "memberSubjectIds": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+    }
+  },
+  "required": ["title"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleThreadDTO"
+  },
+  "x-examples": {
+    "positive": [{ "title": "研发群" }],
+    "negative": [{ "title": "" }]
+  }
+}

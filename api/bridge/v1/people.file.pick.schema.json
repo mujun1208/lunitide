@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.file.pick.schema.json",
+  "title": "people.file.pick payload",
+  "x-method": "people.file.pick",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "folder": { "type": "boolean" }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+      "fileName": { "type": "string", "minLength": 1, "maxLength": 256 },
+      "size": { "type": "integer", "minimum": 0 },
+      "directory": { "type": "boolean" }
+    },
+    "required": ["path", "fileName", "size", "directory"]
+  },
+  "x-examples": {
+    "positive": [{}, { "folder": true }],
+    "negative": [{ "folder": "yes" }, { "extra": true }]
+  }
+}

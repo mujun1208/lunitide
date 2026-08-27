@@ -19,6 +19,11 @@ import {
   mergeShortSegments,
   prepareSpeech,
   segmentForSpeech,
+  shouldAcceptUserTranscript,
+  shouldKeepHandsFreeLoop,
+  looksLikeOmniPersonaCaption,
+  handsFreeRetryDelayMs,
+  stripTaskDonePhrases,
   takeSpeakableChunk,
 } from './companionText'
 
@@ -179,6 +184,8 @@ describe('cleanUserTranscript', () => {
     expect(cleanUserTranscript('你好岳西')).toBe('你好月汐')
     expect(cleanUserTranscript('岳西，岳西')).toBe('月汐，月汐')
     expect(cleanUserTranscript('你好月夕')).toBe('你好月汐')
+    expect(cleanUserTranscript('下一句，打开悦溪的店面文件')).toBe('下一句，打开月汐的桌面文件')
+    expect(cleanUserTranscript('下一句，打开悦溪的店面')).toBe('下一句，打开月汐的桌面')
   })
 })
 
@@ -211,5 +218,53 @@ describe('companionReplyStallMs', () => {
     expect(companionReplyStallMs(false, false)).toBe(COMPANION_FIRST_TOKEN_CONNECTING_MS)
     expect(companionReplyStallMs(true, true)).toBe(COMPANION_AFTER_TOKEN_MS)
     expect(COMPANION_FIRST_TOKEN_STREAMING_MS).toBeGreaterThanOrEqual(8_000)
+  })
+})
+
+describe('stripTaskDonePhrases', () => {
+  test('drops the machine self-reports the user asked not to hear', () => {
+    expect(stripTaskDonePhrases('我已经做完了。')).toBe('')
+    expect(stripTaskDonePhrases('我做完了')).toBe('')
+    expect(stripTaskDonePhrases('任务已完成。')).toBe('')
+    expect(stripTaskDonePhrases('文件夹建好了。我已经做完了。')).toBe('文件夹建好了。')
+    expect(stripTaskDonePhrases('人生：优质台湾腔')).toBe('')
+  })
+})
+
+describe('shouldAcceptUserTranscript', () => {
+  const base = {
+    state: 'listening' as const,
+    text: '帮我打开桌面',
+    lastSpoken: '今晚是满月，适合抬头。',
+    lastAssistant: '今晚是满月，适合抬头。',
+  }
+
+  test('accepts a new question while listening', () => {
+    expect(shouldAcceptUserTranscript(base)).toBe(true)
+  })
+
+  test('never treats her reply as the next user turn', () => {
+    expect(shouldAcceptUserTranscript({ ...base, text: '今晚是满月适合抬头' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, state: 'speaking' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, state: 'thinking' })).toBe(false)
+  })
+
+  test('never paints the MiniCPM-o clone label as a dialogue round', () => {
+    expect(looksLikeOmniPersonaCaption('人生：优质台湾腔')).toBe(true)
+    expect(looksLikeOmniPersonaCaption('月汐 / 人生：优质台湾腔')).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, text: '人生：优质台湾腔' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
+  })
+})
+
+describe('shouldKeepHandsFreeLoop', () => {
+  test('stays armed across silent restarts until the user exits or pauses the mic', () => {
+    expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false })).toBe(true)
+    expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false, errorCode: 'MICROPHONE_DEVICE_BUSY' })).toBe(true)
+    expect(shouldKeepHandsFreeLoop({ exited: true, userPausedMic: false })).toBe(false)
+    expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: true })).toBe(false)
+    expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false, errorCode: 'MICROPHONE_PERMISSION_DENIED' })).toBe(false)
+    expect(handsFreeRetryDelayMs(0)).toBe(400)
+    expect(handsFreeRetryDelayMs(8)).toBe(8000)
   })
 })

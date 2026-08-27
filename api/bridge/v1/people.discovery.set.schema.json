@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.discovery.set.schema.json",
+  "title": "people.discovery.set payload",
+  "x-method": "people.discovery.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" }
+  },
+  "required": ["enabled"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "pairingCode": { "type": "string", "pattern": "^[0-9]{6}$" }
+    },
+    "required": ["enabled", "pairingCode"]
+  },
+  "x-examples": {
+    "positive": [{ "enabled": false }],
+    "negative": [{}]
+  }
+}

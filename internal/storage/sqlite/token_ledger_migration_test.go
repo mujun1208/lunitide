@@ -20,6 +20,8 @@ func TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint(t *testing.T) {
 
 	// Recreate the exact pre-0027 table shape and migration boundary. This is
 	// deliberately test-only; historical migration bytes remain untouched.
+	// Every table added after 0026 must be dropped here, including 0092
+	// local_identity / people_*, or Open re-applies CREATE TABLE and fails.
 	db := openRaw(t, path)
 	if _, err = db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
 		t.Fatal(err)
@@ -201,7 +203,17 @@ DROP TABLE m6_prompt_bundle;
 DROP TABLE session_expert_mounts;
 DROP TABLE project_deliverables;
 DROP TABLE project_attachments;
-DROP TABLE asset_templates;ALTER TABLE sessions DROP COLUMN pinned;
+DROP TABLE asset_templates;
+DROP TABLE people_file_offers;
+DROP TABLE people_messages;
+DROP TABLE people_thread_members;
+DROP TABLE people_threads;
+DROP TABLE people_contacts;
+DROP TABLE local_identity;
+DROP TABLE meeting_docs;
+DROP TABLE meeting_segments;
+DROP TABLE meetings;
+ALTER TABLE sessions DROP COLUMN pinned;
 ALTER TABLE sessions DROP COLUMN revision;
 DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
 INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','ITM00001','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');

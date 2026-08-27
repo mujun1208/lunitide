@@ -119,6 +119,32 @@ func (in *Installer) Installed(bundle Bundle) bool {
 	return true
 }
 
+// Present reports whether every file in the bundle is on disk at the
+// expected size, without hashing.
+//
+// Status probes call this. Hashing MiniCPM-o Q4 (~8 GB) on every settings
+// open exceeds the bridge deadline and leaves the row stuck on
+// 「正在检测」. Digests are still checked as bytes arrive in Install.
+func (in *Installer) Present(bundle Bundle) bool {
+	dir := in.BundleDir(bundle.ID)
+	for _, d := range bundle.Downloads {
+		if d.Archive != ArchiveNone {
+			if !receiptMatches(dir, d) {
+				return false
+			}
+			continue
+		}
+		info, err := os.Stat(filepath.Join(dir, d.Path))
+		if err != nil {
+			return false
+		}
+		if d.Bytes > 0 && info.Size() != d.Bytes {
+			return false
+		}
+	}
+	return true
+}
+
 // Install downloads whatever the bundle is missing and verifies all of it.
 // Already-present files are skipped, so an interrupted install resumes at
 // file granularity rather than starting over.

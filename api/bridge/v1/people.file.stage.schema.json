@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.file.stage.schema.json",
+  "title": "people.file.stage payload",
+  "x-method": "people.file.stage",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "uploadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "fileName": { "type": "string", "maxLength": 256 },
+    "fileMime": { "type": "string", "maxLength": 128 },
+    "index": { "type": "integer", "minimum": 0, "maximum": 4096 },
+    "last": { "type": "boolean" },
+    "contentBase64": { "type": "string", "minLength": 1, "maxLength": 360000 }
+  },
+  "required": ["uploadId", "last", "contentBase64"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ready": { "type": "boolean" },
+      "localPath": { "type": "string", "maxLength": 1024 },
+      "bytes": { "type": "integer", "minimum": 0 }
+    },
+    "required": ["ready", "localPath", "bytes"]
+  },
+  "x-examples": {
+    "positive": [{ "uploadId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "last": true, "contentBase64": "c2VjcmV0", "fileName": "a.txt" }],
+    "negative": [{}, { "uploadId": "bad", "last": false, "contentBase64": "aa" }]
+  }
+}

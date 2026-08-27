@@ -82,18 +82,16 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).toHaveBeenCalledWith('今天天气很好')
   })
 
-  it('does not end a turn the recognizer has not ended', async () => {
-    // 「你可以」 is the middle of a request, and so is any pause between two
-    // clauses. This side used to decide from microphone level and how long
-    // the transcript had been unchanged, which is what cut 「你好月汐」 down
-    // to 「你好」. The recognizer decides it from the decoder and the silence
-    // it measured; until it says so, the turn is still the user's.
+  it('does not end a turn while the user is still adding to it', async () => {
     const stage = harness()
     asr.commit.mockResolvedValue('你可以')
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('你可以', false)
-    await vi.advanceTimersByTimeAsync(2500)
+    for (let i = 0; i < 25; i++) {
+      onLevel(0.2)
+      await vi.advanceTimersByTimeAsync(100)
+    }
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 

@@ -209,7 +209,7 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	}
 	b.WriteString("。")
 	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
-		b.WriteString("这是音乐类软件：用户只说「播放/播歌/来一首/随便放一首/歌手或歌名」时，必须用 media.play（target=foreground，query=歌名或歌手；没说具体歌时用 query=热门），在该已打开软件里搜索并播放；禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
+		b.WriteString("这是音乐类软件：用户只说「播放/播歌/来一首/随便放一首/歌手或歌名」时，必须用 media.play（target=foreground，query=歌名或歌手；没说具体歌时用 query=热门）。工具会点同名曲目并核对正在播放；核对失败就说没播上，禁止报成功，禁止系统播放键。禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
 	} else {
 		b.WriteString("用户后续要在该软件里继续操作时，优先在该前台窗口内完成，不要另开网页或无关程序。")
 	}

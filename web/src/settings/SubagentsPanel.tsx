@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { providerBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
+import { ChoiceTiles } from './ChoiceTiles'
 import {
   BUILTIN_SUBAGENT_IDS,
   BUILTIN_SUBAGENT_META,
@@ -15,12 +16,24 @@ import {
   type SubagentSettings,
 } from './subagentSettings'
 
-function Toggle({ on, onChange, label, desc }: { on: boolean; onChange: (v: boolean) => void; label: string; desc?: string }): React.JSX.Element {
+const DELEGATION_OPTIONS = [
+  { value: 'proactive', label: '主动委派（推荐）', desc: '复杂只读调研优先派出，结果汇总到主对话。' },
+  { value: 'explicit', label: '按需委派', desc: '暴露工具，由模型自行决定是否派出。' },
+  { value: 'disabled', label: '关闭', desc: '隐藏 subagent.spawn / join。' },
+] as const
+
+function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }): React.JSX.Element {
   return (
-    <div className="setting-row">
-      <div><div className="setting-label">{label}</div>{desc && <div className="setting-desc">{desc}</div>}</div>
-      <button className={`toggle ${on ? 'on' : ''}`} onClick={() => onChange(!on)} role="switch" aria-checked={on} aria-label={label}><span className="toggle-knob" /></button>
-    </div>
+    <button
+      type="button"
+      className={`toggle ${on ? 'on' : ''}`}
+      onClick={() => onChange(!on)}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+    >
+      <span className="toggle-knob" />
+    </button>
   )
 }
 
@@ -71,26 +84,14 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
   const removeCustom = (id: string) => persist({ ...settings, customProfiles: settings.customProfiles.filter(p => p.id !== id) })
 
   return (
-    <div className="setting-group">
-      <h3>委派策略</h3>
-      <p className="setting-desc">控制主 Agent 是否自动派出子智能体，以及是否在复杂调研时主动并行。</p>
-      <div className="subagent-mode-grid">
-        {([
-          ['proactive', '主动委派（推荐）', '复杂只读调研优先 subagent.spawn，结果汇总到主对话。'],
-          ['explicit', '按需委派', '暴露工具，由模型自行决定是否派出。'],
-          ['disabled', '关闭', '隐藏 subagent.spawn / join。'],
-        ] as const).map(([mode, label, desc]) => (
-          <button
-            key={mode}
-            type="button"
-            className={`subagent-mode-card ${settings.delegationMode === mode ? 'on' : ''}`}
-            onClick={() => setMode(mode)}
-          >
-            <b>{label}</b>
-            <small>{desc}</small>
-          </button>
-        ))}
-      </div>
+    <div className="setting-group subagent-settings">
+      <ChoiceTiles
+        legend="委派策略"
+        name="delegation-mode"
+        value={settings.delegationMode}
+        options={DELEGATION_OPTIONS}
+        onChange={setMode}
+      />
 
       <h3>内置子智能体 · {BUILTIN_SUBAGENT_IDS.length} 项</h3>
       <p className="setting-desc">对齐 Zed / Cursor 常见分型；可为每个 profile 指定更便宜的模型。</p>
@@ -100,20 +101,12 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
           const ov = settings.overrides[id] ?? { enabled: true }
           const modelValue = ov.providerId && ov.modelId ? `${ov.providerId}\u0000${ov.modelId}` : ''
           return (
-            <article key={id} className="subagent-profile-card">
-              <header>
-                <div>
-                  <b>{meta.label}</b>
-                  <code>{id}</code>
-                </div>
-                <Toggle
-                  on={ov.enabled !== false}
-                  onChange={enabled => setOverride(id, { enabled })}
-                  label={`启用 ${meta.label}`}
-                />
-              </header>
-              <p>{meta.desc}</p>
-              <small>{meta.tools}</small>
+            <article key={id} className="subagent-profile-row">
+              <div className="subagent-profile-id">
+                <b>{meta.label}</b>
+                <code>{id}</code>
+                <small>{meta.desc} · {meta.tools}</small>
+              </div>
               <label className="subagent-model-row">
                 模型
                 <select
@@ -131,6 +124,11 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
                   {models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                 </select>
               </label>
+              <Switch
+                on={ov.enabled !== false}
+                onChange={enabled => setOverride(id, { enabled })}
+                label={`启用 ${meta.label}`}
+              />
             </article>
           )
         })}

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -37,6 +36,7 @@ type Host struct {
 	Listen    string
 	Endpoint  string
 	Finder    func() string
+	Present   func() bool
 	HTTP      *http.Client
 	installer *voice.Installer
 
@@ -63,9 +63,14 @@ func (h *Host) ModelDir() string {
 	return h.installer.BundleDir(BundleID)
 }
 
-// Installed reports whether the Q4 bundle is complete.
+// Installed reports whether the Q4 bundle is on disk at the expected sizes.
+// Status/start use presence, not a full re-hash: hashing Q4 on every probe
+// exceeds the bridge deadline.
 func (h *Host) Installed() bool {
-	return h.installer.Installed(ModelBundle())
+	if h.Present != nil {
+		return h.Present()
+	}
+	return h.installer.Present(ModelBundle())
 }
 
 func (h *Host) baseURL() string {
@@ -98,37 +103,6 @@ func (h *Host) RuntimePath() string {
 		return h.Finder()
 	}
 	return findRuntime(h.Root)
-}
-
-func findRuntime(root string) string {
-	names := []string{"llama-omni-server.exe", "llama-omni-server"}
-	var candidates []string
-	for _, name := range names {
-		candidates = append(candidates,
-			filepath.Join(root, "runtime", name),
-			filepath.Join(root, name),
-		)
-	}
-	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		candidates = append(candidates,
-			filepath.Join(local, "Programs", "Comni", "llama-omni-server.exe"),
-			filepath.Join(local, "Comni", "llama-omni-server.exe"),
-		)
-	}
-	if pf := os.Getenv("ProgramFiles"); pf != "" {
-		candidates = append(candidates, filepath.Join(pf, "Comni", "llama-omni-server.exe"))
-	}
-	for _, path := range candidates {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path
-		}
-	}
-	for _, name := range names {
-		if found, err := exec.LookPath(name); err == nil {
-			return found
-		}
-	}
-	return ""
 }
 
 // Snapshot is the settings/status payload.

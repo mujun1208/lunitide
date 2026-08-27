@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.start.schema.json",
+  "title": "meetings.start payload",
+  "x-method": "meetings.start",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "maxLength": 200 }
+  },
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingDTO"
+  },
+  "x-examples": {
+    "positive": [{}, { "title": "周会" }],
+    "negative": [{ "title": 1 }, { "extra": true }]
+  }
+}

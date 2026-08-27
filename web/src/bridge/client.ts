@@ -127,6 +127,17 @@ import {
   type PluginListPayload,type PluginListResult,type PluginInstallPayload,type PluginInstallResult,type PluginTogglePayload,type PluginToggleResult,type PluginUninstallPayload,type PluginUninstallResult,type PluginUpgradePayload,type PluginUpgradeResult,type PluginMarketSearchPayload,type PluginMarketSearchResult,type PluginMarketDetailPayload,type PluginMarketDetailResult,type PluginDevCreatePayload,type PluginDevCreateResult,
   type ExpertListPayload,type ExpertListResult,type ExpertDetailPayload,type ExpertDetailResult,type ExpertCreatePayload,type ExpertCreateResult,type ExpertUpdatePayload,type ExpertUpdateResult,type ExpertTogglePayload,type ExpertToggleResult,type ExpertArchivePayload,type ExpertArchiveResult,type ExpertMountPayload,type ExpertMountResult,type ExpertMountingGetPayload,type ExpertMountingGetResult,type ExpertScenarioCreatePayload,type ExpertScenarioCreateResult,type ExpertScenarioListPayload,type ExpertScenarioListResult,type ExpertScenarioDeletePayload,type ExpertScenarioDeleteResult,type ExpertCatalogListPayload,type ExpertCatalogListResult,type ExpertInstallPayload,type ExpertInstallResult,
   type OrgSummaryPayload,type OrgSummaryResult,type OrgCreatePayload,type OrgCreateResult,type OrgSwitchPayload,type OrgSwitchResult,type OrgActivatePayload,type OrgActivateResult,type OrgSuspendPayload,type OrgSuspendResult,type OrgSpaceListPayload,type OrgSpaceListResult,type OrgSpaceCreatePayload,type OrgSpaceCreateResult,type OrgMemberListPayload,type OrgMemberListResult,type OrgMemberInvitePayload,type OrgMemberInviteResult,type OrgMemberRevokePayload,type OrgMemberRevokeResult,
+  type IdentityDTO, type IdentityUpdatePayload, type IdentityPasswordSetPayload, type IdentityUnlockPayload,
+  type PeopleListResult, type PeoplePairPayload, type PeopleDiscoverySetPayload, type PeopleDiscoveryGetResult,
+  type PeopleThreadListResult, type PeopleThreadOpenPayload, type PeopleThreadOpenResult,
+  type PeopleThreadSendPayload, type PeopleThreadSendResult, type PeopleGroupCreatePayload,
+  type PeopleFileDecidePayload, type PeopleContactDTO, type PeopleFileOfferDTO, type PeopleThreadDTO,
+  type PeoplePeerAddPayload, type PeopleContactUpdatePayload, type PeopleThreadTypingPayload,
+  type PeopleFileStagePayload, type PeopleFileStageResult, type PeopleFilePickPayload, type PeopleFilePickResult,
+  type MeetingsListResult, type MeetingsStartPayload, type MeetingsStartResult,
+  type MeetingsAppendPayload, type MeetingsAppendResult, type MeetingsStopPayload, type MeetingsStopResult,
+  type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
+  type MeetingsExportPayload, type MeetingsExportResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type VoiceStatusResult,type VoiceInstallPayload,type VoiceInstallResult,type VoiceSelectPayload,type VoiceSelectResult,type VoiceStartPayload,type VoiceStartResult,type VoiceAppendPayload,type VoiceAppendResult,type VoiceFinishPayload,type VoiceFinishResult,type VoiceStopPayload,type VoiceStopResult,
@@ -445,6 +456,32 @@ export function createAutomationBridge(transport:WebViewTransport=webview()):Aut
 let automationSingleton:AutomationBridge|undefined
 export function getAutomationBridge():AutomationBridge{return automationSingleton??=createAutomationBridge()}
 export const automationBridge:AutomationBridge={listJobs:()=>{try{return getAutomationBridge().listJobs()}catch(error){return Promise.reject(error)}},setJob:p=>{try{return getAutomationBridge().setJob(p)}catch(error){return Promise.reject(error)}},deleteJob:p=>{try{return getAutomationBridge().deleteJob(p)}catch(error){return Promise.reject(error)}},triggerJob:p=>{try{return getAutomationBridge().triggerJob(p)}catch(error){return Promise.reject(error)}},listRuns:p=>{try{return getAutomationBridge().listRuns(p)}catch(error){return Promise.reject(error)}},status:()=>{try{return getAutomationBridge().status()}catch(error){return Promise.reject(error)}}}
+
+// This-PC meeting notes — microphone transcript, then 摘要/待办/逐字稿. Never mixes into session.* or people P2P.
+export interface MeetingsBridge{
+  list():Promise<MeetingsListResult>
+  start(payload?:MeetingsStartPayload):Promise<MeetingDTO>
+  append(payload:MeetingsAppendPayload):Promise<MeetingSegmentDTO>
+  stop(payload:MeetingsStopPayload):Promise<MeetingDTO>
+  get(payload:MeetingsGetPayload):Promise<MeetingDTO>
+  summarize(payload:MeetingsSummarizePayload):Promise<MeetingDTO>
+  exportMeeting(payload:MeetingsExportPayload):Promise<MeetingsExportResult>
+}
+export function createMeetingsBridge(transport:WebViewTransport=webview()):MeetingsBridge{
+  const core=createSimpleBridge(transport,{},15_000)
+  return{
+    list:()=>core.request('meetings.list',{}),
+    start:p=>core.request('meetings.start',p??{}),
+    append:p=>core.request('meetings.append',p),
+    stop:p=>core.request('meetings.stop',p),
+    get:p=>core.request('meetings.get',p),
+    summarize:p=>core.request('meetings.summarize',p,30_000),
+    exportMeeting:p=>core.request('meetings.export',p,30_000),
+  }
+}
+let meetingsSingleton:MeetingsBridge|undefined
+export function getMeetingsBridge():MeetingsBridge{return meetingsSingleton??=createMeetingsBridge()}
+export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
@@ -1237,6 +1274,42 @@ export function createOrgBridge(transport:WebViewTransport=webview(),deadlineMs=
 let orgSingleton:OrgBridge|undefined
 export function getOrgBridge():OrgBridge{return orgSingleton??=createOrgBridge()}
 export const orgBridge:OrgBridge={summary:p=>{try{return getOrgBridge().summary(p)}catch(error){return Promise.reject(error)}},create:(p,o)=>{try{return getOrgBridge().create(p,o)}catch(error){return Promise.reject(error)}},switch:(p,o)=>{try{return getOrgBridge().switch(p,o)}catch(error){return Promise.reject(error)}},activate:(p,o)=>{try{return getOrgBridge().activate(p,o)}catch(error){return Promise.reject(error)}},suspend:(p,o)=>{try{return getOrgBridge().suspend(p,o)}catch(error){return Promise.reject(error)}},spaceList:p=>{try{return getOrgBridge().spaceList(p)}catch(error){return Promise.reject(error)}},spaceCreate:(p,o)=>{try{return getOrgBridge().spaceCreate(p,o)}catch(error){return Promise.reject(error)}},memberList:p=>{try{return getOrgBridge().memberList(p)}catch(error){return Promise.reject(error)}},memberInvite:(p,o)=>{try{return getOrgBridge().memberInvite(p,o)}catch(error){return Promise.reject(error)}},memberRevoke:(p,o)=>{try{return getOrgBridge().memberRevoke(p,o)}catch(error){return Promise.reject(error)}}}
+
+export type{IdentityDTO,PeopleContactDTO,PeopleFileOfferDTO,PeopleThreadDTO,PeopleThreadOpenResult,PeopleThreadSendResult,MeetingDTO,MeetingSegmentDTO}
+export interface IdentityBridge{
+  get():Promise<IdentityDTO>
+  update(payload:IdentityUpdatePayload):Promise<IdentityDTO>
+  passwordSet(payload:IdentityPasswordSetPayload):Promise<IdentityDTO>
+  unlock(payload:IdentityUnlockPayload):Promise<IdentityDTO>
+}
+export interface PeopleBridge{
+  list():Promise<PeopleListResult>
+  pair(payload:PeoplePairPayload):Promise<PeopleContactDTO>
+  discoveryGet():Promise<PeopleDiscoveryGetResult>
+  discoverySet(payload:PeopleDiscoverySetPayload):Promise<PeopleDiscoveryGetResult>
+  threadList():Promise<PeopleThreadListResult>
+  threadOpen(payload:PeopleThreadOpenPayload):Promise<PeopleThreadOpenResult>
+  threadSend(payload:PeopleThreadSendPayload):Promise<PeopleThreadSendResult>
+  threadTyping(payload:PeopleThreadTypingPayload):Promise<{ok:boolean}>
+  groupCreate(payload:PeopleGroupCreatePayload):Promise<PeopleThreadDTO>
+  fileDecide(payload:PeopleFileDecidePayload):Promise<PeopleFileOfferDTO>
+  fileStage(payload:PeopleFileStagePayload):Promise<PeopleFileStageResult>
+  filePick(payload?:PeopleFilePickPayload):Promise<PeopleFilePickResult>
+  peerAdd(payload:PeoplePeerAddPayload):Promise<PeopleContactDTO>
+  contactUpdate(payload:PeopleContactUpdatePayload):Promise<PeopleContactDTO>
+}
+export function createIdentityBridge(transport:WebViewTransport=webview()):IdentityBridge{
+  const core=createSimpleBridge(transport,{},8_000)
+  return{get:()=>core.request('identity.get',{}),update:p=>core.request('identity.update',p),passwordSet:p=>core.request('identity.password.set',p),unlock:p=>core.request('identity.unlock',p)}
+}
+export function createPeopleBridge(transport:WebViewTransport=webview()):PeopleBridge{
+  const core=createSimpleBridge(transport,{},12_000)
+  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>core.request('people.thread.send',p),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>core.request('people.file.stage',p,30_000),filePick:p=>core.request('people.file.pick',p??{},30_000),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
+}
+let identitySingleton:IdentityBridge|undefined
+let peopleSingleton:PeopleBridge|undefined
+export function getIdentityBridge():IdentityBridge{return identitySingleton??=createIdentityBridge()}
+export function getPeopleBridge():PeopleBridge{return peopleSingleton??=createPeopleBridge()}
 
 // M7 app update bridge — appUpdate.check / install (settings → diagnostics).
 export interface AppUpdateBridge{

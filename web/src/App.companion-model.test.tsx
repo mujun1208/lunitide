@@ -22,6 +22,24 @@ const speech = vi.hoisted(() => ({
   }),
 }))
 
+const peopleHost = vi.hoisted(() => {
+  const identityDTO = {
+    subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', nickname: 'mu', avatar: '', status: 'online' as const,
+    department: '', title: '', orgName: '', bio: '', publicKey: 'aa'.repeat(32), pairingCode: '111111',
+    passwordSet: false, locked: false, discoveryEnabled: false,
+    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+  }
+  const identity = { get: vi.fn().mockResolvedValue(identityDTO), update: vi.fn(), passwordSet: vi.fn(), unlock: vi.fn() }
+  const people = {
+    list: vi.fn().mockResolvedValue({ items: [] }), pair: vi.fn(),
+    discoveryGet: vi.fn().mockResolvedValue({ enabled: false, pairingCode: '111111' }),
+    discoverySet: vi.fn(), threadList: vi.fn().mockResolvedValue({ items: [] }),
+    threadOpen: vi.fn(), threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
+    threadTyping: vi.fn(), fileStage: vi.fn(), filePick: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
+  }
+  return { identity, people }
+})
+
 vi.mock('./bridge/client', async importOriginal => {
   const actual = await importOriginal<typeof import('./bridge/client')>()
   return {
@@ -35,6 +53,10 @@ vi.mock('./bridge/client', async importOriginal => {
     sessionFolderBridge: { get: vi.fn().mockResolvedValue({ path: '' }), list: vi.fn(), open: vi.fn() },
     toolsPolicyBridge: { getCommandPolicy: vi.fn().mockResolvedValue({ commands: [], fullAccess: true }), setCommandPolicy: vi.fn() },
     ccBridge: { getConfig: vi.fn().mockResolvedValue({ enabled: true }), updateConfig: vi.fn(), getAuditLog: vi.fn(), emergencyStop: vi.fn() },
+    getIdentityBridge: () => peopleHost.identity,
+    getPeopleBridge: () => peopleHost.people,
+    getMeetingsBridge: () => ({ list: vi.fn().mockResolvedValue({ items: [] }), start: vi.fn(), append: vi.fn(), stop: vi.fn(), get: vi.fn(), summarize: vi.fn(), exportMeeting: vi.fn() }),
+    meetingsBridge: { list: () => Promise.resolve({ items: [] }), start: vi.fn(), append: vi.fn(), stop: vi.fn(), get: vi.fn(), summarize: vi.fn(), exportMeeting: vi.fn() },
   }
 })
 
@@ -44,6 +66,7 @@ vi.mock('./session/companion/ensureCompanionCapabilities', () => ({
 
 vi.mock('./session/companion/speech', () => ({
   ECHO_GUARD_MS: 700,
+  FORCE_COMMIT_MS: 1800,
   INTERRUPT_ECHO_MS: 160,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (options: { onFinal: (transcript: string) => void }) => {

@@ -44,6 +44,7 @@ vi.mock('./companion/ensureCompanionCapabilities', () => ({
 
 vi.mock('./companion/speech', () => ({
   ECHO_GUARD_MS: 700,
+  FORCE_COMMIT_MS: 1800,
   INTERRUPT_ECHO_MS: 160,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (options: { onFinal: (transcript: string) => void }) => {
