@@ -269,6 +269,15 @@ func main() {
 		engine.SetVoiceService(voiceService)
 		defer voiceService.Close()
 	}
+	// MiniCPM-o 4.5 Q4 duplex. Weights download on demand; the server is
+	// spawned only when this channel is selected.
+	if omniRoot, err := dataRoot.PrepareSubdirectory("omni"); err != nil {
+		log.Printf("omni directory unavailable; MiniCPM-o stays off: %v", err)
+	} else {
+		omniService := app.NewOmniService(omniRoot.Path())
+		engine.SetOmniService(omniService)
+		defer omniService.Close()
+	}
 	// M9 slice-1: org foundation - the org-admin bridge service derives the
 	// verified org context from the persisted operator binding (ADR-011);
 	// payloads never carry an org scope.

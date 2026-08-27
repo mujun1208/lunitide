@@ -56,6 +56,8 @@ type Job struct {
 	ModelID       string    `json:"modelId"`
 	SessionID     string    `json:"sessionId"`
 	ExecutionMode string    `json:"executionMode"`
+	SessionMode   string    `json:"sessionMode,omitempty"` // bound | isolated
+	RunOnce       bool      `json:"runOnce,omitempty"`
 	Enabled       bool      `json:"enabled"`
 	WebhookURL    string    `json:"webhookUrl,omitempty"` // P3-1 optional IM fan-out (https IM custom-bot URL)
 	LastRunAt     time.Time `json:"lastRunAt,omitempty"`
@@ -161,8 +163,11 @@ func ValidateJob(j Job) error {
 	if j.Name == "" || len([]rune(j.Name)) > maxNameRunes || strings.ContainsRune(j.Name, 0) {
 		return fmt.Errorf("%w: name", ErrInvalid)
 	}
-	if _, err := cronexpr.Parse(j.Cron); err != nil {
+	if _, err := nextFireTime(j.Cron, time.Now().UTC()); err != nil {
 		return fmt.Errorf("%w: cron", ErrInvalid)
+	}
+	if _, err := normalizeSessionMode(j.SessionMode); err != nil {
+		return err
 	}
 	if j.Prompt == "" || len([]rune(j.Prompt)) > maxPromptRunes || strings.ContainsRune(j.Prompt, 0) {
 		return fmt.Errorf("%w: prompt", ErrInvalid)
@@ -492,11 +497,11 @@ func (s *Scheduler) replan(now time.Time) {
 		if !j.Enabled {
 			continue
 		}
-		e := s.exprFor(j.Cron)
-		if e == nil {
+		t, err := nextFireTime(j.Cron, now)
+		if err != nil {
 			continue
 		}
-		next[j.ID] = e.Next(now)
+		next[j.ID] = t
 	}
 	s.nextFire = next
 	s.publishNextFireLocked()
@@ -553,13 +558,16 @@ func (s *Scheduler) dueJobs(now time.Time) []Job {
 		}
 		t, ok := s.nextFire[j.ID]
 		if !ok {
-			// Job created after start: seed from now.
-			if e := s.exprFor(j.Cron); e != nil {
-				t = e.Next(now)
-				s.nextFire[j.ID] = t
-				s.publishNextFireLocked()
+			stamp, err := nextFireTime(j.Cron, now)
+			if err != nil {
+				continue
 			}
-			continue
+			t = stamp
+			s.nextFire[j.ID] = t
+			s.publishNextFireLocked()
+			if t.After(now) {
+				continue
+			}
 		}
 		if !t.IsZero() && !t.After(now) {
 			due = append(due, j)
@@ -645,12 +653,26 @@ func (s *Scheduler) launch(j Job, trigger string, now time.Time) {
 			}
 		}
 		// Reschedule from the finish instant.
-		s.mu.Lock()
-		if e := s.exprFor(j.Cron); e != nil {
-			s.nextFire[j.ID] = e.Next(time.Now().UTC())
+		if j.RunOnce || IsAtSchedule(j.Cron) {
+			if run.State == RunSucceeded || IsAtSchedule(j.Cron) {
+				if existing, ok, err := s.store.GetJob(j.ID); err == nil && ok {
+					existing.Enabled = false
+					existing.UpdatedAt = finished
+					_ = s.store.PutJob(existing)
+				}
+			}
+			s.mu.Lock()
+			delete(s.nextFire, j.ID)
 			s.publishNextFireLocked()
+			s.mu.Unlock()
+		} else {
+			s.mu.Lock()
+			if e := s.exprFor(j.Cron); e != nil {
+				s.nextFire[j.ID] = e.Next(time.Now().UTC())
+				s.publishNextFireLocked()
+			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}()
 }
 

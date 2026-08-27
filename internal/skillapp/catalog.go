@@ -46,6 +46,9 @@ var designSystemSkillMD []byte
 //go:embed bundled/computer-control/SKILL.md
 var computerControlSkillMD []byte
 
+//go:embed bundled/browser-automation/SKILL.md
+var browserAutomationSkillMD []byte
+
 // ErrTemplateUnknown answers an install request naming a catalog id that
 // does not exist; ErrTemplateInstalled answers a name+version collision.
 var (
@@ -208,6 +211,13 @@ func computerControlManifest() map[string]any {
 	}, "\n\n--- Lunitide 集成 ---\n只用已启用的 cc.* 工具，禁止 command.run 模拟键鼠。启动未运行应用用 desktop.open；播歌用 media.play；网页用 browser.act。禁止确认 UAC/提权/打开保存对话框。用中文短报进度。")
 }
 
+func browserAutomationManifest() map[string]any {
+	return bundledManifest(browserAutomationSkillMD, []string{
+		"浏览器自动化", "browser-automation", "填表", "抓取网页", "点网页", "scraping", "填写表单",
+		"browser.act", "playwright",
+	}, "\n\n--- Lunitide 集成 ---\n只用 browser.act（navigate/snapshot/click/type/read）。桌面软件改走 computer-control。验证码/登录墙/文件选择停下来问用户。抽数后 structured.output 再 excel.gen/docx.gen。")
+}
+
 // catalogTemplates is the frozen local market list. Entry points point at
 // the builtin pipeline namespace; manifests keep the trigger keywords the
 // matcher scores and the working agreement the model sees on invoke.
@@ -292,6 +302,15 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint:  "builtin://computer-control",
 		Manifest:    computerControlManifest(),
 		Featured:    true, Bundled: true, Source: "月汐",
+	},
+	{
+		ID: "browser-automation", Name: "browser-automation", DisplayName: "browser-automation",
+		Description: "Fill forms, scrape, and click in the managed browser with browser.act. Snapshot before act; this PC only.",
+		Category:    "办公协作", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
+		EntryPoint:  "builtin://browser-automation",
+		Manifest:    browserAutomationManifest(),
+		Featured:    true, Bundled: true, Source: "OpenClaw 对齐",
 	},
 	{
 		ID: "expert-manager", Name: "expert-manager", DisplayName: "expert-manager",

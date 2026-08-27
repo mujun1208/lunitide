@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Dialog } from '../ui/Dialog'
-import { scheduleToCron, type AutomationTemplate } from './automationTemplates'
+import { scheduleToCron, delayAtCron, datetimeLocalToAtCron, atCronToDatetimeLocal, type ScheduleFreq, type AutomationTemplate } from './automationTemplates'
 
 export type AutomationDraft = {
   id?: string
@@ -11,6 +11,8 @@ export type AutomationDraft = {
   modelId: string
   sessionId: string
   executionMode: 'approval' | 'auto-edit' | 'full-access'
+  sessionMode: 'bound' | 'isolated'
+  runOnce: boolean
   webhookUrl: string
   enabled: boolean
 }
@@ -33,7 +35,8 @@ const MODE_LABEL: Record<AutomationDraft['executionMode'], string> = {
   'full-access': '完全访问',
 }
 
-function cronParts(cron: string): { freq: 'daily' | 'weekdays' | 'weekly'; time: string } {
+function cronParts(cron: string): { freq: ScheduleFreq; time: string } {
+  if (cron.startsWith('at:')) return { freq: 'once', time: '09:00' }
   const parts = cron.trim().split(/\s+/)
   if (parts.length < 5) return { freq: 'daily', time: '09:00' }
   const [min, hour, , , dow] = parts
@@ -54,7 +57,7 @@ export function AutomationCreateDialog({
   onSubmit,
   onPickTemplate,
 }: Props): React.JSX.Element {
-  const [freq, setFreq] = useState<'daily' | 'weekdays' | 'weekly'>('daily')
+  const [freq, setFreq] = useState<ScheduleFreq>('daily')
   const [time, setTime] = useState('09:00')
 
   useEffect(() => {
@@ -64,9 +67,18 @@ export function AutomationCreateDialog({
     setTime(parsed.time)
   }, [open, draft.cron])
 
-  const updateSchedule = (nextFreq: typeof freq, nextTime: string) => {
+  const updateSchedule = (nextFreq: ScheduleFreq, nextTime: string) => {
     setFreq(nextFreq)
     setTime(nextTime)
+    if (nextFreq === 'in20') {
+      onChange({ ...draft, cron: delayAtCron(20), runOnce: true })
+      return
+    }
+    if (nextFreq === 'once') {
+      const stamp = draft.cron.startsWith('at:') ? draft.cron : delayAtCron(20)
+      onChange({ ...draft, cron: stamp, runOnce: true })
+      return
+    }
     onChange({ ...draft, cron: scheduleToCron(nextFreq, nextTime) })
   }
 
@@ -107,17 +119,35 @@ export function AutomationCreateDialog({
             <select
               aria-label="触发频率"
               value={freq}
-              onChange={e => updateSchedule(e.target.value as typeof freq, time)}
+              onChange={e => updateSchedule(e.target.value as ScheduleFreq, time)}
             >
               <option value="daily">每天</option>
               <option value="weekdays">工作日</option>
               <option value="weekly">每周一</option>
+              <option value="once">指定时刻（一次）</option>
+              <option value="in20">20 分钟后（一次）</option>
             </select>
           </label>
-          <label>
-            触发时间
-            <input aria-label="触发时间" type="time" value={time} onChange={e => updateSchedule(freq, e.target.value)} />
-          </label>
+          {freq === 'once' ? (
+            <label>
+              触发时刻
+              <input
+                aria-label="触发时刻"
+                type="datetime-local"
+                value={atCronToDatetimeLocal(draft.cron)}
+                onChange={e => onChange({ ...draft, cron: datetimeLocalToAtCron(e.target.value), runOnce: true })}
+              />
+            </label>
+          ) : freq === 'in20' ? (
+            <p className="automation-notice" role="status">
+              保存后约 20 分钟触发一次，不写入主聊天时可改用独立会话。
+            </p>
+          ) : (
+            <label>
+              触发时间
+              <input aria-label="触发时间" type="time" value={time} onChange={e => updateSchedule(freq, e.target.value)} />
+            </label>
+          )}
         </div>
         <label className="automation-create-prompt">
           你希望 Lunitide 做什么？
@@ -141,6 +171,26 @@ export function AutomationCreateDialog({
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          会话
+          <select
+            aria-label="会话模式"
+            value={draft.sessionMode}
+            onChange={e => onChange({ ...draft, sessionMode: e.target.value as AutomationDraft['sessionMode'] })}
+          >
+            <option value="bound">绑定当前会话</option>
+            <option value="isolated">独立会话（不写入主聊天）</option>
+          </select>
+        </label>
+        <label className="automation-enabled">
+          <input
+            type="checkbox"
+            aria-label="仅运行一次"
+            checked={draft.runOnce || draft.cron.startsWith('at:')}
+            onChange={e => onChange({ ...draft, runOnce: e.target.checked })}
+          />
+          仅运行一次
         </label>
         <label className="automation-enabled">
           <input

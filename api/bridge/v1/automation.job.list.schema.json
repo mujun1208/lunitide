@@ -26,6 +26,8 @@
             "modelId": { "type": "string" },
             "sessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
             "executionMode": { "type": "string" },
+            "sessionMode": { "type": "string" },
+            "runOnce": { "type": "boolean" },
             "webhookUrl": { "type": "string", "maxLength": 512 },
             "enabled": { "type": "boolean" },
             "lastRunAt": { "type": "string", "format": "date-time" },

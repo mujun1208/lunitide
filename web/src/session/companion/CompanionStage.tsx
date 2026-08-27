@@ -35,6 +35,11 @@ import {
   type CompanionSpeechHandle,
   type CompanionSpeechOptions,
 } from './speech'
+import { getTtsAudioState, TtsPlayer, unlockTtsAudio } from './ttsPlayer'
+import { startOmniCompanion, type OmniCompanionHandle } from '../omni/omniAudio'
+import { omniPersonaCaption } from './voicePersonas'
+import { useAutomationBroadcast } from './useAutomationBroadcast'
+import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
 
 /**
  * Last resort when endpointing never fires at all.
@@ -55,9 +60,6 @@ const FORCE_COMMIT_MS = 2700
  * answering finds out while they are still talking rather than afterwards.
  */
 const RECOGNIZER_DEAF_MS = 2500
-import { TtsPlayer, getTtsAudioState, unlockTtsAudio } from './ttsPlayer'
-import { useAutomationBroadcast } from './useAutomationBroadcast'
-import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
 
 export interface CompanionStageProps {
   chatStatus: 'idle' | 'streaming' | 'done' | 'failed' | 'cancelled'
@@ -132,6 +134,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const localAsrProbeRef = useRef<Promise<boolean> | undefined>(undefined)
   const activeRecognizerRef = useRef<'cloud' | 'local'>('cloud')
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
+  const omniHandleRef = useRef<OmniCompanionHandle | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
   stateRef.current = machine.state
@@ -226,6 +229,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setTtsAvailable(true)
     const deferTtsWarmup = window.setTimeout(() => {
       if (cancelled) return
+      if (stored.voicePath === 'omni') {
+        setTtsAvailable(true)
+        return
+      }
       const probeEngines = companionEngineProbeOrder(stored.engine)
       void (async () => {
         for (const engine of [...new Set(probeEngines)]) {
@@ -277,7 +284,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             voiceId: stored.voiceId || undefined,
             rate: stored.rate,
             volume: 0,
-            engine: stored.engine,
+            engine: stored.engine === 'sapi' || stored.engine === 'natural' ? 'edge' : stored.engine,
           }),
         ).catch(() => {})
       }
@@ -294,6 +301,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       document.documentElement.classList.remove('companion-active')
       speechHandleRef.current?.stop()
       speechHandleRef.current = undefined
+      omniHandleRef.current?.stop()
+      omniHandleRef.current = undefined
       playerRef.current?.dispose()
       playerRef.current = undefined
       const entry = entryFocusRef.current
@@ -705,6 +714,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   const cancelReply = useCallback(() => {
     onCancel?.()
+    omniHandleRef.current?.stop()
+    omniHandleRef.current = undefined
     spokenUpToRef.current = 0
     speakingRef.current = false
     syncSpeechModesRef.current()
@@ -895,6 +906,39 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setLocalError(undefined)
     setEngineHint('')
     unlockTtsAudio()
+    if (settingsRef.current.voicePath === 'omni') {
+      if (omniHandleRef.current) {
+        if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
+        autoLoopRef.current = true
+        setHintVisible(false)
+        return
+      }
+      autoLoopRef.current = auto
+      setHintVisible(false)
+      if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
+      const caption = omniPersonaCaption(settingsRef.current.omniPersonaId)
+      if (caption) setRounds([{ role: 'assistant', text: caption }])
+      void startOmniCompanion({
+        personaId: settingsRef.current.omniPersonaId,
+        onText: text => {
+          setRounds(current => withCurrentAssistant(current, { role: 'assistant', text }))
+        },
+        onError: message => {
+          omniHandleRef.current = undefined
+          setLocalError(new BridgeClientError(message, 'OMNI_UNAVAILABLE', true, 'renderer'))
+          if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
+        },
+        onSpeaking: speaking => {
+          setGain(speaking ? 0.7 : 0)
+        },
+      }).then(handle => {
+        omniHandleRef.current = handle
+      }).catch(error => {
+        setLocalError(new BridgeClientError(error instanceof Error ? error.message : 'MiniCPM-o 启动失败', 'OMNI_UNAVAILABLE', true, 'renderer'))
+        if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
+      })
+      return
+    }
     if (speechHandleRef.current) {
       speechHandleRef.current.resumeCapture()
       syncSpeechModes()
@@ -1189,6 +1233,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     autoLoopRef.current = false
     speechHandleRef.current?.stop()
     speechHandleRef.current = undefined
+    omniHandleRef.current?.stop()
+    omniHandleRef.current = undefined
     if (stateRef.current === 'speaking') interrupt()
     onExit()
   }, [interrupt, onExit])

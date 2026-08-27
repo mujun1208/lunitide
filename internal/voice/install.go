@@ -112,8 +112,7 @@ func (in *Installer) Installed(bundle Bundle) bool {
 			}
 			continue
 		}
-		digest, err := fileDigest(filepath.Join(dir, d.Path))
-		if err != nil || digest != d.SHA256 {
+		if !fileMatches(filepath.Join(dir, d.Path), d) {
 			return false
 		}
 	}
@@ -161,7 +160,15 @@ func (in *Installer) present(dir string, d Download) bool {
 	if d.Archive != ArchiveNone {
 		return receiptMatches(dir, d)
 	}
-	digest, err := fileDigest(filepath.Join(dir, d.Path))
+	return fileMatches(filepath.Join(dir, d.Path), d)
+}
+
+func fileMatches(path string, d Download) bool {
+	if d.SHA256 == "" {
+		info, err := os.Stat(path)
+		return err == nil && (d.Bytes == 0 || info.Size() == d.Bytes)
+	}
+	digest, err := fileDigest(path)
 	return err == nil && digest == d.SHA256
 }
 
@@ -255,8 +262,12 @@ func (in *Installer) fetchFrom(ctx context.Context, dir string, d Download, sour
 		return fmt.Errorf("voice: close %s: %w", d.Path, err)
 	}
 
-	if got := hex.EncodeToString(hasher.Sum(nil)); got != d.SHA256 {
+	got := hex.EncodeToString(hasher.Sum(nil))
+	if d.SHA256 != "" && got != d.SHA256 {
 		return fmt.Errorf("%w: %s expected %s, got %s", ErrDigestMismatch, d.Path, d.SHA256, got)
+	}
+	if d.SHA256 == "" && d.Bytes > 0 && counted.total != d.Bytes {
+		return fmt.Errorf("voice: download %s: expected %d bytes, got %d", d.Path, d.Bytes, counted.total)
 	}
 
 	if d.Archive == ArchiveTarBz2 {

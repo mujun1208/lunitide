@@ -24,6 +24,8 @@ const EMPTY_DRAFT = (): AutomationDraft => ({
   modelId: '',
   sessionId: '',
   executionMode: 'auto-edit',
+  sessionMode: 'bound',
+  runOnce: false,
   webhookUrl: '',
   enabled: true,
 })
@@ -109,6 +111,8 @@ export function AutomationCenterPage({
         providerId: defaults?.providerId ?? '',
         modelId: defaults?.modelId ?? '',
         executionMode: 'auto-edit',
+        sessionMode: 'isolated',
+        runOnce: false,
         webhookUrl: '',
         enabled: true,
       }),
@@ -139,6 +143,8 @@ export function AutomationCenterPage({
         modelId: draft.modelId,
         sessionId: draft.sessionId as never,
         executionMode: draft.executionMode,
+        sessionMode: draft.sessionMode,
+        runOnce: draft.runOnce || draft.cron.startsWith('at:'),
         webhookUrl: draft.webhookUrl.trim(),
         enabled: draft.enabled,
       })
@@ -181,6 +187,8 @@ export function AutomationCenterPage({
         modelId: job.modelId,
         sessionId: job.sessionId,
         executionMode: (job.executionMode as AutomationDraft['executionMode']) || 'auto-edit',
+        sessionMode: job.sessionMode === 'isolated' ? 'isolated' : 'bound',
+        runOnce: job.runOnce === true,
         webhookUrl: job.webhookUrl ?? '',
         enabled: !job.enabled,
       })
@@ -241,13 +249,23 @@ export function AutomationCenterPage({
       {tab === 'jobs' && (
         <section className="automation-center-jobs" aria-label="已配置任务">
           {jobs.length ? (
-            <ul className="automation-jobs">
-              {jobs.map(job => (
+            <>
+              {[
+                { id: 'scheduled', title: '定时任务', items: jobs.filter(j => j.sessionMode !== 'isolated' && !j.runOnce && !j.cron.startsWith('at:')) },
+                { id: 'isolated', title: '独立会话', items: jobs.filter(j => j.sessionMode === 'isolated') },
+                { id: 'once', title: '一次性', items: jobs.filter(j => j.sessionMode !== 'isolated' && (j.runOnce || j.cron.startsWith('at:'))) },
+              ].map(lane =>
+                lane.items.length ? (
+                  <div key={lane.id} className="automation-job-lane">
+                    <h2>{lane.title}</h2>
+                    <ul className="automation-jobs">
+                      {lane.items.map(job => (
                 <li key={job.id} className={`automation-job ${job.enabled ? '' : 'is-disabled'}`}>
                   <div className="automation-job-head">
                     <b>{job.name}</b>
                     <code>{cronToHuman(job.cron)}</code>
                     <span className="automation-job-mode">{MODE_LABEL[(job.executionMode as AutomationDraft['executionMode']) || 'auto-edit']}</span>
+                    {job.sessionMode === 'isolated' && <span className="automation-job-mode">独立</span>}
                   </div>
                   <div className="automation-job-meta">
                     <span>下次 {fmtTime(nextFire[job.id])}</span>
@@ -266,8 +284,12 @@ export function AutomationCenterPage({
                     </button>
                   </div>
                 </li>
-              ))}
-            </ul>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null,
+              )}
+            </>
           ) : (
             <p className="automation-empty">还没有定时任务。可以手动新建、从模板创建，或在对话中描述任务。</p>
           )}

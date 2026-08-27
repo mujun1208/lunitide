@@ -26,6 +26,14 @@
       "type": "boolean",
       "description": "Moon Companion (月伴) voice request; engine upgrades executionMode to full-access and applies the spoken-style system instruction."
     },
+    "replyStyle": {
+      "enum": ["default", "assistant", "support", "teacher", "npc"],
+      "description": "Optional speaking overlay. Does not replace 月汐 identity. Ignored when companion=true."
+    },
+    "structuredTemplate": {
+      "enum": ["off", "event", "form", "kv"],
+      "description": "Force the model to deliver via structured.output (event=calendar, form=labeled fields, kv=pairs). Ignored when companion=true or off."
+    },
     "projectPhase": {
       "type": "integer",
       "minimum": 1,
@@ -163,6 +171,13 @@
         "modelId": "x",
         "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
         "companion": true
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "replyStyle": "teacher",
+        "structuredTemplate": "event"
       }
     ],
     "negative": [
@@ -183,6 +198,12 @@
         "modelId": "x",
         "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
         "executionMode": "unrestricted"
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "replyStyle": "villain"
       }
     ]
   }

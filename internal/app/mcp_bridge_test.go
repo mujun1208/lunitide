@@ -51,3 +51,11 @@ func TestInvokeBrowserActGuidesInteractiveOps(t *testing.T) {
 		t.Fatalf("output = %q", out.Output)
 	}
 }
+
+func TestInvokeBrowserActNavigateNeedsURL(t *testing.T) {
+	e := NewEngine(nil, "test")
+	_, err := e.invokeBrowserAct(context.Background(), executionModeApproval, "sess", []byte(`{"op":"navigate"}`))
+	if err == nil || !strings.Contains(err.Error(), "needs url") {
+		t.Fatalf("err = %v", err)
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/secretlease"
 )
 
@@ -38,9 +39,12 @@ CRITICAL RULES FOR CODE:
 Output a JSON object with these fields:
 {
   "summary": "concise plain-text summary of the conversation",
+  "goal": "current user goal if known, else empty string",
+  "constraints": ["hard constraints, must-nots, and confirmed preferences"],
+  "progress": "what is done versus what remains",
   "keyPoints": ["array of key decisions and facts"],
   "actionItems": ["array of pending action items"],
-  "entities": {"type": "array of mentioned entities with context"}
+  "entities": {"name": "role, path, or identifier context"}
 }
 Keep the summary under 500 words. Do not omit any ULIDs, paths, or code blocks mentioned.`,
 	}
@@ -84,6 +88,9 @@ type summarizerInput struct {
 
 type structuredSummary struct {
 	Summary     string         `json:"summary"`
+	Goal        string         `json:"goal,omitempty"`
+	Constraints []string       `json:"constraints,omitempty"`
+	Progress    string         `json:"progress,omitempty"`
 	KeyPoints   []string       `json:"keyPoints"`
 	ActionItems []string       `json:"actionItems"`
 	Entities    map[string]any `json:"entities,omitempty"`
@@ -181,14 +188,8 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 		}
 
 		content := resp.Message.Content
-		var structured structuredSummary
-		decoder := json.NewDecoder(bytes.NewBufferString(content))
-		decoder.DisallowUnknownFields()
-		jsonErr := decoder.Decode(&structured)
-		if jsonErr == nil {
-			jsonErr = decoder.Decode(&struct{}{})
-		}
-		if (jsonErr != nil && jsonErr != io.EOF) || structured.Summary == "" {
+		structured, jsonErr := decodeStructuredSummary(content)
+		if jsonErr != nil || structured.Summary == "" {
 			return fmt.Errorf("summarizer returned invalid structured JSON")
 		}
 		if structured.KeyPoints == nil {
@@ -231,4 +232,26 @@ func buildSummarizerMessages(systemPrompt, sessionID string, sourceStartSeq, sou
 		return nil, fmt.Errorf("encode summarizer input: %w", err)
 	}
 	return []gateway.Message{{Role: gateway.RoleSystem, Content: systemPrompt}, {Role: gateway.RoleUser, Content: string(inputJSON)}}, nil
+}
+
+func decodeStructuredSummary(content string) (structuredSummary, error) {
+	repaired := jsonutil.Repair([]byte(content))
+	var strict structuredSummary
+	decoder := json.NewDecoder(bytes.NewReader(repaired))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&strict)
+	if err == nil {
+		err = decoder.Decode(&struct{}{})
+		if err == io.EOF {
+			err = nil
+		}
+	}
+	if err == nil && strict.Summary != "" {
+		return strict, nil
+	}
+	var loose structuredSummary
+	if json.Unmarshal(repaired, &loose) != nil || loose.Summary == "" {
+		return structuredSummary{}, fmt.Errorf("invalid structured JSON")
+	}
+	return loose, nil
 }
