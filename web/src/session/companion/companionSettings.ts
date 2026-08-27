@@ -1,11 +1,16 @@
 // companionSettings.ts persists the M9.5 Moon Companion settings under
 // the existing lunitide:localStorage namespace (zero new tables, zero
 // migrations). The engine family picks the synthesis route: "edge"
-// (free Microsoft cloud neural voices, default), "natural" (local
-// OneCore), "sapi" (classic desktop voices) or "ref" (GPT-SoVITS local
-// cloning). rev < 2 installs that used the old OneCore default are
-// moved onto the cloud engine once; an explicit later choice is kept.
+// (free Microsoft cloud neural voices, default), leftover "natural"
+// (OneCore) / "sapi" (classic desktop, no longer offered), or "ref"
+// (GPT-SoVITS local cloning). Saved SAPI/OneCore installs move onto
+// Edge; the local clone path stays. rev < 2 OneCore defaults are
+// moved onto the cloud engine once.
+import type { VoicePath } from './voicePersonas'
+
 export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref'
+/** Product-level voice channel. MiniCPM-o is not a TTS engine. */
+export type { VoicePath }
 /** normal = default endpointing; noisy = tighter mic gate for cafes / shared rooms. */
 export type SpeechEnvironment = 'normal' | 'noisy'
 
@@ -51,6 +56,9 @@ export interface CompanionSettings {
   volume: number
   engine: CompanionEngine
   refEndpoint: string
+  /** cloud = Edge ASR/TTS; local = GPT-SoVITS 50 人生; omni = MiniCPM-o duplex, separate from TTS. */
+  voicePath: VoicePath
+  omniPersonaId: string
 }
 
 const STORAGE_KEY = 'lunitide:companion'
@@ -63,12 +71,14 @@ const SETTINGS_REV = 9
  *  the machines this was tested against SAPI does not merge that hive — the
  *  mirror is byte-for-byte complete, the engine CLSID is registered for both
  *  bitnesses, and GetVoices still returns only the HKLM tokens. Probing it
- *  costs a round trip to arrive back where 'sapi' already is. */
-const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['edge', 'sapi']
+ *  costs a round trip to arrive back where 'sapi' already is.
+ *  Classic SAPI is not a fallback either: it is the tinny desktop
+ *  voice the picker used to offer as 本机语音, and it is gone. */
+const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['edge']
 
 export function companionEngineProbeOrder(primary: CompanionEngine): CompanionEngine[] {
-  if (primary === 'ref') return ['ref', ...ENGINE_PROBE_FALLBACK]
-  const order: CompanionEngine[] = [primary]
+  const start = primary === 'sapi' || primary === 'natural' ? 'edge' : primary
+  const order: CompanionEngine[] = [start]
   for (const engine of ENGINE_PROBE_FALLBACK) {
     if (!order.includes(engine)) order.push(engine)
   }
@@ -105,6 +115,8 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   volume: 88,
   engine: 'edge',
   refEndpoint: '',
+  voicePath: 'cloud',
+  omniPersonaId: 'refpack:优质台湾腔.wav',
 })
 
 export function loadCompanionSettings(): CompanionSettings {
@@ -112,7 +124,11 @@ export function loadCompanionSettings(): CompanionSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return fallback
-    const parsed = JSON.parse(raw) as Partial<CompanionSettings> & { rev?: number }
+    const parsed = JSON.parse(raw) as Omit<Partial<CompanionSettings>, 'voicePath'> & {
+      rev?: number
+      flmPersonaId?: string
+      voicePath?: unknown
+    }
     let engine: CompanionEngine = isEngine(parsed.engine) ? parsed.engine : fallback.engine
     let voiceId = typeof parsed.voiceId === 'string' ? parsed.voiceId : ''
     const rev = typeof parsed.rev === 'number' ? parsed.rev : 0
@@ -120,14 +136,19 @@ export function loadCompanionSettings(): CompanionSettings {
     if (rev < SETTINGS_REV) {
       wakeWord = false
     }
-    // The OneCore engine is no longer offered: it could not be reached
-    // through SAPI, so anyone left on it had a companion that showed
-    // captions and never spoke. Moved rather than left broken, and the
-    // stale voice id goes with it — its tokens do not exist for SAPI.
-    if (engine === 'natural') {
+    let persist = rev < SETTINGS_REV
+    const voicePath = readVoicePath(parsed.voicePath, engine)
+    if (voicePath === 'local') {
+      engine = 'ref'
+    } else if (engine === 'natural' || engine === 'sapi') {
+      // Classic SAPI / OneCore are no longer offered — they were the
+      // tinny 本机语音 option. Move onto Edge rather than keep speaking it.
       engine = 'edge'
-      voiceId = ''
+      if (!voiceId.startsWith('refpack:')) voiceId = ''
+      persist = true
     }
+    if (parsed.voicePath === 'flm') persist = true
+    const omniPersonaId = readOmniPersona(parsed.omniPersonaId, parsed.flmPersonaId, fallback.omniPersonaId)
     const interruptHotkey = parseInterruptHotkey(
       (parsed as Partial<CompanionSettings> & { interruptHotkey?: unknown }).interruptHotkey,
     )
@@ -147,8 +168,10 @@ export function loadCompanionSettings(): CompanionSettings {
       volume: clampInt(parsed.volume ?? fallback.volume, 0, 100),
       engine,
       refEndpoint: typeof parsed.refEndpoint === 'string' ? parsed.refEndpoint : '',
+      voicePath,
+      omniPersonaId,
     }
-    if (rev < SETTINGS_REV) saveCompanionSettings(next)
+    if (persist) saveCompanionSettings(next)
     return next
   } catch {
     return fallback
@@ -166,6 +189,35 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 
 function isEngine(value: unknown): value is CompanionEngine {
   return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref'
+}
+
+function isVoicePath(value: unknown): value is VoicePath {
+  return value === 'cloud' || value === 'local' || value === 'omni'
+}
+
+function readVoicePath(value: unknown, engine: CompanionEngine): VoicePath {
+  if (value === 'flm') return 'omni'
+  if (isVoicePath(value)) return value
+  return engine === 'ref' ? 'local' : 'cloud'
+}
+
+function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback: string): string {
+  if (typeof omniPersonaId === 'string' && omniPersonaId) return omniPersonaId
+  if (typeof flmPersonaId === 'string' && flmPersonaId) return flmPersonaId
+  return fallback
+}
+
+export function applyVoicePath(settings: CompanionSettings, path: VoicePath): CompanionSettings {
+  if (path === 'cloud') {
+    const voiceId = settings.voiceId.startsWith('refpack:') ? '' : settings.voiceId
+    return { ...settings, voicePath: 'cloud', engine: 'edge', voiceId }
+  }
+  if (path === 'local') {
+    const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
+    return { ...settings, voicePath: 'local', engine: 'ref', voiceId }
+  }
+  const omniPersonaId = settings.omniPersonaId || (settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId)
+  return { ...settings, voicePath: 'omni', omniPersonaId }
 }
 
 function isRecognizer(value: unknown): value is SpeechRecognizer {

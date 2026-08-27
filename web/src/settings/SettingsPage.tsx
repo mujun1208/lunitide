@@ -2,28 +2,19 @@ import React, { useEffect, useRef, useState } from 'react'
 import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,conversationsBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
-import{defaultCompanionSettings,formatInterruptHotkey,interruptHotkeyFromEvent,loadCompanionSettings,saveCompanionSettings,type CompanionSettings,type InterruptHotkey}from'../session/companion/companionSettings'
+import{ChoiceTiles}from'./ChoiceTiles'
+import{VoicePathPicker}from'./VoicePathPicker'
+import{VoicePersonaGrid}from'./VoicePersonaGrid'
+import{filterSettingsNav,SETTINGS_NAV_GROUPS,SETTINGS_CATEGORIES,type SettingsCategory}from'./settingsNav'
+import{REPLY_STYLE_OPTIONS,STRUCTURED_TEMPLATE_OPTIONS}from'./replySettings'
+import{applyVoicePath,defaultCompanionSettings,formatInterruptHotkey,interruptHotkeyFromEvent,loadCompanionSettings,saveCompanionSettings,type CompanionSettings,type InterruptHotkey}from'../session/companion/companionSettings'
 import{LocalAsrRow}from'./LocalAsrRow'
+import{OmniInstallRow}from'./OmniInstallRow'
 import{SubagentsPanel}from'./SubagentsPanel'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
-type SettingsCategory = 'general' | 'appearance' | 'providers' | 'voice' | 'personal' | 'security' | 'browser' | 'computer' | 'subagents' | 'collab' | 'diagnostics' | 'about'
 
-const CATEGORIES: { id: SettingsCategory; icon: string; label: string }[] = [
-  { id: 'general', icon: '◌', label: '常规' },
-  { id: 'appearance', icon: '◐', label: '外观' },
-  { id: 'providers', icon: '◈', label: '模型与供应商' },
-  { id: 'voice', icon: '◉', label: '语音与麦克风' },
-  { id: 'personal', icon: '✧', label: '个人智能' },
-  { id: 'security', icon: '⛨', label: '安全与治理' },
-  { id: 'browser', icon: '⬟', label: '浏览器' },
-  { id: 'computer', icon: '⌖', label: '电脑控制' },
-  { id: 'subagents', icon: '⎇', label: '子智能体' },
-  { id: 'collab', icon: '⌘', label: '协作门禁' },
-  { id: 'diagnostics', icon: '◉', label: '诊断与更新' },
-  { id: 'about', icon: 'ⓘ', label: '关于' },
-]
 
 interface GeneralSettings {
   startupPage: 'new' | 'last' | 'projects'
@@ -34,6 +25,8 @@ interface GeneralSettings {
   enterToSend: boolean
   autoTitle: boolean
   defaultMode: 'auto' | 'collab' | 'code' | 'full-access'
+  replyStyle: 'default' | 'assistant' | 'support' | 'teacher' | 'npc'
+  structuredTemplate: 'off' | 'event' | 'form' | 'kv'
 }
 
 interface AppearanceSettings {
@@ -52,6 +45,8 @@ const DEFAULT_GENERAL: GeneralSettings = {
   enterToSend: true,
   autoTitle: true,
   defaultMode: 'full-access', // 默认提升为完全访问权限
+  replyStyle: 'default',
+  structuredTemplate: 'off',
 }
 
 const DEFAULT_APPEARANCE: AppearanceSettings = {
@@ -70,11 +65,15 @@ function loadSettings<T>(key: string, fallback: T): T {
 }
 
 function saveSettings<T>(key: string, value: T): void {
-  try { localStorage.setItem(`lunitide:${key}`, JSON.stringify(value)) } catch { /* ignore */ }
+  try {
+    localStorage.setItem(`lunitide:${key}`, JSON.stringify(value))
+    if (key === 'general') window.dispatchEvent(new Event('lunitide:general'))
+  } catch { /* ignore */ }
 }
 
 export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, initialCategory = 'general' }: { onNavigateProviders?: () => void; onNavigateExpert?: () => void; onBack?: () => void; initialCategory?: SettingsCategory }): React.JSX.Element {
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
+  const [search, setSearch] = useState('')
   const [general, setGeneral] = useState<GeneralSettings>(() => loadSettings('general', DEFAULT_GENERAL))
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadSettings('appearance', DEFAULT_APPEARANCE))
   const [saved, setSaved] = useState(false)
@@ -103,26 +102,40 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
       <nav className="settings-nav" aria-label="设置导航">
         <button className="settings-back" onClick={onBack}>← 返回主页</button>
         <div className="settings-search" role="search">
-          <input type="search" placeholder="搜索设置…" aria-label="搜索设置" />
+          <input type="search" placeholder="搜索设置…" aria-label="搜索设置" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="settings-menu">
-          {CATEGORIES.map(c => (
-            <button
-              key={c.id}
-              className={`settings-item ${category === c.id ? 'on' : ''}`}
-              onClick={() => setCategory(c.id)}
-              aria-current={category === c.id ? 'page' : undefined}
-            >
-              <span className="ic" aria-hidden="true">{c.icon}</span>
-              {c.label}
-            </button>
-          ))}
+          {SETTINGS_NAV_GROUPS.map(group => {
+            const items = filterSettingsNav(search).filter(c => group.ids.includes(c.id))
+            if (!items.length) return null
+            const meta = SETTINGS_CATEGORIES
+            return (
+              <div key={group.label} className="settings-nav-group">
+                <div className="settings-nav-group-label">{group.label}</div>
+                {items.map(c => {
+                  const item = meta.find(x => x.id === c.id) ?? c
+                  return (
+                    <button
+                      key={c.id}
+                      className={`settings-item ${category === c.id ? 'on' : ''}`}
+                      onClick={() => setCategory(c.id)}
+                      aria-current={category === c.id ? 'page' : undefined}
+                    >
+                      <span className="ic" aria-hidden="true">{item.icon}</span>
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })}
+          {filterSettingsNav(search).length === 0 && <p className="settings-nav-empty">没有匹配的设置</p>}
         </div>
       </nav>
       <div className="settings-content">
         <div className="settings-top">
           <h2 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '20px' }}>
-            {CATEGORIES.find(c => c.id === category)?.label}
+            {SETTINGS_CATEGORIES.find(c => c.id === category)?.label}
           </h2>
           {saved && <span className="save-indicator" role="status">✓ 已保存</span>}
         </div>
@@ -133,6 +146,12 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
           {category === 'voice' && <VoicePanel />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
           {category === 'security' && <div className="governance-stack">
+            <div className="setting-group">
+              <div className="setting-group-title">编码与权限</div>
+              <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+                <div className="setting-desc">命令白名单约束 command.run。Git 默认只读（写操作需确认）。工作区 AGENTS.md / .agents/skills 叠在月汐身份上，不替换身份。技能与 MCP 在能力中心维护。</div>
+              </div>
+            </div>
             <CommandPolicyPanel />
             <HooksPanel />
             <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} embedded /> }, { id: 'plans', label: '计划管理', render: pid => <PlanPage projectId={pid} /> }]} />
@@ -308,8 +327,26 @@ function GeneralPanel({ settings, onChange }: { settings: GeneralSettings; onCha
             { value: 'auto', label: '自动模式' },
             { value: 'collab', label: '协作' },
             { value: 'code', label: '代码' },
+            { value: 'full-access', label: '完全访问' },
           ]}
           onChange={v => onChange('defaultMode', v as GeneralSettings['defaultMode'])}
+        />
+      </div>
+      <div className="setting-group">
+        <div className="setting-group-title">人设与输出</div>
+        <ChoiceTiles
+          legend="说话风格"
+          name="replyStyle"
+          value={settings.replyStyle}
+          options={REPLY_STYLE_OPTIONS}
+          onChange={v => onChange('replyStyle', v)}
+        />
+        <ChoiceTiles
+          legend="结构化输出"
+          name="structuredTemplate"
+          value={settings.structuredTemplate}
+          options={STRUCTURED_TEMPLATE_OPTIONS}
+          onChange={v => onChange('structuredTemplate', v)}
         />
       </div>
       <ConversationsStorageSection />
@@ -503,7 +540,7 @@ function CompanionSection():React.JSX.Element{
  // health in ref_meta.
  const refEndpointPayload=companion.engine==='ref'&&companion.refEndpoint?companion.refEndpoint:undefined
  const[showForeignEdgeVoices,setShowForeignEdgeVoices]=useState(false)
- useEffect(()=>{let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);let available=r.voices.length>0;if(companion.engine==='ref'&&r.ref_meta&&!r.ref_meta.pack_exists){available=false}setEngineState(available?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,refEndpointPayload])
+ useEffect(()=>{if(companion.voicePath==='omni'){setEngineState('available');setVoices([]);setRefMeta(undefined);return}let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);let available=r.voices.length>0;if(companion.engine==='ref'&&r.ref_meta&&!r.ref_meta.pack_exists){available=false}setEngineState(available?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,companion.voicePath,refEndpointPayload])
  // Auto-host launcher: when the ref engine is selected but the service
  // is down, kick the backend ensureRefEngine (non-blocking spawn) once
  // and poll the voices probe until /docs answers or the budget runs out.
@@ -528,15 +565,13 @@ function CompanionSection():React.JSX.Element{
  const zhMale=zhVoices.filter(v=>v.gender==='male').length
  const zhFemale=zhVoices.filter(v=>v.gender==='female').length
  const visibleVoices=companion.engine==='edge'&&!showForeignEdgeVoices?zhVoices:voices
- const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`普通话音色 ${zhVoices.length} 种（男 ${zhMale} · 女 ${zhFemale}${showForeignEdgeVoices?` · 全部 ${voices.length}`:''}；微软 Edge Neural 风格扩展，免密钥，需联网）`:'无法连接微软云端语音（需联网；可改选本机自然语音）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
+ const engineDesc=companion.engine==='edge'?(engineState==='probing'?'正在获取微软云端音色…':engineState==='available'?`普通话音色 ${zhVoices.length} 种（男 ${zhMale} · 女 ${zhFemale}${showForeignEdgeVoices?` · 全部 ${voices.length}`:''}；微软 Edge Neural 风格扩展，免密钥，需联网）`:'无法连接微软云端语音（需联网）'):companion.engine==='natural'?(engineState==='probing'?'正在获取自然语音列表…':engineState==='available'?`自然语音音色 ${voices.length} 个（Windows OneCore 神经网络音色，本机离线合成），按角色风格分组`:'本机无自然语音（M95-001），月伴将自动切换字幕模式'):companion.engine==='ref'?(engineState==='probing'?'正在获取角色音色列表…':refDesc):engineState==='probing'?'正在检测本机语音合成引擎…':engineState==='available'?`本机可用音色 ${voices.length} 个（Windows SAPI 桌面语音，离线合成）`:'本机无语音合成引擎（M95-001），月伴将自动切换字幕模式'
  const voiceDisabled=engineState!=='available'
  // Voice grouping: ref-engine presets carry an explicit group from the
  // backend; SAPI/OneCore voices fall back to the gender/lang heuristic
  // (zh-CN splits by gender, other zh-* are dialects, rest is foreign).
  const voiceGroups=(()=>{const g=new Map<string,typeof visibleVoices>();for(const v of visibleVoices){const lang=v.lang||'';const grp=v.group||(lang==='zh-CN'?(v.gender==='male'?'男声 · 阳光少年 / 沉稳大叔':'女声 · 温柔 / 活泼 / 甜美'):lang.startsWith('zh-')?'方言 · 东北 / 陕西 / 粤语 / 台湾':'外语 · 英语 / 日语');const arr=g.get(grp)||[];arr.push(v);g.set(grp,arr)}return[...g.entries()]})()
- return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>月伴对话</div></div><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="全双工对话" desc="她说完后立刻接着听下一句，不必重新点麦克风。她思考和说话的整个回合里麦克风都静音，所以外放回声、电视声或旁人说话都不会把她的回答截断；想插话请点舞台上的「打断」或使用快捷键。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v})}/><HotkeyRow label="打断快捷键" desc="月汐说话或思考时，按此快捷键立刻停止；舞台上也有「打断」按钮。Esc 仍用于退出月伴。" hotkey={companion.interruptHotkey} onChange={hotkey=>save({...companion,interruptHotkey:hotkey})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><LocalAsrRow companion={companion} save={save}/><div className="setting-row"><div><div className="setting-label">朗读引擎</div><div className="setting-desc">云端免费走微软 Edge 朗读（晓晓等 Neural，免 API Key，需联网）；自然语音为本机 OneCore；本机语音为经典 SAPI；角色扮演音色通过本地 GPT-SoVITS 克隆 50 种音色，服务未运行时自动在后台启动。</div></div><select className="setting-select" aria-label="朗读引擎" value={companion.engine} onChange={e=>save({...companion,engine:e.target.value as CompanionSettings['engine'],voiceId:''})}><option value="edge">云端免费（微软晓晓 · 推荐）</option><option value="sapi">本机语音（经典 SAPI）</option><option value="ref">角色扮演音色（本地 · 50 种音色 · 联网慢时推荐）</option></select></div>
-{companion.engine==='ref'&&<div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880（api_v2 推理服务端口；9874 是 WebUI 端口，不提供合成 API）。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div>}{companion.engine==='edge'&&<Toggle label="显示外语音色" desc="默认只列出中文（含普通话、港台、粤语）；开启后可浏览全部云端 Neural 音色。" on={showForeignEdgeVoices} onChange={setShowForeignEdgeVoices}/>}<div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div>
- <div className="setting-row"><div><div className="setting-label">语速（rate -10~10）</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量（0~100）</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} disabled={engineState!=='available'&&companion.engine==='sapi'} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div>{status&&<p role="status" className="notice">{status}</p>}</>
+ return <><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-group-title" style={{marginTop:8}}>语音通道</div></div><VoicePathPicker value={companion.voicePath} onChange={path=>save(applyVoicePath(companion,path))}/><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><HotkeyRow label="打断快捷键" desc="月汐说话或思考时，按此快捷键立刻停止；舞台上也有「打断」按钮。Esc 仍用于退出月伴。" hotkey={companion.interruptHotkey} onChange={hotkey=>save({...companion,interruptHotkey:hotkey})}/>{companion.voicePath!=='omni'&&<><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="全双工对话" desc="她说完后立刻接着听下一句，不必重新点麦克风。她思考和说话的整个回合里麦克风都静音，所以外放回声、电视声或旁人说话都不会把她的回答截断；想插话请点舞台上的「打断」或使用快捷键。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><LocalAsrRow companion={companion} save={save}/></>}{companion.voicePath==='omni'&&<><p className="omni-note">MiniCPM-o 4.5 是单独的全双工通道：麦克风直连本机 Q4 模型，边听边说并按所选人生克隆音色，不走 chat.start，也不走云端/本地朗读。权重约 8 GB，下载进月汐数据目录，无需 API Key。</p><OmniInstallRow/><VoicePersonaGrid caption="选一种人生作为克隆参考音色。气质叠在月汐身份上，不替换身份。" value={companion.omniPersonaId} onChange={id=>save({...companion,omniPersonaId:id})}/></>}{companion.voicePath==='local'&&<><VoicePersonaGrid caption="50 种人生已内置。音色走本机克隆引擎，点选即用。" value={companion.voiceId||companion.omniPersonaId} onChange={id=>save({...companion,voiceId:id,omniPersonaId:id})}/><div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div><div className="setting-row"><div><div className="setting-label">{engineDesc}</div></div><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></>}{companion.voicePath==='cloud'&&<><Toggle label="显示外语音色" desc="默认只列出中文；开启后可浏览全部云端 Neural 音色。" on={showForeignEdgeVoices} onChange={setShowForeignEdgeVoices}/><div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div><div className="setting-row"><div><div className="setting-label">语速</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div></>}{status&&<p role="status" className="notice">{status}</p>}</>
 }
 
 function AboutPanel(): React.JSX.Element {
@@ -678,10 +713,11 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
   const refresh = async () => {
     setBusy(true)
     try {
-      const [s, sess, perms] = await Promise.all([
+      const [s, sess, perms, modes] = await Promise.all([
         bridge.getSettings(),
         bridge.listSessions(),
         bridge.listPermissions({ state: 'pending' }),
+        bridge.detectModes().catch(() => null),
       ])
       setSettings(s)
       setChromePathDraft(s.chromePath)
@@ -690,6 +726,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       setRetentionDraft(String(s.dataRetentionDays))
       setSessions(sess.sessions)
       setPending(perms.permissions)
+      if (modes) setDetect(modes)
       setStatus('')
     } catch (e) {
       setStatus(e instanceof Error ? e.message : '浏览器设置加载失败')
@@ -778,13 +815,25 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
 
   return (
     <div className="setting-group">
+      <div className="setting-group-title">就绪检查</div>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div>
+          <div className="setting-label">本机浏览器自动化</div>
+          <div className="setting-desc">对话里的填表/点击走托管 Playwright（首次自动安装）。操作前 snapshot，动作后会带回新页面树。登录墙、验证码、文件选择请你本地完成，月汐不会代点。个人 Chrome/Edge 仅在你选择对应连接模式时使用，不会拷贝 Cookie。</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <button disabled={busy} onClick={() => void detectModes()}>重新探测</button>
+          <button disabled={busy} onClick={() => void connect()}>新建会话（当前模式）</button>
+        </div>
+        {detect && (
+          <p className="setting-desc" role="status" style={{ marginTop: 8 }}>
+            内置 WebView2 {detect.builtin ? '可用' : '不可用'} · Chrome {detect.chrome.available ? '可用' : '未检测到'} · Edge {detect.edge.available ? '可用' : '未检测到'} · 扩展桥 {detect.extension.available ? '可用' : '未检测到'}（端口 {detect.extension.port}）
+          </p>
+        )}
+      </div>
       <div className="setting-group-title">浏览器多模式</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div className="setting-desc">五种连接模式共用一套导航白名单与私网拦截策略；切换模式会断开当前活动会话。当前 {sessions.filter(s => s.state === 'connected').length}/{sessions.length} 个会话在线。</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button disabled={busy} onClick={() => void detectModes()}>探测本机浏览器</button>
-          <button disabled={busy} onClick={() => void connect()}>新建会话（当前模式）</button>
-        </div>
       </div>
 
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>

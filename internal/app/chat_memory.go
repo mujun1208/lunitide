@@ -328,7 +328,7 @@ func renderPreferenceInstruction(instruction string, prefs []string) string {
 	}
 	var b strings.Builder
 	b.WriteString(instruction)
-	b.WriteString("\n\n以下为用户已显式确认的偏好，回答时必须遵守：\n")
+	b.WriteString("\n\n[持久记忆]\n用户偏好（已显式确认，回答时必须遵守）：\n")
 	for _, pref := range prefs {
 		b.WriteString("- ")
 		b.WriteString(pref)

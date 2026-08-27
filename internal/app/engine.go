@@ -216,6 +216,9 @@ type Engine struct {
 	// a user turns the feature on.
 	voice *VoiceService
 
+	// MiniCPM-o 4.5 duplex. Isolated from TTS and ASR; nil until wired.
+	omni *OmniService
+
 	// M9 slice-1: org-admin bridge service (org.* methods, T-9.1.3).
 	m9org *m9app.OrgAdminService
 
@@ -586,6 +589,12 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodVoiceAppend:                   handleVoiceAppend,
 	bridge.MethodVoiceFinish:                   handleVoiceFinish,
 	bridge.MethodVoiceStop:                     handleVoiceStop,
+	bridge.MethodOmniStatus:                    handleOmniStatus,
+	bridge.MethodOmniInstall:                   handleOmniInstall,
+	bridge.MethodOmniEnsure:                    handleOmniEnsure,
+	bridge.MethodOmniStart:                     handleOmniStart,
+	bridge.MethodOmniAppend:                    handleOmniAppend,
+	bridge.MethodOmniStop:                      handleOmniStop,
 	bridge.MethodOrgSummary:                    handleOrgSummary,
 	bridge.MethodOrgCreate:                     handleOrgCreate,
 	bridge.MethodOrgSwitch:                     handleOrgSwitch,

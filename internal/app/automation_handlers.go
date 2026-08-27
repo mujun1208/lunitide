@@ -15,9 +15,11 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/cronexpr"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/scheduler"
 )
+
+const isolatedAutomationTitle = "新对话"
 
 func automationUnavailable(r bridge.Request) bridge.Response {
 	return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "自动化调度器未初始化", false)
@@ -41,6 +43,8 @@ func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bri
 		ModelID       string `json:"modelId"`
 		SessionID     string `json:"sessionId"`
 		ExecutionMode string `json:"executionMode,omitempty"`
+		SessionMode   string `json:"sessionMode,omitempty"`
+		RunOnce       bool   `json:"runOnce,omitempty"`
 		WebhookURL    string `json:"webhookUrl,omitempty"`
 		Enabled       bool   `json:"enabled"`
 		LastRunAt     string `json:"lastRunAt,omitempty"`
@@ -51,7 +55,8 @@ func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bri
 	for _, j := range jobs {
 		v := jobView{ID: j.ID, Name: j.Name, Cron: j.Cron, Prompt: j.Prompt,
 			ProviderID: j.ProviderID, ModelID: j.ModelID, SessionID: j.SessionID,
-			ExecutionMode: j.ExecutionMode, WebhookURL: j.WebhookURL, Enabled: j.Enabled,
+			ExecutionMode: j.ExecutionMode, SessionMode: j.SessionMode, RunOnce: j.RunOnce,
+			WebhookURL: j.WebhookURL, Enabled: j.Enabled,
 			CreatedAt: j.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: j.UpdatedAt.UTC().Format(time.RFC3339)}
 		if !j.LastRunAt.IsZero() {
 			v.LastRunAt = j.LastRunAt.UTC().Format(time.RFC3339)
@@ -75,6 +80,8 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 		ModelID       string `json:"modelId"`
 		SessionID     string `json:"sessionId"`
 		ExecutionMode string `json:"executionMode"`
+		SessionMode   string `json:"sessionMode"`
+		RunOnce       bool   `json:"runOnce"`
 		WebhookURL    string `json:"webhookUrl"`
 		Enabled       bool   `json:"enabled"`
 	}
@@ -82,8 +89,8 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 		p.ModelID == "" || len(p.ModelID) > 128 || len(p.ID) > 26 {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "automation.job.set 参数无效", false)
 	}
-	if _, err := cronexpr.Parse(p.Cron); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_CRON_INVALID", "cron 表达式无效（需 5 字段标准格式）", false)
+	if err := scheduler.ParseSchedule(p.Cron); err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_CRON_INVALID", "cron 表达式无效（需 5 字段或 at:RFC3339）", false)
 	}
 	if p.ExecutionMode != "" {
 		if _, ok := normalizeExecutionMode(executionMode(p.ExecutionMode)); !ok {
@@ -97,7 +104,8 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 	job := scheduler.Job{
 		Name: p.Name, Cron: p.Cron, Prompt: p.Prompt,
 		ProviderID: p.ProviderID, ModelID: p.ModelID, SessionID: p.SessionID,
-		ExecutionMode: p.ExecutionMode, WebhookURL: p.WebhookURL, Enabled: p.Enabled,
+		ExecutionMode: p.ExecutionMode, SessionMode: p.SessionMode, RunOnce: p.RunOnce,
+		WebhookURL: p.WebhookURL, Enabled: p.Enabled,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if p.ID != "" {
@@ -234,17 +242,12 @@ func (e *Engine) AutomationHeadlessExecutor() scheduler.Executor {
 	return func(ctx context.Context, job scheduler.Job) scheduler.Outcome {
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		mode := job.ExecutionMode
-		if mode == "" {
-			mode = "auto-edit"
+		isolatedID := ""
+		if strings.TrimSpace(job.SessionMode) == "isolated" {
+			isolatedID = e.isolatedAutomationSession(runCtx, job.SessionID)
 		}
-		payload, err := json.Marshal(map[string]any{
-			"providerId":    job.ProviderID,
-			"modelId":       job.ModelID,
-			"sessionId":     job.SessionID,
-			"messages":      []map[string]string{{"role": "user", "content": job.Prompt}},
-			"executionMode": mode,
-		})
+		payloadMap := automationChatStartPayload(job, isolatedID)
+		payload, err := json.Marshal(payloadMap)
 		if err != nil {
 			return scheduler.Outcome{Err: err}
 		}
@@ -280,4 +283,56 @@ func (e *Engine) AutomationHeadlessExecutor() scheduler.Executor {
 		}
 		return scheduler.Outcome{Summary: text.String(), TotalTokens: tokens}
 	}
+}
+
+// automationChatStartPayload builds chat.start for a scheduled fire.
+// Isolated jobs never reuse the bound sessionId; they use a fresh session
+// when one was created, otherwise messages-only so the main chat stays clean.
+func automationChatStartPayload(job scheduler.Job, isolatedSessionID string) map[string]any {
+	mode := job.ExecutionMode
+	if mode == "" {
+		mode = "auto-edit"
+	}
+	payload := map[string]any{
+		"providerId":    job.ProviderID,
+		"modelId":       job.ModelID,
+		"messages":      []map[string]string{{"role": "user", "content": job.Prompt}},
+		"executionMode": mode,
+	}
+	if strings.TrimSpace(job.SessionMode) == "isolated" {
+		if isolatedSessionID != "" {
+			payload["sessionId"] = isolatedSessionID
+		}
+		return payload
+	}
+	payload["sessionId"] = job.SessionID
+	return payload
+}
+
+// isolatedAutomationSession creates a placeholder-titled chat in the bound
+// session's project. The sidebar already hides 「新对话」, so each fire stays
+// off the 对话 list. Returns empty when sessions storage is unavailable.
+func (e *Engine) isolatedAutomationSession(ctx context.Context, boundSessionID string) string {
+	if e == nil || !sessionServiceAvailable(e.sessions) {
+		return ""
+	}
+	title, err := session.NormalizeTitle(isolatedAutomationTitle)
+	if err != nil {
+		return ""
+	}
+	projectID := e.projectIDForSession(ctx, boundSessionID)
+	if projectID == "" {
+		return ""
+	}
+	created, err := e.sessions.Create(ctx, ulid.Make().String(), "automation", map[string]string{
+		"projectId": projectID,
+		"title":     title,
+	}, session.Session{ProjectID: projectID, Title: title})
+	if err != nil {
+		return ""
+	}
+	if _, dirErr := e.sessionOutputDir(created.ID); dirErr != nil {
+		_ = dirErr
+	}
+	return created.ID
 }

@@ -86,11 +86,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
-		Companion         bool            `json:"companion"`
-		ProjectID         string          `json:"projectId"`
-		ProjectPhase      int             `json:"projectPhase"`
-		ProjectPhaseLabel string          `json:"projectPhaseLabel"`
-		SubagentPolicy    json.RawMessage `json:"subagentPolicy"`
+		Companion          bool            `json:"companion"`
+		ReplyStyle         string          `json:"replyStyle"`
+		StructuredTemplate string          `json:"structuredTemplate"`
+		ProjectID          string          `json:"projectId"`
+		ProjectPhase       int             `json:"projectPhase"`
+		ProjectPhaseLabel  string          `json:"projectPhaseLabel"`
+		SubagentPolicy     json.RawMessage `json:"subagentPolicy"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -137,6 +139,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
 		instruction += companionPersonaInstruction()
+	}
+	instruction += replyStyleInstruction(p.ReplyStyle, p.Companion)
+	if !p.Companion {
+		instruction += structuredTemplateInstruction(p.StructuredTemplate)
 	}
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -211,7 +217,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
+    instruction += identityAndFewShotInstruction()
 		instruction += bundledWorkflowInjection()
+		instruction += e.workspaceRepoGuidance()
 		instruction += chatRichMarkdownInstruction()
 	}
 	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
@@ -996,7 +1004,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
 		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body). The workspace browser address bar shows this URL.", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
-		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query.", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string"},"max":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Use for current facts, docs, or links — do not invent temperatures or prices. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query. Example: {\"query\":\"北京明天天气\",\"max\":5}", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"Search query. Example: 北京明天天气"},"max":{"type":"integer","description":"Number of results to return, default 5 (1-10).","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .xlsx"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
@@ -1005,7 +1013,8 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, or shortcut whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 → desktop shortcut or Start Menu app). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground searches in an already-open desktop music app via keyboard (needs cc.*). target=browser|netease|qqmusic opens a search URL then sends the Windows media-play key. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=search in open app; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
-		{Name: "browser.act", Description: "Browser automation: navigate/read fetch public pages; click/type/snapshot route to bundled Playwright MCP (auto-installed on first use). After navigate to a music page, click with empty selector falls back to media.play.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","read","click","type","snapshot"]},"url":{"type":"string","description":"required for navigate; read reuses the last navigated URL when omitted"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
+		structuredOutputDefinition(),
 	}
 }
 
@@ -1424,7 +1433,7 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 	}
 	switch a.Op {
 	case "click", "type", "snapshot":
-		if out, err := e.invokeBrowserActViaPlaywright(ctx, a.Op, a.Selector, a.Text); err != nil {
+		if out, err := e.invokeBrowserActViaPlaywright(ctx, a.Op, a.Selector, a.Text, a.URL); err != nil {
 			return toolruntime.Result{}, err
 		} else if out.Output != "" {
 			return out, nil
@@ -1436,7 +1445,24 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 			}
 		}
 		return toolruntime.Result{Output: "交互式浏览器自动化正在初始化 Playwright MCP（首次会下载 Chromium，约 1–2 分钟）。若仍失败，请用 media.play 播放音乐，或在设置 → 插件/MCP 检查 Playwright 状态。"}, nil
-	case "navigate", "read":
+	case "navigate":
+		u := strings.TrimSpace(a.URL)
+		if u == "" {
+			return toolruntime.Result{}, errors.New("browser.act navigate/read needs url")
+		}
+		if out, err := e.invokeBrowserActViaPlaywright(ctx, "navigate", "", "", u); err != nil {
+			return toolruntime.Result{}, err
+		} else if out.Output != "" {
+			e.browserLastURL.Store(session, u)
+			return out, nil
+		}
+		args, _ := json.Marshal(map[string]string{"url": u})
+		out, err := e.executeUserTool(ctx, mode, session, "web.fetch", args)
+		if err == nil {
+			e.browserLastURL.Store(session, u)
+		}
+		return out, err
+	case "read":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {
 			if prev, ok := e.browserLastURL.Load(session); ok {
@@ -1908,9 +1934,33 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return errors.New("duplicate tool call id")
 				}
 				seen[call.ID] = true
-				digest := toolruntime.Digest(call.Name, call.Arguments)
-				if digest == "" {
-					return errors.New("invalid tool arguments")
+				prepared, retryHint := prepareToolArguments(call.Name, call.Arguments, toolSchemaByName(req.Tools, call.Name))
+				call.Arguments = prepared
+				digest := argsDigestOrFallback(call.Name, prepared)
+				if retryHint != "" {
+					if future, ok := parallelFutures[call.ID]; ok {
+						select {
+						case <-future:
+						case <-op.Done():
+						}
+						delete(parallelFutures, call.ID)
+					}
+					if future, ok := subagentFutures[call.ID]; ok {
+						select {
+						case <-future:
+						case <-op.Done():
+						}
+						delete(subagentFutures, call.ID)
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
+						return err
+					}
+					summary := clipToolSummary(retryHint)
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					continue
 				}
 				if skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests); skip {
 					if future, ok := parallelFutures[call.ID]; ok {
@@ -2043,6 +2093,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						delete(parallelFutures, call.ID)
 						return res.result, res.err
 					}
+					if call.Name == toolStructuredOutput {
+						return emitStructuredOutput(call.Arguments)
+					}
 					if call.Name == "browser.act" {
 						return e.invokeBrowserAct(op, mode, sessionID, call.Arguments)
 					}
@@ -2106,7 +2159,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if !strings.HasPrefix(summary, "ok:false") {
 						summary = "ok:false\n" + summary
 					}
-					turn.ToolFailed = true
+					if !strings.Contains(summary, "retry:") {
+						turn.ToolFailed = true
+					}
 				}
 				summary = clipToolSummary(summary)
 				if toolErr == nil {

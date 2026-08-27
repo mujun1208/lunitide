@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import {
+  applyVoicePath,
   companionEngineProbeOrder,
   defaultCompanionSettings,
   formatInterruptHotkey,
@@ -92,12 +93,68 @@ describe('companionSettings voice default', () => {
 })
 
 describe('companion engine fallback helpers', () => {
-  test('falls back to the engines that can actually answer', () => {
-    expect(companionEngineProbeOrder('edge')).toEqual(['edge', 'sapi'])
-    expect(companionEngineProbeOrder('ref')).toEqual(['ref', 'edge', 'sapi'])
-    // OneCore is not probed at all: the probe would cost a round trip to
-    // land back on 'sapi', which is already next in the list.
-    expect(companionEngineProbeOrder('edge')).not.toContain('natural')
+  test('keeps omni off the TTS fallback list', () => {
+    expect(companionEngineProbeOrder('edge')).toEqual(['edge'])
+    expect(companionEngineProbeOrder('ref')).toEqual(['ref', 'edge'])
+    expect(companionEngineProbeOrder('sapi')).toEqual(['edge'])
+    expect(companionEngineProbeOrder('edge')).not.toContain('sapi')
+    expect(companionEngineProbeOrder('ref')).not.toContain('sapi')
+    expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('omni')
+    expect(applyVoicePath(defaultCompanionSettings(), 'omni').engine).toBe('edge')
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('refpack:优质台湾腔.wav')
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'cloud').voiceId).toBe('')
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'omni').omniPersonaId).toBe('refpack:优质台湾腔.wav')
+    expect(applyVoicePath({ ...defaultCompanionSettings(), omniPersonaId: '', voiceId: 'refpack:甜心少女.wav' }, 'omni').omniPersonaId).toBe('refpack:甜心少女.wav')
+  })
+
+  test('keeps a saved local clone path', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      voicePath: 'local',
+      engine: 'ref',
+      voiceId: 'refpack:甜心少女.wav',
+    }))
+    const loaded = loadCompanionSettings()
+    expect(loaded.voicePath).toBe('local')
+    expect(loaded.engine).toBe('ref')
+    expect(loaded.voiceId).toBe('refpack:甜心少女.wav')
+  })
+
+  test('migrates leftover classic SAPI onto Edge', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      engine: 'sapi',
+      voiceId: 'HKEY_LOCAL_MACHINE\\x',
+    }))
+    const loaded = loadCompanionSettings()
+    expect(loaded.voicePath).toBe('cloud')
+    expect(loaded.engine).toBe('edge')
+    expect(loaded.voiceId).toBe('')
+  })
+
+  test('migrates leftover ref engine without a path onto local', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      engine: 'ref',
+      voiceId: 'refpack:优质台湾腔.wav',
+    }))
+    const loaded = loadCompanionSettings()
+    expect(loaded.voicePath).toBe('local')
+    expect(loaded.engine).toBe('ref')
+    expect(loaded.voiceId).toBe('refpack:优质台湾腔.wav')
+  })
+
+  test('migrates saved FLM path onto MiniCPM-o', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      voicePath: 'flm',
+      flmPersonaId: 'refpack:甜心少女.wav',
+      engine: 'edge',
+    }))
+    const loaded = loadCompanionSettings()
+    expect(loaded.voicePath).toBe('omni')
+    expect(loaded.omniPersonaId).toBe('refpack:甜心少女.wav')
   })
 
   test('drops cloud voice ids when falling back to OneCore', () => {

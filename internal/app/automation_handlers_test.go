@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/scheduler"
 )
 
@@ -121,7 +123,89 @@ func TestAutomationBridgeValidation(t *testing.T) {
 	}
 }
 
-func TestAutomationDisabledWithoutScheduler(t *testing.T) {
+func TestAutomationJobSetAcceptsAtAndIsolated(t *testing.T) {
+	e, _, _ := newAutomationEngine(t)
+	payload := `{"name":"一次提醒","cron":"at:2026-08-27T12:00:00Z","prompt":"提醒开会","providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAE","modelId":"gpt-test","sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAF","sessionMode":"isolated","runOnce":true,"enabled":true}`
+	created := e.Handle(context.Background(), automationRequest("automation.job.set", payload))
+	if !created.OK {
+		t.Fatalf("at/isolated create failed: %+v", created)
+	}
+	listed := e.Handle(context.Background(), automationRequest("automation.job.list", "{}"))
+	raw := string(mustJSON(listed.Payload))
+	if !strings.Contains(raw, `"sessionMode":"isolated"`) || !strings.Contains(raw, "at:2026-08-27T12:00:00Z") {
+		t.Fatalf("list missing isolated/at fields: %s", raw)
+	}
+}
+
+func TestAutomationChatStartPayloadBoundVsIsolated(t *testing.T) {
+	job := scheduler.Job{
+		ProviderID:    "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+		ModelID:       "gpt-test",
+		SessionID:     "01ARZ3NDEKTSV4RRFFQ69G5FAF",
+		Prompt:        "提醒开会",
+		ExecutionMode: "full-access",
+		SessionMode:   "bound",
+	}
+	bound := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ")
+	if bound["sessionId"] != job.SessionID {
+		t.Fatalf("bound used isolated id: %#v", bound)
+	}
+	job.SessionMode = "isolated"
+	fresh := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ")
+	if fresh["sessionId"] != "01ARZ3NDEKTSV4RRFFQ69G5FZZ" {
+		t.Fatalf("isolated+id want new session, got %#v", fresh)
+	}
+	if _, ok := fresh["messages"]; !ok {
+		t.Fatal("isolated payload dropped messages")
+	}
+	fallback := automationChatStartPayload(job, "")
+	if _, ok := fallback["sessionId"]; ok {
+		t.Fatalf("isolated without session should omit sessionId: %#v", fallback)
+	}
+}
+
+type fakeAutomationSessions struct {
+	bound   session.Session
+	created []session.Session
+}
+
+func (f *fakeAutomationSessions) Create(_ context.Context, _, _ string, _ any, value session.Session) (session.Session, error) {
+	value.ID = "01ARZ3NDEKTSV4RRFFQ69G5FZZ"
+	f.created = append(f.created, value)
+	return value, nil
+}
+func (f *fakeAutomationSessions) Update(context.Context, string, string, any, string, int64, string, bool) (session.Session, error) {
+	return session.Session{}, nil
+}
+func (f *fakeAutomationSessions) List(context.Context, session.Filter) ([]session.Session, error) {
+	return nil, nil
+}
+func (f *fakeAutomationSessions) Delete(context.Context, string) error { return nil }
+func (f *fakeAutomationSessions) Get(_ context.Context, id string) (session.Session, error) {
+	if id == f.bound.ID {
+		return f.bound, nil
+	}
+	return session.Session{}, errors.New("missing")
+}
+
+func TestIsolatedAutomationSessionCreatesHiddenChat(t *testing.T) {
+	e := NewEngine(nil, "test")
+	if got := e.isolatedAutomationSession(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAF"); got != "" {
+		t.Fatalf("nil sessions want empty, got %q", got)
+	}
+	bound := session.Session{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAF", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Title: "主聊天"}
+	fake := &fakeAutomationSessions{bound: bound}
+	e.sessions = fake
+	got := e.isolatedAutomationSession(context.Background(), bound.ID)
+	if got != "01ARZ3NDEKTSV4RRFFQ69G5FZZ" {
+		t.Fatalf("got %q", got)
+	}
+	if len(fake.created) != 1 || fake.created[0].Title != "新对话" || fake.created[0].ProjectID != bound.ProjectID {
+		t.Fatalf("created %#v", fake.created)
+	}
+}
+
+func TestAutomationJobListFeatureDisabled(t *testing.T) {
 	e := NewEngine(nil, "test")
 	resp := e.Handle(context.Background(), automationRequest("automation.job.list", "{}"))
 	if resp.OK || resp.Error == nil || resp.Error.Code != "FEATURE_DISABLED" {

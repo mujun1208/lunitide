@@ -23,6 +23,7 @@ import (
 	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/htmlapp"
+	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/webfetch"
@@ -419,6 +420,7 @@ func (r *Runtime) Close() error {
 	return r.db.Close()
 }
 func Digest(name string, args json.RawMessage) string {
+	args = jsonutil.Repair(args)
 	var v any
 	if json.Unmarshal(args, &v) != nil {
 		return ""
@@ -800,6 +802,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if mode == Plan {
 		return Result{}, errors.New("tools disabled in plan mode")
 	}
+	args = jsonutil.Repair(args)
 	// P3-B hooks: evaluate beforeToolCall rules first (block > gate >
 	// grant priority, fail-closed). A block refuses before anything else;
 	// every matched rule leaves one audit row whatever the outcome.

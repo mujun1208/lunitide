@@ -34,6 +34,7 @@ func (e *Engine) findPlaywrightTool(op string) (endpointID, tool string, ok bool
 		"click":    {"browser_click", "click"},
 		"type":     {"browser_type", "type"},
 		"snapshot": {"browser_snapshot", "snapshot"},
+		"navigate": {"browser_navigate", "browser_goto", "navigate"},
 	}
 	candidates, ok := want[op]
 	if !ok {
@@ -77,7 +78,7 @@ func (e *Engine) ensurePlaywrightMCP(ctx context.Context) bool {
 	return false
 }
 
-func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector, text string) (toolruntime.Result, error) {
+func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector, text, pageURL string) (toolruntime.Result, error) {
 	endpointID, tool, ok := e.findPlaywrightTool(op)
 	if !ok {
 		if !e.ensurePlaywrightMCP(ctx) {
@@ -105,6 +106,11 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector
 			args["element"] = selector
 			args["selector"] = selector
 		}
+	case "navigate":
+		if strings.TrimSpace(pageURL) == "" {
+			return toolruntime.Result{}, nil
+		}
+		args["url"] = strings.TrimSpace(pageURL)
 	case "snapshot":
 		// pass-through
 	default:
@@ -115,7 +121,37 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector
 	if err != nil {
 		return toolruntime.Result{}, err
 	}
-	return toolruntime.Result{Output: out}, nil
+	snap := ""
+	if op != "snapshot" {
+		snap = e.playwrightSnapshotFollowup(ctx)
+	}
+	return toolruntime.Result{Output: appendPostActSnapshot(op, out, snap)}, nil
+}
+
+func (e *Engine) playwrightSnapshotFollowup(ctx context.Context) string {
+	endpointID, tool, ok := e.findPlaywrightTool("snapshot")
+	if !ok {
+		return ""
+	}
+	out, err := e.invokeMcpTool(ctx, endpointID, tool, json.RawMessage(`{}`))
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// appendPostActSnapshot mirrors OpenClaw: after click/type/navigate the
+// model sees a fresh page tree so it does not keep acting on stale refs.
+func appendPostActSnapshot(op, primary, snapshot string) string {
+	primary = strings.TrimSpace(primary)
+	snapshot = strings.TrimSpace(snapshot)
+	if snapshot == "" || op == "snapshot" || op == "read" {
+		return primary
+	}
+	if primary == "" {
+		return snapshot
+	}
+	return primary + "\n\n[snapshot after " + op + "]\n" + snapshot
 }
 
 // SeedPlaywrightMcp registers the bundled Playwright MCP server when missing

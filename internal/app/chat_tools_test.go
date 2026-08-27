@@ -289,6 +289,18 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(bundledWorkflowInjection(), "cc.screen_capture") {
 		t.Fatal("whole-desktop capture workflow missing")
 	}
+	if !strings.Contains(bundledWorkflowInjection(), "structured.output") {
+		t.Fatal("structured.output workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "操作前先 snapshot") {
+		t.Fatal("browser snapshot-before-act workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "跨应用") || !strings.Contains(bundledWorkflowInjection(), "browser-automation") {
+		t.Fatal("OpenClaw cross-app / browser-automation workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "编排") {
+		t.Fatal("orchestration workflow missing")
+	}
 	if !strings.Contains(bundledWorkflowInjection(), "该图像素") {
 		t.Fatal("capture workflow must require image-pixel mouse coords")
 	}
@@ -303,6 +315,9 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "browser.act" {
 			foundBrowser = true
+			if !strings.Contains(d.Description, "stale") && !strings.Contains(d.Description, "fresh snapshot") {
+				t.Fatal("browser.act description must teach resnapshot / stale refs")
+			}
 		}
 		if d.Name == "media.play" {
 			foundMedia = true
@@ -314,9 +329,21 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	if !foundMedia {
 		t.Fatal("media.play missing from engine tools")
 	}
+	foundStructured := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "structured.output" {
+			foundStructured = true
+			if !strings.Contains(d.Description, "template=event") {
+				t.Fatal("structured.output schema description missing templates")
+			}
+		}
+	}
+	if !foundStructured {
+		t.Fatal("structured.output missing from engine tools")
+	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "browser.act" {
-			t.Fatal("subagents must not receive browser.act")
+		if d.Name == "browser.act" || d.Name == "structured.output" {
+			t.Fatal("subagents must not receive browser.act or structured.output")
 		}
 	}
 }

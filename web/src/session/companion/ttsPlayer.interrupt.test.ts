@@ -5,7 +5,7 @@
 // engine-unavailable synthesize error resolves through onEngineUnavailable
 // and never surfaces a dialog.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { TtsBridge, TtsSynthesizePayload, TtsSynthesizeResult } from '../../bridge/client'
+import type { TtsBridge, TtsSynthesizeResult } from '../../bridge/client'
 import { TtsPlayer, speechAudioBounds } from './ttsPlayer'
 import { defaultCompanionSettings } from './companionSettings'
 
@@ -110,18 +110,16 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
 })
 
 describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)', () => {
-  test('falls back to the local engine when edge synthesis fails', async () => {
-    bridge.synthesize.mockImplementation(async (payload: TtsSynthesizePayload) => {
-      if (payload.engine === 'edge') throw new Error('M95-002 该段语音合成失败')
-      return okResult()
-    })
+  test('does not fall back to classic SAPI when edge synthesis fails', async () => {
+    bridge.synthesize.mockRejectedValue(new Error('M95-002 该段语音合成失败'))
     const engines: string[] = []
     const player = new TtsPlayer()
     player.enqueue(['你好。'], { ...defaultCompanionSettings(), engine: 'edge' }, {
       onEngineFallback: engine => engines.push(engine),
     })
-    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(2))
-    expect(engines).toEqual(['sapi'])
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalled())
+    expect(bridge.synthesize.mock.calls.map(call => call[0].engine)).not.toContain('sapi')
+    expect(engines).not.toContain('sapi')
     bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
     player.interrupt()
   })
@@ -138,7 +136,7 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
       onSegmentFailed: () => events.push('failed'),
     })
     expect(events).toEqual(['banner', 'engine-unavailable'])
-    expect(bridge.synthesize).toHaveBeenCalledTimes(3)
+    expect(bridge.synthesize).toHaveBeenCalledTimes(1)
     expect(pauseEvents).toHaveLength(0) // nothing was ever played
     expect(bridge.cancel).not.toHaveBeenCalled() // degradation is not an interrupt
   })
@@ -153,7 +151,7 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
       onSegmentFailed: (index, count) => failures.push([index, count]),
       onFinished: reason => failures.push([-1, -1]) && undefined,
     })
-    expect(bridge.synthesize).toHaveBeenCalledTimes(3)
+    expect(bridge.synthesize).toHaveBeenCalledTimes(1)
     expect(failures).toHaveLength(1)
     expect(failures[0]).toEqual([-1, -1])
   })

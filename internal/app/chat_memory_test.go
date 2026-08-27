@@ -267,6 +267,9 @@ func TestChatStartInjectsConfirmedPrefsNotPending(t *testing.T) {
 	if !strings.Contains(sys, "回答默认使用中文") {
 		t.Fatalf("confirmed preference missing from system: %q", sys)
 	}
+	if !strings.Contains(sys, "[持久记忆]") {
+		t.Fatalf("Hermes-style persistent memory header missing: %q", sys)
+	}
 	if strings.Contains(sys, "pending-secret-must-not-appear") {
 		t.Fatalf("unconfirmed candidate leaked into system: %q", sys)
 	}

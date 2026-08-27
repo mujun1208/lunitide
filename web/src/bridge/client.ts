@@ -130,6 +130,7 @@ import {
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type VoiceStatusResult,type VoiceInstallPayload,type VoiceInstallResult,type VoiceSelectPayload,type VoiceSelectResult,type VoiceStartPayload,type VoiceStartResult,type VoiceAppendPayload,type VoiceAppendResult,type VoiceFinishPayload,type VoiceFinishResult,type VoiceStopPayload,type VoiceStopResult,
+  type OmniStatusResult,type OmniInstallResult,type OmniEnsureResult,type OmniStartPayload,type OmniStartResult,type OmniAppendPayload,type OmniAppendResult,type OmniStopPayload,type OmniStopResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
   type ConversationsRootGetResult,type ConversationsRootSelectResult,type ConversationsRootSetPayload,type ConversationsRootSetResult,
   type SessionFolderGetPayload,type SessionFolderGetResult,type SessionFolderListPayload,type SessionFolderListResult,type SessionFolderOpenPayload,type SessionFolderOpenResult,
@@ -1123,6 +1124,31 @@ export interface VoiceBridge{status():Promise<VoiceStatusResult>;install(payload
 export function createVoiceBridge(transport:WebViewTransport=webview()):VoiceBridge{const core=createSimpleBridge(transport,{},8_000);const frameCore=createSimpleBridge(transport,{},2_000);const startCore=createSimpleBridge(transport,{},30_000);return{status:()=>core.request('voice.status',{}),install:payload=>core.request('voice.install',payload??{}),select:payload=>core.request('voice.select',payload),start:payload=>startCore.request('voice.start',payload??{}),append:payload=>frameCore.request('voice.append',payload),finish:payload=>core.request('voice.finish',payload),stop:payload=>core.request('voice.stop',payload??{})}}
 let voiceSingleton:VoiceBridge|undefined
 export function getVoiceBridge():VoiceBridge{return voiceSingleton??=createVoiceBridge()}
+
+export type{OmniStatusResult,OmniInstallResult,OmniEnsureResult,OmniStartPayload,OmniStartResult,OmniAppendPayload,OmniAppendResult,OmniStopPayload,OmniStopResult}
+export interface OmniBridge{
+  status():Promise<OmniStatusResult>
+  install():Promise<OmniInstallResult>
+  ensure():Promise<OmniEnsureResult>
+  start(payload?:OmniStartPayload):Promise<OmniStartResult>
+  append(payload:OmniAppendPayload):Promise<OmniAppendResult>
+  stop(payload?:OmniStopPayload):Promise<OmniStopResult>
+}
+export function createOmniBridge(transport:WebViewTransport=webview()):OmniBridge{
+  const core=createSimpleBridge(transport,{},8_000)
+  const startCore=createSimpleBridge(transport,{},60_000)
+  const frameCore=createSimpleBridge(transport,{},30_000)
+  return{
+    status:()=>core.request('omni.status',{}),
+    install:()=>core.request('omni.install',{}),
+    ensure:()=>core.request('omni.ensure',{}),
+    start:payload=>startCore.request('omni.start',payload??{}),
+    append:payload=>frameCore.request('omni.append',payload),
+    stop:payload=>core.request('omni.stop',payload??{}),
+  }
+}
+let omniSingleton:OmniBridge|undefined
+export function getOmniBridge():OmniBridge{return omniSingleton??=createOmniBridge()}
 
 // M7 MCP server settings bridge — mcp.list / add / toggle / health /
 // market.search (T-7.8.5 settings page data source) + mcp6.presets.list

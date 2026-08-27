@@ -9,9 +9,11 @@ func bundledWorkflowInjection() string {
 		"- 改代码：workspace.search 定位 → workspace.read → workspace.edit 精确替换 → command.run 验证。\n" +
 		"- 审查：读改动与周边代码，按 严重/建议 分级，引用 path:line。\n" +
 		"- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。做 PPT 禁止 PowerPoint COM、ZipFile 改 XML、command.run 拼幻灯片；pptx.gen 会产出 16:9 商务封面+内容页。\n" +
-		"- 任务：todo.write 维护清单；复杂请求先拆步再动手，每步可验证。\n" +
+		"- 浏览：公开页用 browser.act，始终在同一托管浏览器里操作。操作前先 snapshot 再按 ref 点击/填写，不要猜 CSS。click/type/navigate 会带回新 snapshot；ref 失效只再 snapshot 一次后重试该步。登录墙、验证码、2FA、文件选择框交给用户，不要猜。navigate 优先 Playwright；read 抽正文。click/type/snapshot 已内置 Playwright MCP，首次使用自动安装。多步填表可 skill.invoke browser-automation。\n" +
+		"- 跨应用：网页数据用 browser.act 再 structured.output，然后 excel.gen/docx.gen 写入工作区。桌面软件先 cc.window_focus，再用 cc.set_value 或 cc.clipboard，不要截图盲点。定时结果用自动化出站 webhook（飞书/企微/钉钉）。禁止远程电脑、局域网控制、入站公网 webhook。\n" +
+		"- 编排：多步任务用 todo.write 拆步并连续做完；定时重复走自动化任务而不是空转等待。复杂请求先拆步再动手，每步可验证。\n" +
 		"- Git：command.run 只用白名单只读 git（status/diff/log）；写操作需用户确认。\n" +
-		"- 浏览：公开页用 browser.act（navigate/read；click/type/snapshot 已内置 Playwright MCP，首次使用自动安装）。\n" +
+		"- 结构化输出：用户要日程 JSON、表单字段、键值摘要时调用 structured.output（template=event|form|kv）。不要只丢未校验的代码块。\n" +
 		"- 安装技能：用户给出含 SKILL.md 的目录时，列出后立刻 workspace.read 每个 SKILL.md，再连续调用 skill.create；不要只列目录就结束。\n" +
 		"- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n" +
 		"- 桌面 HTML 小游戏：必须用 html.gen（template=penalty-shootout；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n" +
