@@ -264,7 +264,9 @@ describe('startCompanionSpeech capture graph', () => {
       results: Object.assign([{ 0: { transcript: '今天合肥天气怎么样', confidence: 0.92 }, length: 1, isFinal: true }], { length: 1 }),
     })
     recognition.stop.mockClear()
-    await new Promise(resolve => setTimeout(resolve, 150))
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect(onFinal).not.toHaveBeenCalled()
+    await new Promise(resolve => setTimeout(resolve, 1100))
     expect(onFinal).toHaveBeenCalledWith('今天合肥天气怎么样')
     expect(recognition.stop).not.toHaveBeenCalled()
     handle.stop()

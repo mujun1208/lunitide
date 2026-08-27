@@ -100,6 +100,41 @@ func TestInstallDownloadsVerifiesAndSkipsWhatIsPresent(t *testing.T) {
 	}
 }
 
+func TestPresentChecksSizeWithoutHashing(t *testing.T) {
+	dir := t.TempDir()
+	installer := &Installer{Root: dir}
+	bundle := Bundle{
+		ID: "probe-model",
+		Downloads: []Download{{
+			Path:   "weights.bin",
+			SHA256: "deadbeef",
+			Bytes:  4,
+		}},
+	}
+	if installer.Present(bundle) {
+		t.Fatal("missing file must not be present")
+	}
+	path := filepath.Join(installer.BundleDir(bundle.ID), "weights.bin")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("abcd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !installer.Present(bundle) {
+		t.Fatal("size match must be enough for a status probe")
+	}
+	if installer.Installed(bundle) {
+		t.Fatal("wrong digest must still fail Installed")
+	}
+	if err := os.WriteFile(path, []byte("ab"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if installer.Present(bundle) {
+		t.Fatal("wrong size must not be present")
+	}
+}
+
 func TestInstallRefusesBytesThatDoNotMatchTheDigest(t *testing.T) {
 	served := []byte("weights that were tampered with in transit")
 	server, _ := serveBlobs(t, map[string][]byte{"/encoder.onnx": served})

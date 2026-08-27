@@ -31,14 +31,17 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/handoffapp"
+	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/mcp6"
+	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/scheduler"
@@ -218,6 +221,13 @@ type Engine struct {
 
 	// MiniCPM-o 4.5 duplex. Isolated from TTS and ASR; nil until wired.
 	omni *OmniService
+
+	// This-PC person identity + LAN people messenger (identity.* / people.*).
+	identity *identity.Service
+	people   *people.Service
+
+	// This-PC meeting notes (meetings.*). Independent of 对话 and 同事.
+	meetings *meetings.Service
 
 	// M9 slice-1: org-admin bridge service (org.* methods, T-9.1.3).
 	m9org *m9app.OrgAdminService
@@ -605,6 +615,31 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodOrgMemberList:                 handleOrgMemberList,
 	bridge.MethodOrgMemberInvite:               handleOrgMemberInvite,
 	bridge.MethodOrgMemberRevoke:               handleOrgMemberRevoke,
+	bridge.MethodIdentityGet:                   handleIdentityGet,
+	bridge.MethodIdentityUpdate:                handleIdentityUpdate,
+	bridge.MethodIdentityPasswordSet:           handleIdentityPasswordSet,
+	bridge.MethodIdentityUnlock:                handleIdentityUnlock,
+	bridge.MethodPeopleList:                    handlePeopleList,
+	bridge.MethodPeoplePair:                    handlePeoplePair,
+	bridge.MethodPeopleDiscoveryGet:            handlePeopleDiscoveryGet,
+	bridge.MethodPeopleDiscoverySet:            handlePeopleDiscoverySet,
+	bridge.MethodPeopleThreadList:              handlePeopleThreadList,
+	bridge.MethodPeopleThreadOpen:              handlePeopleThreadOpen,
+	bridge.MethodPeopleThreadSend:              handlePeopleThreadSend,
+	bridge.MethodPeopleThreadTyping:            handlePeopleThreadTyping,
+	bridge.MethodPeopleGroupCreate:             handlePeopleGroupCreate,
+	bridge.MethodPeopleFileDecide:              handlePeopleFileDecide,
+	bridge.MethodPeopleFileStage:               handlePeopleFileStage,
+	bridge.MethodPeopleFilePick:                handlePeopleFilePick,
+	bridge.MethodPeoplePeerAdd:                 handlePeoplePeerAdd,
+	bridge.MethodPeopleContactUpdate:           handlePeopleContactUpdate,
+	bridge.MethodMeetingsList:                  handleMeetingsList,
+	bridge.MethodMeetingsStart:                 handleMeetingsStart,
+	bridge.MethodMeetingsAppend:                handleMeetingsAppend,
+	bridge.MethodMeetingsStop:                  handleMeetingsStop,
+	bridge.MethodMeetingsGet:                   handleMeetingsGet,
+	bridge.MethodMeetingsSummarize:             handleMeetingsSummarize,
+	bridge.MethodMeetingsExport:                handleMeetingsExport,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
@@ -1414,6 +1449,19 @@ func (e *Engine) SetSessionExpertStore(store sessionExpertStore) {
 // SetM8CollabGateService wires the M8 FR-17 write-collaboration gate.
 func (e *Engine) SetM8CollabGateService(gateSvc *m8app.CollabGateService) {
 	e.m8gate = gateSvc
+}
+
+// SetIdentityPeopleServices wires this-PC identity and the LAN people store.
+func (e *Engine) SetIdentityPeopleServices(ident *identity.Service, roster *people.Service) {
+	e.identity = ident
+	e.people = roster
+}
+
+func (e *Engine) SetMeetingsService(svc *meetings.Service) {
+	e.meetings = svc
+	if svc != nil {
+		svc.SetCompleter(e.completeMeeting)
+	}
 }
 
 // SetM9OrgAdminService wires the M9 slice-1 org-admin bridge service.

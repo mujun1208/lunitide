@@ -29,6 +29,7 @@ import (
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
+	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
@@ -36,11 +37,13 @@ import (
 	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/mcp6"
+	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
 	"github.com/lunitide/lunitide/internal/org"
+	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/planningapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -293,6 +296,26 @@ func main() {
 	if err := m9app.EnsureDefaultOrgBinding(ctx, orgAdmin); err != nil {
 		log.Fatalf("org auto-bootstrap failed; engine not ready: %v", err)
 	}
+	// This-PC person archive + LAN people messenger. Discovery stays off
+	// until the user turns it on; file offers are never auto-accepted.
+	ident := identity.New(store)
+	if err := ident.Ensure(ctx); err != nil {
+		log.Fatalf("local identity bootstrap failed; engine not ready: %v", err)
+	}
+	peopleRecv, err := dataRoot.PrepareSubdirectory("people-inbox")
+	if err != nil {
+		log.Fatalf("prepare people inbox failed; engine not ready: %v", err)
+	}
+	peopleStage, err := dataRoot.PrepareSubdirectory("people-staging")
+	if err != nil {
+		log.Fatalf("prepare people staging failed; engine not ready: %v", err)
+	}
+	peopleSvc := people.New(store, ident, peopleRecv.Path(), peopleStage.Path())
+	engine.SetIdentityPeopleServices(ident, peopleSvc)
+	peopleSvc.StartDiscoveryIfEnabled()
+	defer peopleSvc.Close()
+	meetingsSvc := meetings.New(store)
+	engine.SetMeetingsService(meetingsSvc)
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
 	// never blindly retried). Failure means unreconciled jobs remain, so

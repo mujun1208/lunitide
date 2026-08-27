@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/omni"
 )
@@ -73,6 +76,42 @@ func TestOmniServiceCloseIsSafeToRepeat(t *testing.T) {
 	svc := NewOmniService(t.TempDir())
 	svc.Close()
 	svc.Close()
+}
+
+func TestOmniStartReturnsBeforeInit(t *testing.T) {
+	initGate := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/v1/stream/omni_init":
+			<-initGate
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(func() {
+		close(initGate)
+		srv.Close()
+	})
+
+	e := NewEngine(providerRepositoryStub{}, "test")
+	svc := NewOmniService(t.TempDir())
+	svc.host.Present = func() bool { return true }
+	svc.host.Finder = func() string { return "llama-omni-server" }
+	svc.host.Endpoint = srv.URL
+	svc.host.HTTP = srv.Client()
+	e.SetOmniService(svc)
+
+	started := time.Now()
+	resp := e.Handle(context.Background(), validRequest("omni.start", `{"personaId":""}`))
+	if elapsed := time.Since(started); elapsed > 800*time.Millisecond {
+		t.Fatalf("omni.start blocked %s waiting on omni_init", elapsed)
+	}
+	if !resp.OK {
+		t.Fatalf("omni.start = %+v", resp)
+	}
 }
 
 func TestOmniAppendRejectsBadPayload(t *testing.T) {

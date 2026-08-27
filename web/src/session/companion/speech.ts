@@ -66,6 +66,11 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
   duplex?: boolean
   /** Tighter endpointing when cafes / background voices are present. */
   environment?: SpeechEnvironment
+  /**
+   * SpeechRecognition only — no second getUserMedia.
+   * Used beside MiniCPM-o PCM capture so captions still show the user's words.
+   */
+  meterless?: boolean
 }
 
 export interface CompanionSpeechHandle {
@@ -100,9 +105,12 @@ export const INCOMPLETE_HARD_MS = 2200
 /** Minimum time with text on screen before we accept a non-terminal commit. */
 export const MIN_UTTERANCE_MS = 140
 /** Last-resort commit when the transcript AND the mic have been quiet.
- *  A ceiling, so it has to sit above the window a turn normally ends in —
- *  below it, this fires first and becomes the real endpointing rule. */
-export const STUCK_TRANSCRIPT_MS = 2400
+ *  Sits just above the 1.2–1.5s turn-end window so it never becomes the
+ *  rule the user actually feels. */
+export const STUCK_TRANSCRIPT_MS = 1600
+/** Last-resort stage commit. Sits above the 1.5s turn-end ceiling so it
+ *  never becomes the endpoint the user actually feels. */
+export const FORCE_COMMIT_MS = 1800
 /** Restart SR only after this long of real mic energy with no transcript.
  *  Windows returns a first interim within a few hundred milliseconds of
  *  speech, so a second of talking with nothing on screen is already wrong. */
@@ -143,7 +151,7 @@ export function speechProfile(environment: SpeechEnvironment = 'normal'): Speech
 /** After TTS ends, ignore mic/SR until speaker ring-out dies.
  *  Laptop speakers + built-in mic leave 300–600ms of residual echo even
  *  with Chromium/WASAPI AEC — shorter guards transcribe her own voice. */
-export const ECHO_GUARD_MS = 90
+export const ECHO_GUARD_MS = 450
 /** After a click interrupt, unmute quickly so the user can talk. */
 export const INTERRUPT_ECHO_MS = 80
 /** How long after her turn a transcript may still be her, not the user. */
@@ -162,10 +170,11 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
   return hasText && stableForMs >= stableMs
 }
 
-/** Silence that ends a turn: how long a pause means "I have finished". */
-export const TURN_END_SILENCE_MS = 1200
-/** A phrase that reads as unfinished is given longer to be finished. */
-export const TURN_END_INCOMPLETE_SILENCE_MS = 1900
+/** Silence that ends a turn: how long a pause means "I have finished".
+ *  The product window is 1.2–1.5s after the user stops talking. */
+export const TURN_END_SILENCE_MS = 1300
+/** Unfinished-looking phrases still must not wait past the 1.5s ceiling. */
+export const TURN_END_INCOMPLETE_SILENCE_MS = 1500
 /** A turn never ends while the transcript is still growing. */
 export const TURN_END_TEXT_SETTLE_MS = 400
 
@@ -338,10 +347,10 @@ export function speechEngineHint(error?: string): string {
 }
 
 export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
-  const { duplex = false, environment = 'normal', ...callbacks } = options
+  const { duplex = false, environment = 'normal', meterless = false, ...callbacks } = options
   const profile = speechProfile(environment)
   const Recognition = speechRecognitionConstructor()
-  if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
+  if (!Recognition || (!meterless && !navigator.mediaDevices?.getUserMedia)) {
     return Promise.reject(new BridgeClientError('当前系统 WebView 不支持语音输入', 'SPEECH_RECOGNITION_UNAVAILABLE', false, 'renderer'))
   }
   let recognition: SpeechRecognitionLike | undefined
@@ -371,7 +380,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   /** Same as the chat composer: continuous listen so a sentence is not cut. */
   let preferContinuous = true
   let keepAliveTimer = 0
-  let commitHintTimer = 0
   let voiceEnergyWithoutTextSince = 0
   let recognitionAlive = false
   const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now())
@@ -400,7 +408,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     window.clearTimeout(recSilenceTimer)
     window.clearTimeout(restartTimer)
     window.clearTimeout(echoTimer)
-    window.clearTimeout(commitHintTimer)
     meterStream?.getTracks().forEach(track => track.stop())
     meterStream = undefined
     micSource?.disconnect()
@@ -424,18 +431,20 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     constraints = withEcho(constraints)
     void unlockTtsAudio()
-    const gumPromise = (async (): Promise<MediaStream> => {
-      try {
-        return await navigator.mediaDevices.getUserMedia(constraints)
-      } catch (error) {
-        const name = error instanceof DOMException ? error.name : ''
-        if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
-          saveMicrophoneId('')
-          return await navigator.mediaDevices.getUserMedia(withEcho({ audio: true }))
-        }
-        throw error
-      }
-    })()
+    const gumPromise = meterless
+      ? undefined
+      : (async (): Promise<MediaStream> => {
+          try {
+            return await navigator.mediaDevices.getUserMedia(constraints)
+          } catch (error) {
+            const name = error instanceof DOMException ? error.name : ''
+            if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
+              saveMicrophoneId('')
+              return await navigator.mediaDevices.getUserMedia(withEcho({ audio: true }))
+            }
+            throw error
+          }
+        })()
     // Analyser is display-only. Start SpeechRecognition in this turn — before
     // awaiting getUserMedia — so the first utterance is not a 1–3s blank listen.
     let finals = ''
@@ -503,7 +512,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       recRestarting = true
       window.clearTimeout(restartTimer)
-      window.clearTimeout(commitHintTimer)
       try {
         recognition.stop()
       } catch {
@@ -549,26 +557,18 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         else tryCommitFromSilence(lastVoiceAt)
       }, wait)
     }
-    const scheduleFinalCommit = (text: string, delayMs = 100) => {
-      window.clearTimeout(commitHintTimer)
-      commitHintTimer = window.setTimeout(() => {
-        if (finished || commitPaused || recognitionHeld()) return
-        const current = assembled().trim()
-        if (!current) return
-        // Windows marks phrase fragments isFinal ("你可以"). Never fast-commit those.
-        if (looksIncompleteUtterance(current)) return
-        if (current === text || text.includes(current) || current.includes(text)) commit(current)
-      }, delayMs)
-    }
     let lastCommittedCompact = ''
     let lastCommittedAt = 0
     const compactCommit = (value: string) => value.replace(/\s/g, '')
     const commit = (text: string) => {
       if (finished || !text || recognitionHeld() || assistantPlayback) return
+      if (echoOfHerReply(text)) {
+        dropWhatSheHeardOfHerself()
+        return
+      }
       const compact = compactCommit(text)
       const now = performance.now()
       if (compact === lastCommittedCompact && now - lastCommittedAt < 1500) return
-      window.clearTimeout(commitHintTimer)
       lastCommittedCompact = compact
       lastCommittedAt = now
       if (duplex) {
@@ -616,9 +616,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     const tryCommitFromSilence = (voiceAt: number) => {
       if (finished || commitPaused || recognitionHeld() || assistantPlayback) return
+      const now = performance.now()
+      if (voiceAt && now - voiceAt > profile.utteranceSilenceMs) speechActive = false
       const text = assembled().trim()
       if (!text) return
-      const textSince = firstTextAt ? performance.now() - firstTextAt : 0
+      const textSince = firstTextAt ? now - firstTextAt : 0
       if (shouldDeferCommit(text, textSince)) return
       const incomplete = looksIncompleteUtterance(text)
       // Windows often isFinal + speechend on「你可以」/「合肥的」while the user
@@ -639,8 +641,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       if (
         turnEnded({
-          speechActive,
-          silentForMs: voiceAt ? performance.now() - voiceAt : undefined,
+          speechActive: meterless ? false : speechActive,
+          silentForMs: meterless ? undefined : voiceAt ? performance.now() - voiceAt : undefined,
           msSinceLastResult: performance.now() - lastTextChangeAt,
           incomplete,
         })
@@ -772,14 +774,10 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         dropWhatSheHeardOfHerself()
         return
       }
-      if (next && !looksIncompleteUtterance(next)) {
-        if (/[。？！?!…]$/.test(next)) scheduleFinalCommit(next, 50)
-        else if (event.results[event.results.length - 1]?.isFinal) scheduleFinalCommit(next, 100)
-      }
       window.clearTimeout(recSilenceTimer)
       if (next && !commitPaused) {
-        const { stableMs } = endpointingForText(next, profile)
-        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), stableMs)
+        const quiet = looksIncompleteUtterance(next) ? TURN_END_INCOMPLETE_SILENCE_MS : TURN_END_SILENCE_MS
+        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), quiet)
       }
       if (!commitPaused) tryCommitFromSilence(lastVoiceAt)
     }
@@ -858,63 +856,60 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       callbacks.onEndWithoutFinal?.()
     }
     startRecognition()
-    let media: MediaStream
-    try {
-      media = await gumPromise
-    } catch (error) {
-      finished = true
+    if (gumPromise) {
+      let media: MediaStream
       try {
-        recognition?.stop()
-      } catch {
-        /* engine may already be stopped */
+        media = await gumPromise
+      } catch (error) {
+        finished = true
+        try {
+          recognition?.stop()
+        } catch {
+          /* engine may already be stopped */
+        }
+        teardown()
+        throw error
       }
-      teardown()
-      throw error
-    }
-    stream = media
-    media.getAudioTracks().forEach(track => {
-      track.enabled = true
-    })
-    const deviceId = media.getAudioTracks()[0]?.getSettings()?.deviceId
-    if (deviceId) saveMicrophoneId(deviceId)
-    const AudioContextClass =
-      window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    const shared = sharedTtsAudioContext()
-    if (shared) {
-      context = shared
-      ownsContext = false
-    } else if (AudioContextClass) {
-      context = new AudioContextClass()
-      ownsContext = true
-    }
-    if (context) {
-      if (context.state === 'suspended') void context.resume().catch(() => undefined)
-      analyser = context.createAnalyser()
-      analyser.fftSize = 256
-      analyser.smoothingTimeConstant = 0.5
-      spectrum = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
-      waveform = new Uint8Array(new ArrayBuffer(analyser.fftSize))
-      try {
-        meterStream = new MediaStream(media.getAudioTracks().map(track => track.clone()))
-      } catch {
-        meterStream = media
+      stream = media
+      media.getAudioTracks().forEach(track => {
+        track.enabled = true
+      })
+      const deviceId = media.getAudioTracks()[0]?.getSettings()?.deviceId
+      if (deviceId) saveMicrophoneId(deviceId)
+      const AudioContextClass =
+        window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      const shared = sharedTtsAudioContext()
+      if (shared) {
+        context = shared
+        ownsContext = false
+      } else if (AudioContextClass) {
+        context = new AudioContextClass()
+        ownsContext = true
       }
-      micSource = context.createMediaStreamSource(meterStream)
-      micSource.connect(analyser)
+      if (context) {
+        if (context.state === 'suspended') void context.resume().catch(() => undefined)
+        analyser = context.createAnalyser()
+        analyser.fftSize = 256
+        analyser.smoothingTimeConstant = 0.5
+        spectrum = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
+        waveform = new Uint8Array(new ArrayBuffer(analyser.fftSize))
+        try {
+          meterStream = new MediaStream(media.getAudioTracks().map(track => track.clone()))
+        } catch {
+          meterStream = media
+        }
+        micSource = context.createMediaStreamSource(meterStream)
+        micSource.connect(analyser)
+      }
+      paintLevels()
     }
-    paintLevels()
     keepAliveTimer = window.setInterval(() => {
       if (finished || recRestarting) return
       if (assistantPlayback) return
       if (recognitionHeld()) return
       const text = assembled().trim()
-      const stableFor = performance.now() - lastTextChangeAt
       if (text) {
-        if (looksIncompleteUtterance(text)) {
-          tryCommitFromSilence(lastVoiceAt)
-          return
-        }
-        if (!speechActive && stableFor >= STUCK_TRANSCRIPT_MS) commit(text)
+        tryCommitFromSilence(lastVoiceAt)
         return
       }
       if (speechActive) return

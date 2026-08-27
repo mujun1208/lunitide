@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.contact.update.schema.json",
+  "title": "people.contact.update payload",
+  "x-method": "people.contact.update",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "subjectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "remark": { "type": "string", "maxLength": 64 },
+    "blocked": { "type": "boolean" }
+  },
+  "required": ["subjectId"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleContactDTO"
+  },
+  "x-examples": {
+    "positive": [{ "subjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "remark": "阿甲" }, { "subjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "blocked": true }],
+    "negative": [{}, { "subjectId": "bad" }]
+  }
+}

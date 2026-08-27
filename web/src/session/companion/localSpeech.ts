@@ -15,22 +15,20 @@ import {
   ECHO_GUARD_MS,
   shouldDeferCommit,
   speechProfile,
+  turnEnded,
   type CompanionSpeechHandle,
   type CompanionSpeechOptions,
 } from './speech'
+import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
 
 /**
- * How long to wait on an engine that has stopped reporting endpoints.
- *
- * Only reached when the recognizer never says a turn ended, so it is sized to
- * be unmistakably longer than a pause someone leaves mid-sentence. A shorter
- * value here does not make the companion quicker — the engine answers first
- * in every healthy turn — it only makes it interrupt.
+ * Reached only if the engine never reports an endpoint. Sized to the
+ * 1.2–1.5s turn-end window plus a little slack, not a multi-second stall.
  */
-export const ENDPOINT_BACKSTOP_MS = 3500
+export const ENDPOINT_BACKSTOP_MS = 1600
 
 /** Peak that paints a full ring. Chosen so normal speech sits mid-scale. */
 const FULL_SCALE_PEAK = 0.35
@@ -129,8 +127,16 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     if (!trimmed) return
     const now = Date.now()
     if (shouldDeferCommit(trimmed, now - textSince)) return
-    if (speechActive) return
-    if (now - lastTextAt < ENDPOINT_BACKSTOP_MS) return
+    if (
+      !turnEnded({
+        speechActive,
+        silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
+        msSinceLastResult: now - lastTextAt,
+        incomplete: looksIncompleteUtterance(trimmed),
+      })
+    ) {
+      return
+    }
     void recycle('final')
   }
 
@@ -167,6 +173,10 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       }
       const trimmed = next.trim()
       if (!trimmed) return
+      if (looksLikePlaybackEcho(trimmed, options.spokenText?.() ?? '')) {
+        resetUtterance()
+        return
+      }
       if (trimmed !== text.trim()) {
         text = next
         lastTextAt = now

@@ -28,11 +28,13 @@ type Session struct {
 	voice  string
 	client *http.Client
 
-	mu     sync.Mutex
-	cnt    int
-	pcm    []byte
-	played map[string]struct{}
-	closed bool
+	mu       sync.Mutex
+	cnt      int
+	pcm      []byte
+	played   map[string]struct{}
+	closed   bool
+	ready    bool
+	readyErr error
 }
 
 // Turn is one append result.
@@ -67,11 +69,36 @@ func OpenSession(ctx context.Context, host *Host, personaID string) (*Session, e
 		cnt:    1,
 		played: map[string]struct{}{},
 	}
-	if err := s.init(ctx); err != nil {
-		s.Close()
-		return nil, err
-	}
+	// omni_init can take 10–60s. The renderer deadline is 30s, so this
+	// must not block OpenSession — Append returns empty turns until ready.
+	go func() {
+		err := s.init(context.Background())
+		s.mu.Lock()
+		if err != nil {
+			s.readyErr = err
+		} else {
+			s.ready = true
+		}
+		s.mu.Unlock()
+		if err != nil {
+			s.Close()
+		}
+	}()
 	return s, nil
+}
+
+// Ready is true after omni_init has succeeded.
+func (s *Session) Ready() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ready
+}
+
+// InitErr is the omni_init failure, if any.
+func (s *Session) InitErr() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readyErr
 }
 
 func (s *Session) init(ctx context.Context) error {
@@ -111,6 +138,12 @@ func (s *Session) Append(ctx context.Context, pcm []byte) (Turn, error) {
 		return Turn{}, fmt.Errorf("omni: session closed")
 	}
 	s.pcm = append(s.pcm, pcm...)
+	if !s.ready {
+		if s.readyErr != nil {
+			return Turn{}, s.readyErr
+		}
+		return Turn{}, nil
+	}
 	var text strings.Builder
 	listening := false
 	var wavs []string

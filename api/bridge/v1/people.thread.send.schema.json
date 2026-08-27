@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.thread.send.schema.json",
+  "title": "people.thread.send payload",
+  "x-method": "people.thread.send",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "threadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "kind": { "enum": ["text", "image", "file", "emoji"] },
+    "body": { "type": "string", "maxLength": 16384 },
+    "fileName": { "type": "string", "maxLength": 256 },
+    "fileMime": { "type": "string", "maxLength": 128 },
+    "contentBase64": { "type": "string", "maxLength": 360000 },
+    "localPath": { "type": "string", "maxLength": 1024 }
+  },
+  "required": ["threadId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "message": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleMessageDTO" },
+      "offer": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleFileOfferDTO" }
+    },
+    "required": ["message"]
+  },
+  "x-examples": {
+    "positive": [{ "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "kind": "text", "body": "你好" }],
+    "negative": [{ "threadId": "bad" }]
+  }
+}

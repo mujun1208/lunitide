@@ -89,7 +89,11 @@ export function AutomationCenterPage({
       } catch {
         /* surfaced when saving */
       }
-      await reload()
+      try {
+        await reload()
+      } catch (e) {
+        if (alive) setNotice(e instanceof Error ? e.message : '无法加载自动化任务')
+      }
     })()
     const timer = window.setInterval(() => void reload(), 30_000)
     return () => {

@@ -1,6 +1,8 @@
 package omni
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,5 +39,47 @@ func TestModelBundleIsQ4AndPinned(t *testing.T) {
 	}
 	if !llm {
 		t.Fatal("Q4_K_M LLM file missing from catalogue")
+	}
+}
+
+func TestRuntimeBundleIsPinnedNotLatest(t *testing.T) {
+	bundle := RuntimeBundle()
+	if bundle.ID != "comni-runtime-"+RuntimeRevision {
+		t.Fatalf("id = %s", bundle.ID)
+	}
+	if RuntimeRevision == "latest" {
+		t.Fatal("runtime revision must not float")
+	}
+	if len(bundle.Downloads) != 1 {
+		t.Fatalf("downloads = %d", len(bundle.Downloads))
+	}
+	d := bundle.Downloads[0]
+	if d.Path != RuntimeSetupFile {
+		t.Fatalf("path = %s", d.Path)
+	}
+	if d.SHA256 != RuntimeSHA256 || d.Bytes != RuntimeBytes {
+		t.Fatalf("digest/size mismatch")
+	}
+	joined := strings.Join(d.URLs, " ")
+	if strings.Contains(joined, "/latest/") {
+		t.Fatalf("floating latest URL: %s", joined)
+	}
+	if !strings.Contains(joined, RuntimeRevision) {
+		t.Fatalf("URLs are not revision-pinned: %s", joined)
+	}
+}
+
+func TestWalkRuntimeFindsNestedLayout(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "runtime", "Comni", "bin")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(nested, "llama-omni-server.exe")
+	if err := os.WriteFile(want, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := walkRuntime(filepath.Join(root, "runtime"), runtimeWalkDepth); got != want {
+		t.Fatalf("walkRuntime = %q; want %q", got, want)
 	}
 }

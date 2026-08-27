@@ -212,11 +212,19 @@ it('surfaces stream failure only as 出错了，无法完成 without the UPSTREA
 })
 
 it('closes composer popovers when clicking outside',async()=>{
- const user=await open({personal:true,providers,initialSession:session})
+ const user=await open({personal:true,providers,initialSession:session,chat:{start:vi.fn(),dispose:vi.fn()}})
  await user.click(screen.getByRole('button',{name:'添加上下文'}))
  expect(screen.getByRole('button',{name:/选技能/})).toBeInTheDocument()
  fireEvent.click(document.body)
  expect(screen.queryByRole('button',{name:/选技能/})).toBeNull()
+ await user.click(screen.getByRole('button',{name:'执行模式'}))
+ expect(screen.getByRole('button',{name:/免审批/})).toBeInTheDocument()
+ fireEvent.click(document.body)
+ expect(screen.queryByRole('button',{name:/免审批/})).toBeNull()
+ await user.click(await screen.findByRole('button',{name:'结构化输出'}))
+ expect(screen.getByRole('menuitem',{name:/提取事件/})).toBeInTheDocument()
+ fireEvent.click(document.body)
+ expect(screen.queryByRole('menuitem',{name:/提取事件/})).toBeNull()
 })
 
 it('uploads multiple dropped files and a pasted screenshot from the composer',async()=>{

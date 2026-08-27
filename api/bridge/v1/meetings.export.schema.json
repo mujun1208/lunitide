@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.export.schema.json",
+  "title": "meetings.export payload",
+  "x-method": "meetings.export",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "format": { "enum": ["markdown", "html", "txt"] }
+  },
+  "required": ["meetingId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+      "format": { "enum": ["markdown", "html", "txt"] }
+    },
+    "required": ["path", "format"]
+  },
+  "x-examples": {
+    "positive": [{ "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }, { "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "format": "html" }],
+    "negative": [{}, { "format": "pdf" }]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.append.schema.json",
+  "title": "meetings.append payload",
+  "x-method": "meetings.append",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 16384 },
+    "startedMs": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["meetingId", "text"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingSegmentDTO"
+  },
+  "x-examples": {
+    "positive": [{ "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "text": "大家好" }],
+    "negative": [{ "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }, { "extra": true }]
+  }
+}

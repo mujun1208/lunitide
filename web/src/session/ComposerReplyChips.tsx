@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   REPLY_STYLE_OPTIONS,
   STRUCTURED_TEMPLATE_OPTIONS,
@@ -14,8 +14,30 @@ import {
 export function ComposerReplyChips(): React.JSX.Element {
   const [settings, setSettings] = useState(loadReplySettings)
   const [open, setOpen] = useState<'style' | 'template' | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => subscribeReplySettings(() => setSettings(loadReplySettings())), [])
+
+  useEffect(() => {
+    if (!open) return
+    const dismissIfOutside = (e: Event) => {
+      const t = e.target
+      if (!(t instanceof Node)) return
+      if (rootRef.current?.contains(t)) return
+      setOpen(null)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(null)
+    }
+    window.addEventListener('pointerdown', dismissIfOutside, true)
+    window.addEventListener('click', dismissIfOutside)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', dismissIfOutside, true)
+      window.removeEventListener('click', dismissIfOutside)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   const chooseStyle = (replyStyle: ReplyStyle) => {
     saveReplySettings({ replyStyle })
@@ -29,7 +51,7 @@ export function ComposerReplyChips(): React.JSX.Element {
   }
 
   return (
-    <div className="composer-reply-chips">
+    <div className="composer-reply-chips" ref={rootRef}>
       <div className="composer-popover-anchor">
         <button
           type="button"

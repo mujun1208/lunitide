@@ -256,33 +256,52 @@ func (s *OmniService) beginInstall() {
 		s.mu.Unlock()
 		return
 	}
-	bundle := omni.ModelBundle()
-	if s.installer.Installed(bundle) {
+	modelOK := s.installer.Present(omni.ModelBundle())
+	runtimeOK := s.host.RuntimePath() != ""
+	if modelOK && runtimeOK {
 		s.state, s.lastErr = "ready", ""
 		s.mu.Unlock()
 		return
 	}
 	s.installing, s.state, s.lastErr = true, "downloading", ""
 	s.mu.Unlock()
-	go s.runInstall(bundle)
+	go s.runInstall()
 }
 
-func (s *OmniService) runInstall(bundle voice.Bundle) {
+func (s *OmniService) runInstall() {
 	defer func() {
 		s.mu.Lock()
 		s.installing = false
 		s.mu.Unlock()
 	}()
-	err := s.installer.Install(context.Background(), bundle, func(p voice.Progress) {
-		s.mu.Lock()
-		s.progress = p
-		s.mu.Unlock()
-	})
-	s.mu.Lock()
-	if err != nil {
-		s.state, s.lastErr = "failed", err.Error()
-	} else {
-		s.state, s.lastErr = "ready", ""
+	ctx := context.Background()
+	if !s.installer.Present(omni.ModelBundle()) {
+		err := s.installer.Install(ctx, omni.ModelBundle(), func(p voice.Progress) {
+			s.mu.Lock()
+			s.progress = p
+			s.mu.Unlock()
+		})
+		if err != nil {
+			s.mu.Lock()
+			s.state, s.lastErr = "failed", err.Error()
+			s.mu.Unlock()
+			return
+		}
 	}
+	if s.host.RuntimePath() == "" {
+		err := omni.InstallRuntime(ctx, s.host.Root, s.installer, func(p voice.Progress) {
+			s.mu.Lock()
+			s.progress = p
+			s.mu.Unlock()
+		})
+		if err != nil {
+			s.mu.Lock()
+			s.state, s.lastErr = "failed", err.Error()
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.mu.Lock()
+	s.state, s.lastErr = "ready", ""
 	s.mu.Unlock()
 }

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.thread.typing.schema.json",
+  "title": "people.thread.typing payload",
+  "x-method": "people.thread.typing",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "threadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "required": ["threadId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "ok": { "type": "boolean" } },
+    "required": ["ok"]
+  },
+  "x-examples": {
+    "positive": [{ "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
+    "negative": [{}, { "threadId": "bad" }]
+  }
+}

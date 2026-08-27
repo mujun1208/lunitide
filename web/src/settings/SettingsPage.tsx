@@ -14,6 +14,7 @@ import{SubagentsPanel}from'./SubagentsPanel'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
+import{ProfilePanel}from'./ProfilePanel'
 
 
 interface GeneralSettings {
@@ -142,6 +143,7 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
         <div className="settings-body">
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
+          {category === 'profile' && <ProfilePanel />}
           {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
           {category === 'voice' && <VoicePanel />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
@@ -154,7 +156,7 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
             </div>
             <CommandPolicyPanel />
             <HooksPanel />
-            <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} embedded /> }, { id: 'plans', label: '计划管理', render: pid => <PlanPage projectId={pid} /> }]} />
+            <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} embedded /> }, { id: 'plans', label: '计划', render: pid => <PlanPage projectId={pid} /> }]} />
           </div>}
           {category === 'browser' && <BrowserPanel />}
           {category === 'computer' && <ComputerPanel />}
@@ -1633,21 +1635,28 @@ function ProjectScopedTabs({ tabs }: { tabs: Array<{ id: string; label: string; 
     return () => { alive = false }
   }, [])
   const active = tabs.find(item => item.id === tab) ?? tabs[0]
+  const projectName = projects.find(item => item.id === projectId)?.name
   return (
-    <div className="project-scoped-panel">
-      <div className="project-scoped-toolbar">
-        <label>作用域项目
-          <select aria-label="选择作用域项目" value={projectId} onChange={e => setProjectId(e.target.value)}>
-            {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        <div className="project-scoped-tabs" role="tablist" aria-label="子分类">
-          {tabs.map(item => (
-            <button type="button" role="tab" key={item.id} aria-selected={item.id === active?.id} onClick={() => setTab(item.id)}>{item.label}</button>
-          ))}
+    <div className="gov-scope">
+      <header className="gov-scope-head">
+        <div>
+          <div className="setting-group-title">项目治理</div>
+          <p className="setting-desc">{projectName ? `当前项目：${projectName}` : '审批与计划按项目查看。'}</p>
         </div>
-      </div>
-      {error ? <p className="notice" role="alert">{error}</p> : !projectId ? <p className="notice">还没有可用项目；请先在“项目管理”中创建。</p> : active?.render(projectId)}
+        <div className="gov-scope-controls">
+          <label className="gov-project-select">项目
+            <select aria-label="选择作用域项目" value={projectId} onChange={e => setProjectId(e.target.value)}>
+              {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <div className="project-scoped-tabs" role="tablist" aria-label="子分类">
+            {tabs.map(item => (
+              <button type="button" role="tab" key={item.id} aria-selected={item.id === active?.id} onClick={() => setTab(item.id)}>{item.label}</button>
+            ))}
+          </div>
+        </div>
+      </header>
+      {error ? <p className="notice" role="alert">{error}</p> : !projectId ? <p className="notice">还没有可用项目；请先在“项目管理”中创建。</p> : <div className="gov-scope-body">{active?.render(projectId)}</div>}
     </div>
   )
 }

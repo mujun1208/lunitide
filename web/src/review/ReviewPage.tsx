@@ -109,7 +109,7 @@ export function ReviewPage({
     <div className={`approval-center ${embedded ? 'approval-center-embedded' : ''}`}>
       <header className="expert-view-head approval-center-head">
         <div>
-          <div className="view-title">审批中心</div>
+          {!embedded && <div className="view-title">审批中心</div>}
           <div className="view-meta">{meta}</div>
         </div>
         <div className="memory-tabs approval-tabs" role="tablist" aria-label="审批分区">

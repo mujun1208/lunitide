@@ -58,6 +58,7 @@ func TestSessionPrefillDecodeReturnsTextAndWav(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(session.Close)
+	waitSessionReady(t, session)
 
 	turn, err := session.Append(ctx, make([]byte, ChunkBytes))
 	if err != nil {
@@ -95,4 +96,75 @@ func TestSpawnLockedRejectsNonLoopback(t *testing.T) {
 	if err := host.spawnLocked("llama-omni-server"); err == nil {
 		t.Fatal("expected non-loopback listen to fail")
 	}
+}
+
+func TestAppendBeforeInitReturnsEmptyTurn(t *testing.T) {
+	initGate := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/v1/stream/omni_init":
+			<-initGate
+			w.WriteHeader(http.StatusOK)
+		case "/v1/stream/break":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	host := NewHost(t.TempDir())
+	host.Endpoint = srv.URL
+	host.HTTP = srv.Client()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	session, err := OpenSession(ctx, host, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		close(initGate)
+		session.Close()
+	})
+	turn, err := session.Append(ctx, make([]byte, ChunkBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.Text != "" || turn.Listening || len(turn.WAVs) != 0 {
+		t.Fatalf("expected empty turn while init pending, got %+v", turn)
+	}
+}
+
+func TestSnapshotMissingRuntimeWhenModelPresent(t *testing.T) {
+	host := NewHost(t.TempDir())
+	host.Present = func() bool { return true }
+	host.Finder = func() string { return "" }
+	host.Endpoint = "http://127.0.0.1:1"
+	snap := host.Snapshot()
+	if snap["hostState"] != HostMissingRuntime {
+		t.Fatalf("hostState = %v", snap["hostState"])
+	}
+	if snap["runtimeFound"] != false {
+		t.Fatalf("runtimeFound = %v", snap["runtimeFound"])
+	}
+	if snap["installed"] != true {
+		t.Fatalf("installed = %v", snap["installed"])
+	}
+}
+
+func waitSessionReady(t *testing.T, session *Session) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if session.Ready() {
+			return
+		}
+		if err := session.InitErr(); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("omni_init did not finish")
 }

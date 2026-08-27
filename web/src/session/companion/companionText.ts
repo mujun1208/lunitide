@@ -166,6 +166,7 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/你好岳西|你好月西|你好悦溪|你好月夕/g, '你好月汐'],
   [/店面文件|店面的/g, '桌面文件'],
   [/打开店面/g, '打开桌面'],
+  [/店面/g, '桌面'],
   [/气水音乐|起水音乐|七水音乐|汽水音月/g, '汽水音乐'],
   [/帮我打开桌面的/g, '帮我打开桌面'],
   [/帮我打开一个/g, '帮我打开'],
@@ -188,6 +189,57 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (INCOMPLETE_TAIL.test(trimmed)) return true
   // Short unpunctuated fragments like「你可以」are mid-command, not a turn.
   return Array.from(trimmed).length <= 3
+}
+
+/** Drop machine self-reports. The user asked not to hear 「我做完了」. */
+export function stripTaskDonePhrases(raw: string): string {
+  const trimmed = raw
+    .replace(/我已经做完了[。.!！]?\s*/g, '')
+    .replace(/我做完了[。.!！]?\s*/g, '')
+    .replace(/任务已完成[。.!！]?\s*/g, '')
+    .trim()
+  if (looksLikeOmniPersonaCaption(trimmed)) return ''
+  return trimmed
+}
+
+/**
+ * Whether a transcript is a new user turn, not her reply coming back
+ * through the microphone, and not a leftover from the previous round.
+ */
+export function shouldAcceptUserTranscript(input: {
+  state: 'idle' | 'listening' | 'thinking' | 'speaking'
+  text: string
+  lastSpoken: string
+  lastAssistant: string
+}): boolean {
+  if (input.state === 'speaking' || input.state === 'thinking') return false
+  if (!input.text.trim()) return false
+  if (looksLikeOmniPersonaCaption(input.text)) return false
+  if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
+  if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
+  return true
+}
+
+/** Settings/clone labels must never become a dialogue round. */
+export function looksLikeOmniPersonaCaption(text: string): boolean {
+  const compact = text.replace(/\s+/g, '')
+  return compact.startsWith('人生：') || compact.startsWith('人生:') || compact.includes('月汐/人生')
+}
+
+/** The hands-free loop stays armed until the user exits or pauses the mic. */
+export function shouldKeepHandsFreeLoop(input: {
+  exited: boolean
+  userPausedMic: boolean
+  errorCode?: string
+}): boolean {
+  if (input.exited || input.userPausedMic) return false
+  if (input.errorCode === 'MICROPHONE_PERMISSION_DENIED') return false
+  return true
+}
+
+export function handsFreeRetryDelayMs(silentRestarts: number): number {
+  const n = Math.min(Math.max(0, silentRestarts), 5)
+  return Math.min(8000, 400 * 2 ** n)
 }
 
 export function cleanUserTranscript(raw: string): string {

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.peer.add.schema.json",
+  "title": "people.peer.add payload",
+  "x-method": "people.peer.add",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hostAddr": { "type": "string", "minLength": 3, "maxLength": 128 }
+  },
+  "required": ["hostAddr"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleContactDTO"
+  },
+  "x-examples": {
+    "positive": [{ "hostAddr": "10.0.0.8" }, { "hostAddr": "10.0.0.8:36422" }],
+    "negative": [{}, { "hostAddr": "" }]
+  }
+}

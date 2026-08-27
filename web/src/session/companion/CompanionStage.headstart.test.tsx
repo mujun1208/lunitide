@@ -54,6 +54,7 @@ vi.mock('../../bridge/client', async importOriginal => {
 
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 90,
+  FORCE_COMMIT_MS: 1800,
   INTERRUPT_ECHO_MS: 80,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.list.schema.json",
+  "title": "meetings.list payload",
+  "x-method": "meetings.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingDTO" }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": { "positive": [{}], "negative": [{ "extra": true }] }
+}

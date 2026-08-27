@@ -36,6 +36,7 @@ import {
   TURN_END_SILENCE_MS,
   TURN_END_INCOMPLETE_SILENCE_MS,
   TURN_END_TEXT_SETTLE_MS,
+  FORCE_COMMIT_MS,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -139,8 +140,8 @@ describe('shouldHoldRecognition', () => {
   })
 
   test('echo guard balances fast re-listen with speaker ring-out', () => {
-    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(80)
-    expect(ECHO_GUARD_MS).toBeLessThanOrEqual(300)
+    expect(ECHO_GUARD_MS).toBeGreaterThanOrEqual(300)
+    expect(ECHO_GUARD_MS).toBeLessThanOrEqual(600)
   })
 })
 
@@ -301,8 +302,24 @@ describe('when the user has finished speaking', () => {
     incomplete: false,
   }
 
+  test('the product window is 1.2–1.5s after they stop talking', () => {
+    expect(TURN_END_SILENCE_MS).toBeGreaterThanOrEqual(1200)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBeLessThanOrEqual(1500)
+    expect(TURN_END_SILENCE_MS).toBeLessThanOrEqual(TURN_END_INCOMPLETE_SILENCE_MS)
+    expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_INCOMPLETE_SILENCE_MS)
+    expect(FORCE_COMMIT_MS).toBeLessThan(2700)
+  })
+
+  test('does not treat a 50–100ms pause as the end of the turn', () => {
+    expect(turnEnded({ ...stopped, silentForMs: 50 })).toBe(false)
+    expect(turnEnded({ ...stopped, silentForMs: 100 })).toBe(false)
+    expect(turnEnded({ ...stopped, silentForMs: 400 })).toBe(false)
+    expect(turnEnded({ ...stopped, silentForMs: 1100 })).toBe(false)
+  })
+
   test('ends once the room is quiet and the transcript has settled', () => {
     expect(turnEnded(stopped)).toBe(true)
+    expect(turnEnded({ ...stopped, silentForMs: TURN_END_SILENCE_MS })).toBe(true)
   })
 
   test('does not end while the speaker is still going', () => {

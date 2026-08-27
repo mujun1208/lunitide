@@ -1,6 +1,7 @@
 export type SettingsCategory =
   | 'general'
   | 'appearance'
+  | 'profile'
   | 'providers'
   | 'voice'
   | 'personal'
@@ -17,6 +18,7 @@ export type SettingsNavItem = { id: SettingsCategory; icon: string; label: strin
 export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'general', icon: '◌', label: '常规', keywords: '启动 语言 时区 对话 Enter 标题 工作模式 完全访问 人设 说话风格 助手 客服 老师 NPC 结构化 表单 事件' },
   { id: 'appearance', icon: '◐', label: '外观', keywords: '主题 星光 月光 密度 动效 动画' },
+  { id: 'profile', icon: '☺', label: '个人资料', keywords: '昵称 头像 状态 部门 职位 组织 局域网 发现 配对 密码 名片' },
   { id: 'providers', icon: '◈', label: '模型与供应商', keywords: '模型 API Key 供应商 BYOK endpoint' },
   { id: 'voice', icon: '◉', label: '语音与麦克风', keywords: '月伴 TTS ASR 朗读 麦克风 MiniCPM 全双工 音色 云端 本地模型 人生' },
   { id: 'personal', icon: '✧', label: '个人智能', keywords: '记忆 偏好 专家 画像' },
@@ -30,7 +32,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
 ]
 
 export const SETTINGS_NAV_GROUPS: { label: string; ids: SettingsCategory[] }[] = [
-  { label: '界面', ids: ['general', 'appearance'] },
+  { label: '界面', ids: ['general', 'appearance', 'profile'] },
   { label: '智能', ids: ['providers', 'voice', 'personal'] },
   { label: '能力', ids: ['security', 'browser', 'computer', 'subagents', 'collab'] },
   { label: '系统', ids: ['diagnostics', 'about'] },

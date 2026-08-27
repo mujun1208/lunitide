@@ -49,6 +49,39 @@ func ModelBundle() voice.Bundle {
 	}
 }
 
+const (
+	// RuntimeRevision pins the Windows Comni installer. Do not float on latest.
+	RuntimeRevision = "v1.0.22"
+	// RuntimeSetupFile is the versioned NSIS installer, not the floating alias.
+	RuntimeSetupFile = "Comni-Setup-1.0.22-win64.exe"
+	RuntimeSHA256    = "72cefacba846920c3063479bc4bbfcdc268bb494623ee84f5f1e57464202a514"
+	RuntimeBytes     = 564212994
+)
+
+// RuntimeBundle is the pinned llama-omni-server installer. Fetched into the
+// omni data directory, then unpacked with a silent NSIS install under
+// omni/runtime — never a floating GitHub "latest" URL.
+func RuntimeBundle() voice.Bundle {
+	path := "/tc-mb/llama.cpp-omni/releases/download/" + RuntimeRevision + "/" + RuntimeSetupFile
+	return voice.Bundle{
+		ID:     "comni-runtime-" + RuntimeRevision,
+		Kind:   voice.BundleRuntime,
+		Title:  "llama-omni-server",
+		Detail: "本机 MiniCPM-o 推理进程，约 540 MB，下载进月汐数据目录后静默安装到 omni/runtime/",
+		Downloads: []voice.Download{
+			{
+				Path: RuntimeSetupFile,
+				URLs: []string{
+					"https://github.com" + path,
+					"https://gh-proxy.com/https://github.com" + path,
+				},
+				SHA256: RuntimeSHA256,
+				Bytes:  RuntimeBytes,
+			},
+		},
+	}
+}
+
 func hfFile(name string, bytes int64, sha256 string) voice.Download {
 	path := "/" + HuggingFaceRepo + "/resolve/" + Revision + "/" + name
 	return voice.Download{

@@ -65,6 +65,7 @@ vi.mock('../../bridge/client', async importOriginal => {
 
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 700,
+  FORCE_COMMIT_MS: 1800,
   INTERRUPT_ECHO_MS: 160,
   shouldShowSpeechSetupHint: (input: {
     listening: boolean
@@ -489,5 +490,63 @@ describe('MC-06 state distinguishability + live announcements', () => {
     })
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     expect(container.querySelector('.companion-banner.error')).toBeNull()
+  })
+})
+
+describe('subtitle strip: this round only', () => {
+  test('a new user utterance replaces the previous user line', async () => {
+    speech.start.mockResolvedValue(speech.handle())
+    const { container } = await renderStage()
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onInterim?.('你好月汐')
+    })
+    expect(liveLog(container).textContent).toContain('你好月汐')
+    await act(async () => {
+      speech.callbacks!.onFinal('帮我打开桌面')
+    })
+    expect(liveLog(container).textContent).toContain('帮我打开桌面')
+    expect(liveLog(container).textContent).not.toContain('你好月汐')
+  })
+
+  test('does not paint the MiniCPM-o clone label as a user or assistant line', async () => {
+    speech.start.mockResolvedValue(speech.handle())
+    const onSend = vi.fn()
+    const { container, rerender } = await renderStage({ onSend })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onInterim?.('人生：优质台湾腔')
+      speech.callbacks!.onFinal('人生：优质台湾腔')
+    })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(liveLog(container).textContent).not.toContain('人生：优质台湾腔')
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="streaming"
+        assistantText="人生：优质台湾腔"
+      />,
+    )
+    expect(liveLog(container).textContent).not.toContain('人生：')
+  })
+
+  test('strips 我做完了 from the assistant subtitle', async () => {
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage()
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('建一个文件夹')
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        chatStatus="done"
+        assistantText="文件夹建好了。我已经做完了。"
+      />,
+    )
+    expect(liveLog(container).textContent).toContain('文件夹建好了')
+    expect(liveLog(container).textContent).not.toContain('我已经做完了')
+    expect(liveLog(container).textContent).not.toContain('任务已完成')
   })
 })

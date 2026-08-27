@@ -154,6 +154,9 @@ func TestServerArgsCarryThePortAndTokens(t *testing.T) {
 	if !strings.Contains(joined, "--rule2-min-trailing-silence=1.20") {
 		t.Errorf("turn-end silence not passed through: %v", args)
 	}
+	if TurnEndSilenceSeconds < 1.2 || TurnEndSilenceSeconds > 1.5 {
+		t.Fatalf("TurnEndSilenceSeconds = %v; want 1.2–1.5s", TurnEndSilenceSeconds)
+	}
 	// Rule 1 ignores whether anything was said, so without this it ends
 	// "turns" made of room noise on a shorter clock than rule 2.
 	if !strings.Contains(joined, "--rule1-must-contain-nonsilence=true") {
