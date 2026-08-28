@@ -89,7 +89,9 @@ Copy-Item $loader $stage
 Copy-Item (Join-Path $wvExtract 'LICENSE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-LICENSE.txt')
 Copy-Item (Join-Path $wvExtract 'NOTICE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-NOTICE.txt')
 & (Join-Path $PSScriptRoot 'Publish-OmniRuntime.ps1') -Cache $cache -Stage $stage
-if (-not (Test-Path (Join-Path $stage 'omni\llama-omni-runtime.zip') -PathType Leaf)) { throw 'omni runtime payload staging failed' }
+if (-not (Test-Path (Join-Path $stage 'omni\llama-omni-runtime.zip') -PathType Leaf)) {
+  Write-Warning 'omni/llama-omni-runtime.zip omitted (optional MiniCPM-o runtime). 云端 and 本地 voice paths still work.'
+}
 Copy-Item (Join-Path $PSScriptRoot 'stop-install-processes.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'verify-install-directory.ps1') $stage
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $stage 'WebView2Loader.dll') -RequiredExports @('CreateCoreWebView2EnvironmentWithOptions','GetAvailableCoreWebView2BrowserVersionString','CompareBrowserVersions')

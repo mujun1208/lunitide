@@ -131,6 +131,26 @@ func TestMeetingsHandlersSummarizeWithCompleter(t *testing.T) {
 	}
 }
 
+func TestMeetingsHandlersUpdateAndDelete(t *testing.T) {
+	e, _ := newMeetingsEngine(t)
+	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"title": "评审"})
+	id, _ := started["meetingId"].(string)
+	meetingsOK[map[string]any](t, e, "meetings.append", map[string]any{"meetingId": id, "text": "大家好"})
+	meetingsOK[map[string]any](t, e, "meetings.stop", map[string]any{"meetingId": id})
+	updated := meetingsOK[map[string]any](t, e, "meetings.update", map[string]any{"meetingId": id, "summary": "改过的摘要", "actions": "- 新待办"})
+	if updated["summary"] != "改过的摘要" || updated["actions"] != "- 新待办" {
+		t.Fatalf("update = %#v", updated)
+	}
+	deleted := meetingsOK[map[string]any](t, e, "meetings.delete", map[string]any{"meetingId": id})
+	if deleted["meetingId"] != id {
+		t.Fatalf("delete = %#v", deleted)
+	}
+	resp := meetingsCall(t, e, "meetings.get", map[string]any{"meetingId": id})
+	if resp.OK || resp.Error == nil || resp.Error.Code != "MEETING_NOT_FOUND" {
+		t.Fatalf("get after delete = %+v", resp)
+	}
+}
+
 func TestMeetingNotesSystemAsksForActionsAndConclusions(t *testing.T) {
 	for _, needle := range []string{"待办", "结论", "背景", "讨论要点", "不要编造"} {
 		if !strings.Contains(meetingNotesSystem, needle) {

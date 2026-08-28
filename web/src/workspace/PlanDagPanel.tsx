@@ -149,7 +149,7 @@ export function PlanDagPanel({
             })}
           </div>
           <div className="plan-dag-grid">
-            {nodes.sort((a, b) => a.sequence - b.sequence).map(node => {
+            {[...nodes].sort((a, b) => a.sequence - b.sequence).map(node => {
               const parent = node.parentNodeId ? nodes.find(n => n.id === node.parentNodeId) : undefined
               const ready = node.status === 'pending' && (!node.parentNodeId || parent?.status === 'completed')
               const cls = nodeCardClass(node.status, ready)

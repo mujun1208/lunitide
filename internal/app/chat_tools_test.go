@@ -307,6 +307,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(chatRichMarkdownInstruction(), "mermaid") || !strings.Contains(chatRichMarkdownInstruction(), "powershell") {
 		t.Fatal("rich markdown instruction missing")
 	}
+	if !strings.Contains(chatRichMarkdownInstruction(), "subgraph") || !strings.Contains(chatRichMarkdownInstruction(), "ASCII") {
+		t.Fatal("mermaid instruction must prefer flowchart subgraphs over ASCII boxes")
+	}
 }
 
 func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {

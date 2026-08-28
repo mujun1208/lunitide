@@ -137,6 +137,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
    */
   const evaluate = () => {
     if (closed || recycling || playback || commitPaused) return
+    if (Date.now() < guardUntil) return
     const trimmed = text.trim()
     if (!trimmed) return
     const now = Date.now()
@@ -176,17 +177,8 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     onTranscript: (next, final) => {
       if (closed) return
       const now = Date.now()
-      // Audio captured before the guard closed is the speaker, not the user.
-      if (now < guardUntil) return
+      // Audio captured during her reply is the speaker, not the user.
       if (playback || commitPaused) {
-        // Her turn, so this is her own voice off the speaker — dropped
-        // before it is recorded, not after.
-        //
-        // Recording it first and refusing to act on it was not enough: the
-        // buffer still held her sentence when her turn ended, so it surfaced
-        // a beat later as a caption flashing her own last line back at the
-        // user, and could be committed as though they had said it. Nothing
-        // heard during her turn belongs to the user's next one.
         return
       }
       const trimmed = next.trim()
@@ -206,6 +198,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         }
         options.onInterim?.(text)
       }
+      if (now < guardUntil) return
       if (final && holdUtterance) {
         sealed = text.trim()
         return

@@ -137,7 +137,7 @@ import {
   type MeetingsListResult, type MeetingsStartPayload, type MeetingsStartResult,
   type MeetingsAppendPayload, type MeetingsAppendResult, type MeetingsStopPayload, type MeetingsStopResult,
   type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
-  type MeetingsExportPayload, type MeetingsExportResult, type MeetingDTO, type MeetingSegmentDTO,
+  type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
   type VoiceStatusResult,type VoiceInstallPayload,type VoiceInstallResult,type VoiceSelectPayload,type VoiceSelectResult,type VoiceStartPayload,type VoiceStartResult,type VoiceAppendPayload,type VoiceAppendResult,type VoiceFinishPayload,type VoiceFinishResult,type VoiceStopPayload,type VoiceStopResult,
@@ -466,6 +466,8 @@ export interface MeetingsBridge{
   get(payload:MeetingsGetPayload):Promise<MeetingDTO>
   summarize(payload:MeetingsSummarizePayload):Promise<MeetingDTO>
   exportMeeting(payload:MeetingsExportPayload):Promise<MeetingsExportResult>
+  update(payload:MeetingsUpdatePayload):Promise<MeetingDTO>
+  delete(payload:MeetingsDeletePayload):Promise<MeetingsDeleteResult>
 }
 export function createMeetingsBridge(transport:WebViewTransport=webview()):MeetingsBridge{
   const core=createSimpleBridge(transport,{},15_000)
@@ -477,11 +479,13 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
     get:p=>core.request('meetings.get',p),
     summarize:p=>core.request('meetings.summarize',p,30_000),
     exportMeeting:p=>core.request('meetings.export',p,30_000),
+    update:p=>core.request('meetings.update',p),
+    delete:p=>core.request('meetings.delete',p),
   }
 }
 let meetingsSingleton:MeetingsBridge|undefined
 export function getMeetingsBridge():MeetingsBridge{return meetingsSingleton??=createMeetingsBridge()}
-export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}}}
+export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
@@ -893,7 +897,7 @@ export function createChatBridge(transport:WebViewTransport,deadlineMs=30_000):C
  const tombstone=(id:string)=>{tombstones.delete(id);tombstones.set(id,Date.now());while(tombstones.size>128)tombstones.delete(tombstones.keys().next().value!)}
  const failStream=(id:string)=>{active.delete(id);early.delete(id);tombstone(id)}
  const failActive=(id:string,state:Active,code:string,message:string)=>{if(state.terminal)return;state.terminal=true;const sequence=state.next;failStream(id);state.listener({v:BRIDGE_VERSION,kind:'event',id:ulid(),streamId:id,sequence,type:'failed',error:{code,message,retryable:false}})}
- const deliver=(state:Active,event:StreamEvent)=>{if(state.terminal)return;if(event.sequence!==state.next){failActive(event.streamId,state,'BRIDGE_EVENT_SEQUENCE_INVALID','流事件顺序无效，已安全终止');return}state.next++;if(['completed','cancelled','failed'].includes(event.type)){state.terminal=true;failStream(event.streamId)}state.listener(event)}
+ const deliver=(state:Active,event:StreamEvent)=>{if(state.terminal)return;if(event.sequence!==state.next){failActive(event.streamId,state,'BRIDGE_EVENT_SEQUENCE_INVALID','流事件顺序无效，已安全终止');return}state.next++;if(['completed','cancelled','failed'].includes(event.type)){state.terminal=true;failStream(event.streamId)}try{state.listener(event)}catch(err){console.error('[lunitide] chat stream listener',err);if(!state.terminal){try{failActive(event.streamId,state,'RENDERER_STREAM_LISTENER','界面处理流事件失败')}catch{failStream(event.streamId)}}}}
  const route=(event:MessageEvent<BridgeResponse>)=>{const value:unknown=event.data;if(disposed)return;if(isObj(value)&&typeof value.requestId==='string'&&pending.has(value.requestId)){const p=pending.get(value.requestId)!;pending.delete(value.requestId);clearTimeout(p.timer);if(!validEnvelope(value))p.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,value.requestId));else if(value.ok)p.resolve(value.payload);else p.reject(new BridgeClientError(value.error.message,value.error.code,value.error.retryable,value.error.correlationId));return}const candidateId=isObj(value)&&typeof value.streamId==='string'&&isULID(value.streamId)?value.streamId:undefined;if(!isStreamEvent(value)){if(candidateId){const state=active.get(candidateId);if(state)failActive(candidateId,state,'INVALID_BRIDGE_EVENT','流事件格式无效，已安全终止');else{early.delete(candidateId);tombstone(candidateId)}}return}if(tombstones.has(value.streamId))return;const state=active.get(value.streamId);if(state){deliver(state,value);return}const buffered=early.get(value.streamId)??[];if(buffered.length>=32||early.size>=32&&!early.has(value.streamId)){early.delete(value.streamId);tombstone(value.streamId);return}if(value.sequence!==buffered.length+1||buffered.some(e=>['completed','cancelled','failed'].includes(e.type))){early.delete(value.streamId);tombstone(value.streamId);return}buffered.push(value);early.set(value.streamId,buffered)}
  transport.addEventListener('message',route)
  const request=<T>(method:BridgeMethod,payload:object)=>new Promise<T>((resolve,reject)=>{if(disposed){reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer'));return}const id=ulid(),traceId=ulid(),ms=Math.min(30_000,Math.max(1,deadlineMs)),timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},ms+250);pending.set(id,{resolve,reject,timer});try{transport.postMessage({v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload,deadlineMs:ms})}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})
@@ -1304,7 +1308,7 @@ export function createIdentityBridge(transport:WebViewTransport=webview()):Ident
 }
 export function createPeopleBridge(transport:WebViewTransport=webview()):PeopleBridge{
   const core=createSimpleBridge(transport,{},12_000)
-  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>core.request('people.thread.send',p),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>core.request('people.file.stage',p,30_000),filePick:p=>core.request('people.file.pick',p??{},30_000),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
+  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>core.request('people.thread.send',p,30_000),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>core.request('people.file.stage',p,30_000),filePick:p=>core.request('people.file.pick',p??{},30_000),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
 }
 let identitySingleton:IdentityBridge|undefined
 let peopleSingleton:PeopleBridge|undefined

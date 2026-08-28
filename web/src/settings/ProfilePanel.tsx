@@ -10,29 +10,19 @@ const STATUS_OPTIONS = [
   { value: 'invisible', label: '隐身', desc: '发现开启时也不广播在线' },
 ] as const
 
-async function shrinkAvatar(file: File): Promise<string> {
-  const data = await file.arrayBuffer()
-  const blob = new Blob([data], { type: file.type || 'image/png' })
-  const url = URL.createObjectURL(blob)
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image()
-      el.onload = () => resolve(el)
-      el.onerror = () => reject(new Error('头像无法读取'))
-      el.src = url
-    })
-    const canvas = document.createElement('canvas')
-    canvas.width = 96
-    canvas.height = 96
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('无法处理头像')
-    ctx.drawImage(img, 0, 0, 96, 96)
-    const out = canvas.toDataURL('image/jpeg', 0.82)
-    if (out.length > 65536) throw new Error('头像仍然过大，请换一张更小的图')
-    return out
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
+        resolve(reader.result)
+        return
+      }
+      reject(new Error('图片无法读取'))
+    }
+    reader.onerror = () => reject(new Error('图片无法读取'))
+    reader.readAsDataURL(file)
+  })
 }
 
 export function ProfilePanel({
@@ -106,23 +96,54 @@ export function ProfilePanel({
     }
   }
 
+  const publishAvatar = async (avatar: string) => {
+    apply(await identity.update({ avatar }))
+    setNotice('头像已更新')
+  }
+
+  const pickAvatar = async () => {
+    if (busy) return
+    setBusy(true)
+    setNotice('')
+    try {
+      const picked = await people.filePick({ folder: false })
+      if (!/\.(png|jpe?g|gif|webp|bmp)$/i.test(picked.fileName) && !/\.(png|jpe?g|gif|webp|bmp)$/i.test(picked.path)) {
+        setNotice('请选择图片文件')
+        return
+      }
+      await publishAvatar(picked.path)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '头像更新失败'
+      if (/取消/.test(msg)) {
+        fileRef.current?.click()
+        return
+      }
+      setNotice(msg)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="profile-panel">
       <section className="profile-hero setting-group">
         <div className="profile-hero-card">
-          <button type="button" className="profile-avatar" onClick={() => fileRef.current?.click()} aria-label="更换头像">
+          <button type="button" className="profile-avatar" onClick={() => void pickAvatar()} aria-label="更换头像">
             {profile?.avatar ? <img src={profile.avatar} alt="" /> : <span>{nickname.trim().slice(0, 1) || '月'}</span>}
           </button>
           <input ref={fileRef} hidden type="file" accept="image/*" onChange={e => {
             const file = e.target.files?.[0]
             e.target.value = ''
             if (!file) return
-            void shrinkAvatar(file).then(async avatar => apply(await identity.update({ avatar }))).catch(err => setNotice(err instanceof Error ? err.message : '头像更新失败'))
+            const nativePath = (file as File & { path?: string }).path
+            void (nativePath ? publishAvatar(nativePath) : readFileAsDataURL(file).then(publishAvatar))
+              .catch(err => setNotice(err instanceof Error ? err.message : '头像更新失败'))
           }} />
-          <div>
+          <div className="profile-hero-copy">
             <p className="profile-kicker">本机身份</p>
             <h3>{nickname.trim() || '月汐用户'}</h3>
             <small>{[orgName, department, title].filter(Boolean).join(' · ') || '还没有填写组织信息'}</small>
+            <button type="button" className="profile-avatar-action" disabled={busy} onClick={() => void pickAvatar()}>更换头像</button>
           </div>
         </div>
         <p className="setting-desc">这些字段会出现在局域网通讯录里。电脑控制仍然只作用于这台电脑，不会把桌面分享给同事。</p>
@@ -135,7 +156,7 @@ export function ProfilePanel({
           <label>组织<input value={orgName} maxLength={128} onChange={e => setOrgName(e.target.value)} placeholder="公司或团队" /></label>
           <label>部门<input value={department} maxLength={128} onChange={e => setDepartment(e.target.value)} placeholder="研发 / 设计 / …" /></label>
           <label>职位<input value={title} maxLength={128} onChange={e => setTitle(e.target.value)} /></label>
-          <label className="wide">简介<textarea value={bio} maxLength={2000} rows={3} onChange={e => setBio(e.target.value)} placeholder="一句话介绍自己" /></label>
+          <label>简介<textarea value={bio} maxLength={2000} rows={4} onChange={e => setBio(e.target.value)} placeholder="一句话介绍自己" /></label>
         </div>
         <div className="dialog-actions profile-actions">
           <button type="button" className="primary" disabled={busy || !nickname.trim()} onClick={() => void save()}>{busy ? '保存中…' : '保存名片'}</button>
@@ -148,7 +169,7 @@ export function ProfilePanel({
 
       <section className="setting-group">
         <div className="setting-group-title">局域网发现</div>
-        <div className="setting-row" style={{ gridTemplateColumns: '1fr auto' }}>
+        <div className="profile-stack-row">
           <div>
             <b>让同网段的月汐看见我</b>
             <div className="setting-desc">默认关闭。打开后用 UDP 广播昵称、部门和状态；发现到的人默认不信任，发文件必须对方确认。</div>
@@ -169,7 +190,7 @@ export function ProfilePanel({
         <p className="setting-desc">只读。私钥永远不会出现在界面上。</p>
         <div className="profile-fields">
           <label>subjectId<input readOnly value={profile?.subjectId ?? ''} /></label>
-          <label className="wide">公钥<input readOnly value={profile?.publicKey ?? ''} /></label>
+          <label>公钥<input readOnly value={profile?.publicKey ?? ''} /></label>
         </div>
       </section>
 
@@ -177,9 +198,10 @@ export function ProfilePanel({
         <div className="setting-group-title">启动密码</div>
         <p className="setting-desc">保护本机个人资料和同事记录。这不是传输加密，只锁住这台电脑上的身份写入。</p>
         {profile?.locked ? (
-          <label>解锁<input type="password" value={unlock} onChange={e => setUnlock(e.target.value)} />
+          <div className="profile-fields">
+            <label>解锁<input type="password" value={unlock} onChange={e => setUnlock(e.target.value)} /></label>
             <button type="button" onClick={() => void identity.unlock({ password: unlock }).then(apply).catch(e => setNotice(e instanceof Error ? e.message : '解锁失败'))}>解锁</button>
-          </label>
+          </div>
         ) : (
           <div className="profile-fields">
             {profile?.passwordSet && <label>当前密码<input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} /></label>}

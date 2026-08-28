@@ -8,6 +8,11 @@ export function saveMicrophoneId(deviceId:string):void{
  try{if(deviceId)localStorage.setItem(MICROPHONE_DEVICE_KEY,deviceId);else localStorage.removeItem(MICROPHONE_DEVICE_KEY)}catch{/* best effort */}
 }
 
+/** Companion entry matches whatever Windows currently has as the default input. */
+export function useWindowsDefaultMicrophone():void{
+ saveMicrophoneId('')
+}
+
 export function microphoneConstraints():MediaStreamConstraints{
  const deviceId=selectedMicrophoneId()
   const audio: MediaTrackConstraints = {

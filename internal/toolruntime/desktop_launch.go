@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lunitide/lunitide/internal/winexec"
 )
 
 type knownLaunchApp struct {
@@ -13,27 +15,50 @@ type knownLaunchApp struct {
 	Aliases   []string
 	Processes []string
 	ExeHints  []string
+	WalkRoots []string
 }
 
 var knownLaunchApps = []knownLaunchApp{
 	{
 		Canonical: "网易云音乐",
-		Aliases:   []string{"网易云音乐", "网易云", "网易云音", "cloudmusic", "netease", "netease cloud music", "163音乐"},
+		Aliases:   []string{"网易云音乐", "网易云", "网易云音", "cloudmusic", "CloudMusic", "netease", "netease cloud music", "NetEase Cloud Music", "163音乐"},
 		Processes: []string{"cloudmusic.exe", "cloudmusic"},
 		ExeHints: []string{
 			`%LOCALAPPDATA%\Netease\CloudMusic\cloudmusic.exe`,
 			`%LOCALAPPDATA%\NetEase\CloudMusic\cloudmusic.exe`,
+			`%APPDATA%\Netease\CloudMusic\cloudmusic.exe`,
+			`%LOCALAPPDATA%\CloudMusic\cloudmusic.exe`,
 			`%ProgramFiles%\Netease\CloudMusic\cloudmusic.exe`,
 			`%ProgramFiles(x86)%\Netease\CloudMusic\cloudmusic.exe`,
+			`%ProgramFiles%\NetEase\CloudMusic\cloudmusic.exe`,
+			`%ProgramFiles(x86)%\NetEase\CloudMusic\cloudmusic.exe`,
+		},
+		WalkRoots: []string{
+			`%LOCALAPPDATA%\Netease`,
+			`%LOCALAPPDATA%\NetEase`,
+			`%APPDATA%\Netease`,
+			`%ProgramFiles%\Netease`,
+			`%ProgramFiles(x86)%\Netease`,
+			`%ProgramFiles%\NetEase`,
+			`%ProgramFiles(x86)%\NetEase`,
 		},
 	},
 	{
 		Canonical: "汽水音乐",
-		Aliases:   []string{"汽水音乐", "汽水"},
-		Processes: []string{"sodamusic.exe", "汽水音乐.exe"},
+		Aliases:   []string{"汽水音乐", "汽水", "sodamusic", "soda music", "Soda Music"},
+		Processes: []string{"sodamusic.exe", "Soda Music.exe", "SodaMusic.exe", "汽水音乐.exe"},
 		ExeHints: []string{
 			`%LOCALAPPDATA%\SodaMusic\Soda Music.exe`,
 			`%LOCALAPPDATA%\SodaMusic\SodaMusic.exe`,
+			`%LOCALAPPDATA%\Soda Music\Soda Music.exe`,
+			`%LOCALAPPDATA%\Programs\Soda Music\Soda Music.exe`,
+			`%LOCALAPPDATA%\Programs\SodaMusic\Soda Music.exe`,
+		},
+		WalkRoots: []string{
+			`%LOCALAPPDATA%\SodaMusic`,
+			`%LOCALAPPDATA%\Soda Music`,
+			`%LOCALAPPDATA%\Programs\Soda Music`,
+			`%LOCALAPPDATA%\Programs\SodaMusic`,
 		},
 	},
 	{
@@ -111,19 +136,90 @@ func musicWindowHints(app string) []string {
 var lookupKnownAppExecutables = defaultLookupKnownAppExecutables
 
 func defaultLookupKnownAppExecutables(app knownLaunchApp) []string {
+	seen := map[string]bool{}
 	var out []string
-	for _, hint := range app.ExeHints {
-		p := os.ExpandEnv(hint)
+	add := func(p string) {
+		p = strings.TrimSpace(p)
 		if p == "" || strings.Contains(p, "%") {
-			continue
+			return
 		}
 		p = filepath.Clean(p)
+		key := strings.ToLower(p)
+		if seen[key] {
+			return
+		}
 		st, err := os.Stat(p)
 		if err != nil || st.IsDir() {
-			continue
+			return
 		}
+		seen[key] = true
 		out = append(out, p)
 	}
+	for _, hint := range app.ExeHints {
+		add(os.ExpandEnv(hint))
+	}
+	for _, root := range app.WalkRoots {
+		for _, found := range walkForProcess(os.ExpandEnv(root), app.Processes, 4) {
+			add(found)
+		}
+	}
+	for _, found := range winexec.LookupProcessImages(app.Processes) {
+		add(found)
+	}
+	for _, found := range lookupUninstallExecutables(app) {
+		add(found)
+	}
+	return out
+}
+
+func walkForProcess(root string, processNames []string, maxDepth int) []string {
+	root = strings.TrimSpace(root)
+	if root == "" || strings.Contains(root, "%") {
+		return nil
+	}
+	st, err := os.Stat(root)
+	if err != nil || !st.IsDir() {
+		return nil
+	}
+	want := map[string]bool{}
+	for _, name := range processNames {
+		base := strings.ToLower(filepath.Base(name))
+		if base == "" {
+			continue
+		}
+		want[base] = true
+		if !strings.HasSuffix(base, ".exe") {
+			want[base+".exe"] = true
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	var out []string
+	root = filepath.Clean(root)
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		depth := 0
+		if rel != "." {
+			depth = strings.Count(rel, string(os.PathSeparator)) + 1
+		}
+		if d.IsDir() {
+			if maxDepth > 0 && depth >= maxDepth {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if want[strings.ToLower(d.Name())] {
+			out = append(out, path)
+		}
+		return nil
+	})
 	return out
 }
 
@@ -169,8 +265,10 @@ func FirstInstalledMusicApp() string {
 		if len(lookupKnownAppExecutables(app)) > 0 {
 			return app.Canonical
 		}
-		if path, _, _ := pickStartMenuShortcut(app.Canonical); path != "" {
-			return app.Canonical
+		for _, alias := range append([]string{app.Canonical}, app.Aliases...) {
+			if path, _, _ := pickStartMenuShortcut(alias); path != "" {
+				return app.Canonical
+			}
 		}
 	}
 	return ""

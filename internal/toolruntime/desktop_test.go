@@ -162,3 +162,19 @@ func TestFirstInstalledMusicAppUsesLookup(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestWalkForProcessFindsCloudMusic(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "Netease", "CloudMusic")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(nested, "cloudmusic.exe")
+	if err := os.WriteFile(exe, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	found := walkForProcess(root, []string{"cloudmusic.exe", "cloudmusic"}, 4)
+	if len(found) != 1 || !strings.EqualFold(found[0], exe) {
+		t.Fatalf("found %v want %q", found, exe)
+	}
+}

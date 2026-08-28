@@ -380,8 +380,13 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).toHaveBeenCalledWith('第一步应该先写BRD。第二步再做相关工作。')
   })
 
-  it('propagates a refusal to start so the stage can fall back', async () => {
-    startRejects = new Error('模型未安装')
-    await expect(startLocalCompanionSpeech(harness().options)).rejects.toThrow('模型未安装')
+  it('shows the next user caption during the echo guard without committing yet', async () => {
+    const stage = harness()
+    const handle = await startLocalCompanionSpeech(stage.options)
+    handle.setAssistantPlayback(false, 800)
+    onTranscript('下一句你好吗', false)
+    expect(stage.onInterim).toHaveBeenCalledWith('下一句你好吗')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(stage.onFinal).not.toHaveBeenCalled()
   })
 })

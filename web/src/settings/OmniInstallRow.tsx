@@ -103,8 +103,9 @@ export function OmniInstallRow({ onReady }: { onReady?: () => void } = {}): JSX.
       desc = `正在下载 MiniCPM-o 4.5：${progress.percent}% · ${gigabytes(progress.doneBytes)} / ${gigabytes(progress.totalBytes)}${progress.file ? ` · ${progress.file}` : ''}`
     } else if (downloading) desc = '正在准备下载…'
     else if (failed) desc = `下载失败：${progress?.lastError || '未知原因'}。可重试，已下载的部分会保留。`
-    else if (runtimeMissing) desc = '本机推理进程未能展开。请重装月汐后再试。'
+    else if (runtimeMissing) desc = '此安装包未附带 MiniCPM-o 推理进程，本机推理进程未能展开。云端与本地模型仍可用。'
     else if (installed) desc = '模型已下载。进入月伴时会启动本机服务（首次加载约 10–60 秒）。'
+    else if (!status.runtimeFound) desc = `本机 MiniCPM-o 4.5 Q4 未安装（约 ${gigabytes(status.downloadBytes)}）。此安装包未附带推理进程；点下载只会拉取权重。云端与本地模型仍可用。`
     else desc = `本机 MiniCPM-o 4.5 Q4 未安装（约 ${gigabytes(status.downloadBytes)}）。推理进程已随月汐安装；点下载后写入数据目录，安装包不内嵌权重。`
   }
 

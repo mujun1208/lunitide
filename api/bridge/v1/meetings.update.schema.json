@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.update.schema.json",
+  "title": "meetings.update payload",
+  "x-method": "meetings.update",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "summary": { "type": "string", "maxLength": 65536 },
+    "actions": { "type": "string", "maxLength": 32768 },
+    "transcript": { "type": "string", "maxLength": 1048576 }
+  },
+  "required": ["meetingId"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingDTO"
+  },
+  "x-examples": {
+    "positive": [
+      { "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "summary": "背景：评审。讨论要点：安装包。结论：下周发布。" },
+      { "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "actions": "- 导出纪要", "transcript": "大家好" }
+    ],
+    "negative": [{}, { "summary": "only" }, { "meetingId": "not-a-ulid", "summary": "x" }]
+  }
+}

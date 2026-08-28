@@ -381,6 +381,8 @@ func peopleFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_LOCKED", "请先解锁本机个人资料", false)
 	case errors.Is(err, identity.ErrPassword):
 		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_PASSWORD", "启动密码不正确", false)
+	case errors.Is(err, identity.ErrAvatarUnreadable):
+		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_AVATAR", "图片无法读取", false)
 	case errors.Is(err, identity.ErrInvalidProfile), errors.Is(err, identity.ErrPasswordTooLong), errors.Is(err, people.ErrInvalid):
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "个人资料或同事请求无效", false)
 	case errors.Is(err, people.ErrNotFound):

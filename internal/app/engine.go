@@ -640,6 +640,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMeetingsGet:                   handleMeetingsGet,
 	bridge.MethodMeetingsSummarize:             handleMeetingsSummarize,
 	bridge.MethodMeetingsExport:                handleMeetingsExport,
+	bridge.MethodMeetingsUpdate:                handleMeetingsUpdate,
+	bridge.MethodMeetingsDelete:                handleMeetingsDelete,
 }
 
 var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{

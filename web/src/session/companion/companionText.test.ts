@@ -27,6 +27,7 @@ import {
   handsFreeRetryDelayMs,
   stripTaskDonePhrases,
   takeSpeakableChunk,
+  accumulateSpeakableCaption,
 } from './companionText'
 
 describe('cleanForSpeech', () => {
@@ -242,6 +243,16 @@ describe('stripTaskDonePhrases', () => {
     expect(stripTaskDonePhrases('任务已完成。')).toBe('')
     expect(stripTaskDonePhrases('文件夹建好了。我已经做完了。')).toBe('文件夹建好了。')
     expect(stripTaskDonePhrases('人生：优质台湾腔')).toBe('')
+  })
+})
+
+describe('accumulateSpeakableCaption', () => {
+  test('keeps the whole MiniCPM-o utterance instead of the last 1–2 chars', () => {
+    expect(accumulateSpeakableCaption('', '在')).toBe('在')
+    expect(accumulateSpeakableCaption('在', '的。')).toBe('在的。')
+    expect(accumulateSpeakableCaption('在的。', '在的。我在听。')).toBe('在的。我在听。')
+    expect(accumulateSpeakableCaption('在的。我在听。', '我在听。')).toBe('在的。我在听。')
+    expect(accumulateSpeakableCaption('人生：优质台湾腔', '在的。')).toBe('在的。')
   })
 })
 

@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getIdentityBridge, getPeopleBridge, type IdentityBridge, type PeopleBridge } from '../bridge/client'
 import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO } from '../generated/bridge'
+import { clipboardImages, normalizePastedImages } from '../session/attachments'
 import { ProfilePanel } from '../settings/ProfilePanel'
 import { Dialog } from '../ui/Dialog'
+import { usePanelResize } from '../ui/usePanelResize'
 import { captureThisPcFrame } from './peopleCapture'
 import { PEOPLE_EMOJI, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, lastPreview, relativeTime, statusLabel, threadTitle, trustLabel } from './peopleRoster'
 
 const MAX_FILE = 32 * 1024 * 1024
-const INLINE_MAX = 180 * 1024
+const INLINE_MAX = 80 * 1024
 const STAGE_CHUNK = 48 * 1024
 type Rail = 'chats' | 'contacts' | 'me'
 
@@ -40,6 +42,12 @@ export function PeoplePage({
   const [pendingSave, setPendingSave] = useState<PeopleMessageDTO>()
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [midWidth, startMidResize] = usePanelResize({
+    storageKey: 'lunitide:people-mid-width',
+    initial: 300,
+    min: 240,
+    max: () => Math.min(480, Math.max(280, window.innerWidth - 420)),
+  })
   const imageRef = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const threadIdRef = useRef<string | undefined>(undefined)
@@ -132,15 +140,20 @@ export function PeoplePage({
       if (localPath) {
         payload = { threadId, kind, fileName, fileMime, localPath }
       } else if (file) {
-        const buf = new Uint8Array(await file.arrayBuffer())
-        if (buf.length > MAX_FILE) throw new Error('文件需小于 32 MiB')
+        const nativePath = (file as File & { path?: string }).path
         const fileKind = kind === 'image' || file.type.startsWith('image/') ? 'image' : 'file'
-        if (buf.length <= INLINE_MAX) {
-          payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, contentBase64: bytesToB64(buf) }
+        if (nativePath) {
+          payload = { threadId, kind: fileKind, fileName: file.name || fileName, fileMime: file.type || fileMime, localPath: nativePath }
         } else {
-          setNotice(`正在分片上传 ${file.name}…`)
-          const staged = await stageBrowserFile(people, file)
-          payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, localPath: staged }
+          const buf = new Uint8Array(await readBrowserFile(file))
+          if (buf.length > MAX_FILE) throw new Error('文件需小于 32 MiB')
+          if (buf.length <= INLINE_MAX) {
+            payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, contentBase64: bytesToB64(buf) }
+          } else {
+            setNotice(`正在分片上传 ${file.name}…`)
+            const staged = await stageBrowserFile(people, file, buf)
+            payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, localPath: staged }
+          }
         }
       }
       const result = await people.threadSend(payload)
@@ -225,7 +238,7 @@ export function PeoplePage({
   const showThread = rail !== 'me' && thread
 
   return (
-    <div className="people-shell" data-rail={rail}>
+    <div className="people-shell" data-rail={rail} style={{ '--people-mid-width': `${midWidth}px` } as React.CSSProperties}>
       <nav className="people-rail" aria-label="同事工作区">
         <button type="button" className={rail === 'chats' ? 'on' : ''} aria-current={rail === 'chats'} onClick={() => setRail('chats')}>
           <span aria-hidden="true">💬</span>聊天
@@ -287,13 +300,14 @@ export function PeoplePage({
         )}
         {rail === 'me' && (
           <div className="people-me-summary">
-            <button type="button" className="people-ava lg" aria-hidden="true">{me?.avatar ? <img src={me.avatar} alt="" /> : initials(me?.nickname || '月')}</button>
+            <button type="button" className="people-ava lg" aria-label="更换头像" onClick={() => setRail('me')}>{me?.avatar ? <img src={me.avatar} alt="" /> : initials(me?.nickname || '月')}</button>
             <h2>{me?.nickname || '月汐用户'}</h2>
             <p>{[me?.orgName, me?.department, me?.title].filter(Boolean).join(' · ') || '还没有填写组织信息'}</p>
             <small>{statusLabel(me?.status || 'online')} · {me?.discoveryEnabled ? '局域网可见' : '发现关闭'}</small>
           </div>
         )}
       </aside>
+      <div className="panel-resizer split-resizer" role="separator" aria-label="调整同事列表宽度" aria-orientation="vertical" onPointerDown={startMidResize} />
 
       <section className="people-thread" aria-label={rail === 'me' ? '个人资料' : '同事对话'}>
         {rail === 'me' ? (
@@ -354,8 +368,8 @@ export function PeoplePage({
               const file = e.dataTransfer.files?.[0]
               if (file) void send(file.type.startsWith('image/') ? 'image' : 'file', '', file)
             }} onPaste={e => {
-              const file = [...e.clipboardData.files].find(f => f.type.startsWith('image/'))
-              if (file) { e.preventDefault(); void send('image', '', file) }
+              const images = normalizePastedImages(clipboardImages(e.clipboardData))
+              if (images[0]) { e.preventDefault(); void send('image', '', images[0]) }
             }}>
               <input ref={imageRef} hidden type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void send('image', '', file) }} />
               <div className="people-composer-tools">
@@ -518,6 +532,23 @@ function readReceipt(thread: PeopleThreadDTO | undefined, selfId: string | undef
   return peer.lastReadAt >= lastMine.createdAt ? '已读' : '未读'
 }
 
+function readBrowserFile(file: File): Promise<ArrayBuffer> {
+  if (typeof file.arrayBuffer === 'function') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
+      reader.readAsArrayBuffer(file)
+    })
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as ArrayBuffer)
+    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
+    reader.readAsArrayBuffer(file)
+  })
+}
+
 function bytesToB64(bytes: Uint8Array): string {
   let binary = ''
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -538,8 +569,8 @@ function newUlid(): string {
   return out
 }
 
-async function stageBrowserFile(people: PeopleBridge, file: File): Promise<string> {
-  const buf = new Uint8Array(await file.arrayBuffer())
+async function stageBrowserFile(people: PeopleBridge, file: File, ready?: Uint8Array): Promise<string> {
+  const buf = ready ?? new Uint8Array(await readBrowserFile(file))
   const uploadId = newUlid()
   let offset = 0
   let index = 0

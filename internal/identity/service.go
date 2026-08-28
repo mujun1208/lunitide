@@ -241,10 +241,11 @@ func (s *Service) Update(ctx context.Context, patch ProfilePatch) (Public, error
 		next.Nickname = name
 	}
 	if patch.Avatar != nil {
-		if len(*patch.Avatar) > maxAvatar {
-			return Public{}, ErrInvalidProfile
+		encoded, err := normalizeAvatar(*patch.Avatar)
+		if err != nil {
+			return Public{}, err
 		}
-		next.Avatar = *patch.Avatar
+		next.Avatar = encoded
 	}
 	if patch.Status != nil {
 		if !validStatus(*patch.Status) {

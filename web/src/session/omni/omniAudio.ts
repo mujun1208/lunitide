@@ -1,8 +1,17 @@
 import { startPcmCapture, type PcmCaptureHandle } from '../companion/pcmCapture'
+import { accumulateSpeakableCaption, looksLikeOmniPersonaCaption, stripTaskDonePhrases } from '../companion/companionText'
+import { sharedTtsAudioContext, unlockTtsAudio } from '../companion/ttsPlayer'
 import { getOmniBridge } from '../../bridge/client'
 
 export interface OmniCompanionHandle {
   stop: () => void
+  /**
+   * Send the PCM buffered during the user's turn. Call after 1.2s of real
+   * silence so MiniCPM-o answers one fluent utterance, not 100ms crumbs.
+   */
+  commitUserAudio: () => boolean
+  /** Open the next listen: hold PCM again, drop leftover playback. */
+  resumeListen: () => void
 }
 
 export interface OmniCompanionOptions {
@@ -19,6 +28,9 @@ export const OMNI_PROBE_MS = 4_000
 /** One hung append must not stall the whole duplex chain. */
 export const OMNI_APPEND_MS = 8_000
 const OMNI_APPEND_FAILS_BEFORE_ERROR = 3
+/** 100ms frames × 300 = 30s of held user audio. */
+const MAX_HELD_FRAMES = 300
+const PLAYBACK_OVERLAP_S = 0.04
 
 export interface OmniChannelSnapshot {
   ready?: boolean
@@ -70,9 +82,10 @@ export async function probeOmniChannel(timeoutMs = OMNI_PROBE_MS): Promise<boole
 }
 
 /**
- * Full-duplex MiniCPM-o 4.5 session. Capture stays in the renderer; the
- * engine talks to llama-omni-server on loopback. Does not call chat.start
- * or the companion TTS catalogue.
+ * MiniCPM-o 4.5 session. Capture stays in the renderer; the engine talks to
+ * llama-omni-server on loopback. PCM is held until the user's turn ends so
+ * the reply is one utterance, not a stream of 1s chops. Does not call
+ * chat.start — the stage still sends the ASR transcript there so tools run.
  */
 export async function startOmniCompanion(options: OmniCompanionOptions): Promise<OmniCompanionHandle> {
   let stopped = false
@@ -81,12 +94,33 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   let playing = false
   let appendChain: Promise<void> = Promise.resolve()
   let appendFails = 0
-  const queue: string[] = []
+  let holding = true
+  let held: string[] = []
+  let caption = ''
+  const wavQueue: string[] = []
   let audio: HTMLAudioElement | undefined
+  let timelineEnd = 0
+  const sources = new Set<AudioBufferSourceNode>()
+
+  const paintCaption = (piece: string) => {
+    const shown = stripTaskDonePhrases(piece)
+    if (!shown || looksLikeOmniPersonaCaption(shown)) return
+    caption = accumulateSpeakableCaption(caption, shown)
+    if (caption) options.onText(caption)
+  }
 
   const stopPlayback = () => {
-    queue.length = 0
+    wavQueue.length = 0
     playing = false
+    timelineEnd = 0
+    for (const source of sources) {
+      try {
+        source.stop()
+      } catch {
+        /* already stopped */
+      }
+    }
+    sources.clear()
     audio?.pause()
     if (audio?.src.startsWith('blob:')) URL.revokeObjectURL(audio.src)
     audio = undefined
@@ -94,14 +128,18 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     capture?.setMuted(false)
   }
 
-  const playNext = () => {
-    if (stopped || playing) return
-    const wav = queue.shift()
-    if (!wav) {
-      options.onSpeaking?.(false)
-      capture?.setMuted(false)
-      return
+  const decodeWav = async (wav: string): Promise<AudioBuffer | null> => {
+    const ctx = sharedTtsAudioContext()
+    if (!ctx) return null
+    const bytes = Uint8Array.from(atob(wav), c => c.charCodeAt(0))
+    try {
+      return await ctx.decodeAudioData(bytes.buffer.slice(0))
+    } catch {
+      return null
     }
+  }
+
+  const playViaElement = (wav: string) => {
     playing = true
     capture?.setMuted(true)
     options.onSpeaking?.(true)
@@ -129,9 +167,112 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     })
   }
 
+  const playViaContext = async (wav: string): Promise<boolean> => {
+    await unlockTtsAudio()
+    const ctx = sharedTtsAudioContext()
+    if (!ctx || ctx.state !== 'running') return false
+    const buffer = await decodeWav(wav)
+    if (!buffer) return false
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    source.connect(ctx.destination)
+    const overlap = timelineEnd > ctx.currentTime + 0.08 ? PLAYBACK_OVERLAP_S : 0
+    const startAt = timelineEnd > ctx.currentTime ? timelineEnd - overlap : ctx.currentTime
+    timelineEnd = startAt + buffer.duration
+    sources.add(source)
+    playing = true
+    capture?.setMuted(true)
+    options.onSpeaking?.(true)
+    source.onended = () => {
+      sources.delete(source)
+      if (sources.size === 0 && wavQueue.length === 0 && !audio) {
+        playing = false
+        options.onSpeaking?.(false)
+        capture?.setMuted(false)
+      }
+    }
+    try {
+      source.start(startAt)
+    } catch {
+      sources.delete(source)
+      return false
+    }
+    return true
+  }
+
+  const playNext = () => {
+    if (stopped) return
+    if (playing && audio) return
+    const wav = wavQueue.shift()
+    if (!wav) {
+      if (sources.size === 0) {
+        playing = false
+        options.onSpeaking?.(false)
+        capture?.setMuted(false)
+      }
+      return
+    }
+    void playViaContext(wav).then(ok => {
+      if (stopped) return
+      if (!ok) {
+        playViaElement(wav)
+        return
+      }
+      playNext()
+    })
+  }
+
+  const enqueueWavs = (wavs: string[]) => {
+    if (!wavs.length) return
+    for (const wav of wavs) wavQueue.push(wav)
+    playNext()
+  }
+
+  const appendFrames = (frames: string[]) => {
+    if (stopped || !sessionId || !frames.length) return
+    appendChain = appendChain.then(async () => {
+      for (const pcm of frames) {
+        if (stopped || !sessionId) return
+        try {
+          const turn = await withTimeout(
+            getOmniBridge().append({ sessionId, pcm }),
+            OMNI_APPEND_MS,
+          )
+          appendFails = 0
+          if (stopped) return
+          paintCaption(turn.text)
+          enqueueWavs(turn.wavs)
+        } catch (err) {
+          appendFails += 1
+          if (!stopped && appendFails >= OMNI_APPEND_FAILS_BEFORE_ERROR) {
+            options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
+            return
+          }
+        }
+      }
+    })
+  }
+
+  const resumeListen = () => {
+    holding = true
+    caption = ''
+    stopPlayback()
+  }
+
+  const commitUserAudio = () => {
+    if (stopped || !sessionId) return false
+    const frames = held
+    held = []
+    holding = false
+    if (!frames.length) return false
+    appendFrames(frames)
+    return true
+  }
+
   const stop = () => {
     if (stopped) return
     stopped = true
+    held = []
     stopPlayback()
     void capture?.stop()
     capture = undefined
@@ -141,35 +282,15 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     }
   }
 
-  await waitOmniReady()
-  const started = await getOmniBridge().start({ personaId: options.personaId })
-  sessionId = started.sessionId
-
   try {
     capture = await startPcmCapture({
       onFrame: frame => {
-        if (stopped || !sessionId) return
-        appendChain = appendChain.then(async () => {
-          if (stopped || !sessionId) return
-          try {
-            const turn = await withTimeout(
-              getOmniBridge().append({ sessionId, pcm: frame.base64 }),
-              OMNI_APPEND_MS,
-            )
-            appendFails = 0
-            if (stopped) return
-            const text = turn.text.trim()
-            if (text) options.onText(text)
-            if (turn.listening) stopPlayback()
-            for (const wav of turn.wavs) queue.push(wav)
-            playNext()
-          } catch (err) {
-            appendFails += 1
-            if (!stopped && appendFails >= OMNI_APPEND_FAILS_BEFORE_ERROR) {
-              options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
-            }
-          }
-        })
+        if (stopped) return
+        if (holding) {
+          held.push(frame.base64)
+          if (held.length > MAX_HELD_FRAMES) held.shift()
+          return
+        }
       },
       onError: error => {
         if (!stopped) options.onError(error.message)
@@ -180,7 +301,16 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     throw err
   }
 
-  return { stop }
+  try {
+    await waitOmniReady()
+    const started = await getOmniBridge().start({ personaId: options.personaId })
+    sessionId = started.sessionId
+  } catch (err) {
+    stop()
+    throw err
+  }
+
+  return { stop, commitUserAudio, resumeListen }
 }
 
 async function waitOmniReady(): Promise<void> {

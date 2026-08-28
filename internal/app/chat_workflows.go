@@ -33,7 +33,7 @@ func chatRichMarkdownInstruction() string {
 	return "\n\n[回复排版]\n" +
 		"- 可执行命令用 ```powershell 或 ```bash 独立成块；环境变量/配置用 ```env\n" +
 		"- 结构化对比、安装状态、参数清单用 GFM 表格（| 列 | 列 |）\n" +
-		"- 流程、规划、架构说明用 ```mermaid 代码块（flowchart TD/LR、sequenceDiagram 等）\n" +
+		"- 流程、规划、架构说明必须用 ```mermaid（优先 flowchart TD/LR）：用 subgraph 画分层与边界，节点用方括号标题，边用箭头并加短标签；禁止 ASCII 框线图或只有文字没有框和连线。约 8-12 个节点、一条主路径。时序才用 sequenceDiagram\n" +
 		"- 每段命令/代码单独成块，便于用户一键复制；正文先给结论，再附表格或图\n"
 }
 

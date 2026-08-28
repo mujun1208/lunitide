@@ -119,6 +119,45 @@ func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) b
 	return bridge.Success(r.ID, publicMeeting(m, true))
 }
 
+func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		MeetingID  string  `json:"meetingId"`
+		Title      *string `json:"title"`
+		Summary    *string `json:"summary"`
+		Actions    *string `json:"actions"`
+		Transcript *string `json:"transcript"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.update 参数无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	m, err := e.meetings.Update(ctx, p.MeetingID, meetings.MeetingPatch{
+		Title: p.Title, Summary: p.Summary, Actions: p.Actions, Transcript: p.Transcript,
+	})
+	if err != nil {
+		return meetingsFailure(r, err)
+	}
+	return bridge.Success(r.ID, publicMeeting(m, true))
+}
+
+func handleMeetingsDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		MeetingID string `json:"meetingId"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.delete 参数无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	if err := e.meetings.Delete(ctx, p.MeetingID); err != nil {
+		return meetingsFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"meetingId": p.MeetingID})
+}
+
 func handleMeetingsExport(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		MeetingID string `json:"meetingId"`
