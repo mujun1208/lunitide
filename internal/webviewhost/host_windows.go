@@ -145,6 +145,23 @@ type Host struct {
 	lastRestoreReload    time.Time
 	scriptHandler        *wv2.ICoreWebView2ExecuteScriptCompletedHandler
 	controller2          *wv2.ICoreWebView2Controller2
+
+	lastBounds      clientBounds
+	hasBounds       bool
+	fitting         bool
+	lastBoundsAt    time.Time
+	liveFrameChange bool
+	lastNotifyX     int32
+	lastNotifyY     int32
+	hasNotifyPos    bool
+}
+
+// windowPos matches Win32 WINDOWPOS on pointer-sized HWND platforms.
+type windowPos struct {
+	hwnd            win32.HWND
+	hwndInsertAfter win32.HWND
+	x, y, cx, cy    int32
+	flags           uint32
 }
 
 type frameRegistration struct {
@@ -793,10 +810,26 @@ func (h *Host) onSurfaceMessage(message, wParam uint32) {
 		fromOcclusion := h.surfaceHidden || message == wmPowerBroadcast
 		h.wakeWebView(fromOcclusion)
 	case surfaceNotify:
-		if h.controller != nil {
-			h.controller.NotifyParentWindowPositionChanged()
+		flags := uint32(0)
+		if message == wmWindowPosChanged {
+			flags = wParam
 		}
+		h.notifyParentIfMoved(flags)
 	}
+}
+
+func (h *Host) notifyParentIfMoved(posFlags uint32) {
+	if h.controller == nil || h.hwnd == 0 {
+		return
+	}
+	var wnd win32.RECT
+	win32.GetWindowRect(h.hwnd, &wnd)
+	if !shouldNotifyParentWindow(posFlags, h.liveFrameChange, h.hasNotifyPos, h.lastNotifyX, h.lastNotifyY, wnd.Left, wnd.Top) {
+		return
+	}
+	h.lastNotifyX, h.lastNotifyY = wnd.Left, wnd.Top
+	h.hasNotifyPos = true
+	h.controller.NotifyParentWindowPositionChanged()
 }
 
 func (h *Host) hideWebView() {
@@ -812,22 +845,30 @@ func (h *Host) fitWebView() {
 	}
 	var rect win32.RECT
 	win32.GetClientRect(h.hwnd, &rect)
-	if shouldSkipWebViewBounds(rect.Right-rect.Left, rect.Bottom-rect.Top) {
+	next := clientBounds{Left: rect.Left, Top: rect.Top, Right: rect.Right, Bottom: rect.Bottom}
+	if !shouldApplyWebViewBounds(next, h.lastBounds, h.hasBounds, h.fitting, h.liveFrameChange, h.lastBoundsAt, time.Now(), boundsApplyMinInterval) {
 		return
 	}
+	h.fitting = true
 	h.controller.SetBounds(wv2.TagRECT(rect))
+	h.lastBounds = next
+	h.hasBounds = true
+	h.lastBoundsAt = time.Now()
+	h.fitting = false
 }
 
 func (h *Host) wakeWebView(fromOcclusion bool) {
 	h.surfaceHidden = false
 	h.reloadIfRendererDead = fromOcclusion
-	if h.core3 != nil {
+	if shouldResumeRenderer(fromOcclusion) && h.core3 != nil {
 		h.core3.Resume()
 	}
 	h.fitWebView()
 	if h.controller != nil {
 		h.controller.SetIsVisible(win32.TRUE)
-		h.controller.NotifyParentWindowPositionChanged()
+		if fromOcclusion {
+			h.notifyParentIfMoved(0)
+		}
 	}
 	h.kickRendererSurface(fromOcclusion)
 }
@@ -1073,6 +1114,14 @@ func (h *Host) showTrayMenu(hwnd win32.HWND) {
 	}
 }
 
+func windowPosFlags(lParam win32.LPARAM) uint32 {
+	raw := *(*unsafe.Pointer)(unsafe.Pointer(&lParam))
+	if raw == nil {
+		return 0
+	}
+	return (*windowPos)(raw).flags
+}
+
 func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win32.LPARAM) win32.LRESULT {
 	value, _ := hosts.Load(hwnd)
 	h, _ := value.(*Host)
@@ -1094,11 +1143,20 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 		return win32.DefWindowProc(hwnd, message, wParam, lParam)
 	case win32.WM_WINDOWPOSCHANGED:
 		if h != nil {
-			h.onSurfaceMessage(uint32(win32.WM_WINDOWPOSCHANGED), uint32(wParam))
+			// lParam is WINDOWPOS*; wParam is unused. Pass flags so
+			// size-only ticks do not NotifyParent (that loop shakes
+			// the native frame while the workbench streams).
+			h.onSurfaceMessage(uint32(win32.WM_WINDOWPOSCHANGED), windowPosFlags(lParam))
 		}
 		return win32.DefWindowProc(hwnd, message, wParam, lParam)
+	case win32.WM_ENTERSIZEMOVE:
+		if h != nil {
+			h.liveFrameChange = true
+		}
+		return 0
 	case win32.WM_EXITSIZEMOVE:
 		if h != nil {
+			h.liveFrameChange = false
 			h.onSurfaceMessage(uint32(win32.WM_EXITSIZEMOVE), uint32(wParam))
 		}
 		return 0
@@ -1114,10 +1172,15 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 		// rasterization scale, keeping text crisp when dragged across screens
 		// with different scale factors.
 		if h != nil {
-			// LPARAM→pointer via address-of indirection (vet-safe pattern).
 			raw := *(*unsafe.Pointer)(unsafe.Pointer(&lParam))
 			if suggested := (*win32.RECT)(raw); suggested != nil {
-				_, _ = win32.SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right-suggested.Left, suggested.Bottom-suggested.Top, win32.SWP_NOZORDER|win32.SWP_NOACTIVATE)
+				var current win32.RECT
+				win32.GetWindowRect(hwnd, &current)
+				want := clientBounds{Left: suggested.Left, Top: suggested.Top, Right: suggested.Right, Bottom: suggested.Bottom}
+				have := clientBounds{Left: current.Left, Top: current.Top, Right: current.Right, Bottom: current.Bottom}
+				if shouldAdoptDpiSuggestedRect(have, want) {
+					_, _ = win32.SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right-suggested.Left, suggested.Bottom-suggested.Top, win32.SWP_NOZORDER|win32.SWP_NOACTIVATE)
+				}
 			}
 		}
 		return 0

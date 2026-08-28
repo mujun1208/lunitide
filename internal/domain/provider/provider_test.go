@@ -1,6 +1,9 @@
 package provider
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestValidateRequiresExactlyOneDefaultModel(t *testing.T) {
 	p := Provider{ID: "01K00000000000000000000000", Name: "DeepSeek", Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.deepseek.com", Models: []Model{{ModelID: "deepseek-chat", DisplayName: "DeepSeek Chat"}}}
@@ -11,6 +14,44 @@ func TestValidateRequiresExactlyOneDefaultModel(t *testing.T) {
 	if err := p.Validate(); err != nil {
 		t.Fatalf("expected provider to be valid: %v", err)
 	}
+}
+
+func TestValidateAcceptsFourModelKindsAndOneKindDefault(t *testing.T) {
+	p := Provider{ID: "01K00000000000000000000000", Name: "Mixed", Protocol: ProtocolOpenAICompatible, BaseURL: "https://example.com", Models: []Model{
+		{ModelID: "chat", DisplayName: "Chat", IsDefault: true, Kind: KindLLM, KindDefault: true},
+		{ModelID: "ocr", DisplayName: "OCR", Kind: KindVision, KindDefault: true},
+	}}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("mixed kinds: %v", err)
+	}
+	p.Models = append(p.Models, Model{ModelID: "ocr-2", DisplayName: "OCR 2", Kind: KindVision, KindDefault: true})
+	if err := p.Validate(); err == nil {
+		t.Fatal("two vision kind defaults on one provider must fail")
+	}
+}
+
+func TestCatalogForKindOrdersDefaultThenBackups(t *testing.T) {
+	a := Provider{ID: "01K00000000000000000000001", Name: "A", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", CreatedAt: mustTime("2026-01-02T00:00:00Z"), Models: []Model{
+		{ModelID: "backup", DisplayName: "Backup", Kind: KindVision},
+	}}
+	b := Provider{ID: "01K00000000000000000000002", Name: "B", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", CreatedAt: mustTime("2026-01-01T00:00:00Z"), Models: []Model{
+		{ModelID: "primary", DisplayName: "Primary", Kind: KindVision, KindDefault: true},
+	}}
+	disabled := Provider{ID: "01K00000000000000000000003", Name: "Off", Status: StatusDisabled, CredentialState: CredentialConfigured, CredentialRef: "ref", Models: []Model{
+		{ModelID: "skip", DisplayName: "Skip", Kind: KindVision, KindDefault: true, IsDefault: true},
+	}}
+	got := CatalogForKind([]Provider{a, b, disabled}, KindVision)
+	if len(got) != 2 || got[0].Model.ModelID != "primary" || got[1].Model.ModelID != "backup" {
+		t.Fatalf("catalog = %#v", got)
+	}
+}
+
+func mustTime(v string) time.Time {
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
 
 func TestValidateRejectsUnknownProtocol(t *testing.T) {

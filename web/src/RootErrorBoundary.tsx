@@ -33,6 +33,7 @@ function ignoreNoise(err: Error): boolean {
 
 export class RootErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null }
+  private handling = false
   private onWindowError?: (event: ErrorEvent) => void
   private onUnhandledRejection?: (event: PromiseRejectionEvent) => void
 
@@ -40,25 +41,33 @@ export class RootErrorBoundary extends React.Component<Props, State> {
     return { error }
   }
 
+  private capture(err: Error, log: string, event?: { preventDefault(): void }): void {
+    if (this.handling || this.state.error) return
+    this.handling = true
+    event?.preventDefault()
+    this.setState({ error: err })
+    try {
+      console.error(log, err)
+    } catch {
+      /* host loggers that re-throw must not re-enter this handler */
+    } finally {
+      this.handling = false
+    }
+  }
+
   componentDidMount(): void {
     this.onWindowError = (event: ErrorEvent) => {
-      if (this.state.error) return
       // Resource load failures have no .error; only script exceptions should replace the shell.
       if (!event.error) return
       const err = asError(event.error, event.message || '界面运行时错误')
       if (!err || ignoreNoise(err)) return
-      event.preventDefault()
-      console.error('[lunitide] 未捕获界面错误', err)
-      this.setState({ error: err })
+      this.capture(err, '[lunitide] 未捕获界面错误', event)
     }
     this.onUnhandledRejection = (event: PromiseRejectionEvent) => {
-      if (this.state.error) return
       if (isBridgeShaped(event.reason)) return
       const err = asError(event.reason, '')
       if (!err || ignoreNoise(err)) return
-      event.preventDefault()
-      console.error('[lunitide] 未处理的 Promise 失败', err)
-      this.setState({ error: err })
+      this.capture(err, '[lunitide] 未处理的 Promise 失败', event)
     }
     window.addEventListener('error', this.onWindowError)
     window.addEventListener('unhandledrejection', this.onUnhandledRejection)
@@ -70,7 +79,12 @@ export class RootErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error('[lunitide] 界面渲染失败', error, info.componentStack)
+    if (this.handling) return
+    try {
+      console.error('[lunitide] 界面渲染失败', error, info.componentStack)
+    } catch {
+      /* see capture() */
+    }
   }
 
   private reload = (): void => {

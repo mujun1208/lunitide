@@ -169,6 +169,17 @@ describe('interrupt hotkey', () => {
     expect(formatInterruptHotkey({ key: 'x', ctrl: true, alt: false, shift: false })).toBe('Ctrl+X')
   })
 
+  test('loading current-rev settings does not re-save in a loop', () => {
+    saveCompanionSettings(defaultCompanionSettings())
+    const seen: Event[] = []
+    const onSave = (event: Event) => seen.push(event)
+    window.addEventListener('lunitide:companion-settings', onSave)
+    loadCompanionSettings()
+    loadCompanionSettings()
+    window.removeEventListener('lunitide:companion-settings', onSave)
+    expect(seen).toHaveLength(0)
+  })
+
   test('matches the captured key combo and ignores Escape', () => {
     const hotkey = { key: 'Tab', ctrl: false, alt: false, shift: false }
     expect(matchesInterruptHotkey(new KeyboardEvent('keydown', { key: 'Tab' }), hotkey)).toBe(true)

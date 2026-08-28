@@ -13,6 +13,7 @@ describe('settings nav search and groups', () => {
     expect(filterSettingsNav('白名单').map(c => c.id)).toEqual(['security'])
     expect(filterSettingsNav('局域网').map(c => c.id)).toEqual(['profile'])
     expect(filterSettingsNav('MiniCPM').map(c => c.id)).toEqual(['voice'])
+    expect(filterSettingsNav('生图').map(c => c.id)).toEqual(['providers'])
     expect(filterSettingsNav('没有这个设置项xyz').length).toBe(0)
   })
 })

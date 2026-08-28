@@ -30,7 +30,7 @@ vi.mock('./pcmCapture', () => ({
   }),
 }))
 
-const { installLocalAsr, localAsrStatus, startLocalAsr } = await import('./localAsr')
+const { installLocalAsr, localAsrStatus, startLocalAsr, readyWithin, LOCAL_ASR_DECISION_MS } = await import('./localAsr')
 
 const frame = (peak = 0.2) => ({ base64: 'AAAA', samples: new Int16Array(1600), peak })
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -42,6 +42,23 @@ beforeEach(() => {
   bridge.append.mockResolvedValue({ text: '', final: false })
   bridge.finish.mockResolvedValue({ text: '' })
   bridge.stop.mockResolvedValue({ notice: 'VOICE_SESSION_CLOSED' })
+})
+
+describe('readyWithin', () => {
+  it('returns false when the probe never answers', async () => {
+    vi.useFakeTimers()
+    try {
+      const pending = readyWithin(new Promise(() => {}), LOCAL_ASR_DECISION_MS)
+      await vi.advanceTimersByTimeAsync(LOCAL_ASR_DECISION_MS)
+      await expect(pending).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns the probe answer when it arrives in time', async () => {
+    await expect(readyWithin(Promise.resolve(true), 400)).resolves.toBe(true)
+  })
 })
 
 describe('localAsrStatus', () => {

@@ -1,14 +1,10 @@
 // Which recognizer a turn opens on.
 //
-// 'auto' means "the local model when it is installed", and answering that
-// takes a bridge round trip. The stage starts listening the moment it mounts,
-// so the answer arrives after the decision has already been made — and taking
-// the default in the meantime chose the system recognizer every time, for
-// good, however plainly the settings screen said the model was installed.
-//
-// That is worth a test of its own because nothing about it is visible: both
-// recognizers wear the same handle, the stage looks identical either way, and
-// the only symptom is that every fix made to the local path has no effect.
+// 'auto' prefers the local model when it is installed. The probe is a
+// bridge round trip and used to be awaited with no budget, so a hung
+// voice.status left 对话模式 showing 聆听中 with no recognizer at all.
+// The system recognizer must open once that budget expires; a prompt
+// local-ready answer still wins.
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -59,9 +55,13 @@ vi.mock('./localSpeech', () => ({
   },
 }))
 
-vi.mock('./localAsr', () => ({
-  localAsrStatus: () => recognizers.probe,
-}))
+vi.mock('./localAsr', async importOriginal => {
+  const actual = await importOriginal<typeof import('./localAsr')>()
+  return {
+    ...actual,
+    localAsrStatus: () => recognizers.probe,
+  }
+})
 
 vi.mock('./ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
@@ -80,6 +80,7 @@ vi.mock('./ttsPlayer', () => ({
 }))
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
+import { LOCAL_ASR_DECISION_MS } from './localAsr'
 
 const baseProps: CompanionStageProps = {
   chatStatus: 'idle',
@@ -110,14 +111,17 @@ afterEach(() => {
   cleanup()
 })
 
-test('waits for the local-model probe before choosing a recognizer', async () => {
+test('opens the system recognizer when the local-model probe hangs', async () => {
   const utils = render(<CompanionStage {...baseProps} />)
-  // The stage is already listening; the probe has not answered yet. Nothing
-  // may be opened on the strength of not knowing.
-  await flush(600)
-  expect(recognizers.cloud).not.toHaveBeenCalled()
-  expect(recognizers.local).not.toHaveBeenCalled()
+  await flush(LOCAL_ASR_DECISION_MS + 50)
 
+  expect(recognizers.cloud).toHaveBeenCalled()
+  expect(recognizers.local).not.toHaveBeenCalled()
+  utils.unmount()
+})
+
+test('prefers the local recognizer when the probe answers ready in time', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
   await act(async () => {
     recognizers.settleProbe(true)
   })
@@ -138,5 +142,5 @@ test('falls back to the system recognizer when the model is not installed', asyn
 
   expect(recognizers.cloud).toHaveBeenCalled()
   expect(recognizers.local).not.toHaveBeenCalled()
-  utils.unmount()
+  expect(() => utils.unmount()).not.toThrow()
 })

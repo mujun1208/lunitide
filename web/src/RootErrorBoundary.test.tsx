@@ -19,6 +19,23 @@ it('keeps a recovery shell when a child render throws', () => {
   spy.mockRestore()
 })
 
+it('does not recurse when console.error re-dispatches a window error', () => {
+  const spy = vi.spyOn(console, 'error').mockImplementation(() => {
+    window.dispatchEvent(new ErrorEvent('error', { error: new Error('log boom'), message: 'log boom' }))
+  })
+  render(
+    <RootErrorBoundary>
+      <p>工作台</p>
+    </RootErrorBoundary>,
+  )
+  act(() => {
+    window.dispatchEvent(new ErrorEvent('error', { error: new Error('first'), message: 'first' }))
+  })
+  expect(screen.getByRole('alert')).toHaveTextContent('first')
+  expect(screen.queryByText('工作台')).toBeNull()
+  spy.mockRestore()
+})
+
 it('turns a window error from send into the recovery shell instead of a blank host', () => {
   const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
   render(

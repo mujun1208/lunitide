@@ -151,3 +151,18 @@ describe('installVisibilityRestore', () => {
     expect(seen).toEqual(['restore'])
   })
 })
+
+describe('kickRepaint re-entry', () => {
+  test('a restore listener that calls kickRepaint again does not overflow', () => {
+    document.body.innerHTML = '<div id="root"><span>ok</span></div>'
+    let nested = 0
+    const onRestore = () => {
+      nested += 1
+      kickRepaint(document)
+    }
+    window.addEventListener('lunitide:surface-restore', onRestore)
+    kickRepaint(document)
+    window.removeEventListener('lunitide:surface-restore', onRestore)
+    expect(nested).toBe(1)
+  })
+})

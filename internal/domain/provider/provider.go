@@ -54,10 +54,13 @@ var (
 )
 
 type Model struct {
-	ModelID       string `json:"modelId"`
-	DisplayName   string `json:"displayName"`
-	IsDefault     bool   `json:"isDefault"`
-	ContextWindow int64  `json:"contextWindow,omitempty"`
+	ModelID        string `json:"modelId"`
+	DisplayName    string `json:"displayName"`
+	IsDefault      bool   `json:"isDefault"`
+	ContextWindow  int64  `json:"contextWindow,omitempty"`
+	Kind           Kind   `json:"kind,omitempty"`
+	SupportsVision bool   `json:"supportsVision,omitempty"`
+	KindDefault    bool   `json:"kindDefault,omitempty"`
 }
 
 type Provider struct {
@@ -231,6 +234,7 @@ func (p Provider) Validate() error {
 	}
 	seen := make(map[string]struct{}, len(p.Models))
 	defaults := 0
+	kindDefaults := map[Kind]int{}
 	for _, model := range p.Models {
 		id := model.ModelID
 		if !ModelIDValid(id) {
@@ -240,12 +244,21 @@ func (p Provider) Validate() error {
 		if display == "" || display != model.DisplayName || len(display) > 200 {
 			return errors.New("model display name is invalid")
 		}
+		if !ValidKind(string(model.Kind)) {
+			return errors.New("model kind is invalid")
+		}
 		if _, exists := seen[id]; exists {
 			return errors.New("model IDs must be unique")
 		}
 		seen[id] = struct{}{}
 		if model.IsDefault {
 			defaults++
+		}
+		if model.KindDefault {
+			kindDefaults[model.EffectiveKind()]++
+			if kindDefaults[model.EffectiveKind()] > 1 {
+				return errors.New("each model kind may have at most one catalog default on a provider")
+			}
 		}
 	}
 	if defaults != 1 {

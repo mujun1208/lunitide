@@ -209,9 +209,8 @@ describe('MC-06 a11y skeleton', () => {
 
 describe('MC-06 zero-mouse operation', () => {
   test('Space on the stage toggles the mic; a second Space stops it; Esc exits from idle', async () => {
-    speech.start.mockResolvedValueOnce(speech.handle())
+    speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage()
-    fireEvent.keyDown(stage(container), { key: ' ' })
     await waitFor(() => expect(stateOf(container)).toBe('listening'))
     expect(speech.callbacks).toBeDefined()
     // Space while listening stops the handle and returns to idle.
@@ -225,7 +224,7 @@ describe('MC-06 zero-mouse operation', () => {
 
   test('Space inside an interactive control does not toggle the mic', async () => {
     const { container } = await renderStage()
-    await waitFor(() => expect(speech.start).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(speech.start).toHaveBeenCalled())
     speech.start.mockClear()
     fireEvent.keyDown(container.querySelector('.companion-exit')!, { key: ' ' })
     expect(stateOf(container)).toBe('idle')
@@ -233,9 +232,11 @@ describe('MC-06 zero-mouse operation', () => {
   })
 
   test('clicking the moon in idle opens the microphone', async () => {
-    speech.start.mockResolvedValueOnce(speech.handle())
     const { container } = await renderStage()
+    await waitFor(() => expect(speech.start).toHaveBeenCalled())
+    await waitFor(() => expect(stateOf(container)).toBe('idle'))
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮：轻点开始说话')
+    speech.start.mockResolvedValueOnce(speech.handle())
     fireEvent.click(moonBody(container))
     await waitFor(() => expect(stateOf(container)).toBe('listening'))
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在聆听，轻点暂停')
@@ -483,11 +484,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
   })
 
   test('allows microphone when chat config is still loading', async () => {
-    speech.start.mockResolvedValueOnce(speech.handle())
+    speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage({ chatReady: false })
-    await act(async () => {
-      fireEvent.keyDown(stage(container), { key: ' ' })
-    })
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     expect(container.querySelector('.companion-banner.error')).toBeNull()
   })

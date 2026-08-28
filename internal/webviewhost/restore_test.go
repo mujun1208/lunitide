@@ -37,14 +37,17 @@ func TestSurfaceActionWakesAfterMinimizeAndSleep(t *testing.T) {
 	if got := surfaceActionForMessage(wmShowWindow, 1, true); got != surfaceWake {
 		t.Fatalf("WM_SHOWWINDOW show action=%v want wake", got)
 	}
+	if got := surfaceActionForMessage(wmShowWindow, 1, false); got != surfaceFit {
+		t.Fatalf("WM_SHOWWINDOW while already visible action=%v want fit (not Resume)", got)
+	}
 	if got := surfaceActionForMessage(wmPowerBroadcast, pbtAPMResumeAutomatic, false); got != surfaceWake {
 		t.Fatalf("PBT_APMRESUMEAUTOMATIC action=%v want wake", got)
 	}
 	if got := surfaceActionForMessage(wmPowerBroadcast, pbtAPMResumeSuspend, false); got != surfaceWake {
 		t.Fatalf("PBT_APMRESUMESUSPEND action=%v want wake", got)
 	}
-	if got := surfaceActionForMessage(wmExitSizeMove, 0, false); got != surfaceWake {
-		t.Fatalf("WM_EXITSIZEMOVE action=%v want wake", got)
+	if got := surfaceActionForMessage(wmExitSizeMove, 0, false); got != surfaceFit {
+		t.Fatalf("WM_EXITSIZEMOVE action=%v want fit (Resume is occlusion-only)", got)
 	}
 	if got := surfaceActionForMessage(wmActivate, waClickActive, true); got != surfaceWake {
 		t.Fatalf("WM_ACTIVATE after hide action=%v want wake", got)
@@ -56,7 +59,10 @@ func TestSurfaceActionFitsOrdinaryResizeWithoutReload(t *testing.T) {
 		t.Fatalf("live SIZE_RESTORED action=%v want fit (not wake/reload)", got)
 	}
 	if got := surfaceActionForMessage(wmWindowPosChanged, 0, false); got != surfaceNotify {
-		t.Fatalf("WM_WINDOWPOSCHANGED action=%v want notify", got)
+		t.Fatalf("WM_WINDOWPOSCHANGED move action=%v want notify", got)
+	}
+	if got := surfaceActionForMessage(wmWindowPosChanged, swpNoMove, false); got != surfaceNone {
+		t.Fatalf("size-only WINDOWPOSCHANGED action=%v want none (WM_SIZE fits)", got)
 	}
 	if got := surfaceActionForMessage(wmActivate, waActive, false); got != surfaceNotify {
 		t.Fatalf("WM_ACTIVATE while shown action=%v want notify", got)
@@ -117,6 +123,70 @@ func TestRestoreScriptAsksPageInsteadOfBlindNavigate(t *testing.T) {
 	}
 	if strings.Contains(restoreScript, "location.reload") {
 		t.Fatal("host script must not location.reload; host Reload is gated")
+	}
+}
+
+func TestShouldApplyWebViewBoundsSkipsUnchangedAndJitter(t *testing.T) {
+	prev := clientBounds{Right: 1280, Bottom: 800}
+	now := time.Date(2026, 8, 28, 18, 0, 0, 0, time.UTC)
+	if shouldApplyWebViewBounds(prev, prev, true, false, false, now.Add(-time.Second), now, boundsApplyMinInterval) {
+		t.Fatal("unchanged client rect must not SetBounds")
+	}
+	if shouldApplyWebViewBounds(clientBounds{Right: 1280, Bottom: 799}, prev, true, false, false, now.Add(-time.Second), now, boundsApplyMinInterval) {
+		t.Fatal("1px compositor jitter must not SetBounds")
+	}
+	if shouldApplyWebViewBounds(clientBounds{Right: 1400, Bottom: 900}, prev, true, true, false, now.Add(-time.Second), now, boundsApplyMinInterval) {
+		t.Fatal("re-entrant apply during fitting must be skipped even for a real resize")
+	}
+	if !shouldApplyWebViewBounds(clientBounds{Right: 1280, Bottom: 799}, prev, true, false, true, now.Add(-time.Second), now, boundsApplyMinInterval) {
+		t.Fatal("live user resize must apply 1px steps")
+	}
+	if shouldApplyWebViewBounds(clientBounds{Right: 1400, Bottom: 900}, prev, true, false, false, now.Add(-time.Millisecond), now, boundsApplyMinInterval) {
+		t.Fatal("non-live SetBounds inside the debounce window must be coalesced")
+	}
+	if !shouldApplyWebViewBounds(clientBounds{Right: 1400, Bottom: 900}, prev, true, false, false, now.Add(-time.Second), now, boundsApplyMinInterval) {
+		t.Fatal("real restore/maximize after debounce must SetBounds")
+	}
+	if shouldApplyWebViewBounds(clientBounds{}, prev, true, false, false, time.Time{}, now, boundsApplyMinInterval) {
+		t.Fatal("zero client after minimize must still be skipped")
+	}
+}
+
+func TestShouldNotifyParentWindowSkipsSizeOnlyAndJitter(t *testing.T) {
+	if shouldNotifyParentWindow(swpNoMove, false, false, 0, 0, 40, 40) {
+		t.Fatal("SWP_NOMOVE must not NotifyParentWindowPositionChanged")
+	}
+	if shouldNotifyParentWindow(0, false, true, 100, 80, 100, 80) {
+		t.Fatal("unchanged screen position must not notify")
+	}
+	if shouldNotifyParentWindow(0, false, true, 100, 80, 101, 81) {
+		t.Fatal("1px DWM jitter must not notify")
+	}
+	if !shouldNotifyParentWindow(0, true, true, 100, 80, 101, 81) {
+		t.Fatal("live title-bar drag must notify 1px steps")
+	}
+	if !shouldNotifyParentWindow(0, false, true, 100, 80, 180, 120) {
+		t.Fatal("real window move must notify")
+	}
+}
+
+func TestShouldResumeRendererOnlyAfterOcclusion(t *testing.T) {
+	if shouldResumeRenderer(false) {
+		t.Fatal("Resume must not run on ordinary resize, EXITSIZEMOVE, or chat tokens")
+	}
+	if !shouldResumeRenderer(true) {
+		t.Fatal("Resume after minimize/sleep/hide must still run")
+	}
+}
+
+func TestShouldAdoptDpiSuggestedRectSkipsUnchanged(t *testing.T) {
+	cur := clientBounds{Left: 10, Top: 10, Right: 1300, Bottom: 820}
+	if shouldAdoptDpiSuggestedRect(cur, cur) {
+		t.Fatal("identical WM_DPICHANGED rect must not SetWindowPos")
+	}
+	next := clientBounds{Left: 10, Top: 10, Right: 1920, Bottom: 1080}
+	if !shouldAdoptDpiSuggestedRect(cur, next) {
+		t.Fatal("real DPI suggested rect must be adopted")
 	}
 }
 

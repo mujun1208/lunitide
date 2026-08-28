@@ -49,18 +49,26 @@ export function decideRestore(snapshot: SurfaceSnapshot, previousHidden: boolean
   return 'repaint'
 }
 
+let kickingRepaint = false
+
 export function kickRepaint(doc: Document): void {
-  const body = doc.body
-  if (!body) return
-  if (doc.documentElement.getAttribute('data-theme') !== 'light') {
-    const computed = doc.defaultView?.getComputedStyle(body).backgroundColor ?? ''
-    if (isWhiteColor(computed) || isWhiteColor(body.style.background)) {
-      body.style.background = 'var(--bg)'
-      body.style.color = 'var(--ink)'
+  if (kickingRepaint) return
+  kickingRepaint = true
+  try {
+    const body = doc.body
+    if (!body) return
+    if (doc.documentElement.getAttribute('data-theme') !== 'light') {
+      const computed = doc.defaultView?.getComputedStyle(body).backgroundColor ?? ''
+      if (isWhiteColor(computed) || isWhiteColor(body.style.background)) {
+        body.style.background = 'var(--bg)'
+        body.style.color = 'var(--ink)'
+      }
     }
+    void body.offsetHeight
+    doc.defaultView?.dispatchEvent(new Event('lunitide:surface-restore'))
+  } finally {
+    kickingRepaint = false
   }
-  void body.offsetHeight
-  doc.defaultView?.dispatchEvent(new Event('lunitide:surface-restore'))
 }
 
 export function installVisibilityRestore(options?: {

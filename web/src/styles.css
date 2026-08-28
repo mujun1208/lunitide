@@ -103,7 +103,7 @@ html[data-theme="light"] .model-list>div {
 
 *{box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-body{margin:0;min-width:320px;min-height:100vh;
+body{margin:0;min-width:320px;min-height:100%;
   background:#000;
 }
 
@@ -213,12 +213,13 @@ button:disabled{opacity:.5}
 .view-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(520px,55vw)}
 @media (max-width:900px){.project-workspace{grid-template-columns:1fr}.phase-nav{display:none}}
 
-/* PM workbench shell — lock the chat column to the viewport so only
+/* PM workbench shell — lock the chat column to the host client so only
    conversation-scroll and the right deliverable list scroll. Nested 100vh
-   inside .launch-content { overflow:auto } used to paint two scrollbars
-   and wheel events from the card list would drag the whole chat. */
-.pm-workbench.launch-shell{height:100vh;min-height:0;overflow:hidden}
-.pm-workbench .launch-content,.pm-workbench .pm-workbench-center{overflow:hidden;overscroll-behavior:none}
+   inside .app-shell { min-height:100vh } + Atmosphere as a grid sibling
+   painted a document taller than the WebView; the resulting scrollbar
+   toggle fought Win32 SetBounds and shook the native frame. */
+.pm-workbench.launch-shell{height:100%;min-height:0;overflow:hidden}
+.pm-workbench .launch-content,.pm-workbench .pm-workbench-center{height:100%;overflow:hidden;overscroll-behavior:none}
 .pm-workbench .pm-workbench-center .main,.pm-workbench .pm-workbench-center .personal-chat-page{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:transparent}
 .pm-workbench .pm-workbench-center .phase-nav{display:none}
 .pm-workbench .pm-workbench-center .personal-chat-page .session-content{flex:1;height:auto;min-height:0;overflow:hidden}
@@ -620,6 +621,12 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
   margin-left:auto;animation:fadeIn .3s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .settings-body{padding:22px;max-width:790px;width:100%}
+.settings-body-providers{max-width:1100px}
+.provider-kind-tabs{display:flex;flex-wrap:wrap;gap:8px;padding:0 2px 4px}
+.provider-kind-tabs button{padding:6px 12px;border:1px solid var(--rule);border-radius:999px;background:transparent;color:var(--muted);font-size:12px}
+.provider-kind-tabs button:hover{color:var(--ink);background:rgba(127,180,255,.07)}
+.provider-kind-tabs button.on{color:var(--ink);background:rgba(127,180,255,.10);border-color:rgba(127,180,255,.28)}
+.provider-page.embedded{padding-top:0}
 .setting-group{border:1px solid var(--rule);border-radius:10px;
   background:rgba(15,21,32,.78);margin-bottom:14px;overflow:hidden}
 .setting-group-title{padding:10px 16px;font-family:var(--mono);font-size:10px;
@@ -706,10 +713,10 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 
 
 /* ===== Conversation-first launch shell — authoritative mockup alignment ===== */
-html,#root{min-height:100%;background:#03060c}
-body{background:#03060c;overflow-x:hidden}
+html,#root{min-height:100%;height:100%;background:#03060c}
+body{background:#03060c;overflow:hidden;height:100%;min-height:100%}
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
-.atmosphere{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;isolation:isolate}
+.atmosphere{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;isolation:isolate;contain:paint}
 .atmosphere .sky{position:absolute;inset:0;z-index:0;background:radial-gradient(ellipse 68% 58% at 70% 18%,rgba(56,104,150,.12),transparent 62%),radial-gradient(ellipse 48% 42% at 30% 85%,rgba(37,70,96,.07),transparent 72%),linear-gradient(180deg,#020609 0%,#040b10 52%,#050d10 100%)}
 .atmosphere .nebula{position:absolute;inset:-20%;z-index:1;opacity:.42;filter:blur(28px);background:radial-gradient(ellipse 22% 55% at 68% 28%,rgba(48,90,128,.09),transparent 70%),radial-gradient(ellipse 40% 12% at 56% 62%,rgba(37,70,96,.07),transparent 72%);transform:rotate(-9deg)}
 .atmosphere .stars{position:absolute;inset:0;z-index:2;opacity:.78}
@@ -791,6 +798,7 @@ html[data-theme="light"] .model-manager-overlay .shell,html[data-theme="light"] 
 html[data-theme="light"] .launch-content .org-console-page,html[data-theme="light"] .launch-content .org-console,html[data-theme="light"] .launch-content .skill-center,html[data-theme="light"] .launch-content .expert-center-page,html[data-theme="light"] .launch-content .asset-center{background:var(--bg);backdrop-filter:none}
 html[data-theme="light"] .launch-content .skill-detail,html[data-theme="light"] .launch-content .asset-detail,html[data-theme="light"] .launch-content .skill-table{background:var(--bg)}
 .session-shell{position:relative;z-index:1;display:grid;grid-template-columns:1fr;background:transparent}.session-shell>.main{position:relative;z-index:2;background:rgba(4,9,17,.66);backdrop-filter:blur(9px)}
+.workbench-route.session-shell{display:block;height:100%;min-height:0;overflow:hidden}
 
 @media(max-width:900px){.launch-main{padding-inline:5%}.launch-actions{grid-template-columns:1fr}.composer-tools{flex-wrap:wrap}.composer-tools .composer-send{margin-left:auto}}
 @media(max-width:680px){.launch-shell,.launch-shell.sidebar-collapsed{grid-template-columns:1fr;padding:0}.launch-sidebar{display:flex;position:fixed;inset:0 auto 0 0;z-index:90;width:min(330px,86vw);height:100vh;border-radius:0;opacity:1!important;pointer-events:auto!important;transform:translateX(-105%);transition:transform .2s}.launch-sidebar.drawer-open{transform:translateX(0)}.drawer-toggle{display:block;position:fixed;z-index:70;top:12px;left:12px;width:42px;height:42px;border-radius:11px;background:rgba(9,15,27,.94)}.drawer-scrim{display:block;position:fixed;z-index:80;inset:0;border:0;border-radius:0;background:rgba(0,3,9,.66)}.sidebar-resizer{display:none}.launch-content{grid-column:1;width:100%;height:100vh;margin-left:0;border:0;border-radius:0}.launch-main{padding:64px 18px 24px}.launch-center{transform:none}.launch-lead{font-size:15px}.launch-composer{padding:16px}.launch-menu{position:fixed;left:14px;right:14px;bottom:14px;width:auto!important;max-height:60vh;overflow:auto}}
@@ -834,7 +842,7 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 .capability-center{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
 .capability-center>.capability-tabs{flex:none;margin:16px 28px 0;align-self:flex-start}
 .capability-center>.skill-center{flex:1;min-height:0;padding-top:16px}
-.skill-chip{display:inline-flex;align-items:center;gap:6px;max-width:250px;height:27px;padding:0 4px 0 10px;border:1px solid rgba(59,214,255,.32);border-radius:999px;background:rgba(59,214,255,.09);color:var(--ink);font-size:11px;line-height:1}
+.skill-chip{display:inline-flex;align-items:center;gap:6px;max-width:250px;height:27px;padding:0 4px 0 10px;border:1px solid rgba(59,214,255,.32);border-radius:999px;background:rgba(59,214,255,.09);color:var(--ink);font-size:11px;line-height:1;contain:paint}
 .skill-chip>i{flex:none;color:var(--tide1);font-style:normal;font-size:12px}
 .skill-chip>b{min-width:0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
 .skill-chip>button{flex:none;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer}

@@ -68,8 +68,16 @@ func TestNowPlayingConfirmedIgnoresListAndRequiresBar(t *testing.T) {
 	if !nowPlayingConfirmed(listAndWrongBar, "汽水音乐 - 复古公路歌", "复古公路歌") {
 		t.Fatal("window title should confirm now-playing")
 	}
-	if !nowPlayingConfirmed(nil, "", "热门") {
-		t.Fatal("generic query should skip verify")
+	if nowPlayingConfirmed(nil, "", "热门") {
+		t.Fatal("generic query with no playback evidence must not count as playing")
+	}
+	pauseOnly := []mediaUINode{{Role: "button", Name: "暂停", Y: 900, H: 32, W: 32}}
+	if !nowPlayingConfirmed(pauseOnly, "汽水音乐", "热门") {
+		t.Fatal("pause control should confirm generic playback")
+	}
+	playOnly := []mediaUINode{{Role: "button", Name: "播放", Y: 900, H: 32, W: 32}}
+	if nowPlayingConfirmed(playOnly, "汽水音乐", "热门") {
+		t.Fatal("visible 播放 means still paused")
 	}
 }
 
@@ -257,8 +265,8 @@ func TestPlayArtistDoesNotMediaKeyWithoutSearch(t *testing.T) {
 		}
 	}
 	_, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "周杰伦", "网易云音乐", true)
-	if err == nil || !strings.Contains(err.Error(), "搜索框") {
-		t.Fatalf("want search-box failure, got %v", err)
+	if err == nil {
+		t.Fatal("want failure when the artist was never searched to a result")
 	}
 	if keyed {
 		t.Fatal("must not send media keys when the search box was never used")
@@ -416,5 +424,201 @@ func TestPickSearchNodeMatchesFindAndInput(t *testing.T) {
 	got := pickSearchNode([]mediaUINode{{Role: "edit", Name: "查找歌曲", Y: 8, H: 28}})
 	if got == nil || got.Name != "查找歌曲" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestUiaTreeSparseAndPlayControls(t *testing.T) {
+	if !uiaTreeSparse(nil) {
+		t.Fatal("empty tree is sparse")
+	}
+	if !uiaTreeSparse([]mediaUINode{{Role: "button", Name: "设置", Y: 8, H: 24}}) {
+		t.Fatal("chrome-only tree is sparse")
+	}
+	if uiaTreeSparse([]mediaUINode{{Role: "button", Name: "播放", Y: 900, H: 32}}) {
+		t.Fatal("play control is not sparse")
+	}
+	play := pickPlayControl([]mediaUINode{
+		{Role: "button", Name: "暂停", Y: 800, H: 32},
+		{Role: "button", Name: "播放", Y: 900, H: 32},
+	})
+	if play == nil || play.Name != "播放" {
+		t.Fatalf("play %+v", play)
+	}
+	if pickPauseControl([]mediaUINode{{Role: "button", Name: "暂停", Y: 900}}) == nil {
+		t.Fatal("expected pause control")
+	}
+	if !playbackLooksPaused([]mediaUINode{{Role: "button", Name: "播放", Y: 900, H: 32}}) {
+		t.Fatal("播放 without 暂停 is paused")
+	}
+	if playbackLooksPaused([]mediaUINode{{Role: "button", Name: "暂停", Y: 900, H: 32}}) {
+		t.Fatal("暂停 means playing")
+	}
+}
+
+func TestParseImageSizeFromCaptureSummary(t *testing.T) {
+	w, h := parseImageSize("captured foreground window 1920x1080; use image coordinates 800x600 for cc.mouse_click")
+	if w != 800 || h != 600 {
+		t.Fatalf("got %dx%d", w, h)
+	}
+	pts := playClickPoints(800, 600)
+	if len(pts) == 0 || pts[0][1] < 500 {
+		t.Fatalf("play points %+v should sit on the bottom bar", pts)
+	}
+}
+
+func TestPlayQishuiRetriesKeyboardWhenUIAEmpty(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	sendForegroundPlay = func(string) error { return nil }
+	t.Cleanup(func() { sendForegroundPlay = winexec.SendMediaKey })
+
+	pressedSpace := false
+	screenshotClick := false
+	playing := false
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolPress:
+			var a struct {
+				Key string `json:"key"`
+			}
+			_ = json.Unmarshal(args, &a)
+			if strings.EqualFold(a.Key, "space") {
+				pressedSpace = true
+				playing = true
+			}
+			return result("ok"), nil
+		case ccapp.ToolKeyboardShortcut:
+			var a struct {
+				Keys []string `json:"keys"`
+			}
+			_ = json.Unmarshal(args, &a)
+			for _, k := range a.Keys {
+				if strings.EqualFold(k, "space") {
+					pressedSpace = true
+					playing = true
+				}
+			}
+			return result("ok"), nil
+		case ccapp.ToolScreenCapture:
+			return result("captured foreground window 800x600; use image coordinates 800x600 for cc.mouse_move/cc.mouse_click/cc.mouse_drag"), nil
+		case ccapp.ToolMouseClick:
+			var a struct {
+				Name string `json:"name"`
+				X    *int   `json:"x"`
+				Y    *int   `json:"y"`
+			}
+			_ = json.Unmarshal(args, &a)
+			if a.X != nil && a.Y != nil {
+				screenshotClick = true
+			}
+			return result("clicked"), nil
+		case ccapp.ToolWait:
+			if playing {
+				return result("captured desktop after wait 800x600; use image coordinates 800x600"), nil
+			}
+			return result("waited 700ms; screen unchanged"), nil
+		case ccapp.ToolObserveUI:
+			nodes := []mediaUINode{}
+			if playing {
+				nodes = []mediaUINode{{Role: "button", Name: "暂停", Y: 900, H: 32, W: 32}}
+			}
+			raw, _ := json.Marshal(map[string]any{"nodes": nodes})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolGetActiveWindow:
+			return Result{Output: "汽水音乐"}, nil
+		case ccapp.ToolWindowFocus, ccapp.ToolSetValue, ccapp.ToolKeyboardType:
+			return result("ok"), nil
+		default:
+			return result("ok"), nil
+		}
+	}
+	res, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "热门", "汽水音乐", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pressedSpace && !screenshotClick {
+		t.Fatal("UIA-empty 汽水 play must retry with Space or screenshot click")
+	}
+	if !strings.Contains(res.Output, "playing") {
+		t.Fatalf("output %q", res.Output)
+	}
+}
+
+func TestPlayQishuiDoesNotClaimSuccessIfStillPaused(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	sendForegroundPlay = func(string) error { return nil }
+	t.Cleanup(func() { sendForegroundPlay = winexec.SendMediaKey })
+
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolObserveUI:
+			nodes := []mediaUINode{{Role: "button", Name: "播放", Y: 900, H: 32, W: 32}}
+			raw, _ := json.Marshal(map[string]any{"nodes": nodes})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolGetActiveWindow:
+			return Result{Output: "汽水音乐"}, nil
+		case ccapp.ToolScreenCapture:
+			return result("captured foreground window 800x600; use image coordinates 800x600 for cc.mouse_click"), nil
+		case ccapp.ToolWait:
+			return result("waited 700ms; screen unchanged"), nil
+		case ccapp.ToolMouseClick, ccapp.ToolPress, ccapp.ToolKeyboardShortcut, ccapp.ToolKeyboardType, ccapp.ToolSetValue, ccapp.ToolWindowFocus:
+			return result("ok"), nil
+		default:
+			return result("ok"), nil
+		}
+	}
+	res, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "热门", "汽水音乐", true)
+	if err == nil {
+		t.Fatalf("must not claim success while 播放 is still visible, got %q", res.Output)
+	}
+	if strings.Contains(res.Output, "verified") || strings.Contains(res.Output, "started playing") {
+		t.Fatalf("success leaked into result: %q", res.Output)
+	}
+	if !strings.Contains(err.Error(), "仍暂停") && !strings.Contains(err.Error(), "未能") {
+		t.Fatalf("want still-paused failure, got %v", err)
+	}
+}
+
+func TestPlayQishuiEmptyTreeUnchangedDoesNotSucceed(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	sendForegroundPlay = func(string) error { return nil }
+	t.Cleanup(func() { sendForegroundPlay = winexec.SendMediaKey })
+
+	pressed := false
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolPress:
+			var a struct {
+				Key string `json:"key"`
+			}
+			_ = json.Unmarshal(args, &a)
+			if strings.EqualFold(a.Key, "space") {
+				pressed = true
+			}
+			return result("ok"), nil
+		case ccapp.ToolObserveUI:
+			raw, _ := json.Marshal(map[string]any{"nodes": []mediaUINode{}})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolGetActiveWindow:
+			return Result{Output: "汽水音乐"}, nil
+		case ccapp.ToolScreenCapture:
+			return result("captured foreground window 800x600; use image coordinates 800x600 for cc.mouse_click"), nil
+		case ccapp.ToolWait:
+			return result("waited 700ms; screen unchanged"), nil
+		default:
+			return result("ok"), nil
+		}
+	}
+	res, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "热门", "汽水音乐", true)
+	if err == nil {
+		t.Fatalf("empty UIA + unchanged pixels must not claim success, got %q", res.Output)
+	}
+	if !pressed {
+		t.Fatal("should still try Space when the tree is empty")
+	}
+	if strings.Contains(res.Output, "verified") || strings.Contains(res.Output, "started playing") {
+		t.Fatalf("success leaked: %q", res.Output)
 	}
 }

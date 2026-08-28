@@ -55,6 +55,8 @@ type BrowserHost struct {
 	newWindowToken     wv2.EventRegistrationToken
 	permissionToken    wv2.EventRegistrationToken
 	downloadToken      wv2.EventRegistrationToken
+	lastBounds         clientBounds
+	hasBounds          bool
 }
 
 var isolatedBrowserHosts sync.Map
@@ -332,7 +334,14 @@ func (h *BrowserHost) resize() {
 			h.controller.SetIsVisible(win32.FALSE)
 			return
 		}
+		next := clientBounds{Left: rect.Left, Top: rect.Top, Right: rect.Right, Bottom: rect.Bottom}
+		if h.hasBounds && h.lastBounds == next {
+			h.controller.SetIsVisible(win32.TRUE)
+			return
+		}
 		h.controller.SetBounds(wv2.TagRECT(rect))
+		h.lastBounds = next
+		h.hasBounds = true
 		h.controller.SetIsVisible(win32.TRUE)
 		h.controller.NotifyParentWindowPositionChanged()
 	}
