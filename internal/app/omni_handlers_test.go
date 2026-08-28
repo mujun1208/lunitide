@@ -103,6 +103,7 @@ func TestOmniStartReturnsBeforeInit(t *testing.T) {
 
 	e := NewEngine(providerRepositoryStub{}, "test")
 	svc := NewOmniService(t.TempDir())
+	t.Cleanup(svc.Close)
 	svc.host.Present = func() bool { return true }
 	svc.host.Finder = func() string { return "llama-omni-server" }
 	svc.host.Endpoint = srv.URL

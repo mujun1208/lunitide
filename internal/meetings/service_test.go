@@ -2,10 +2,13 @@ package meetings_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/meetings"
 	sqlitestore "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -208,3 +211,64 @@ func TestUpdateAndDeleteMeeting(t *testing.T) {
 		t.Fatalf("get after delete = %v", err)
 	}
 }
+
+func TestHeartbeatKeepsRecordingAlive(t *testing.T) {
+	svc := testMeetings(t)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "长会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := started.UpdatedAt
+	time.Sleep(2 * time.Millisecond)
+	got, err := svc.Heartbeat(ctx, started.MeetingID)
+	if err != nil || got.Status != meetings.StatusRecording {
+		t.Fatalf("heartbeat = %#v %v", got, err)
+	}
+	if got.UpdatedAt == "" || got.UpdatedAt == before {
+		t.Fatalf("heartbeat did not touch updatedAt: before=%q after=%q", before, got.UpdatedAt)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Heartbeat(ctx, started.MeetingID); err != meetings.ErrNotRecording {
+		t.Fatalf("heartbeat after stop = %v", err)
+	}
+}
+
+func TestSummarizeLargeTranscriptSucceedsChunked(t *testing.T) {
+	svc := testMeetings(t)
+	var calls int
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		calls++
+		if utf8.RuneCountInString(transcript) > meetings.SummarizeChunkRunes+800 {
+			return meetings.Notes{}, errors.New("context overflow")
+		}
+		return meetings.Notes{Title: "发布评审", Summary: "背景：长会。\n讨论要点：范围。\n结论：继续。", Actions: "- 导出纪要"}, nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "周会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 800; i++ {
+		line := "这一段把下周发布和安装包范围对齐清楚，并且把验收标准写进纪要。"
+		if _, err := svc.Append(ctx, started.MeetingID, line, int64(i*1500)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := svc.Summarize(ctx, started.MeetingID)
+	if err != nil || ready.Status != meetings.StatusReady {
+		t.Fatalf("summarize = %#v %v", ready, err)
+	}
+	if ready.Transcript == "" || !strings.Contains(ready.Summary, "结论") {
+		t.Fatalf("notes lost transcript or summary: %#v", ready)
+	}
+	if calls < 2 {
+		t.Fatalf("expected chunked complete, calls=%d", calls)
+	}
+}
+

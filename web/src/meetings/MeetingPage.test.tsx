@@ -1,3 +1,4 @@
+import { BridgeClientError } from '../bridge/client'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -48,6 +49,7 @@ function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
     append: vi.fn(),
     stop: vi.fn(),
     get: vi.fn(),
+    heartbeat: vi.fn().mockResolvedValue({ ...base, status: 'recording' as const }),
     summarize: vi.fn(),
     exportMeeting: vi.fn(),
     update: vi.fn(),
@@ -155,17 +157,47 @@ describe('MeetingPage', () => {
     expect(screen.getByRole('button', { name: '开始' })).toBeInTheDocument()
   })
 
-  test('finalizes a leftover recording instead of pretending capture is still live', async () => {
+  test('resumes a leftover recording instead of stopping capture', async () => {
     const leftover: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, transcript: '已听到的一句' }
-    const stopped: MeetingDTO = { ...leftover, status: 'transcribed', transcript: '已听到的一句' }
     const meetings = bridge({
       list: vi.fn().mockResolvedValue({ items: [leftover] }),
-      stop: vi.fn().mockResolvedValue(stopped),
+      get: vi.fn().mockResolvedValue(leftover),
+      stop: vi.fn(),
+      heartbeat: vi.fn().mockResolvedValue(leftover),
     })
+    speech.start.mockResolvedValue(speech.handle())
     render(<MeetingPage meetings={meetings} />)
-    expect(await screen.findByRole('status')).toHaveTextContent(/离开页面后中断/)
-    expect(meetings.stop).toHaveBeenCalledWith({ meetingId })
-    expect(screen.getByRole('button', { name: '开始' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(meetings.stop).not.toHaveBeenCalled()
+    expect(meetings.get).toHaveBeenCalledWith({ meetingId })
+    expect(speech.start).toHaveBeenCalled()
+    expect(screen.getByText(/录制中/)).toBeInTheDocument()
+  })
+
+  test('keeps recording after a retryable append timeout and still writes the next line', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const segment: MeetingSegmentDTO = {
+      segmentId: '01ARZ3NDEKTSV4RRFFQ69G5FAW', meetingId, seq: 1, startedMs: 800, text: '先对齐范围', createdAt: now,
+    }
+    const later: MeetingSegmentDTO = { ...segment, seq: 2, text: '下一句' }
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      append: vi.fn()
+        .mockRejectedValueOnce(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, 'trace'))
+        .mockResolvedValueOnce(segment)
+        .mockResolvedValue(later),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    speech.onFinal?.('先对齐范围')
+    expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
+    expect(vi.mocked(meetings.append).mock.calls.length).toBeGreaterThanOrEqual(2)
+    speech.onFinal?.('下一句')
+    expect(await screen.findByText('下一句')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
   })
 
   test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {

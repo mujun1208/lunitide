@@ -519,7 +519,7 @@ func validateEnvelope(request bridge.Request, now time.Time) error {
 	if _, err := ulid.ParseStrict(request.TraceID); err != nil {
 		return errors.New("invalid trace ID")
 	}
-	if request.DeadlineMS < 1 || request.DeadlineMS > 30000 || len(request.IdempotencyKey) > 128 {
+	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) || len(request.IdempotencyKey) > 128 {
 		return errors.New("invalid deadline or idempotency key")
 	}
 	if request.SentAt.IsZero() || request.SentAt.Before(now.Add(-5*time.Minute)) || request.SentAt.After(now.Add(5*time.Minute)) {

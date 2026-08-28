@@ -197,6 +197,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'meetings.delete',
   'meetings.export',
   'meetings.get',
+  'meetings.heartbeat',
   'meetings.list',
   'meetings.start',
   'meetings.stop',

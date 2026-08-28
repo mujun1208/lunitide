@@ -63,6 +63,12 @@ func (s *Store) InsertSegment(ctx context.Context, seg meetings.Segment) error {
 	return err
 }
 
+func (s *Store) CountSegments(ctx context.Context, meetingID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM meeting_segments WHERE meeting_id=?`, meetingID).Scan(&n)
+	return n, err
+}
+
 func (s *Store) ListSegments(ctx context.Context, meetingID string) ([]meetings.Segment, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT segment_id, meeting_id, seq, started_ms, body, created_at FROM meeting_segments WHERE meeting_id=? ORDER BY seq`, meetingID)
 	if err != nil {

@@ -196,6 +196,38 @@ func TestGatewayReturnsExplicitFailureForOversizedTrustedMessage(t *testing.T) {
 	}
 }
 
+func TestGatewayAcceptsLongMeetingDeadline(t *testing.T) {
+	caller := &callerStub{}
+	gateway, _ := New("https://app.lunitide.local", caller)
+	id := ulid.Make().String()
+	trace := ulid.Make().String()
+	request := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: id, TraceID: trace,
+		Method: "meetings.append", SentAt: time.Now().UTC(),
+		Payload: json.RawMessage(`{"meetingId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"x"}`), DeadlineMS: 120000,
+	}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: raw})
+	if !handled || !response.OK || caller.calls != 1 {
+		t.Fatalf("long meeting deadline rejected: handled=%v resp=%#v calls=%d", handled, response, caller.calls)
+	}
+	health := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "system.health", SentAt: time.Now().UTC(), Payload: json.RawMessage(`{}`), DeadlineMS: 120000,
+	}
+	healthRaw, err := json.Marshal(health)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, handledHealth := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: healthRaw})
+	if !handledHealth || denied.OK || denied.Error == nil || denied.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("health must keep the 30s cap: %+v", denied)
+	}
+}
+
 func validRequest(t *testing.T, method string) []byte {
 	t.Helper()
 	raw, err := json.Marshal(bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: method, SentAt: time.Now().UTC(), Payload: json.RawMessage(`{}`), DeadlineMS: 3000})
