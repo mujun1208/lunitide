@@ -1692,6 +1692,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	const maxThinkingChunkBytes = 16 * 1024
 	const maxThinkingTotalBytes = 256 * 1024
 	var seq uint64
+	var sendMu sync.Mutex
 	var assistantText strings.Builder
 	var thinkingText strings.Builder
 	var pendingThinking string
@@ -1704,6 +1705,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		mode = modes[0]
 	}
 	rawSend := func(event bridge.Event) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		seq++
 		event.Version = bridge.Version
 		event.Kind = "event"

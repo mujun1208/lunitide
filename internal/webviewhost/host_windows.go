@@ -307,7 +307,10 @@ func (h *Host) Run(ctx context.Context) error {
 							h.mu.Unlock()
 							if core != nil && GenerationCurrent(routed.Generation, current, closed) {
 								if result := core.PostWebMessageAsJson(string(raw)); failed(win32.HRESULT(result)) {
-									h.fail(fmt.Errorf("WebView2 event delivery failed: 0x%x", uint32(result)))
+									// A dropped chat event must not DestroyWindow: that is the
+									// 项目管理工作台 “send → flash-exit” failure mode.
+									logHostDiagnostic("WebView2 event delivery failed: 0x%x", uint32(result))
+									log.Printf("WebView2 event delivery failed: 0x%x", uint32(result))
 									h.gateway.CancelStreams(context.Background())
 									return false
 								}
@@ -512,7 +515,8 @@ func (h *Host) registerCoreEvents() error {
 	h.messageHandler = wv2.NewICoreWebView2WebMessageReceivedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2WebMessageReceivedEventArgs) com.Error {
 		h.receive(args, true, func(raw []byte) {
 			if result := h.core.PostWebMessageAsJson(string(raw)); failed(win32.HRESULT(result)) {
-				h.fail(fmt.Errorf("WebView2 response delivery failed: 0x%x", uint32(result)))
+				logHostDiagnostic("WebView2 response delivery failed: 0x%x", uint32(result))
+				log.Printf("WebView2 response delivery failed: 0x%x", uint32(result))
 				h.gateway.CancelStreams(context.Background())
 			}
 		})

@@ -115,6 +115,29 @@ func (s *Store) ListDocs(ctx context.Context, meetingID string) ([]meetings.Doc,
 	return items, rows.Err()
 }
 
+func (s *Store) DeleteMeeting(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM meeting_segments WHERE meeting_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM meeting_docs WHERE meeting_id=?`, id); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM meetings WHERE meeting_id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return meetings.ErrNotFound
+	}
+	return tx.Commit()
+}
+
 func (s *Store) HasRecording(ctx context.Context) (bool, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM meetings WHERE status='recording'`).Scan(&n)

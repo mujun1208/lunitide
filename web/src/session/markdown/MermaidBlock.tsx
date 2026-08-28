@@ -1,20 +1,15 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
+import { loadMermaidEngine, mountMermaidSvg, prepareMermaidSource } from './tideMermaid'
 
-let mermaidPromise: Promise<typeof import('mermaid').default> | undefined
+export { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './tideMermaid'
 
-async function loadMermaid() {
-  if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then(mod => {
-      mod.default.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'strict',
-        fontFamily: 'Inter, "Noto Sans SC", ui-sans-serif, system-ui, sans-serif',
-      })
-      return mod.default
-    })
-  }
-  return mermaidPromise
+let renderSeq = 0
+let mermaidQueue: Promise<unknown> = Promise.resolve()
+
+function withMermaidLock<T>(work: () => Promise<T>): Promise<T> {
+  const run = mermaidQueue.then(work, work)
+  mermaidQueue = run.then(() => undefined, () => undefined)
+  return run
 }
 
 export function MermaidBlock({ source, onCopy }: { source: string; onCopy?: (value: string) => void | Promise<void> }) {
@@ -22,26 +17,43 @@ export function MermaidBlock({ source, onCopy }: { source: string; onCopy?: (val
   const id = useId().replace(/:/g, '')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [themeEpoch, setThemeEpoch] = useState(0)
+
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') return
+    const obs = new MutationObserver(() => setThemeEpoch(n => n + 1))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => obs.disconnect()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     const run = async () => {
       setError('')
+      const prepared = prepareMermaidSource(source)
+      if (!prepared) {
+        setError('空图表')
+        return
+      }
       try {
-        const mermaid = await loadMermaid()
-        const { svg } = await mermaid.render(`mmd-${id}`, source.trim())
-        if (cancelled || !hostRef.current) return
-        hostRef.current.innerHTML = svg
+        await withMermaidLock(async () => {
+          const mermaid = await loadMermaidEngine()
+          const { svg } = await mermaid.render(`mmd-${id}-${++renderSeq}`, prepared)
+          if (cancelled || !hostRef.current) return
+          mountMermaidSvg(hostRef.current, svg)
+        })
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '图表渲染失败')
+        if (cancelled) return
+        if (hostRef.current) hostRef.current.replaceChildren()
+        setError(e instanceof Error ? e.message : '图表渲染失败')
       }
     }
     void run()
     return () => {
       cancelled = true
-      if (hostRef.current) hostRef.current.innerHTML = ''
+      if (hostRef.current) hostRef.current.replaceChildren()
     }
-  }, [id, source])
+  }, [id, source, themeEpoch])
 
   const copySource = async () => {
     if (!onCopy) return
@@ -67,9 +79,8 @@ export function MermaidBlock({ source, onCopy }: { source: string; onCopy?: (val
             <code>{source.trim()}</code>
           </pre>
         </div>
-      ) : (
-        <div ref={hostRef} className="mermaid-host" aria-label="Mermaid 图表" />
-      )}
+      ) : null}
+      <div ref={hostRef} className="mermaid-host" hidden={!!error} aria-label="Mermaid 图表" />
     </div>
   )
 }

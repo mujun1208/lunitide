@@ -382,3 +382,39 @@ func TestExecuteMediaPlayJayChouUsesDesktopSearchNotWeb(t *testing.T) {
 		}
 	}
 }
+
+func TestFillSearchFieldTypesAfterSetValueNoOp(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	typed := ""
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolSetValue:
+			return result("ok"), nil
+		case ccapp.ToolKeyboardType:
+			var a struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(args, &a)
+			typed = a.Text
+			return result("ok"), nil
+		case ccapp.ToolMouseClick, ccapp.ToolPress, ccapp.ToolKeyboardShortcut:
+			return result("ok"), nil
+		default:
+			return Result{}, nil
+		}
+	}
+	if err := fillSearchField(context.Background(), invoke, "s1", mediaUINode{Role: "edit", Name: "搜索"}, "周杰伦", true); err != nil {
+		t.Fatal(err)
+	}
+	if typed != "周杰伦" {
+		t.Fatalf("typed %q; Electron SetValue success must still type the query", typed)
+	}
+}
+
+func TestPickSearchNodeMatchesFindAndInput(t *testing.T) {
+	got := pickSearchNode([]mediaUINode{{Role: "edit", Name: "查找歌曲", Y: 8, H: 28}})
+	if got == nil || got.Name != "查找歌曲" {
+		t.Fatalf("got %+v", got)
+	}
+}

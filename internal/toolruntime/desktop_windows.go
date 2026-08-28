@@ -81,6 +81,94 @@ func startMenuRoots() []string {
 	return roots
 }
 
+func lookupUninstallExecutables(app knownLaunchApp) []string {
+	needles := make([]string, 0, 1+len(app.Aliases)+len(app.Processes))
+	needles = append(needles, app.Canonical)
+	needles = append(needles, app.Aliases...)
+	needles = append(needles, app.Processes...)
+	roots := []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE}
+	paths := []string{
+		`Software\Microsoft\Windows\CurrentVersion\Uninstall`,
+		`Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall`,
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, hive := range roots {
+		for _, path := range paths {
+			k, err := registry.OpenKey(hive, path, registry.ENUMERATE_SUB_KEYS|registry.READ)
+			if err != nil {
+				continue
+			}
+			names, _ := k.ReadSubKeyNames(0)
+			for _, name := range names {
+				sub, err := registry.OpenKey(k, name, registry.READ)
+				if err != nil {
+					continue
+				}
+				display, _, _ := sub.GetStringValue("DisplayName")
+				icon, _, _ := sub.GetStringValue("DisplayIcon")
+				install, _, _ := sub.GetStringValue("InstallLocation")
+				sub.Close()
+				if !uninstallNameMatches(display, needles) {
+					continue
+				}
+				for _, candidate := range uninstallExeCandidates(icon, install, app.Processes) {
+					key := strings.ToLower(candidate)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					out = append(out, candidate)
+				}
+			}
+			k.Close()
+		}
+	}
+	return out
+}
+
+func uninstallNameMatches(display string, needles []string) bool {
+	folded := strings.ToLower(strings.TrimSpace(display))
+	if folded == "" {
+		return false
+	}
+	for _, needle := range needles {
+		n := strings.ToLower(strings.TrimSpace(needle))
+		n = strings.TrimSuffix(n, ".exe")
+		if n == "" {
+			continue
+		}
+		if strings.Contains(folded, n) || strings.Contains(n, folded) {
+			return true
+		}
+	}
+	return false
+}
+
+func uninstallExeCandidates(icon, install string, processes []string) []string {
+	var out []string
+	icon = strings.Trim(strings.TrimSpace(icon), `"`)
+	if i := strings.Index(icon, ","); i >= 0 {
+		icon = strings.TrimSpace(icon[:i])
+	}
+	icon = expandWindowsPath(icon)
+	if strings.EqualFold(filepath.Ext(icon), ".exe") {
+		out = append(out, icon)
+	}
+	install = expandWindowsPath(install)
+	if install != "" {
+		for _, proc := range processes {
+			base := filepath.Base(proc)
+			if !strings.EqualFold(filepath.Ext(base), ".exe") {
+				base += ".exe"
+			}
+			out = append(out, filepath.Join(install, base))
+			out = append(out, filepath.Join(install, "CloudMusic", base))
+		}
+	}
+	return out
+}
+
 func pickStartMenuShortcut(query string) (string, []string, error) {
 	var hits []desktopHit
 	for _, root := range startMenuRoots() {

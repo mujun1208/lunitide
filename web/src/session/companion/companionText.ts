@@ -227,6 +227,23 @@ export function stripTaskDonePhrases(raw: string): string {
 }
 
 /**
+ * MiniCPM-o SSE (and other token streams) often arrive as 1–2 character
+ * deltas. The subtitle must keep the whole utterance, never the last crumb.
+ */
+export function accumulateSpeakableCaption(previous: string, incoming: string): string {
+  const next = stripTaskDonePhrases(incoming)
+  const prev = stripTaskDonePhrases(previous)
+  if (!next) return prev
+  if (!prev) return next
+  if (next === prev) return next
+  if (next.startsWith(prev)) return next
+  if (prev.startsWith(next)) return prev
+  if (next.includes(prev) && next.length > prev.length) return next
+  if (prev.includes(next)) return prev
+  return `${prev}${next}`
+}
+
+/**
  * Whether a transcript is a new user turn, not her reply coming back
  * through the microphone, and not a leftover from the previous round.
  */

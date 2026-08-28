@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { IdentityBridge, PeopleBridge } from '../bridge/client'
 import type { IdentityDTO } from '../generated/bridge'
 import { ProfilePanel } from './ProfilePanel'
@@ -25,6 +25,8 @@ const profile = (partial: Partial<IdentityDTO> = {}): IdentityDTO => ({
 })
 
 describe('ProfilePanel', () => {
+  afterEach(() => cleanup())
+
   test('saves nickname and keeps LAN discovery off by default', async () => {
     const current = profile()
     const identity: IdentityBridge = {
@@ -50,5 +52,31 @@ describe('ProfilePanel', () => {
     await user.type(screen.getByRole('textbox', { name: '显示名' }), 'mu')
     await user.click(screen.getByRole('button', { name: '保存名片' }))
     expect(identity.update).toHaveBeenCalledWith(expect.objectContaining({ nickname: 'mu' }))
+  })
+
+  test('avatar pick sends a this-PC path instead of a canvas data URL', async () => {
+    const current = profile()
+    const identity: IdentityBridge = {
+      get: vi.fn().mockResolvedValue(current),
+      update: vi.fn().mockImplementation(async payload => ({ ...current, ...payload })),
+      passwordSet: vi.fn(),
+      unlock: vi.fn(),
+    }
+    const people: PeopleBridge = {
+      list: vi.fn(), pair: vi.fn(), discoveryGet: vi.fn(),
+      discoverySet: vi.fn(), threadList: vi.fn(), threadOpen: vi.fn(),
+      threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
+      threadTyping: vi.fn(), fileStage: vi.fn(),
+      filePick: vi.fn().mockResolvedValue({ path: 'C:/Users/mu/Pictures/face.jpg', fileName: 'face.jpg' }),
+      peerAdd: vi.fn(), contactUpdate: vi.fn(),
+    }
+    const user = userEvent.setup()
+    render(<ProfilePanel identity={identity} people={people} />)
+    const action = await screen.findByText('更换头像')
+    expect(action).toHaveClass('profile-avatar-action')
+    expect(document.querySelector('.profile-fields')).toBeTruthy()
+    await user.click(action)
+    await vi.waitFor(() => expect(people.filePick).toHaveBeenCalledWith({ folder: false }))
+    expect(identity.update).toHaveBeenCalledWith({ avatar: 'C:/Users/mu/Pictures/face.jpg' })
   })
 })

@@ -27,6 +27,15 @@ const speech = vi.hoisted(() => ({
 const omniAudio = vi.hoisted(() => ({
   probe: vi.fn(),
   start: vi.fn(),
+  options: undefined as
+    | {
+        onText: (text: string) => void
+        onSpeaking?: (speaking: boolean) => void
+        onError: (message: string) => void
+      }
+    | undefined,
+  committed: 0,
+  resumeListen: vi.fn(),
 }))
 
 const omni = vi.hoisted(() => ({
@@ -123,6 +132,20 @@ beforeEach(() => {
   speech.start.mockResolvedValue(speech.handle())
   omniAudio.probe.mockReset()
   omniAudio.start.mockReset()
+  omniAudio.options = undefined
+  omniAudio.committed = 0
+  omniAudio.resumeListen.mockReset()
+  omniAudio.start.mockImplementation((options: typeof omniAudio.options) => {
+    omniAudio.options = options
+    return Promise.resolve({
+      stop: vi.fn(),
+      commitUserAudio: () => {
+        omniAudio.committed += 1
+        return true
+      },
+      resumeListen: omniAudio.resumeListen,
+    })
+  })
   omni.status.mockReset()
   omni.install.mockReset()
   omni.status.mockResolvedValue({
@@ -191,4 +214,36 @@ test('never treats OMNI_UNAVAILABLE copy as the first user turn', async () => {
   })
   expect(baseProps.onSend).not.toHaveBeenCalled()
   expect(container.textContent).not.toContain('OMNI_UNAVAILABLE')
+})
+
+test('MiniCPM-o turn: full user caption, full assistant line, 说话中, and chat.send for tools', async () => {
+  omniAudio.probe.mockResolvedValue(true)
+  const { container } = render(<CompanionStage {...baseProps} />)
+  await flush(80)
+  expect(omniAudio.start).toHaveBeenCalled()
+
+  await act(async () => {
+    speech.callbacks!.onInterim?.('打开网易云音乐')
+  })
+  expect(container.textContent).toContain('打开网易云音乐')
+
+  await act(async () => {
+    speech.callbacks!.onFinal('打开网易云音乐')
+  })
+  expect(baseProps.onSend).toHaveBeenCalledWith('打开网易云音乐')
+  expect(omniAudio.committed).toBe(1)
+  expect(container.textContent).toContain('打开网易云音乐')
+
+  await act(async () => {
+    omniAudio.options!.onText('在')
+    omniAudio.options!.onText('的。')
+    omniAudio.options!.onText('好的，已打开。')
+    omniAudio.options!.onSpeaking?.(true)
+  })
+  expect(container.textContent).toContain('好的，已打开。')
+  expect(container.textContent).toContain('打开网易云音乐')
+  expect(container.querySelector('.companion-status')?.textContent).toContain('说话中')
+  expect(container.querySelector('.companion-status')?.textContent).not.toContain('聆听中')
+  expect(container.textContent).not.toContain('我做完了')
+  expect(container.textContent).not.toContain('人生：')
 })

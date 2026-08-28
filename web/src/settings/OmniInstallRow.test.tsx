@@ -62,6 +62,21 @@ test('does not ask the user to fetch llama-omni-server when the model is on disk
   expect(screen.getByRole('button', { name: '重试展开' })).toBeTruthy()
 })
 
+test('says the installer omitted the inference process when the zip is absent', async () => {
+  omni.status.mockResolvedValue({
+    ...missingRuntime,
+    installed: false,
+    runtimeFound: false,
+    hostState: 'missing_runtime',
+  })
+  render(<OmniInstallRow />)
+  await waitFor(() => {
+    expect(screen.getByText(/此安装包未附带推理进程/)).toBeTruthy()
+  })
+  expect(screen.getByText(/云端与本地模型仍可用/)).toBeTruthy()
+  expect(screen.queryByText(/推理进程已随月汐安装/)).toBeNull()
+})
+
 test('model download copy does not mention a separate runtime installer', async () => {
   omni.status.mockResolvedValue({
     ...missingRuntime,

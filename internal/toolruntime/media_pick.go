@@ -152,7 +152,9 @@ func pickSearchNode(nodes []mediaUINode) *mediaUINode {
 		n := &nodes[i]
 		role := strings.ToLower(n.Role)
 		name := foldMedia(n.Name)
-		if strings.Contains(name, "搜索") || strings.Contains(name, "search") || name == "搜" {
+		if strings.Contains(name, "搜索") || strings.Contains(name, "search") ||
+			strings.Contains(name, "查找") || strings.Contains(name, "find") ||
+			strings.Contains(name, "输入") || name == "搜" {
 			score := 50
 			if role == "edit" || role == "combobox" {
 				score += 20

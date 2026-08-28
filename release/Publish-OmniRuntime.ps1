@@ -74,45 +74,77 @@ weights are downloaded on demand into the product data directory.
 
 $override=$env:LUNITIDE_OMNI_RUNTIME_ZIP
 if ($override -and (Test-Path $override -PathType Leaf)) {
-  Copy-Item $override $stageZip -Force
-  Assert-OmniRuntimeZip $stageZip
-  return
+  try {
+    Copy-Item $override $stageZip -Force
+    Assert-OmniRuntimeZip $stageZip
+    return
+  } catch {
+    Remove-Item $stageZip -Force -ErrorAction SilentlyContinue
+    Write-Warning "LUNITIDE_OMNI_RUNTIME_ZIP was unusable ($($_.Exception.Message)); omitting omni runtime zip rather than fetching Comni."
+  }
 }
 
 New-Item $Cache -ItemType Directory -Force | Out-Null
 $cachedZip=Join-Path $Cache ("llama-omni-runtime-$RuntimeRevision.zip")
 if (Test-Path $cachedZip -PathType Leaf) {
-  Copy-Item $cachedZip $stageZip -Force
-  Assert-OmniRuntimeZip $stageZip
-  return
+  try {
+    Copy-Item $cachedZip $stageZip -Force
+    Assert-OmniRuntimeZip $stageZip
+    return
+  } catch {
+    Remove-Item $stageZip -Force -ErrorAction SilentlyContinue
+    Write-Warning "Cached llama-omni-runtime zip was unusable ($($_.Exception.Message)); will try a prior stage or omit."
+  }
+}
+
+# Prefer a zip already staged by a prior release (e.g. 0.4.19). Never fetch Comni-Setup.
+$outRoot=Split-Path $Stage -Parent
+if (Test-Path $outRoot) {
+  $prior=@(Get-ChildItem $outRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName "omni\$ZipName" } | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1)
+  if ($prior) {
+    try {
+      Copy-Item $prior[0] $stageZip -Force
+      Assert-OmniRuntimeZip $stageZip
+      Copy-Item $stageZip $cachedZip -Force
+      return
+    } catch {
+      Remove-Item $stageZip -Force -ErrorAction SilentlyContinue
+      Write-Warning "Prior staged omni zip was unusable: $($_.Exception.Message)"
+    }
+  }
 }
 
 $setup=Join-Path $Cache $RuntimeSetupFile
 if (-not (Test-Path $setup -PathType Leaf)) {
-  $rel="/tc-mb/llama.cpp-omni/releases/download/$RuntimeRevision/$RuntimeSetupFile"
-  $urls=@(
-    "https://github.com$rel",
-    "https://gh-proxy.com/https://github.com$rel"
-  )
-  $downloaded=$false
-  foreach ($url in $urls) {
-    & curl.exe --fail --location --silent --show-error --output $setup $url
-    if ($LASTEXITCODE -eq 0) { $downloaded=$true; break }
-  }
-  if (-not $downloaded) { throw "Failed to download $RuntimeSetupFile" }
+  Write-Warning "llama-omni-runtime.zip is not cached and Comni-Setup will not be downloaded. MiniCPM-o runtime is omitted from this Setup; 云端 and 本地 voice paths still work."
+  return
 }
-if ((Get-Item $setup).Length -ne $RuntimeBytes) { Remove-Item $setup -Force; throw "Comni-Setup size mismatch" }
-if ((Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $RuntimeSHA256) { Remove-Item $setup -Force; throw 'Comni-Setup SHA-256 mismatch' }
+if ((Get-Item $setup).Length -ne $RuntimeBytes) {
+  Write-Warning "Cached Comni-Setup size mismatch; omitting omni runtime zip rather than re-downloading."
+  return
+}
+if ((Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $RuntimeSHA256) {
+  Write-Warning "Cached Comni-Setup SHA-256 mismatch; omitting omni runtime zip rather than re-downloading."
+  return
+}
 
 $extract=Join-Path $Cache "comni-$RuntimeRevision-extract"
 $server=Get-ChildItem $extract -Recurse -File -Filter 'llama-omni-server.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $server) {
   Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
   New-Item $extract -ItemType Directory | Out-Null
-  Expand-ComniSetup -Setup $setup -Dest $extract
+  try {
+    Expand-ComniSetup -Setup $setup -Dest $extract
+  } catch {
+    Write-Warning "Could not extract cached Comni-Setup ($($_.Exception.Message)); omitting omni runtime zip rather than re-downloading."
+    return
+  }
   $server=Get-ChildItem $extract -Recurse -File -Filter 'llama-omni-server.exe' | Select-Object -First 1
 }
-if (-not $server) { throw 'Comni extract is missing llama-omni-server.exe' }
+if (-not $server) {
+  Write-Warning 'Cached Comni extract is missing llama-omni-server.exe; omitting omni runtime zip.'
+  return
+}
 
 $binDir=$server.Directory.FullName
 $packRoot=$binDir

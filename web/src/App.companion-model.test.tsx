@@ -55,8 +55,8 @@ vi.mock('./bridge/client', async importOriginal => {
     ccBridge: { getConfig: vi.fn().mockResolvedValue({ enabled: true }), updateConfig: vi.fn(), getAuditLog: vi.fn(), emergencyStop: vi.fn() },
     getIdentityBridge: () => peopleHost.identity,
     getPeopleBridge: () => peopleHost.people,
-    getMeetingsBridge: () => ({ list: vi.fn().mockResolvedValue({ items: [] }), start: vi.fn(), append: vi.fn(), stop: vi.fn(), get: vi.fn(), summarize: vi.fn(), exportMeeting: vi.fn() }),
-    meetingsBridge: { list: () => Promise.resolve({ items: [] }), start: vi.fn(), append: vi.fn(), stop: vi.fn(), get: vi.fn(), summarize: vi.fn(), exportMeeting: vi.fn() },
+    getMeetingsBridge: () => ({ list: vi.fn().mockResolvedValue({ items: [] }), start: vi.fn(), append: vi.fn(), stop: vi.fn(), get: vi.fn(), summarize: vi.fn(), exportMeeting: vi.fn(), update: vi.fn(), delete: vi.fn() }),
+    meetingsBridge: { list: () => Promise.resolve({ items: [] }), start: vi.fn(), append: vi.fn(), stop: vi.fn(), get: vi.fn(), summarize: vi.fn(), exportMeeting: vi.fn(), update: vi.fn(), delete: vi.fn() },
   }
 })
 

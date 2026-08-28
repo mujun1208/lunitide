@@ -19,7 +19,9 @@ import {
   looksLikePlaybackEcho,
   shouldAcceptUserTranscript,
   stripTaskDonePhrases,
+  accumulateSpeakableCaption,
 } from './companionText'
+import { companionSurfaceState } from './useCompanionMachine'
 import { omniPersonaCaption } from './voicePersonas'
 
 const listening = {
@@ -151,7 +153,19 @@ describe('多轮直到退出', () => {
         lastAssistant: lastSpoken || '今晚是满月，适合抬头。',
       })).toBe(false)
       expect(stripTaskDonePhrases('我做完了')).toBe('')
+      expect(companionSurfaceState('listening', true)).toBe('speaking')
       lastSpoken = `好的，${heard}`
     }
+  })
+})
+
+describe('字幕与说话状态', () => {
+  test('assistant caption accumulates MiniCPM-o crumbs into one line', () => {
+    let caption = ''
+    for (const piece of ['在', '的。', '我在听，请说。']) {
+      caption = accumulateSpeakableCaption(caption, piece)
+    }
+    expect(caption).toBe('在的。我在听，请说。')
+    expect(caption).not.toBe('请说。')
   })
 })

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { getMeetingsBridge, type MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
+import { ConfirmDialog } from '../ui/Dialog'
+import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, prepareMeetingCapture, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 
@@ -49,6 +51,16 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [includeSystem, setIncludeSystem] = useState(loadIncludeSystem)
+  const [draftSummary, setDraftSummary] = useState('')
+  const [draftActions, setDraftActions] = useState('')
+  const [draftTranscript, setDraftTranscript] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<MeetingDTO>()
+  const [listWidth, startListResize] = usePanelResize({
+    storageKey: 'lunitide:meeting-list-width',
+    initial: 280,
+    min: 220,
+    max: () => Math.min(480, Math.max(260, window.innerWidth - 420)),
+  })
   const speechRef = useRef<CompanionSpeechHandle | null>(null)
   const captureRef = useRef<MeetingCapturePlan | undefined>(undefined)
   const tickRef = useRef<number>(0)
@@ -100,6 +112,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   const adopt = (next: MeetingDTO) => {
     setCurrent(next)
+    setDraftSummary(next.summary || '')
+    setDraftActions(next.actions || '')
+    setDraftTranscript(next.transcript || '')
     setItems(values => {
       const rest = values.filter(item => item.meetingId !== next.meetingId)
       return [next, ...rest]
@@ -213,14 +228,50 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
   }
 
+  const persistEdits = async () => {
+    if (!current || current.status === 'recording') return current
+    const dirty = draftSummary !== (current.summary || '') || draftActions !== (current.actions || '') || draftTranscript !== (current.transcript || '')
+    if (!dirty) return current
+    const next = await meetings.update({
+      meetingId: current.meetingId,
+      summary: draftSummary,
+      actions: draftActions,
+      transcript: draftTranscript,
+    })
+    adopt(next)
+    return next
+  }
+
   const exportDoc = async (format: 'markdown' | 'html' | 'txt') => {
     if (!current || busy) return
     setBusy(true)
     try {
+      await persistEdits()
       const result = await meetings.exportMeeting({ meetingId: current.meetingId, format })
       setNotice(`已导出到 ${result.path}`)
     } catch (error) {
       if (!isCanceled(error)) setNotice(error instanceof Error ? error.message : '无法导出')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeMeeting = async () => {
+    if (!deleteTarget || busy) return
+    setBusy(true)
+    try {
+      await meetings.delete({ meetingId: deleteTarget.meetingId })
+      setItems(values => values.filter(item => item.meetingId !== deleteTarget.meetingId))
+      if (current?.meetingId === deleteTarget.meetingId) {
+        setCurrent(undefined)
+        setDraftSummary('')
+        setDraftActions('')
+        setDraftTranscript('')
+      }
+      setDeleteTarget(undefined)
+      setNotice('会议已删除')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '无法删除会议')
     } finally {
       setBusy(false)
     }
@@ -233,24 +284,29 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const source = current?.audioSource ?? (includeSystem ? 'microphone_and_system' : 'microphone')
 
   return (
-    <div className="meeting-shell">
+    <div className="meeting-shell" style={{ '--meeting-list-width': `${listWidth}px` } as React.CSSProperties}>
       <aside className="meeting-list" aria-label="历史会议">
         <header>
           <h2>会议记录</h2>
           <p>本机麦克风转写。勾选后混录这台电脑的系统声音（扬声器对面更准）。不会共享给其他电脑。</p>
         </header>
         {items.length === 0 ? <p className="meeting-empty">还没有会议。点开始录制这一场。</p> : items.map(item => (
-          <button
-            type="button"
-            key={item.meetingId}
-            className={current?.meetingId === item.meetingId ? 'on' : ''}
-            onClick={() => void open(item.meetingId)}
-          >
-            <b>{item.title}</b>
-            <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.durationMs)} · {STATUS[item.status]}</small>
-          </button>
+          <div className="meeting-row" key={item.meetingId}>
+            <button
+              type="button"
+              className={current?.meetingId === item.meetingId ? 'on' : ''}
+              onClick={() => void open(item.meetingId)}
+            >
+              <b>{item.title}</b>
+              <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.durationMs)} · {STATUS[item.status]}</small>
+            </button>
+            {item.status !== 'recording' && (
+              <button type="button" className="meeting-row-delete" aria-label={`删除 ${item.title}`} onClick={() => setDeleteTarget(item)}>删除</button>
+            )}
+          </div>
         ))}
       </aside>
+      <div className="panel-resizer split-resizer" role="separator" aria-label="调整会议列表宽度" aria-orientation="vertical" onPointerDown={startListResize} />
       <section className="meeting-main" aria-label="会议工作台">
         <header className="meeting-hero">
           <div>
@@ -276,7 +332,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             />
             同时收录本机系统声音
           </label>
-          <span>{recording ? audioSourceLabel(current?.audioSource, true) : includeSystem ? '开始时将尝试收录本机系统声音（需本机识别与共享音频）' : audioSourceLabel('microphone')}</span>
+          <span>{recording ? audioSourceLabel(current?.audioSource, true) : includeSystem ? '开始时请在窗口选择器里点腾讯会议、飞书或浏览器标签页，以便收录对面说话（本机环回，取消则不会开这场会）' : audioSourceLabel('microphone')}</span>
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">
@@ -288,21 +344,22 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           <article className="meeting-doc">
             <section>
               <h3>会议摘要</h3>
-              <p>{current.summary || current.summaryError || '尚未生成摘要。'}</p>
+              <textarea aria-label="会议摘要" value={draftSummary} onChange={e => setDraftSummary(e.target.value)} placeholder={current.summaryError || '尚未生成摘要。'} />
             </section>
             <section>
               <h3>决议/待办</h3>
-              <pre>{current.actions || '尚未生成待办。'}</pre>
+              <textarea aria-label="决议/待办" value={draftActions} onChange={e => setDraftActions(e.target.value)} placeholder="尚未生成待办。" />
             </section>
             <section>
               <h3>全文逐字稿</h3>
-              <pre>{current.transcript || '（空）'}</pre>
+              <textarea aria-label="全文逐字稿" value={draftTranscript} onChange={e => setDraftTranscript(e.target.value)} placeholder="（空）" />
             </section>
             <p className="meeting-empty">{audioSourceLabel(source)}</p>
             <div className="meeting-export">
               {current.status === 'needs_summary' || current.status === 'transcribed' ? (
                 <button type="button" disabled={busy} onClick={() => void retry()}>重试生成摘要</button>
               ) : null}
+              <button type="button" disabled={busy} onClick={() => void persistEdits().then(() => setNotice('纪要已保存')).catch(error => setNotice(error instanceof Error ? error.message : '无法保存'))}>保存编辑</button>
               <button type="button" disabled={busy} onClick={() => void exportDoc('markdown')}>导出 Markdown</button>
               <button type="button" disabled={busy} onClick={() => void exportDoc('html')}>导出 HTML</button>
               <button type="button" disabled={busy} onClick={() => void exportDoc('txt')}>导出文本</button>
@@ -310,6 +367,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           </article>
         )}
       </section>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={`删除会议「${deleteTarget?.title ?? ''}」？`}
+        description="这条会议记录、摘要、待办和逐字稿将从本机删除，不可撤销。"
+        busy={busy}
+        onCancel={() => setDeleteTarget(undefined)}
+        onConfirm={() => void removeMeeting()}
+      />
     </div>
   )
 }

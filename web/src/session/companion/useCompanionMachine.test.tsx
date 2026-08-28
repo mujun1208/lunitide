@@ -4,7 +4,7 @@
 // state is kept.
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import { useCompanionMachine, type CompanionEvent } from './useCompanionMachine'
+import { useCompanionMachine, companionSurfaceState, type CompanionEvent } from './useCompanionMachine'
 
 const EVENTS: CompanionEvent['type'][] = [
   'MIC_ACTIVATE',
@@ -84,5 +84,15 @@ describe('useCompanionMachine transition matrix', () => {
       result.current.dispatch({ type: 'RECOGNIZED_FINAL' })
     })
     expect(result.current.state).toBe('thinking')
+  })
+})
+
+describe('companionSurfaceState', () => {
+  test('never shows 聆听中 while she is talking', () => {
+    expect(companionSurfaceState('listening', true)).toBe('speaking')
+    expect(companionSurfaceState('idle', true)).toBe('speaking')
+    expect(companionSurfaceState('thinking', true)).toBe('speaking')
+    expect(companionSurfaceState('listening', false)).toBe('listening')
+    expect(companionSurfaceState('speaking', true)).toBe('speaking')
   })
 })

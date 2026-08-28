@@ -78,6 +78,7 @@ describe('PeoplePage', () => {
     const user = userEvent.setup()
     render(<PeoplePage identity={identity} people={people} />)
     await screen.findByRole('heading', { name: '聊天' })
+    expect(screen.getByRole('separator', { name: '调整同事列表宽度' })).toBeInTheDocument()
 
     const rail = screen.getByRole('navigation', { name: '同事工作区' })
     await user.click(within(rail).getByRole('button', { name: /通讯录/ }))
@@ -212,5 +213,27 @@ describe('PeoplePage', () => {
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'file', localPath: 'C:/docs/spec.pdf', fileName: 'spec.pdf',
     })))
+  })
+
+  test('pastes a clipboard screenshot into the composer and sends it', async () => {
+    const { identity, people } = bridges()
+    people.threadSend = vi.fn().mockResolvedValue({
+      message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB3', kind: 'image', fileName: 'clipboard.png', offerStatus: 'pending' },
+    })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    const composer = await screen.findByPlaceholderText(/粘贴图片/)
+    const file = new File([new Uint8Array([9, 8, 7])], 'image.png', { type: 'image/png' })
+    await user.click(composer)
+    await user.paste({
+      getData: () => '',
+      files: [file],
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }],
+      types: ['Files'],
+    } as unknown as DataTransfer)
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image' })))
+    const payload = vi.mocked(people.threadSend).mock.calls[0][0]
+    expect(payload.localPath || payload.contentBase64).toBeTruthy()
   })
 })

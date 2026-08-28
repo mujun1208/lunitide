@@ -5,6 +5,7 @@ import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStr
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT } from './SessionPage'
 import { resetLiveChatForTests } from './liveChat'
+import { RootErrorBoundary } from '../RootErrorBoundary'
 
 afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
@@ -497,4 +498,23 @@ it('does not auto-open the terminal workspace for project home-chat command acti
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_started',tool:{callId:'call-1',name:'command.run',argsDigest:'digest',summary:'$ go test ./...'}}))
  expect(screen.queryByLabelText('统一工作区')).toBeNull()
+})
+
+it('sends from project workbench home-chat without throwing and includes the active phase',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const append=vi.fn().mockResolvedValue({})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const user=userEvent.setup()
+ render(<RootErrorBoundary><SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge} onBack={vi.fn()} initialSession={session} homeChat attachments={attachments} providers={providers} chat={{start,approve:vi.fn(),dispose:vi.fn()}} projectPhase={1} projectPhaseLabel="需求架构规范" projectSidePanel={<div>交付物</div>} projectApprovalPanel={<div>审批</div>} projectSideLabel="交付物"/></RootErrorBoundary>)
+ await screen.findByText('还没有消息')
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'画一下架构图')
+ await expect(user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))).resolves.toBeUndefined()
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(start.mock.calls[0][0]).toMatchObject({sessionId:S,projectId:P,projectPhase:1,projectPhaseLabel:'需求架构规范'})
+ expect(screen.queryByText('界面遇到了一个错误')).toBeNull()
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'delta',delta:{text:'```mermaid\nflowchart TD\nsubgraph ui["界面"]\nA["工作台"]\nend\nA-->B\n```'}}))
+ expect(screen.getByRole('status')).toBeInTheDocument()
+ expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
 })

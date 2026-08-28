@@ -23,3 +23,10 @@ it('keeps the stream live and updates command output summaries', () => {
   expect(entry.terminal).toBe(true)
   expect(entry.state.chatStatus).toBe('done')
 })
+
+it('does not throw when a panel listener fails mid-stream', () => {
+  const entry = startLiveChat('session-throw')
+  entry.listeners.add(() => { throw new Error('panel exploded') })
+  expect(() => applyLiveChatEvent(entry, { ...base, type: 'delta', delta: { text: 'hello' } })).not.toThrow()
+  expect(entry.state.assistantText).toBe('hello')
+})

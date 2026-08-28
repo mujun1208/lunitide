@@ -106,6 +106,7 @@ type Store interface {
 	ReplaceDocs(ctx context.Context, meetingID string, docs []Doc) error
 	ListDocs(ctx context.Context, meetingID string) ([]Doc, error)
 	HasRecording(ctx context.Context) (bool, error)
+	DeleteMeeting(ctx context.Context, id string) error
 }
 
 type Service struct {
@@ -366,6 +367,81 @@ func (s *Service) persistDocs(ctx context.Context, m Meeting) error {
 		{DocID: ulid.Make().String(), MeetingID: m.MeetingID, Kind: "markdown", Body: md, CreatedAt: now},
 		{DocID: ulid.Make().String(), MeetingID: m.MeetingID, Kind: "html", Body: htmlBody, CreatedAt: now},
 	})
+}
+
+type MeetingPatch struct {
+	Title      *string
+	Summary    *string
+	Actions    *string
+	Transcript *string
+}
+
+func (s *Service) Update(ctx context.Context, meetingID string, patch MeetingPatch) (Meeting, error) {
+	if err := s.ready(); err != nil {
+		return Meeting{}, err
+	}
+	if _, err := ulid.ParseStrict(meetingID); err != nil {
+		return Meeting{}, ErrInvalid
+	}
+	if patch.Title == nil && patch.Summary == nil && patch.Actions == nil && patch.Transcript == nil {
+		return Meeting{}, ErrInvalid
+	}
+	m, err := s.Get(ctx, meetingID)
+	if err != nil {
+		return Meeting{}, err
+	}
+	if m.Status == StatusRecording {
+		return Meeting{}, ErrNotRecording
+	}
+	if patch.Title != nil {
+		title := strings.TrimSpace(*patch.Title)
+		if title == "" || utf8.RuneCountInString(title) > maxTitle {
+			return Meeting{}, ErrInvalid
+		}
+		m.Title = title
+	}
+	if patch.Summary != nil {
+		m.Summary = clipRunes(strings.TrimSpace(*patch.Summary), maxSummary)
+	}
+	if patch.Actions != nil {
+		m.Actions = clipRunes(strings.TrimSpace(*patch.Actions), maxActions)
+	}
+	if patch.Transcript != nil {
+		m.Transcript = clipRunes(strings.TrimSpace(*patch.Transcript), maxTranscript)
+	}
+	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+		return Meeting{}, err
+	}
+	if err := s.persistDocs(ctx, m); err != nil {
+		return Meeting{}, err
+	}
+	return s.Get(ctx, meetingID)
+}
+
+func (s *Service) Delete(ctx context.Context, meetingID string) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if _, err := ulid.ParseStrict(meetingID); err != nil {
+		return ErrInvalid
+	}
+	m, err := s.store.GetMeeting(ctx, meetingID)
+	if err != nil {
+		return err
+	}
+	if m.Status == StatusRecording {
+		return ErrBusy
+	}
+	if err := s.store.DeleteMeeting(ctx, meetingID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.recording == meetingID {
+		s.recording = ""
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *Service) Export(ctx context.Context, meetingID, format, destPath string) (string, string, error) {

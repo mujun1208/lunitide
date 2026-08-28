@@ -50,6 +50,8 @@ function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
     get: vi.fn(),
     summarize: vi.fn(),
     exportMeeting: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
     ...overrides,
   }
 }
@@ -100,8 +102,8 @@ describe('MeetingPage', () => {
     expect(meetings.append).toHaveBeenCalledWith(expect.objectContaining({ meetingId, text: '先对齐范围' }))
     await user.click(screen.getByRole('button', { name: '停止' }))
     expect(await screen.findByRole('heading', { name: '会议摘要' })).toBeInTheDocument()
-    expect(screen.getByText('已对齐范围。')).toBeInTheDocument()
-    expect(screen.getByText('- 写纪要')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('已对齐范围。')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('- 写纪要')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '导出 Markdown' }))
     expect(meetings.exportMeeting).toHaveBeenCalledWith({ meetingId, format: 'markdown' })
     expect(await screen.findByText(/C:\/notes.md/)).toBeInTheDocument()
@@ -164,5 +166,35 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/离开页面后中断/)
     expect(meetings.stop).toHaveBeenCalledWith({ meetingId })
     expect(screen.getByRole('button', { name: '开始' })).toBeInTheDocument()
+  })
+
+  test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {
+    const past = { ...base, title: '评审会', status: 'ready' as const, summary: '对齐范围', actions: '- 导出安装包', transcript: '大家好' }
+    const updated = { ...past, summary: '改过的摘要', actions: '- 新待办', transcript: '改过的稿' }
+    const meetings = bridge({
+      list: vi.fn().mockResolvedValue({ items: [past] }),
+      get: vi.fn().mockResolvedValue(past),
+      update: vi.fn().mockResolvedValue(updated),
+      delete: vi.fn().mockResolvedValue({ meetingId: past.meetingId }),
+      exportMeeting: vi.fn().mockResolvedValue({ path: 'C:/edited.md', format: 'markdown' }),
+    })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    expect(await screen.findByRole('separator', { name: '调整会议列表宽度' })).toBeInTheDocument()
+    await user.click(screen.getByText('评审会'))
+    expect(await screen.findByDisplayValue('对齐范围')).toBeInTheDocument()
+    await user.clear(screen.getByRole('textbox', { name: '会议摘要' }))
+    await user.type(screen.getByRole('textbox', { name: '会议摘要' }), '改过的摘要')
+    await user.clear(screen.getByRole('textbox', { name: '决议/待办' }))
+    await user.type(screen.getByRole('textbox', { name: '决议/待办' }), '- 新待办')
+    await user.click(screen.getByRole('button', { name: '导出 Markdown' }))
+    await vi.waitFor(() => expect(meetings.update).toHaveBeenCalledWith(expect.objectContaining({
+      meetingId: past.meetingId, summary: '改过的摘要',
+    })))
+    expect(meetings.exportMeeting).toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '删除 评审会' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '确认删除' }))
+    await vi.waitFor(() => expect(meetings.delete).toHaveBeenCalledWith({ meetingId: past.meetingId }))
   })
 })

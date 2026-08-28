@@ -83,3 +83,16 @@ export function useCompanionMachine(): CompanionMachine {
     [snapshot.state, snapshot.rejected, dispatch, wouldReject],
   )
 }
+
+export const COMPANION_STATE_LABELS: Record<CompanionState, string> = {
+  idle: '待机',
+  listening: '聆听中',
+  thinking: '对答中',
+  speaking: '说话中',
+}
+
+/** Status pill must never say 聆听中 while she is actually talking. */
+export function companionSurfaceState(state: CompanionState, assistantAloud: boolean): CompanionState {
+  if (assistantAloud && state !== 'speaking') return 'speaking'
+  return state
+}

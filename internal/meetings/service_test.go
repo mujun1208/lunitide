@@ -167,3 +167,44 @@ func TestSummarizePassesCleanedTranscriptToCompleter(t *testing.T) {
 		t.Fatalf("notes = %#v", got)
 	}
 }
+
+func TestUpdateAndDeleteMeeting(t *testing.T) {
+	svc := testMeetings(t)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "评审", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, started.MeetingID); err != meetings.ErrBusy {
+		t.Fatalf("delete recording = %v", err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "大家好", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	summary := "改过的摘要"
+	actions := "- 新待办"
+	transcript := "改过的稿"
+	updated, err := svc.Update(ctx, started.MeetingID, meetings.MeetingPatch{
+		Summary: &summary, Actions: &actions, Transcript: &transcript,
+	})
+	if err != nil || updated.Summary != summary || updated.Actions != actions || updated.Transcript != transcript {
+		t.Fatalf("update = %#v %v", updated, err)
+	}
+	dest := filepath.Join(t.TempDir(), "edited.md")
+	if _, _, err := svc.Export(ctx, started.MeetingID, "markdown", dest); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(dest)
+	if err != nil || !strings.Contains(string(body), "改过的摘要") || !strings.Contains(string(body), "新待办") {
+		t.Fatalf("export = %s %v", body, err)
+	}
+	if err := svc.Delete(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Get(ctx, started.MeetingID); err != meetings.ErrNotFound {
+		t.Fatalf("get after delete = %v", err)
+	}
+}

@@ -87,18 +87,23 @@ func ccWindowTitle(ctx context.Context, invoke ccInvoker, session string, approv
 
 func fillSearchField(ctx context.Context, invoke ccInvoker, session string, field mediaUINode, query string, approved bool) error {
 	target := clipMediaName(field.Name)
+	role := strings.ToLower(strings.TrimSpace(field.Role))
 	if target != "" {
-		if _, err := ccCall(ctx, invoke, session, ccapp.ToolSetValue, map[string]any{
+		// SetValue first so tests and native Win32 edits still see a value
+		// write. Electron (汽水音乐) often reports success without filling
+		// the box — always follow with click + type.
+		_, _ = ccCall(ctx, invoke, session, ccapp.ToolSetValue, map[string]any{
 			"target": target, "value": query,
-		}, approved); err == nil {
-			mediaSleep(180 * time.Millisecond)
-			return ccPress(ctx, invoke, session, "enter", approved)
-		}
-		if err := ccClickName(ctx, invoke, session, target, 1, approved); err != nil {
+		}, approved)
+		if err := ccClickName(ctx, invoke, session, target, 1, approved); err != nil && role != "edit" && role != "combobox" {
 			return err
 		}
 	}
 	mediaSleep(180 * time.Millisecond)
+	if role == "button" || role == "menuitem" {
+		// Magnifying-glass / "搜索" button: wait for the edit to appear.
+		mediaSleep(220 * time.Millisecond)
+	}
 	_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "a")
 	mediaSleep(80 * time.Millisecond)
 	if err := ccType(ctx, invoke, session, query, approved); err != nil {
@@ -106,6 +111,26 @@ func fillSearchField(ctx context.Context, invoke ccInvoker, session string, fiel
 	}
 	mediaSleep(120 * time.Millisecond)
 	return ccPress(ctx, invoke, session, "enter", approved)
+}
+
+func tryOpenSearchWithShortcuts(ctx context.Context, invoke ccInvoker, session string, approved bool) ([]mediaUINode, error) {
+	for _, keys := range [][]string{
+		{"ctrl", "f"},
+		{"ctrl", "k"},
+		{"ctrl", "l"},
+	} {
+		_ = ccShortcut(ctx, invoke, session, approved, keys...)
+		mediaSleep(220 * time.Millisecond)
+		nodes, _, err := ccObserveNodes(ctx, invoke, session, approved)
+		if err != nil {
+			return nil, err
+		}
+		if pickSearchNode(nodes) != nil {
+			return nodes, nil
+		}
+	}
+	nodes, _, err := ccObserveNodes(ctx, invoke, session, approved)
+	return nodes, err
 }
 
 func activateAnyWindow(hints []string) error {
@@ -258,6 +283,21 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 		}
 	}
 
+	if search := pickSearchNode(nodes); search != nil && strings.EqualFold(search.Role, "button") {
+		_ = ccClickName(ctx, invoke, session, clipMediaName(search.Name), 1, approved)
+		mediaSleep(280 * time.Millisecond)
+		if next, _, obsErr := ccObserveNodes(ctx, invoke, session, approved); obsErr == nil {
+			nodes = next
+			if edit := pickSearchNode(nodes); edit != nil {
+				search = edit
+			}
+		}
+	}
+	if search := pickSearchNode(nodes); search == nil {
+		if next, openErr := tryOpenSearchWithShortcuts(ctx, invoke, session, approved); openErr == nil {
+			nodes = next
+		}
+	}
 	if search := pickSearchNode(nodes); search != nil {
 		if err := fillSearchField(ctx, invoke, session, *search, query, approved); err != nil {
 			return Result{}, fmt.Errorf("type search query: %w", err)

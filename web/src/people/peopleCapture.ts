@@ -71,7 +71,7 @@ export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Pr
   try {
     const canvas = await (options.grabFrame ?? grabVideoFrame)(stream)
     const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
-    return canvasToJpegFile(canvas, options.maxBytes ?? 180 * 1024, `screenshot-${stamp}.jpg`)
+    return canvasToJpegFile(canvas, options.maxBytes ?? 80 * 1024, `screenshot-${stamp}.jpg`)
   } finally {
     stream.getTracks().forEach(track => track.stop())
   }

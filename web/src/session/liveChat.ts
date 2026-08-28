@@ -62,49 +62,55 @@ export function subscribeLiveChat(sessionId: string, listener: (event: StreamEve
  *  the App activity spinner through the captured callback. */
 export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): void {
   if (entry.terminal) return
-  const state = entry.state
-  switch (event.type) {
-    case 'delta':
-      state.assistantText += event.delta.text
-      break
-    case 'thinking':
-      state.thinkingText += event.thinking.text
-      break
-    case 'usage':
-      state.usage = { inputTokens: event.usage.inputTokens, outputTokens: event.usage.outputTokens, totalTokens: event.usage.totalTokens }
-      break
-    case 'tool_started':
-    case 'tool_completed':
-    case 'approval_required': {
-      const next = { ...event.tool, status: event.type }
-      state.toolActivities = [...state.toolActivities.filter(x => x.callId !== next.callId), next]
-      break
+  try {
+    const state = entry.state
+    switch (event.type) {
+      case 'delta':
+        state.assistantText += event.delta?.text ?? ''
+        break
+      case 'thinking':
+        state.thinkingText += event.thinking?.text ?? ''
+        break
+      case 'usage':
+        if (event.usage) state.usage = { inputTokens: event.usage.inputTokens, outputTokens: event.usage.outputTokens, totalTokens: event.usage.totalTokens }
+        break
+      case 'tool_started':
+      case 'tool_completed':
+      case 'approval_required': {
+        const next = { ...event.tool, status: event.type }
+        state.toolActivities = [...state.toolActivities.filter(x => x.callId !== next.callId), next]
+        break
+      }
+      case 'tool_output': {
+        const existing = state.toolActivities.find(x => x.callId === event.tool.callId)
+        const next = { callId: event.tool.callId, name: event.tool.name, argsDigest: event.tool.argsDigest, status: existing?.status ?? 'tool_started', summary: event.tool.summary, artifact: existing?.artifact }
+        state.toolActivities = [...state.toolActivities.filter(x => x.callId !== next.callId), next]
+        break
+      }
+      case 'completed':
+        state.chatStatus = 'done'
+        entry.terminal = true
+        break
+      case 'cancelled':
+        state.chatStatus = 'cancelled'
+        entry.terminal = true
+        break
+      case 'failed':
+        state.chatStatus = 'failed'
+        state.error = { message: event.error?.message ?? 'stream failed', code: event.error?.code ?? 'STREAM_FAILED', retryable: event.error?.retryable ?? false }
+        entry.terminal = true
+        break
     }
-    case 'tool_output': {
-      const existing = state.toolActivities.find(x => x.callId === event.tool.callId)
-      const next = { callId: event.tool.callId, name: event.tool.name, argsDigest: event.tool.argsDigest, status: existing?.status ?? 'tool_started', summary: event.tool.summary, artifact: existing?.artifact }
-      state.toolActivities = [...state.toolActivities.filter(x => x.callId !== next.callId), next]
-      break
+    if (entry.terminal) {
+      entries.delete(entry.sessionId)
+      try { entry.activity?.(false) } catch { /* spinner must not kill the host */ }
     }
-    case 'completed':
-      state.chatStatus = 'done'
-      entry.terminal = true
-      break
-    case 'cancelled':
-      state.chatStatus = 'cancelled'
-      entry.terminal = true
-      break
-    case 'failed':
-      state.chatStatus = 'failed'
-      state.error = { message: event.error.message, code: event.error.code, retryable: event.error.retryable }
-      entry.terminal = true
-      break
+    for (const listener of [...entry.listeners]) {
+      try { listener(event) } catch (err) { console.error('[lunitide] live chat listener', err) }
+    }
+  } catch (err) {
+    console.error('[lunitide] live chat event', err)
   }
-  if (entry.terminal) {
-    entries.delete(entry.sessionId)
-    entry.activity?.(false)
-  }
-  for (const listener of [...entry.listeners]) listener(event)
 }
 
 /** Retire an entry without a terminal stream event (chat.start itself

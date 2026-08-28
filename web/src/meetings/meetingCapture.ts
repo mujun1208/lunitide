@@ -1,4 +1,4 @@
-const SYSTEM_AUDIO_HINT = '当前环境无法收录本机系统声音。只会转写麦克风。这不会把桌面共享给其他电脑。'
+const SYSTEM_AUDIO_HINT = '当前环境无法收录本机系统声音。只会转写麦克风。请在窗口选择器里点腾讯会议、飞书或浏览器标签页以收录对面说话；取消则不会开这场会。这不会把桌面共享给其他电脑。'
 
 export type CaptureThisPcSystemAudioOptions = {
   getDisplayMedia?: MediaDevices['getDisplayMedia']
