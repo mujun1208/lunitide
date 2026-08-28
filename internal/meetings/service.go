@@ -40,7 +40,7 @@ const (
 	maxSummary    = 65536
 	maxActions    = 32768
 	maxList       = 200
-	maxSegments   = 4000
+	maxSegments   = 20000
 )
 
 type Status string
@@ -102,6 +102,7 @@ type Store interface {
 	GetMeeting(ctx context.Context, id string) (Meeting, error)
 	ListMeetings(ctx context.Context, limit int) ([]Meeting, error)
 	InsertSegment(ctx context.Context, seg Segment) error
+	CountSegments(ctx context.Context, meetingID string) (int, error)
 	ListSegments(ctx context.Context, meetingID string) ([]Segment, error)
 	ReplaceDocs(ctx context.Context, meetingID string, docs []Doc) error
 	ListDocs(ctx context.Context, meetingID string) ([]Doc, error)
@@ -219,18 +220,18 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 	if m.Status != StatusRecording {
 		return Segment{}, ErrNotRecording
 	}
-	existing, err := s.store.ListSegments(ctx, meetingID)
+	n, err := s.store.CountSegments(ctx, meetingID)
 	if err != nil {
 		return Segment{}, err
 	}
-	if len(existing) >= maxSegments {
+	if n >= maxSegments {
 		return Segment{}, ErrInvalid
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	seg := Segment{
 		SegmentID: ulid.Make().String(),
 		MeetingID: meetingID,
-		Seq:       len(existing) + 1,
+		Seq:       n + 1,
 		StartedMS: startedMS,
 		Text:      text,
 		CreatedAt: now,
@@ -238,7 +239,35 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 	if err := s.store.InsertSegment(ctx, seg); err != nil {
 		return Segment{}, err
 	}
+	m.UpdatedAt = now
+	_ = s.store.UpdateMeeting(ctx, m)
 	return seg, nil
+}
+
+func (s *Service) Heartbeat(ctx context.Context, meetingID string) (Meeting, error) {
+	if err := s.ready(); err != nil {
+		return Meeting{}, err
+	}
+	if _, err := ulid.ParseStrict(meetingID); err != nil {
+		return Meeting{}, ErrInvalid
+	}
+	m, err := s.store.GetMeeting(ctx, meetingID)
+	if err != nil {
+		return Meeting{}, err
+	}
+	if m.Status != StatusRecording {
+		return Meeting{}, ErrNotRecording
+	}
+	now := time.Now().UTC()
+	started, parseErr := time.Parse(time.RFC3339Nano, m.StartedAt)
+	if parseErr == nil && !now.Before(started) {
+		m.DurationMS = now.Sub(started).Milliseconds()
+	}
+	m.UpdatedAt = now.Format(time.RFC3339Nano)
+	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+		return Meeting{}, err
+	}
+	return m, nil
 }
 
 func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
@@ -324,7 +353,7 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	if s.complete == nil {
 		return s.finishNeedsSummary(ctx, m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
 	}
-	notes, err := s.complete(ctx, m.Title, CleanTranscript(m.Transcript))
+	notes, err := SummarizeLong(ctx, s.complete, m.Title, CleanTranscript(m.Transcript))
 	if err != nil {
 		return s.finishNeedsSummary(ctx, m, "尚未生成摘要："+err.Error())
 	}

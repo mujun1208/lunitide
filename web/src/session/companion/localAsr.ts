@@ -154,6 +154,27 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     callbacks.onError?.(error instanceof Error ? error : new Error(String(error)))
   }
 
+  const retryableVoice = (error: unknown) => {
+    if (!error || typeof error !== 'object') return false
+    if ('retryable' in error && Boolean((error as { retryable?: unknown }).retryable)) return true
+    const code = 'code' in error ? String((error as { code: unknown }).code) : ''
+    return code === 'REQUEST_DEADLINE_EXCEEDED' || code === 'HOST_BUSY' || code === 'STORAGE_UNAVAILABLE'
+  }
+
+  const recoverSession = async () => {
+    if (closed) return
+    const dying = sessionId
+    sessionId = ''
+    fed = false
+    if (dying) void bridge.stop({ sessionId: dying }).catch(() => {})
+    const opened = await bridge.start({ language: 'zh-CN' })
+    if (closed) {
+      void bridge.stop({ sessionId: opened.sessionId }).catch(() => {})
+      return
+    }
+    sessionId = opened.sessionId
+  }
+
   /**
    * Audio captured while an append is in flight, waiting its turn.
    *
@@ -200,8 +221,27 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
         // utterance the caller has already been given.
         if (result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
       })
-      .catch(error => {
-        if (owner === sessionId) fail(error)
+      .catch(async error => {
+        if (closed || owner !== sessionId) return
+        if (retryableVoice(error)) {
+          try {
+            const result = await bridge.append({ sessionId: owner, pcm })
+            if (result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
+            return
+          } catch {
+            try {
+              swapping = true
+              await recoverSession()
+              return
+            } catch (recoverErr) {
+              fail(recoverErr)
+              return
+            } finally {
+              swapping = false
+            }
+          }
+        }
+        fail(error)
       })
       .finally(() => {
         inFlight = false

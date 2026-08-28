@@ -18,7 +18,12 @@ let captureRejects: Error | undefined
 
 vi.mock('../../bridge/client', () => ({
   getVoiceBridge: () => bridge,
-  BridgeClientError: class extends Error {},
+  BridgeClientError: class BridgeClientError extends Error {
+    constructor(message: string, public code = '', public retryable = false) {
+      super(message)
+      this.name = 'BridgeClientError'
+    }
+  },
 }))
 
 vi.mock('./pcmCapture', () => ({
@@ -206,6 +211,25 @@ describe('startLocalAsr', () => {
     expect(onError).toHaveBeenCalledTimes(1)
     expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
     expect(stopCapture).toHaveBeenCalled()
+  })
+
+  it('retries a timed-out frame and keeps listening', async () => {
+    const { BridgeClientError } = await import('../../bridge/client')
+    const onError = vi.fn()
+    bridge.append
+      .mockRejectedValueOnce(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, 'trace'))
+      .mockResolvedValueOnce({ text: '继续', final: false })
+
+    const onTranscript = vi.fn()
+    await startLocalAsr({ onError, onTranscript })
+    emitFrame(frame())
+    await settle()
+    await settle()
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(stopCapture).not.toHaveBeenCalled()
+    expect(bridge.append).toHaveBeenCalledTimes(2)
+    expect(onTranscript).toHaveBeenCalledWith('继续', false)
   })
 
   it('reports a lost microphone once, not once per frame', async () => {

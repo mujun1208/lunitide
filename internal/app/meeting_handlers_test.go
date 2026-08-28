@@ -158,3 +158,33 @@ func TestMeetingNotesSystemAsksForActionsAndConclusions(t *testing.T) {
 		}
 	}
 }
+
+func TestMeetingsHandlersHeartbeatAndLongDeadline(t *testing.T) {
+	e, _ := newMeetingsEngine(t)
+	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"title": "长会"})
+	id, _ := started["meetingId"].(string)
+	beat := meetingsOK[map[string]any](t, e, "meetings.heartbeat", map[string]any{"meetingId": id})
+	if beat["status"] != "recording" || beat["meetingId"] != id {
+		t.Fatalf("heartbeat = %#v", beat)
+	}
+	meetingsOK[map[string]any](t, e, "meetings.append", map[string]any{"meetingId": id, "text": "先对齐范围"})
+	req := validRequest("meetings.append", `{"meetingId":"`+id+`","text":"继续讨论"}`)
+	req.DeadlineMS = 120_000
+	resp := e.Handle(context.Background(), req)
+	if !resp.OK {
+		t.Fatalf("append with 120s deadline = %+v", resp.Error)
+	}
+	sumReq := validRequest("meetings.summarize", `{"meetingId":"`+id+`"}`)
+	sumReq.DeadlineMS = 600_000
+	// still recording: summarize must not be accepted, but the deadline itself must be.
+	sumResp := e.Handle(context.Background(), sumReq)
+	if sumResp.OK || sumResp.Error == nil || sumResp.Error.Code == "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("summarize deadline should be legal while recording: %+v", sumResp.Error)
+	}
+	health := validRequest("system.health", `{}`)
+	health.DeadlineMS = 120_000
+	denied := e.Handle(context.Background(), health)
+	if denied.OK || denied.Error == nil || denied.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("health must keep the 30s cap: %+v", denied)
+	}
+}

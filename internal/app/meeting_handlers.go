@@ -85,6 +85,23 @@ func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge
 	return bridge.Success(r.ID, publicMeeting(m, true))
 }
 
+func handleMeetingsHeartbeat(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		MeetingID string `json:"meetingId"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.heartbeat 参数无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	m, err := e.meetings.Heartbeat(ctx, p.MeetingID)
+	if err != nil {
+		return meetingsFailure(r, err)
+	}
+	return bridge.Success(r.ID, publicMeeting(m, false))
+}
+
 func handleMeetingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		MeetingID string `json:"meetingId"`

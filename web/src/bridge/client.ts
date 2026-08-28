@@ -137,6 +137,7 @@ import {
   type MeetingsListResult, type MeetingsStartPayload, type MeetingsStartResult,
   type MeetingsAppendPayload, type MeetingsAppendResult, type MeetingsStopPayload, type MeetingsStopResult,
   type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
+  type MeetingsHeartbeatPayload, type MeetingsHeartbeatResult,
   type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
@@ -458,12 +459,39 @@ export function getAutomationBridge():AutomationBridge{return automationSingleto
 export const automationBridge:AutomationBridge={listJobs:()=>{try{return getAutomationBridge().listJobs()}catch(error){return Promise.reject(error)}},setJob:p=>{try{return getAutomationBridge().setJob(p)}catch(error){return Promise.reject(error)}},deleteJob:p=>{try{return getAutomationBridge().deleteJob(p)}catch(error){return Promise.reject(error)}},triggerJob:p=>{try{return getAutomationBridge().triggerJob(p)}catch(error){return Promise.reject(error)}},listRuns:p=>{try{return getAutomationBridge().listRuns(p)}catch(error){return Promise.reject(error)}},status:()=>{try{return getAutomationBridge().status()}catch(error){return Promise.reject(error)}}}
 
 // This-PC meeting notes — microphone transcript, then 摘要/待办/逐字稿. Never mixes into session.* or people P2P.
+export const BRIDGE_DEADLINE_CAP_MS = 30_000
+export const MEETING_APPEND_DEADLINE_MS = 120_000
+export const MEETING_STOP_DEADLINE_MS = 120_000
+export const MEETING_HEARTBEAT_DEADLINE_MS = 120_000
+export const MEETING_SUMMARIZE_DEADLINE_MS = 600_000
+export const MEETING_HEARTBEAT_INTERVAL_MS = 20_000
+export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
+  let cap = BRIDGE_DEADLINE_CAP_MS
+  if (method === 'meetings.summarize') cap = MEETING_SUMMARIZE_DEADLINE_MS
+  else if (method === 'meetings.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
+  else if (method === 'appUpdate.install') cap = 120_000
+  return Math.min(cap, Math.max(1, deadlineMs))
+}
+const isRetryableBridgeError = (error: unknown) => error instanceof BridgeClientError && error.retryable
+async function retryBridgeRequest<T>(op: () => Promise<T>, attempts = 4): Promise<T> {
+  let last: unknown
+  for (let i = 0; i < attempts; i++) {
+    try { return await op() }
+    catch (error) {
+      last = error
+      if (i === attempts - 1 || !isRetryableBridgeError(error)) throw error
+      await new Promise<void>(resolve => { window.setTimeout(resolve, 350 * (i + 1)) })
+    }
+  }
+  throw last
+}
 export interface MeetingsBridge{
   list():Promise<MeetingsListResult>
   start(payload?:MeetingsStartPayload):Promise<MeetingDTO>
   append(payload:MeetingsAppendPayload):Promise<MeetingSegmentDTO>
   stop(payload:MeetingsStopPayload):Promise<MeetingDTO>
   get(payload:MeetingsGetPayload):Promise<MeetingDTO>
+  heartbeat(payload:MeetingsHeartbeatPayload):Promise<MeetingDTO>
   summarize(payload:MeetingsSummarizePayload):Promise<MeetingDTO>
   exportMeeting(payload:MeetingsExportPayload):Promise<MeetingsExportResult>
   update(payload:MeetingsUpdatePayload):Promise<MeetingDTO>
@@ -474,10 +502,11 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
   return{
     list:()=>core.request('meetings.list',{}),
     start:p=>core.request('meetings.start',p??{}),
-    append:p=>core.request('meetings.append',p),
-    stop:p=>core.request('meetings.stop',p),
-    get:p=>core.request('meetings.get',p),
-    summarize:p=>core.request('meetings.summarize',p,30_000),
+    append:p=>retryBridgeRequest(()=>core.request('meetings.append',p,MEETING_APPEND_DEADLINE_MS)),
+    stop:p=>core.request('meetings.stop',p,MEETING_STOP_DEADLINE_MS),
+    get:p=>core.request('meetings.get',p,MEETING_HEARTBEAT_DEADLINE_MS),
+    heartbeat:p=>retryBridgeRequest(()=>core.request('meetings.heartbeat',p,MEETING_HEARTBEAT_DEADLINE_MS)),
+    summarize:p=>core.request('meetings.summarize',p,MEETING_SUMMARIZE_DEADLINE_MS),
     exportMeeting:p=>core.request('meetings.export',p,30_000),
     update:p=>core.request('meetings.update',p),
     delete:p=>core.request('meetings.delete',p),
@@ -485,7 +514,7 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
 }
 let meetingsSingleton:MeetingsBridge|undefined
 export function getMeetingsBridge():MeetingsBridge{return meetingsSingleton??=createMeetingsBridge()}
-export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
+export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
@@ -508,7 +537,7 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
   const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
     const id = ulid(), traceId = ulid()
     const mutation = mutationMethods.has(method) ? checkedAttempt(method as MutationMethod, payload, attempt) : undefined
-    const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: mutation?.payload ?? clone(payload), deadlineMs: Math.min(30_000, Math.max(1, deadlineMs)), ...(mutation ? { idempotencyKey: mutation.key } : {}) }
+    const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: mutation?.payload ?? clone(payload), deadlineMs: capBridgeDeadlineMs(method, deadlineMs), ...(mutation ? { idempotencyKey: mutation.key } : {}) }
     return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => { pending.delete(id); reject(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, traceId)) }, message.deadlineMs + 250)
       pending.set(id, { resolve, reject, timer })
@@ -1162,7 +1191,7 @@ export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()
 // transfer measured in minutes.
 export type{VoiceStatusResult,VoiceInstallPayload,VoiceInstallResult,VoiceSelectPayload,VoiceSelectResult,VoiceStartPayload,VoiceStartResult,VoiceAppendPayload,VoiceAppendResult,VoiceFinishPayload,VoiceFinishResult,VoiceStopPayload,VoiceStopResult}
 export interface VoiceBridge{status():Promise<VoiceStatusResult>;install(payload?:VoiceInstallPayload):Promise<VoiceInstallResult>;select(payload:VoiceSelectPayload):Promise<VoiceSelectResult>;start(payload?:VoiceStartPayload):Promise<VoiceStartResult>;append(payload:VoiceAppendPayload):Promise<VoiceAppendResult>;finish(payload:VoiceFinishPayload):Promise<VoiceFinishResult>;stop(payload?:VoiceStopPayload):Promise<VoiceStopResult>}
-export function createVoiceBridge(transport:WebViewTransport=webview()):VoiceBridge{const core=createSimpleBridge(transport,{},8_000);const frameCore=createSimpleBridge(transport,{},2_000);const startCore=createSimpleBridge(transport,{},30_000);return{status:()=>core.request('voice.status',{}),install:payload=>core.request('voice.install',payload??{}),select:payload=>core.request('voice.select',payload),start:payload=>startCore.request('voice.start',payload??{}),append:payload=>frameCore.request('voice.append',payload),finish:payload=>core.request('voice.finish',payload),stop:payload=>core.request('voice.stop',payload??{})}}
+export function createVoiceBridge(transport:WebViewTransport=webview()):VoiceBridge{const core=createSimpleBridge(transport,{},8_000);const frameCore=createSimpleBridge(transport,{},8_000);const startCore=createSimpleBridge(transport,{},30_000);return{status:()=>core.request('voice.status',{}),install:payload=>core.request('voice.install',payload??{}),select:payload=>core.request('voice.select',payload),start:payload=>startCore.request('voice.start',payload??{}),append:payload=>frameCore.request('voice.append',payload),finish:payload=>core.request('voice.finish',payload),stop:payload=>core.request('voice.stop',payload??{})}}
 let voiceSingleton:VoiceBridge|undefined
 export function getVoiceBridge():VoiceBridge{return voiceSingleton??=createVoiceBridge()}
 

@@ -638,6 +638,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMeetingsAppend:                handleMeetingsAppend,
 	bridge.MethodMeetingsStop:                  handleMeetingsStop,
 	bridge.MethodMeetingsGet:                   handleMeetingsGet,
+	bridge.MethodMeetingsHeartbeat:             handleMeetingsHeartbeat,
 	bridge.MethodMeetingsSummarize:             handleMeetingsSummarize,
 	bridge.MethodMeetingsExport:                handleMeetingsExport,
 	bridge.MethodMeetingsUpdate:                handleMeetingsUpdate,
@@ -1486,7 +1487,7 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 	if request.Version != bridge.Version || request.Kind != "request" || len(request.IdempotencyKey) > 128 {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求协议无效", false)
 	}
-	if request.DeadlineMS < 1 || request.DeadlineMS > 30000 {
+	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求超时参数无效", false)
 	}
 	now := time.Now().UTC()

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { getMeetingsBridge, type MeetingsBridge } from '../bridge/client'
+import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, type MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
@@ -43,6 +43,21 @@ const loadIncludeSystem = () => {
   }
 }
 
+async function retryMeetingWrite<T>(op: () => Promise<T>): Promise<T> {
+  let last: unknown
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await op()
+    } catch (error) {
+      last = error
+      const retryable = error instanceof BridgeClientError && error.retryable
+      if (!retryable || attempt === 3) throw error
+      await new Promise<void>(resolve => { window.setTimeout(resolve, 350 * (attempt + 1)) })
+    }
+  }
+  throw last
+}
+
 export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: MeetingsBridge }): React.JSX.Element {
   const [items, setItems] = useState<MeetingDTO[]>([])
   const [current, setCurrent] = useState<MeetingDTO>()
@@ -64,13 +79,58 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const speechRef = useRef<CompanionSpeechHandle | null>(null)
   const captureRef = useRef<MeetingCapturePlan | undefined>(undefined)
   const tickRef = useRef<number>(0)
+  const heartbeatRef = useRef<number>(0)
   const appendChain = useRef(Promise.resolve())
+  const currentIdRef = useRef('')
 
   const refresh = useCallback(async () => {
     const listed = await meetings.list()
     setItems(listed.items)
     return listed.items
   }, [meetings])
+
+  const adopt = (next: MeetingDTO) => {
+    currentIdRef.current = next.meetingId
+    setCurrent(next)
+    setDraftSummary(next.summary || '')
+    setDraftActions(next.actions || '')
+    setDraftTranscript(next.transcript || '')
+    setItems(values => {
+      const rest = values.filter(item => item.meetingId !== next.meetingId)
+      return [next, ...rest]
+    })
+  }
+
+  const attachSpeech = async (meeting: MeetingDTO, plan: MeetingCapturePlan) => {
+    captureRef.current = plan
+    const handle = await startMeetingSpeech({
+      extraStreams: plan.extraStreams,
+      duplex: true,
+      spokenText: () => '',
+      onFinal: text => {
+        const id = meeting.meetingId
+        const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
+        appendChain.current = appendChain.current.then(() =>
+          retryMeetingWrite(() => meetings.append({ meetingId: id, text, startedMs })).then(seg => {
+            setCurrent(value => value && value.meetingId === id ? {
+              ...value,
+              segments: [...(value.segments ?? []), seg],
+              transcript: [value.transcript, seg.text].filter(Boolean).join('\n'),
+            } : value)
+            setInterim('')
+          }),
+        ).catch(error => {
+          if (currentIdRef.current === id) setNotice(error instanceof Error ? error.message : '转写写入失败')
+        })
+      },
+      onInterim: text => setInterim(text),
+      onError: error => {
+        if (currentIdRef.current === meeting.meetingId) setNotice(error.message)
+      },
+    })
+    speechRef.current = handle
+    if (plan.notice) setNotice(plan.notice)
+  }
 
   useEffect(() => {
     let alive = true
@@ -79,12 +139,20 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       const live = listed.find(item => item.status === 'recording')
       if (!live) return
       try {
-        const stopped = await meetings.stop({ meetingId: live.meetingId })
+        adopt(live)
+        const detail = await meetings.get({ meetingId: live.meetingId }).catch(() => live)
         if (!alive) return
-        adopt(stopped)
-        setNotice('上一场录制在离开页面后中断，已保存已有逐字稿。')
+        adopt(detail)
+        const wantMix = detail.audioSource === 'microphone_and_system'
+        setIncludeSystem(wantMix)
+        const plan = await prepareMeetingCapture(wantMix)
+        if (!alive) {
+          releaseMeetingCapture(plan)
+          return
+        }
+        await attachSpeech(detail, plan)
       } catch (error) {
-        if (alive) setNotice(error instanceof Error ? error.message : '无法结束中断的录制')
+        if (alive) setNotice(error instanceof Error ? error.message : '无法继续上一场录制')
       }
     }).catch(error => {
       if (alive) setNotice(error instanceof Error ? error.message : '无法读取会议记录')
@@ -104,22 +172,26 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     return () => window.clearInterval(tickRef.current)
   }, [current?.status, current?.startedAt])
 
+  useEffect(() => {
+    if (current?.status !== 'recording' || !meetings.heartbeat) {
+      window.clearInterval(heartbeatRef.current)
+      return
+    }
+    const id = current.meetingId
+    const pulse = () => {
+      void meetings.heartbeat({ meetingId: id }).catch(() => undefined)
+    }
+    pulse()
+    heartbeatRef.current = window.setInterval(pulse, MEETING_HEARTBEAT_INTERVAL_MS)
+    return () => window.clearInterval(heartbeatRef.current)
+  }, [current?.status, current?.meetingId, meetings])
+
   useEffect(() => () => {
     speechRef.current?.stop()
     releaseMeetingCapture(captureRef.current)
     window.clearInterval(tickRef.current)
+    window.clearInterval(heartbeatRef.current)
   }, [])
-
-  const adopt = (next: MeetingDTO) => {
-    setCurrent(next)
-    setDraftSummary(next.summary || '')
-    setDraftActions(next.actions || '')
-    setDraftTranscript(next.transcript || '')
-    setItems(values => {
-      const rest = values.filter(item => item.meetingId !== next.meetingId)
-      return [next, ...rest]
-    })
-  }
 
   const start = async () => {
     if (busy) return
@@ -129,33 +201,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     let plan: MeetingCapturePlan | undefined
     try {
       plan = await prepareMeetingCapture(includeSystem)
-      captureRef.current = plan
       const started = await meetings.start({ audioSource: plan.audioSource })
       adopt(started)
       try {
-        const handle = await startMeetingSpeech({
-          extraStreams: plan.extraStreams,
-          duplex: true,
-          spokenText: () => '',
-          onFinal: text => {
-            const id = started.meetingId
-            const startedMs = Math.max(0, Date.now() - Date.parse(started.startedAt))
-            appendChain.current = appendChain.current.then(() =>
-              meetings.append({ meetingId: id, text, startedMs }).then(seg => {
-                setCurrent(value => value && value.meetingId === id ? {
-                  ...value,
-                  segments: [...(value.segments ?? []), seg],
-                  transcript: [value.transcript, seg.text].filter(Boolean).join('\n'),
-                } : value)
-                setInterim('')
-              }),
-            ).catch(error => setNotice(error instanceof Error ? error.message : '转写写入失败'))
-          },
-          onInterim: text => setInterim(text),
-          onError: error => setNotice(error.message),
-        })
-        speechRef.current = handle
-        if (plan.notice) setNotice(plan.notice)
+        await attachSpeech(started, plan)
       } catch (speechError) {
         await meetings.stop({ meetingId: started.meetingId }).catch(() => undefined)
         throw speechError
