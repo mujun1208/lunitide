@@ -28,6 +28,7 @@ import {
   stripTaskDonePhrases,
   takeSpeakableChunk,
   accumulateSpeakableCaption,
+  repairOpenCommandTranscript,
 } from './companionText'
 
 describe('cleanForSpeech', () => {
@@ -171,6 +172,10 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('帮我打开桌面')).toBe(false)
     expect(looksIncompleteUtterance('打开网页')).toBe(false)
     expect(looksIncompleteUtterance('打开网易云音乐')).toBe(false)
+    expect(looksIncompleteUtterance('把开了')).toBe(true)
+    expect(looksIncompleteUtterance('把开了我把它桌面上的')).toBe(true)
+    expect(looksIncompleteUtterance('打开桌面上的')).toBe(true)
+    expect(looksIncompleteUtterance('打开桌面上的协议文档')).toBe(false)
   })
 })
 
@@ -201,6 +206,16 @@ describe('cleanUserTranscript', () => {
     expect(cleanUserTranscript('下一句，打开悦溪的店面')).toBe('下一句，打开月汐的桌面')
     expect(cleanUserTranscript('先写 b r d')).toBe('先写 BRD')
     expect(cleanUserTranscript('先写brd')).toBe('先写BRD')
+    expect(cleanUserTranscript('把开了我把它桌面上的')).toBe('打开桌面上的')
+    expect(cleanUserTranscript('把开了')).toBe('打开')
+    expect(cleanUserTranscript('打开桌面上的协议文档')).toBe('打开桌面上的协议文档')
+  })
+})
+
+describe('repairOpenCommandTranscript', () => {
+  test('recovers 打开/把开 homophones into a desktop-open command', () => {
+    expect(repairOpenCommandTranscript('把开了我把它桌面上的协议文档')).toBe('打开桌面上的协议文档')
+    expect(repairOpenCommandTranscript('把开桌面上的协议')).toBe('打开桌面上的协议')
   })
 })
 
@@ -253,6 +268,15 @@ describe('accumulateSpeakableCaption', () => {
     expect(accumulateSpeakableCaption('在的。', '在的。我在听。')).toBe('在的。我在听。')
     expect(accumulateSpeakableCaption('在的。我在听。', '我在听。')).toBe('在的。我在听。')
     expect(accumulateSpeakableCaption('人生：优质台湾腔', '在的。')).toBe('在的。')
+  })
+
+  test('grows a last-token paint into the full sentence including 问', () => {
+    let caption = ''
+    for (const piece of ['当', '然可以啦，你有什么问', '题']) {
+      caption = accumulateSpeakableCaption(caption, piece)
+    }
+    expect(caption).toBe('当然可以啦，你有什么问题')
+    expect(caption.endsWith('问')).toBe(false)
   })
 })
 

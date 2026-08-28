@@ -62,6 +62,9 @@ func TestDesktopNameScoreSkipsLockfiles(t *testing.T) {
 	if desktopNameScore("协议.docx", "协议") != 100 {
 		t.Fatal("exact stem should score 100")
 	}
+	if desktopNameScore("协议.docx", "协议文档") < 70 {
+		t.Fatal("协议文档 must still match 协议.docx")
+	}
 	if desktopNameScore("网易云音乐.lnk", "网") != 0 {
 		t.Fatal("single-rune query must not substring-match")
 	}
@@ -85,6 +88,40 @@ func TestCanonicalMusicAppResolvesNetease(t *testing.T) {
 	}
 	if got := CanonicalMusicAppFromText("打开桌面网易云音乐软件，搜索周杰伦歌曲，放一首"); got != "网易云音乐" {
 		t.Fatalf("exact user utterance app = %q", got)
+	}
+}
+
+func TestDesktopQueryCandidatesFromOpenUtterance(t *testing.T) {
+	got := desktopQueryCandidates("打开桌面上的协议文档")
+	joined := strings.Join(got, ",")
+	if !strings.Contains(joined, "协议") {
+		t.Fatalf("candidates %v must include 协议", got)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "协议.docx"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var opened string
+	for _, q := range got {
+		path, _, err := pickDesktopNamedFile(dir, q)
+		if err != nil {
+			continue
+		}
+		if path != "" {
+			opened = filepath.Base(path)
+			break
+		}
+	}
+	if opened != "协议.docx" {
+		t.Fatalf("opened %q from %v", opened, got)
+	}
+}
+
+func TestDesktopQueryCandidatesRecoversBaKai(t *testing.T) {
+	got := desktopQueryCandidates("把开了我把它桌面上的协议文档")
+	joined := strings.Join(got, ",")
+	if !strings.Contains(joined, "协议") {
+		t.Fatalf("把开 utterance candidates %v", got)
 	}
 }
 

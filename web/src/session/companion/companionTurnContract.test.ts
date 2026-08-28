@@ -168,4 +168,17 @@ describe('字幕与说话状态', () => {
     expect(caption).toBe('在的。我在听，请说。')
     expect(caption).not.toBe('请说。')
   })
+
+  test('assistant caption grows to the full sentence, including 问', () => {
+    let caption = ''
+    for (const piece of ['当', '然可以啦，你有什么问', '题']) {
+      caption = accumulateSpeakableCaption(caption, piece)
+    }
+    expect(caption).toBe('当然可以啦，你有什么问题')
+  })
+
+  test('「打开桌面上的协议文档」survives ASR 把开 and stays a command', () => {
+    expect(cleanUserTranscript('把开了我把它桌面上的协议文档')).toBe('打开桌面上的协议文档')
+    expect(shouldAcceptUserTranscript({ ...listening, text: '打开桌面上的协议文档' })).toBe(true)
+  })
 })

@@ -7,6 +7,8 @@ import {
   TURN_END_INCOMPLETE_SILENCE_MS,
   TURN_END_SILENCE_MS,
   TURN_END_TEXT_SETTLE_MS,
+  STUCK_TRANSCRIPT_MS,
+  shouldForceCommitUtterance,
   turnEnded,
 } from './speech'
 import {
@@ -87,5 +89,44 @@ describe('对话模式多轮契约（云端 / 本地 / MiniCPM-o 共用）', () 
       expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false })).toBe(true)
     }
     expect(shouldKeepHandsFreeLoop({ exited: true, userPausedMic: false })).toBe(false)
+  })
+
+  test('eight more rounds after a speak cycle still accept the next question', () => {
+    let lastSpoken = '当然可以啦，你有什么问题'
+    for (let round = 0; round < 8; round += 1) {
+      const heard = cleanUserTranscript(`下一轮问题${round + 1}`)
+      expect(shouldAcceptUserTranscript({
+        state: 'listening',
+        text: heard,
+        lastSpoken,
+        lastAssistant: lastSpoken,
+      })).toBe(true)
+      expect(turnEnded({
+        speechActive: true,
+        silentForMs: 0,
+        msSinceLastResult: 1400,
+        incomplete: false,
+      })).toBe(false)
+      expect(shouldForceCommitUtterance({
+        speechActive: true,
+        silentForMs: 0,
+        textStableForMs: STUCK_TRANSCRIPT_MS,
+        incomplete: false,
+      })).toBe(true)
+      lastSpoken = `好的，这是第${round + 1}轮回答。`
+      expect(looksLikePlaybackEcho(lastSpoken, lastSpoken)).toBe(true)
+      expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false })).toBe(true)
+    }
+  })
+
+  test('「打开桌面上的协议文档」and 把开 garbles stay a desktop-open command', () => {
+    expect(cleanUserTranscript('打开桌面上的协议文档')).toBe('打开桌面上的协议文档')
+    expect(cleanUserTranscript('把开了我把它桌面上的协议文档')).toBe('打开桌面上的协议文档')
+    expect(shouldAcceptUserTranscript({
+      state: 'listening',
+      text: cleanUserTranscript('把开了我把它桌面上的协议文档'),
+      lastSpoken: '今晚是满月，适合抬头。',
+      lastAssistant: '今晚是满月，适合抬头。',
+    })).toBe(true)
   })
 })
