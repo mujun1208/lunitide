@@ -36,7 +36,7 @@ vi.mock('../companion/ttsPlayer', () => ({
   sharedTtsAudioContext: () => null,
 }))
 
-import { OMNI_MISSING_RUNTIME, OMNI_PROBE_MS, OMNI_APPEND_MS, omniChannelAvailable, omniStartBlock, probeOmniChannel, startOmniCompanion } from './omniAudio'
+import { OMNI_MISSING_RUNTIME, OMNI_PROBE_MS, OMNI_APPEND_MS, OMNI_SPEAK_IDLE_MS, omniChannelAvailable, omniStartBlock, omniStillSpeaking, probeOmniChannel, startOmniCompanion } from './omniAudio'
 
 beforeEach(() => {
   omni.status.mockReset()
@@ -124,4 +124,46 @@ test('stop does not recurse when onSpeaking(false) calls resumeListen', async ()
   expect(() => handle!.stop()).not.toThrow()
   handle!.stop()
   expect(onSpeaking.mock.calls.length).toBeLessThan(4)
+})
+
+test('omniStillSpeaking stays true while MiniCPM-o is still generating crumbs', () => {
+  expect(omniStillSpeaking({ generating: true, queuedWavs: 0, liveSources: 0, elementPlaying: false })).toBe(true)
+  expect(omniStillSpeaking({ generating: false, queuedWavs: 1, liveSources: 0, elementPlaying: false })).toBe(true)
+  expect(omniStillSpeaking({ generating: false, queuedWavs: 0, liveSources: 1, elementPlaying: false })).toBe(true)
+  expect(omniStillSpeaking({ generating: false, queuedWavs: 0, liveSources: 0, elementPlaying: true })).toBe(true)
+  expect(omniStillSpeaking({ generating: false, queuedWavs: 0, liveSources: 0, elementPlaying: false })).toBe(false)
+  expect(OMNI_SPEAK_IDLE_MS).toBeGreaterThanOrEqual(300)
+})
+
+test('does not drop speaking after two characters while later crumbs are still generating', async () => {
+  omni.ensure.mockResolvedValue({ ready: true, hostState: 'ready' })
+  omni.start.mockResolvedValue({ sessionId: 'omni-long' })
+  let resolveFirst!: (value: { text: string; listening: boolean; wavs: string[] }) => void
+  let resolveSecond!: (value: { text: string; listening: boolean; wavs: string[] }) => void
+  omni.append
+    .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
+  const onSpeaking = vi.fn()
+  const onText = vi.fn()
+  const handle = await startOmniCompanion({
+    personaId: 'refpack:优质台湾腔.wav',
+    onText,
+    onError: vi.fn(),
+    onSpeaking,
+  })
+  capture.onFrame?.({ base64: 'AAAA' })
+  capture.onFrame?.({ base64: 'BBBB' })
+  expect(handle.commitUserAudio()).toBe(true)
+  await Promise.resolve()
+  resolveFirst({ text: '当', listening: false, wavs: [] })
+  await vi.waitFor(() => expect(onText.mock.calls.at(-1)?.[0]).toContain('当'))
+  expect(onSpeaking).toHaveBeenCalledWith(true)
+  expect(onSpeaking.mock.calls.some(call => call[0] === false)).toBe(false)
+  resolveSecond({ text: '然可以啦，你有什么问题', listening: false, wavs: [] })
+  await vi.waitFor(() => expect(onText.mock.calls.at(-1)?.[0]).toContain('你有什么问题'))
+  expect(onSpeaking.mock.calls.some(call => call[0] === false)).toBe(false)
+  await vi.waitFor(() => expect(onSpeaking.mock.calls.some(call => call[0] === false)).toBe(true), {
+    timeout: OMNI_SPEAK_IDLE_MS + 1000,
+  })
+  handle.stop()
 })

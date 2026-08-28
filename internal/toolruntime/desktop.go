@@ -66,6 +66,9 @@ func desktopNameScore(base, query string) int {
 	if strings.HasPrefix(lowerStem, lowerQ) || strings.HasPrefix(stem, q) {
 		return 80
 	}
+	if utf8.RuneCountInString(stem) >= 2 && (strings.HasPrefix(lowerQ, lowerStem) || strings.HasPrefix(q, stem)) {
+		return 75
+	}
 	if strings.Contains(lowerStem, lowerQ) || strings.Contains(stem, q) {
 		return 50
 	}
@@ -126,14 +129,20 @@ func pickDesktopNamedFile(dir, query string) (string, []string, error) {
 // back to known install paths (e.g. cloudmusic.exe) and Start Menu
 // shortcuts (e.g. 汽水音乐 / 网易云音乐 when only installed globally).
 func pickLaunchTarget(query string) (string, []string, error) {
-	core := launchQueryCore(query)
-	if core == "" {
-		core = strings.TrimSpace(query)
+	searches := desktopQueryCandidates(query)
+	if len(searches) == 0 {
+		core := launchQueryCore(query)
+		if core == "" {
+			core = strings.TrimSpace(query)
+		}
+		searches = []string{core}
 	}
-	searches := []string{core}
-	if known, ok := matchKnownLaunchApp(core); ok {
-		if known.Canonical != core {
-			searches = append(searches, known.Canonical)
+	if canon := CanonicalMusicAppFromText(query); canon != "" {
+		searches = append([]string{canon}, searches...)
+	}
+	if known, ok := matchKnownLaunchApp(query); ok {
+		if known.Canonical != searches[0] {
+			searches = append([]string{known.Canonical}, searches...)
 		}
 		searches = append(searches, known.Aliases...)
 	}
@@ -148,8 +157,10 @@ func pickLaunchTarget(query string) (string, []string, error) {
 			}
 		}
 	}
-	if path, ok := pickKnownAppExecutable(core); ok {
-		return path, nil, nil
+	for _, q := range searches {
+		if path, ok := pickKnownAppExecutable(q); ok {
+			return path, nil, nil
+		}
 	}
 	for _, q := range searches {
 		path, others, err := pickStartMenuShortcut(q)

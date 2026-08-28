@@ -31,6 +31,10 @@ const OMNI_APPEND_FAILS_BEFORE_ERROR = 3
 /** 100ms frames × 300 = 30s of held user audio. */
 const MAX_HELD_FRAMES = 300
 const PLAYBACK_OVERLAP_S = 0.04
+/** Wait for the next MiniCPM-o wav crumb before declaring her turn over.
+ *  The first 1–2 character clip ending used to fire onSpeaking(false) and
+ *  CompanionStage resumeListen → stopPlayback, which killed the rest. */
+export const OMNI_SPEAK_IDLE_MS = 480
 
 export interface OmniChannelSnapshot {
   ready?: boolean
@@ -49,6 +53,16 @@ export function omniStartBlock(snap: OmniChannelSnapshot): string | undefined {
   if (snap.hostState === 'missing_runtime') return OMNI_MISSING_RUNTIME
   if (snap.hostState === 'failed') return snap.lastError || 'MiniCPM-o 启动失败'
   return undefined
+}
+
+/** Whether MiniCPM-o still has audio to play or tokens to generate. */
+export function omniStillSpeaking(input: {
+  generating: boolean
+  queuedWavs: number
+  liveSources: number
+  elementPlaying: boolean
+}): boolean {
+  return input.generating || input.queuedWavs > 0 || input.liveSources > 0 || input.elementPlaying
 }
 
 /** Whether MiniCPM-o can start a duplex session right now. Missing runtime/model is not fatal. */
@@ -97,19 +111,58 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   let holding = true
   let held: string[] = []
   let caption = ''
+  let generating = false
+  let speakIdleTimer = 0
   const wavQueue: string[] = []
   let audio: HTMLAudioElement | undefined
   let timelineEnd = 0
   const sources = new Set<AudioBufferSourceNode>()
 
+  const stillSpeaking = () =>
+    omniStillSpeaking({
+      generating,
+      queuedWavs: wavQueue.length,
+      liveSources: sources.size,
+      elementPlaying: !!audio,
+    })
+
+  const markSpeaking = () => {
+    if (stopped) return
+    if (!playing) {
+      playing = true
+      capture?.setMuted(true)
+      options.onSpeaking?.(true)
+    }
+  }
+
+  const notifyQuiet = () => {
+    window.clearTimeout(speakIdleTimer)
+    if (stopped || stillSpeaking()) return
+    const wasPlaying = playing
+    playing = false
+    capture?.setMuted(false)
+    if (wasPlaying) options.onSpeaking?.(false)
+  }
+
+  const scheduleQuiet = () => {
+    window.clearTimeout(speakIdleTimer)
+    if (stopped || stillSpeaking()) return
+    speakIdleTimer = window.setTimeout(notifyQuiet, OMNI_SPEAK_IDLE_MS)
+  }
+
   const paintCaption = (piece: string) => {
     const shown = stripTaskDonePhrases(piece)
     if (!shown || looksLikeOmniPersonaCaption(shown)) return
     caption = accumulateSpeakableCaption(caption, shown)
-    if (caption) options.onText(caption)
+    if (!caption) return
+    // Text crumbs mean she has started answering — do not wait for the
+    // first wav, or the pill stays 聆听中 while the caption is already hers.
+    if (generating) markSpeaking()
+    options.onText(caption)
   }
 
   const stopPlayback = () => {
+    window.clearTimeout(speakIdleTimer)
     const wasPlaying = playing
     wavQueue.length = 0
     playing = false
@@ -127,9 +180,8 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
       if (audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src)
       audio = undefined
     }
-    // Only notify a true→false edge. CompanionStage's onSpeaking(false)
-    // calls resumeListen → stopPlayback; an unconditional notify recurses
-    // until Maximum call stack size exceeded (RootErrorBoundary on exit).
+    // Only notify a true→false edge. CompanionStage used to call
+    // resumeListen from onSpeaking(false), which re-entered stopPlayback.
     if (wasPlaying) options.onSpeaking?.(false)
     capture?.setMuted(false)
   }
@@ -146,28 +198,23 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   }
 
   const playViaElement = (wav: string) => {
-    playing = true
-    capture?.setMuted(true)
-    options.onSpeaking?.(true)
+    markSpeaking()
     const bytes = Uint8Array.from(atob(wav), c => c.charCodeAt(0))
     const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
     const el = new Audio(url)
     audio = el
     el.onended = () => {
       URL.revokeObjectURL(url)
-      playing = false
       audio = undefined
       playNext()
     }
     el.onerror = () => {
       URL.revokeObjectURL(url)
-      playing = false
       audio = undefined
       playNext()
     }
     void el.play().catch(() => {
       URL.revokeObjectURL(url)
-      playing = false
       audio = undefined
       playNext()
     })
@@ -186,16 +233,14 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     const startAt = timelineEnd > ctx.currentTime ? timelineEnd - overlap : ctx.currentTime
     timelineEnd = startAt + buffer.duration
     sources.add(source)
-    playing = true
-    capture?.setMuted(true)
-    options.onSpeaking?.(true)
+    markSpeaking()
     source.onended = () => {
       sources.delete(source)
-      if (sources.size === 0 && wavQueue.length === 0 && !audio) {
-        playing = false
-        options.onSpeaking?.(false)
-        capture?.setMuted(false)
+      if (wavQueue.length > 0) {
+        playNext()
+        return
       }
+      scheduleQuiet()
     }
     try {
       source.start(startAt)
@@ -208,14 +253,10 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
 
   const playNext = () => {
     if (stopped) return
-    if (playing && audio) return
+    if (audio) return
     const wav = wavQueue.shift()
     if (!wav) {
-      if (sources.size === 0) {
-        playing = false
-        options.onSpeaking?.(false)
-        capture?.setMuted(false)
-      }
+      scheduleQuiet()
       return
     }
     void playViaContext(wav).then(ok => {
@@ -230,37 +271,47 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
 
   const enqueueWavs = (wavs: string[]) => {
     if (!wavs.length) return
+    window.clearTimeout(speakIdleTimer)
     for (const wav of wavs) wavQueue.push(wav)
     playNext()
   }
 
   const appendFrames = (frames: string[]) => {
     if (stopped || !sessionId || !frames.length) return
+    generating = true
+    window.clearTimeout(speakIdleTimer)
     appendChain = appendChain.then(async () => {
-      for (const pcm of frames) {
-        if (stopped || !sessionId) return
-        try {
-          const turn = await withTimeout(
-            getOmniBridge().append({ sessionId, pcm }),
-            OMNI_APPEND_MS,
-          )
-          appendFails = 0
-          if (stopped) return
-          paintCaption(turn.text)
-          enqueueWavs(turn.wavs)
-        } catch (err) {
-          appendFails += 1
-          if (!stopped && appendFails >= OMNI_APPEND_FAILS_BEFORE_ERROR) {
-            options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
-            return
+      try {
+        for (const pcm of frames) {
+          if (stopped || !sessionId) return
+          try {
+            const turn = await withTimeout(
+              getOmniBridge().append({ sessionId, pcm }),
+              OMNI_APPEND_MS,
+            )
+            appendFails = 0
+            if (stopped) return
+            paintCaption(turn.text)
+            enqueueWavs(turn.wavs)
+          } catch (err) {
+            appendFails += 1
+            if (!stopped && appendFails >= OMNI_APPEND_FAILS_BEFORE_ERROR) {
+              options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
+              return
+            }
           }
         }
+      } finally {
+        generating = false
+        scheduleQuiet()
       }
     })
   }
 
   const resumeListen = () => {
     if (stopped) return
+    generating = false
+    window.clearTimeout(speakIdleTimer)
     holding = true
     caption = ''
     stopPlayback()
@@ -271,6 +322,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     const frames = held
     held = []
     holding = false
+    caption = ''
     if (!frames.length) return false
     appendFrames(frames)
     return true
@@ -279,6 +331,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   const stop = () => {
     if (stopped) return
     stopped = true
+    generating = false
     held = []
     stopPlayback()
     void capture?.stop()

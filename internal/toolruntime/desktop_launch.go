@@ -73,7 +73,9 @@ var knownLaunchApps = []knownLaunchApp{
 	},
 }
 
-var launchOpenPrefix = regexp.MustCompile(`^(?:你)?(?:请)?(?:可以)?(?:帮我)?(?:打开|启动|运行)`)
+var launchOpenPrefix = regexp.MustCompile(`^(?:你)?(?:请)?(?:可以)?(?:帮我)?(?:给我)?(?:把开了?|打开了?|打开|启动|运行)`)
+var desktopLocPrefix = regexp.MustCompile(`^(?:一下)?(?:的)?(?:桌面上的|桌面的|桌面上|桌面里的|桌面里)`)
+var desktopDocSuffix = regexp.MustCompile(`(?:文档|文件)$`)
 
 func foldLaunchQuery(raw string) string {
 	q := strings.ToLower(strings.TrimSpace(raw))
@@ -83,10 +85,53 @@ func foldLaunchQuery(raw string) string {
 	return q
 }
 
-func launchQueryCore(query string) string {
+func normalizeLaunchQuery(query string) string {
 	q := strings.TrimSpace(query)
+	q = strings.ReplaceAll(q, "把开了", "打开")
+	q = strings.ReplaceAll(q, "把开", "打开")
+	q = strings.ReplaceAll(q, "把它桌面", "打开桌面")
+	q = strings.ReplaceAll(q, "打开了我", "打开")
+	q = strings.ReplaceAll(q, "打开我打开", "打开")
+	q = strings.ReplaceAll(q, "写意文档", "协议文档")
+	q = strings.ReplaceAll(q, "协意文档", "协议文档")
+	return q
+}
+
+func launchQueryCore(query string) string {
+	q := normalizeLaunchQuery(query)
 	q = launchOpenPrefix.ReplaceAllString(q, "")
+	q = desktopLocPrefix.ReplaceAllString(q, "")
 	return strings.TrimSpace(q)
+}
+
+func desktopQueryCandidates(query string) []string {
+	core := launchQueryCore(query)
+	if core == "" {
+		core = strings.TrimSpace(normalizeLaunchQuery(query))
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		switch s {
+		case "桌面", "的", "上的", "一下", "文件", "文档":
+			return
+		}
+		if utf8.RuneCountInString(s) < 2 {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	add(core)
+	add(desktopDocSuffix.ReplaceAllString(core, ""))
+	if i := strings.LastIndex(core, "的"); i >= 0 && i+len("的") < len(core) {
+		add(core[i+len("的"):])
+	}
+	return out
 }
 
 func matchKnownLaunchApp(query string) (knownLaunchApp, bool) {

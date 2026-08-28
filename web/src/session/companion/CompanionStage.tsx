@@ -177,6 +177,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const speechSyncRef = useRef<{ commitPaused: boolean; playback: boolean; echoGuardMs: number } | undefined>(undefined)
   const onSendRef = useRef(onSend)
   onSendRef.current = onSend
+  const omniVoiceActive = () =>
+    omniTurnRef.current ||
+    (settingsRef.current.voicePath === 'omni' && !!omniHandleRef.current && !omniFallbackRef.current)
 
   const shouldAwaitMoreReply = useCallback(
     () => chatStatusRef.current === 'streaming' && !!assistantTextRef.current.trim(),
@@ -347,9 +350,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
     }
     setRounds(current => {
-      const shown = accumulateSpeakableCaption(omniCaptionRef.current, stripTaskDonePhrases(text))
-      if (!shown.trim()) return current
+      const incoming = stripTaskDonePhrases(text)
       const last = current[current.length - 1]
+      const prev = last?.role === 'assistant' ? last.text : omniCaptionRef.current
+      const shown = accumulateSpeakableCaption(prev, incoming)
+      if (!shown.trim()) return current
+      omniCaptionRef.current = shown
       if (last?.role === 'assistant' && last.segments === undefined) {
         if (last.text === shown) return current
         return withCurrentAssistant(current, { ...last, text: shown })
@@ -369,7 +375,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   useEffect(() => {
     if (chatStatus !== 'done') return
     const text = assistantText.trim()
-    const shown = stripTaskDonePhrases(text)
+    const shown = accumulateSpeakableCaption(omniCaptionRef.current, stripTaskDonePhrases(text))
     if (!shown) return
     setRounds(current => {
       const last = current[current.length - 1]
@@ -395,7 +401,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   useEffect(() => {
     if (chatStatus !== 'streaming') return
     if (userInterruptedRef.current) return
-    if (omniTurnRef.current) return
+    if (omniTurnRef.current || omniVoiceActive()) return
     if (stateRef.current !== 'speaking' && stateRef.current !== 'thinking') return
     if (ttsAvailable === false || !settings.autoSpeak) return
     const flush = () => {
@@ -478,7 +484,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         machine.dispatch({ type: 'REPLY_TERMINAL' })
         return
       }
-      if (omniTurnRef.current) {
+      if (omniTurnRef.current || omniVoiceActive()) {
         if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
         return
       }
@@ -609,6 +615,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (machine.state !== 'speaking' || chatStatus !== 'streaming') return
     const timer = window.setInterval(() => {
       if (stateRef.current !== 'speaking' || chatStatusRef.current !== 'streaming') return
+      if (omniTurnRef.current) return
       if (playerRef.current?.isBusy()) return
       if (!assistantTextRef.current.trim()) return
       machine.dispatch({ type: 'AWAIT_MORE' })
@@ -809,6 +816,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   syncSpeechModesRef.current = syncSpeechModes
 
   const releaseSpeakingTurn = useCallback(() => {
+    if (omniTurnRef.current) return
     setGain(0)
     speakingRef.current = false
     setAssistantAloud(false)
@@ -831,6 +839,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const timer = window.setInterval(() => {
       if (stateRef.current !== 'speaking') return
       if (chatStatusRef.current === 'streaming') return
+      if (omniTurnRef.current) return
       if (playerRef.current?.isBusy()) return
       releaseSpeakingTurn()
     }, 350)
@@ -1070,11 +1079,16 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             captionHandleRef.current?.setAssistantPlayback(speaking)
             echoUntilRef.current = performance.now() + ECHO_GUARD_MS
             markAssistantAloud(speaking)
-            if (!speaking) {
-              omniTurnRef.current = false
-              if (!exitedRef.current) omniHandleRef.current?.resumeListen()
-              if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
+            if (speaking) {
+              omniTurnRef.current = true
+              return
             }
+            omniTurnRef.current = false
+            // Never resumeListen here. That stopPlayback() cut MiniCPM-o after
+            // the first 2-character wav. The idle auto-loop resumes listening
+            // once PLAYBACK_ENDED actually ends her turn.
+            if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
+            else if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
           },
         })
           .then(handle => {

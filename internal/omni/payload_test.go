@@ -131,6 +131,7 @@ func TestHostSnapshotRuntimeReadyModelOptional(t *testing.T) {
 	})
 	host := NewHost(root)
 	host.Payload = payload
+	isolateLoopback(host)
 	if err := host.EnsureRuntime(); err != nil {
 		t.Fatal(err)
 	}

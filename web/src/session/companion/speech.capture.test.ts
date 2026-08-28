@@ -265,6 +265,29 @@ describe('startCompanionSpeech capture graph', () => {
     handle.stop()
   })
 
+  test('after eight TTS rounds a new utterance still commits', async () => {
+    const onFinal = vi.fn()
+    const handle = await startCompanionSpeech({
+      duplex: true,
+      onFinal,
+      onError: vi.fn(),
+    })
+    for (let round = 0; round < 8; round += 1) {
+      handle.setAssistantPlayback(true)
+      recognition.onend?.()
+      handle.setAssistantPlayback(false)
+    }
+    recognition.onresult?.({
+      resultIndex: 0,
+      results: Object.assign([{ 0: { transcript: '下一句你好吗', confidence: 0.9 }, length: 1, isFinal: true }], { length: 1 }),
+    })
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect(onFinal).not.toHaveBeenCalled()
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    expect(onFinal).toHaveBeenCalledWith('下一句你好吗')
+    handle.stop()
+  })
+
   test('starts SpeechRecognition without waiting for AudioContext resume', async () => {
     resume.mockImplementation(() => new Promise(() => {}))
     const handle = await startCompanionSpeech({

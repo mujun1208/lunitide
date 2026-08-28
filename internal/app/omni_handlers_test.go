@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -127,12 +128,26 @@ func TestOmniAppendRejectsBadPayload(t *testing.T) {
 	}
 }
 
+func isolateOmniLoopback(host *omni.Host) {
+	host.HTTP = &http.Client{
+		Timeout: time.Second,
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("isolated from live MiniCPM-o")
+		}),
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestOmniStatusReportsRuntimeWithoutDownloadingModel(t *testing.T) {
 	root := t.TempDir()
 	payload := filepath.Join(t.TempDir(), omni.BundledRuntimeZip)
 	writeOmniStubZip(t, payload)
 	svc := NewOmniService(root)
 	svc.host.Payload = payload
+	isolateOmniLoopback(svc.host)
 	if err := svc.host.EnsureRuntime(); err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +174,8 @@ func TestOmniStartWithoutRuntimeDoesNotAskToCopyFiles(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	svc := NewOmniService(t.TempDir())
 	svc.host.Present = func() bool { return true }
+	svc.host.Finder = func() string { return "" }
+	isolateOmniLoopback(svc.host)
 	e.SetOmniService(svc)
 	resp := e.Handle(context.Background(), validRequest("omni.start", `{}`))
 	if resp.OK || resp.Error == nil || resp.Error.Code != "OMNI-002" {

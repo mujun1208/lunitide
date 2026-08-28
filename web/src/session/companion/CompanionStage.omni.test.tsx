@@ -252,6 +252,53 @@ test('MiniCPM-o turn: full user caption, full assistant line, 说话中, and cha
   expect(container.textContent).not.toContain('人生：')
 })
 
+test('MiniCPM-o caption grows to the full sentence and does not resumeListen on the first onSpeaking(false)', async () => {
+  omniAudio.probe.mockResolvedValue(true)
+  const { container } = render(<CompanionStage {...baseProps} />)
+  await flush(80)
+  await act(async () => {
+    speech.callbacks!.onFinal('你好月汐')
+  })
+  await act(async () => {
+    omniAudio.options!.onText('当')
+    omniAudio.options!.onText('然可以啦，你有什么问')
+    omniAudio.options!.onSpeaking?.(true)
+  })
+  expect(container.textContent).toContain('当然可以啦，你有什么问')
+  expect(container.querySelector('.companion-status')?.textContent).toContain('说话中')
+  omniAudio.resumeListen.mockClear()
+  await act(async () => {
+    omniAudio.options!.onText('题')
+  })
+  expect(container.textContent).toContain('当然可以啦，你有什么问题')
+  await act(async () => {
+    omniAudio.options!.onSpeaking?.(false)
+  })
+  expect(omniAudio.resumeListen).not.toHaveBeenCalled()
+})
+
+test('eight MiniCPM-o rounds after a speak cycle still send chat.start', async () => {
+  omniAudio.probe.mockResolvedValue(true)
+  const { container } = render(<CompanionStage {...baseProps} />)
+  await flush(80)
+  for (let i = 0; i < 8; i++) {
+    await act(async () => {
+      speech.callbacks!.onFinal(`第${i + 1}轮你好`)
+    })
+    expect(baseProps.onSend).toHaveBeenLastCalledWith(`第${i + 1}轮你好`)
+    await act(async () => {
+      omniAudio.options!.onText('当然可以啦，你有什么问题')
+      omniAudio.options!.onSpeaking?.(true)
+    })
+    expect(container.querySelector('.companion-status')?.textContent).toContain('说话中')
+    await act(async () => {
+      omniAudio.options!.onSpeaking?.(false)
+    })
+    await flush(80)
+  }
+  expect(baseProps.onSend).toHaveBeenCalledTimes(8)
+})
+
 test('a hung MiniCPM-o probe still starts caption ASR so talking is not dead air', async () => {
   omniAudio.probe.mockReturnValue(new Promise(() => {}))
   const { container, unmount } = render(<CompanionStage {...baseProps} />)
