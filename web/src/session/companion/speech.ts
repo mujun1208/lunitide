@@ -258,15 +258,22 @@ export function shouldForceCommitUtterance(input: {
   const quiet = input.incomplete
     ? (input.incompleteSilenceMs ?? TURN_END_INCOMPLETE_SILENCE_MS)
     : (input.silenceMs ?? TURN_END_SILENCE_MS)
-  // Live analyser energy is the only “still talking” signal we trust.
-  // Windows can leave speechActive true after a zombie session; that is
-  // handled by not refreshing lastVoiceAt on same-text repeats, so
-  // silentForMs can grow. Do not punch through a live voice floor — that
-  // is how 「打开网」committed while they were still saying 易云音乐.
+  // A caption that has not grown for the product window is a finished turn.
+  // Analyser energy after TTS (fan, echo, Windows zombie speechActive) used
+  // to keep this false forever — round 3 sat on 聆听中 with 「把开了…」 and
+  // never called chat.start. Growing transcripts reset textStableForMs, so
+  // this cannot fire while they are still adding words.
+  if (input.textStableForMs >= Math.max(quiet, STUCK_TRANSCRIPT_MS)) {
+    if (!input.incomplete) return true
+    if (!input.speechActive || (input.silentForMs !== undefined && input.silentForMs >= quiet)) return true
+    // Incomplete + analyser still hot: 「你可以」/「打开网」may still grow.
+    // Past the hard ceiling the recognizer is stuck, not the speaker.
+    if (input.textStableForMs >= INCOMPLETE_HARD_MS) return true
+    return false
+  }
   if (input.speechActive && (input.silentForMs === undefined || input.silentForMs < quiet)) {
     return false
   }
-  if (input.textStableForMs >= Math.max(quiet, STUCK_TRANSCRIPT_MS)) return true
   return turnEnded({
     speechActive: input.speechActive,
     silentForMs: input.silentForMs,
@@ -543,16 +550,17 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       try {
         return tryStart(preferContinuous)
       } catch (error) {
-        if (recognitionAlreadyRunning(error)) {
-          recognitionAlive = true
+        // InvalidStateError on a freshly minted recognizer is Windows still
+        // releasing the previous session — not "already running". Treating it
+        // as alive left round 3 in 聆听中 with nothing underneath listening.
+        if (recognitionAlreadyRunning(error) && recognitionAlive) {
           return true
         }
         recognitionAlive = false
         try {
           return tryStart(!preferContinuous)
         } catch (retryError) {
-          if (recognitionAlreadyRunning(retryError)) {
-            recognitionAlive = true
+          if (recognitionAlreadyRunning(retryError) && recognitionAlive) {
             return true
           }
           recognitionAlive = false
@@ -568,6 +576,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     const discardRecognizer = () => {
       recGeneration += 1
       recognitionAlive = false
+      lastStartAt = 0
       const old = recognition
       recognition = undefined
       try {
@@ -744,9 +753,15 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       const energy = peak / 128
       const now = performance.now()
+      const textLocked = !!assembled().trim() && now - lastTextChangeAt >= TURN_END_SILENCE_MS
       if (energy >= profile.voicePeak) {
-        speechActive = true
-        lastVoiceAt = now
+        // After the transcript has sat still for the 1.2s product window,
+        // room noise / speaker ring-out must not keep lastVoiceAt fresh —
+        // that is how force-commit never fired on round 3.
+        if (!textLocked) {
+          speechActive = true
+          lastVoiceAt = now
+        }
         callbacks.onVoiceEnergy?.()
         if (!assembled().trim()) voiceEnergyWithoutTextSince = voiceEnergyWithoutTextSince || now
         else voiceEnergyWithoutTextSince = 0

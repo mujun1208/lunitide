@@ -198,6 +198,9 @@ func TestCompanionWantsTools(t *testing.T) {
 	if !companionWantsTools("打开网页") || !companionWantsTools("搜一下今天新闻") {
 		t.Fatal("action chat must request tools")
 	}
+	if !companionWantsTools("把开了我把它桌面上的") || !companionWantsTools("打开桌面上的协议文档") {
+		t.Fatal("garbled desktop-open ASR must still request tools")
+	}
 }
 
 func TestCompanionOpeningAck(t *testing.T) {

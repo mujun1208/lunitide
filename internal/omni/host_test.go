@@ -14,6 +14,11 @@ func (c *countingTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("blocked")
 }
 
+// isolateLoopback keeps unit tests from treating a live MiniCPM-o on :19080 as this Host.
+func isolateLoopback(h *Host) {
+	h.HTTP = &http.Client{Transport: &countingTripper{}, Timeout: time.Second}
+}
+
 func TestSnapshotSkipsHealthWhenRuntimeMissing(t *testing.T) {
 	h := NewHost(t.TempDir())
 	trip := &countingTripper{}

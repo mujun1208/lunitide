@@ -379,13 +379,19 @@ describe('when the user has finished speaking', () => {
     })).toBe(false)
   })
 
-  test('force-commits a stuck caption after the 1.2s ceiling once the room is quiet', () => {
+  test('force-commits a stuck complete caption after 1.2s even if the analyser still hears room noise', () => {
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: 400,
+      incomplete: false,
+    })).toBe(false)
     expect(shouldForceCommitUtterance({
       speechActive: true,
       silentForMs: 0,
       textStableForMs: STUCK_TRANSCRIPT_MS,
-      incomplete: true,
-    })).toBe(false)
+      incomplete: false,
+    })).toBe(true)
     expect(shouldForceCommitUtterance({
       speechActive: false,
       silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
@@ -394,13 +400,25 @@ describe('when the user has finished speaking', () => {
     })).toBe(true)
   })
 
-  test('does not hard-commit an incomplete caption while the analyser still hears voice', () => {
+  test('does not hard-commit an incomplete caption on a short breath', () => {
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: 400,
+      incomplete: true,
+    })).toBe(false)
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: STUCK_TRANSCRIPT_MS,
+      incomplete: true,
+    })).toBe(false)
     expect(shouldForceCommitUtterance({
       speechActive: true,
       silentForMs: 0,
       textStableForMs: INCOMPLETE_HARD_MS,
       incomplete: true,
-    })).toBe(false)
+    })).toBe(true)
     expect(shouldForceCommitUtterance({
       speechActive: false,
       silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
