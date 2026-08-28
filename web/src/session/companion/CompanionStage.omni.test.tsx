@@ -87,9 +87,13 @@ vi.mock('./localSpeech', () => ({
   startLocalCompanionSpeech: () => Promise.resolve(speech.handle()),
 }))
 
-vi.mock('./localAsr', () => ({
-  localAsrStatus: () => Promise.resolve({ supported: true, ready: false }),
-}))
+vi.mock('./localAsr', async importOriginal => {
+  const actual = await importOriginal<typeof import('./localAsr')>()
+  return {
+    ...actual,
+    localAsrStatus: () => Promise.resolve({ supported: true, ready: false }),
+  }
+})
 
 vi.mock('./ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
@@ -246,4 +250,32 @@ test('MiniCPM-o turn: full user caption, full assistant line, 说话中, and cha
   expect(container.querySelector('.companion-status')?.textContent).not.toContain('聆听中')
   expect(container.textContent).not.toContain('我做完了')
   expect(container.textContent).not.toContain('人生：')
+})
+
+test('a hung MiniCPM-o probe still starts caption ASR so talking is not dead air', async () => {
+  omniAudio.probe.mockReturnValue(new Promise(() => {}))
+  const { container, unmount } = render(<CompanionStage {...baseProps} />)
+  await flush(80)
+
+  expect(speech.start).toHaveBeenCalled()
+  expect(omniAudio.start).not.toHaveBeenCalled()
+  expect(() => unmount()).not.toThrow()
+})
+
+test('exit after MiniCPM-o start does not throw', async () => {
+  omniAudio.probe.mockResolvedValue(true)
+  const { container, unmount } = render(<CompanionStage {...baseProps} />)
+  await flush(80)
+  expect(omniAudio.start).toHaveBeenCalled()
+
+  await act(async () => {
+    omniAudio.options?.onSpeaking?.(true)
+    omniAudio.options?.onSpeaking?.(false)
+  })
+  const exit = container.querySelector('.companion-exit') as HTMLButtonElement
+  expect(() => {
+    exit.click()
+    unmount()
+  }).not.toThrow()
+  expect(baseProps.onExit).toHaveBeenCalled()
 })

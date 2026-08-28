@@ -502,6 +502,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
+	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images); ok {
+		messages = injectVisionDescription(messages, text)
+		images = nil
+	}
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
@@ -647,6 +651,10 @@ func companionToolLeadIn(toolName string) string {
 		return "好，我来打开。"
 	case "media.play":
 		return "好，我来播放。"
+	case "image.generate":
+		return "好，我来生成图片。"
+	case "video.generate":
+		return "好，我来生成视频。"
 	case "skill.invoke":
 		return "好，我用技能处理一下。"
 	default:
@@ -673,7 +681,8 @@ func companionWantsTools(text string) bool {
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
 		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水", "网易云", "周杰伦",
 		"截图", "屏幕", "对话框", "确认", "点击", "鼠标", "电脑",
-		"search", "open http", "play song", "install",
+		"生图", "画一张", "画图", "生成图片", "生成视频", "生视频", "做个视频",
+		"search", "open http", "play song", "install", "generate image", "generate video",
 	} {
 		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
 			return true
@@ -1015,6 +1024,8 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "image.generate", Description: "Generate an image with the configured 生图模型 catalog (default, then backups). Use when the user asks to draw, illustrate, or generate a picture. Prompt is the image description.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Image description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
+		{Name: "video.generate", Description: "Generate a video with the configured 生视频模型 catalog (default, then backups). Use when the user asks to make or generate a video.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Video description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
 		structuredOutputDefinition(),
 	}
 }
@@ -2113,6 +2124,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if call.Name == "browser.act" {
 						return e.invokeBrowserAct(op, mode, sessionID, call.Arguments)
 					}
+					if call.Name == "image.generate" || call.Name == "video.generate" {
+						return e.invokeMediaGenerate(op, call.Name, call.Arguments)
+					}
 					// Model-initiated skill invocation rides the governed
 					// skillapp pipeline (never the raw toolruntime switch).
 					if call.Name == "skill.invoke" {
@@ -2416,7 +2430,7 @@ func hasActingComputerTool(tools []string) bool {
 	for _, name := range tools {
 		switch name {
 		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "web.search", "browser.act", "browser.open",
-			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "media.play":
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "media.play", "image.generate", "video.generate":
 			return true
 		}
 		if strings.HasPrefix(name, "cc.") {

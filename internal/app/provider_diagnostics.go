@@ -248,7 +248,9 @@ func discoveredModels(current provider.Provider, d gateway.Discovery) ([]provide
 		return nil, "", false
 	}
 	oldDefault := ""
+	prior := make(map[string]provider.Model, len(current.Models))
 	for _, m := range current.Models {
+		prior[m.ModelID] = m
 		if m.IsDefault {
 			oldDefault = m.ModelID
 		}
@@ -262,7 +264,15 @@ func discoveredModels(current provider.Provider, d gateway.Discovery) ([]provide
 	}
 	out := make([]provider.Model, len(ids))
 	for i, id := range ids {
-		out[i] = provider.Model{ModelID: id, DisplayName: id, IsDefault: id == oldDefault}
+		next := provider.Model{ModelID: id, DisplayName: id, IsDefault: id == oldDefault, Kind: provider.KindLLM}
+		if old, ok := prior[id]; ok {
+			next.DisplayName = old.DisplayName
+			next.ContextWindow = old.ContextWindow
+			next.Kind = old.EffectiveKind()
+			next.SupportsVision = old.SupportsVision
+			next.KindDefault = old.KindDefault
+		}
+		out[i] = next
 	}
 	return out, "", true
 }

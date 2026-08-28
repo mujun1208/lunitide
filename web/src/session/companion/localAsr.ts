@@ -18,6 +18,29 @@ const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 2
 /** Bound on how long a drain will wait for the engine before giving up. */
 const DRAIN_ROUNDS = 40
 
+/**
+ * Companion 'auto' must not wait the full voice.status bridge deadline
+ * (8s) before opening the system recognizer. If the sidecar is slow or
+ * hung, talking has to work on Web Speech in this window.
+ */
+export const LOCAL_ASR_DECISION_MS = 400
+
+/** Race a boolean probe against a deadline; hanging probes become false. */
+export async function readyWithin(probe: Promise<boolean> | undefined, timeoutMs = LOCAL_ASR_DECISION_MS): Promise<boolean> {
+  if (!probe) return false
+  let timer = 0
+  try {
+    return await Promise.race([
+      probe.catch(() => false),
+      new Promise<boolean>(resolve => {
+        timer = window.setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 /** Yields to the microtask queue and one macrotask, so replies can land. */
 const settled = () => new Promise<void>(resolve => window.setTimeout(resolve, 5))
 

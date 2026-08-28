@@ -1,4 +1,5 @@
 import type { ProviderDTO } from '../generated/bridge'
+import { llmReadyProviders } from '../provider/modelKind'
 
 export type SubagentDelegationMode = 'disabled' | 'explicit' | 'proactive'
 
@@ -115,8 +116,7 @@ export function buildSubagentChatPolicy(settings: SubagentSettings): {
 
 export function configuredModelOptions(providers: readonly ProviderDTO[]): Array<{ value: string; label: string; providerId: string; modelId: string }> {
   const out: Array<{ value: string; label: string; providerId: string; modelId: string }> = []
-  for (const p of providers) {
-    if (p.status !== 'enabled' || p.credentialState !== 'configured' || !p.models.length) continue
+  for (const p of llmReadyProviders(providers)) {
     for (const m of p.models) {
       out.push({
         value: `${p.id}\u0000${m.modelId}`,

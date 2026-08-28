@@ -110,6 +110,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   }
 
   const stopPlayback = () => {
+    const wasPlaying = playing
     wavQueue.length = 0
     playing = false
     timelineEnd = 0
@@ -121,10 +122,15 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
       }
     }
     sources.clear()
-    audio?.pause()
-    if (audio?.src.startsWith('blob:')) URL.revokeObjectURL(audio.src)
-    audio = undefined
-    options.onSpeaking?.(false)
+    if (audio) {
+      audio.pause()
+      if (audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src)
+      audio = undefined
+    }
+    // Only notify a true→false edge. CompanionStage's onSpeaking(false)
+    // calls resumeListen → stopPlayback; an unconditional notify recurses
+    // until Maximum call stack size exceeded (RootErrorBoundary on exit).
+    if (wasPlaying) options.onSpeaking?.(false)
     capture?.setMuted(false)
   }
 
@@ -254,6 +260,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   }
 
   const resumeListen = () => {
+    if (stopped) return
     holding = true
     caption = ''
     stopPlayback()

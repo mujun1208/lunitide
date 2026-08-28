@@ -59,6 +59,20 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 100000000
+        },
+        "kind": {
+          "enum": [
+            "llm",
+            "vision",
+            "image",
+            "video"
+          ]
+        },
+        "supportsVision": {
+          "type": "boolean"
+        },
+        "kindDefault": {
+          "type": "boolean"
         }
       },
       "required": [

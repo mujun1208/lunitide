@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,conversationsBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,conversationsBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{ChoiceTiles}from'./ChoiceTiles'
@@ -11,6 +11,7 @@ import{applyVoicePath,defaultCompanionSettings,formatInterruptHotkey,interruptHo
 import{LocalAsrRow}from'./LocalAsrRow'
 import{OmniInstallRow}from'./OmniInstallRow'
 import{SubagentsPanel}from'./SubagentsPanel'
+import{ProviderApp}from'../provider/ProviderApp'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
@@ -72,7 +73,7 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, initialCategory = 'general' }: { onNavigateProviders?: () => void; onNavigateExpert?: () => void; onBack?: () => void; initialCategory?: SettingsCategory }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'general', providers }: { onNavigateExpert?: () => void; onBack?: () => void; initialCategory?: SettingsCategory; providers?: ProviderBridge }): React.JSX.Element {
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
   const [general, setGeneral] = useState<GeneralSettings>(() => loadSettings('general', DEFAULT_GENERAL))
@@ -140,11 +141,11 @@ export function SettingsPage({ onNavigateProviders, onNavigateExpert, onBack, in
           </h2>
           {saved && <span className="save-indicator" role="status">✓ 已保存</span>}
         </div>
-        <div className="settings-body">
+        <div className={`settings-body${category === 'providers' ? ' settings-body-providers' : ''}`}>
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'profile' && <ProfilePanel />}
-          {category === 'providers' && <ProvidersPanel onNavigate={onNavigateProviders} />}
+          {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
           {category === 'security' && <div className="governance-stack">
@@ -491,29 +492,6 @@ function AppearancePanel({ settings, onChange }: { settings: AppearanceSettings;
           onChange={v => onChange('density', v as AppearanceSettings['density'])}
         />
       </div>
-    </>
-  )
-}
-
-function ProvidersPanel({ onNavigate }: { onNavigate?: () => void }): React.JSX.Element {
-  return (
-    <>
-      <div className="setting-group">
-      <div className="setting-group-title">模型与供应商</div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div>
-          <div className="setting-label">供应商管理</div>
-          <div className="setting-desc">
-            首期支持 OpenAI-compatible 与 Anthropic 两协议族。API Key 默认由 Host 托管；仅在用户进入供应商编辑查看时短暂回填到受信页面，且不持久化。BaseURL 的协议或 origin 改变时，旧 credential 不自动复用。
-          </div>
-        </div>
-      </div>
-      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <button className="primary" onClick={onNavigate} style={{ alignSelf: 'flex-start' }} aria-label="打开供应商管理">
-          打开供应商管理 →
-        </button>
-      </div>
-    </div>
     </>
   )
 }

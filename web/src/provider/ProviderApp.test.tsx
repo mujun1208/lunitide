@@ -83,3 +83,16 @@ it('asks for API Key re-entry when a remote origin changes',async()=>{
  expect(bridge.submitCredential).not.toHaveBeenCalled()
 })
 
+it('creates a vision catalog model from the vision tab',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('tab',{name:'视觉模型'}))
+ await fillCreate(user)
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ const models=vi.mocked(create).mock.calls[0][0].models
+ expect(models[0]).toMatchObject({modelId:'m',kind:'vision',kindDefault:true,isDefault:true})
+})
+

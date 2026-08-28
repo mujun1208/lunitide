@@ -25,6 +25,18 @@ const (
 	waInactive            = 0
 	waActive              = 1
 	waClickActive         = 2
+	// SWP_NOSIZE / SWP_NOMOVE from WINDOWPOS.flags. WM_WINDOWPOSCHANGED
+	// with SWP_NOMOVE is a size/z-order/activate tick — WM_SIZE already
+	// refits the controller. Notifying on those ticks is the SetBounds ↔
+	// NotifyParentWindowPositionChanged loop that makes the native frame
+	// tremble while the workbench streams.
+	swpNoSize = 0x0001
+	swpNoMove = 0x0002
+)
+
+const (
+	boundsApplyMinInterval = 16 * time.Millisecond
+	boundsJitterPx         = int32(2)
 )
 
 // WebView fill matches html,#root { background:#03060c }. WebView2's default
@@ -56,6 +68,80 @@ const (
 
 func shouldSkipWebViewBounds(width, height int32) bool {
 	return width <= 0 || height <= 0
+}
+
+type clientBounds struct {
+	Left, Top, Right, Bottom int32
+}
+
+func (b clientBounds) width() int32  { return b.Right - b.Left }
+func (b clientBounds) height() int32 { return b.Bottom - b.Top }
+
+func abs32(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func boundsManhattan(a, b clientBounds) int32 {
+	return abs32(a.Left-b.Left) + abs32(a.Top-b.Top) + abs32(a.Right-b.Right) + abs32(a.Bottom-b.Bottom)
+}
+
+// shouldApplyWebViewBounds drops no-op and re-entrant SetBounds calls.
+// Unchanged rects and 1–2px compositor jitter must not be written back:
+// WebView2 put_Bounds can emit WM_SIZE / WM_WINDOWPOSCHANGED, which used
+// to call SetBounds again and oscillate the Win32 frame. Live user resize
+// still applies every distinct rect. Rapid non-live applies are coalesced
+// to boundsApplyMinInterval so chat tokens cannot pump the controller.
+func shouldApplyWebViewBounds(next, prev clientBounds, hasPrev, fitting, liveResize bool, last, now time.Time, minInterval time.Duration) bool {
+	if fitting {
+		return false
+	}
+	if shouldSkipWebViewBounds(next.width(), next.height()) {
+		return false
+	}
+	if hasPrev && next == prev {
+		return false
+	}
+	if hasPrev && !liveResize && boundsManhattan(prev, next) <= boundsJitterPx {
+		return false
+	}
+	if hasPrev && !liveResize && minInterval > 0 && !last.IsZero() && now.Sub(last) < minInterval {
+		return false
+	}
+	return true
+}
+
+// shouldNotifyParentWindow is true only when the host HWND actually moved.
+// Size-only WINDOWPOSCHANGED (SWP_NOMOVE) is handled by WM_SIZE. 1–2px
+// position jitter outside a user drag must not call
+// NotifyParentWindowPositionChanged — that call itself can shift the frame.
+func shouldNotifyParentWindow(posFlags uint32, live, hasLast bool, lastX, lastY, x, y int32) bool {
+	if posFlags&swpNoMove != 0 {
+		return false
+	}
+	if hasLast && lastX == x && lastY == y {
+		return false
+	}
+	if hasLast && !live && abs32(lastX-x) <= boundsJitterPx && abs32(lastY-y) <= boundsJitterPx {
+		return false
+	}
+	return true
+}
+
+// shouldResumeRenderer gates ICoreWebView2_3.Resume. Resume after ordinary
+// WM_SIZE / WM_EXITSIZEMOVE / already-visible WM_SHOWWINDOW is what made
+// streaming workbench tokens look like a restore loop.
+func shouldResumeRenderer(fromOcclusion bool) bool {
+	return fromOcclusion
+}
+
+func shouldAdoptDpiSuggestedRect(current, suggested clientBounds) bool {
+	if current == suggested {
+		return false
+	}
+	return !shouldSkipWebViewBounds(suggested.Right-suggested.Left, suggested.Bottom-suggested.Top)
 }
 
 func isPowerResume(wParam uint32) bool {
@@ -95,14 +181,23 @@ func surfaceActionForMessage(message, wParam uint32, hidden bool) surfaceAction 
 		if wParam == 0 {
 			return surfaceHide
 		}
-		return surfaceWake
+		if hidden {
+			return surfaceWake
+		}
+		return surfaceFit
 	case wmPowerBroadcast:
 		if isPowerResume(wParam) {
 			return surfaceWake
 		}
 	case wmExitSizeMove:
-		return surfaceWake
+		// Drag-resize already ran WM_SIZE → fit. Resume here was a
+		// compositor kick on every mouse-up and during layout storms.
+		return surfaceFit
 	case wmWindowPosChanged:
+		// wParam is WINDOWPOS.flags (the real message carries them in lParam).
+		if wParam&swpNoMove != 0 {
+			return surfaceNone
+		}
 		return surfaceNotify
 	case wmActivate:
 		if isActivate(wParam) {

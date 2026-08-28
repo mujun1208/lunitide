@@ -96,6 +96,8 @@ func TestRestorePolicyConstantsMatchWin32(t *testing.T) {
 		{"WM_POWERBROADCAST", wmPowerBroadcast, uint32(win32.WM_POWERBROADCAST)},
 		{"WM_EXITSIZEMOVE", wmExitSizeMove, uint32(win32.WM_EXITSIZEMOVE)},
 		{"WM_ACTIVATE", wmActivate, uint32(win32.WM_ACTIVATE)},
+		{"SWP_NOMOVE", swpNoMove, uint32(win32.SWP_NOMOVE)},
+		{"SWP_NOSIZE", swpNoSize, 0x0001},
 		{"SIZE_RESTORED", sizeRestored, uint32(win32.SIZE_RESTORED)},
 		{"SIZE_MINIMIZED", sizeMinimized, uint32(win32.SIZE_MINIMIZED)},
 		{"SIZE_MAXIMIZED", sizeMaximized, uint32(win32.SIZE_MAXIMIZED)},

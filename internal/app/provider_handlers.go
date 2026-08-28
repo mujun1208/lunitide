@@ -36,10 +36,13 @@ type updateProviderPayload struct {
 }
 
 type modelPayload struct {
-	ModelID       string `json:"modelId"`
-	DisplayName   string `json:"displayName"`
-	IsDefault     *bool  `json:"isDefault"`
-	ContextWindow int64  `json:"contextWindow"`
+	ModelID        string `json:"modelId"`
+	DisplayName    string `json:"displayName"`
+	IsDefault      *bool  `json:"isDefault"`
+	ContextWindow  int64  `json:"contextWindow"`
+	Kind           string `json:"kind"`
+	SupportsVision bool   `json:"supportsVision"`
+	KindDefault    bool   `json:"kindDefault"`
 }
 
 func handleProviderCreate(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -238,10 +241,10 @@ func publicModels(models []modelPayload) ([]provider.Model, bool) {
 	}
 	result := make([]provider.Model, len(models))
 	for index, model := range models {
-		if model.IsDefault == nil || !provider.ModelIDValid(model.ModelID) || strings.TrimSpace(model.DisplayName) != model.DisplayName || model.DisplayName == "" || len(model.DisplayName) > 200 || model.ContextWindow < 0 || model.ContextWindow > 100_000_000 {
+		if model.IsDefault == nil || !provider.ModelIDValid(model.ModelID) || strings.TrimSpace(model.DisplayName) != model.DisplayName || model.DisplayName == "" || len(model.DisplayName) > 200 || model.ContextWindow < 0 || model.ContextWindow > 100_000_000 || !provider.ValidKind(model.Kind) {
 			return nil, false
 		}
-		result[index] = provider.Model{ModelID: model.ModelID, DisplayName: model.DisplayName, IsDefault: *model.IsDefault, ContextWindow: model.ContextWindow}
+		result[index] = provider.Model{ModelID: model.ModelID, DisplayName: model.DisplayName, IsDefault: *model.IsDefault, ContextWindow: model.ContextWindow, Kind: provider.NormalizeKind(model.Kind), SupportsVision: model.SupportsVision, KindDefault: model.KindDefault}
 	}
 	return result, true
 }

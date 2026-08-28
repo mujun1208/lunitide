@@ -31,7 +31,7 @@ export type BridgeResponse<TPayload = unknown> =
   | { v: "1.0"; kind: "response"; id: string; requestId: string; ok: false; payload?: never; error: BridgeError }
 export type ULID = string
 export type ProviderStatus = "enabled" | "disabled"
-export type ModelDTO = { "modelId": string; "displayName": string; "isDefault": boolean; "contextWindow"?: number }
+export type ModelDTO = { "modelId": string; "displayName": string; "isDefault": boolean; "contextWindow"?: number; "kind"?: "llm" | "vision" | "image" | "video"; "supportsVision"?: boolean; "kindDefault"?: boolean }
 export type ProviderDTO = { "id": ULID; "name": string; "protocol": ProviderProtocol; "baseUrl": string; "models": Array<ModelDTO>; "status": ProviderStatus; "credentialState": CredentialState; "createdAt": string; "updatedAt": string; "version": number }
 export type ProjectStatus = "created" | "chartered" | "req_architecture" | "req_assessment" | "in_progress" | "integration_test" | "go_live_prep" | "live" | "closed" | "archived" | "active"
 export type ProjectType = "implementation" | "operations" | "enhancement"

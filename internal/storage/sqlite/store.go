@@ -234,6 +234,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0093_people_remark_block.sql", "71ccc0ea0a995a1c4664825a0ce4f52fd983e2b0397ba45a39835666fe1d4b32"},
 	{"0094_meetings.sql", "9b559548f25856a03d50350c7eaa8130635435f79cec42f05c075569ea40f344"},
 	{"0095_meetings_system_audio.sql", "3843f128e0b902949a3b2a09ee6c807c8211a1766c35f5df2ff903813ca66603"},
+	{"0096_model_kind.sql", "fdc4c6b3794927c312fa97d3bb427e17fb2b7b8fe640630e975cc244a847225b"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1063,6 +1064,7 @@ var expectedSchemaSQL = map[string]string{
 	"index:ux_m5_adhoc_root":                          "CREATE UNIQUE INDEX ux_m5_adhoc_root ON m5_adhoc_workspace(root_canonical) WHERE state != 'deleted'",
 	"index:ux_ontology_nodes_project_path":            "CREATE UNIQUE INDEX ux_ontology_nodes_project_path ON ontology_nodes(project_id, full_path) WHERE full_path != ''",
 	"index:ux_provider_default_model":                 "CREATE UNIQUE INDEX ux_provider_default_model\nON provider_models(provider_id) WHERE is_default = 1",
+	"index:ux_provider_kind_default":                   "CREATE UNIQUE INDEX ux_provider_kind_default ON provider_models(kind) WHERE kind_default = 1",
 	"index:ux_run_review_approval_consume":            "CREATE UNIQUE INDEX ux_run_review_approval_consume ON run_review(run_id, approval_digest, action) WHERE decision='approved'",
 	"index:ux_skills_name_version":                    "CREATE UNIQUE INDEX ux_skills_name_version ON skills(name, version)",
 	"index:ux_token_ledger_subject_identity_revision": "CREATE UNIQUE INDEX ux_token_ledger_subject_identity_revision\n    ON token_ledger(subject_type, subject_id, tokenizer_id, provider, model, tokenizer_revision)",
@@ -1163,7 +1165,7 @@ var expectedSchemaSQL = map[string]string{
 	"table:project_deliverables":                      "CREATE TABLE project_deliverables (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n    phase INTEGER NOT NULL CHECK (phase BETWEEN 1 AND 9),\n    document_type TEXT NOT NULL CHECK (length(document_type) BETWEEN 1 AND 128),\n    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),\n    template_id TEXT REFERENCES asset_templates(id),\n    attachment_id TEXT REFERENCES project_attachments(id),\n    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'approved', 'immutable')),\n    gate_confirmations INTEGER NOT NULL DEFAULT 0 CHECK (gate_confirmations BETWEEN 0 AND 3),\n    digest TEXT NOT NULL DEFAULT '' CHECK (length(digest) <= 128),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    UNIQUE(project_id, phase, document_type)\n)",
 	"table:projects":                                  "CREATE TABLE projects (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200 AND name = trim(name)),\n    project_code TEXT NOT NULL CHECK (length(project_code) BETWEEN 4 AND 16 AND project_code GLOB 'ITM[0-9]*'),\n    project_type TEXT NOT NULL DEFAULT 'implementation' CHECK (project_type IN ('implementation', 'operations', 'enhancement')),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 2000),\n    summary TEXT NOT NULL DEFAULT '' CHECK (length(summary) <= 500),\n    objective TEXT NOT NULL DEFAULT '' CHECK (length(objective) <= 2000),\n    client TEXT NOT NULL DEFAULT '' CHECK (length(client) <= 200),\n    contract_no TEXT NOT NULL DEFAULT '' CHECK (length(contract_no) <= 100),\n    amount REAL NOT NULL DEFAULT 0 CHECK (amount >= 0 AND amount <= 999999999999),\n    budget REAL NOT NULL DEFAULT 0 CHECK (budget >= 0 AND budget <= 999999999999),\n    plan_start TEXT NOT NULL DEFAULT '' CHECK (plan_start = '' OR (length(plan_start) = 10 AND plan_start GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')),\n    plan_end TEXT NOT NULL DEFAULT '' CHECK (plan_end = '' OR (length(plan_end) = 10 AND plan_end GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')),\n    remark TEXT NOT NULL DEFAULT '' CHECK (length(remark) <= 2000),\n    close_reason TEXT NOT NULL DEFAULT '' CHECK (length(close_reason) <= 500),\n    status_before_close TEXT NOT NULL DEFAULT '' CHECK (length(status_before_close) <= 64),\n    reopen_reason TEXT NOT NULL DEFAULT '' CHECK (length(reopen_reason) <= 500),\n    status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'chartered', 'req_architecture', 'req_assessment', 'in_progress', 'integration_test', 'go_live_prep', 'live', 'closed', 'archived', 'active')),\n    org_id TEXT REFERENCES organizations(org_id),\n    space_id TEXT REFERENCES team_spaces(space_id),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
 	"table:promotions":                                "CREATE TABLE promotions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    package_id TEXT NOT NULL REFERENCES release_packages(id),\n    from_env TEXT NOT NULL CHECK (length(from_env) BETWEEN 1 AND 32),\n    to_env TEXT NOT NULL CHECK (to_env IN ('dev','stage','prod')),\n    canonical_intent_digest TEXT NOT NULL CHECK (length(canonical_intent_digest) = 64 AND canonical_intent_digest NOT GLOB '*[^0-9a-f]*'),\n    policy_version TEXT NOT NULL CHECK (length(policy_version) BETWEEN 1 AND 64),\n    approval_expiry TEXT,\n    state TEXT NOT NULL CHECK (state IN ('requested','policy_check','approval_check','denied','expired','migrating','deploying','validating','succeeded','failed','rolling_back','rolled_back','rollback_failed','outcome_unknown','manual')),\n    idempotency_key TEXT NOT NULL UNIQUE CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    requested_by TEXT NOT NULL CHECK (length(requested_by) BETWEEN 1 AND 128),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
-	"table:provider_models":                           "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49), context_window INTEGER,\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
+	"table:provider_models":                           "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49), context_window INTEGER, kind TEXT NOT NULL DEFAULT 'llm', supports_vision INTEGER NOT NULL DEFAULT 0, kind_default INTEGER NOT NULL DEFAULT 0,\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
 	"table:provider_tests":                            "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
 	"table:providers":                                 "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
 	"table:recall_events":                             "CREATE TABLE recall_events (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,\n    query_hash TEXT NOT NULL CHECK (length(query_hash) = 64 AND query_hash NOT GLOB '*[^0-9a-f]*'),\n    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,\n    score REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),\n    rank INTEGER NOT NULL CHECK (rank > 0),\n    injected_tokens INTEGER NOT NULL DEFAULT 0 CHECK (injected_tokens >= 0),\n    created_at TEXT NOT NULL\n)",
@@ -1326,7 +1328,7 @@ type columnSpec struct {
 
 var expectedColumns = map[string][]columnSpec{
 	"providers":                   {{"id", "TEXT", "", 0, 1, 0}, {"legacy_id", "TEXT", "", 0, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"base_url", "TEXT", "", 1, 0, 0}, {"credential_ref", "TEXT", "", 0, 0, 0}, {"credential_state", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'enabled'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}, {"deleted_at", "TEXT", "", 0, 0, 0}, {"origin_fingerprint", "TEXT", "'0000000000000000000000000000000000000000000000000000000000000000'", 1, 0, 0}},
-	"provider_models":             {{"provider_id", "TEXT", "", 1, 1, 0}, {"model_id", "TEXT", "", 1, 2, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"is_default", "INTEGER", "0", 1, 0, 0}, {"position", "INTEGER", "0", 1, 0, 0}, {"context_window", "INTEGER", "", 0, 0, 0}},
+	"provider_models":             {{"provider_id", "TEXT", "", 1, 1, 0}, {"model_id", "TEXT", "", 1, 2, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"is_default", "INTEGER", "0", 1, 0, 0}, {"position", "INTEGER", "0", 1, 0, 0}, {"context_window", "INTEGER", "", 0, 0, 0}, {"kind", "TEXT", "'llm'", 1, 0, 0}, {"supports_vision", "INTEGER", "0", 1, 0, 0}, {"kind_default", "INTEGER", "0", 1, 0, 0}},
 	"schema_migrations":           {{"version", "TEXT", "", 0, 1, 0}, {"applied_at", "TEXT", "", 1, 0, 0}, {"checksum", "TEXT", "", 0, 0, 0}},
 	"provider_tests":              {{"id", "TEXT", "", 0, 1, 0}, {"provider_id", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "", 1, 0, 0}, {"error_code", "TEXT", "", 0, 0, 0}, {"started_at", "TEXT", "", 0, 0, 0}, {"completed_at", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
 	"idempotency_records":         {{"operation", "TEXT", "", 1, 1, 0}, {"idempotency_key", "TEXT", "", 1, 2, 0}, {"request_digest", "TEXT", "", 1, 0, 0}, {"response_json", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"expires_at", "TEXT", "", 1, 0, 0}},
@@ -2316,6 +2318,17 @@ func getProvider(ctx context.Context, q sqlRunner, id string) (provider.Provider
 }
 
 func replaceModels(ctx context.Context, tx sqlRunner, id string, models []provider.Model) error {
+	claimed := map[provider.Kind]struct{}{}
+	for _, model := range models {
+		if model.KindDefault {
+			claimed[model.EffectiveKind()] = struct{}{}
+		}
+	}
+	for kind := range claimed {
+		if _, err := tx.ExecContext(ctx, `UPDATE provider_models SET kind_default=0 WHERE kind=? AND kind_default=1`, string(kind)); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM provider_models WHERE provider_id=?`, id); err != nil {
 		return err
 	}
@@ -2324,7 +2337,14 @@ func replaceModels(ctx context.Context, tx sqlRunner, id string, models []provid
 		if model.ContextWindow > 0 {
 			cw = model.ContextWindow
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO provider_models(provider_id,model_id,display_name,is_default,position,context_window) VALUES(?,?,?,?,?,?)`, id, model.ModelID, model.DisplayName, model.IsDefault, position, cw); err != nil {
+		sv, kd := 0, 0
+		if model.SupportsVision {
+			sv = 1
+		}
+		if model.KindDefault {
+			kd = 1
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO provider_models(provider_id,model_id,display_name,is_default,position,context_window,kind,supports_vision,kind_default) VALUES(?,?,?,?,?,?,?,?,?)`, id, model.ModelID, model.DisplayName, model.IsDefault, position, cw, string(model.EffectiveKind()), sv, kd); err != nil {
 			return fmt.Errorf("write provider models: %w", err)
 		}
 	}
@@ -2357,7 +2377,7 @@ func (s *Store) listModels(ctx context.Context, id string) ([]provider.Model, er
 }
 
 func listModelsWith(ctx context.Context, q sqlRunner, id string) ([]provider.Model, error) {
-	rows, err := q.QueryContext(ctx, `SELECT model_id, display_name, is_default, context_window FROM provider_models WHERE provider_id = ? ORDER BY position, model_id`, id)
+	rows, err := q.QueryContext(ctx, `SELECT model_id, display_name, is_default, context_window, kind, supports_vision, kind_default FROM provider_models WHERE provider_id = ? ORDER BY position, model_id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2366,11 +2386,16 @@ func listModelsWith(ctx context.Context, q sqlRunner, id string) ([]provider.Mod
 	for rows.Next() {
 		var m provider.Model
 		var cw sql.NullInt64
-		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.IsDefault, &cw); err != nil {
+		var kind string
+		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.IsDefault, &cw, &kind, &m.SupportsVision, &m.KindDefault); err != nil {
 			return nil, err
 		}
 		if cw.Valid {
 			m.ContextWindow = cw.Int64
+		}
+		m.Kind = provider.NormalizeKind(kind)
+		if m.Kind == provider.KindLLM {
+			m.Kind = ""
 		}
 		result = append(result, m)
 	}

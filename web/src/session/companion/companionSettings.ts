@@ -178,10 +178,18 @@ export function loadCompanionSettings(): CompanionSettings {
   }
 }
 
+let savingCompanionSettings = false
+
 export function saveCompanionSettings(settings: CompanionSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, rev: SETTINGS_REV }))
-    window.dispatchEvent(new Event('lunitide:companion-settings'))
+    if (savingCompanionSettings) return
+    savingCompanionSettings = true
+    try {
+      window.dispatchEvent(new Event('lunitide:companion-settings'))
+    } finally {
+      savingCompanionSettings = false
+    }
   } catch {
     // Storage unavailable (private mode etc.) — settings stay in-memory.
   }

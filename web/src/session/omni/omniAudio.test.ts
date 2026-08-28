@@ -107,3 +107,21 @@ test('holds PCM until commitUserAudio so MiniCPM-o answers after the user turn, 
   expect(onText.mock.calls.at(-1)?.[0]).toContain('我在听')
   handle.stop()
 })
+
+test('stop does not recurse when onSpeaking(false) calls resumeListen', async () => {
+  omni.ensure.mockResolvedValue({ ready: true, hostState: 'ready' })
+  omni.start.mockResolvedValue({ sessionId: 'omni-stop' })
+  let handle: Awaited<ReturnType<typeof startOmniCompanion>> | undefined
+  const onSpeaking = vi.fn((speaking: boolean) => {
+    if (!speaking) handle?.resumeListen()
+  })
+  handle = await startOmniCompanion({
+    personaId: 'refpack:优质台湾腔.wav',
+    onText: vi.fn(),
+    onError: vi.fn(),
+    onSpeaking,
+  })
+  expect(() => handle!.stop()).not.toThrow()
+  handle!.stop()
+  expect(onSpeaking.mock.calls.length).toBeLessThan(4)
+})

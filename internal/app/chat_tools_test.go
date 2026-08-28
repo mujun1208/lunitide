@@ -261,8 +261,8 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 		t.Fatal("desktop.open missing from engine tools")
 	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "html.gen" || d.Name == "desktop.open" {
-			t.Fatal("subagents must not receive html.gen or desktop.open")
+		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "image.generate" || d.Name == "video.generate" {
+			t.Fatal("subagents must not receive html.gen, desktop.open, or media generation tools")
 		}
 	}
 	if !strings.Contains(bundledWorkflowInjection(), "html.gen") || strings.Contains(bundledWorkflowInjection(), "桌面 HTML 小游戏：workspace.write") {
@@ -331,6 +331,18 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	}
 	if !foundMedia {
 		t.Fatal("media.play missing from engine tools")
+	}
+	foundImage, foundVideo := false, false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "image.generate" {
+			foundImage = true
+		}
+		if d.Name == "video.generate" {
+			foundVideo = true
+		}
+	}
+	if !foundImage || !foundVideo {
+		t.Fatal("image.generate / video.generate missing from engine tools")
 	}
 	foundStructured := false
 	for _, d := range engineToolDefinitions() {

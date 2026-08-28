@@ -117,6 +117,21 @@ type Connector interface {
 	ReadSSE(io.Reader) (event []byte, eof bool, err error)
 }
 
+type ImageGenerator interface {
+	GenerateImage(context.Context, []byte, string, string) (MediaResult, error)
+}
+
+type VideoGenerator interface {
+	GenerateVideo(context.Context, []byte, string, string) (MediaResult, error)
+}
+
+type MediaResult struct {
+	URL  string
+	MIME string
+	Data []byte
+	ID   string
+}
+
 type Adapter interface {
 	Complete(context.Context, []byte, Request) (Response, error)
 	Stream(context.Context, []byte, Request, func(Delta) error) (Response, error)

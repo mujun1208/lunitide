@@ -54,11 +54,153 @@ func mediaNameScore(got, want string) int {
 
 func isGenericMediaQuery(query string) bool {
 	switch foldMedia(query) {
-	case "热门", "随便", "任意", "随机", "推荐", "popular", "random", "hot":
+	case "热门", "随便", "任意", "随机", "推荐", "popular", "random", "hot",
+		"随便一首", "随机一首", "一首歌", "任意一首":
 		return true
 	default:
 		return false
 	}
+}
+
+func isPlayControlName(name string) bool {
+	n := foldMedia(name)
+	if n == "" {
+		return false
+	}
+	if strings.Contains(n, "暂停") || n == "pause" || n == "stop" || strings.Contains(n, "停止") {
+		return false
+	}
+	if strings.Contains(n, "列表") || strings.Contains(n, "队列") || strings.Contains(n, "历史") || strings.Contains(n, "全部") {
+		return false
+	}
+	switch n {
+	case "播放", "play", "开始播放", "播放/暂停", "play/pause", "play pause":
+		return true
+	}
+	return false
+}
+
+func isPauseControlName(name string) bool {
+	n := foldMedia(name)
+	if n == "" {
+		return false
+	}
+	return n == "暂停" || n == "pause" || strings.HasPrefix(n, "暂停") || strings.HasPrefix(n, "pause")
+}
+
+func pickPlayControl(nodes []mediaUINode) *mediaUINode {
+	var best *mediaUINode
+	bestY := -1
+	for i := range nodes {
+		n := &nodes[i]
+		if !isPlayControlName(n.Name) {
+			continue
+		}
+		role := strings.ToLower(n.Role)
+		if role != "" && role != "button" && role != "menuitem" && role != "link" {
+			continue
+		}
+		if n.Y >= bestY {
+			bestY = n.Y
+			best = n
+		}
+	}
+	return best
+}
+
+func pickPauseControl(nodes []mediaUINode) *mediaUINode {
+	for i := range nodes {
+		n := &nodes[i]
+		if isPauseControlName(n.Name) {
+			return n
+		}
+	}
+	return nil
+}
+
+func pickRecommendNav(nodes []mediaUINode) *mediaUINode {
+	var best *mediaUINode
+	bestScore := 0
+	for i := range nodes {
+		n := &nodes[i]
+		name := foldMedia(n.Name)
+		score := 0
+		switch {
+		case name == "每日推荐" || name == "日推":
+			score = 80
+		case name == "推荐":
+			score = 70
+		case name == "发现" || name == "首页":
+			score = 40
+		default:
+			continue
+		}
+		if score > bestScore {
+			bestScore = score
+			best = n
+		}
+	}
+	return best
+}
+
+// uiaTreeSparse is true when MSAA/UIA exposed nothing we can click to play:
+// empty tree, or only chrome/nav names. Electron (汽水音乐) often looks like this.
+func uiaTreeSparse(nodes []mediaUINode) bool {
+	if len(nodes) == 0 {
+		return true
+	}
+	if pickSearchNode(nodes) != nil {
+		return false
+	}
+	if pickPlayControl(nodes) != nil || pickPauseControl(nodes) != nil {
+		return false
+	}
+	if pickFirstPlayable(nodes) != nil {
+		return false
+	}
+	return true
+}
+
+func playbackLooksPaused(nodes []mediaUINode) bool {
+	if pickPauseControl(nodes) != nil {
+		return false
+	}
+	return pickPlayControl(nodes) != nil
+}
+
+func titleLooksLikeNowPlaying(title, app string) bool {
+	t := strings.TrimSpace(title)
+	if t == "" {
+		return false
+	}
+	if i := strings.Index(strings.ToLower(t), "active window:"); i >= 0 {
+		t = strings.TrimSpace(t[i+len("active window:"):])
+		if j := strings.Index(strings.ToLower(t), "(process:"); j >= 0 {
+			t = strings.TrimSpace(t[:j])
+		}
+	}
+	app = strings.TrimSpace(app)
+	if app != "" && foldMedia(t) == foldMedia(app) {
+		return false
+	}
+	for _, sep := range []string{" - ", " — ", " – "} {
+		if strings.Contains(t, sep) {
+			return true
+		}
+	}
+	return false
+}
+
+// playbackLooksActive is the OpenClaw verify step: pause control, or a
+// now-playing window title. A visible 播放 button means still paused.
+func playbackLooksActive(nodes []mediaUINode, windowTitle, app string) bool {
+	if playbackLooksPaused(nodes) {
+		return false
+	}
+	if pickPauseControl(nodes) != nil {
+		return true
+	}
+	return titleLooksLikeNowPlaying(windowTitle, app)
 }
 
 func isMediaNavName(name string) bool {
@@ -182,8 +324,11 @@ func nowPlayingConfirmed(nodes []mediaUINode, windowTitle, query string) bool {
 	if query == "" {
 		return false
 	}
+	if playbackLooksPaused(nodes) {
+		return false
+	}
 	if isGenericMediaQuery(query) {
-		return true
+		return playbackLooksActive(nodes, windowTitle, "")
 	}
 	if mediaNameScore(windowTitle, query) >= 70 {
 		return true
@@ -267,13 +412,8 @@ func queryLooksLikeArtist(query string) bool {
 // Those must go through the desktop search box — never treat the artist
 // name as an on-screen track click, and never play with media keys only.
 func queryMustSearchFirst(query string) bool {
-	q := strings.TrimSpace(query)
-	if isGenericMediaQuery(q) {
+	if !queryLooksLikeArtist(query) {
 		return false
 	}
-	n := len([]rune(q))
-	if n >= 2 && n <= 4 && !strings.ContainsAny(q, "《》") {
-		return true
-	}
-	return false
+	return len([]rune(strings.TrimSpace(query))) <= 4
 }

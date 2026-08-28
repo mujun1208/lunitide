@@ -8,6 +8,7 @@ import {
   type SessionBridge,
 } from '../bridge/client'
 import type { ProjectDTO, SessionDTO } from '../generated/bridge'
+import { pickDefaultLLM } from '../provider/modelKind'
 
 export const AUTOMATION_RUNNER_TITLE = '自动化执行'
 
@@ -32,12 +33,7 @@ export async function ensureAutomationRunner(
 }
 
 export async function loadDefaultModel(providers: ProviderBridge = providerBridge): Promise<{ providerId: string; modelId: string } | undefined> {
-  const ready = (await providers.list()).items.filter(
-    item => item.status === 'enabled' && item.credentialState === 'configured',
-  )
-  const first = ready[0]
-  if (!first) return undefined
-  const model = first.models.find(item => item.isDefault)?.modelId ?? first.models[0]?.modelId
-  if (!model) return undefined
-  return { providerId: first.id, modelId: model }
+  const picked = pickDefaultLLM((await providers.list()).items)
+  if (!picked) return undefined
+  return { providerId: picked.provider.id, modelId: picked.modelId }
 }
