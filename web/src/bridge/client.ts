@@ -503,11 +503,11 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
     list:()=>core.request('meetings.list',{}),
     start:p=>core.request('meetings.start',p??{}),
     append:p=>retryBridgeRequest(()=>core.request('meetings.append',p,MEETING_APPEND_DEADLINE_MS)),
-    stop:p=>core.request('meetings.stop',p,MEETING_STOP_DEADLINE_MS),
+    stop:p=>retryBridgeRequest(()=>core.request('meetings.stop',p,MEETING_STOP_DEADLINE_MS)),
     get:p=>core.request('meetings.get',p,MEETING_HEARTBEAT_DEADLINE_MS),
     heartbeat:p=>retryBridgeRequest(()=>core.request('meetings.heartbeat',p,MEETING_HEARTBEAT_DEADLINE_MS)),
     summarize:p=>core.request('meetings.summarize',p,MEETING_SUMMARIZE_DEADLINE_MS),
-    exportMeeting:p=>core.request('meetings.export',p,30_000),
+    exportMeeting:p=>core.request('meetings.export',p,MEETING_APPEND_DEADLINE_MS),
     update:p=>core.request('meetings.update',p),
     delete:p=>core.request('meetings.delete',p),
   }
@@ -1191,7 +1191,7 @@ export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()
 // transfer measured in minutes.
 export type{VoiceStatusResult,VoiceInstallPayload,VoiceInstallResult,VoiceSelectPayload,VoiceSelectResult,VoiceStartPayload,VoiceStartResult,VoiceAppendPayload,VoiceAppendResult,VoiceFinishPayload,VoiceFinishResult,VoiceStopPayload,VoiceStopResult}
 export interface VoiceBridge{status():Promise<VoiceStatusResult>;install(payload?:VoiceInstallPayload):Promise<VoiceInstallResult>;select(payload:VoiceSelectPayload):Promise<VoiceSelectResult>;start(payload?:VoiceStartPayload):Promise<VoiceStartResult>;append(payload:VoiceAppendPayload):Promise<VoiceAppendResult>;finish(payload:VoiceFinishPayload):Promise<VoiceFinishResult>;stop(payload?:VoiceStopPayload):Promise<VoiceStopResult>}
-export function createVoiceBridge(transport:WebViewTransport=webview()):VoiceBridge{const core=createSimpleBridge(transport,{},8_000);const frameCore=createSimpleBridge(transport,{},8_000);const startCore=createSimpleBridge(transport,{},30_000);return{status:()=>core.request('voice.status',{}),install:payload=>core.request('voice.install',payload??{}),select:payload=>core.request('voice.select',payload),start:payload=>startCore.request('voice.start',payload??{}),append:payload=>frameCore.request('voice.append',payload),finish:payload=>core.request('voice.finish',payload),stop:payload=>core.request('voice.stop',payload??{})}}
+export function createVoiceBridge(transport:WebViewTransport=webview()):VoiceBridge{const core=createSimpleBridge(transport,{},8_000);const frameCore=createSimpleBridge(transport,{},20_000);const startCore=createSimpleBridge(transport,{},30_000);return{status:()=>core.request('voice.status',{}),install:payload=>core.request('voice.install',payload??{}),select:payload=>core.request('voice.select',payload),start:payload=>startCore.request('voice.start',payload??{}),append:payload=>frameCore.request('voice.append',payload),finish:payload=>core.request('voice.finish',payload,20_000),stop:payload=>core.request('voice.stop',payload??{})}}
 let voiceSingleton:VoiceBridge|undefined
 export function getVoiceBridge():VoiceBridge{return voiceSingleton??=createVoiceBridge()}
 

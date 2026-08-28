@@ -167,12 +167,23 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     sessionId = ''
     fed = false
     if (dying) void bridge.stop({ sessionId: dying }).catch(() => {})
-    const opened = await bridge.start({ language: 'zh-CN' })
-    if (closed) {
-      void bridge.stop({ sessionId: opened.sessionId }).catch(() => {})
-      return
+    let last: unknown
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (closed) return
+      try {
+        const opened = await bridge.start({ language: 'zh-CN' })
+        if (closed) {
+          void bridge.stop({ sessionId: opened.sessionId }).catch(() => {})
+          return
+        }
+        sessionId = opened.sessionId
+        return
+      } catch (error) {
+        last = error
+        await new Promise<void>(resolve => { window.setTimeout(resolve, 400 * (attempt + 1)) })
+      }
     }
-    sessionId = opened.sessionId
+    throw last
   }
 
   /**

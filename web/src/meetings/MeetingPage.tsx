@@ -80,6 +80,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const captureRef = useRef<MeetingCapturePlan | undefined>(undefined)
   const tickRef = useRef<number>(0)
   const heartbeatRef = useRef<number>(0)
+  const speechGen = useRef(0)
   const appendChain = useRef(Promise.resolve())
   const currentIdRef = useRef('')
 
@@ -103,33 +104,55 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   const attachSpeech = async (meeting: MeetingDTO, plan: MeetingCapturePlan) => {
     captureRef.current = plan
-    const handle = await startMeetingSpeech({
-      extraStreams: plan.extraStreams,
-      duplex: true,
-      spokenText: () => '',
-      onFinal: text => {
-        const id = meeting.meetingId
-        const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
-        appendChain.current = appendChain.current.then(() =>
-          retryMeetingWrite(() => meetings.append({ meetingId: id, text, startedMs })).then(seg => {
-            setCurrent(value => value && value.meetingId === id ? {
-              ...value,
-              segments: [...(value.segments ?? []), seg],
-              transcript: [value.transcript, seg.text].filter(Boolean).join('\n'),
-            } : value)
-            setInterim('')
-          }),
-        ).catch(error => {
-          if (currentIdRef.current === id) setNotice(error instanceof Error ? error.message : '转写写入失败')
-        })
-      },
-      onInterim: text => setInterim(text),
-      onError: error => {
-        if (currentIdRef.current === meeting.meetingId) setNotice(error.message)
-      },
-    })
-    speechRef.current = handle
-    if (plan.notice) setNotice(plan.notice)
+    const gen = ++speechGen.current
+    const listen = async () => {
+      if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      const handle = await startMeetingSpeech({
+        extraStreams: plan.extraStreams,
+        duplex: true,
+        spokenText: () => '',
+        onFinal: text => {
+          const id = meeting.meetingId
+          const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
+          appendChain.current = appendChain.current.then(() =>
+            retryMeetingWrite(() => meetings.append({ meetingId: id, text, startedMs })).then(seg => {
+              setCurrent(value => value && value.meetingId === id ? {
+                ...value,
+                segments: [...(value.segments ?? []), seg],
+                transcript: [value.transcript, seg.text].filter(Boolean).join('\n'),
+              } : value)
+              setInterim('')
+              setNotice(prev => /Bridge 请求超时|转写写入失败|本地语音识别中断/.test(prev) ? '' : prev)
+            }),
+          ).catch(error => {
+            if (currentIdRef.current === id && speechGen.current === gen) {
+              setNotice(error instanceof Error ? error.message : '转写写入失败')
+            }
+          })
+        },
+        onInterim: text => setInterim(text),
+        onError: error => {
+          if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+          setNotice(error.message)
+          speechRef.current = null
+          window.setTimeout(() => {
+            if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+            void listen().catch(restartErr => {
+              if (speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
+                setNotice(restartErr instanceof Error ? restartErr.message : '转写中断，仍在录制')
+              }
+            })
+          }, 900)
+        },
+      })
+      if (speechGen.current !== gen) {
+        handle.stop()
+        return
+      }
+      speechRef.current = handle
+      if (plan.notice) setNotice(plan.notice)
+    }
+    await listen()
   }
 
   useEffect(() => {
@@ -187,7 +210,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   }, [current?.status, current?.meetingId, meetings])
 
   useEffect(() => () => {
+    speechGen.current += 1
     speechRef.current?.stop()
+    speechRef.current = null
     releaseMeetingCapture(captureRef.current)
     window.clearInterval(tickRef.current)
     window.clearInterval(heartbeatRef.current)
@@ -210,6 +235,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         throw speechError
       }
     } catch (error) {
+      speechGen.current += 1
       speechRef.current?.stop()
       speechRef.current = null
       releaseMeetingCapture(plan)
@@ -227,6 +253,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     if (!current || current.status !== 'recording' || busy) return
     setBusy(true)
     setNotice('正在生成会议纪要…')
+    speechGen.current += 1
     const handle = speechRef.current
     speechRef.current = null
     try {
