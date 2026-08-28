@@ -26,27 +26,31 @@ const (
 
 var (
 	ErrMissingModel   = errors.New("omni: MiniCPM-o 4.5 Q4 尚未下载")
-	ErrMissingRuntime = errors.New("omni: 未找到 llama-omni-server")
+	ErrMissingRuntime = errors.New("omni: 本机推理进程未能展开")
 	ErrNotReady       = errors.New("omni: 本机模型服务尚未就绪")
 )
 
 // Host owns the llama-omni-server child and the GGUF directory.
 type Host struct {
-	Root      string
-	Listen    string
-	Endpoint  string
-	Finder    func() string
-	Present   func() bool
-	HTTP      *http.Client
+	Root     string
+	Listen   string
+	Endpoint string
+	Finder   func() string
+	Present  func() bool
+	HTTP     *http.Client
+	// Payload is a zip or directory of llama-omni-server. Empty discovers
+	// omni/llama-omni-runtime.zip next to the engine.
+	Payload   string
 	installer *voice.Installer
 
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	state   string
-	lastErr string
+	mu        sync.Mutex
+	extractMu sync.Mutex
+	cmd       *exec.Cmd
+	state     string
+	lastErr   string
 }
 
-// NewHost roots downloads and the optional runtime binary under dir.
+// NewHost roots downloads and the bundled runtime binary under dir.
 func NewHost(root string) *Host {
 	return &Host{
 		Root:      root,
@@ -97,7 +101,7 @@ func (h *Host) Healthy() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// RuntimePath is llama-omni-server on disk, or empty.
+// RuntimePath is llama-omni-server on disk, or empty. Does not extract.
 func (h *Host) RuntimePath() string {
 	if h.Finder != nil {
 		return h.Finder()
@@ -105,11 +109,33 @@ func (h *Host) RuntimePath() string {
 	return findRuntime(h.Root)
 }
 
+// EnsureRuntime copies the bundled payload into root/runtime when missing.
+func (h *Host) EnsureRuntime() error {
+	if h.Finder != nil {
+		return nil
+	}
+	h.extractMu.Lock()
+	defer h.extractMu.Unlock()
+	return EnsureBundledRuntime(h.Root, h.Payload)
+}
+
 // Snapshot is the settings/status payload.
 func (h *Host) Snapshot() map[string]any {
 	installed := h.Installed()
 	runtimePath := h.RuntimePath()
-	healthy := h.Healthy()
+	// A black-holed :19080 (or a hung PATH LookPath, now removed) used to
+	// stall omni.status so settings sat on 「正在检测 MiniCPM-o 4.5…」.
+	// Probe loopback only when a binary or our child might actually answer.
+	probeHealth := runtimePath != ""
+	if !probeHealth {
+		h.mu.Lock()
+		probeHealth = h.cmd != nil && h.cmd.Process != nil
+		h.mu.Unlock()
+	}
+	healthy := false
+	if probeHealth {
+		healthy = h.Healthy()
+	}
 	h.mu.Lock()
 	state, lastErr := h.state, h.lastErr
 	h.mu.Unlock()
@@ -151,6 +177,12 @@ func (h *Host) Ensure() (string, error) {
 		h.state, h.lastErr = HostMissingModel, ErrMissingModel.Error()
 		h.mu.Unlock()
 		return HostMissingModel, ErrMissingModel
+	}
+	if err := h.EnsureRuntime(); err != nil {
+		h.mu.Lock()
+		h.state, h.lastErr = HostMissingRuntime, err.Error()
+		h.mu.Unlock()
+		return HostMissingRuntime, err
 	}
 	bin := h.RuntimePath()
 	if bin == "" {

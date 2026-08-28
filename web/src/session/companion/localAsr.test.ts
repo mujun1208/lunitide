@@ -235,6 +235,13 @@ describe('startLocalAsr', () => {
     expect(bridge.append.mock.calls[0]![0]).toMatchObject({ sessionId: 'v1' })
   })
 
+  it('mixes extra this-PC streams into capture', async () => {
+    const extra = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream
+    await startLocalAsr({ extraStreams: [extra] })
+    const { startPcmCapture } = await import('./pcmCapture')
+    expect(startPcmCapture).toHaveBeenCalledWith(expect.objectContaining({ extraStreams: [extra] }))
+  })
+
   it('is safe to cancel twice and to finish after cancelling', async () => {
     const handle = await startLocalAsr({})
     handle.cancel()

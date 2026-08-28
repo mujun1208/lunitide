@@ -1,9 +1,13 @@
 package app
 
 import (
+	"archive/zip"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,5 +124,70 @@ func TestOmniAppendRejectsBadPayload(t *testing.T) {
 	resp := e.Handle(context.Background(), validRequest("omni.append", `{"sessionId":"gone","pcm":"AAAA"}`))
 	if resp.OK || resp.Error == nil || resp.Error.Code != "OMNI-004" {
 		t.Fatalf("omni.append = %+v; want OMNI-004", resp)
+	}
+}
+
+func TestOmniStatusReportsRuntimeWithoutDownloadingModel(t *testing.T) {
+	root := t.TempDir()
+	payload := filepath.Join(t.TempDir(), omni.BundledRuntimeZip)
+	writeOmniStubZip(t, payload)
+	svc := NewOmniService(root)
+	svc.host.Payload = payload
+	if err := svc.host.EnsureRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetOmniService(svc)
+	resp := e.Handle(context.Background(), validRequest("omni.status", `{}`))
+	if !resp.OK {
+		t.Fatalf("omni.status = %+v", resp)
+	}
+	out := resp.Payload.(map[string]any)
+	if out["runtimeFound"] != true {
+		t.Fatalf("runtimeFound = %v", out["runtimeFound"])
+	}
+	if out["installed"] != false {
+		t.Fatalf("installed = %v; model must stay downloadable", out["installed"])
+	}
+	if out["hostState"] != omni.HostMissingModel {
+		t.Fatalf("hostState = %v; missing model is not missing runtime", out["hostState"])
+	}
+}
+
+func TestOmniStartWithoutRuntimeDoesNotAskToCopyFiles(t *testing.T) {
+	t.Setenv("LUNITIDE_OMNI_PAYLOAD", "")
+	e := NewEngine(providerRepositoryStub{}, "test")
+	svc := NewOmniService(t.TempDir())
+	svc.host.Present = func() bool { return true }
+	e.SetOmniService(svc)
+	resp := e.Handle(context.Background(), validRequest("omni.start", `{}`))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "OMNI-002" {
+		t.Fatalf("omni.start = %+v; want OMNI-002", resp)
+	}
+	if strings.Contains(resp.Error.Message, "omni/runtime") || strings.Contains(resp.Error.Message, "放到") {
+		t.Fatalf("must not tell users to copy files: %s", resp.Error.Message)
+	}
+}
+
+func writeOmniStubZip(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("llama-omni-server.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("stub")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

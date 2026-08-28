@@ -104,6 +104,18 @@ func TestMeetingsHandlersBusyAndUnavailable(t *testing.T) {
 	}
 }
 
+func TestMeetingsHandlersStartSystemAudioAndRejectRemote(t *testing.T) {
+	e, _ := newMeetingsEngine(t)
+	resp := meetingsCall(t, e, "meetings.start", map[string]any{"audioSource": "remote"})
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("remote = %+v", resp)
+	}
+	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"title": "周会", "audioSource": "microphone_and_system"})
+	if started["audioSource"] != "microphone_and_system" {
+		t.Fatalf("start mix = %#v", started)
+	}
+}
+
 func TestMeetingsHandlersSummarizeWithCompleter(t *testing.T) {
 	e, svc := newMeetingsEngine(t)
 	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {

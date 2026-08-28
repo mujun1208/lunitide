@@ -1,5 +1,6 @@
-// Package meetings is this-PC meeting notes: microphone transcript, then
-// a generated document. It never captures another machine's audio.
+// Package meetings is this-PC meeting notes: microphone, optionally mixed with
+// this-PC system audio, then a generated document. It never captures another
+// machine's audio.
 package meetings
 
 import (
@@ -25,6 +26,11 @@ var (
 	ErrNotRecording = errors.New("meeting is not recording")
 	ErrCanceled    = errors.New("meeting picker canceled")
 	ErrUnsupported = errors.New("meeting save dialog unsupported")
+)
+
+const (
+	AudioMicrophone          = "microphone"
+	AudioMicrophoneAndSystem = "microphone_and_system"
 )
 
 const (
@@ -153,7 +159,7 @@ func (s *Service) Get(ctx context.Context, id string) (Meeting, error) {
 	return m, nil
 }
 
-func (s *Service) Start(ctx context.Context, title string) (Meeting, error) {
+func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting, error) {
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
 	}
@@ -163,6 +169,10 @@ func (s *Service) Start(ctx context.Context, title string) (Meeting, error) {
 	}
 	if busy {
 		return Meeting{}, ErrBusy
+	}
+	audioSource, err = NormalizeAudioSource(audioSource)
+	if err != nil {
+		return Meeting{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	title = strings.TrimSpace(title)
@@ -176,7 +186,7 @@ func (s *Service) Start(ctx context.Context, title string) (Meeting, error) {
 		MeetingID:   ulid.Make().String(),
 		Title:       title,
 		Status:      StatusRecording,
-		AudioSource: "microphone",
+		AudioSource: audioSource,
 		StartedAt:   now,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -432,7 +442,7 @@ func RenderMarkdown(m Meeting) string {
 		fmt.Fprintf(&b, "- 结束：%s\n", m.EndedAt)
 	}
 	fmt.Fprintf(&b, "- 时长：%s\n", formatDuration(m.DurationMS))
-	b.WriteString("- 音频：本机麦克风（未混录系统扬声器）\n\n")
+	fmt.Fprintf(&b, "- 音频：%s\n\n", audioSourceLabel(m.AudioSource))
 	b.WriteString("## 会议摘要\n\n")
 	b.WriteString(summary)
 	b.WriteString("\n\n## 决议/待办\n\n")
@@ -473,6 +483,24 @@ func clipRunes(s string, max int) string {
 		return s
 	}
 	return string([]rune(s)[:max])
+}
+
+func NormalizeAudioSource(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return AudioMicrophone, nil
+	}
+	if raw == AudioMicrophone || raw == AudioMicrophoneAndSystem {
+		return raw, nil
+	}
+	return "", ErrInvalid
+}
+
+func audioSourceLabel(src string) string {
+	if src == AudioMicrophoneAndSystem {
+		return "本机麦克风 + 本机系统声音（未共享给其他电脑）"
+	}
+	return "本机麦克风（未混录系统扬声器）"
 }
 
 func ParseNotes(raw, fallbackTitle string) Notes {

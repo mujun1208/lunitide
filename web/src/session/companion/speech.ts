@@ -71,6 +71,8 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
    * Used beside MiniCPM-o PCM capture so captions still show the user's words.
    */
   meterless?: boolean
+  /** Extra this-PC streams mixed into local ASR. Ignored by Web Speech. */
+  extraStreams?: MediaStream[]
 }
 
 export interface CompanionSpeechHandle {

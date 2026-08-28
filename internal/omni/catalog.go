@@ -50,24 +50,27 @@ func ModelBundle() voice.Bundle {
 }
 
 const (
-	// RuntimeRevision pins the Windows Comni installer. Do not float on latest.
+	// RuntimeRevision pins the Windows Comni tree we vendor llama-omni-server
+	// from at packaging time. Do not float on latest.
 	RuntimeRevision = "v1.0.22"
-	// RuntimeSetupFile is the versioned NSIS installer, not the floating alias.
+	// RuntimeSetupFile is the versioned NSIS installer used only by
+	// release/Publish-OmniRuntime.ps1 to unpack the slim runtime zip.
 	RuntimeSetupFile = "Comni-Setup-1.0.22-win64.exe"
 	RuntimeSHA256    = "72cefacba846920c3063479bc4bbfcdc268bb494623ee84f5f1e57464202a514"
 	RuntimeBytes     = 564212994
 )
 
-// RuntimeBundle is the pinned llama-omni-server installer. Fetched into the
-// omni data directory, then unpacked with a silent NSIS install under
-// omni/runtime — never a floating GitHub "latest" URL.
+// RuntimeBundle pins the Comni NSIS installer that packaging unpacks. The
+// running product does not download this file — users get llama-omni-server
+// from the staged omni/llama-omni-runtime.zip, and MiniCPM-o weights from
+// ModelBundle.
 func RuntimeBundle() voice.Bundle {
 	path := "/tc-mb/llama.cpp-omni/releases/download/" + RuntimeRevision + "/" + RuntimeSetupFile
 	return voice.Bundle{
 		ID:     "comni-runtime-" + RuntimeRevision,
 		Kind:   voice.BundleRuntime,
 		Title:  "llama-omni-server",
-		Detail: "本机 MiniCPM-o 推理进程，约 540 MB，下载进月汐数据目录后静默安装到 omni/runtime/",
+		Detail: "打包时从 Comni 解开的本机 MiniCPM-o 推理进程，随月汐安装，不含 8 GB GGUF 权重",
 		Downloads: []voice.Download{
 			{
 				Path: RuntimeSetupFile,

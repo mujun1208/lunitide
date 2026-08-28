@@ -197,4 +197,20 @@ describe('PeoplePage', () => {
       kind: 'file', localPath: 'C:/docs', fileName: 'docs.zip',
     })))
   })
+
+  test('paperclip sends a native this-PC file without auto-accepting inbound offers', async () => {
+    const { identity, people } = bridges()
+    people.filePick = vi.fn().mockResolvedValue({ path: 'C:/docs/spec.pdf', fileName: 'spec.pdf' })
+    people.threadSend = vi.fn().mockResolvedValue({
+      message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB2', kind: 'file', fileName: 'spec.pdf', offerStatus: 'pending' },
+    })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    await user.click(await screen.findByRole('button', { name: '发送本机文件' }))
+    expect(people.filePick).toHaveBeenCalledWith({ folder: false })
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'file', localPath: 'C:/docs/spec.pdf', fileName: 'spec.pdf',
+    })))
+  })
 })

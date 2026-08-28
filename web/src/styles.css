@@ -1168,6 +1168,11 @@ html.companion-active .drawer-toggle{display:none}
 .companion-banner span{color:var(--muted);font:10px var(--mono)}
 .companion-banner.warn{border-color:rgba(255,196,107,.45);background:rgba(38,28,12,.94);color:var(--warn)}
 .companion-banner.error{border-color:rgba(255,122,122,.45);background:rgba(40,14,16,.94);color:#ffb3b3}
+.companion-banner.companion-omni-hint{flex-direction:column;align-items:stretch;max-width:min(560px,calc(100% - 48px));gap:8px;padding:12px 14px}
+.companion-omni-hint-copy{margin:0;color:var(--ink);font-size:13px;line-height:1.5}
+.companion-banner.companion-omni-hint .setting-row{grid-template-columns:1fr auto;gap:12px;padding:0;border:0}
+.companion-banner.companion-omni-hint .setting-desc{color:var(--muted)}
+.companion-banner.companion-omni-hint>button{align-self:flex-end}
 .companion-status{position:absolute;top:22px;right:26px;display:flex;align-items:center;gap:8px;z-index:3;padding:7px 13px;border:1px solid rgba(143,170,216,.3);border-radius:999px;background:rgba(10,17,30,.85);color:var(--ink);font-size:13px}
 .companion-status time{color:var(--muted);font:11px var(--mono)}
 .companion-status-sub{color:var(--muted);font-size:11px}
@@ -1701,6 +1706,8 @@ html[data-theme="light"] .subagent-profile-row{background:#fff}
 .meeting-start{background:color-mix(in srgb,var(--tide1) 22%,transparent);border-color:color-mix(in srgb,var(--tide1) 45%,transparent);color:var(--ink)}
 .meeting-stop{background:color-mix(in srgb,var(--err) 16%,transparent);border-color:color-mix(in srgb,var(--err) 40%,transparent);color:var(--err)}
 .meeting-rec span{color:var(--muted);font-size:13px}
+.meeting-mix{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;cursor:pointer}
+.meeting-mix input{accent-color:var(--tide1)}
 .meeting-notice{margin:0;color:var(--tide3);font-size:13px}
 .meeting-transcript{min-height:160px;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);display:grid;gap:8px}
 .meeting-transcript p{margin:0;font-size:14px;line-height:1.55}

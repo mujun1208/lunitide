@@ -40,7 +40,6 @@ export function PeoplePage({
   const [pendingSave, setPendingSave] = useState<PeopleMessageDTO>()
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
   const imageRef = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const threadIdRef = useRef<string | undefined>(undefined)
@@ -359,12 +358,11 @@ export function PeoplePage({
               if (file) { e.preventDefault(); void send('image', '', file) }
             }}>
               <input ref={imageRef} hidden type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void send('image', '', file) }} />
-              <input ref={fileRef} hidden type="file" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void send(file.type.startsWith('image/') ? 'image' : 'file', '', file) }} />
               <div className="people-composer-tools">
                 <button type="button" onClick={() => setEmojiOpen(v => !v)} aria-label="表情">☺</button>
                 <button type="button" onClick={() => imageRef.current?.click()} aria-label="发送图片">🖼</button>
                 <button type="button" onClick={() => void grabScreen()} aria-label="截取本机画面" title="只截取这台电脑的画面，不会把桌面共享给其他电脑">📷</button>
-                <button type="button" onClick={() => fileRef.current?.click()} aria-label="发送文件">📎</button>
+                <button type="button" onClick={() => void pickNative(false)} aria-label="发送本机文件" title="从这台电脑选择文件发送，需对方确认后才会保存">📎</button>
                 <button type="button" onClick={() => void pickNative(true)} aria-label="发送文件夹" title="选择本机文件夹并打包为 zip 发送">📁</button>
               </div>
               {emojiOpen && <div className="people-emoji">{PEOPLE_EMOJI.map(item => <button type="button" key={item} onClick={() => void send('emoji', item)}>{item}</button>)}</div>}
