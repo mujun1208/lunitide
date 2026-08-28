@@ -115,12 +115,11 @@ export const INCOMPLETE_HARD_MS = 2200
 /** Minimum time with text on screen before we accept a non-terminal commit. */
 export const MIN_UTTERANCE_MS = 140
 /** Last-resort commit when the transcript AND the mic have been quiet.
- *  Sits just above the 1.2–1.5s turn-end window so it never becomes the
- *  rule the user actually feels. */
-export const STUCK_TRANSCRIPT_MS = 1600
-/** Last-resort stage commit. Sits above the 1.5s turn-end ceiling so it
- *  never becomes the endpoint the user actually feels. */
-export const FORCE_COMMIT_MS = 1800
+ *  Sits just above the 1.2s turn-end so it never becomes the rule they feel. */
+export const STUCK_TRANSCRIPT_MS = 1400
+/** Last-resort stage commit. Sits just above the 1.2s turn-end so a stuck
+ *  caption still answers, without becoming the everyday endpoint. */
+export const FORCE_COMMIT_MS = 1400
 /** Restart SR only after this long of real mic energy with no transcript.
  *  Windows returns a first interim within a few hundred milliseconds of
  *  speech, so a second of talking with nothing on screen is already wrong. */
@@ -180,11 +179,11 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
   return hasText && stableForMs >= stableMs
 }
 
-/** Silence that ends a turn: how long a pause means "I have finished".
- *  The product window is 1.2–1.5s after the user stops talking. */
-export const TURN_END_SILENCE_MS = 1300
-/** Unfinished-looking phrases still must not wait past the 1.5s ceiling. */
-export const TURN_END_INCOMPLETE_SILENCE_MS = 1500
+/** Silence that ends a turn: 1.2s after they actually stop talking. */
+export const TURN_END_SILENCE_MS = 1200
+/** Incomplete phrases like 「打开网」 still wait for more words, but 1.2s
+ *  of true silence after they stopped means the question ended. */
+export const TURN_END_INCOMPLETE_SILENCE_MS = 1200
 /** Meeting notes: people pause mid-thought; keep the clause open longer than companion turn-taking. */
 export const MEETING_TURN_END_SILENCE_MS = 2000
 /** Unfinished meeting phrases wait a little past the 2s hold. */
@@ -243,9 +242,9 @@ export function turnEnded(input: {
  *
  * Windows can keep speechActive true by re-firing the same interim, and
  * analyser noise can do the same. A caption that has not grown for the
- * 1.2–1.5s product window is a finished turn even if those signals lie.
- * Incomplete commands still get the 1.5s ceiling, so 「打开网」is not
- * sent the instant the first syllable lands.
+ * 1.2s product window is a finished turn even if those signals lie.
+ * Incomplete commands still must not commit on a 50–400ms breath — only
+ * after 1.2s of true silence after they actually stopped.
  */
 export function shouldForceCommitUtterance(input: {
   speechActive: boolean

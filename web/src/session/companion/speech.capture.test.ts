@@ -246,22 +246,22 @@ describe('startCompanionSpeech capture graph', () => {
     handle.stop()
   })
 
-  test('mints a new recognizer after each of three TTS rounds', async () => {
+  test('mints a new recognizer after each of eight TTS rounds', async () => {
     const handle = await startCompanionSpeech({
       duplex: true,
       onFinal: vi.fn(),
       onError: vi.fn(),
     })
     const minted = [recognitionCtorCount]
-    for (let round = 0; round < 3; round += 1) {
+    for (let round = 0; round < 8; round += 1) {
       handle.setAssistantPlayback(true)
       recognition.onend?.()
       handle.setAssistantPlayback(false)
       minted.push(recognitionCtorCount)
     }
-    expect(minted[1]).toBeGreaterThan(minted[0])
-    expect(minted[2]).toBeGreaterThan(minted[1])
-    expect(minted[3]).toBeGreaterThan(minted[2])
+    for (let i = 1; i < minted.length; i += 1) {
+      expect(minted[i]).toBeGreaterThan(minted[i - 1])
+    }
     handle.stop()
   })
 

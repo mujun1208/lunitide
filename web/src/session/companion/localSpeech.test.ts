@@ -313,6 +313,40 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
+  it('stays fluent across eight listen → 1.2s → answer → next-listen rounds', async () => {
+    const stage = harness()
+    const handle = await startLocalCompanionSpeech(stage.options)
+    const lines = [
+      '你好月汐',
+      '今晚天气怎么样',
+      '帮我打开桌面',
+      '打开网易云音乐',
+      '搜索周杰伦放一首',
+      '下一句你好吗',
+      '谢谢',
+      '再见',
+    ]
+    for (const line of lines) {
+      const before = stage.onFinal.mock.calls.length
+      asr.commit.mockResolvedValue(line)
+      onTranscript(line, false)
+      onTranscript(line, true)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(stage.onFinal).toHaveBeenCalledTimes(before)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(stage.onFinal).toHaveBeenCalledTimes(before + 1)
+      expect(stage.onFinal).toHaveBeenLastCalledWith(line)
+      stage.say(`好的，${line}`)
+      handle.setAssistantPlayback(true)
+      onTranscript(`好的，${line}`, true)
+      await vi.advanceTimersByTimeAsync(200)
+      handle.setAssistantPlayback(false, 0)
+      await vi.advanceTimersByTimeAsync(50)
+    }
+    expect(stage.onFinal).toHaveBeenCalledTimes(lines.length)
+    handle.stop()
+  })
+
   it('does not treat「打开网」as finished on a fast engine endpoint', async () => {
     const stage = harness()
     asr.commit.mockResolvedValue('你帮我打开网')
