@@ -45,6 +45,7 @@ describe('startMeetingSpeech', () => {
     expect(asr.web).toHaveBeenCalledOnce()
     expect(asr.local).not.toHaveBeenCalled()
     expect(asr.web.mock.calls[0][0].duplex).toBe(true)
+    expect(asr.web.mock.calls[0][0].holdUtterance).toBe(true)
     expect(asr.web.mock.calls[0][0].spokenText()).toBe('')
   })
 
@@ -58,6 +59,18 @@ describe('startMeetingSpeech', () => {
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn() })
     expect(asr.local).toHaveBeenCalledOnce()
     expect(asr.web).not.toHaveBeenCalled()
+    expect(asr.local.mock.calls[0][0].holdUtterance).toBe(true)
+  })
+
+  test('cleans fillers and domain terms on committed meeting lines', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
+    const onFinal = vi.fn()
+    const handle = await startMeetingSpeech({ onFinal, onError: vi.fn() })
+    asr.local.mock.calls[0][0].onFinal('呃第一步应该先写 b r d')
+    handle.stop()
+    expect(onFinal).toHaveBeenCalledOnce()
+    expect(onFinal.mock.calls[0][0]).toMatch(/BRD/)
+    expect(onFinal.mock.calls[0][0]).not.toMatch(/呃/)
   })
 
   test('mixes this-PC loopback into local ASR only', async () => {
@@ -119,6 +132,9 @@ describe('prepareMeetingCapture', () => {
 describe('audioSourceLabel', () => {
   test('labels mix vs microphone honestly', () => {
     expect(audioSourceLabel('microphone_and_system')).toMatch(/系统声音/)
+    expect(audioSourceLabel('microphone_and_system')).toMatch(/未共享给其他电脑/)
+    expect(audioSourceLabel('microphone')).toMatch(/仅本机麦克风，未混录系统扬声器/)
     expect(audioSourceLabel('microphone', true)).toMatch(/正在录制本机麦克风/)
+    expect(audioSourceLabel('microphone', true)).not.toMatch(/系统扬声器/)
   })
 })

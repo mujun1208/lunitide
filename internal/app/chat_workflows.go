@@ -17,8 +17,8 @@ func bundledWorkflowInjection() string {
 		"- 安装技能：用户给出含 SKILL.md 的目录时，列出后立刻 workspace.read 每个 SKILL.md，再连续调用 skill.create；不要只列目录就结束。\n" +
 		"- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n" +
 		"- 桌面 HTML 小游戏：必须用 html.gen（template=penalty-shootout；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n" +
-		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个。禁止把桌面上其它无关文件一起打开。\n" +
-		"- 播放音乐/视频：若本会话已 desktop.open 音乐软件，续播用 media.play target=foreground（没说歌名时 query=热门）；否则 media.play（action=play，query=歌名/歌手，target=netease|qqmusic|browser）。foreground 会点同名曲目并核对正在播放；核对失败不可报成功，禁止系统播放键当成功路径。禁止 cc.screen_capture 看屏点按，禁止只打开窗口或网页就结束。\n" +
+		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个。禁止把桌面上其它无关文件一起打开。网易云音乐/汽水音乐走开始菜单或本机安装路径（cloudmusic.exe），不要打开网页版。\n" +
+		"- 播放音乐/视频：打开桌面播放器后用 media.play target=foreground（没说歌名时 query=热门；说了歌手如周杰伦则 query=周杰伦）。未运行则 desktop.open 启动后再 foreground 搜索播放。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 		"- 暂停/下一首：media.play action=pause|next|prev。\n" +
 		"- 看全桌面：电脑控制开启时用 cc.screen_capture（虚拟桌面全屏，含所有显示器；target=foreground/window 可只截当前或指定窗口）。截图会作为视觉输入回传。随后的鼠标坐标必须用该图像素。点按钮优先 cc.observe_ui 再 cc.mouse_click name=控件名，不要盲点。\n" +
 		"- 窗口：cc.window_list 列出，cc.window_focus 激活已运行应用；输入前先 cc.window_focus（或 keyboard_type 的 window=）。未运行的用 desktop.open。最小化/还原/移动/关闭用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器/UAC）。拖拽用 cc.mouse_drag。粘贴用 cc.paste；按键用 cc.press；菜单用 cc.menu_click；填表用 cc.set_value。UI 动画未结束用 cc.wait until=change。\n" +

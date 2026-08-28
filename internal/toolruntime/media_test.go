@@ -3,11 +3,13 @@ package toolruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
+	"github.com/lunitide/lunitide/internal/winexec"
 )
 
 func TestBuildMediaSearchURLTargets(t *testing.T) {
@@ -155,5 +157,228 @@ func TestPlayNamedTrackFailsWithoutVerify(t *testing.T) {
 	_, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "复古公路歌", "汽水音乐", true)
 	if err == nil || !strings.Contains(err.Error(), "未能核对正在播放「复古公路歌」") {
 		t.Fatalf("want unverified failure, got %v", err)
+	}
+}
+
+func TestPlayArtistSearchClicksAResult(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	sendForegroundPlay = func(string) error { return nil }
+	t.Cleanup(func() { sendForegroundPlay = winexec.SendMediaKey })
+
+	searched := false
+	clicked := ""
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolMouseClick:
+			var a struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(args, &a)
+			clicked = a.Name
+			return result("clicked"), nil
+		case ccapp.ToolSetValue, ccapp.ToolPress, ccapp.ToolKeyboardType, ccapp.ToolKeyboardShortcut:
+			searched = true
+			return result("ok"), nil
+		case ccapp.ToolObserveUI:
+			nodes := []mediaUINode{
+				{Role: "edit", Name: "搜索", Y: 8, H: 28, W: 240},
+			}
+			if searched {
+				nodes = append(nodes,
+					mediaUINode{Role: "listitem", Name: "晴天", Y: 120, H: 48, W: 400},
+					mediaUINode{Role: "listitem", Name: "夜曲", Y: 180, H: 48, W: 400},
+					mediaUINode{Role: "text", Name: "夜曲", Y: 900, H: 36, W: 280},
+				)
+			} else {
+				nodes = append(nodes, mediaUINode{Role: "text", Name: "私人漫游", Y: 900, H: 36, W: 280})
+			}
+			raw, _ := json.Marshal(map[string]any{"nodes": nodes})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolGetActiveWindow:
+			return Result{Output: "网易云音乐"}, nil
+		default:
+			t.Fatalf("unexpected tool %s", tool)
+			return Result{}, nil
+		}
+	}
+	res, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "周杰伦", "网易云音乐", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !searched {
+		t.Fatal("expected search")
+	}
+	if clicked != "夜曲" && clicked != "晴天" {
+		t.Fatalf("clicked %q", clicked)
+	}
+	if !strings.Contains(res.Output, "周杰伦") && !strings.Contains(res.Output, "夜曲") && !strings.Contains(res.Output, "晴天") {
+		t.Fatalf("output %q", res.Output)
+	}
+}
+
+func TestQueryMustSearchFirstForArtistNotLongSongTitle(t *testing.T) {
+	if !queryMustSearchFirst("周杰伦") {
+		t.Fatal("周杰伦 must search first")
+	}
+	if queryMustSearchFirst("复古公路歌") {
+		t.Fatal("on-screen song title must still click without search")
+	}
+	if queryMustSearchFirst("热门") {
+		t.Fatal("generic query is not an artist search")
+	}
+}
+
+func TestPlayArtistDoesNotMediaKeyWithoutSearch(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	keyed := false
+	sendForegroundPlay = func(string) error {
+		keyed = true
+		return nil
+	}
+	t.Cleanup(func() { sendForegroundPlay = winexec.SendMediaKey })
+
+	invoke := func(_ context.Context, _, tool string, _ json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolMouseClick:
+			return result("clicked"), nil
+		case ccapp.ToolObserveUI:
+			nodes := []mediaUINode{
+				{Role: "button", Name: "我喜欢的音乐", Y: 40, H: 32, W: 160},
+				{Role: "text", Name: "私人漫游", Y: 900, H: 36, W: 280},
+			}
+			raw, _ := json.Marshal(map[string]any{"nodes": nodes})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolGetActiveWindow:
+			return Result{Output: "网易云音乐"}, nil
+		default:
+			return Result{}, nil
+		}
+	}
+	_, err := playNamedTrackInForeground(context.Background(), invoke, "s1", "周杰伦", "网易云音乐", true)
+	if err == nil || !strings.Contains(err.Error(), "搜索框") {
+		t.Fatalf("want search-box failure, got %v", err)
+	}
+	if keyed {
+		t.Fatal("must not send media keys when the search box was never used")
+	}
+}
+
+func TestExecuteMediaPlayJayChouUsesDesktopSearchNotWeb(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+
+	openedHTTP := ""
+	openMediaURL = func(u string) error {
+		openedHTTP = u
+		return nil
+	}
+	t.Cleanup(func() { openMediaURL = openHTTPURL })
+
+	launched := ""
+	openLaunchPath = func(p string) error {
+		launched = p
+		return nil
+	}
+	t.Cleanup(func() { openLaunchPath = openWithDefaultApp })
+
+	activateWindow = func(string) error { return errors.New("not running") }
+	t.Cleanup(func() { activateWindow = winexec.ActivateWindowMatching })
+
+	exe := `C:\fake\Netease\CloudMusic\cloudmusic.exe`
+	origLookup := lookupKnownAppExecutables
+	lookupKnownAppExecutables = func(app knownLaunchApp) []string {
+		if app.Canonical == "网易云音乐" {
+			return []string{exe}
+		}
+		return nil
+	}
+	t.Cleanup(func() { lookupKnownAppExecutables = origLookup })
+
+	sendForegroundPlay = func(string) error { return nil }
+	t.Cleanup(func() { sendForegroundPlay = winexec.SendMediaKey })
+
+	searched := false
+	typed := ""
+	clicked := ""
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolWindowFocus:
+			return result("ok"), nil
+		case ccapp.ToolMouseClick:
+			var a struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(args, &a)
+			clicked = a.Name
+			return result("clicked"), nil
+		case ccapp.ToolSetValue:
+			var a struct {
+				Value string `json:"value"`
+			}
+			_ = json.Unmarshal(args, &a)
+			typed = a.Value
+			searched = true
+			return result("ok"), nil
+		case ccapp.ToolPress, ccapp.ToolKeyboardType, ccapp.ToolKeyboardShortcut:
+			searched = true
+			return result("ok"), nil
+		case ccapp.ToolObserveUI:
+			nodes := []mediaUINode{
+				{Role: "edit", Name: "搜索", Y: 8, H: 28, W: 240},
+			}
+			if searched {
+				bar := "晴天"
+				if clicked == "夜曲" || clicked == "晴天" {
+					bar = clicked
+				}
+				nodes = append(nodes,
+					mediaUINode{Role: "listitem", Name: "晴天", Y: 120, H: 48, W: 400},
+					mediaUINode{Role: "listitem", Name: "夜曲", Y: 180, H: 48, W: 400},
+					mediaUINode{Role: "text", Name: bar, Y: 900, H: 36, W: 280},
+				)
+			} else {
+				nodes = append(nodes, mediaUINode{Role: "text", Name: "私人漫游", Y: 900, H: 36, W: 280})
+			}
+			raw, _ := json.Marshal(map[string]any{"nodes": nodes})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolGetActiveWindow:
+			return Result{Output: "网易云音乐"}, nil
+		default:
+			t.Fatalf("unexpected tool %s", tool)
+			return Result{}, nil
+		}
+	}
+
+	for _, raw := range []string{
+		`{"action":"play","query":"周杰伦","target":"auto","app":"网易云音乐"}`,
+		`{"action":"play","query":"周杰伦","target":"netease"}`,
+		`{"action":"play","query":"周杰伦","target":"","app":"网易云音乐"}`,
+	} {
+		openedHTTP = ""
+		launched = ""
+		searched = false
+		typed = ""
+		clicked = ""
+		res, err := executeMediaPlayWithCC(context.Background(), invoke, "s1", json.RawMessage(raw), true, true)
+		if err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		if openedHTTP != "" || strings.Contains(res.Output, "163.com") || strings.Contains(res.Output, "music.163") {
+			t.Fatalf("%s opened web %q output %q", raw, openedHTTP, res.Output)
+		}
+		if launched == "" || strings.Contains(launched, "163.com") {
+			t.Fatalf("%s launched %q want desktop cloudmusic, not web", raw, launched)
+		}
+		if !strings.Contains(strings.ToLower(launched), "cloudmusic") && !strings.Contains(launched, "网易云") {
+			t.Fatalf("%s launched %q want desktop 网易云 / cloudmusic.exe", raw, launched)
+		}
+		if !searched || typed != "周杰伦" {
+			t.Fatalf("%s searched=%v typed=%q", raw, searched, typed)
+		}
+		if clicked != "晴天" && clicked != "夜曲" {
+			t.Fatalf("%s clicked %q want a search result", raw, clicked)
+		}
 	}
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
 import { ENDPOINT_BACKSTOP_MS } from './localSpeech'
+import { INCOMPLETE_HARD_MS, MEETING_TURN_END_SILENCE_MS } from './speech'
 
 const asr = {
   finish: vi.fn(),
@@ -78,7 +79,7 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
 
     onTranscript('今天天气很好', true)
-    await vi.advanceTimersByTimeAsync(50)
+    await vi.advanceTimersByTimeAsync(1400)
     expect(stage.onFinal).toHaveBeenCalledWith('今天天气很好')
   })
 
@@ -88,11 +89,21 @@ describe('startLocalCompanionSpeech', () => {
     await startLocalCompanionSpeech(stage.options)
 
     onTranscript('你可以', false)
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 15; i++) {
       onLevel(0.2)
       await vi.advanceTimersByTimeAsync(100)
     }
     expect(stage.onFinal).not.toHaveBeenCalled()
+  })
+
+  it('hard-commits a frozen incomplete caption even if the analyser stays busy', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('你可以')
+    await startLocalCompanionSpeech(stage.options)
+
+    onTranscript('你可以', false)
+    await vi.advanceTimersByTimeAsync(INCOMPLETE_HARD_MS + 200)
+    expect(stage.onFinal).toHaveBeenCalledWith('你可以')
   })
 
   it('does not wait forever on a recognizer that stops reporting endpoints', async () => {
@@ -125,7 +136,7 @@ describe('startLocalCompanionSpeech', () => {
 
     onTranscript('就按这个来。', false)
     onTranscript('就按这个来。', true)
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(1400)
     // Losing the sentence would be worse than sending the copy the user
     // already watched appear in the caption.
     expect(stage.onFinal).toHaveBeenCalledWith('就按这个来。')
@@ -166,7 +177,7 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
 
     onTranscript('我说你之前的问题也不能全怪我', true)
-    await vi.advanceTimersByTimeAsync(50)
+    await vi.advanceTimersByTimeAsync(1400)
     expect(stage.onFinal).toHaveBeenCalledWith('我说你之前的问题也不能全怪我')
   })
 
@@ -189,7 +200,7 @@ describe('startLocalCompanionSpeech', () => {
     asr.commit.mockResolvedValue('那帮我订个会议室。')
     await vi.advanceTimersByTimeAsync(100)
     onTranscript('那帮我订个会议室。', true)
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(1400)
 
     expect(stage.onFinal).toHaveBeenCalledWith('那帮我订个会议室。')
     for (const [caption] of stage.onInterim.mock.calls) {
@@ -253,7 +264,7 @@ describe('startLocalCompanionSpeech', () => {
     // What the user actually says next commits normally.
     asr.commit.mockResolvedValue('那帮我改一下。')
     onTranscript('那帮我改一下。', true)
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(1400)
     expect(stage.onFinal).toHaveBeenCalledWith('那帮我改一下。')
   })
 
@@ -302,16 +313,37 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
-  it('sends the pending text on demand when endpointing has not fired', async () => {
+  it('does not treat「打开网」as finished on a fast engine endpoint', async () => {
     const stage = harness()
-    asr.commit.mockResolvedValue('就这样吧')
-    const handle = await startLocalCompanionSpeech(stage.options)
+    asr.commit.mockResolvedValue('你帮我打开网')
+    await startLocalCompanionSpeech(stage.options)
 
-    onTranscript('就这样吧', false)
-    handle.forceCommit()
-    await vi.advanceTimersByTimeAsync(0)
+    onTranscript('你帮我打开网', false)
+    onTranscript('你帮我打开网', true)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(stage.onFinal).not.toHaveBeenCalled()
 
-    expect(stage.onFinal).toHaveBeenCalledWith('就这样吧')
+    await vi.advanceTimersByTimeAsync(ENDPOINT_BACKSTOP_MS)
+    expect(stage.onFinal).toHaveBeenCalledWith('你帮我打开网')
+  })
+
+  it('holds meeting clauses past the engine endpoint so the refiner sees the whole thought', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('第一步应该先写BRD。第二步再做相关工作。')
+    await startLocalCompanionSpeech({ ...stage.options, holdUtterance: true })
+
+    onTranscript('第一步应该先写BRD', false)
+    onTranscript('第一步应该先写BRD', true)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    onTranscript('第二步再做相关工作。', true)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    expect(stage.onInterim).toHaveBeenCalledWith('第一步应该先写BRD第二步再做相关工作。')
+
+    await vi.advanceTimersByTimeAsync(MEETING_TURN_END_SILENCE_MS + 400)
+    expect(stage.onFinal).toHaveBeenCalledWith('第一步应该先写BRD。第二步再做相关工作。')
   })
 
   it('propagates a refusal to start so the stage can fall back', async () => {

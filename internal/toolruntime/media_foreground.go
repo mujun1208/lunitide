@@ -16,6 +16,18 @@ import (
 type ccInvoker func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error)
 
 var mediaSleep = time.Sleep
+var activateWindow = winexec.ActivateWindowMatching
+var sendForegroundPlay = winexec.SendMediaKey
+var openLaunchPath = openWithDefaultApp
+
+func ccPress(ctx context.Context, invoke ccInvoker, session, key string, approved bool) error {
+	raw, err := json.Marshal(map[string]string{"key": key})
+	if err != nil {
+		return err
+	}
+	_, err = invoke(ctx, session, ccapp.ToolPress, raw, approved)
+	return err
+}
 
 func ccShortcut(ctx context.Context, invoke ccInvoker, session string, approved bool, keys ...string) error {
 	raw, err := json.Marshal(map[string][]string{"keys": keys})
@@ -79,7 +91,8 @@ func fillSearchField(ctx context.Context, invoke ccInvoker, session string, fiel
 		if _, err := ccCall(ctx, invoke, session, ccapp.ToolSetValue, map[string]any{
 			"target": target, "value": query,
 		}, approved); err == nil {
-			return nil
+			mediaSleep(180 * time.Millisecond)
+			return ccPress(ctx, invoke, session, "enter", approved)
 		}
 		if err := ccClickName(ctx, invoke, session, target, 1, approved); err != nil {
 			return err
@@ -88,7 +101,53 @@ func fillSearchField(ctx context.Context, invoke ccInvoker, session string, fiel
 	mediaSleep(180 * time.Millisecond)
 	_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "a")
 	mediaSleep(80 * time.Millisecond)
-	return ccType(ctx, invoke, session, query, approved)
+	if err := ccType(ctx, invoke, session, query, approved); err != nil {
+		return err
+	}
+	mediaSleep(120 * time.Millisecond)
+	return ccPress(ctx, invoke, session, "enter", approved)
+}
+
+func activateAnyWindow(hints []string) error {
+	var last error
+	tried := false
+	for _, h := range hints {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		tried = true
+		if err := activateWindow(h); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+	}
+	if !tried {
+		return errors.New("no window matching music app")
+	}
+	return last
+}
+
+func ensureMusicAppForeground(app string) (string, error) {
+	hints := musicWindowHints(app)
+	if err := activateAnyWindow(hints); err == nil {
+		return "", nil
+	}
+	path, _, err := pickLaunchTarget(app)
+	if err != nil || path == "" {
+		if err == nil {
+			err = errors.New("not found")
+		}
+		return "", fmt.Errorf("未能打开桌面应用「%s」: %w", app, err)
+	}
+	if err := openLaunchPath(path); err != nil {
+		return "", err
+	}
+	mediaSleep(2200 * time.Millisecond)
+	hints = append(hints, path, filepath.Base(path))
+	_ = activateAnyWindow(hints)
+	return path, nil
 }
 
 func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, query, appHint string, approved, unconfined bool) (Result, error) {
@@ -109,12 +168,24 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	if app == "" {
 		app = q
 	}
-	if err := winexec.ActivateWindowMatching(app); err != nil {
+	opened, err := ensureMusicAppForeground(app)
+	if err != nil {
 		return Result{}, err
 	}
-	_, _ = ccCall(ctx, invoke, session, ccapp.ToolWindowFocus, map[string]any{"title": app}, approved)
+	focus := app
+	if known, ok := matchKnownLaunchApp(app); ok {
+		focus = known.Canonical
+	}
+	_, _ = ccCall(ctx, invoke, session, ccapp.ToolWindowFocus, map[string]any{"title": focus}, approved)
 	mediaSleep(450 * time.Millisecond)
-	return playNamedTrackInForeground(ctx, invoke, session, q, app, approved)
+	res, err := playNamedTrackInForeground(ctx, invoke, session, q, focus, approved)
+	if err != nil {
+		return res, err
+	}
+	if opened != "" && strings.HasPrefix(res.Output, "verified") {
+		res.Output = "opened " + opened + "; " + res.Output
+	}
+	return res, nil
 }
 
 func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, query, app string, approved bool) (Result, error) {
@@ -140,7 +211,36 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 		return result(fmt.Sprintf("verified playing %q in %s (%s)", query, label, how)), true
 	}
 
-	if !isGenericMediaQuery(query) {
+	acceptSearchPlayback := func(clicked, how string) (Result, bool) {
+		clicked = clipMediaName(clicked)
+		if clicked == "" || isMediaNavName(clicked) {
+			return Result{}, false
+		}
+		if err := ccClickName(ctx, invoke, session, clicked, 2, approved); err != nil {
+			return Result{}, false
+		}
+		mediaSleep(700 * time.Millisecond)
+		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
+		title := ccWindowTitle(ctx, invoke, session, approved)
+		if nowPlayingConfirmed(nodes, title, query) {
+			return result(fmt.Sprintf("verified playing %q in %s (%s)", query, label, how)), true
+		}
+		if nowPlayingConfirmed(nodes, title, clicked) {
+			return result(fmt.Sprintf("verified playing %q in %s (%s)", clicked, label, how)), true
+		}
+		// Media keys only after a search result was clicked — never as the
+		// only action, and never before the search box was used.
+		if queryLooksLikeArtist(query) {
+			_ = sendForegroundPlay("play")
+			return result(fmt.Sprintf("started playing a result for %q in %s (%s)", query, label, how)), true
+		}
+		return Result{}, false
+	}
+
+	mustSearch := queryMustSearchFirst(query)
+	didSearch := false
+
+	if !mustSearch && !isGenericMediaQuery(query) {
 		if res, ok := tryClick(query, "clicked named track"); ok {
 			return res, nil
 		}
@@ -150,9 +250,11 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 	if err != nil {
 		return Result{}, fmt.Errorf("observe music UI: %w", err)
 	}
-	if track := pickTrackNode(nodes, query); track != nil {
-		if res, ok := tryClick(track.Name, "clicked list item"); ok {
-			return res, nil
+	if !mustSearch {
+		if track := pickTrackNode(nodes, query); track != nil {
+			if res, ok := tryClick(track.Name, "clicked list item"); ok {
+				return res, nil
+			}
 		}
 	}
 
@@ -160,6 +262,7 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 		if err := fillSearchField(ctx, invoke, session, *search, query, approved); err != nil {
 			return Result{}, fmt.Errorf("type search query: %w", err)
 		}
+		didSearch = true
 		mediaSleep(900 * time.Millisecond)
 		nodes, _, err = ccObserveNodes(ctx, invoke, session, approved)
 		if err != nil {
@@ -169,15 +272,26 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 			if res, ok := tryClick(track.Name, "clicked search result"); ok {
 				return res, nil
 			}
+			if res, ok := acceptSearchPlayback(track.Name, "clicked search result"); ok {
+				return res, nil
+			}
 		}
 		if !isGenericMediaQuery(query) {
 			if res, ok := tryClick(query, "clicked named result after search"); ok {
 				return res, nil
 			}
 		}
+		if first := pickFirstPlayable(nodes); first != nil {
+			if res, ok := acceptSearchPlayback(first.Name, "clicked first search result"); ok {
+				return res, nil
+			}
+		}
 	}
 
 	visible := summarizeNodeNames(nodes, 14)
+	if mustSearch && !didSearch {
+		return Result{}, fmt.Errorf("未能在桌面「%s」里找到搜索框，无法搜索「%s」。可见控件：%s", label, query, visible)
+	}
 	return Result{}, fmt.Errorf("未能核对正在播放「%s」。没有点到同名列表项，也没有用系统播放键（以免继续播当前曲）。可见控件：%s", query, visible)
 }
 

@@ -163,8 +163,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     if (!current || current.status !== 'recording' || busy) return
     setBusy(true)
     setNotice('正在生成会议纪要…')
-    speechRef.current?.stop()
+    const handle = speechRef.current
     speechRef.current = null
+    try {
+      await handle?.flush?.()
+    } catch {
+      /* last utterance still flushed below */
+    }
+    handle?.stop()
     releaseMeetingCapture(captureRef.current)
     captureRef.current = undefined
     setInterim('')
@@ -231,7 +237,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       <aside className="meeting-list" aria-label="历史会议">
         <header>
           <h2>会议记录</h2>
-          <p>本机麦克风，可选同时收录这台电脑的系统声音。不会共享给其他电脑。</p>
+          <p>本机麦克风转写。勾选后混录这台电脑的系统声音（扬声器对面更准）。不会共享给其他电脑。</p>
         </header>
         {items.length === 0 ? <p className="meeting-empty">还没有会议。点开始录制这一场。</p> : items.map(item => (
           <button

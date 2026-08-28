@@ -19,13 +19,13 @@ import (
 )
 
 var (
-	ErrUnavailable = errors.New("meetings unavailable")
-	ErrNotFound    = errors.New("meeting not found")
-	ErrInvalid     = errors.New("meeting request invalid")
-	ErrBusy        = errors.New("a meeting is already recording")
+	ErrUnavailable  = errors.New("meetings unavailable")
+	ErrNotFound     = errors.New("meeting not found")
+	ErrInvalid      = errors.New("meeting request invalid")
+	ErrBusy         = errors.New("a meeting is already recording")
 	ErrNotRecording = errors.New("meeting is not recording")
-	ErrCanceled    = errors.New("meeting picker canceled")
-	ErrUnsupported = errors.New("meeting save dialog unsupported")
+	ErrCanceled     = errors.New("meeting picker canceled")
+	ErrUnsupported  = errors.New("meeting save dialog unsupported")
 )
 
 const (
@@ -323,7 +323,7 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	if s.complete == nil {
 		return s.finishNeedsSummary(ctx, m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
 	}
-	notes, err := s.complete(ctx, m.Title, m.Transcript)
+	notes, err := s.complete(ctx, m.Title, CleanTranscript(m.Transcript))
 	if err != nil {
 		return s.finishNeedsSummary(ctx, m, "尚未生成摘要："+err.Error())
 	}

@@ -22,6 +22,7 @@ type Rec = {
 }
 
 let recognition: Rec
+let recognitionCtorCount = 0
 let micTrack: { enabled: boolean }
 let trackStop: ReturnType<typeof vi.fn>
 let resume: ReturnType<typeof vi.fn>
@@ -49,8 +50,10 @@ beforeEach(() => {
     onsoundstart: null,
     onaudiostart: null,
   }
+  recognitionCtorCount = 0
   class FakeRecognition {
     constructor() {
+      recognitionCtorCount += 1
       return recognition
     }
   }
@@ -233,11 +236,32 @@ describe('startCompanionSpeech capture graph', () => {
       onFinal: vi.fn(),
       onError: vi.fn(),
     })
+    const mintedBeforeTts = recognitionCtorCount
     recognition.start.mockClear()
     handle.setAssistantPlayback(true)
     recognition.onend?.()
     handle.setAssistantPlayback(false)
     expect(recognition.start).toHaveBeenCalled()
+    expect(recognitionCtorCount).toBeGreaterThan(mintedBeforeTts)
+    handle.stop()
+  })
+
+  test('mints a new recognizer after each of three TTS rounds', async () => {
+    const handle = await startCompanionSpeech({
+      duplex: true,
+      onFinal: vi.fn(),
+      onError: vi.fn(),
+    })
+    const minted = [recognitionCtorCount]
+    for (let round = 0; round < 3; round += 1) {
+      handle.setAssistantPlayback(true)
+      recognition.onend?.()
+      handle.setAssistantPlayback(false)
+      minted.push(recognitionCtorCount)
+    }
+    expect(minted[1]).toBeGreaterThan(minted[0])
+    expect(minted[2]).toBeGreaterThan(minted[1])
+    expect(minted[3]).toBeGreaterThan(minted[2])
     handle.stop()
   })
 

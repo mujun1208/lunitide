@@ -133,3 +133,37 @@ func TestStartSystemAudioAndExportLabel(t *testing.T) {
 		t.Fatalf("markdown = %s", body)
 	}
 }
+
+func TestSummarizePassesCleanedTranscriptToCompleter(t *testing.T) {
+	svc := testMeetings(t)
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		if strings.Contains(transcript, "呃") {
+			t.Fatalf("uncleaned transcript = %q", transcript)
+		}
+		if !strings.Contains(transcript, "BRD") {
+			t.Fatalf("acronym missing = %q", transcript)
+		}
+		return meetings.Notes{Title: "落实会", Summary: "背景：落实工作。\n讨论要点：先写BRD。\n结论：按步骤推进。", Actions: "- 先写BRD"}, nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "工作落实会议", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "呃第一步应该先写 b r d", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Summarize(ctx, started.MeetingID)
+	if err != nil || got.Status != meetings.StatusReady {
+		t.Fatalf("summarize = %#v %v", got, err)
+	}
+	if !strings.Contains(got.Transcript, "b r d") {
+		t.Fatalf("stored transcript should keep the original line: %q", got.Transcript)
+	}
+	if !strings.Contains(got.Summary, "结论") || !strings.Contains(got.Actions, "BRD") {
+		t.Fatalf("notes = %#v", got)
+	}
+}

@@ -14,6 +14,8 @@ import (
 	"github.com/lunitide/lunitide/internal/winexec"
 )
 
+var openMediaURL = openHTTPURL
+
 func openHTTPURL(raw string) error {
 	u := strings.TrimSpace(raw)
 	if u == "" {
@@ -23,6 +25,33 @@ func openHTTPURL(raw string) error {
 		return exec.Command("cmd", "/c", "start", "", u).Start()
 	}
 	return exec.Command("xdg-open", u).Start()
+}
+
+func mediaPlayUsesDesktop(target, url string) bool {
+	if strings.TrimSpace(url) != "" {
+		return false
+	}
+	return strings.ToLower(strings.TrimSpace(target)) != "browser"
+}
+
+func resolveDesktopPlayApp(target, app string) string {
+	app = strings.TrimSpace(app)
+	if canon := CanonicalMusicApp(app); canon != "" {
+		return canon
+	}
+	if from := CanonicalMusicAppFromText(app); from != "" {
+		return from
+	}
+	switch strings.ToLower(strings.TrimSpace(target)) {
+	case "netease", "163", "cloudmusic":
+		return "网易云音乐"
+	case "qq", "qqmusic":
+		return "QQ音乐"
+	}
+	if app != "" {
+		return app
+	}
+	return FirstInstalledMusicApp()
 }
 
 func buildMediaSearchURL(target, query string) (string, error) {
@@ -66,11 +95,16 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 	target := strings.ToLower(strings.TrimSpace(a.Target))
 	switch action {
 	case "play", "open_and_play":
-		if (target == "foreground" || target == "app" || target == "desktop") && strings.TrimSpace(a.Query) != "" {
-			return executeMediaPlayForeground(ctx, invoke, session, a.Query, foregroundAppHint(a.App, ""), approved, unconfined)
+		q := strings.TrimSpace(a.Query)
+		if mediaPlayUsesDesktop(target, a.URL) && q != "" {
+			app := resolveDesktopPlayApp(target, a.App)
+			if app == "" {
+				return Result{}, errors.New("没有找到本机桌面播放器，无法搜索播放")
+			}
+			return executeMediaPlayForeground(ctx, invoke, session, q, foregroundAppHint(app, ""), approved, unconfined)
 		}
 		u := strings.TrimSpace(a.URL)
-		if u == "" && strings.TrimSpace(a.Query) != "" {
+		if u == "" && q != "" && target == "browser" {
 			var err error
 			u, err = buildMediaSearchURL(a.Target, a.Query)
 			if err != nil {
@@ -78,7 +112,7 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 			}
 		}
 		if u != "" {
-			if err := openHTTPURL(u); err != nil {
+			if err := openMediaURL(u); err != nil {
 				return Result{}, err
 			}
 			time.Sleep(1800 * time.Millisecond)
@@ -111,8 +145,16 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 		}
 		return result("sent stop"), nil
 	case "open":
+		q := strings.TrimSpace(a.Query)
+		if mediaPlayUsesDesktop(target, a.URL) && q != "" {
+			app := resolveDesktopPlayApp(target, a.App)
+			if app == "" {
+				return Result{}, errors.New("没有找到本机桌面播放器，无法搜索播放")
+			}
+			return executeMediaPlayForeground(ctx, invoke, session, q, foregroundAppHint(app, ""), approved, unconfined)
+		}
 		u := strings.TrimSpace(a.URL)
-		if u == "" && strings.TrimSpace(a.Query) != "" {
+		if u == "" && q != "" && target == "browser" {
 			var err error
 			u, err = buildMediaSearchURL(a.Target, a.Query)
 			if err != nil {
@@ -122,7 +164,7 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 		if u == "" {
 			return Result{}, errors.New("media.play open needs url or query")
 		}
-		if err := openHTTPURL(u); err != nil {
+		if err := openMediaURL(u); err != nil {
 			return Result{}, err
 		}
 		return result("opened " + u), nil

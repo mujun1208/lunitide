@@ -1720,6 +1720,7 @@ html[data-theme="light"] .subagent-profile-row{background:#fff}
 @media(max-width:860px){.meeting-shell{grid-template-columns:1fr}}
 
 /* Root crash fallback: keeps the window usable when a render throws. */
+.root-error-shell{min-height:100vh;margin:0;background:var(--bg);color:var(--ink)}
 .root-error{max-width:640px;margin:14vh auto;padding:2rem;display:flex;flex-direction:column;gap:.9rem;background:var(--bg2);border:1px solid var(--line);border-radius:14px}
 .root-error h1{margin:0;font-size:1.15rem;color:var(--ink)}
 .root-error p{margin:0;color:var(--muted)}

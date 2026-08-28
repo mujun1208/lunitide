@@ -69,6 +69,8 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('heading', { name: '会议记录' })).toBeInTheDocument()
     expect(screen.getByText('评审会')).toBeInTheDocument()
     expect(screen.getByText(/已完成/)).toBeInTheDocument()
+    expect(screen.getByText(/本机麦克风转写/)).toBeInTheDocument()
+    expect(screen.getByText(/扬声器对面更准/)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '今天想聊什么？' })).not.toBeInTheDocument()
   })
 

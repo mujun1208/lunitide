@@ -14,12 +14,14 @@ import { MOON_RING_BINS } from './MoonSphere'
 import {
   ECHO_GUARD_MS,
   shouldDeferCommit,
+  shouldForceCommitUtterance,
   speechProfile,
-  turnEnded,
+  turnEndWindows,
   type CompanionSpeechHandle,
   type CompanionSpeechOptions,
 } from './speech'
 import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
+import { absorbHeldTranscript } from '../../meetings/meetingText'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
@@ -47,11 +49,14 @@ const asBridgeError = (error: unknown): BridgeClientError =>
 
 export async function startLocalCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
   const profile = speechProfile(options.environment)
+  const windows = turnEndWindows(options.holdUtterance)
+  const holdUtterance = options.holdUtterance === true
   const bars = silentBars()
 
   let closed = false
   let asr: LocalAsrHandle | undefined
   let text = ''
+  let sealed = ''
   let lastTextAt = 0
   let textSince = 0
   let lastVoiceAt = 0
@@ -66,6 +71,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
 
   const resetUtterance = () => {
     text = ''
+    sealed = ''
     lastTextAt = 0
     textSince = 0
     announcedSpeech = false
@@ -96,17 +102,25 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     recycling = true
     const carried = text.trim()
     try {
-      const settled = (await asr.commit()).trim()
+      let settled = ''
+      try {
+        settled = (
+          await Promise.race([
+            asr.commit(),
+            new Promise<string>(resolve => {
+              window.setTimeout(() => resolve(''), 4000)
+            }),
+          ])
+        ).trim()
+      } catch (error) {
+        fail(error)
+        return
+      }
       resetUtterance()
       if (!emit) return
-      // The streamed partial is the fallback: a commit that races the last
-      // append can come back empty, and dropping the sentence is worse than
-      // sending the slightly staler copy the user already saw as a caption.
       const final = settled || carried
       if (!final) return
       options.onFinal(final)
-    } catch (error) {
-      fail(error)
     } finally {
       recycling = false
     }
@@ -127,12 +141,15 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     if (!trimmed) return
     const now = Date.now()
     if (shouldDeferCommit(trimmed, now - textSince)) return
+    const textStableForMs = lastTextAt ? now - lastTextAt : 0
     if (
-      !turnEnded({
+      !shouldForceCommitUtterance({
         speechActive,
         silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
-        msSinceLastResult: now - lastTextAt,
+        textStableForMs,
         incomplete: looksIncompleteUtterance(trimmed),
+        silenceMs: windows.silenceMs,
+        incompleteSilenceMs: windows.incompleteSilenceMs,
       })
     ) {
       return
@@ -178,20 +195,29 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         resetUtterance()
         return
       }
-      if (trimmed !== text.trim()) {
-        text = next
+      const absorbed = holdUtterance ? absorbHeldTranscript(sealed || text, next) : next
+      if (absorbed !== text.trim()) {
+        text = absorbed
         lastTextAt = now
         if (!textSince) textSince = now
         if (!announcedSpeech) {
           announcedSpeech = true
           options.onSpeechStart?.()
         }
-        options.onInterim?.(next)
+        options.onInterim?.(text)
       }
-      // The engine has decided the speaker stopped. It reaches that from the
-      // decoder's own state and the trailing silence it measured, which is
-      // the evidence this side of the bridge never had.
-      if (final) void recycle('final')
+      if (final && holdUtterance) {
+        sealed = text.trim()
+        return
+      }
+      if (final) {
+        speechActive = false
+        if (looksIncompleteUtterance(text.trim())) {
+          evaluate()
+          return
+        }
+        void recycle('final')
+      }
     },
     onTranscriptLost: () => {
       // The microphone is still live, so the repair is to say it again. Said
@@ -241,8 +267,24 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       void recycle(false)
     },
     forceCommit: () => {
+      const trimmed = text.trim()
+      if (!trimmed || playback || commitPaused) return
+      const now = Date.now()
+      if (
+        !shouldForceCommitUtterance({
+          speechActive,
+          silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
+          textStableForMs: lastTextAt ? now - lastTextAt : 0,
+          incomplete: looksIncompleteUtterance(trimmed),
+          silenceMs: windows.silenceMs,
+          incompleteSilenceMs: windows.incompleteSilenceMs,
+        })
+      ) {
+        return
+      }
       void recycle('final')
     },
+    flush: () => recycle('final'),
     pulseRecognition: () => {
       /* The cloud recognizer stops returning results while still claiming to
          listen, which is what pulsing repairs. The sidecar either answers or
