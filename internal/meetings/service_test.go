@@ -30,11 +30,11 @@ func TestStartAppendStopSummarizeAndExport(t *testing.T) {
 		return meetings.Notes{Title: "发布评审", Summary: "讨论了下周发布。", Actions: "- 完成安装包"}, nil
 	})
 	ctx := context.Background()
-	started, err := svc.Start(ctx, "")
+	started, err := svc.Start(ctx, "", "")
 	if err != nil || started.Status != meetings.StatusRecording || started.AudioSource != "microphone" {
 		t.Fatalf("start = %#v %v", started, err)
 	}
-	if _, err := svc.Start(ctx, "第二场"); err != meetings.ErrBusy {
+	if _, err := svc.Start(ctx, "第二场", ""); err != meetings.ErrBusy {
 		t.Fatalf("second start = %v", err)
 	}
 	if _, err := svc.Append(ctx, started.MeetingID, "大家好", 0); err != nil {
@@ -78,7 +78,7 @@ func TestStartAppendStopSummarizeAndExport(t *testing.T) {
 func TestSummarizeWithoutCompleterStaysHonest(t *testing.T) {
 	svc := testMeetings(t)
 	ctx := context.Background()
-	started, err := svc.Start(ctx, "空模型")
+	started, err := svc.Start(ctx, "空模型", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,5 +105,31 @@ func TestParseNotesJSONAndMarkdown(t *testing.T) {
 	md := meetings.ParseNotes("# 标题\n\n## 会议摘要\n\n已对齐范围。\n\n## 决议/待办\n\n- 写纪要\n\n## 全文逐字稿\n\n原文", "fallback")
 	if !strings.Contains(md.Summary, "已对齐范围") || !strings.Contains(md.Actions, "写纪要") {
 		t.Fatalf("md notes = %#v", md)
+	}
+}
+
+func TestStartSystemAudioAndExportLabel(t *testing.T) {
+	svc := testMeetings(t)
+	ctx := context.Background()
+	if _, err := svc.Start(ctx, "坏", "remote"); err != meetings.ErrInvalid {
+		t.Fatalf("invalid source = %v", err)
+	}
+	started, err := svc.Start(ctx, "周会", meetings.AudioMicrophoneAndSystem)
+	if err != nil || started.AudioSource != meetings.AudioMicrophoneAndSystem {
+		t.Fatalf("start mix = %#v %v", started, err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "远程同事说了范围", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Get(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := meetings.RenderMarkdown(got)
+	if !strings.Contains(body, "本机系统声音") || strings.Contains(body, "未混录系统扬声器") {
+		t.Fatalf("markdown = %s", body)
 	}
 }

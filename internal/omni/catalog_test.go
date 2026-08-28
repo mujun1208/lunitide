@@ -67,6 +67,9 @@ func TestRuntimeBundleIsPinnedNotLatest(t *testing.T) {
 	if !strings.Contains(joined, RuntimeRevision) {
 		t.Fatalf("URLs are not revision-pinned: %s", joined)
 	}
+	if BundledRuntimeZip != "llama-omni-runtime.zip" {
+		t.Fatalf("bundled zip name = %s", BundledRuntimeZip)
+	}
 }
 
 func TestWalkRuntimeFindsNestedLayout(t *testing.T) {

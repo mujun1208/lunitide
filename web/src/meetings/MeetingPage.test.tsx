@@ -17,6 +17,7 @@ const base: MeetingDTO = {
 
 const speech = vi.hoisted(() => ({
   start: vi.fn(),
+  prepare: vi.fn().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' }),
   onFinal: undefined as ((text: string) => void) | undefined,
   handle: (): CompanionSpeechHandle => ({
     stop: vi.fn(),
@@ -33,6 +34,11 @@ vi.mock('./meetingAsr', () => ({
     speech.onFinal = options.onFinal
     return speech.start(options)
   },
+  prepareMeetingCapture: (...args: unknown[]) => speech.prepare(...args),
+  releaseMeetingCapture: vi.fn(),
+  audioSourceLabel: (source: string, live?: boolean) => source === 'microphone_and_system'
+    ? (live ? '正在录制本机麦克风和系统声音' : '本机麦克风 + 本机系统声音（未共享给其他电脑）')
+    : (live ? '正在录制本机麦克风' : '仅本机麦克风，未混录系统扬声器'),
 }))
 
 function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
@@ -52,7 +58,9 @@ describe('MeetingPage', () => {
   afterEach(() => {
     cleanup()
     speech.start.mockReset()
+    speech.prepare.mockReset().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' })
     speech.onFinal = undefined
+    localStorage.removeItem('lunitide:meeting-include-system-audio')
   })
 
   test('lists past meetings and keeps the workspace independent of 对话', async () => {
@@ -84,7 +92,7 @@ describe('MeetingPage', () => {
     await screen.findByRole('button', { name: '开始' })
     await user.click(screen.getByRole('button', { name: '开始' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
-    expect(meetings.start).toHaveBeenCalledWith({})
+    expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone' })
     speech.onFinal?.('先对齐范围')
     expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
     expect(meetings.append).toHaveBeenCalledWith(expect.objectContaining({ meetingId, text: '先对齐范围' }))
@@ -114,5 +122,45 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/尚未生成摘要/)
     expect(screen.getByRole('button', { name: '重试生成摘要' })).toBeInTheDocument()
     expect(screen.queryByText('编造的决议')).not.toBeInTheDocument()
+  })
+
+  test('offers this-PC system audio and records the mix when capture succeeds', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, audioSource: 'microphone_and_system' }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
+    speech.prepare.mockResolvedValue({ extraStreams: [{ id: 'loop' }], audioSource: 'microphone_and_system', notice: '' })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('checkbox', { name: '同时收录本机系统声音' }))
+    await user.click(screen.getByRole('button', { name: '开始' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(speech.prepare).toHaveBeenCalledWith(true)
+    expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone_and_system' })
+    expect(await screen.findByText('正在录制本机麦克风和系统声音')).toBeInTheDocument()
+  })
+
+  test('canceled system-audio picker does not create a meeting', async () => {
+    speech.prepare.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'))
+    const meetings = bridge({ start: vi.fn() })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('checkbox', { name: '同时收录本机系统声音' }))
+    await user.click(screen.getByRole('button', { name: '开始' }))
+    await vi.waitFor(() => expect(speech.prepare).toHaveBeenCalledWith(true))
+    expect(meetings.start).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '开始' })).toBeInTheDocument()
+  })
+
+  test('finalizes a leftover recording instead of pretending capture is still live', async () => {
+    const leftover: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, transcript: '已听到的一句' }
+    const stopped: MeetingDTO = { ...leftover, status: 'transcribed', transcript: '已听到的一句' }
+    const meetings = bridge({
+      list: vi.fn().mockResolvedValue({ items: [leftover] }),
+      stop: vi.fn().mockResolvedValue(stopped),
+    })
+    render(<MeetingPage meetings={meetings} />)
+    expect(await screen.findByRole('status')).toHaveTextContent(/离开页面后中断/)
+    expect(meetings.stop).toHaveBeenCalledWith({ meetingId })
+    expect(screen.getByRole('button', { name: '开始' })).toBeInTheDocument()
   })
 })

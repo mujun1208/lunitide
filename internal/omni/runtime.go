@@ -1,37 +1,18 @@
 package omni
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/lunitide/lunitide/internal/voice"
 )
 
 const runtimeWalkDepth = 6
 
-// InstallRuntime fetches the pinned Comni NSIS installer (if needed) and
-// unpacks llama-omni-server under root/runtime. No-op when the binary is
-// already on disk.
-func InstallRuntime(ctx context.Context, root string, installer *voice.Installer, progress func(voice.Progress)) error {
-	if findRuntime(root) != "" {
-		return nil
-	}
-	bundle := RuntimeBundle()
-	if err := installer.Install(ctx, bundle, progress); err != nil {
-		return err
-	}
-	setup := filepath.Join(installer.BundleDir(bundle.ID), RuntimeSetupFile)
-	dest := filepath.Join(root, "runtime")
-	if err := applyRuntimeSetup(setup, dest); err != nil {
-		return err
-	}
-	if findRuntime(root) == "" {
-		return ErrMissingRuntime
-	}
-	return nil
+// InstallRuntime lays down the product-bundled llama-omni-server under
+// root/runtime. payload is a zip or directory; empty discovers the archive
+// next to the engine. No-op when the binary is already on disk.
+func InstallRuntime(root, payload string) error {
+	return EnsureBundledRuntime(root, payload)
 }
 
 func findRuntime(root string) string {
@@ -43,15 +24,6 @@ func findRuntime(root string) string {
 			filepath.Join(root, name),
 		)
 	}
-	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		candidates = append(candidates,
-			filepath.Join(local, "Programs", "Comni", "llama-omni-server.exe"),
-			filepath.Join(local, "Comni", "llama-omni-server.exe"),
-		)
-	}
-	if pf := os.Getenv("ProgramFiles"); pf != "" {
-		candidates = append(candidates, filepath.Join(pf, "Comni", "llama-omni-server.exe"))
-	}
 	for _, path := range candidates {
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			return path
@@ -62,11 +34,6 @@ func findRuntime(root string) string {
 	}
 	if nested := walkRuntime(root, 2); nested != "" {
 		return nested
-	}
-	for _, name := range names {
-		if found, err := exec.LookPath(name); err == nil {
-			return found
-		}
 	}
 	return ""
 }

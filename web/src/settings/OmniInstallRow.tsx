@@ -5,22 +5,29 @@ import type { OmniInstallResult, OmniStatusResult } from '../bridge/client'
 
 const POLL_MS = 700
 const STATUS_POLL_MS = 2500
+const PROBE_MS = 4_000
 
 const gigabytes = (bytes: number) => `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
 
-export function OmniInstallRow(): JSX.Element {
+export function OmniInstallRow({ onReady }: { onReady?: () => void } = {}): JSX.Element {
   const [status, setStatus] = useState<OmniStatusResult>()
   const [progress, setProgress] = useState<OmniInstallResult>()
   const [busy, setBusy] = useState(false)
   const [probeFailed, setProbeFailed] = useState(false)
   const timer = useRef(0)
   const alive = useRef(true)
+  const inFlight = useRef(false)
+  const statusRef = useRef<OmniStatusResult | undefined>(undefined)
+  const readyNotified = useRef(false)
 
   const refresh = useCallback(() => {
+    if (inFlight.current) return
+    inFlight.current = true
     void getOmniBridge()
       .status()
       .then(result => {
         if (!alive.current) return
+        statusRef.current = result
         setStatus(result)
         setProbeFailed(false)
       })
@@ -28,18 +35,32 @@ export function OmniInstallRow(): JSX.Element {
         if (!alive.current) return
         setProbeFailed(true)
       })
+      .finally(() => {
+        inFlight.current = false
+      })
   }, [])
 
   useEffect(() => {
     alive.current = true
     refresh()
     const poll = window.setInterval(refresh, STATUS_POLL_MS)
+    const stuck = window.setTimeout(() => {
+      if (!alive.current) return
+      if (!statusRef.current) setProbeFailed(true)
+    }, PROBE_MS)
     return () => {
       alive.current = false
       window.clearInterval(poll)
+      window.clearTimeout(stuck)
       window.clearTimeout(timer.current)
     }
   }, [refresh])
+
+  useEffect(() => {
+    if (!status?.ready || !onReady || readyNotified.current) return
+    readyNotified.current = true
+    onReady()
+  }, [onReady, status?.ready])
 
   const pump = useCallback(() => {
     void getOmniBridge()
@@ -82,9 +103,9 @@ export function OmniInstallRow(): JSX.Element {
       desc = `正在下载 MiniCPM-o 4.5：${progress.percent}% · ${gigabytes(progress.doneBytes)} / ${gigabytes(progress.totalBytes)}${progress.file ? ` · ${progress.file}` : ''}`
     } else if (downloading) desc = '正在准备下载…'
     else if (failed) desc = `下载失败：${progress?.lastError || '未知原因'}。可重试，已下载的部分会保留。`
-    else if (runtimeMissing) desc = '模型已下载。还差本机推理进程 llama-omni-server（约 0.5 GB），点继续安装即可。'
+    else if (runtimeMissing) desc = '本机推理进程未能展开。请重装月汐后再试。'
     else if (installed) desc = '模型已下载。进入月伴时会启动本机服务（首次加载约 10–60 秒）。'
-    else desc = `本机 MiniCPM-o 4.5 Q4 未安装（约 ${gigabytes(status.downloadBytes)}，含推理进程）。安装包不内嵌权重，点下载后写入月汐数据目录。`
+    else desc = `本机 MiniCPM-o 4.5 Q4 未安装（约 ${gigabytes(status.downloadBytes)}）。推理进程已随月汐安装；点下载后写入数据目录，安装包不内嵌权重。`
   }
 
   const label = ready
@@ -93,9 +114,11 @@ export function OmniInstallRow(): JSX.Element {
       ? '下载中…'
       : probeFailed && !status
         ? '重新检测'
-        : failed || runtimeMissing
+        : failed
           ? '继续安装'
-          : '下载安装'
+          : runtimeMissing
+            ? '重试展开'
+            : '下载安装'
 
   return (
     <div className="setting-row">

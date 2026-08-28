@@ -24,6 +24,8 @@ const settled = () => new Promise<void>(resolve => window.setTimeout(resolve, 5)
 export interface LocalAsrCallbacks {
   /** Fires as words arrive, with `final` set once the recognizer settles. */
   onTranscript?: (text: string, final: boolean) => void
+  /** Extra this-PC streams mixed into the microphone frames (meeting loopback). */
+  extraStreams?: MediaStream[]
   /** Fires when the session ends for a reason the caller did not ask for. */
   onError?: (error: Error) => void
   /**
@@ -194,6 +196,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
   }
 
   capture = await startPcmCapture({
+    extraStreams: callbacks.extraStreams,
     onFrame: frame => {
       // The level drives the meter, so it is reported even while muted —
       // otherwise the rings freeze every time the assistant speaks.

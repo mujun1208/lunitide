@@ -26,6 +26,11 @@ export interface PcmCaptureOptions {
   onFrame: (frame: { base64: string; samples: Int16Array; peak: number }) => void
   /** Capture died after it had started — the device was unplugged or seized. */
   onError?: (error: BridgeClientError) => void
+  /**
+   * Extra this-PC streams mixed into the same frames. Meeting notes uses
+   * Chromium's WASAPI loopback here. Tracks are stopped on teardown.
+   */
+  extraStreams?: MediaStream[]
 }
 
 export interface PcmCaptureHandle {
@@ -119,9 +124,12 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
   let muted = false
   const accumulator = createFrameAccumulator(FRAME_SAMPLES)
 
+  const extraStreams = (options.extraStreams ?? []).filter(item => item.getAudioTracks().length > 0)
+
   const teardown = async () => {
     stream?.getTracks().forEach(track => track.stop())
     stream = undefined
+    extraStreams.forEach(item => item.getTracks().forEach(track => track.stop()))
     accumulator.reset()
     // close() rejects on a context already closed by a prior stop.
     await context.close().catch(() => undefined)
@@ -138,6 +146,7 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
   }
 
   const source = context.createMediaStreamSource(stream)
+  const extraSources = extraStreams.map(item => context.createMediaStreamSource(item))
   const worklet = new AudioWorkletNode(context, PROCESSOR_NAME)
   // Zero gain, not a missing connection: a node with no path to the
   // destination is not pulled by the graph at all, so it would never run.
@@ -159,6 +168,7 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
   }
 
   source.connect(worklet)
+  extraSources.forEach(item => item.connect(worklet))
   worklet.connect(sink)
   sink.connect(context.destination)
 
@@ -177,6 +187,7 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
       stopped = true
       worklet.port.onmessage = null
       source.disconnect()
+      extraSources.forEach(item => item.disconnect())
       worklet.disconnect()
       sink.disconnect()
       await teardown()

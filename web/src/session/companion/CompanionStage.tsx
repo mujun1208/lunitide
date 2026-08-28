@@ -23,7 +23,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionReplyStallMs, handsFreeRetryDelayMs, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionReplyStallMs, handsFreeRetryDelayMs, isOmniUnavailableNotice, looksLikeOmniPersonaCaption, looksLikeOmniUnavailable, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
 import { localAsrStatus } from './localAsr'
 import { startLocalCompanionSpeech } from './localSpeech'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
@@ -37,7 +37,8 @@ import {
   type CompanionSpeechOptions,
 } from './speech'
 import { getTtsAudioState, TtsPlayer, unlockTtsAudio } from './ttsPlayer'
-import { startOmniCompanion, type OmniCompanionHandle } from '../omni/omniAudio'
+import { OmniInstallRow } from '../../settings/OmniInstallRow'
+import { probeOmniChannel, startOmniCompanion, type OmniCompanionHandle } from '../omni/omniAudio'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, type CompanionState } from './useCompanionMachine'
 
@@ -115,6 +116,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const activeRecognizerRef = useRef<'cloud' | 'local'>('cloud')
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
   const omniHandleRef = useRef<OmniCompanionHandle | undefined>(undefined)
+  const omniFallbackRef = useRef(false)
+  const startListeningRef = useRef<(auto: boolean) => void>(() => {})
+  const [omniInstallHint, setOmniInstallHint] = useState(false)
   const captionHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
@@ -647,6 +651,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   const speak = useCallback(
     (text: string) => {
+      if (looksLikeOmniUnavailable(text)) return
       const segments = prepareSpeech(text)
       lastSpokenRef.current = `${lastSpokenRef.current}${segments.join('')}`.slice(-1200)
       setRounds(current => withCurrentAssistant(current, { role: 'assistant', text, segments, activeIndex: undefined }))
@@ -886,11 +891,23 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }
   }, [])
 
+  const fallBackFromOmni = useCallback(() => {
+    omniHandleRef.current?.stop()
+    omniHandleRef.current = undefined
+    captionHandleRef.current?.stop()
+    captionHandleRef.current = undefined
+    setOmniInstallHint(true)
+    setLocalError(undefined)
+    if (omniFallbackRef.current) return
+    omniFallbackRef.current = true
+    if (!exitedRef.current) startListeningRef.current(true)
+  }, [])
+
   const startListening = useCallback((auto: boolean) => {
     setLocalError(undefined)
     setEngineHint('')
     unlockTtsAudio()
-    if (settingsRef.current.voicePath === 'omni') {
+    if (settingsRef.current.voicePath === 'omni' && !omniFallbackRef.current) {
       if (omniHandleRef.current) {
         if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
         autoLoopRef.current = true
@@ -901,36 +918,21 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       autoLoopRef.current = true
       setHintVisible(false)
       if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-      const paintUserCaption = (transcript: string) => {
-        const text = cleanUserTranscript(transcript)
-        const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-        if (
-          !shouldAcceptUserTranscript({
-            state: stateRef.current === 'listening' || stateRef.current === 'idle' ? 'listening' : stateRef.current,
-            text,
-            lastSpoken: lastSpokenRef.current,
-            lastAssistant,
-          })
-        ) {
+      void (async () => {
+        const available = await probeOmniChannel()
+        if (exitedRef.current) return
+        if (!available) {
+          fallBackFromOmni()
           return
         }
-        cancelCaptionFade()
-        setInterimText('')
-        setRounds([{ role: 'user', text }])
-      }
-      void startCompanionSpeech({
-        duplex: true,
-        meterless: true,
-        environment: settingsRef.current.speechEnvironment,
-        spokenText: () => lastSpokenRef.current,
-        onInterim: transcript => {
-          const next = cleanUserTranscript(transcript)
-          if (!next) return
+        const paintUserCaption = (transcript: string) => {
+          const text = cleanUserTranscript(transcript)
+          if (looksLikeOmniUnavailable(text)) return
           const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
           if (
             !shouldAcceptUserTranscript({
-              state: 'listening',
-              text: next,
+              state: stateRef.current === 'listening' || stateRef.current === 'idle' ? 'listening' : stateRef.current,
+              text,
               lastSpoken: lastSpokenRef.current,
               lastAssistant,
             })
@@ -938,53 +940,78 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             return
           }
           cancelCaptionFade()
-          setInterimText(next)
-          setRounds([{ role: 'user', text: next }])
-        },
-        onFinal: paintUserCaption,
-        onError: () => {
-          captionHandleRef.current = undefined
-        },
-      })
-        .then(handle => {
-          if (exitedRef.current) {
-            handle.stop()
-            return
-          }
-          captionHandleRef.current = handle
-        })
-        .catch(() => {
-          captionHandleRef.current = undefined
-        })
-      void startOmniCompanion({
-        personaId: settingsRef.current.omniPersonaId,
-        onText: text => {
-          const shown = stripTaskDonePhrases(text)
-          if (!shown) return
-          lastSpokenRef.current = shown
-          setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: shown }))
-        },
-        onError: message => {
-          omniHandleRef.current = undefined
-          setLocalError(new BridgeClientError(message, 'OMNI_UNAVAILABLE', true, 'renderer'))
-          if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
-        },
-        onSpeaking: speaking => {
-          setGain(speaking ? 0.7 : 0)
-          captionHandleRef.current?.setAssistantPlayback(speaking)
-          echoUntilRef.current = performance.now() + ECHO_GUARD_MS
-        },
-      }).then(handle => {
-        if (exitedRef.current) {
-          handle.stop()
-          return
+          setInterimText('')
+          setRounds([{ role: 'user', text }])
         }
-        omniHandleRef.current = handle
-        silentRestartsRef.current = 0
-      }).catch(error => {
-        setLocalError(new BridgeClientError(error instanceof Error ? error.message : 'MiniCPM-o 启动失败', 'OMNI_UNAVAILABLE', true, 'renderer'))
-        if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
-      })
+        void startCompanionSpeech({
+          duplex: true,
+          meterless: true,
+          environment: settingsRef.current.speechEnvironment,
+          spokenText: () => lastSpokenRef.current,
+          onInterim: transcript => {
+            const next = cleanUserTranscript(transcript)
+            if (!next || looksLikeOmniUnavailable(next)) return
+            const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
+            if (
+              !shouldAcceptUserTranscript({
+                state: 'listening',
+                text: next,
+                lastSpoken: lastSpokenRef.current,
+                lastAssistant,
+              })
+            ) {
+              return
+            }
+            cancelCaptionFade()
+            setInterimText(next)
+            setRounds([{ role: 'user', text: next }])
+          },
+          onFinal: paintUserCaption,
+          onError: () => {
+            captionHandleRef.current = undefined
+          },
+        })
+          .then(handle => {
+            if (exitedRef.current || omniFallbackRef.current) {
+              handle.stop()
+              return
+            }
+            captionHandleRef.current = handle
+          })
+          .catch(() => {
+            captionHandleRef.current = undefined
+          })
+        void startOmniCompanion({
+          personaId: settingsRef.current.omniPersonaId,
+          onText: text => {
+            const shown = stripTaskDonePhrases(text)
+            if (!shown || looksLikeOmniUnavailable(shown)) return
+            lastSpokenRef.current = shown
+            setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: shown }))
+          },
+          onError: () => {
+            if (exitedRef.current) return
+            fallBackFromOmni()
+          },
+          onSpeaking: speaking => {
+            setGain(speaking ? 0.7 : 0)
+            captionHandleRef.current?.setAssistantPlayback(speaking)
+            echoUntilRef.current = performance.now() + ECHO_GUARD_MS
+          },
+        })
+          .then(handle => {
+            if (exitedRef.current || omniFallbackRef.current) {
+              handle.stop()
+              return
+            }
+            omniHandleRef.current = handle
+            silentRestartsRef.current = 0
+          })
+          .catch(() => {
+            if (exitedRef.current) return
+            fallBackFromOmni()
+          })
+      })()
       return
     }
     if (speechHandleRef.current) {
@@ -1127,7 +1154,19 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
     }
     void begin()
-  }, [beginUserTurn, machine, syncSpeechModes])
+  }, [beginUserTurn, fallBackFromOmni, machine, syncSpeechModes])
+
+  const retryOmni = useCallback(() => {
+    omniFallbackRef.current = false
+    setOmniInstallHint(false)
+    speechHandleRef.current?.stop()
+    speechHandleRef.current = undefined
+    omniHandleRef.current?.stop()
+    omniHandleRef.current = undefined
+    captionHandleRef.current?.stop()
+    captionHandleRef.current = undefined
+    startListening(true)
+  }, [startListening])
 
   useEffect(() => {
     if (machine.state === 'speaking') justSpokeRef.current = true
@@ -1193,7 +1232,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   // Auto-start the microphone as soon as the stage mounts. Listening does
   // not depend on chat/model readiness — only the LLM send is gated.
-  const startListeningRef = useRef(startListening)
   startListeningRef.current = startListening
 
   useEffect(() => {
@@ -1417,7 +1455,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           </button>
         </div>
       )}
-      {(localError ?? error) && (localError ?? error)!.code !== 'CHAT_CONFIG_MISSING' && (
+      {omniInstallHint && (
+        <div className="companion-banner companion-omni-hint" role="status">
+          <p className="companion-omni-hint-copy">MiniCPM-o 尚未就绪，已用现有语音通道继续对话。安装完成后可重试。</p>
+          <OmniInstallRow onReady={retryOmni} />
+          <button type="button" onClick={() => setOmniInstallHint(false)}>
+            知道了
+          </button>
+        </div>
+      )}
+      {(localError ?? error) &&
+        (localError ?? error)!.code !== 'CHAT_CONFIG_MISSING' &&
+        !isOmniUnavailableNotice((localError ?? error)!.code, (localError ?? error)!.message) && (
         <div className="companion-banner error" role="alert">
           {(localError ?? error)!.message}
           <span>代码 {(localError ?? error)!.code}</span>

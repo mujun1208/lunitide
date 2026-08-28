@@ -8,13 +8,14 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "title": { "type": "string", "maxLength": 200 }
+    "title": { "type": "string", "maxLength": 200 },
+    "audioSource": { "enum": ["microphone", "microphone_and_system"] }
   },
   "x-result": {
     "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingDTO"
   },
   "x-examples": {
-    "positive": [{}, { "title": "周会" }],
-    "negative": [{ "title": 1 }, { "extra": true }]
+    "positive": [{}, { "title": "周会" }, { "audioSource": "microphone_and_system" }],
+    "negative": [{ "title": 1 }, { "extra": true }, { "audioSource": "remote" }]
   }
 }

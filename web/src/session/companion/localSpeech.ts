@@ -141,6 +141,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   }
 
   asr = await startLocalAsr({
+    extraStreams: options.extraStreams,
     onLevel: peak => {
       if (closed) return
       bars.shift()

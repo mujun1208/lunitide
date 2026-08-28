@@ -33,7 +33,8 @@ func handleMeetingsList(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 func handleMeetingsStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Title string `json:"title"`
+		Title       string `json:"title"`
+		AudioSource string `json:"audioSource"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.start 参数无效", false)
@@ -41,7 +42,7 @@ func handleMeetingsStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
-	m, err := e.meetings.Start(ctx, p.Title)
+	m, err := e.meetings.Start(ctx, p.Title, p.AudioSource)
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
@@ -195,7 +196,7 @@ func publicSegment(seg meetings.Segment) map[string]any {
 	}
 }
 
-const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机麦克风转写的逐字稿生成中文会议文档。
+const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转写的逐字稿生成中文会议文档。
 只输出一个 JSON 对象，不要 Markdown 围栏：
 {"title":"简短标题","summary":"会议摘要（一段或数段）","actions":["待办1","待办2"]}
 规则：只使用逐字稿里出现的事实；没有明确待办时 actions 为空数组；不要编造未出现的人名或决议。`

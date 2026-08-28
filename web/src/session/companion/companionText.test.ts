@@ -22,6 +22,8 @@ import {
   shouldAcceptUserTranscript,
   shouldKeepHandsFreeLoop,
   looksLikeOmniPersonaCaption,
+  looksLikeOmniUnavailable,
+  isOmniUnavailableNotice,
   handsFreeRetryDelayMs,
   stripTaskDonePhrases,
   takeSpeakableChunk,
@@ -253,6 +255,15 @@ describe('shouldAcceptUserTranscript', () => {
     expect(looksLikeOmniPersonaCaption('人生：优质台湾腔')).toBe(true)
     expect(looksLikeOmniPersonaCaption('月汐 / 人生：优质台湾腔')).toBe(true)
     expect(shouldAcceptUserTranscript({ ...base, text: '人生：优质台湾腔' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
+  })
+
+  test('never treats a missing MiniCPM-o notice as a user turn or spoken reply', () => {
+    const notice = '本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试'
+    expect(looksLikeOmniUnavailable(notice)).toBe(true)
+    expect(isOmniUnavailableNotice('OMNI_UNAVAILABLE', notice)).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, text: notice })).toBe(false)
+    expect(stripTaskDonePhrases(notice)).toBe('')
     expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
   })
 })

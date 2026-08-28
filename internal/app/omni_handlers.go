@@ -114,7 +114,7 @@ func handleOmniStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		case errors.Is(err, omni.ErrMissingModel):
 			return bridge.Failure(r.ID, r.TraceID, "OMNI-001", "请先在设置里下载 MiniCPM-o 4.5 Q4", true)
 		case errors.Is(err, omni.ErrMissingRuntime):
-			return bridge.Failure(r.ID, r.TraceID, "OMNI-002", "未找到 llama-omni-server，请放到月汐数据目录 omni/runtime/", true)
+			return bridge.Failure(r.ID, r.TraceID, "OMNI-002", "本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试", true)
 		default:
 			return bridge.Failure(r.ID, r.TraceID, "OMNI-003", "MiniCPM-o 启动失败："+truncate(err.Error(), 256), true)
 		}
@@ -258,8 +258,19 @@ func (s *OmniService) beginInstall() {
 	}
 	modelOK := s.installer.Present(omni.ModelBundle())
 	runtimeOK := s.host.RuntimePath() != ""
+	if !runtimeOK {
+		s.mu.Unlock()
+		_ = s.host.EnsureRuntime()
+		s.mu.Lock()
+		runtimeOK = s.host.RuntimePath() != ""
+	}
 	if modelOK && runtimeOK {
 		s.state, s.lastErr = "ready", ""
+		s.mu.Unlock()
+		return
+	}
+	if modelOK && !runtimeOK {
+		s.state, s.lastErr = "failed", omni.ErrMissingRuntime.Error()
 		s.mu.Unlock()
 		return
 	}
@@ -289,12 +300,7 @@ func (s *OmniService) runInstall() {
 		}
 	}
 	if s.host.RuntimePath() == "" {
-		err := omni.InstallRuntime(ctx, s.host.Root, s.installer, func(p voice.Progress) {
-			s.mu.Lock()
-			s.progress = p
-			s.mu.Unlock()
-		})
-		if err != nil {
+		if err := s.host.EnsureRuntime(); err != nil {
 			s.mu.Lock()
 			s.state, s.lastErr = "failed", err.Error()
 			s.mu.Unlock()
@@ -304,4 +310,13 @@ func (s *OmniService) runInstall() {
 	s.mu.Lock()
 	s.state, s.lastErr = "ready", ""
 	s.mu.Unlock()
+}
+
+// WarmRuntime lays down the bundled llama-omni-server in the background so
+// omni.status can report runtimeFound before the user downloads MiniCPM-o.
+func (s *OmniService) WarmRuntime() {
+	if s == nil {
+		return
+	}
+	_ = s.host.EnsureRuntime()
 }

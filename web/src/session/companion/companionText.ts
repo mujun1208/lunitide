@@ -199,6 +199,7 @@ export function stripTaskDonePhrases(raw: string): string {
     .replace(/任务已完成[。.!！]?\s*/g, '')
     .trim()
   if (looksLikeOmniPersonaCaption(trimmed)) return ''
+  if (looksLikeOmniUnavailable(trimmed)) return ''
   return trimmed
 }
 
@@ -215,6 +216,7 @@ export function shouldAcceptUserTranscript(input: {
   if (input.state === 'speaking' || input.state === 'thinking') return false
   if (!input.text.trim()) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false
+  if (looksLikeOmniUnavailable(input.text)) return false
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
   return true
@@ -224,6 +226,17 @@ export function shouldAcceptUserTranscript(input: {
 export function looksLikeOmniPersonaCaption(text: string): boolean {
   const compact = text.replace(/\s+/g, '')
   return compact.startsWith('人生：') || compact.startsWith('人生:') || compact.includes('月汐/人生')
+}
+
+/** MiniCPM-o missing-runtime notices are install hints, never a spoken turn. */
+export function looksLikeOmniUnavailable(text: string): boolean {
+  const compact = text.replace(/\s+/g, '')
+  return /OMNI_UNAVAILABLE|OMNI-00[12]|llama-omni-server|MiniCPM-o启动失败|请先在设置里下载MiniCPM-o|未找到llama-omni-server|推理进程未能展开/.test(compact)
+}
+
+export function isOmniUnavailableNotice(code?: string, message?: string): boolean {
+  if (code === 'OMNI_UNAVAILABLE' || code === 'OMNI-001' || code === 'OMNI-002') return true
+  return !!message && looksLikeOmniUnavailable(message)
 }
 
 /** The hands-free loop stays armed until the user exits or pauses the mic. */

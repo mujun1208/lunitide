@@ -1,0 +1,6 @@
+# SQLite migrations are SHA-256 fingerprinted and embedded as-is.
+# CRLF on Windows would fail both the manifest checksum and sqlite_schema match.
+[migrations/*.sql]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true

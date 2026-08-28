@@ -14,6 +14,57 @@ export interface OmniCompanionOptions {
 
 const READY_MS = 90_000
 const POLL_MS = 700
+/** Status probe budget: MiniCPM-o is optional, so a hung bridge must not block talking. */
+export const OMNI_PROBE_MS = 4_000
+
+export interface OmniChannelSnapshot {
+  ready?: boolean
+  installed?: boolean
+  runtimeFound?: boolean
+  hostState?: string
+  lastError?: string
+}
+
+export const OMNI_MISSING_MODEL = '请先在设置里下载 MiniCPM-o 4.5 Q4'
+export const OMNI_MISSING_RUNTIME = '本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试'
+
+/** User-facing block before MiniCPM-o can start. Missing model is a download, not a missing server. */
+export function omniStartBlock(snap: OmniChannelSnapshot): string | undefined {
+  if (snap.hostState === 'missing_model') return OMNI_MISSING_MODEL
+  if (snap.hostState === 'missing_runtime') return OMNI_MISSING_RUNTIME
+  if (snap.hostState === 'failed') return snap.lastError || 'MiniCPM-o 启动失败'
+  return undefined
+}
+
+/** Whether MiniCPM-o can start a duplex session right now. Missing runtime/model is not fatal. */
+export function omniChannelAvailable(snap: OmniChannelSnapshot): boolean {
+  if (snap.ready === true || snap.hostState === 'ready' || snap.hostState === 'launching') return true
+  if (snap.hostState === 'missing_model' || snap.hostState === 'missing_runtime' || snap.hostState === 'failed') {
+    return false
+  }
+  return snap.installed === true && snap.runtimeFound === true
+}
+
+/** Quick status check. Resolves false on missing files, bridge errors, or timeout. */
+export async function probeOmniChannel(timeoutMs = OMNI_PROBE_MS): Promise<boolean> {
+  let timer = 0
+  const timeout = new Promise<boolean>(resolve => {
+    timer = window.setTimeout(() => resolve(false), timeoutMs)
+  })
+  const probe = (async () => {
+    try {
+      const snap = await getOmniBridge().status()
+      return omniChannelAvailable(snap)
+    } catch {
+      return false
+    }
+  })()
+  try {
+    return await Promise.race([probe, timeout])
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 
 /**
  * Full-duplex MiniCPM-o 4.5 session. Capture stays in the renderer; the
@@ -126,15 +177,8 @@ async function waitOmniReady(): Promise<void> {
   while (Date.now() < deadline) {
     const snap = await getOmniBridge().ensure()
     if (snap.ready || snap.hostState === 'ready') return
-    if (snap.hostState === 'missing_model') {
-      throw new Error('请先在设置里下载 MiniCPM-o 4.5 Q4')
-    }
-    if (snap.hostState === 'missing_runtime') {
-      throw new Error('未找到 llama-omni-server，请放到月汐数据目录 omni/runtime/')
-    }
-    if (snap.hostState === 'failed') {
-      throw new Error(snap.lastError || 'MiniCPM-o 启动失败')
-    }
+    const blocked = omniStartBlock(snap)
+    if (blocked) throw new Error(blocked)
     await sleep(POLL_MS)
   }
   throw new Error('MiniCPM-o 启动超时（模型加载约 10–60 秒）')

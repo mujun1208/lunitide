@@ -2451,7 +2451,7 @@
         "meetingId": { "$ref": "#/$defs/ULID" },
         "title": { "type": "string", "maxLength": 200 },
         "status": { "$ref": "#/$defs/MeetingStatus" },
-        "audioSource": { "enum": ["microphone"] },
+        "audioSource": { "enum": ["microphone", "microphone_and_system"] },
         "startedAt": { "type": "string", "maxLength": 64 },
         "endedAt": { "type": "string", "maxLength": 64 },
         "durationMs": { "type": "integer", "minimum": 0 },
