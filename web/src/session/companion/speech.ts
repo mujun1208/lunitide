@@ -26,6 +26,7 @@ type SpeechRecognitionLike = {
   onaudiostart?: (() => void) | null
   start: () => void
   stop: () => void
+  abort?: () => void
 }
 
 const speechRecognitionConstructor = () =>
@@ -73,6 +74,11 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
   meterless?: boolean
   /** Extra this-PC streams mixed into local ASR. Ignored by Web Speech. */
   extraStreams?: MediaStream[]
+  /**
+   * Hold clauses together (meeting notes). Companion turn-taking stays the
+   * default. Ignores the engine's own endpoint and waits longer before commit.
+   */
+  holdUtterance?: boolean
 }
 
 export interface CompanionSpeechHandle {
@@ -88,6 +94,8 @@ export interface CompanionSpeechHandle {
   forceCommit: () => void
   /** After a user gesture: resume Web Audio and (re)start recognition if it is dead. */
   resumeCapture: () => void
+  /** Commit whatever is in the buffer, including unfinished clauses. Meeting notes awaits this before stop. */
+  flush?: () => void | Promise<void>
 }
 
 /** Commit after this much analyser silence once we already have a complete phrase.
@@ -177,8 +185,19 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
 export const TURN_END_SILENCE_MS = 1300
 /** Unfinished-looking phrases still must not wait past the 1.5s ceiling. */
 export const TURN_END_INCOMPLETE_SILENCE_MS = 1500
+/** Meeting notes: people pause mid-thought; keep the clause open longer than companion turn-taking. */
+export const MEETING_TURN_END_SILENCE_MS = 2000
+/** Unfinished meeting phrases wait a little past the 2s hold. */
+export const MEETING_TURN_END_INCOMPLETE_SILENCE_MS = 2500
 /** A turn never ends while the transcript is still growing. */
 export const TURN_END_TEXT_SETTLE_MS = 400
+
+export function turnEndWindows(holdUtterance = false): { silenceMs: number; incompleteSilenceMs: number } {
+  if (holdUtterance) {
+    return { silenceMs: MEETING_TURN_END_SILENCE_MS, incompleteSilenceMs: MEETING_TURN_END_INCOMPLETE_SILENCE_MS }
+  }
+  return { silenceMs: TURN_END_SILENCE_MS, incompleteSilenceMs: TURN_END_INCOMPLETE_SILENCE_MS }
+}
 
 /**
  * Whether the user has finished speaking.
@@ -202,10 +221,14 @@ export function turnEnded(input: {
   silentForMs: number | undefined
   msSinceLastResult: number
   incomplete: boolean
+  silenceMs?: number
+  incompleteSilenceMs?: number
 }): boolean {
   if (input.speechActive) return false
   if (input.msSinceLastResult < TURN_END_TEXT_SETTLE_MS) return false
-  const quiet = input.incomplete ? TURN_END_INCOMPLETE_SILENCE_MS : TURN_END_SILENCE_MS
+  const quiet = input.incomplete
+    ? (input.incompleteSilenceMs ?? TURN_END_INCOMPLETE_SILENCE_MS)
+    : (input.silenceMs ?? TURN_END_SILENCE_MS)
   // A microphone whose level never reaches the speech gate — a quiet device,
   // or aggressive noise suppression — still has to be able to end a turn.
   // Requiring the energy signal outright would leave that user waiting
@@ -213,6 +236,46 @@ export function turnEnded(input: {
   // the transcript going quiet stands in for it.
   if (input.silentForMs === undefined) return input.msSinceLastResult >= quiet
   return input.silentForMs >= quiet
+}
+
+/**
+ * Last-resort commit used by forceCommit / the local backstop.
+ *
+ * Windows can keep speechActive true by re-firing the same interim, and
+ * analyser noise can do the same. A caption that has not grown for the
+ * 1.2–1.5s product window is a finished turn even if those signals lie.
+ * Incomplete commands still get the 1.5s ceiling, so 「打开网」is not
+ * sent the instant the first syllable lands.
+ */
+export function shouldForceCommitUtterance(input: {
+  speechActive: boolean
+  silentForMs: number | undefined
+  textStableForMs: number
+  incomplete: boolean
+  silenceMs?: number
+  incompleteSilenceMs?: number
+}): boolean {
+  if (input.textStableForMs < TURN_END_TEXT_SETTLE_MS) return false
+  const quiet = input.incomplete
+    ? (input.incompleteSilenceMs ?? TURN_END_INCOMPLETE_SILENCE_MS)
+    : (input.silenceMs ?? TURN_END_SILENCE_MS)
+  // Live analyser energy is the only “still talking” signal we trust.
+  // Windows can leave speechActive true after a zombie session; that is
+  // handled by not refreshing lastVoiceAt on same-text repeats, so
+  // silentForMs can grow. Do not punch through a live voice floor — that
+  // is how 「打开网」committed while they were still saying 易云音乐.
+  if (input.speechActive && (input.silentForMs === undefined || input.silentForMs < quiet)) {
+    return false
+  }
+  if (input.textStableForMs >= Math.max(quiet, STUCK_TRANSCRIPT_MS)) return true
+  return turnEnded({
+    speechActive: input.speechActive,
+    silentForMs: input.silentForMs,
+    msSinceLastResult: input.textStableForMs,
+    incomplete: input.incomplete,
+    silenceMs: input.silenceMs,
+    incompleteSilenceMs: input.incompleteSilenceMs,
+  })
 }
 
 export function endpointingForText(text: string, profile: SpeechProfile): { stableMs: number; silenceMs: number } {
@@ -349,7 +412,8 @@ export function speechEngineHint(error?: string): string {
 }
 
 export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
-  const { duplex = false, environment = 'normal', meterless = false, ...callbacks } = options
+  const { duplex = false, environment = 'normal', meterless = false, holdUtterance = false, ...callbacks } = options
+  const windows = turnEndWindows(holdUtterance)
   const profile = speechProfile(environment)
   const Recognition = speechRecognitionConstructor()
   if (!Recognition || (!meterless && !navigator.mediaDevices?.getUserMedia)) {
@@ -385,8 +449,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let voiceEnergyWithoutTextSince = 0
   let recognitionAlive = false
   const recognitionHeld = () => shouldHoldRecognition(assistantPlayback, echoGuardUntil, performance.now())
-  let recycleAfterPlayback = false
-  let lastPlaybackEndedAt = 0
+    let recycleAfterPlayback = false
+    let lastPlaybackEndedAt = 0
+    let recGeneration = 0
   /**
    * Silences the streams this module owns: the analyser feed and the meter.
    *
@@ -501,8 +566,24 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (recognitionAlive) return
       if (!startRecognition()) restartRecognition(clearTranscript)
     }
+    const discardRecognizer = () => {
+      recGeneration += 1
+      recognitionAlive = false
+      const old = recognition
+      recognition = undefined
+      try {
+        old?.abort?.()
+      } catch {
+        /* engine may already be stopped */
+      }
+      try {
+        old?.stop()
+      } catch {
+        /* engine may already be stopped */
+      }
+    }
     const restartRecognition = (clearTranscript = true) => {
-      if (finished || !recognition) return
+      if (finished) return
       if (clearTranscript) {
         finals = ''
         interim = ''
@@ -514,11 +595,10 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       recRestarting = true
       window.clearTimeout(restartTimer)
-      try {
-        recognition.stop()
-      } catch {
-        /* engine may already be stopped */
-      }
+      // Windows WebView dies after a handful of stop()/start() cycles on the
+      // same SpeechRecognition object. A new instance after each recycle is
+      // what keeps turns 3+ listening.
+      mintRecognizer()
       restartTimer = window.setTimeout(() => {
         recRestarting = false
         if (finished || !recognition) return
@@ -625,28 +705,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       const textSince = firstTextAt ? now - firstTextAt : 0
       if (shouldDeferCommit(text, textSince)) return
       const incomplete = looksIncompleteUtterance(text)
-      // Windows often isFinal + speechend on「你可以」/「合肥的」while the user
-      // is still talking. A session that has gone quiet mid-sentence is kicked
-      // rather than committed, so the rest of the sentence can still arrive.
-      if (incomplete) {
-        const staleFor = performance.now() - lastResultAt
-        if (
-          speechActive &&
-          staleFor >= INCOMPLETE_HOLD_MS &&
-          staleFor < INCOMPLETE_HARD_MS &&
-          performance.now() - lastStallRestartAt >= STALL_RESTART_GAP_MS
-        ) {
-          lastStallRestartAt = performance.now()
-          restartRecognition(false)
-          return
-        }
-      }
+      const silentForMs = meterless ? undefined : voiceAt ? performance.now() - voiceAt : undefined
+      const textStableForMs = performance.now() - lastTextChangeAt
       if (
-        turnEnded({
+        shouldForceCommitUtterance({
           speechActive: meterless ? false : speechActive,
-          silentForMs: meterless ? undefined : voiceAt ? performance.now() - voiceAt : undefined,
-          msSinceLastResult: performance.now() - lastTextChangeAt,
+          silentForMs,
+          textStableForMs,
           incomplete,
+          silenceMs: windows.silenceMs,
+          incompleteSilenceMs: windows.incompleteSilenceMs,
         })
       ) {
         commit(text)
@@ -713,12 +781,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       restartIfStalled()
       frame = requestAnimationFrame(paintLevels)
     }
-    const rec: SpeechRecognitionLike = new Recognition()
-    recognition = rec
-    rec.lang = companionRecognitionLang()
-    rec.continuous = true
-    rec.interimResults = true
-    rec.maxAlternatives = 3
     const markSpeech = () => {
       if (finished) return
       speechActive = true
@@ -727,136 +789,146 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       callbacks.onSpeechStart?.()
       callbacks.onVoiceEnergy?.()
     }
-    rec.onsoundstart = markSpeech
-    rec.onspeechstart = markSpeech
-    rec.onspeechend = () => {
-      // Do not clear speechActive or commit: Windows fires speechend at
-      // clause boundaries ("你可以") while the user is still speaking.
-    }
-    rec.onaudiostart = () => {
-      recognitionAlive = true
-    }
-    rec.onresult = event => {
-      const held = recognitionHeld()
-      const before = assembled()
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const piece = pickRecognitionTranscript(event.results[i])
-        if (event.results[i].isFinal) {
-          finals += piece
-          interim = ''
-        } else {
-          interim = piece
+    const bindRecognizer = (rec: SpeechRecognitionLike, gen: number) => {
+      recognition = rec
+      rec.lang = companionRecognitionLang()
+      rec.continuous = preferContinuous
+      rec.interimResults = true
+      rec.maxAlternatives = 3
+      rec.onsoundstart = markSpeech
+      rec.onspeechstart = markSpeech
+      rec.onspeechend = () => {
+        // Do not clear speechActive or commit: Windows fires speechend at
+        // clause boundaries ("你可以") while the user is still speaking.
+      }
+      rec.onaudiostart = () => {
+        if (gen !== recGeneration) return
+        recognitionAlive = true
+      }
+      rec.onresult = event => {
+        if (gen !== recGeneration) return
+        const held = recognitionHeld()
+        const before = assembled()
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const piece = pickRecognitionTranscript(event.results[i])
+          if (event.results[i].isFinal) {
+            finals += piece
+            interim = ''
+          } else {
+            interim = piece
+          }
         }
+        const now = performance.now()
+        const next = assembled().trim()
+        if (next) {
+          lastResultAt = now
+          voiceEnergyWithoutTextSince = 0
+          if (!utteranceVoiceSince) utteranceVoiceSince = now
+        }
+        if (next !== before.trim()) {
+          lastVoiceAt = now
+          speechActive = true
+          lastTextChangeAt = now
+          if (!firstTextAt) firstTextAt = now
+        }
+        if (assistantPlayback) {
+          dropWhatSheHeardOfHerself()
+          return
+        }
+        if (next && echoOfHerReply(next)) {
+          dropWhatSheHeardOfHerself()
+          return
+        }
+        if (next) callbacks.onInterim?.(next)
+        else if (!held) callbacks.onInterim?.('')
+        if (held) return
+        if (commitPaused) {
+          dropWhatSheHeardOfHerself()
+          return
+        }
+        window.clearTimeout(recSilenceTimer)
+        if (next && !commitPaused) {
+          const quiet = looksIncompleteUtterance(next) ? windows.incompleteSilenceMs : windows.silenceMs
+          recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), quiet)
+        }
+        if (!commitPaused) tryCommitFromSilence(lastVoiceAt)
       }
-      const now = performance.now()
-      const next = assembled().trim()
-      if (next) {
-        lastResultAt = now
-        lastVoiceAt = now
-        speechActive = true
-        voiceEnergyWithoutTextSince = 0
-        if (!utteranceVoiceSince) utteranceVoiceSince = now
-      }
-      if (next !== before.trim()) {
-        lastTextChangeAt = now
-        if (!firstTextAt) firstTextAt = now
-      }
-      if (assistantPlayback) {
-        dropWhatSheHeardOfHerself()
-        return
-      }
-      if (next && echoOfHerReply(next)) {
-        dropWhatSheHeardOfHerself()
-        return
-      }
-      if (next) callbacks.onInterim?.(next)
-      else if (!held) callbacks.onInterim?.('')
-      if (held) return
-      if (commitPaused) {
-        dropWhatSheHeardOfHerself()
-        return
-      }
-      window.clearTimeout(recSilenceTimer)
-      if (next && !commitPaused) {
-        const quiet = looksIncompleteUtterance(next) ? TURN_END_INCOMPLETE_SILENCE_MS : TURN_END_SILENCE_MS
-        recSilenceTimer = window.setTimeout(() => tryCommitFromSilence(lastVoiceAt), quiet)
-      }
-      if (!commitPaused) tryCommitFromSilence(lastVoiceAt)
-    }
-    rec.onerror = event => {
-      if (finished) return
-      if (event?.error === 'aborted' || recRestarting) return
-      const hint = speechEngineHint(event?.error)
-      if (hint) callbacks.onEngineHint?.(hint)
-      if (isPermanentSpeechError(event?.error)) {
+      rec.onerror = event => {
+        if (gen !== recGeneration) return
+        if (finished) return
+        if (event?.error === 'aborted' || recRestarting) return
+        const hint = speechEngineHint(event?.error)
+        if (hint) callbacks.onEngineHint?.(hint)
+        if (isPermanentSpeechError(event?.error)) {
+          finished = true
+          teardown()
+          const denied = event?.error === 'not-allowed'
+          const serviceDisabled = event?.error === 'service-not-allowed'
+          callbacks.onError(
+            new BridgeClientError(
+              denied ? '语音识别服务拒绝访问，请检查 Windows 在线语音识别设置' : serviceDisabled ? 'Windows 在线语音识别服务未启用或不可用' : '当前语言不受语音识别支持',
+              denied ? 'SPEECH_SERVICE_PERMISSION_DENIED' : serviceDisabled ? 'SPEECH_SERVICE_DISABLED' : 'SPEECH_RECOGNITION_FAILED',
+              false,
+              'renderer',
+            ),
+          )
+          return
+        }
+        if (duplex && (event?.error === 'no-speech' || event?.error === 'network' || event?.error === 'audio-capture')) {
+          window.clearTimeout(restartTimer)
+          restartTimer = window.setTimeout(() => {
+            if (finished || !recognition) return
+            if (assistantPlayback) return
+            if (recognitionHeld()) return
+            if (event?.error === 'no-speech' && assembled().trim()) return
+            restartRecognition(false)
+          }, event?.error === 'no-speech' ? (assistantPlayback ? 40 : 300) : 420)
+          return
+        }
+        if (duplex) {
+          restartRecognition(false)
+          return
+        }
         finished = true
         teardown()
-        const denied = event?.error === 'not-allowed'
-        const serviceDisabled = event?.error === 'service-not-allowed'
-        callbacks.onError(
-          new BridgeClientError(
-            denied ? '语音识别服务拒绝访问，请检查 Windows 在线语音识别设置' : serviceDisabled ? 'Windows 在线语音识别服务未启用或不可用' : '当前语言不受语音识别支持',
-            denied ? 'SPEECH_SERVICE_PERMISSION_DENIED' : serviceDisabled ? 'SPEECH_SERVICE_DISABLED' : 'SPEECH_RECOGNITION_FAILED',
-            false,
-            'renderer',
-          ),
-        )
-        return
+        callbacks.onEndWithoutFinal?.()
       }
-      if (duplex && (event?.error === 'no-speech' || event?.error === 'network' || event?.error === 'audio-capture')) {
-        window.clearTimeout(restartTimer)
-        restartTimer = window.setTimeout(() => {
-          if (finished || !recognition) return
-          // Her turn: stay stopped rather than reviving a session whose only
-          // possible input is the speakers.
-          if (assistantPlayback) return
-          if (recognitionHeld()) return
-          // stop() during an in-flight utterance drops the rest of the sentence.
-          if (event?.error === 'no-speech' && assembled().trim()) return
-          restartRecognition(false)
-        }, event?.error === 'no-speech' ? (assistantPlayback ? 40 : 300) : 420)
-        return
+      rec.onend = () => {
+        if (gen !== recGeneration) return
+        recognitionAlive = false
+        if (finished) return
+        if (recRestarting) return
+        if (assistantPlayback) return
+        if (recognitionHeld()) {
+          scheduleRecognitionAfterGuard()
+          return
+        }
+        if (duplex) {
+          restartTimer = window.setTimeout(() => {
+            if (finished || recognitionHeld()) return
+            if (!startRecognition()) restartRecognition(false)
+          }, 40)
+          return
+        }
+        const text = assembled().trim()
+        if (text) {
+          tryCommitFromSilence(lastVoiceAt)
+          return
+        }
+        finished = true
+        teardown()
+        callbacks.onEndWithoutFinal?.()
       }
-      if (duplex) return
-      finished = true
-      teardown()
-      callbacks.onEndWithoutFinal?.()
     }
-    rec.onend = () => {
-      recognitionAlive = false
-      if (finished) return
-      if (recRestarting) return
-      // Windows often stops between clauses ("你可以帮我" then the rest).
-      // Never commit on engine stop — keep the hypothesis and wait for more,
-      // or for silence/stable endpointing.
-      if (assistantPlayback) {
-        // Her turn: it was stopped on purpose and must stay stopped. Starting
-        // it again here is how it came to hear her whole reply — the engine
-        // is deaf to the muted tracks, so a running session transcribes the
-        // speakers.
-        return
-      }
-      if (recognitionHeld()) {
-        scheduleRecognitionAfterGuard()
-        return
-      }
-      if (duplex) {
-        restartTimer = window.setTimeout(() => {
-          if (finished || !recognition || recognitionHeld()) return
-          if (!startRecognition()) restartRecognition(false)
-        }, 40)
-        return
-      }
-      const text = assembled().trim()
-      if (text) {
-        if (looksIncompleteUtterance(text)) return
-        commit(text)
-        return
-      }
-      finished = true
-      teardown()
-      callbacks.onEndWithoutFinal?.()
+    const mintRecognizer = () => {
+      const Ctor = speechRecognitionConstructor()
+      if (!Ctor) return false
+      discardRecognizer()
+      const gen = recGeneration
+      bindRecognizer(new Ctor(), gen)
+      return true
     }
+    mintRecognizer()
     startRecognition()
     if (gumPromise) {
       let media: MediaStream
@@ -971,9 +1043,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         firstTextAt = 0
         echoGuardUntil = performance.now() + Math.max(0, echoGuardMs)
         recycleAfterPlayback = false
+        mintRecognizer()
         ensureRecognitionRunning(false)
         echoTimer = window.setTimeout(() => {
           if (finished || assistantPlayback) return
+          if (!recognitionAlive) mintRecognizer()
           ensureRecognitionRunning(false)
         }, Math.max(0, echoGuardMs))
       },
@@ -993,30 +1067,34 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (finished || recognitionHeld() || recRestarting) return
         const text = assembled().trim()
         if (text) {
-          if (looksIncompleteUtterance(text)) return
-          commit(text)
+          tryCommitFromSilence(lastVoiceAt)
           return
         }
-        if (!shouldRestartStalledRecognition({
-          speechActive,
-          hasText: false,
-          held: recognitionHeld(),
-          restarting: recRestarting,
-          msSinceStart: performance.now() - lastStartAt,
-          minSessionMs: lastPlaybackEndedAt > 0 && performance.now() - lastPlaybackEndedAt < 15_000
-            ? STALL_RESTART_AFTER_PLAYBACK_MS
-            : STALL_RESTART_AFTER_MS,
-        })) return
-        if (recognitionAlive && lastPlaybackEndedAt > 0 && performance.now() - lastPlaybackEndedAt < 15_000) return
         lastRecognitionPulseAt = performance.now()
         restartRecognition(false)
       },
       forceCommit: () => {
-        if (speechActive || assistantPlayback || commitPaused) return
+        if (assistantPlayback || commitPaused) return
         const text = assembled().trim()
         if (!text) return
-        if (looksIncompleteUtterance(text)) return
+        const now = performance.now()
+        if (
+          !shouldForceCommitUtterance({
+            speechActive: meterless ? false : speechActive,
+            silentForMs: meterless ? undefined : lastVoiceAt ? now - lastVoiceAt : undefined,
+            textStableForMs: now - lastTextChangeAt,
+            incomplete: looksIncompleteUtterance(text),
+            silenceMs: windows.silenceMs,
+            incompleteSilenceMs: windows.incompleteSilenceMs,
+          })
+        ) {
+          return
+        }
         commit(text)
+      },
+      flush: () => {
+        const text = assembled().trim()
+        if (text && !assistantPlayback && !commitPaused) commit(text)
       },
       resumeCapture: () => {
         if (finished) return

@@ -16,6 +16,9 @@ const READY_MS = 90_000
 const POLL_MS = 700
 /** Status probe budget: MiniCPM-o is optional, so a hung bridge must not block talking. */
 export const OMNI_PROBE_MS = 4_000
+/** One hung append must not stall the whole duplex chain. */
+export const OMNI_APPEND_MS = 8_000
+const OMNI_APPEND_FAILS_BEFORE_ERROR = 3
 
 export interface OmniChannelSnapshot {
   ready?: boolean
@@ -77,6 +80,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
   let sessionId = ''
   let playing = false
   let appendChain: Promise<void> = Promise.resolve()
+  let appendFails = 0
   const queue: string[] = []
   let audio: HTMLAudioElement | undefined
 
@@ -145,20 +149,27 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
     capture = await startPcmCapture({
       onFrame: frame => {
         if (stopped || !sessionId) return
-        appendChain = appendChain
-          .then(async () => {
-            if (stopped || !sessionId) return
-            const turn = await getOmniBridge().append({ sessionId, pcm: frame.base64 })
+        appendChain = appendChain.then(async () => {
+          if (stopped || !sessionId) return
+          try {
+            const turn = await withTimeout(
+              getOmniBridge().append({ sessionId, pcm: frame.base64 }),
+              OMNI_APPEND_MS,
+            )
+            appendFails = 0
             if (stopped) return
             const text = turn.text.trim()
             if (text) options.onText(text)
             if (turn.listening) stopPlayback()
             for (const wav of turn.wavs) queue.push(wav)
             playNext()
-          })
-          .catch(err => {
-            if (!stopped) options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
-          })
+          } catch (err) {
+            appendFails += 1
+            if (!stopped && appendFails >= OMNI_APPEND_FAILS_BEFORE_ERROR) {
+              options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
+            }
+          }
+        })
       },
       onError: error => {
         if (!stopped) options.onError(error.message)
@@ -182,6 +193,22 @@ async function waitOmniReady(): Promise<void> {
     await sleep(POLL_MS)
   }
   throw new Error('MiniCPM-o 启动超时（模型加载约 10–60 秒）')
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('MiniCPM-o 推理超时')), ms)
+    promise.then(
+      value => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      err => {
+        window.clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
 }
 
 function sleep(ms: number): Promise<void> {

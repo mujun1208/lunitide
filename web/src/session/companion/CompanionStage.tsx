@@ -1099,9 +1099,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         setLevels(next)
       },
       onEndWithoutFinal: () => {
-        if (speechHandleRef.current && stateRef.current === 'listening') {
-          machine.dispatch({ type: 'MIC_CANCEL' })
-        }
+        if (exitedRef.current) return
+        autoLoopRef.current = true
+        speechHandleRef.current?.resumeCapture()
+        if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
       },
     }
 
@@ -1222,13 +1223,17 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       setVoiceHeard(false)
       return
     }
+    syncSpeechModes()
     speechHandleRef.current?.resumeCapture()
+    captionHandleRef.current?.resumeCapture()
     const wake = window.setTimeout(() => {
       if (stateRef.current !== 'listening' || exitedRef.current) return
+      syncSpeechModes()
       speechHandleRef.current?.resumeCapture()
+      captionHandleRef.current?.resumeCapture()
     }, 40)
     return () => window.clearTimeout(wake)
-  }, [machine.state])
+  }, [machine.state, syncSpeechModes])
 
   // Auto-start the microphone as soon as the stage mounts. Listening does
   // not depend on chat/model readiness — only the LLM send is gated.
@@ -1236,13 +1241,21 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   useEffect(() => {
     if (machine.state !== 'listening' || !interimText.trim()) return
-    const timer = window.setTimeout(() => {
+    let interval = 0
+    const kick = () => {
       if (stateRef.current !== 'listening' || exitedRef.current) return
-      if (!interimText.trim()) return
+      if (!interimTextRef.current.trim()) return
       speechHandleRef.current?.forceCommit()
       captionHandleRef.current?.forceCommit()
+    }
+    const timer = window.setTimeout(() => {
+      kick()
+      interval = window.setInterval(kick, 400)
     }, FORCE_COMMIT_MS)
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
   }, [machine.state, interimText])
 
   useEffect(() => {

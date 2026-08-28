@@ -58,6 +58,9 @@ func desktopNameScore(base, query string) int {
 	if strings.EqualFold(stem, q) || strings.EqualFold(base, q) {
 		return 100
 	}
+	if utf8.RuneCountInString(q) < 2 {
+		return 0
+	}
 	lowerStem := strings.ToLower(stem)
 	lowerQ := strings.ToLower(q)
 	if strings.HasPrefix(lowerStem, lowerQ) || strings.HasPrefix(stem, q) {
@@ -120,31 +123,62 @@ func pickDesktopNamedFile(dir, query string) (string, []string, error) {
 }
 
 // pickLaunchTarget resolves a desktop file/folder/shortcut, then falls
-// back to Start Menu shortcuts (e.g. 汽水音乐 when only installed globally).
+// back to known install paths (e.g. cloudmusic.exe) and Start Menu
+// shortcuts (e.g. 汽水音乐 / 网易云音乐 when only installed globally).
 func pickLaunchTarget(query string) (string, []string, error) {
+	core := launchQueryCore(query)
+	if core == "" {
+		core = strings.TrimSpace(query)
+	}
+	searches := []string{core}
+	if known, ok := matchKnownLaunchApp(core); ok {
+		if known.Canonical != core {
+			searches = append(searches, known.Canonical)
+		}
+		searches = append(searches, known.Aliases...)
+	}
 	if dir, err := userDesktopDir(); err == nil {
-		path, others, err := pickDesktopNamedFile(dir, query)
-		if path != "" {
-			return path, others, nil
+		for _, q := range searches {
+			path, others, err := pickDesktopNamedFile(dir, q)
+			if path != "" {
+				return path, others, nil
+			}
+			if len(others) > 1 {
+				return "", others, err
+			}
 		}
-		if len(others) > 0 {
-			return "", others, err
+	}
+	if path, ok := pickKnownAppExecutable(core); ok {
+		return path, nil, nil
+	}
+	for _, q := range searches {
+		path, others, err := pickStartMenuShortcut(q)
+		if path != "" || len(others) > 0 {
+			return path, others, err
 		}
 	}
-	path, others, err := pickStartMenuShortcut(query)
-	if path != "" || len(others) > 0 {
-		return path, others, err
-	}
-	if err != nil {
-		return "", nil, err
-	}
-	return "", nil, errors.New("no desktop or start-menu item matching " + strings.TrimSpace(query))
+	return "", nil, errors.New("no desktop, install path, or start-menu item matching " + strings.TrimSpace(query))
 }
 
 func openWithDefaultApp(path string) error {
-	if runtime.GOOS == "windows" {
-		cmd := exec.Command("cmd", "/c", "start", "", path)
-		return cmd.Start()
+	return startOpenedPath(path, func(cmd *exec.Cmd) error { return cmd.Start() })
+}
+
+// startOpenedPath launches a Desktop/Start-Menu target. Windows .exe files
+// must run from their install directory so DLLs next to cloudmusic.exe load;
+// shortcuts stay on `start` so .lnk/.url resolve through the shell.
+func startOpenedPath(path string, startFn func(*exec.Cmd) error) error {
+	if startFn == nil {
+		startFn = (*exec.Cmd).Start
 	}
-	return exec.Command("xdg-open", path).Start()
+	if runtime.GOOS == "windows" {
+		if strings.EqualFold(filepath.Ext(path), ".exe") {
+			cmd := exec.Command(path)
+			cmd.Dir = filepath.Dir(path)
+			return startFn(cmd)
+		}
+		cmd := exec.Command("cmd", "/c", "start", "", path)
+		return startFn(cmd)
+	}
+	return startFn(exec.Command("xdg-open", path))
 }

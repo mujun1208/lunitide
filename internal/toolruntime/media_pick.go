@@ -248,3 +248,30 @@ func looksPrintableQuery(s string) bool {
 	}
 	return false
 }
+
+func queryLooksLikeArtist(query string) bool {
+	q := strings.TrimSpace(query)
+	if isGenericMediaQuery(q) {
+		return false
+	}
+	n := len([]rune(q))
+	if n < 2 || n > 16 {
+		return false
+	}
+	return !strings.ContainsAny(q, "《》")
+}
+
+// queryMustSearchFirst is true for short artist names (周杰伦, 林俊杰).
+// Those must go through the desktop search box — never treat the artist
+// name as an on-screen track click, and never play with media keys only.
+func queryMustSearchFirst(query string) bool {
+	q := strings.TrimSpace(query)
+	if isGenericMediaQuery(q) {
+		return false
+	}
+	n := len([]rune(q))
+	if n >= 2 && n <= 4 && !strings.ContainsAny(q, "《》") {
+		return true
+	}
+	return false
+}

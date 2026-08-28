@@ -157,9 +157,20 @@ const INCOMPLETE_STARTERS =
   /^(?:你可以|你能|帮我|请你|能不能|是不是|要不要|我想|我要)$/u
 /** Command still waiting for the action: 「你可以帮我…」 */
 const INCOMPLETE_OPENERS =
-  /^(?:你可以|你能|能不能|请你帮|麻烦你)/u
+  /^(?:你可以|你能|能不能|请你帮|麻烦你|你帮我)/u
 /** Phrase ended on the helper, not the task. */
 const INCOMPLETE_ENDINGS = /(?:帮我|给我|为我)$/u
+/** 「打开」「播放」with no object yet. */
+const INCOMPLETE_BARE_COMMAND = /(?:打开|启动|运行|播放)$/u
+/** App-name prefixes Windows often finals before the rest arrives. */
+const INCOMPLETE_APP_PREFIX =
+  /(?:打开|启动)(?:网易云|网易|汽水|qq|QQ)$/u
+/** One-syllable object that is almost certainly a cut-off app name. */
+const INCOMPLETE_TRUNCATED_OPEN =
+  /(?:打开|启动|运行)(?:网|微|汽|酷|支|淘|钉|飞|邮|Q|q)$/u
+/** Whole launch targets — do not wait as if the object were still coming. */
+const COMPLETE_OPEN_OBJECTS =
+  /(?:打开|启动|运行)(?:桌面|设置|文件|网页|微信|日历|浏览器|网易云音乐|汽水音乐|qq音乐|QQ音乐)$/u
 
 const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/岳西|越席|月西|悦溪|跃溪|月息|悦西|悦希|月希|月夕|月惜|越汐/g, '月汐'],
@@ -168,8 +179,15 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/打开店面/g, '打开桌面'],
   [/店面/g, '桌面'],
   [/气水音乐|起水音乐|七水音乐|汽水音月/g, '汽水音乐'],
+  [/网易云音(?!乐)/g, '网易云音乐'],
+  [/打开网易云(?!音乐)/g, '打开网易云音乐'],
+  [/打开网易(?!云)/g, '打开网易云音乐'],
   [/帮我打开桌面的/g, '帮我打开桌面'],
   [/帮我打开一个/g, '帮我打开'],
+  [/\bb\s*r\s*d\b/gi, 'BRD'],
+  [/\bp\s*r\s*d\b/gi, 'PRD'],
+  [/\bo\s*k\s*r\b/gi, 'OKR'],
+  [/\bk\s*p\s*i\b/gi, 'KPI'],
 ]
 
 /** Whole greetings / acknowledgements — commit quickly even without punctuation. */
@@ -182,9 +200,14 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (!trimmed) return false
   if (/[。？！?!…]$/.test(trimmed)) return false
   if (COMPLETE_SHORT_UTTERANCE.test(trimmed)) return false
+  const compact = trimmed.replace(/\s+/g, '')
+  if (COMPLETE_OPEN_OBJECTS.test(compact)) return false
+  if (INCOMPLETE_BARE_COMMAND.test(compact)) return true
+  if (INCOMPLETE_APP_PREFIX.test(compact)) return true
+  if (INCOMPLETE_TRUNCATED_OPEN.test(compact)) return true
   if (INCOMPLETE_STARTERS.test(trimmed)) return true
   if (INCOMPLETE_ENDINGS.test(trimmed) && Array.from(trimmed).length <= 6) return true
-  if (INCOMPLETE_OPENERS.test(trimmed) && Array.from(trimmed).length <= 5) return true
+  if (INCOMPLETE_OPENERS.test(trimmed) && Array.from(trimmed).length <= 6) return true
   if (COMPLETE_TAIL.test(trimmed)) return false
   if (INCOMPLETE_TAIL.test(trimmed)) return true
   // Short unpunctuated fragments like「你可以」are mid-command, not a turn.

@@ -2,6 +2,7 @@ package toolruntime
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,7 +62,103 @@ func TestDesktopNameScoreSkipsLockfiles(t *testing.T) {
 	if desktopNameScore("协议.docx", "协议") != 100 {
 		t.Fatal("exact stem should score 100")
 	}
+	if desktopNameScore("网易云音乐.lnk", "网") != 0 {
+		t.Fatal("single-rune query must not substring-match")
+	}
 	if !strings.Contains("协议.docx", "协议") {
 		t.Fatal("sanity")
+	}
+}
+
+func TestCanonicalMusicAppResolvesNetease(t *testing.T) {
+	if got := CanonicalMusicApp("网易云"); got != "网易云音乐" {
+		t.Fatalf("got %q", got)
+	}
+	if got := CanonicalMusicApp("打开网易云音乐"); got != "网易云音乐" {
+		t.Fatalf("got %q", got)
+	}
+	if got := CanonicalMusicAppFromText("帮我打开网易云音乐播放周杰伦"); got != "网易云音乐" {
+		t.Fatalf("got %q", got)
+	}
+	if CanonicalMusicApp("网") != "" {
+		t.Fatal("bare 网 must not resolve to 网易云音乐")
+	}
+	if got := CanonicalMusicAppFromText("打开桌面网易云音乐软件，搜索周杰伦歌曲，放一首"); got != "网易云音乐" {
+		t.Fatalf("exact user utterance app = %q", got)
+	}
+}
+
+func TestStartOpenedPathRunsExeFromItsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cloudmusic.exe")
+	if err := os.WriteFile(exe, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var gotDir, gotPath string
+	var gotArgs []string
+	err := startOpenedPath(exe, func(cmd *exec.Cmd) error {
+		gotDir = cmd.Dir
+		gotPath = cmd.Path
+		gotArgs = append([]string{}, cmd.Args...)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDir != dir {
+		t.Fatalf("dir=%q want %q", gotDir, dir)
+	}
+	if !strings.EqualFold(filepath.Base(gotPath), "cloudmusic.exe") && !strings.EqualFold(filepath.Base(gotArgs[0]), "cloudmusic.exe") {
+		t.Fatalf("path=%q args=%v", gotPath, gotArgs)
+	}
+}
+
+func TestStartOpenedPathUsesShellStartForShortcuts(t *testing.T) {
+	lnk := filepath.Join(t.TempDir(), "网易云音乐.lnk")
+	var gotArgs []string
+	err := startOpenedPath(lnk, func(cmd *exec.Cmd) error {
+		gotArgs = append([]string{}, cmd.Args...)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(gotArgs, " ")
+	if !strings.Contains(joined, "start") || !strings.Contains(joined, lnk) {
+		t.Fatalf("args=%v", gotArgs)
+	}
+}
+
+func TestPickKnownAppExecutableUsesInstallPath(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cloudmusic.exe")
+	if err := os.WriteFile(exe, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := lookupKnownAppExecutables
+	lookupKnownAppExecutables = func(app knownLaunchApp) []string {
+		if app.Canonical == "网易云音乐" {
+			return []string{exe}
+		}
+		return nil
+	}
+	t.Cleanup(func() { lookupKnownAppExecutables = orig })
+	path, ok := pickKnownAppExecutable("网易云音乐")
+	if !ok || path != exe {
+		t.Fatalf("path=%q ok=%v", path, ok)
+	}
+}
+
+func TestFirstInstalledMusicAppUsesLookup(t *testing.T) {
+	orig := lookupKnownAppExecutables
+	lookupKnownAppExecutables = func(app knownLaunchApp) []string {
+		if app.Canonical == "网易云音乐" {
+			return []string{`C:\fake\cloudmusic.exe`}
+		}
+		return nil
+	}
+	t.Cleanup(func() { lookupKnownAppExecutables = orig })
+	if got := FirstInstalledMusicApp(); got != "网易云音乐" {
+		t.Fatalf("got %q", got)
 	}
 }

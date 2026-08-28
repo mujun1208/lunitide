@@ -34,6 +34,7 @@ describe('汉字识别质量', () => {
     expect(cleanUserTranscript('你好岳西')).toBe('你好月汐')
     expect(cleanUserTranscript('帮我打开店面文件')).toBe('帮我打开桌面文件')
     expect(cleanUserTranscript('打开气水音乐')).toBe('打开汽水音乐')
+    expect(cleanUserTranscript('打开网易云')).toBe('打开网易云音乐')
     expect(cleanUserTranscript('下一句，打开悦溪的店面')).toBe('下一句，打开月汐的桌面')
   })
 
@@ -73,6 +74,15 @@ describe('识别速度', () => {
     const incomplete = { ...settled, incomplete: true }
     expect(turnEnded({ ...incomplete, silentForMs: TURN_END_SILENCE_MS })).toBe(false)
     expect(turnEnded({ ...incomplete, silentForMs: TURN_END_INCOMPLETE_SILENCE_MS })).toBe(true)
+  })
+
+  test('「打开网」is not a finished command after a 50–400ms pause', () => {
+    expect(turnEnded({
+      speechActive: false,
+      silentForMs: 400,
+      msSinceLastResult: TURN_END_TEXT_SETTLE_MS + 50,
+      incomplete: true,
+    })).toBe(false)
   })
 })
 

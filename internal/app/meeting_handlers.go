@@ -198,8 +198,24 @@ func publicSegment(seg meetings.Segment) map[string]any {
 
 const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转写的逐字稿生成中文会议文档。
 只输出一个 JSON 对象，不要 Markdown 围栏：
-{"title":"简短标题","summary":"会议摘要（一段或数段）","actions":["待办1","待办2"]}
-规则：只使用逐字稿里出现的事实；没有明确待办时 actions 为空数组；不要编造未出现的人名或决议。`
+{"title":"简短标题","summary":"会议摘要","actions":["待办1","待办2"]}
+
+会议摘要（summary）必须写清三块，即使用逐字稿很短也不要写成一句带过：
+- 背景：开会目的或起因（仅当逐字稿能支持；没有就写「未说明背景」）
+- 讨论要点：实际说到的议题，分点列出
+- 结论：达成的共识或明确下一步；没有就写「未形成明确结论」
+
+决议/待办（actions）：
+- 每条必须可执行：做什么；谁来做（仅当逐字稿出现人名或角色）；截止时间（仅当逐字稿提到）
+- 写成「谁 + 做什么 + 截止（若有）」；没有责任人就写事项本身
+- 没有明确待办时返回空数组，不要编造
+
+规则：
+- 只使用逐字稿里出现的事实；不要把「呃」「啊」写进摘要
+- 不要编造未出现的人名、部门、数字或决议
+- 字母缩写按常见写法还原（如 brd / b r d → BRD）
+- 全文逐字稿由系统另行保存，不要在 JSON 里重复逐字稿
+- 逐字稿可能混有本机麦克风与扬声器对面的声音，不要臆测发言人`
 
 func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) (meetings.Notes, error) {
 	if e.providers == nil {
@@ -226,7 +242,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 			break
 		}
 	}
-	user := "会议标题：" + title + "\n\n逐字稿：\n" + transcript
+	user := "会议标题：" + title + "\n\n以下是本机转写（已去掉部分语气词）。请按系统要求输出 JSON。逐字稿很短时也要分「背景 / 讨论要点 / 结论」写摘要，决议/待办要可执行。\n\n逐字稿：\n" + transcript
 	var content string
 	err = e.withProviderLease(ctx, chosen, secretlease.OperationChat, func(ctx context.Context, secret []byte) error {
 		adapter, adapterErr := e.adapter(ctx, chosen)
@@ -239,7 +255,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 				{Role: gateway.RoleSystem, Content: meetingNotesSystem},
 				{Role: gateway.RoleUser, Content: user},
 			},
-			MaxTokens:   2048,
+			MaxTokens:   4096,
 			MaxAttempts: 1,
 		})
 		if completeErr != nil {

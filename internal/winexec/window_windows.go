@@ -3,6 +3,7 @@
 package winexec
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"syscall"
@@ -149,7 +150,7 @@ func ActivateWindowMatching(fragment string) error {
 		}
 	}
 	if match.hwnd == 0 {
-		return nil
+		return fmt.Errorf("no visible window matching %q", fragment)
 	}
 	_, _, _ = procShowWindowWin.Call(match.hwnd, swRestore)
 	if ok, _, _ := procSetForegroundWin.Call(match.hwnd); ok == 0 {

@@ -328,7 +328,13 @@ func (h *BrowserHost) resize() {
 	if h.controller != nil && h.hwnd != 0 {
 		var rect win32.RECT
 		win32.GetClientRect(h.hwnd, &rect)
+		if shouldSkipWebViewBounds(rect.Right-rect.Left, rect.Bottom-rect.Top) {
+			h.controller.SetIsVisible(win32.FALSE)
+			return
+		}
 		h.controller.SetBounds(wv2.TagRECT(rect))
+		h.controller.SetIsVisible(win32.TRUE)
+		h.controller.NotifyParentWindowPositionChanged()
 	}
 }
 

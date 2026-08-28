@@ -37,6 +37,8 @@ import {
   TURN_END_INCOMPLETE_SILENCE_MS,
   TURN_END_TEXT_SETTLE_MS,
   FORCE_COMMIT_MS,
+  STUCK_TRANSCRIPT_MS,
+  shouldForceCommitUtterance,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -346,6 +348,64 @@ describe('when the user has finished speaking', () => {
     // waiting forever, so the transcript going quiet stands in for it.
     expect(turnEnded({ ...stopped, silentForMs: undefined })).toBe(false)
     expect(turnEnded({ ...stopped, silentForMs: undefined, msSinceLastResult: TURN_END_SILENCE_MS + 50 })).toBe(true)
+  })
+
+  test('meeting notes wait longer than companion turn-taking', () => {
+    expect(turnEnded({ ...stopped, silentForMs: TURN_END_SILENCE_MS + 50 })).toBe(true)
+    expect(turnEnded({
+      ...stopped,
+      silentForMs: TURN_END_SILENCE_MS + 50,
+      silenceMs: 2000,
+      incompleteSilenceMs: 2500,
+    })).toBe(false)
+    expect(turnEnded({
+      ...stopped,
+      silentForMs: 2050,
+      silenceMs: 2000,
+      incompleteSilenceMs: 2500,
+    })).toBe(true)
+  })
+
+  test('does not treat「打开网」as finished after a short pause', () => {
+    expect(looksIncompleteUtterance('你帮我打开网')).toBe(true)
+    expect(looksIncompleteUtterance('打开网')).toBe(true)
+    expect(turnEnded({ ...stopped, incomplete: true, silentForMs: 400 })).toBe(false)
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: 400,
+      textStableForMs: 400,
+      incomplete: true,
+    })).toBe(false)
+  })
+
+  test('force-commits a stuck caption after the 1.5s ceiling once the room is quiet', () => {
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: STUCK_TRANSCRIPT_MS,
+      incomplete: true,
+    })).toBe(false)
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
+      textStableForMs: STUCK_TRANSCRIPT_MS,
+      incomplete: true,
+    })).toBe(true)
+  })
+
+  test('does not hard-commit an incomplete caption while the analyser still hears voice', () => {
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+    })).toBe(false)
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+    })).toBe(true)
   })
 })
 

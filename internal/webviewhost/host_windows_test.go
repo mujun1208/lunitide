@@ -83,3 +83,28 @@ func TestDispatchAndWaitReturnsWhenNotificationAndClosePostsFail(t *testing.T) {
 		t.Fatalf("runErr=%v", h.runErr)
 	}
 }
+
+func TestRestorePolicyConstantsMatchWin32(t *testing.T) {
+	pairs := []struct {
+		name string
+		got  uint32
+		want uint32
+	}{
+		{"WM_SIZE", wmSize, uint32(win32.WM_SIZE)},
+		{"WM_SHOWWINDOW", wmShowWindow, uint32(win32.WM_SHOWWINDOW)},
+		{"WM_WINDOWPOSCHANGED", wmWindowPosChanged, uint32(win32.WM_WINDOWPOSCHANGED)},
+		{"WM_POWERBROADCAST", wmPowerBroadcast, uint32(win32.WM_POWERBROADCAST)},
+		{"WM_EXITSIZEMOVE", wmExitSizeMove, uint32(win32.WM_EXITSIZEMOVE)},
+		{"WM_ACTIVATE", wmActivate, uint32(win32.WM_ACTIVATE)},
+		{"SIZE_RESTORED", sizeRestored, uint32(win32.SIZE_RESTORED)},
+		{"SIZE_MINIMIZED", sizeMinimized, uint32(win32.SIZE_MINIMIZED)},
+		{"SIZE_MAXIMIZED", sizeMaximized, uint32(win32.SIZE_MAXIMIZED)},
+		{"PBT_APMRESUMEAUTOMATIC", pbtAPMResumeAutomatic, uint32(win32.PBT_APMRESUMEAUTOMATIC)},
+		{"PBT_APMRESUMESUSPEND", pbtAPMResumeSuspend, uint32(win32.PBT_APMRESUMESUSPEND)},
+	}
+	for _, tc := range pairs {
+		if tc.got != tc.want {
+			t.Fatalf("%s=%#x want %#x", tc.name, tc.got, tc.want)
+		}
+	}
+}

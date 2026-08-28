@@ -73,6 +73,115 @@ func TestCompanionAutoMediaPlayArgs(t *testing.T) {
 	}
 }
 
+func TestCompanionExtractMusicQueryKeepsArtist(t *testing.T) {
+	if got := companionDefaultMusicQuery("播放一首周杰伦的歌曲"); got != "周杰伦" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionDefaultMusicQuery("打开网易云音乐，播放一首周杰伦的歌曲"); got != "周杰伦" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionNamedMusicApp("打开网易云音乐播放周杰伦"); got != "网易云音乐" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCompanionExtractMusicQueryExactDesktopJayChouUtterance(t *testing.T) {
+	const uttered = "打开桌面网易云音乐软件，搜索周杰伦歌曲，放一首"
+	if got := companionNamedMusicApp(uttered); got != "网易云音乐" {
+		t.Fatalf("app = %q", got)
+	}
+	if got := companionDefaultMusicQuery(uttered); got != "周杰伦" {
+		t.Fatalf("query = %q want 周杰伦 (not 热门, not leftover 打开软件搜索…)", got)
+	}
+	if got := companionDefaultMusicQuery("随便放一首"); got != "热门" {
+		t.Fatalf("generic play = %q", got)
+	}
+	if got := companionDefaultMusicQuery("随便放一首周杰伦"); got != "周杰伦" {
+		t.Fatalf("named artist with 随便 = %q", got)
+	}
+}
+
+func TestCompanionAutoMediaPlayExactDesktopJayChouUtterance(t *testing.T) {
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	args, ok := e.companionAutoMediaPlayArgs("s1", "打开桌面网易云音乐软件，搜索周杰伦歌曲，放一首")
+	if !ok {
+		t.Fatal("expected auto media play for desktop 网易云 + 周杰伦")
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["target"] != "foreground" || parsed["app"] != "网易云音乐" || parsed["query"] != "周杰伦" {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+	if strings.Contains(string(args), "163.com") || strings.Contains(string(args), "热门") {
+		t.Fatalf("must not prefer web or 热门: %s", args)
+	}
+}
+
+func TestResolveMediaPlayArgsRewritesNeteaseToForeground(t *testing.T) {
+	root := t.TempDir()
+	tools, err := toolruntime.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	out := e.resolveMediaPlayArgs("s1", json.RawMessage(`{"action":"play","query":"周杰伦","target":"netease"}`))
+	var parsed map[string]string
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["target"] != "foreground" || parsed["app"] != "网易云音乐" || parsed["query"] != "周杰伦" {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+}
+
+func TestCompanionAutoMediaPlayArgsFromUtteranceWithoutSessionApp(t *testing.T) {
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	args, ok := e.companionAutoMediaPlayArgs("s1", "打开网易云音乐，播放一首周杰伦的歌曲")
+	if !ok {
+		t.Fatal("expected auto media play from named app in the utterance")
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["target"] != "foreground" || parsed["app"] != "网易云音乐" || parsed["query"] != "周杰伦" {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+}
+
+func TestCompanionAutoMediaPlayJayChouWithoutNamedApp(t *testing.T) {
+	installed := toolruntime.FirstInstalledMusicApp()
+	if installed == "" {
+		t.Skip("no known desktop music app installed on this PC")
+	}
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	args, ok := e.companionAutoMediaPlayArgs("s1", "播放一首周杰伦的歌曲")
+	if !ok {
+		t.Fatal("expected auto media play on an installed desktop player")
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["target"] != "foreground" || parsed["app"] != installed || parsed["query"] != "周杰伦" {
+		t.Fatalf("parsed = %#v installed=%q", parsed, installed)
+	}
+}
+
 func TestCompanionWantsToolsForPlayFollowUp(t *testing.T) {
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {

@@ -130,3 +130,11 @@ func TestMeetingsHandlersSummarizeWithCompleter(t *testing.T) {
 		t.Fatalf("summarize = %#v", sum)
 	}
 }
+
+func TestMeetingNotesSystemAsksForActionsAndConclusions(t *testing.T) {
+	for _, needle := range []string{"待办", "结论", "背景", "讨论要点", "不要编造"} {
+		if !strings.Contains(meetingNotesSystem, needle) {
+			t.Fatalf("prompt missing %q:\n%s", needle, meetingNotesSystem)
+		}
+	}
+}

@@ -2,6 +2,7 @@ import { localAsrStatus } from '../session/companion/localAsr'
 import { startLocalCompanionSpeech } from '../session/companion/localSpeech'
 import { startCompanionSpeech, type CompanionSpeechHandle, type CompanionSpeechOptions } from '../session/companion/speech'
 import { captureThisPcSystemAudio, hasAudioTrack, isCaptureCanceled, stopMediaStream } from './meetingCapture'
+import { createMeetingLineBuffer } from './meetingText'
 
 export type MeetingAudioSource = 'microphone' | 'microphone_and_system'
 
@@ -17,12 +18,32 @@ export async function startMeetingSpeech(options: CompanionSpeechOptions): Promi
   const preferLocal = probe?.supported === true && probe.ready === true
   const extraStreams = preferLocal ? options.extraStreams : undefined
   const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
-  return open({
+  const buffer = createMeetingLineBuffer(line => options.onFinal(line))
+  const handle = await open({
     ...options,
     extraStreams,
     duplex: true,
+    holdUtterance: true,
     spokenText: () => '',
+    onFinal: text => buffer.push(text),
+    onInterim: text => options.onInterim?.(text),
   })
+  const origStop = handle.stop.bind(handle)
+  return {
+    ...handle,
+    flush: async () => {
+      await handle.flush?.()
+      buffer.flush()
+    },
+    forceCommit: () => {
+      handle.forceCommit()
+      buffer.flush()
+    },
+    stop: () => {
+      buffer.flush()
+      origStop()
+    },
+  }
 }
 
 export async function prepareMeetingCapture(includeSystemAudio: boolean): Promise<MeetingCapturePlan> {

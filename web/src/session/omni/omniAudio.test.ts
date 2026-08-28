@@ -11,7 +11,7 @@ vi.mock('../../bridge/client', () => ({
   getOmniBridge: () => omni,
 }))
 
-import { OMNI_MISSING_RUNTIME, OMNI_PROBE_MS, omniChannelAvailable, omniStartBlock, probeOmniChannel } from './omniAudio'
+import { OMNI_MISSING_RUNTIME, OMNI_PROBE_MS, OMNI_APPEND_MS, omniChannelAvailable, omniStartBlock, probeOmniChannel } from './omniAudio'
 
 beforeEach(() => {
   omni.status.mockReset()
@@ -49,4 +49,9 @@ test('probeOmniChannel is false when status hangs past the budget', async () => 
 test('probeOmniChannel is false when the bridge rejects', async () => {
   omni.status.mockRejectedValue(new Error('timeout'))
   await expect(probeOmniChannel()).resolves.toBe(false)
+})
+
+test('a hung MiniCPM-o append is bounded so duplex cannot stall the conversation', () => {
+  expect(OMNI_APPEND_MS).toBeGreaterThanOrEqual(4000)
+  expect(OMNI_APPEND_MS).toBeLessThanOrEqual(12_000)
 })

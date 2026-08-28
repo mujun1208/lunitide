@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/lunitide/lunitide/internal/hostbridge"
@@ -138,6 +139,12 @@ type Host struct {
 	appIcon   win32.HICON
 	trayAdded bool
 	forceQuit bool
+
+	surfaceHidden        bool
+	reloadIfRendererDead bool
+	lastRestoreReload    time.Time
+	scriptHandler        *wv2.ICoreWebView2ExecuteScriptCompletedHandler
+	controller2          *wv2.ICoreWebView2Controller2
 }
 
 type frameRegistration struct {
@@ -247,7 +254,7 @@ func (h *Host) Run(ctx context.Context) error {
 
 	instance, _ := win32.GetModuleHandle(nil)
 	enableHighResolutionRendering()
-	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), Style: win32.CS_HREDRAW | win32.CS_VREDRAW, LpfnWndProc: syscall.NewCallback(windowProc), HInstance: instance, HbrBackground: win32.HBRUSH(win32.COLOR_WINDOW + 1), LpszClassName: win32.StrToPwstr(windowClass)}
+	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), Style: win32.CS_HREDRAW | win32.CS_VREDRAW, LpfnWndProc: syscall.NewCallback(windowProc), HInstance: instance, HbrBackground: win32.HBRUSH(win32.GetStockObject(win32.BLACK_BRUSH)), LpszClassName: win32.StrToPwstr(windowClass)}
 	wc.HCursor, _ = win32.LoadCursor(0, win32.IDC_ARROW)
 	if hIcon := loadAppIcon(); hIcon != 0 {
 		wc.HIcon = hIcon
@@ -409,6 +416,8 @@ func (h *Host) controllerCreated(code com.Error, controller *wv2.ICoreWebView2Co
 		h.fail(err)
 		return com.Error(win32.E_FAIL)
 	}
+	h.applyDarkControllerFill()
+	h.scriptHandler = wv2.NewICoreWebView2ExecuteScriptCompletedHandlerByFunc(h.restoreScriptCompleted, false)
 	if result := h.core3.SetVirtualHostNameToFolderMapping("app.lunitide.local", h.folder, wv2.COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND.COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS); failed(win32.HRESULT(result)) {
 		h.fail(fmt.Errorf("virtual host mapping failed: 0x%x", uint32(result)))
 		return result
@@ -752,11 +761,109 @@ func (h *Host) fail(err error) {
 	win32.DestroyWindow(h.hwnd)
 }
 func (h *Host) resize() {
-	if h.controller != nil {
-		var rect win32.RECT
-		win32.GetClientRect(h.hwnd, &rect)
-		h.controller.SetBounds(wv2.TagRECT(rect))
+	h.fitWebView()
+}
+
+func (h *Host) applyDarkControllerFill() {
+	if h.controller == nil {
+		return
 	}
+	h.controller2 = nil
+	if err := queryUnknown(&h.controller.IUnknown, &wv2.IID_ICoreWebView2Controller2, unsafe.Pointer(&h.controller2)); err != nil || h.controller2 == nil {
+		return
+	}
+	color := wv2.COREWEBVIEW2_COLOR{A: webViewFillA, R: webViewFillR, G: webViewFillG, B: webViewFillB}
+	if result := h.controller2.SetDefaultBackgroundColor(color); failed(win32.HRESULT(result)) {
+		logHostDiagnostic("WebView2 default background color failed: 0x%x", uint32(result))
+	}
+}
+
+func (h *Host) onSurfaceMessage(message, wParam uint32) {
+	action := surfaceActionForMessage(message, wParam, h.surfaceHidden)
+	switch action {
+	case surfaceHide:
+		h.hideWebView()
+	case surfaceFit:
+		h.fitWebView()
+	case surfaceWake:
+		fromOcclusion := h.surfaceHidden || message == wmPowerBroadcast
+		h.wakeWebView(fromOcclusion)
+	case surfaceNotify:
+		if h.controller != nil {
+			h.controller.NotifyParentWindowPositionChanged()
+		}
+	}
+}
+
+func (h *Host) hideWebView() {
+	h.surfaceHidden = true
+	if h.controller != nil {
+		h.controller.SetIsVisible(win32.FALSE)
+	}
+}
+
+func (h *Host) fitWebView() {
+	if h.controller == nil || h.hwnd == 0 {
+		return
+	}
+	var rect win32.RECT
+	win32.GetClientRect(h.hwnd, &rect)
+	if shouldSkipWebViewBounds(rect.Right-rect.Left, rect.Bottom-rect.Top) {
+		return
+	}
+	h.controller.SetBounds(wv2.TagRECT(rect))
+}
+
+func (h *Host) wakeWebView(fromOcclusion bool) {
+	h.surfaceHidden = false
+	h.reloadIfRendererDead = fromOcclusion
+	if h.core3 != nil {
+		h.core3.Resume()
+	}
+	h.fitWebView()
+	if h.controller != nil {
+		h.controller.SetIsVisible(win32.TRUE)
+		h.controller.NotifyParentWindowPositionChanged()
+	}
+	h.kickRendererSurface(fromOcclusion)
+}
+
+func (h *Host) kickRendererSurface(fromOcclusion bool) {
+	if h.core == nil || h.scriptHandler == nil || h.initialPending {
+		return
+	}
+	if result := h.core.ExecuteScript(restoreScript, h.scriptHandler); failed(win32.HRESULT(result)) {
+		if shouldReloadAfterScriptError(true, fromOcclusion, h.initialPending, h.lastRestoreReload, time.Now(), restoreReloadCooldown) {
+			h.reloadRestoredSurface("execute-script")
+		}
+	}
+}
+
+func (h *Host) restoreScriptCompleted(code com.Error, result string) com.Error {
+	if h.closed || h.core == nil {
+		return com.Error(win32.S_OK)
+	}
+	now := time.Now()
+	if failed(win32.HRESULT(code)) {
+		if shouldReloadAfterScriptError(true, h.reloadIfRendererDead, h.initialPending, h.lastRestoreReload, now, restoreReloadCooldown) {
+			h.reloadRestoredSurface("script-error")
+		}
+		return com.Error(win32.S_OK)
+	}
+	if shouldReloadFromScriptResult(result, h.initialPending, h.lastRestoreReload, now, restoreReloadCooldown) {
+		h.reloadRestoredSurface("blank-document")
+	}
+	return com.Error(win32.S_OK)
+}
+
+func (h *Host) reloadRestoredSurface(reason string) {
+	if h.core == nil {
+		return
+	}
+	h.lastRestoreReload = time.Now()
+	h.reloadIfRendererDead = false
+	logHostDiagnostic("WebView2 surface restore reload (%s)", reason)
+	h.core.Reload()
 }
 
 // applyInitialDpiSize rescales the 1280x800 logical client area to physical
@@ -844,6 +951,14 @@ func (h *Host) closeSTA() {
 	}
 	if h.core != nil {
 		h.core.Release()
+	}
+	if h.scriptHandler != nil {
+		h.scriptHandler.Release()
+		h.scriptHandler = nil
+	}
+	if h.controller2 != nil {
+		h.controller2.Release()
+		h.controller2 = nil
 	}
 	if h.controller != nil {
 		h.controller.Close()
@@ -943,6 +1058,9 @@ func (h *Host) showTrayMenu(hwnd win32.HWND) {
 	case trayCmdShow:
 		win32.ShowWindow(hwnd, win32.SW_SHOW)
 		win32.SetForegroundWindow(hwnd)
+		if h != nil {
+			h.wakeWebView(true)
+		}
 	case trayCmdExit:
 		if h != nil {
 			h.forceQuit = true
@@ -957,9 +1075,34 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 	switch message {
 	case win32.WM_SIZE:
 		if h != nil {
-			h.resize()
+			h.onSurfaceMessage(uint32(win32.WM_SIZE), uint32(wParam))
 		}
 		return 0
+	case win32.WM_SHOWWINDOW:
+		if h != nil {
+			h.onSurfaceMessage(uint32(win32.WM_SHOWWINDOW), uint32(wParam))
+		}
+		return win32.DefWindowProc(hwnd, message, wParam, lParam)
+	case win32.WM_POWERBROADCAST:
+		if h != nil {
+			h.onSurfaceMessage(uint32(win32.WM_POWERBROADCAST), uint32(wParam))
+		}
+		return win32.DefWindowProc(hwnd, message, wParam, lParam)
+	case win32.WM_WINDOWPOSCHANGED:
+		if h != nil {
+			h.onSurfaceMessage(uint32(win32.WM_WINDOWPOSCHANGED), uint32(wParam))
+		}
+		return win32.DefWindowProc(hwnd, message, wParam, lParam)
+	case win32.WM_EXITSIZEMOVE:
+		if h != nil {
+			h.onSurfaceMessage(uint32(win32.WM_EXITSIZEMOVE), uint32(wParam))
+		}
+		return 0
+	case win32.WM_ACTIVATE:
+		if h != nil {
+			h.onSurfaceMessage(uint32(win32.WM_ACTIVATE), uint32(wParam))
+		}
+		return win32.DefWindowProc(hwnd, message, wParam, lParam)
 	case win32.WM_DPICHANGED:
 		// Per-monitor-v2: adopt the system-suggested window rect for the new
 		// monitor DPI. WM_SIZE follows and refits the WebView2 controller;
@@ -1013,6 +1156,9 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 		if isTrayActivate(event) {
 			win32.ShowWindow(hwnd, win32.SW_SHOW)
 			win32.SetForegroundWindow(hwnd)
+			if h != nil {
+				h.wakeWebView(true)
+			}
 		}
 		return 0
 	case win32.WM_DESTROY:

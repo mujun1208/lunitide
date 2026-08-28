@@ -32,13 +32,15 @@ export class RootErrorBoundary extends React.Component<Props, State> {
     const { error } = this.state
     if (!error) return this.props.children
     return (
-      <div className="root-error" role="alert">
-        <h1>界面遇到了一个错误</h1>
-        <p>月汐已经把细节写进日志。重新载入通常就能恢复。</p>
-        <pre>{error.message}</pre>
-        <button type="button" onClick={this.reload}>
-          重新载入
-        </button>
+      <div className="root-error-shell">
+        <div className="root-error" role="alert">
+          <h1>界面遇到了一个错误</h1>
+          <p>月汐已经把细节写进日志。重新载入通常就能恢复。</p>
+          <pre>{error.message}</pre>
+          <button type="button" onClick={this.reload}>
+            重新载入
+          </button>
+        </div>
       </div>
     )
   }

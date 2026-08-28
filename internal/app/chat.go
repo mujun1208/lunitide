@@ -601,8 +601,8 @@ func companionPersonaInstruction() string {
 		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
 		"- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或 browser.act\n" +
-		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐）；不要用 command.run 猜路径\n" +
-		"- 播歌/播放：若本会话已打开音乐软件（见下方会话上下文），必须用 media.play（target=foreground，query=歌名/歌手；没说具体歌时用 query=热门）。工具会点同名曲目并核对正在播放；核对失败就如实说没播上，禁止报成功。禁止用系统播放键当成功路径，禁止 cc.screen_capture 看屏点按，禁止改用网页或 netease/qqmusic。用户一句里同时要求打开软件并播放时，先 desktop.open 再 media.play target=foreground。仅当用户明确要网页版或未打开桌面音乐软件时，才用 target=browser|netease|qqmusic\n" +
+		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、汽水音乐、网易云音乐）。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
+		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框填查询并回车，点结果；歌手名核对不到曲名时仍以点到的搜索结果为准。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
 		"- 操作电脑：电脑控制开启时用 cc.*。先 cc.screen_capture（或 cc.observe_ui）看清界面，再动手；鼠标坐标必须用你看到的那张图的像素。点按钮优先 cc.observe_ui 后 cc.mouse_click id=B1 或 name=控件名，或 cc.observe_dialog 后再 cc.confirm_dialog，不要盲点像素。普通对话框确认是 Yes/OK/确认/是/确定 后再点；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。拖拽用 cc.mouse_drag；切窗口用 cc.window_list 再 cc.window_focus（已在运行的应用），对指定应用先 cc.window_focus 再 keyboard_type。启动未打开的应用用 desktop.open。关/最小化/移动窗口用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器）。滚动用 cc.mouse_click scroll=±1。按回车用 cc.press key=enter。粘贴用 cc.paste。菜单用 cc.menu_click。填输入框优先 cc.set_value。UI 未就绪用 cc.wait until=change。剪贴板用 cc.clipboard（纯文本）。command.run 仅在需要跑命令时用\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
@@ -671,7 +671,7 @@ func companionWantsTools(text string) bool {
 		"查一下", "查询", "查火车", "查航班", "火车票", "航班",
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
-		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水",
+		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水", "网易云", "周杰伦",
 		"截图", "屏幕", "对话框", "确认", "点击", "鼠标", "电脑",
 		"search", "open http", "play song", "install",
 	} {
@@ -1011,8 +1011,8 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Write it into the session workspace. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
-		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, or shortcut whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 → desktop shortcut or Start Menu app). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
-		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground clicks the named track in an already-open desktop music app (needs cc.*) and verifies now-playing; it never uses the system Play key as the success path. If verification fails, report that the song is not playing. target=browser|netease|qqmusic opens a search URL then sends the Windows media-play key. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=click named track in open app and verify; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
+		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
+		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
 		structuredOutputDefinition(),
@@ -1780,6 +1780,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		var streamErr error
 		toolsFallbackUsed := false
 		usedTools := false
+		autoMediaPlayDone := false
 		nudges := 0
 		if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
 			turn.Goal = prev.Goal
@@ -1863,6 +1864,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			if streamErr != nil {
 				break
 			}
+			if state.companion && !autoMediaPlayDone && len(result.Message.ToolCalls) == 0 {
+				if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
+					result.Message.ToolCalls = []gateway.ToolCall{{
+						ID:        "auto-" + ulid.Make().String(),
+						Name:      "media.play",
+						Arguments: playArgs,
+					}}
+					autoMediaPlayDone = true
+				}
+			}
 			if len(result.Message.ToolCalls) == 0 {
 				stepText := ""
 				if assistantText.Len() > stepTextStart {
@@ -1929,7 +1940,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				drainParallelToolFutures(op, parallelFutures)
 			}()
-			desktopOpenedMusic := false
 			for _, call := range result.Message.ToolCalls {
 				if seen[call.ID] {
 					return errors.New("duplicate tool call id")
@@ -2170,12 +2180,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if state.companion {
 						e.noteCompanionToolSuccess(sessionID, call.Name, call.Arguments, summary)
 					}
-					if call.Name == "desktop.open" {
-						ctx := e.loadCompanionContext(sessionID)
-						if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
-							desktopOpenedMusic = true
-						}
-					}
 				}
 				toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
 				if toolErr == nil && r.Artifact != nil {
@@ -2196,8 +2200,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
 				}
 			}
-			if desktopOpenedMusic && companionTurnWantsMusicPlay(turn.Goal) {
-				hasMediaPlay := false
+			if companionTurnWantsMusicPlay(turn.Goal) {
+				hasMediaPlay := autoMediaPlayDone
 				for _, call := range result.Message.ToolCalls {
 					if call.Name == "media.play" {
 						hasMediaPlay = true
@@ -2206,6 +2210,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if !hasMediaPlay {
 					if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
+						autoMediaPlayDone = true
 						callID := "auto-" + ulid.Make().String()
 						name := "media.play"
 						digest := toolruntime.Digest(name, playArgs)
