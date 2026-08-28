@@ -304,11 +304,11 @@ describe('when the user has finished speaking', () => {
     incomplete: false,
   }
 
-  test('the product window is 1.2–1.5s after they stop talking', () => {
-    expect(TURN_END_SILENCE_MS).toBeGreaterThanOrEqual(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBeLessThanOrEqual(1500)
+  test('the product window is 1.2s after they stop talking', () => {
+    expect(TURN_END_SILENCE_MS).toBe(1200)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1200)
     expect(TURN_END_SILENCE_MS).toBeLessThanOrEqual(TURN_END_INCOMPLETE_SILENCE_MS)
-    expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_INCOMPLETE_SILENCE_MS)
+    expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeLessThan(2700)
   })
 
@@ -336,10 +336,11 @@ describe('when the user has finished speaking', () => {
     expect(turnEnded({ ...stopped, msSinceLastResult: 100 })).toBe(false)
   })
 
-  test('gives an unfinished-sounding phrase longer to be finished', () => {
-    const incomplete = { ...stopped, incomplete: true }
+  test('unfinished phrases still wait for a real stop, then end at 1.2s', () => {
+    const incomplete = { ...stopped, incomplete: true, silentForMs: 400 }
     expect(turnEnded(incomplete)).toBe(false)
-    expect(turnEnded({ ...incomplete, silentForMs: TURN_END_INCOMPLETE_SILENCE_MS + 50 })).toBe(true)
+    expect(turnEnded({ ...incomplete, silentForMs: 1100 })).toBe(false)
+    expect(turnEnded({ ...incomplete, silentForMs: TURN_END_INCOMPLETE_SILENCE_MS })).toBe(true)
   })
 
   test('still ends on a microphone whose level never reaches the speech gate', () => {
@@ -378,7 +379,7 @@ describe('when the user has finished speaking', () => {
     })).toBe(false)
   })
 
-  test('force-commits a stuck caption after the 1.5s ceiling once the room is quiet', () => {
+  test('force-commits a stuck caption after the 1.2s ceiling once the room is quiet', () => {
     expect(shouldForceCommitUtterance({
       speechActive: true,
       silentForMs: 0,

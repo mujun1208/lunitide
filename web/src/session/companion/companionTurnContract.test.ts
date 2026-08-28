@@ -1,8 +1,7 @@
 // companionTurnContract.test.ts is the CI-style bar for the voice turn
-// the user asked for: 汉字准、说完 1.2–1.5s 才截句、字幕是用户原话、
-// 指令结束不说「我做完了」、首 token 不垫思考。Copied from the existing
-// speech.test.ts / companionText.test.ts assertion style — functions and
-// windows, not a live microphone.
+// the user asked for: 汉字准、说完 1.2s 才截句、字幕是用户原话、
+// 指令结束不说「我做完了」、首 token 不垫思考、多轮不卡死。Copied from
+// the existing speech.test.ts / companionText.test.ts assertion style.
 import { describe, expect, test } from 'vitest'
 import {
   FORCE_COMMIT_MS,
@@ -59,20 +58,21 @@ describe('识别速度', () => {
     incomplete: false,
   }
 
-  test('commit sits in the 1.2–1.5s band, not 50–100ms and not 2.7–3.5s', () => {
+  test('commit is 1.2s after they stop, not 50–400ms and not 2.7–3.5s', () => {
     expect(turnEnded({ ...settled, silentForMs: 80 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: 400 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: 1100 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: TURN_END_SILENCE_MS })).toBe(true)
-    expect(TURN_END_SILENCE_MS).toBeGreaterThanOrEqual(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBeLessThanOrEqual(1500)
-    expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_INCOMPLETE_SILENCE_MS)
+    expect(TURN_END_SILENCE_MS).toBe(1200)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1200)
+    expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeLessThan(2700)
   })
 
-  test('incomplete-looking phrases still end by 1.5s of quiet', () => {
+  test('incomplete-looking phrases end at 1.2s of true silence, not a short breath', () => {
     const incomplete = { ...settled, incomplete: true }
-    expect(turnEnded({ ...incomplete, silentForMs: TURN_END_SILENCE_MS })).toBe(false)
+    expect(turnEnded({ ...incomplete, silentForMs: 400 })).toBe(false)
+    expect(turnEnded({ ...incomplete, silentForMs: 1100 })).toBe(false)
     expect(turnEnded({ ...incomplete, silentForMs: TURN_END_INCOMPLETE_SILENCE_MS })).toBe(true)
   })
 
@@ -107,5 +107,51 @@ describe('回答速度', () => {
     expect(companionReplyStallMs(true, false)).toBe(COMPANION_FIRST_TOKEN_STREAMING_MS)
     expect(companionReplyStallMs(false, false)).toBe(COMPANION_FIRST_TOKEN_CONNECTING_MS)
     expect(COMPANION_FIRST_TOKEN_STREAMING_MS).toBeGreaterThanOrEqual(8_000)
+  })
+})
+
+describe('多轮直到退出', () => {
+  test('eight listen → 1.2s → answer → next-listen rounds stay fluent', () => {
+    const lines = [
+      '你好月汐',
+      '今晚天气怎么样',
+      '帮我打开桌面',
+      '打开网易云音乐',
+      '搜索周杰伦放一首',
+      '下一句你好吗',
+      '谢谢',
+      '再见',
+    ]
+    let lastSpoken = ''
+    for (let i = 0; i < lines.length; i += 1) {
+      const heard = cleanUserTranscript(lines[i])
+      expect(heard).toBe(lines[i])
+      expect(turnEnded({
+        speechActive: false,
+        silentForMs: 400,
+        msSinceLastResult: TURN_END_TEXT_SETTLE_MS + 50,
+        incomplete: false,
+      })).toBe(false)
+      expect(turnEnded({
+        speechActive: false,
+        silentForMs: TURN_END_SILENCE_MS,
+        msSinceLastResult: TURN_END_TEXT_SETTLE_MS + 50,
+        incomplete: false,
+      })).toBe(true)
+      expect(shouldAcceptUserTranscript({
+        state: 'listening',
+        text: heard,
+        lastSpoken,
+        lastAssistant: lastSpoken,
+      })).toBe(true)
+      expect(shouldAcceptUserTranscript({
+        state: 'listening',
+        text: lastSpoken || '今晚是满月，适合抬头。',
+        lastSpoken: lastSpoken || '今晚是满月，适合抬头。',
+        lastAssistant: lastSpoken || '今晚是满月，适合抬头。',
+      })).toBe(false)
+      expect(stripTaskDonePhrases('我做完了')).toBe('')
+      lastSpoken = `好的，${heard}`
+    }
   })
 })

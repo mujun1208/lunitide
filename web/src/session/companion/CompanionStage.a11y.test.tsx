@@ -494,6 +494,67 @@ describe('MC-06 state distinguishability + live announcements', () => {
 })
 
 describe('subtitle strip: this round only', () => {
+  test('eight hands-free rounds stay listening, ignore TTS echo, and still accept 打断', async () => {
+    const onSend = vi.fn()
+    const onExit = vi.fn()
+    const handle = speech.handle()
+    speech.start.mockResolvedValue(handle)
+    const { container, rerender } = await renderStage({ onSend, onExit })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    const lines = [
+      '你好月汐',
+      '今晚天气怎么样',
+      '帮我打开桌面',
+      '打开网易云音乐',
+      '搜索周杰伦放一首',
+      '下一句你好吗',
+      '谢谢',
+      '再见',
+    ]
+    for (const [index, line] of lines.entries()) {
+      await act(async () => {
+        speech.callbacks!.onInterim?.(line)
+        speech.callbacks!.onFinal(line)
+      })
+      expect(onSend).toHaveBeenLastCalledWith(line)
+      expect(liveLog(container).textContent).toContain(line)
+      const reply = `好的，${line}`
+      rerender(
+        <CompanionStage
+          {...baseProps}
+          onSend={onSend}
+          onExit={onExit}
+          chatStatus="streaming"
+          assistantText={reply}
+        />,
+      )
+      expect(stateOf(container)).toBe('speaking')
+      await act(async () => {
+        speech.callbacks!.onFinal(reply)
+      })
+      expect(onSend).toHaveBeenCalledTimes(index + 1)
+      rerender(
+        <CompanionStage
+          {...baseProps}
+          onSend={onSend}
+          onExit={onExit}
+          chatStatus="done"
+          assistantText={reply}
+        />,
+      )
+      await act(async () => {
+        tts.playing = false
+        tts.enqueueCalls.at(-1)?.callbacks.onFinished?.('completed')
+      })
+      await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 4000 })
+    }
+    expect(onSend).toHaveBeenCalledTimes(lines.length)
+    fireEvent.click(container.querySelector('.companion-interrupt') as HTMLButtonElement)
+    expect(onExit).not.toHaveBeenCalled()
+    fireEvent.keyDown(stage(container), { key: 'Escape' })
+    await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1))
+  })
+
   test('a new user utterance replaces the previous user line', async () => {
     speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage()

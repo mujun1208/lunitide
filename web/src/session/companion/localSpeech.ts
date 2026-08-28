@@ -28,9 +28,9 @@ const TICK_MS = 60
 
 /**
  * Reached only if the engine never reports an endpoint. Sized to the
- * 1.2–1.5s turn-end window plus a little slack, not a multi-second stall.
+ * 1.2s turn-end window plus a little slack, not a multi-second stall.
  */
-export const ENDPOINT_BACKSTOP_MS = 1600
+export const ENDPOINT_BACKSTOP_MS = 1400
 
 /** Peak that paints a full ring. Chosen so normal speech sits mid-scale. */
 const FULL_SCALE_PEAK = 0.35
@@ -212,11 +212,9 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       }
       if (final) {
         speechActive = false
-        if (looksIncompleteUtterance(text.trim())) {
-          evaluate()
-          return
-        }
-        void recycle('final')
+        // Engine endpoint is not the product endpoint. Wait 1.2s of true
+        // silence after they stopped, complete phrase or not.
+        evaluate()
       }
     },
     onTranscriptLost: () => {
