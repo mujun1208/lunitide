@@ -161,16 +161,22 @@ const INCOMPLETE_OPENERS =
 /** Phrase ended on the helper, not the task. */
 const INCOMPLETE_ENDINGS = /(?:帮我|给我|为我)$/u
 /** 「打开」「播放」with no object yet. */
-const INCOMPLETE_BARE_COMMAND = /(?:打开|启动|运行|播放)$/u
+const INCOMPLETE_BARE_COMMAND = /(?:打开|启动|运行|播放|把开)$/u
+/** Windows finals 「把开了」 as complete (ends with 了) while they still say 桌面. */
+const INCOMPLETE_OPEN_GARBLE =
+  /^(?:把开了?|打开了|把它|把开了我|打开了我)$/u
+/** Waiting for the filename: 「打开桌面上的」. */
+const INCOMPLETE_DESKTOP_WAITING =
+  /(?:桌面上的|桌面的|桌面上)$/u
 /** App-name prefixes Windows often finals before the rest arrives. */
 const INCOMPLETE_APP_PREFIX =
-  /(?:打开|启动)(?:网易云|网易|汽水|qq|QQ)$/u
+  /(?:打开|启动|把开)(?:网易云|网易|汽水|qq|QQ)$/u
 /** One-syllable object that is almost certainly a cut-off app name. */
 const INCOMPLETE_TRUNCATED_OPEN =
-  /(?:打开|启动|运行)(?:网|微|汽|酷|支|淘|钉|飞|邮|Q|q)$/u
+  /(?:打开|启动|运行|把开)(?:网|微|汽|酷|支|淘|钉|飞|邮|Q|q)$/u
 /** Whole launch targets — do not wait as if the object were still coming. */
 const COMPLETE_OPEN_OBJECTS =
-  /(?:打开|启动|运行)(?:桌面|设置|文件|网页|微信|日历|浏览器|网易云音乐|汽水音乐|qq音乐|QQ音乐)$/u
+  /(?:打开|启动|运行)(?:桌面|设置|文件|网页|微信|日历|浏览器|网易云音乐|汽水音乐|qq音乐|QQ音乐|协议文档|协议)$/u
 
 const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/岳西|越席|月西|悦溪|跃溪|月息|悦西|悦希|月希|月夕|月惜|越汐/g, '月汐'],
@@ -182,6 +188,10 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/网易云音(?!乐)/g, '网易云音乐'],
   [/打开网易云(?!音乐)/g, '打开网易云音乐'],
   [/打开网易(?!云)/g, '打开网易云音乐'],
+  [/把开了?/g, '打开'],
+  [/把它(?=桌面)/g, '打开'],
+  [/打开了我/g, '打开'],
+  [/写意文档|协意文档/g, '协议文档'],
   [/帮我打开桌面的/g, '帮我打开桌面'],
   [/帮我打开一个/g, '帮我打开'],
   [/\bb\s*r\s*d\b/gi, 'BRD'],
@@ -189,6 +199,21 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/\bo\s*k\s*r\b/gi, 'OKR'],
   [/\bk\s*p\s*i\b/gi, 'KPI'],
 ]
+
+/** Windows often hears 「打开」 as 「把开」. Collapse that into a real command. */
+export function repairOpenCommandTranscript(text: string): string {
+  let t = text
+  t = t.replace(/把开了?/g, '打开')
+  t = t.replace(/把它(?=桌面)/g, '打开')
+  t = t.replace(/打开了我/g, '打开')
+  for (let i = 0; i < 4; i++) {
+    const next = t.replace(/打开(?:我)?打开/g, '打开')
+    if (next === t) break
+    t = next
+  }
+  t = t.replace(/写意文档|协意文档/g, '协议文档')
+  return t
+}
 
 /** Whole greetings / acknowledgements — commit quickly even without punctuation. */
 const COMPLETE_SHORT_UTTERANCE =
@@ -201,6 +226,8 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (/[。？！?!…]$/.test(trimmed)) return false
   if (COMPLETE_SHORT_UTTERANCE.test(trimmed)) return false
   const compact = trimmed.replace(/\s+/g, '')
+  if (INCOMPLETE_OPEN_GARBLE.test(compact)) return true
+  if (INCOMPLETE_DESKTOP_WAITING.test(compact) && !/(?:协议|文档|文件)/.test(compact)) return true
   if (COMPLETE_OPEN_OBJECTS.test(compact)) return false
   if (INCOMPLETE_BARE_COMMAND.test(compact)) return true
   if (INCOMPLETE_APP_PREFIX.test(compact)) return true
@@ -301,6 +328,7 @@ export function cleanUserTranscript(raw: string): string {
   for (const [pattern, replacement] of SPEECH_CORRECTIONS) {
     text = text.replace(pattern, replacement)
   }
+  text = repairOpenCommandTranscript(text)
   for (let pass = 0; pass < 3; pass++) {
     const next = text.replace(LEADING_FILLERS, '').replace(MID_FILLERS, '$1').replace(TRAILING_FILLERS, '').trim()
     if (next === text) break

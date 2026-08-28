@@ -13,6 +13,7 @@ import { startLocalAsr, type LocalAsrHandle } from './localAsr'
 import { MOON_RING_BINS } from './MoonSphere'
 import {
   ECHO_GUARD_MS,
+  TURN_END_SILENCE_MS,
   shouldDeferCommit,
   shouldForceCommitUtterance,
   speechProfile,
@@ -166,9 +167,12 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       bars.push(Math.min(1, Math.sqrt(Math.max(0, peak) / FULL_SCALE_PEAK)))
       options.onLevels?.([...bars])
       const now = Date.now()
+      const textLocked = !!text.trim() && lastTextAt > 0 && now - lastTextAt >= TURN_END_SILENCE_MS
       if (peak >= profile.voicePeak) {
-        lastVoiceAt = now
-        speechActive = true
+        if (!textLocked) {
+          lastVoiceAt = now
+          speechActive = true
+        }
         if (!playback) options.onVoiceEnergy?.()
       } else if (lastVoiceAt && now - lastVoiceAt > profile.utteranceSilenceMs) {
         speechActive = false

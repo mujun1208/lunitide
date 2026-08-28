@@ -82,6 +82,7 @@ func TestSessionPrefillDecodeReturnsTextAndWav(t *testing.T) {
 func TestHostEnsureWithoutModelReportsMissing(t *testing.T) {
 	host := NewHost(t.TempDir())
 	host.Finder = func() string { return "" }
+	isolateLoopback(host)
 	state, err := host.Ensure()
 	if state != HostMissingModel || err == nil {
 		t.Fatalf("state=%s err=%v", state, err)
