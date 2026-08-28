@@ -25,6 +25,7 @@ func newPeopleEngine(t *testing.T) (*Engine, *identity.Service, *people.Service)
 		t.Fatal(err)
 	}
 	roster := people.New(store, ident, filepath.Join(t.TempDir(), "recv"), filepath.Join(t.TempDir(), "stage"))
+	roster.SetListenAddr("127.0.0.1:0")
 	t.Cleanup(roster.Close)
 	e := NewEngine(nil, "test")
 	e.SetIdentityPeopleServices(ident, roster)
@@ -104,6 +105,7 @@ func TestIdentityPasswordLocksWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	roster := people.New(store, lockedIdent, t.TempDir(), t.TempDir())
+	roster.SetListenAddr("127.0.0.1:0")
 	t.Cleanup(roster.Close)
 	locked := NewEngine(nil, "test")
 	locked.SetIdentityPeopleServices(lockedIdent, roster)
@@ -262,7 +264,11 @@ func TestPeopleContactUpdateAndFileStage(t *testing.T) {
 	}
 	resp := peopleCall(t, e, "people.peer.add", map[string]any{"hostAddr": "127.0.0.1:1"})
 	if resp.OK || resp.Error == nil || resp.Error.Code != "PEOPLE_UNREACHABLE" {
-		t.Fatalf("unreachable add = %+v", resp)
+		code := ""
+		if resp.Error != nil {
+			code = resp.Error.Code
+		}
+		t.Fatalf("unreachable add ok=%v code=%s resp=%+v", resp.OK, code, resp)
 	}
 }
 

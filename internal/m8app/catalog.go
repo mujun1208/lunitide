@@ -62,14 +62,16 @@ var (
 	catalogItems []CatalogItem
 )
 
-// AgencyAgentsCatalog answers the product-shipped agency-agents market.
+// AgencyAgentsCatalog answers the product-shipped agency-agents market plus
+// the conversation specialists (PPT / 报告 / 小说 / Excel / UI / 产品经理 /
+// 系统架构师 / 数据库设计 / 系统项目结构 / 开发规范 / 系统测试 / 硬件配置 / 开发).
 func AgencyAgentsCatalog() []CatalogItem {
 	catalogOnce.Do(func() {
 		var file catalogFile
 		if err := json.Unmarshal(agencyAgentsJSON, &file); err != nil {
 			return
 		}
-		catalogItems = file.Items
+		catalogItems = appendConversationExperts(file.Items)
 	})
 	out := make([]CatalogItem, len(catalogItems))
 	copy(out, catalogItems)

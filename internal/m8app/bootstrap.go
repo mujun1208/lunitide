@@ -53,7 +53,9 @@ var builtinExpertSpecs = []builtinExpertSpec{
 	},
 }
 
-// EnsureBuiltinExperts seeds the three PM builtin experts when missing (by name).
+// EnsureBuiltinExperts seeds the three PM builtin experts and the shipped
+// conversation specialists when missing (by name). Existing installs keep
+// user-created rows; later catalog cards are added, never duplicated.
 func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 	if svc == nil {
 		return nil
@@ -67,21 +69,47 @@ func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 		existing[item.Name] = struct{}{}
 	}
 	for _, spec := range builtinExpertSpecs {
-		if _, ok := existing[spec.name]; ok {
-			continue
-		}
-		if _, err := svc.Create(ctx, CreateInput{
-			Source: m8core.ExpertSourceLocal,
-			Frontmatter: m8core.Frontmatter{
-				Name: spec.name, Division: spec.division,
-				Description: spec.desc, Semver: "1.0.0",
-			},
-			SixSection: spec.six,
-			RequestID:  "bootstrap-" + spec.name,
-			Actor:      "engine-bootstrap",
-		}); err != nil && !errors.Is(err, ErrExpertDuplicate) {
+		if err := seedMissingExpert(ctx, svc, existing, spec.name, spec.division, spec.desc, "1.0.0", "bootstrap-"+spec.name, spec.six); err != nil {
 			return err
 		}
 	}
+	for _, item := range ConversationExperts() {
+		desc := item.Description
+		if desc == "" {
+			desc = item.DisplayName
+		}
+		version := item.Version
+		if version == "" {
+			version = "1.0.0"
+		}
+		if err := seedMissingExpert(ctx, svc, existing, item.Name, item.Division, desc, version, "bootstrap-"+item.ID, item.SixSection); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedMissingExpert creates one library expert when no row already uses this
+// name. Existing installs keep the user's copy.
+func seedMissingExpert(ctx context.Context, svc *ExpertService, existing map[string]struct{}, name, division, desc, semver, requestID string, six m8core.SixSection) error {
+	if _, ok := existing[name]; ok {
+		return nil
+	}
+	if len(desc) > 2000 {
+		desc = string([]rune(desc)[:2000])
+	}
+	if _, err := svc.Create(ctx, CreateInput{
+		Source: m8core.ExpertSourceLocal,
+		Frontmatter: m8core.Frontmatter{
+			Name: name, Division: division,
+			Description: desc, Semver: semver,
+		},
+		SixSection: six,
+		RequestID:  requestID,
+		Actor:      "engine-bootstrap",
+	}); err != nil && !errors.Is(err, ErrExpertDuplicate) {
+		return err
+	}
+	existing[name] = struct{}{}
 	return nil
 }
