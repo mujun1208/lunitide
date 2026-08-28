@@ -232,6 +232,23 @@ describe('startLocalAsr', () => {
     expect(onTranscript).toHaveBeenCalledWith('继续', false)
   })
 
+  it('opens a fresh recognizer session after retryable appends keep failing', async () => {
+    const { BridgeClientError } = await import('../../bridge/client')
+    const onError = vi.fn()
+    bridge.append.mockRejectedValue(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, 'trace'))
+    bridge.start
+      .mockResolvedValueOnce({ sessionId: 'v1' })
+      .mockResolvedValueOnce({ sessionId: 'v2' })
+
+    await startLocalAsr({ onError })
+    emitFrame(frame())
+    await vi.waitFor(() => expect(bridge.start).toHaveBeenCalledTimes(2))
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(stopCapture).not.toHaveBeenCalled()
+    expect(bridge.start).toHaveBeenCalledTimes(2)
+  })
+
   it('reports a lost microphone once, not once per frame', async () => {
     const onError = vi.fn()
     await startLocalAsr({ onError })

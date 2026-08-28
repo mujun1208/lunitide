@@ -95,3 +95,40 @@ it('gives meetings.summarize a 10-minute deadline so hour-scale notes can finish
   await bridge.summarize({ meetingId: U })
   expect(sent[0]?.deadlineMs).toBe(MEETING_SUMMARIZE_DEADLINE_MS)
 })
+
+it('retries meetings.stop after a retryable timeout', async () => {
+  vi.useFakeTimers()
+  try {
+    let listener: (e: MessageEvent) => void = () => {}
+    const sent: Array<{ id: string }> = []
+    const ready = { ...segment, meetingId: U, title: '长会', status: 'transcribed', summary: '', actions: '', transcript: '逐字稿', audioSource: 'microphone', startedAt: segment.createdAt, endedAt: segment.createdAt, durationMs: 3_600_000, createdAt: segment.createdAt, updatedAt: segment.createdAt }
+    const transport: WebViewTransport = {
+      addEventListener: (_t, l) => { listener = l as (e: MessageEvent) => void },
+      removeEventListener: vi.fn(),
+      postMessage: m => {
+        const request = m as { id: string }
+        sent.push(request)
+        queueMicrotask(() => {
+          if (sent.length === 1) {
+            listener(new MessageEvent('message', {
+              data: {
+                v: '1.0', kind: 'response', id: U, requestId: request.id, ok: false,
+                error: { code: 'REQUEST_DEADLINE_EXCEEDED', message: 'Bridge 请求超时', retryable: true, correlationId: 't' },
+              },
+            }))
+            return
+          }
+          listener(new MessageEvent('message', {
+            data: { v: '1.0', kind: 'response', id: U, requestId: request.id, ok: true, payload: ready },
+          }))
+        })
+      },
+    }
+    const pending = createMeetingsBridge(transport).stop({ meetingId: U })
+    await vi.advanceTimersByTimeAsync(400)
+    await expect(pending).resolves.toMatchObject({ status: 'transcribed' })
+    expect(sent).toHaveLength(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})

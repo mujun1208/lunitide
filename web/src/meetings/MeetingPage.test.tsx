@@ -20,6 +20,7 @@ const speech = vi.hoisted(() => ({
   start: vi.fn(),
   prepare: vi.fn().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' }),
   onFinal: undefined as ((text: string) => void) | undefined,
+  onError: undefined as ((error: Error) => void) | undefined,
   handle: (): CompanionSpeechHandle => ({
     stop: vi.fn(),
     setAssistantPlayback: vi.fn(),
@@ -31,8 +32,9 @@ const speech = vi.hoisted(() => ({
 }))
 
 vi.mock('./meetingAsr', () => ({
-  startMeetingSpeech: (options: { onFinal: (text: string) => void }) => {
+  startMeetingSpeech: (options: { onFinal: (text: string) => void; onError?: (error: Error) => void }) => {
     speech.onFinal = options.onFinal
+    speech.onError = options.onError
     return speech.start(options)
   },
   prepareMeetingCapture: (...args: unknown[]) => speech.prepare(...args),
@@ -64,6 +66,7 @@ describe('MeetingPage', () => {
     speech.start.mockReset()
     speech.prepare.mockReset().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' })
     speech.onFinal = undefined
+    speech.onError = undefined
     localStorage.removeItem('lunitide:meeting-include-system-audio')
   })
 
@@ -198,6 +201,29 @@ describe('MeetingPage', () => {
     speech.onFinal?.('下一句')
     expect(await screen.findByText('下一句')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+  })
+
+  test('restarts speech after a Bridge timeout and keeps recording until stop', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const later: MeetingSegmentDTO = {
+      segmentId: '01ARZ3NDEKTSV4RRFFQ69G5FAX', meetingId, seq: 2, startedMs: 1600, text: '继续对齐', createdAt: now,
+    }
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      append: vi.fn().mockResolvedValue(later),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(meetings.heartbeat).toHaveBeenCalledWith({ meetingId })
+    speech.onError?.(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, 'trace'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Bridge 请求超时')
+    await vi.waitFor(() => expect(speech.start).toHaveBeenCalledTimes(2), { timeout: 3000 })
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+    speech.onFinal?.('继续对齐')
+    expect(await screen.findByText('继续对齐')).toBeInTheDocument()
   })
 
   test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {

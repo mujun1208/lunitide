@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -16,6 +17,9 @@ const (
 	// sentence split across a chunk boundary is not lost.
 	SummarizeOverlapRunes = 240
 	summarizeMaxChunks    = 32
+	// summarizeChunkDeadline bounds one Completer call so a hung provider
+	// cannot consume the whole meetings.summarize Bridge deadline.
+	summarizeChunkDeadline = 2 * time.Minute
 )
 
 // SplitTranscript cuts a cleaned 逐字稿 into sliding windows. A short
@@ -93,9 +97,9 @@ func SummarizeLong(ctx context.Context, complete Completer, title, transcript st
 			break
 		}
 		labeled := fmt.Sprintf("（长会分段 %d/%d）\n%s", i+1, total, chunk)
-		notes, err := complete(ctx, title, labeled)
+		notes, err := runComplete(ctx, complete, title, labeled)
 		if err != nil {
-			notes, err = complete(ctx, title, clipRunes(chunk, SummarizeChunkRunes/2))
+			notes, err = runComplete(ctx, complete, title, clipRunes(chunk, SummarizeChunkRunes/2))
 		}
 		if err != nil {
 			lastErr = err
@@ -120,7 +124,7 @@ func SummarizeLong(ctx context.Context, complete Completer, title, transcript st
 	if utf8.RuneCountInString(merged) > SummarizeChunkRunes {
 		return stitchNotes(title, parts), nil
 	}
-	reduced, err := complete(ctx, title, "以下是分段纪要，请合并为一份完整纪要 JSON。不要重复逐字稿。\n\n"+merged)
+	reduced, err := runComplete(ctx, complete, title, "以下是分段纪要，请合并为一份完整纪要 JSON。不要重复逐字稿。\n\n"+merged)
 	if err != nil {
 		return stitchNotes(title, parts), nil
 	}
@@ -128,7 +132,7 @@ func SummarizeLong(ctx context.Context, complete Completer, title, transcript st
 }
 
 func completeOnce(ctx context.Context, complete Completer, title, transcript string) (Notes, error) {
-	notes, err := complete(ctx, title, transcript)
+	notes, err := runComplete(ctx, complete, title, transcript)
 	if err == nil {
 		return notes, nil
 	}
@@ -141,12 +145,21 @@ func completeOnce(ctx context.Context, complete Completer, title, transcript str
 		if truncated == transcript {
 			continue
 		}
-		notes, err2 := complete(ctx, title, truncated)
+		notes, err2 := runComplete(ctx, complete, title, truncated)
 		if err2 == nil {
 			return notes, nil
 		}
 	}
 	return Notes{}, err
+}
+
+func runComplete(ctx context.Context, complete Completer, title, transcript string) (Notes, error) {
+	if err := ctx.Err(); err != nil {
+		return Notes{}, err
+	}
+	chunkCtx, cancel := context.WithTimeout(ctx, summarizeChunkDeadline)
+	defer cancel()
+	return complete(chunkCtx, title, transcript)
 }
 
 func formatPartialNotes(fallbackTitle string, parts []Notes) string {
