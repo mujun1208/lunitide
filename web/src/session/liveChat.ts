@@ -30,6 +30,27 @@ export interface LiveChatEntry {
 
 const entries = new Map<string, LiveChatEntry>()
 const cancellingStreams = new WeakSet<ChatStream>()
+const registryListeners = new Set<() => void>()
+
+function notifyLiveChatRegistry(): void {
+  for (const listener of [...registryListeners]) {
+    try { listener() } catch (err) { console.error('[lunitide] live chat registry', err) }
+  }
+}
+
+/** Session ids that currently have a non-terminal live turn (sidebar spinners). */
+export function listActiveSessionIds(): string[] {
+  const ids = new Set<string>()
+  for (const entry of entries.values()) {
+    if (!entry.terminal) ids.add(entry.sessionId)
+  }
+  return [...ids]
+}
+
+export function subscribeLiveChatRegistry(listener: () => void): () => void {
+  registryListeners.add(listener)
+  return () => { registryListeners.delete(listener) }
+}
 
 export function liveTurnKey(sessionId: string, turnId: string): string {
   return `${sessionId}\0${turnId}`
@@ -68,6 +89,7 @@ export function startLiveChat(sessionId: string, turnId = '_current', activity?:
     listeners: new Set(),
   }
   entries.set(key, entry)
+  notifyLiveChatRegistry()
   return entry
 }
 
@@ -151,6 +173,7 @@ export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): vo
     }
     if (entry.terminal) {
       entries.delete(liveTurnKey(entry.sessionId, entry.turnId))
+      notifyLiveChatRegistry()
       if (!listActiveTurns(entry.sessionId).length) {
         try { entry.activity?.(false) } catch { /* spinner must not kill the host */ }
       }
@@ -169,6 +192,7 @@ export function failLiveChat(entry: LiveChatEntry): void {
   if (entry.terminal) return
   entry.terminal = true
   entries.delete(liveTurnKey(entry.sessionId, entry.turnId))
+  notifyLiveChatRegistry()
   if (!listActiveTurns(entry.sessionId).length) entry.activity?.(false)
 }
 
@@ -182,4 +206,5 @@ export function resetLiveChatForTests(): void {
     if (!listActiveTurns(entry.sessionId).length) entry.activity?.(false)
   }
   entries.clear()
+  notifyLiveChatRegistry()
 }

@@ -31,23 +31,23 @@ describe('conversation stream scroll pin', () => {
   it('pauses follow when the user scrolls up away from the bottom', () => {
     const stillNear = {scrollHeight: 900, clientHeight: 300, scrollTop: 552}
     expect(conversationNearBottom(stillNear)).toBe(true)
-    expect(applyConversationUserScroll({userFollowPaused: false, lastScrollTop: 600}, stillNear).userFollowPaused).toBe(true)
+    expect(applyConversationUserScroll({userFollowPaused: false, lastScrollTop: 600}, stillNear).userFollowPaused).toBe(false)
     const box = {scrollHeight: 900, clientHeight: 300, scrollTop: 200}
     expect(conversationNearBottom(box)).toBe(false)
     expect(applyConversationUserScroll({userFollowPaused: false, lastScrollTop: 600}, box).userFollowPaused).toBe(true)
     expect(pauseFollowOnUserIntent({userFollowPaused: false, nearBottom: true, deltaY: -40})).toBe(true)
   })
 
-  it('stays paused after manual scroll until an explicit resume', () => {
+  it('resumes follow when the user pulls back to the tail', () => {
     const mid = applyConversationUserScroll({userFollowPaused: true, lastScrollTop: 200}, {scrollHeight: 900, clientHeight: 300, scrollTop: 360})
     expect(mid.userFollowPaused).toBe(true)
     const bottom = applyConversationUserScroll(mid, {scrollHeight: 900, clientHeight: 300, scrollTop: 600})
-    expect(bottom.userFollowPaused).toBe(true)
+    expect(bottom.userFollowPaused).toBe(false)
     expect(conversationNearBottom({scrollHeight: 900, clientHeight: 300, scrollTop: 600})).toBe(true)
   })
 
-  it('pauses on any user scroll movement including scroll-down', () => {
-    expect(applyConversationUserScroll({userFollowPaused: false, lastScrollTop: 200}, {scrollHeight: 900, clientHeight: 300, scrollTop: 360}).userFollowPaused).toBe(true)
+  it('does not pause merely because the user scrolled down toward the tail', () => {
+    expect(applyConversationUserScroll({userFollowPaused: false, lastScrollTop: 200}, {scrollHeight: 900, clientHeight: 300, scrollTop: 360}).userFollowPaused).toBe(false)
   })
 
   it('does not call scrollTo when userFollowPaused, including mermaid layout complete', () => {

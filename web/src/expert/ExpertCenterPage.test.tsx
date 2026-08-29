@@ -114,9 +114,15 @@ it('archives an expert after confirm', async () => {
 it('creates a scenario card from the detail pane', async () => {
   const bridge = expertApi()
   render(<ExpertCenterPage bridge={bridge} projects={projects} />)
-  await screen.findAllByText('安全工程师')
-  fireEvent.change(screen.getByLabelText('场景标题'), { target: { value: '慢查询处置' } })
-  fireEvent.change(screen.getByLabelText('摘要'), { target: { value: '针对慢查询的索引与执行计划处置剧本' } })
+  expect(await screen.findByText('安全岗位')).toBeInTheDocument()
+  const title = screen.getByLabelText('场景标题')
+  const summary = screen.getByLabelText('摘要')
+  fireEvent.change(title, { target: { value: '慢查询处置' } })
+  fireEvent.change(summary, { target: { value: '针对慢查询的索引与执行计划处置剧本' } })
+  await waitFor(() => {
+    expect(title).toHaveValue('慢查询处置')
+    expect(summary).toHaveValue('针对慢查询的索引与执行计划处置剧本')
+  })
   fireEvent.click(screen.getByRole('button', { name: '添加场景卡' }))
   await waitFor(() => expect(bridge.scenarioCreate).toHaveBeenCalled())
   expect(vi.mocked(bridge.scenarioCreate).mock.calls[0][0]).toMatchObject({

@@ -154,7 +154,7 @@ func (s *Store) ListPeopleMessages(ctx context.Context, threadID string, limit i
 	if limit < 1 {
 		limit = 200
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT m.message_id, m.thread_id, m.sender_subject_id, m.kind, m.body, m.file_name, m.file_mime, m.file_size, m.file_sha256, m.created_at, COALESCE(o.offer_id,''), COALESCE(o.status,''), COALESCE(o.dest_path,'')
+	rows, err := s.db.QueryContext(ctx, `SELECT m.message_id, m.thread_id, m.sender_subject_id, m.kind, m.body, m.file_name, m.file_mime, m.file_size, m.file_sha256, m.created_at, COALESCE(o.offer_id,''), COALESCE(o.status,''), COALESCE(NULLIF(o.dest_path,''), COALESCE(o.staging_path,''))
 		FROM people_messages m LEFT JOIN people_file_offers o ON o.message_id=m.message_id
 		WHERE m.thread_id=? ORDER BY m.created_at ASC, m.message_id ASC LIMIT ?`, threadID, limit)
 	if err != nil {
@@ -205,8 +205,16 @@ func (s *Store) InsertMessage(ctx context.Context, m people.Message, offer *peop
 }
 
 func (s *Store) GetOffer(ctx context.Context, offerID string) (people.FileOffer, error) {
+	return s.scanOffer(ctx, `SELECT offer_id, message_id, thread_id, from_subject_id, to_subject_id, status, file_name, file_mime, file_size, file_sha256, staging_path, dest_path, created_at, decided_at FROM people_file_offers WHERE offer_id=?`, offerID)
+}
+
+func (s *Store) GetOfferByMessage(ctx context.Context, messageID string) (people.FileOffer, error) {
+	return s.scanOffer(ctx, `SELECT offer_id, message_id, thread_id, from_subject_id, to_subject_id, status, file_name, file_mime, file_size, file_sha256, staging_path, dest_path, created_at, decided_at FROM people_file_offers WHERE message_id=?`, messageID)
+}
+
+func (s *Store) scanOffer(ctx context.Context, query, id string) (people.FileOffer, error) {
 	var o people.FileOffer
-	err := s.db.QueryRowContext(ctx, `SELECT offer_id, message_id, thread_id, from_subject_id, to_subject_id, status, file_name, file_mime, file_size, file_sha256, staging_path, dest_path, created_at, decided_at FROM people_file_offers WHERE offer_id=?`, offerID).Scan(
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&o.OfferID, &o.MessageID, &o.ThreadID, &o.FromID, &o.ToID, &o.Status, &o.FileName, &o.FileMIME, &o.FileSize, &o.FileSHA256, &o.StagingPath, &o.DestPath, &o.CreatedAt, &o.DecidedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return people.FileOffer{}, people.ErrNotFound
@@ -256,7 +264,7 @@ func scanContact(row rowScanner) (people.Contact, error) {
 
 func (s *Store) lastMessage(ctx context.Context, threadID string) (*people.Message, error) {
 	var m people.Message
-	err := s.db.QueryRowContext(ctx, `SELECT m.message_id, m.thread_id, m.sender_subject_id, m.kind, m.body, m.file_name, m.file_mime, m.file_size, m.file_sha256, m.created_at, COALESCE(o.offer_id,''), COALESCE(o.status,''), COALESCE(o.dest_path,'')
+	err := s.db.QueryRowContext(ctx, `SELECT m.message_id, m.thread_id, m.sender_subject_id, m.kind, m.body, m.file_name, m.file_mime, m.file_size, m.file_sha256, m.created_at, COALESCE(o.offer_id,''), COALESCE(o.status,''), COALESCE(NULLIF(o.dest_path,''), COALESCE(o.staging_path,''))
 		FROM people_messages m LEFT JOIN people_file_offers o ON o.message_id=m.message_id
 		WHERE m.thread_id=? ORDER BY m.created_at DESC, m.message_id DESC LIMIT 1`, threadID).Scan(
 		&m.MessageID, &m.ThreadID, &m.SenderID, &m.Kind, &m.Body, &m.FileName, &m.FileMIME, &m.FileSize, &m.FileSHA256, &m.CreatedAt, &m.OfferID, &m.OfferStatus, &m.DestPath)

@@ -143,9 +143,28 @@ export class TtsPlayer {
   /** Measured cost of one synthesis round trip; see observeSynthDuration. */
   private synthSeconds = 0
 
-  /** True while a clip is synthesizing or playing — used to pause mic commit. */
+  /** True while a clip is synthesizing, queued, or still on the speaker timeline. */
   isBusy(): boolean {
-    return this.queueProcessing || this.pendingSegments.length > 0 || this.holdTail.length > 0 || this.activeSources.size > 0
+    return (
+      this.queueProcessing ||
+      this.inFlightSynths > 0 ||
+      this.pendingSegments.length > 0 ||
+      this.prefetchQueue.length > 0 ||
+      this.holdTail.length > 0 ||
+      this.activeSources.size > 0 ||
+      this.timelineRemaining() > 0.04 ||
+      this.legacyElementPlaying()
+    )
+  }
+
+  private timelineRemaining(): number {
+    if (!this.ctx || this.timelineEnd <= 0) return 0
+    return Math.max(0, this.timelineEnd - this.ctx.currentTime)
+  }
+
+  private legacyElementPlaying(): boolean {
+    const audio = this.audio
+    return !!audio && !audio.paused && !audio.ended
   }
 
   /** Join streaming sentences into one synth instead of one Edge request per period. */

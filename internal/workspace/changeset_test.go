@@ -17,14 +17,12 @@ func changesetHarness(t *testing.T) (*workspace.ChangeSetService, string, string
 	t.Helper()
 	ctx := context.Background()
 	svc, clock, store := adhocHarness(t)
-	_, _ = svc, clock
 	runID := newRunID(t, store)
 	wsRoot := filepath.Join(t.TempDir(), "ws")
 	if err := os.MkdirAll(wsRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	adhoc := workspace.NewAdHocService(store.AgentRuntimeRepository())
-	w, err := adhoc.Create(ctx, runID, wsRoot, "CS")
+	w, err := svc.Create(ctx, runID, wsRoot, "CS")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +31,7 @@ func changesetHarness(t *testing.T) (*workspace.ChangeSetService, string, string
 		t.Fatal(err)
 	}
 	cs := workspace.NewChangeSetService(store.AgentRuntimeRepository(), cas)
+	cs.SetClock(clock)
 	return cs, w.ID, wsRoot, runID
 }
 

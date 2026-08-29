@@ -256,6 +256,14 @@ describe('pickRecognitionTranscript', () => {
       length: 2,
     })).toBe('今天合肥的天气怎么样')
   })
+
+  test('prefers a longer alternative that extends a higher-confidence fragment', () => {
+    expect(pickRecognitionTranscript({
+      0: { transcript: '文档联系', confidence: 0.92 },
+      1: { transcript: '文档联系电话', confidence: 0.41 },
+      length: 2,
+    })).toBe('文档联系电话')
+  })
 })
 
 describe('replacing a recognizer that is hearing speech but returning nothing', () => {

@@ -586,7 +586,7 @@ func (r *Runtime) DecideScoped(ctx context.Context, session, callID, digest stri
 	}
 	if approve && scope != ApprovalScopeOnce {
 		var name, raw string
-		if e := r.db.QueryRowContext(ctx, `SELECT tool_name,args_json FROM chat_tool_calls WHERE session_id=? AND call_id=? AND args_digest=?`, session, callID, digest).Scan(&name, &raw); e == nil {
+		if e := r.db.QueryRowContext(ctx, `SELECT tool_name,args_json FROM chat_tool_calls WHERE session_id=? AND call_id=? AND args_digest=?`, session, callID, digest).Scan(&name, &raw); e == nil && name != userAskTool {
 			canonical, ce := canonicalArgs(json.RawMessage(raw))
 			if ce == nil {
 				if d := Digest(name, canonical); d != "" {
@@ -811,7 +811,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.blockMessage != "" {
 		return Result{}, fmt.Errorf("%w: %s", ErrHookBlocked, hooks.blockMessage)
 	}
-	if hooks.grantApproval && !approved {
+	if hooks.grantApproval && !approved && name != userAskTool {
 		approved = true
 	}
 	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || officeGenTools[name]
@@ -1014,6 +1014,8 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		return result(rendered), nil
+	case userAskTool:
+		return executeUserAsk(args, approved)
 	case "command.run":
 		if mode != FullAccess && !(approved && (mode == Approval || mode == AutoEdit)) {
 			return Result{}, errors.New("command denied")

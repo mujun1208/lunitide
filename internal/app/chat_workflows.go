@@ -68,12 +68,14 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 			"拆任务用 to-tickets；写规格用 to-spec；架构问题用 improve-architecture。完成实现后主动 code-reviewer 并口头总结结果。\n"
 	case label == "需求架构规范" || label == "方案和UI设计":
 		return "\n\n[项目阶段 · " + label + "]\n" +
-			"对齐需求与边界时优先 skill.invoke：grill-me、to-spec；拆票用 to-tickets；架构审视用 improve-architecture。\n"
+			"对齐需求与边界时优先 skill.invoke：grill-me、to-spec；拆票用 to-tickets；架构审视用 improve-architecture。\n" +
+			"范围、选型、是否继续等拍板必须调用 user.ask（每题 2–5 个选项；界面提供「其他」）。一次只推进一题，不要用长文代替决策。\n"
 	case label == "测试":
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"测试阶段优先 skill.invoke：test-writer、code-reviewer、pm-phase-6（或 pm-phase-5 运维型项目）。\n"
 	default:
 		return "\n\n[项目阶段 · " + label + "]\n" +
-			"按阶段交付物推进；匹配场景时用 skill.invoke 调用已发布技能，不要只口头描述流程。\n"
+			"按阶段交付物推进；匹配场景时用 skill.invoke 调用已发布技能，不要只口头描述流程。\n" +
+			"需要用户拍板（范围、方案、优先级、是否继续）时调用 user.ask，不要用聊天长文代替选项。\n"
 	}
 }

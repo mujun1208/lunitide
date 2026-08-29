@@ -345,16 +345,33 @@ export function overlayTranscript(finals: string, interim: string): string {
   return `${f}${i}`
 }
 
-/** Pick the highest-confidence alternative (WeChat-like matching). */
+/**
+ * Pick a recognition alternative. Windows often ranks a short fragment
+ * higher-confidence than the longer prefix-extending hypothesis; prefer
+ * the longer one when it extends the other.
+ */
 export function pickRecognitionTranscript(result: { length: number; [index: number]: { transcript: string; confidence?: number } | undefined }): string {
-  let best = result[0]
-  if (!best) return ''
   const n = result.length ?? 1
-  for (let i = 1; i < n; i++) {
+  const alts: Array<{ transcript: string; confidence: number }> = []
+  for (let i = 0; i < n; i++) {
     const alt = result[i]
-    if (alt && (alt.confidence ?? 0) > (best.confidence ?? 0)) best = alt
+    const transcript = alt?.transcript ?? ''
+    if (!transcript) continue
+    alts.push({ transcript, confidence: alt?.confidence ?? 0 })
   }
-  return best.transcript ?? ''
+  if (!alts.length) return ''
+  let best = alts[0]!
+  for (const alt of alts.slice(1)) {
+    const longerExtends =
+      (alt.transcript.startsWith(best.transcript) && alt.transcript.length > best.transcript.length) ||
+      (best.transcript.startsWith(alt.transcript) && best.transcript.length > alt.transcript.length)
+    if (longerExtends) {
+      if (alt.transcript.length > best.transcript.length) best = alt
+      continue
+    }
+    if (alt.confidence > best.confidence) best = alt
+  }
+  return best.transcript
 }
 
 /** Idle moon rings must stay below VOICE_PEAK so they never look like speech. */
@@ -1076,13 +1093,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (paused === commitPausedApplied) return
         commitPausedApplied = paused
         commitPaused = paused
-        if (paused) {
-          finals = ''
-          interim = ''
-          firstTextAt = 0
-          lastTextChangeAt = performance.now()
-          callbacks.onInterim?.('')
-        }
+        // Keep the on-screen caption. Wiping here made a pause flicker
+        // (thinking ↔ listening) erase a sentence that had not committed yet.
+        // Playback start already clears finals/interim in setAssistantPlayback.
       },
       pulseRecognition: () => {
         if (finished || recognitionHeld() || recRestarting) return

@@ -117,6 +117,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
   const streamCaptionRef = useRef('')
   const [assistantAloud, setAssistantAloud] = useState(false)
+  const [playerSounding, setPlayerSounding] = useState(false)
   const startListeningRef = useRef<(auto: boolean) => void>(() => {})
   const openingListenRef = useRef(false)
   const captionHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
@@ -187,6 +188,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       state === 'thinking' ||
       state === 'speaking' ||
       speakingRef.current ||
+      playerRef.current?.isBusy() === true ||
       companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)
     )
   }, [])
@@ -761,6 +763,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
       player.configure(voiceId, settings.rate, settings.volume, settings)
+      speakingRef.current = true
+      setAssistantAloud(true)
+      syncSpeechModesRef.current()
       setCircuitBroken(false)
       void player.speak(segments, { ...settings, voiceId }, {
         onEngineFallback: handleEngineFallback,
@@ -859,10 +864,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // and disabled both of the repairs that would have noticed, since each of
     // them declines to act during her turn. The stage said 聆听中 and nothing
     // underneath it was listening.
-    if (state === 'listening' || state === 'idle') {
+    if ((state === 'listening' || state === 'idle') && playerRef.current?.isBusy() !== true) {
       speakingRef.current = false
     }
-    const speakingAloud = state === 'speaking' || speakingRef.current
+    const speakingAloud = state === 'speaking' || speakingRef.current || playerRef.current?.isBusy() === true
     const assistantBusy = state === 'thinking' || speakingAloud
     const next = {
       commitPaused: assistantBusy,
@@ -879,6 +884,17 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     handle.setAssistantPlayback(next.playback, next.echoGuardMs)
   }, [])
   syncSpeechModesRef.current = syncSpeechModes
+
+  useEffect(() => {
+    const tick = () => {
+      const busy = playerRef.current?.isBusy() === true
+      setPlayerSounding(current => (current === busy ? current : busy))
+      if (busy) speakingRef.current = true
+    }
+    tick()
+    const timer = window.setInterval(tick, 80)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const releaseSpeakingTurn = useCallback(() => {
     setGain(0)
@@ -1155,8 +1171,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const hasHandle = !!(speechHandleRef.current || captionHandleRef.current)
     const delay = hasHandle ? 40 : handsFreeRetryDelayMs(silentRestartsRef.current)
     justSpokeRef.current = false
-    const timer = window.setTimeout(() => {
+    let nested = 0
+    const tryListen = () => {
       if (stateRef.current !== 'idle' || !autoLoopRef.current || exitedRef.current) return
+      if (playerRef.current?.isBusy()) {
+        nested = window.setTimeout(tryListen, 80)
+        return
+      }
       if (speechHandleRef.current) {
         silentRestartsRef.current = 0
         syncSpeechModes()
@@ -1172,8 +1193,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
       silentRestartsRef.current += 1
       startListening(true)
-    }, delay)
-    return () => window.clearTimeout(timer)
+    }
+    const timer = window.setTimeout(tryListen, delay)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearTimeout(nested)
+    }
   }, [machine.state, startListening, syncSpeechModes])
 
   // Audio arriving with no transcript behind it is a specific, nameable
@@ -1418,7 +1443,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   /** A caption is live only during the turn it belongs to. */
   const executing = companionToolsExecuting(chatStatus, activityStatus)
-  const surfaceState = companionSurfaceState(machine.state, assistantAloud && !executing, executing)
+  const surfaceState = companionSurfaceState(machine.state, (assistantAloud || playerSounding) && !executing, executing)
   const liveCaption = surfaceState === 'listening' && !!interimText.trim()
   interimTextRef.current = interimText
 

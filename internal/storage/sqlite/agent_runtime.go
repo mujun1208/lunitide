@@ -40,7 +40,21 @@ func (r *AgentRuntimeRepository) Transact(ctx context.Context, fn func(agentrun.
 	return tx.Commit()
 }
 
-func rfc(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+// rfc3339NanoFixed keeps a 9-digit fraction so SQLite TEXT comparison of
+// timestamps matches chronological order. time.RFC3339Nano strips trailing
+// zeros, so "…45.5Z" > "…45.51Z" lexicographically even though 510ms is later
+// than 500ms; tables CHECK (updated_at >= created_at) on those strings.
+const rfc3339NanoFixed = "2006-01-02T15:04:05.000000000Z07:00"
+
+// rfc formats t for SQLite TEXT timestamps. Zero time stays the historical
+// sentinel used by lease CASE expressions (0001-01-01T00:00:00Z).
+func rfc(t time.Time) string {
+	u := t.UTC()
+	if u.IsZero() {
+		return "0001-01-01T00:00:00Z"
+	}
+	return u.Format(rfc3339NanoFixed)
+}
 
 func parseRFC(s string) (time.Time, error) { return time.Parse(time.RFC3339Nano, s) }
 

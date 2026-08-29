@@ -28,7 +28,7 @@ func specialistPersonaCapabilityLine() string {
 var specialistToolAllow = map[string]bool{
 	"workspace.list": true, "workspace.read": true, "workspace.write": true,
 	"workspace.search": true, "workspace.edit": true,
-	"todo.write": true, "command.run": true,
+	"todo.write": true, "user.ask": true, "command.run": true,
 	"web.fetch": true, "web.search": true, "browser.act": true,
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true,
 	"pdf.gen": true, "html.gen": true,

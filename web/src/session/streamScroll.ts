@@ -8,6 +8,8 @@ export type ConversationScrollBox = {
 /** Skip a no-op pin so streaming tokens do not fight overflow-anchor / SetBounds. */
 export const STREAM_PIN_EPSILON_PX = 2
 export const STREAM_NEAR_BOTTOM_PX = 80
+/** Resume follow only when the user is actually at the tail (WeChat / 普通对话). */
+export const STREAM_RESUME_BOTTOM_PX = 12
 export const USER_SCROLL_AWAY_PX = 4
 
 export function conversationPinTop(box: Pick<ConversationScrollBox, 'scrollHeight' | 'clientHeight'>): number {
@@ -38,13 +40,14 @@ export function pauseFollowOnUserIntent(opts: {
   return false
 }
 
-/** After a user-driven scroll: pause when leaving the tail; never auto-resume (use 回到底部 / send). */
+/** After a user-driven scroll: pause when leaving the live zone; resume at the tail. */
 export function applyConversationUserScroll(state: UserFollowState, box: ConversationScrollBox): UserFollowState {
+  const nearLive = conversationNearBottom(box, STREAM_NEAR_BOTTOM_PX)
+  const atTail = conversationNearBottom(box, STREAM_RESUME_BOTTOM_PX)
   const movedUp = box.scrollTop < state.lastScrollTop - USER_SCROLL_AWAY_PX
-  const moved = box.scrollTop !== state.lastScrollTop
   let paused = state.userFollowPaused
-  if (movedUp) paused = true
-  else if (moved) paused = true
+  if (atTail) paused = false
+  else if (movedUp && !nearLive) paused = true
   return {userFollowPaused: paused, lastScrollTop: box.scrollTop}
 }
 

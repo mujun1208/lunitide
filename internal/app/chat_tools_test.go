@@ -400,9 +400,21 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	if !foundStructured {
 		t.Fatal("structured.output missing from engine tools")
 	}
+	foundAsk := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "user.ask" {
+			foundAsk = true
+			if !strings.Contains(string(d.Schema), `"questions"`) || !strings.Contains(d.Description, "选项") {
+				t.Fatalf("user.ask schema/description incomplete: %s", d.Description)
+			}
+		}
+	}
+	if !foundAsk {
+		t.Fatal("user.ask missing from engine tools")
+	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "browser.act" || d.Name == "structured.output" {
-			t.Fatal("subagents must not receive browser.act or structured.output")
+		if d.Name == "browser.act" || d.Name == "structured.output" || d.Name == "user.ask" {
+			t.Fatal("subagents must not receive browser.act, structured.output, or user.ask")
 		}
 	}
 }
