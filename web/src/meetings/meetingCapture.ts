@@ -65,16 +65,31 @@ export function fallbackDisplayMediaConstraints(): DisplayMediaStreamOptions {
   return { video: true, audio: true, systemAudio: 'include' } as DisplayMediaStreamOptions
 }
 
-export async function captureLoopbackInputDevice(options: CaptureThisPcSystemAudioOptions = {}): Promise<MediaStream | undefined> {
+async function enumerateAudioInputs(options: CaptureThisPcSystemAudioOptions): Promise<MediaDeviceInfo[]> {
   const enumerate = options.enumerateDevices ?? navigator.mediaDevices?.enumerateDevices?.bind(navigator.mediaDevices)
   const getUserMedia = options.getUserMedia ?? navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices)
-  if (!enumerate || !getUserMedia) return undefined
+  if (!enumerate) return []
   let devices: MediaDeviceInfo[]
   try {
     devices = await enumerate()
   } catch {
-    return undefined
+    return []
   }
+  const needsLabels = devices.some(device => device.kind === 'audioinput' && !device.label)
+  if (!needsLabels || !getUserMedia) return devices
+  try {
+    const probe = await getUserMedia({ audio: true })
+    stopMediaStream(probe)
+    return await enumerate()
+  } catch {
+    return devices
+  }
+}
+
+export async function captureLoopbackInputDevice(options: CaptureThisPcSystemAudioOptions = {}): Promise<MediaStream | undefined> {
+  const getUserMedia = options.getUserMedia ?? navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices)
+  if (!getUserMedia) return undefined
+  const devices = await enumerateAudioInputs(options)
   const match = devices.find(device => device.kind === 'audioinput' && isLoopbackInputLabel(device.label))
   if (!match?.deviceId) return undefined
   try {

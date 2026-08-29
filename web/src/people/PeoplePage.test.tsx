@@ -48,6 +48,7 @@ function bridges(decide = vi.fn()) {
     fileDecide: decide,
     fileStage: vi.fn(),
     filePick: vi.fn(),
+    screenCapture: vi.fn(),
     peerAdd: vi.fn(),
     contactUpdate: vi.fn(),
   }
@@ -171,7 +172,7 @@ describe('PeoplePage', () => {
 
   test('composer can send a this-PC screenshot as an image', async () => {
     const bytes = Uint8Array.from([1, 2, 3])
-    const shot = new File([bytes], 'screenshot.jpg', { type: 'image/jpeg' })
+    const shot = new File([bytes as BlobPart], 'screenshot.jpg', { type: 'image/jpeg' })
     Object.defineProperty(shot, 'arrayBuffer', { value: async () => bytes.buffer.slice(0) })
     vi.mocked(captureThisPcFrame).mockResolvedValue(shot)
     const { identity, people } = bridges()
@@ -242,5 +243,35 @@ describe('PeoplePage', () => {
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image' })))
     const payload = vi.mocked(people.threadSend).mock.calls[0][0]
     expect(payload.localPath || payload.contentBase64).toBeTruthy()
+  })
+
+  test('pastes a large clipboard image through chunked staging before send', async () => {
+    const bytes = Uint8Array.from({ length: 81 * 1024 }, (_, i) => i % 251)
+    const blob = new File([bytes as BlobPart], '飞算AI.png', { type: 'image/png' })
+    Object.defineProperty(blob, 'arrayBuffer', { value: async () => bytes.buffer.slice(0) })
+    const { identity, people } = bridges()
+    people.fileStage = vi.fn(async (payload: { last: boolean }) => (
+      payload.last ? { localPath: 'C:/stage/up-feisuan.png', ready: true, bytes: bytes.length } : { bytes: 32 * 1024, ready: false, localPath: '' }
+    ))
+    people.threadSend = vi.fn().mockResolvedValue({
+      message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB4', kind: 'image', fileName: '飞算AI.png', offerStatus: 'pending' },
+      offer: { status: 'pending', fileName: '飞算AI.png' },
+    })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    const composer = await screen.findByPlaceholderText(/粘贴图片/)
+    await user.click(composer)
+    await user.paste({
+      getData: () => '',
+      files: [blob],
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => blob }],
+      types: ['Files'],
+    } as unknown as DataTransfer)
+    await vi.waitFor(() => expect(people.fileStage).toHaveBeenCalled())
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'image', fileName: '飞算AI.png', localPath: 'C:/stage/up-feisuan.png',
+    })))
+    expect(screen.getByRole('status').textContent).toMatch(/已发出文件/)
   })
 })

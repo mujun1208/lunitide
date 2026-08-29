@@ -41,6 +41,8 @@ describe('project workbench native-frame stability', () => {
     expect(css).toMatch(/\.waiting-response\{[^}]*min-height:1\.7em/)
     expect(css).toMatch(/\.mermaid-host\{[^}]*max-height:min\(40vh,360px\)/)
     expect(css).toMatch(/\.workspace-layout\.workspace-is-open\{[^}]*grid-template-rows:minmax\(0,1fr\)/)
+    expect(css).toMatch(/\.workspace-layout>\.message-panel\{[^}]*min-height:0;[^}]*height:100%/)
+    expect(css).toMatch(/\.project-chat-panel\.workspace-layout>\.message-panel\{min-height:0;height:100%/)
   })
 
   it('keeps expert-chip glow from invalidating the window chrome compositor', () => {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -111,13 +112,17 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 		if body == "" {
 			body = title
 		}
-		raw, _ := json.Marshal(map[string]any{
+		payload := map[string]any{
 			"path": "文档.docx", "desktop": desktop, "title": title, "kind": kind,
 			"blocks": []map[string]any{
 				{"type": "heading", "text": title},
 				{"type": "paragraph", "text": body},
 			},
-		})
+		}
+		if kind == docxKindNovel {
+			payload["author"] = officetools.DefaultNovelAuthor
+		}
+		raw, _ := json.Marshal(payload)
 		return raw
 	case "excel.gen":
 		raw, _ := json.Marshal(map[string]any{
@@ -203,7 +208,9 @@ func officeGenFailNotice(err error) string {
 		msg := strings.TrimSpace(err.Error())
 		msg = strings.TrimPrefix(msg, "ok:false")
 		msg = strings.TrimSpace(msg)
-		if msg != "" && !strings.Contains(msg, officeGenInternalHint) && !strings.Contains(msg, "desktop=true") {
+		if friendly := friendlyOfficeGenCause(msg); friendly != "" {
+			why = friendly
+		} else if msg != "" && !strings.Contains(msg, officeGenInternalHint) && !strings.Contains(msg, "desktop=true") && !strings.HasPrefix(msg, "officetools:") {
 			why = msg
 		}
 	}
@@ -211,6 +218,28 @@ func officeGenFailNotice(err error) string {
 		why = string([]rune(why)[:80])
 	}
 	return "生成失败：" + why
+}
+
+func friendlyOfficeGenCause(msg string) string {
+	msg = strings.TrimPrefix(msg, "officetools: ")
+	switch {
+	case strings.Contains(msg, "novel needs chapter Heading 1"):
+		return "小说缺少章节标题，请按章使用一级标题"
+	case strings.Contains(msg, "novel is an outline dump"):
+		return "小说正文太短或像提纲，请写完整分章正文"
+	case strings.Contains(msg, "report needs section headings"):
+		return "报告缺少章节标题或正文太短"
+	case strings.Contains(msg, "document needs Heading"):
+		return "文档缺少标题样式，请使用 heading/heading2"
+	case strings.Contains(msg, "document body is trivial"), strings.Contains(msg, "empty or trivial"):
+		return "文档正文为空或太短"
+	case strings.Contains(msg, "document title is required"):
+		return "缺少文档标题"
+	case strings.Contains(msg, "没有可写入的内容"):
+		return "没有可写入的内容"
+	default:
+		return ""
+	}
 }
 
 func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, sessionID string, turn *chatTurnCheckpoint, assistant string, streamErr error, send func(bridge.Event) error) (bool, string) {
@@ -228,6 +257,9 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 		turn.PptStage = pptStageGenerate
 	}
 	args := fallbackOfficeGenArgs(name, turn.Goal, assistant)
+	if name == "docx.gen" {
+		args = enrichDocxGenArgs(e, turn.Goal, args)
+	}
 	if len(args) == 0 {
 		return false, officeGenFailNotice(errOfficeGenEmpty)
 	}

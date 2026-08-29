@@ -183,6 +183,12 @@ const COMPLETE_OPEN_OBJECTS =
 /** Finished edit/fill commands — 「写进去」must not wait on trailing 去. */
 const COMPLETE_ACTION_ENDINGS =
   /(?:写进去|填进去|填上|写入|加上|改好|做好|完成了|打开)$/u
+/** Label + value after 后面写/填 — e.g. 身份证号码后面写204040 */
+const COMPLETE_TYPE_AFTER_LABEL =
+  /(?:身份证号码|证件号码|手机号|电话号码|通讯住址|联系电话|地址|姓名)(?:后面|之后)(?:写上|写入|写|填|输入)(.+)/u
+/** Generic 后面写/填 with trailing value */
+const COMPLETE_TYPE_AFTER_WRITE =
+  /(?:后面|之后)(?:写上|写入|写|填|输入)([\dA-Za-z\u4e00-\u9fff]{2,})/u
 
 const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/岳西|越席|月西|悦溪|跃溪|月息|悦西|悦希|月希|月夕|月惜|越汐/g, '月汐'],
@@ -236,6 +242,8 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (INCOMPLETE_DESKTOP_WAITING.test(compact) && !/(?:协议|文档|文件)/.test(compact)) return true
   if (COMPLETE_OPEN_OBJECTS.test(compact)) return false
   if (COMPLETE_ACTION_ENDINGS.test(compact)) return false
+  if (COMPLETE_TYPE_AFTER_LABEL.test(compact)) return false
+  if (COMPLETE_TYPE_AFTER_WRITE.test(compact)) return false
   if (INCOMPLETE_BARE_COMMAND.test(compact)) return true
   if (INCOMPLETE_APP_PREFIX.test(compact)) return true
   if (INCOMPLETE_TRUNCATED_OPEN.test(compact)) return true

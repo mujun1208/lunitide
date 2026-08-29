@@ -176,7 +176,7 @@ func CanRestore(cur Status) bool {
 }
 
 var documentExtensions = map[string]struct{}{
-	".md": {}, ".txt": {}, ".pdf": {}, ".doc": {}, ".docx": {},
+	".md": {}, ".txt": {}, ".pdf": {}, ".doc": {}, ".docx": {}, ".dot": {},
 	".xls": {}, ".xlsx": {}, ".ppt": {}, ".pptx": {},
 	".html": {}, ".htm": {}, ".json": {}, ".yaml": {}, ".yml": {}, ".csv": {},
 }

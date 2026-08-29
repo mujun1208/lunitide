@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.screen.capture.schema.json",
+  "title": "people.screen.capture payload",
+  "x-method": "people.screen.capture",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "contentBase64": { "type": "string", "minLength": 1 },
+      "mimeType": { "type": "string", "enum": ["image/png"] }
+    },
+    "required": ["contentBase64", "mimeType"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "extra": true }]
+  }
+}

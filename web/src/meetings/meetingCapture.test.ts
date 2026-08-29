@@ -57,6 +57,21 @@ describe('meetingCapture', () => {
     expect(getUserMedia).toHaveBeenCalled()
   })
 
+  test('warms device labels before matching loopback inputs', async () => {
+    const stream = audioStream()
+    const probe = audioStream()
+    const getUserMedia = vi.fn()
+      .mockResolvedValueOnce(probe)
+      .mockResolvedValueOnce(stream)
+    const enumerateDevices = vi.fn()
+      .mockResolvedValueOnce([{ kind: 'audioinput', deviceId: 'mix', label: '' } as MediaDeviceInfo])
+      .mockResolvedValueOnce([{ kind: 'audioinput', deviceId: 'mix', label: 'Stereo Mix (Realtek Audio)' } as MediaDeviceInfo])
+    const getDisplayMedia = vi.fn()
+    await expect(captureThisPcSystemAudio({ getDisplayMedia, getUserMedia, enumerateDevices })).resolves.toBe(stream)
+    expect(getUserMedia).toHaveBeenCalledTimes(2)
+    expect(getDisplayMedia).not.toHaveBeenCalled()
+  })
+
   test('treats picker cancel as canceled, not as a silent mic-only start', () => {
     expect(isCaptureCanceled(new DOMException('Permission denied', 'NotAllowedError'))).toBe(true)
     expect(isCaptureCanceled(new DOMException('interrupted', 'AbortError'))).toBe(true)

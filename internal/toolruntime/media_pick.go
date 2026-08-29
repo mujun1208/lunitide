@@ -35,10 +35,50 @@ func foldMedia(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
+func labelAliases(label string) []string {
+	f := foldMedia(label)
+	if f == "" {
+		return nil
+	}
+	switch f {
+	case "证件号码", "身份证号码", "身份证号":
+		return []string{"证件号码", "身份证号码"}
+	case "手机号", "电话号码", "电话", "联系电话":
+		return []string{"手机号", "电话号码", "联系电话"}
+	default:
+		return nil
+	}
+}
+
+func labelsMatch(want, got string) bool {
+	g, w := foldMedia(got), foldMedia(want)
+	if g == "" || w == "" {
+		return false
+	}
+	g = strings.TrimRight(g, "：:")
+	w = strings.TrimRight(w, "：:")
+	if g == w || strings.Contains(g, w) || (len([]rune(g)) >= 2 && strings.Contains(w, g)) {
+		return true
+	}
+	for _, alias := range labelAliases(want) {
+		af := foldMedia(alias)
+		if g == af || strings.Contains(g, af) || strings.Contains(af, g) {
+			return true
+		}
+	}
+	return false
+}
+
 func mediaNameScore(got, want string) int {
 	g, w := foldMedia(got), foldMedia(want)
 	if g == "" || w == "" {
 		return 0
+	}
+	if labelsMatch(want, got) {
+		if g == w {
+			return 100
+		}
+		return 70
 	}
 	if g == w {
 		return 100

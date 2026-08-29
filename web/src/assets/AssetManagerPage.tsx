@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { BridgeClientError, createMutationAttempt, templateBridge, type TemplateBridge } from '../bridge/client'
 import type { TemplateCreatePayload, TemplateListResult } from '../generated/bridge'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
+import { bytesToBase64, stageTemplateFile, TEMPLATE_INLINE_MAX } from './assetStage'
 
 type TemplateDTO = TemplateListResult['items'][number]
 
@@ -19,16 +20,7 @@ const STATUS_LABEL: Record<TemplateDTO['status'], string> = { draft: '创建', e
 const problem = (e: unknown) => e instanceof BridgeClientError ? e : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
 const ordered = (items: TemplateDTO[]) => [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
 
-const readFileBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
-  const reader = new FileReader()
-  reader.onload = () => {
-    const raw = String(reader.result ?? '')
-    const comma = raw.indexOf(',')
-    resolve(comma >= 0 ? raw.slice(comma + 1) : raw)
-  }
-  reader.onerror = () => reject(reader.error ?? new Error('文件读取失败'))
-  reader.readAsDataURL(file)
-})
+const readFileBytes = (file: File): Promise<Uint8Array> => file.arrayBuffer().then(buf => new Uint8Array(buf))
 
 const detectMime = (fileName: string): string => {
   const lower = fileName.toLowerCase()
@@ -37,7 +29,7 @@ const detectMime = (fileName: string): string => {
   const map: Record<string, string> = {
     '.md': 'text/markdown', '.txt': 'text/plain', '.html': 'text/html', '.htm': 'text/html',
     '.json': 'application/json', '.yaml': 'application/yaml', '.yml': 'application/yaml',
-    '.csv': 'text/csv', '.pdf': 'application/pdf', '.doc': 'application/msword',
+    '.csv': 'text/csv', '.pdf': 'application/pdf', '.doc': 'application/msword', '.dot': 'application/msword',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.zip': 'application/zip',
@@ -69,6 +61,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
   const [uploadOpen, setUploadOpen] = useState(false)
   const [form, setForm] = useState<UploadForm>(emptyForm)
   const [formError, setFormError] = useState('')
+  const [uploadProgress, setUploadProgress] = useState('')
   const [confirm, setConfirm] = useState<{ kind: 'delete' | 'void' | 'restore'; item: TemplateDTO }>()
   const mounted = useRef(true)
   const loadToken = useRef(0)
@@ -117,19 +110,32 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
     if (!form.description.trim()) { setFormError('请输入模版描述'); return }
     if (form.templateType === 'document' && !form.documentType) { setFormError('请选择文件类型'); return }
     if (!form.file) { setFormError('请上传附件'); return }
+    const uploadFile = form.file
     setBusy(true)
     setFormError('')
+    setUploadProgress('')
     setActionError(undefined)
     try {
-      const contentBase64 = await readFileBase64(form.file)
+      const bytes = await readFileBytes(uploadFile)
+      if (bytes.length > 10 * 1024 * 1024) {
+        setFormError('文件超过 10 MiB 限制')
+        return
+      }
       const payload: TemplateCreatePayload = {
         name: form.name.trim(),
         templateType: form.templateType,
         description: form.description.trim(),
-        fileName: form.file.name,
-        contentBase64,
+        fileName: uploadFile.name,
         ...(form.templateType === 'document' ? { documentType: form.documentType } : {}),
         ...(form.client.trim() ? { client: form.client.trim() } : {}),
+      }
+      if (bytes.length <= TEMPLATE_INLINE_MAX) {
+        payload.contentBase64 = bytesToBase64(bytes)
+      } else {
+        setUploadProgress(`正在分片上传 ${uploadFile.name}…`)
+        payload.uploadId = await stageTemplateFile(templates, uploadFile, bytes, (percent, chunk, total) => {
+          setUploadProgress(`正在分片上传 ${uploadFile.name}… ${percent}%（${chunk}/${total}）`)
+        })
       }
       const attempt = createMutationAttempt('template.create', payload)
       const saved = await templates.create(attempt.payload, { attempt })
@@ -137,6 +143,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
         setItems(current => ordered([saved, ...current.filter(item => item.id !== saved.id)]))
         setUploadOpen(false)
         setForm(emptyForm())
+        setUploadProgress('')
         setNotice(`模版已上传，编号 ${saved.templateCode}，状态为创建`)
       }
     } catch (err) {
@@ -184,7 +191,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
 
   const acceptUpload = form.templateType === 'scaffold'
     ? '.zip,.tar.gz,application/zip,application/gzip,application/x-gzip'
-    : '.md,.txt,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.html,.htm,.json,.yaml,.yml,.csv,text/*,application/*'
+    : '.md,.txt,.pdf,.doc,.docx,.dot,.xls,.xlsx,.ppt,.pptx,.html,.htm,.json,.yaml,.yml,.csv,text/*,application/*'
 
   return (
     <div className="shell project-page pm-shell">
@@ -249,6 +256,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
               <label>6 状态<input value="创建" disabled /></label>
               <label className="wide">附件 *<input type="file" accept={acceptUpload} onChange={e => { const file = e.target.files?.[0] ?? null; patch('file', file); if (file && !form.name.trim()) patch('name', file.name.replace(/\.[^.]+$/, '')) }} />{form.file && <small>{form.file.name} · MIME {detectMime(form.file.name)}（自动识别）</small>}</label>
             </div>
+            {uploadProgress && <p role="status">{uploadProgress}</p>}
             {formError && <p className="error" role="alert"><b>{formError}</b></p>}
           </fieldset>
           <div className="dialog-actions"><button type="button" disabled={busy} onClick={() => setUploadOpen(false)}>取消</button><button className="primary" disabled={busy}>{busy ? '上传中…' : '上传并保存'}</button></div>

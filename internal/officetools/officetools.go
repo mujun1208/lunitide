@@ -250,6 +250,7 @@ func GenDocx(title string, blocks []DocxBlock) ([]byte, error) {
 // GenDocxDoc writes one production-shaped Word file. Reports get a cover
 // page; novels get title + author then chapter Heading 1.
 func GenDocxDoc(doc DocxDoc) ([]byte, error) {
+	doc = normalizeDocxDoc(doc)
 	if err := validateDocxSpec(doc); err != nil {
 		return nil, err
 	}

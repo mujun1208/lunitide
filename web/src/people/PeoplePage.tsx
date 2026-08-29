@@ -6,11 +6,11 @@ import { ProfilePanel } from '../settings/ProfilePanel'
 import { Dialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { captureThisPcFrame } from './peopleCapture'
+import { stageBrowserFile } from './peopleStage'
 import { PEOPLE_EMOJI, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, lastPreview, relativeTime, statusLabel, threadTitle, trustLabel } from './peopleRoster'
 
 const MAX_FILE = 32 * 1024 * 1024
 const INLINE_MAX = 80 * 1024
-const STAGE_CHUNK = 48 * 1024
 type Rail = 'chats' | 'contacts' | 'me'
 
 export function PeoplePage({
@@ -145,13 +145,15 @@ export function PeoplePage({
         if (nativePath) {
           payload = { threadId, kind: fileKind, fileName: file.name || fileName, fileMime: file.type || fileMime, localPath: nativePath }
         } else {
+          if (file.size > INLINE_MAX) setNotice(`正在读取 ${file.name}…`)
           const buf = new Uint8Array(await readBrowserFile(file))
           if (buf.length > MAX_FILE) throw new Error('文件需小于 32 MiB')
           if (buf.length <= INLINE_MAX) {
             payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, contentBase64: bytesToB64(buf) }
           } else {
-            setNotice(`正在分片上传 ${file.name}…`)
-            const staged = await stageBrowserFile(people, file, buf)
+            const staged = await stageBrowserFile(people, file, buf, (percent, chunk, total) => {
+              setNotice(`正在分片上传 ${file.name}… ${percent}%（${chunk}/${total}）`)
+            })
             payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, localPath: staged }
           }
         }
@@ -197,7 +199,10 @@ export function PeoplePage({
   const grabScreen = async () => {
     if (!threadIdRef.current || sending.current) return
     try {
-      const file = await captureThisPcFrame({ maxBytes: INLINE_MAX })
+      const file = await captureThisPcFrame({
+        maxBytes: INLINE_MAX,
+        nativeCapture: () => people.screenCapture({}),
+      })
       await send('image', '', file)
     } catch (e) {
       const name = e instanceof DOMException ? e.name : ''
@@ -377,7 +382,7 @@ export function PeoplePage({
               <div className="people-composer-tools">
                 <button type="button" onClick={() => setEmojiOpen(v => !v)} aria-label="表情">☺</button>
                 <button type="button" onClick={() => imageRef.current?.click()} aria-label="发送图片">🖼</button>
-                <button type="button" onClick={() => void grabScreen()} aria-label="截取本机画面" title="只截取这台电脑的画面，不会把桌面共享给其他电脑">📷</button>
+                <button type="button" onClick={() => void grabScreen()} aria-label="截取本机画面" title="直接截取本机桌面并发送，不会弹出共享窗口，也不会把画面共享给其他电脑">📷</button>
                 <button type="button" onClick={() => void pickNative(false)} aria-label="发送本机文件" title="从这台电脑选择文件发送，需对方确认后才会保存">📎</button>
                 <button type="button" onClick={() => void pickNative(true)} aria-label="发送文件夹" title="选择本机文件夹并打包为 zip 发送">📁</button>
               </div>
@@ -535,14 +540,7 @@ function readReceipt(thread: PeopleThreadDTO | undefined, selfId: string | undef
 }
 
 function readBrowserFile(file: File): Promise<ArrayBuffer> {
-  if (typeof file.arrayBuffer === 'function') {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as ArrayBuffer)
-      reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
-      reader.readAsArrayBuffer(file)
-    })
-  }
+  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer()
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as ArrayBuffer)
@@ -557,36 +555,4 @@ function bytesToB64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
   }
   return btoa(binary)
-}
-
-function newUlid(): string {
-  const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
-  const extra = crypto.getRandomValues(new Uint8Array(10))
-  let value = (BigInt(Date.now()) << 80n) | extra.reduce((n, x) => (n << 8n) | BigInt(x), 0n)
-  let out = ''
-  for (let i = 0; i < 26; i++) {
-    out = alphabet[Number(value & 31n)] + out
-    value >>= 5n
-  }
-  return out
-}
-
-async function stageBrowserFile(people: PeopleBridge, file: File, ready?: Uint8Array): Promise<string> {
-  const buf = ready ?? new Uint8Array(await readBrowserFile(file))
-  const uploadId = newUlid()
-  let offset = 0
-  let index = 0
-  let localPath = ''
-  while (offset < buf.length) {
-    const end = Math.min(offset + STAGE_CHUNK, buf.length)
-    const staged = await people.fileStage({
-      uploadId, fileName: file.name, fileMime: file.type, index, last: end === buf.length,
-      contentBase64: bytesToB64(buf.subarray(offset, end)),
-    })
-    localPath = staged.localPath
-    offset = end
-    index += 1
-  }
-  if (!localPath) throw new Error('文件分片上传未完成')
-  return localPath
 }

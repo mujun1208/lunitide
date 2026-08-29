@@ -62,6 +62,14 @@ export function joinMeetingLines(prev: string, next: string): string {
   return a + b
 }
 
+function suffixPrefixOverlap(prev: string, next: string): number {
+  const max = Math.min(prev.length, next.length)
+  for (let len = max; len > 0; len--) {
+    if (prev.endsWith(next.slice(0, len))) return len
+  }
+  return 0
+}
+
 /**
  * Sherpa replaces `latest` when a new segment starts. Meeting notes keep the
  * earlier clause and glue the new one so a 1.2s engine endpoint does not drop
@@ -73,8 +81,29 @@ export function absorbHeldTranscript(sealed: string, incoming: string): string {
   const prev = sealed.trim()
   if (!prev) return next
   if (next.startsWith(prev) || next.includes(prev)) return next
-  if (prev.startsWith(next) || prev.includes(next)) return prev
+  if (prev.startsWith(next)) return prev
+  // A streaming finish often returns only the last sherpa segment — not a revision.
+  if (prev.includes(next) && Array.from(next).length < Array.from(prev).length * 0.6) return prev
+  const overlap = suffixPrefixOverlap(prev, next)
+  if (overlap > 0) return prev + next.slice(overlap)
   return joinMeetingLines(prev, next)
+}
+
+/**
+ * When holdUtterance is on, the caption accumulates streaming segments in
+ * `carried`, but commit() may return only the last segment unless the offline
+ * refiner ran. Prefer the held caption unless the commit clearly covers it.
+ */
+export function pickMeetingFinalText(carried: string, settled: string): string {
+  const c = carried.trim()
+  const s = settled.trim()
+  if (!c) return s
+  if (!s) return c
+  const cLen = Array.from(c).length
+  const sLen = Array.from(s).length
+  if (sLen >= cLen * 0.75 || (sLen > cLen && !c.includes(s))) return s
+  if (c.includes(s) && sLen < cLen * 0.6) return c
+  return absorbHeldTranscript(c, s)
 }
 
 export type MeetingLineBuffer = {

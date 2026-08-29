@@ -7,6 +7,9 @@ func TestValidateTemplateFile(t *testing.T) {
 	if err := ValidateTemplateFile(TemplateTypeDocument, "report.docx"); err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateTemplateFile(TemplateTypeDocument, "report.dot"); err != nil {
+		t.Fatal(err)
+	}
 	if err := ValidateTemplateFile(TemplateTypeScaffold, "starter.zip"); err != nil {
 		t.Fatal(err)
 	}

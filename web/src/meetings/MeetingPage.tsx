@@ -351,7 +351,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     setInterim('')
     let plan: MeetingCapturePlan | undefined
     try {
-      plan = await prepareMeetingCapture({ interactive: true })
+      plan = await prepareMeetingCapture({ interactive: false })
       const started = await meetings.start({ audioSource: plan.audioSource })
       adopt(started)
       try {

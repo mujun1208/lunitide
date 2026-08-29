@@ -16,9 +16,10 @@
     "mimeType": { "type": "string", "maxLength": 128 },
     "fileName": { "type": "string", "maxLength": 260 },
     "filePath": { "type": "string", "maxLength": 512 },
+    "uploadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
     "contentBase64": { "type": "string", "minLength": 1 }
   },
-  "required": ["name", "templateType", "description", "fileName", "contentBase64"],
+  "required": ["name", "templateType", "description", "fileName"],
   "x-result": {
     "type": "object",
     "additionalProperties": false,

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/people"
 	sqlitestore "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -283,6 +284,89 @@ func TestIdentityInvisibleStopsBeacon(t *testing.T) {
 	}
 	if ident.Public().Status != identity.StatusInvisible {
 		t.Fatal("identity cache drifted")
+	}
+}
+
+type peopleCaptureHost struct {
+	png []byte
+	err error
+}
+
+func (h peopleCaptureHost) Available() bool                   { return true }
+func (h peopleCaptureHost) ScreenSize() (int, int)            { return 1, 1 }
+func (h peopleCaptureHost) ScreenOrigin() (int, int)          { return 0, 0 }
+func (h peopleCaptureHost) CursorPosition() (int, int, error) { return 0, 0, nil }
+func (h peopleCaptureHost) MouseMove(int, int) error          { return nil }
+func (h peopleCaptureHost) MouseClick(string, int) error      { return nil }
+func (h peopleCaptureHost) MouseDrag(int, int, int, int) error {
+	return nil
+}
+func (h peopleCaptureHost) KeyboardType(string) error       { return nil }
+func (h peopleCaptureHost) KeyboardShortcut([]string) error { return nil }
+func (h peopleCaptureHost) MouseScroll(int) error           { return nil }
+func (h peopleCaptureHost) MouseScrollH(int) error          { return nil }
+func (h peopleCaptureHost) EnsureForeground() error         { return nil }
+func (h peopleCaptureHost) ScreenCapture() ([]byte, error)  { return h.png, h.err }
+func (h peopleCaptureHost) WindowCapture(string) ([]byte, int, int, error) {
+	return nil, 0, 0, nil
+}
+func (h peopleCaptureHost) ActiveWindow() (string, string, error) { return "", "", nil }
+func (h peopleCaptureHost) ListWindows() ([]ccapp.WindowInfo, error) {
+	return nil, nil
+}
+func (h peopleCaptureHost) FocusWindow(string) (ccapp.WindowInfo, error) {
+	return ccapp.WindowInfo{}, nil
+}
+func (h peopleCaptureHost) ObserveDialogs() ([]ccapp.DialogSnapshot, error) { return nil, nil }
+func (h peopleCaptureHost) ConfirmDialog(string) (ccapp.DialogSnapshot, error) {
+	return ccapp.DialogSnapshot{}, nil
+}
+func (h peopleCaptureHost) ObserveUI(int) ([]ccapp.UINode, error) { return nil, nil }
+func (h peopleCaptureHost) ClipboardGet() (string, error)         { return "", nil }
+func (h peopleCaptureHost) ClipboardSet(string) error             { return nil }
+func (h peopleCaptureHost) WindowAction(string, string, int, int, int, int) (ccapp.WindowInfo, error) {
+	return ccapp.WindowInfo{}, nil
+}
+func (h peopleCaptureHost) QuitApp(string) (int, ccapp.WindowInfo, error) {
+	return 0, ccapp.WindowInfo{}, nil
+}
+func (h peopleCaptureHost) MenuClick(string) error        { return nil }
+func (h peopleCaptureHost) SetValue(string, string) error { return nil }
+func (h peopleCaptureHost) InvokeUI(string) error         { return nil }
+
+func TestPeopleScreenCaptureUsesNativeHost(t *testing.T) {
+	e, _, _ := newPeopleEngine(t)
+	store, err := sqlitestore.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "cc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ccSvc := ccapp.New(store.AgentRuntimeRepository())
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	ccSvc.SetHost(peopleCaptureHost{png: png})
+	e.SetCcControlService(ccSvc)
+
+	got := peopleOK[map[string]any](t, e, "people.screen.capture", map[string]any{})
+	if got["mimeType"] != "image/png" {
+		t.Fatalf("mimeType = %#v", got["mimeType"])
+	}
+	raw, _ := got["contentBase64"].(string)
+	if raw == "" {
+		t.Fatal("missing contentBase64")
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err != nil || string(decoded) != string(png) {
+		t.Fatalf("decode = %q err=%v", decoded, err)
+	}
+}
+
+func TestPeopleScreenCaptureUnsupportedWithoutHost(t *testing.T) {
+	e, _, _ := newPeopleEngine(t)
+	resp := peopleCall(t, e, "people.screen.capture", map[string]any{})
+	if resp.OK {
+		t.Fatal("expected failure without cc host")
+	}
+	if resp.Error == nil || resp.Error.Code != "PEOPLE_CAPTURE_UNSUPPORTED" {
+		t.Fatalf("code = %+v", resp.Error)
 	}
 }
 

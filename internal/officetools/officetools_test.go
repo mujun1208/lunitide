@@ -155,6 +155,22 @@ func TestValidateDocxRejectsEmptyAndUnstyled(t *testing.T) {
 	}
 }
 
+func TestGenDocxDocNovelWithoutAuthorDefaults(t *testing.T) {
+	doc := SampleNovelDocxDoc()
+	doc.Author = ""
+	data, err := GenDocxDoc(doc)
+	if err != nil {
+		t.Fatalf("novel without author must default: %v", err)
+	}
+	if err := ValidateDocx(data); err != nil {
+		t.Fatalf("default-author novel must pass validation: %v", err)
+	}
+	nxml := zipPartBody(t, data, "word/document.xml")
+	if !strings.Contains(nxml, "作者") || !strings.Contains(nxml, DefaultNovelAuthor) {
+		t.Fatalf("cover must show default author: %s", nxml[:min(400, len(nxml))])
+	}
+}
+
 func TestGenPptxStructure(t *testing.T) {
 	data, err := GenPptx("季度汇报", []SlideSpec{
 		{Title: "封面 <标题>", Bullets: []string{"要点A", "要点B"}},

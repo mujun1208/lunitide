@@ -5,6 +5,7 @@ import {
   createMeetingLineBuffer,
   joinMeetingLines,
   MEETING_MERGE_GAP_MS,
+  pickMeetingFinalText,
   shouldMergeMeetingLines,
 } from './meetingText'
 
@@ -41,6 +42,23 @@ describe('absorbHeldTranscript', () => {
 
   test('keeps a growing revision of the same segment', () => {
     expect(absorbHeldTranscript('第一步', '第一步先写BRD')).toBe('第一步先写BRD')
+  })
+
+  test('deduplicates overlap when sherpa starts the next segment mid-word', () => {
+    expect(absorbHeldTranscript('先把范围对齐', '范围对齐并且写BRD')).toBe('先把范围对齐并且写BRD')
+  })
+})
+
+describe('pickMeetingFinalText', () => {
+  test('prefers the held caption when commit returns only the last segment', () => {
+    const held = '火焰已把火烧到天亮做一个叛逆的童年我把抽屉图晃晃悠悠和我心情往前走'
+    expect(pickMeetingFinalText(held, '往前走')).toBe(held)
+  })
+
+  test('prefers a full refiner pass when it covers the held caption', () => {
+    const held = '第一步应该先写BRD第二步再做相关工作。'
+    const refined = '第一步应该先写BRD。第二步再做相关工作。'
+    expect(pickMeetingFinalText(held, refined)).toBe(refined)
   })
 })
 

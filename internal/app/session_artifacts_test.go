@@ -8,6 +8,21 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
+func TestChatDeliverableArtifact(t *testing.T) {
+	if chatDeliverableArtifact("web.search", "html", "search.html") {
+		t.Fatal("web.search html must not be a chat deliverable")
+	}
+	if chatDeliverableArtifact("web.fetch", "html", "fetch.html") {
+		t.Fatal("web.fetch html must not be a chat deliverable")
+	}
+	if !chatDeliverableArtifact("pptx.gen", "pptx", "deck.pptx") {
+		t.Fatal("pptx.gen must be a chat deliverable")
+	}
+	if !chatDeliverableArtifact("workspace.write", "html", "index.html") {
+		t.Fatal("user html pages must be deliverables")
+	}
+}
+
 func TestAppendAndLoadSessionArtifacts(t *testing.T) {
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {
@@ -16,9 +31,10 @@ func TestAppendAndLoadSessionArtifacts(t *testing.T) {
 	e := &Engine{tools: tools}
 	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	msg := "01ARZ3NDEKTSV4RRFFQ69G5FBV"
-	e.appendMessageArtifacts(session, msg, []SessionArtifact{{
-		Kind: "docx", Path: "report.docx", CallID: "call-1", ToolName: "docx.gen",
-	}})
+	e.appendMessageArtifacts(session, msg, []SessionArtifact{
+		{Kind: "docx", Path: "report.docx", CallID: "call-1", ToolName: "docx.gen"},
+		{Kind: "html", Path: "search.html", CallID: "call-2", ToolName: "web.search"},
+	})
 	byMsg := e.loadSessionArtifactsByMessage(session)
 	if len(byMsg[msg]) != 1 || byMsg[msg][0].Path != "report.docx" {
 		t.Fatalf("artifacts = %#v", byMsg)

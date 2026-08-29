@@ -237,6 +237,31 @@ it('surfaces stream failure only as 无法执行 without the UPSTREAM_FAILED car
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
 })
 
+it('reloads persisted assistant history after a failed stream',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'写十二星座小说',createdAt:NOW}
+ const assistantMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sessionId:S,role:'assistant',status:'completed',sequence:2,text:'【思考过程】\n先规划结构。\n\n已写好白羊座。\n无法执行。模型结果不完整，请重试。',createdAt:NOW}
+ const list=vi.fn()
+  .mockResolvedValueOnce(page([userMessage]))
+  .mockResolvedValueOnce(page([userMessage]))
+  .mockResolvedValue(page([userMessage,assistantMessage]))
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list,append:vi.fn().mockResolvedValue(userMessage)} as MessageBridge} chat={{start,approve:vi.fn(),dispose:vi.fn()}}/>)
+ expect(await screen.findByText('写十二星座小说')).toBeInTheDocument()
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'写十二星座小说'}})
+ await userEvent.setup().click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>{
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'delta',delta:{text:'已写好白羊座。'}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:stream.streamId,sequence:2,type:'failed',error:{code:'UPSTREAM_FAILED',message:'模型请求失败',retryable:true}})
+ })
+ await waitFor(()=>expect(list.mock.calls.length).toBeGreaterThan(2))
+ expect(screen.getAllByText(/已写好白羊座/).length).toBeGreaterThan(0)
+ expect(screen.getAllByText(/无法执行/).length).toBeGreaterThan(0)
+ expect(screen.queryByText('AGENT · 失败')).toBeNull()
+})
+
 it('closes composer popovers when clicking outside',async()=>{
  const user=await open({personal:true,providers,initialSession:session,chat:{start:vi.fn(),dispose:vi.fn()}})
  await user.click(screen.getByRole('button',{name:'添加上下文'}))
@@ -452,6 +477,20 @@ it('does not auto-open the browser workspace for background web.search',async()=
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_started',tool:{callId:'search-1',name:'web.search',argsDigest:'a'.repeat(64),summary:'搜索：飞算AI'}}))
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:stream.streamId,sequence:2,type:'tool_completed',tool:{callId:'search-1',name:'web.search',argsDigest:'a'.repeat(64),summary:'query: 飞算AI\nresults_url: https://cn.bing.com/search?q=%E9%A3%9E%E7%AE%97AI',artifact:{kind:'html',path:'search.html',content:'<h1>搜索结果 · 飞算AI</h1>'}}}))
  expect(screen.queryByLabelText('统一工作区')).toBeNull()
+ expect(screen.queryByText('search.html')).toBeNull()
+})
+
+it('does not auto-open the workspace for pptx.gen deliverables',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const user=await open({personal:true,initialSession:session,providers,chat:{start,dispose:vi.fn()},attachments:{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge})
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'帮我做一份个人介绍PPT')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_completed',tool:{callId:'ppt-1',name:'pptx.gen',argsDigest:'a'.repeat(64),summary:'wrote deck.pptx',artifact:{kind:'pptx',path:'deck.pptx',content:''}}}))
+ expect(screen.queryByLabelText('统一工作区')).toBeNull()
+ expect(screen.getByText('deck.pptx')).toBeInTheDocument()
 })
 
 

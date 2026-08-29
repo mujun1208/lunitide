@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -160,5 +161,20 @@ func TestNoteDocxCharsCountsProse(t *testing.T) {
 	noteDocxChars(turn, "夜色压上码头，潮水先碰到石阶。")
 	if turn.DocxChars < 10 {
 		t.Fatalf("chars = %d", turn.DocxChars)
+	}
+}
+
+func TestEnrichDocxGenArgsFillsNovelAuthor(t *testing.T) {
+	raw := enrichDocxGenArgs(nil, "写十二星座爱情小说", json.RawMessage(`{"path":"a.docx","title":"合集","kind":"novel","blocks":[{"type":"heading","text":"第一章"},{"type":"paragraph","text":"正文"}]}`))
+	if !strings.Contains(string(raw), `"author":"佚名"`) {
+		t.Fatalf("missing default author: %s", raw)
+	}
+	kept := enrichDocxGenArgs(nil, "", json.RawMessage(`{"path":"a.docx","title":"t","kind":"novel","author":"阿潮","blocks":[]}`))
+	if !strings.Contains(string(kept), `"author":"阿潮"`) {
+		t.Fatalf("existing author overwritten: %s", kept)
+	}
+	report := enrichDocxGenArgs(nil, "", json.RawMessage(`{"path":"a.docx","title":"t","kind":"report","blocks":[]}`))
+	if strings.Contains(string(report), `"author"`) {
+		t.Fatalf("report must not get author injection: %s", report)
 	}
 }

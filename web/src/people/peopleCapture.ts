@@ -1,9 +1,13 @@
 const CAPTURE_HINT = '当前环境无法截取本机画面。可粘贴截图或选择图片。这不会把桌面共享给其他电脑。'
+const NATIVE_UNSUPPORTED = 'PEOPLE_CAPTURE_UNSUPPORTED'
 
 export type CaptureThisPcOptions = {
   maxBytes?: number
   getDisplayMedia?: MediaDevices['getDisplayMedia']
   grabFrame?: (stream: MediaStream) => Promise<HTMLCanvasElement>
+  /** Prefer engine native capture (no browser share picker). Defaults to true. */
+  preferNative?: boolean
+  nativeCapture?: () => Promise<{ contentBase64: string; mimeType: string }>
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -41,6 +45,26 @@ export async function canvasToJpegFile(canvas: HTMLCanvasElement, maxBytes: numb
   return new File([blob], fileName, { type: 'image/jpeg' })
 }
 
+async function pngBase64ToJpegFile(contentBase64: string, maxBytes: number, fileName: string): Promise<File> {
+  const binary = atob(contentBase64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const blob = new Blob([bytes], { type: 'image/png' })
+  if (typeof createImageBitmap !== 'function') throw new Error(CAPTURE_HINT)
+  const bitmap = await createImageBitmap(blob)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width || 1
+    canvas.height = bitmap.height || 1
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('无法绘制本机画面')
+    ctx.drawImage(bitmap, 0, 0)
+    return canvasToJpegFile(canvas, maxBytes, fileName)
+  } finally {
+    bitmap.close()
+  }
+}
+
 async function grabVideoFrame(stream: MediaStream): Promise<HTMLCanvasElement> {
   const video = document.createElement('video')
   video.muted = true
@@ -63,18 +87,41 @@ async function grabVideoFrame(stream: MediaStream): Promise<HTMLCanvasElement> {
   return canvas
 }
 
-export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Promise<File> {
+function isNativeUnsupported(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = 'code' in err ? String((err as { code?: string }).code ?? '') : ''
+  return code === NATIVE_UNSUPPORTED
+}
+
+async function captureViaDisplayMedia(options: CaptureThisPcOptions, maxBytes: number, fileName: string): Promise<File> {
   const native = navigator.mediaDevices?.getDisplayMedia
   const getDisplayMedia = options.getDisplayMedia ?? (native ? native.bind(navigator.mediaDevices) : undefined)
   if (!getDisplayMedia) throw new Error(CAPTURE_HINT)
   const stream = await getDisplayMedia.call(navigator.mediaDevices ?? {}, { video: true, audio: false })
   try {
     const canvas = await (options.grabFrame ?? grabVideoFrame)(stream)
-    const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
-    return canvasToJpegFile(canvas, options.maxBytes ?? 80 * 1024, `screenshot-${stamp}.jpg`)
+    return canvasToJpegFile(canvas, maxBytes, fileName)
   } finally {
     stream.getTracks().forEach(track => track.stop())
   }
+}
+
+export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Promise<File> {
+  const maxBytes = options.maxBytes ?? 80 * 1024
+  const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
+  const fileName = `screenshot-${stamp}.jpg`
+  const preferNative = options.preferNative !== false
+
+  if (preferNative && options.nativeCapture) {
+    try {
+      const shot = await options.nativeCapture()
+      return pngBase64ToJpegFile(shot.contentBase64, maxBytes, fileName)
+    } catch (err) {
+      if (!isNativeUnsupported(err)) throw err
+    }
+  }
+
+  return captureViaDisplayMedia(options, maxBytes, fileName)
 }
 
 export { CAPTURE_HINT }

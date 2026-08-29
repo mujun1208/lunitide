@@ -20,6 +20,9 @@ const (
 	minReportBodyRunes = 200
 	minNovelBodyRunes  = 400
 	minNovelChapters   = 2
+
+	// DefaultNovelAuthor is used when kind=novel and author is omitted.
+	DefaultNovelAuthor = "佚名"
 )
 
 // DocxDoc is one Word document. Kind selects cover/title-page rules:
@@ -143,6 +146,16 @@ func countDocxSpecStats(blocks []DocxBlock) (headings, h1, bodyRunes int) {
 	return headings, h1, bodyRunes
 }
 
+func normalizeDocxDoc(doc DocxDoc) DocxDoc {
+	if docxKindOf(doc.Kind) != "novel" {
+		return doc
+	}
+	if strings.TrimSpace(doc.Author) == "" {
+		doc.Author = DefaultNovelAuthor
+	}
+	return doc
+}
+
 func validateDocxSpec(doc DocxDoc) error {
 	if strings.TrimSpace(doc.Title) == "" {
 		return fmt.Errorf("officetools: document title is required")
@@ -170,9 +183,6 @@ func validateDocxSpec(doc DocxDoc) error {
 			return fmt.Errorf("officetools: report needs section headings and substantial chapters")
 		}
 	case "novel":
-		if strings.TrimSpace(doc.Author) == "" {
-			return fmt.Errorf("officetools: novel needs an author")
-		}
 		if h1 < minNovelChapters {
 			return fmt.Errorf("officetools: novel needs chapter Heading 1")
 		}
@@ -216,7 +226,7 @@ func docxCoverPage(doc DocxDoc, kind string) string {
 	author := strings.TrimSpace(doc.Author)
 	if kind == "novel" {
 		if author == "" {
-			author = "佚名"
+			author = DefaultNovelAuthor
 		}
 		b.WriteString(docxParagraph("Author", "作者　"+author, `<w:jc w:val="center"/>`))
 	} else if author != "" {

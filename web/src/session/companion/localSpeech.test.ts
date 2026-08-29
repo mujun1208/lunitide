@@ -398,6 +398,20 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).toHaveBeenCalledWith('第一步应该先写BRD。第二步再做相关工作。')
   })
 
+  it('does not drop held meeting text when commit returns only the last sherpa segment', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('往前走')
+    await startLocalCompanionSpeech({ ...stage.options, holdUtterance: true })
+
+    onTranscript('火焰已把火烧到天亮', false)
+    onTranscript('火焰已把火烧到天亮', true)
+    onTranscript('做一个叛逆的童年', true)
+    onTranscript('我把抽屉图晃晃悠悠和我心情往前走', true)
+    await vi.advanceTimersByTimeAsync(MEETING_TURN_END_SILENCE_MS + 400)
+
+    expect(stage.onFinal).toHaveBeenCalledWith('火焰已把火烧到天亮做一个叛逆的童年我把抽屉图晃晃悠悠和我心情往前走')
+  })
+
   it('shows the next user caption during the echo guard without committing yet', async () => {
     const stage = harness()
     const handle = await startLocalCompanionSpeech(stage.options)

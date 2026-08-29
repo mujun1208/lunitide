@@ -445,6 +445,12 @@ func (s *Service) captureDesktop() ([]byte, error) {
 	return png, nil
 }
 
+// CaptureDesktopPNG grabs the virtual desktop without running the cc tool
+// pipeline. People chat uses this for a local screenshot (no browser share UI).
+func (s *Service) CaptureDesktopPNG() ([]byte, error) {
+	return s.host.ScreenCapture()
+}
+
 // verifyAfter takes a fresh desktop screenshot so the model can see the
 // result of an input action (OpenClaw observe→act→verify). Unchanged pixels
 // stay out of the vision payload.
