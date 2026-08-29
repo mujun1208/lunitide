@@ -118,3 +118,53 @@ func TestHandleTemplateCreateRejectsMissingAttachment(t *testing.T) {
 	}
 	_ = attachmentapp.MaxFileSize
 }
+
+func TestHandleTemplateFileStageLastChunkRetryKeepsBytes(t *testing.T) {
+	t.Parallel()
+	engine := &Engine{
+		assets:        &mockTemplateStore{},
+		templateFiles: &memTemplateFiles{files: map[string][]byte{}},
+	}
+	uploadID := ulid.Make().String()
+	first := base64.StdEncoding.EncodeToString([]byte("hello-"))
+	last := base64.StdEncoding.EncodeToString([]byte("dot"))
+	stage := func(chunk string, index int, lastChunk bool) {
+		t.Helper()
+		resp := handleTemplateFileStage(engine, context.Background(), bridge.Request{
+			ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+			Method: string(bridge.MethodTemplateFileStage),
+			Payload: mustJSON(map[string]any{
+				"uploadId": uploadID, "fileName": "blueprint.dot", "index": index,
+				"last": lastChunk, "contentBase64": chunk,
+			}),
+		})
+		if !resp.OK {
+			t.Fatalf("stage failed: %+v", resp.Error)
+		}
+	}
+	stage(first, 0, false)
+	stage(last, 1, true)
+	stage(last, 1, true)
+	firstRead, err := engine.consumeTemplateStage(uploadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryRead, err := engine.consumeTemplateStage(uploadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstRead) != "hello-dot" || string(retryRead) != "hello-dot" {
+		t.Fatalf("staged = %q / %q", firstRead, retryRead)
+	}
+	createResp := handleTemplateCreate(engine, context.Background(), bridge.Request{
+		ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: string(bridge.MethodTemplateCreate),
+		Payload: mustJSON(map[string]any{
+			"name": "蓝图文档模板", "templateType": "document", "documentType": "业务蓝图文档",
+			"description": "SAP业务蓝图文档模板", "fileName": "blueprint.dot", "uploadId": uploadID,
+		}),
+	})
+	if !createResp.OK {
+		t.Fatalf("create failed: %+v", createResp.Error)
+	}
+}

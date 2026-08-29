@@ -7,7 +7,9 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "region": { "type": "boolean" }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -18,7 +20,7 @@
     "required": ["contentBase64", "mimeType"]
   },
   "x-examples": {
-    "positive": [{}],
+    "positive": [{}, { "region": true }, { "region": false }],
     "negative": [{ "extra": true }]
   }
 }

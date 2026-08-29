@@ -374,7 +374,9 @@ func handlePeopleFilePick(e *Engine, _ context.Context, r bridge.Request) bridge
 }
 
 func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
-	var p struct{}
+	var p struct {
+		Region *bool `json:"region"`
+	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.screen.capture 参数无效", false)
 	}
@@ -384,7 +386,14 @@ func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) b
 	if e.ccctrl == nil {
 		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
 	}
-	png, err := e.ccctrl.CaptureRegionPNG()
+	region := p.Region != nil && *p.Region
+	var png []byte
+	var err error
+	if region {
+		png, err = e.ccctrl.CaptureRegionPNG()
+	} else {
+		png, err = e.ccctrl.CaptureDesktopPNG()
+	}
 	if err != nil {
 		if errors.Is(err, ccapp.ErrCaptureCanceled) {
 			return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CANCELED", "已取消截图", false)

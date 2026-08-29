@@ -380,11 +380,18 @@ func TestPeopleScreenCapturePrefersRegionSnip(t *testing.T) {
 	ccSvc.SetHost(peopleRegionHost{peopleCaptureHost: peopleCaptureHost{png: full}, region: crop})
 	e.SetCcControlService(ccSvc)
 
-	got := peopleOK[map[string]any](t, e, "people.screen.capture", map[string]any{})
+	got := peopleOK[map[string]any](t, e, "people.screen.capture", map[string]any{"region": true})
 	raw, _ := got["contentBase64"].(string)
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil || string(decoded) != string(crop) {
 		t.Fatalf("decode = %q err=%v", decoded, err)
+	}
+
+	gotFull := peopleOK[map[string]any](t, e, "people.screen.capture", map[string]any{})
+	rawFull, _ := gotFull["contentBase64"].(string)
+	decodedFull, err := base64.StdEncoding.DecodeString(rawFull)
+	if err != nil || string(decodedFull) != string(full) {
+		t.Fatalf("full desktop decode = %q err=%v", decodedFull, err)
 	}
 }
 
@@ -399,7 +406,7 @@ func TestPeopleScreenCaptureCanceled(t *testing.T) {
 	ccSvc.SetHost(peopleRegionHost{err: ccapp.ErrCaptureCanceled})
 	e.SetCcControlService(ccSvc)
 
-	resp := peopleCall(t, e, "people.screen.capture", map[string]any{})
+	resp := peopleCall(t, e, "people.screen.capture", map[string]any{"region": true})
 	if resp.OK {
 		t.Fatal("expected cancel")
 	}

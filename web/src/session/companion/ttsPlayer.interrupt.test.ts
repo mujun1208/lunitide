@@ -100,7 +100,9 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
     })
     await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(1))
 
+    expect(player.isBusy()).toBe(true)
     player.interrupt()
+    expect(player.isBusy()).toBe(false)
     releaseSynthesis(okResult()) // late arrival after the interrupt
     await speaking
 

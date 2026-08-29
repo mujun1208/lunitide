@@ -813,9 +813,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // INTERRUPT is batched; keep syncSpeechModes from remuting the mic
     // while stateRef still says speaking.
     stateRef.current = 'idle'
+    syncSpeechModesRef.current()
     captionHandleRef.current?.resumeCapture()
     speechHandleRef.current?.resumeCapture()
-    syncSpeechModesRef.current()
     setCircuitBroken(false)
     setStreamTick(0)
   }, [machine])
@@ -834,9 +834,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       machine.dispatch({ type: 'INTERRUPT' })
     }
     stateRef.current = 'idle'
+    syncSpeechModesRef.current()
     captionHandleRef.current?.resumeCapture()
     speechHandleRef.current?.resumeCapture()
-    syncSpeechModesRef.current()
   }, [machine, onCancel])
 
   const syncSpeechModes = useCallback(() => {
@@ -866,11 +866,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // and disabled both of the repairs that would have noticed, since each of
     // them declines to act during her turn. The stage said 聆听中 and nothing
     // underneath it was listening.
-    if ((state === 'listening' || state === 'idle') && playerRef.current?.isBusy() !== true) {
+    const interruptedListen = userInterruptedRef.current && (state === 'listening' || state === 'idle')
+    if ((state === 'listening' || state === 'idle') && (interruptedListen || playerRef.current?.isBusy() !== true)) {
       speakingRef.current = false
     }
-    const speakingAloud = state === 'speaking' || speakingRef.current || playerRef.current?.isBusy() === true
-    const assistantBusy = state === 'thinking' || speakingAloud
+    const speakingAloud = !interruptedListen && (state === 'speaking' || speakingRef.current || playerRef.current?.isBusy() === true)
+    const assistantBusy = !interruptedListen && (state === 'thinking' || speakingAloud)
     const next = {
       commitPaused: assistantBusy,
       playback: assistantBusy,
@@ -891,7 +892,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const tick = () => {
       const busy = playerRef.current?.isBusy() === true
       setPlayerSounding(current => (current === busy ? current : busy))
-      if (busy) speakingRef.current = true
+      if (busy && !userInterruptedRef.current) speakingRef.current = true
     }
     tick()
     const timer = window.setInterval(tick, 80)

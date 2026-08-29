@@ -3,13 +3,30 @@ import { sessionFolderBridge, type StreamArtifact } from '../bridge/client'
 
 export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 
+const OFFICE_KIND = new Set(['pptx', 'docx', 'xlsx', 'pdf'])
+const OFFICE_EXT = /\.(pptx|docx|xlsx|pdf)$/i
+
+/** Map a model/host path to the session.folder.open relative form. */
+export function artifactOpenRelativePath(path: string): string {
+  const trimmed = path.trim()
+  const normalized = trimmed.replace(/\\/g, '/')
+  const desk = normalized.match(/\/(?:Desktop|桌面)\/([^/]+)$/i)
+  if (desk) return `desktop/${desk[1]}`
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith('//')) {
+    const base = normalized.split('/').pop()
+    if (base) return `desktop/${base}`
+  }
+  return trimmed
+}
+
 /** User-facing deliverables only — not intermediate web.search/fetch HTML. */
 export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName' | 'kind' | 'path'>): boolean {
   if (artifact.toolName === 'web.search' || artifact.toolName === 'web.fetch') return false
   if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen'].includes(artifact.toolName)) return true
-  const base = artifact.path.split('/').pop()?.toLowerCase() ?? ''
+  const base = artifact.path.split(/[/\\]/).pop()?.toLowerCase() ?? ''
   if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
   if (artifact.kind === 'image') return true
+  if (OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(base)) return true
   if (artifact.kind === 'html' && artifact.toolName === 'workspace.write') return true
   return false
 }
@@ -34,7 +51,7 @@ export function ChatArtifactCards({
   if (!visible.length) return null
   const open = async (artifact: ChatArtifact) => {
     try {
-      await sessionFolderBridge.open({ sessionId, relativePath: artifact.path })
+      await sessionFolderBridge.open({ sessionId, relativePath: artifactOpenRelativePath(artifact.path) })
     } catch (e) {
       onError?.(e instanceof Error ? e.message : '无法打开产物文件')
     }
