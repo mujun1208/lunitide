@@ -16,6 +16,7 @@ import (
 
 func testMeetings(t *testing.T) *meetings.Service {
 	t.Helper()
+	meetings.SilenceLoopbackForTest(t)
 	store, err := sqlitestore.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "meetings.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +118,7 @@ func TestStartSystemAudioAndExportLabel(t *testing.T) {
 	if _, err := svc.Start(ctx, "坏", "remote"); err != meetings.ErrInvalid {
 		t.Fatalf("invalid source = %v", err)
 	}
+	meetings.InstallLoopbackForTest(t, func() []byte { return nil })
 	started, err := svc.Start(ctx, "周会", meetings.AudioMicrophoneAndSystem)
 	if err != nil || started.AudioSource != meetings.AudioMicrophoneAndSystem {
 		t.Fatalf("start mix = %#v %v", started, err)
@@ -275,7 +277,7 @@ func TestSummarizeLargeTranscriptSucceedsChunked(t *testing.T) {
 	}
 }
 
-func TestSummarizeCanceledContextPersistsNeedsSummary(t *testing.T) {
+func TestSummarizeIgnoresCallerCancel(t *testing.T) {
 	svc := testMeetings(t)
 	ctx := context.Background()
 	started, err := svc.Start(ctx, "周会", "")
@@ -291,22 +293,19 @@ func TestSummarizeCanceledContextPersistsNeedsSummary(t *testing.T) {
 	ctx2, cancel := context.WithCancel(context.Background())
 	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
 		cancel()
-		<-ctx.Done()
-		return meetings.Notes{}, ctx.Err()
+		return meetings.Notes{Title: "评审", Summary: "背景：对齐。\n讨论要点：范围。\n结论：继续。", Actions: "- 写纪要"}, nil
 	})
 	got, err := svc.Summarize(ctx2, started.MeetingID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != meetings.StatusNeedsSummary {
-		t.Fatalf("canceled summarize = %#v", got)
-	}
-	if !strings.Contains(got.SummaryError, "尚未生成摘要") {
-		t.Fatalf("error = %q", got.SummaryError)
+	if got.Status != meetings.StatusReady || !strings.Contains(got.Summary, "结论") {
+		t.Fatalf("summarize after caller cancel = %#v", got)
 	}
 }
 
 func TestGetAndListReclaimAbandonedSummarizing(t *testing.T) {
+	meetings.SilenceLoopbackForTest(t)
 	store, err := sqlitestore.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "meetings.db"))
 	if err != nil {
 		t.Fatal(err)

@@ -41,6 +41,7 @@ export function PeoplePage({
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [pendingSave, setPendingSave] = useState<PeopleMessageDTO>()
   const [notice, setNotice] = useState('')
+  const [noticeError, setNoticeError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [midWidth, startMidResize] = usePanelResize({
     storageKey: 'lunitide:people-mid-width',
@@ -54,6 +55,11 @@ export function PeoplePage({
   const sending = useRef(false)
   threadIdRef.current = thread?.threadId
 
+  const showNotice = (message: string, error = false) => {
+    setNotice(message)
+    setNoticeError(Boolean(message) && error)
+  }
+
   const refresh = async () => {
     const [profile, list, threadList] = await Promise.all([identity.get(), people.list(), people.threadList()])
     setMe(profile)
@@ -62,7 +68,7 @@ export function PeoplePage({
   }
 
   useEffect(() => { setRail(initialRail) }, [initialRail])
-  useEffect(() => { void refresh().catch(e => setNotice(e instanceof Error ? e.message : '通讯录加载失败')) }, [identity, people])
+  useEffect(() => { void refresh().catch(e => showNotice(e instanceof Error ? e.message : '通讯录加载失败', true)) }, [identity, people])
   useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [messages])
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -101,14 +107,14 @@ export function PeoplePage({
   const openPeer = async (peer: PeopleContactDTO) => {
     setCard(peer)
     setBusy(true)
-    setNotice('')
+    showNotice('')
     try {
       const opened = await people.threadOpen({ peerSubjectId: peer.subjectId })
       setThread(opened.thread)
       setMessages(opened.messages)
       await refresh()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '无法打开会话')
+      showNotice(e instanceof Error ? e.message : '无法打开会话', true)
     } finally {
       setBusy(false)
     }
@@ -123,7 +129,7 @@ export function PeoplePage({
       setCard(opened.thread.members.find(m => !m.self))
       await refresh()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '无法打开会话')
+      showNotice(e instanceof Error ? e.message : '无法打开会话', true)
     } finally {
       setBusy(false)
     }
@@ -131,10 +137,17 @@ export function PeoplePage({
 
   const send = async (kind: 'text' | 'emoji' | 'image' | 'file', body = draft, file?: File, localPath?: string, fileName?: string, fileMime?: string) => {
     const threadId = threadIdRef.current
-    if (!threadId || sending.current) return
+    if (!threadId) {
+      showNotice('请先打开会话', true)
+      return
+    }
+    if (sending.current) {
+      showNotice('正在发送上一条消息，请稍候', true)
+      return
+    }
     sending.current = true
     setBusy(true)
-    setNotice('')
+    showNotice('')
     try {
       let payload: Parameters<PeopleBridge['threadSend']>[0] = { threadId, kind, body }
       if (localPath) {
@@ -145,14 +158,14 @@ export function PeoplePage({
         if (nativePath) {
           payload = { threadId, kind: fileKind, fileName: file.name || fileName, fileMime: file.type || fileMime, localPath: nativePath }
         } else {
-          if (file.size > INLINE_MAX) setNotice(`正在读取 ${file.name}…`)
+          if (file.size > INLINE_MAX) showNotice(`正在读取 ${file.name}…`)
           const buf = new Uint8Array(await readBrowserFile(file))
           if (buf.length > MAX_FILE) throw new Error('文件需小于 32 MiB')
           if (buf.length <= INLINE_MAX) {
             payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, contentBase64: bytesToB64(buf) }
           } else {
             const staged = await stageBrowserFile(people, file, buf, (percent, chunk, total) => {
-              setNotice(`正在分片上传 ${file.name}… ${percent}%（${chunk}/${total}）`)
+              showNotice(`正在分片上传 ${file.name}… ${percent}%（${chunk}/${total}）`)
             })
             payload = { threadId, kind: fileKind, fileName: file.name, fileMime: file.type || fileMime, localPath: staged }
           }
@@ -163,9 +176,9 @@ export function PeoplePage({
       setDraft('')
       setEmojiOpen(false)
       await refresh()
-      if (result.offer?.status === 'pending') setNotice(`已发出文件「${result.offer.fileName}」，对方必须确认后才会保存。`)
+      if (result.offer?.status === 'pending') showNotice(`已发出文件「${result.offer.fileName}」，对方必须确认后才会保存。`)
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '发送失败')
+      showNotice(e instanceof Error ? e.message : '发送失败', true)
     } finally {
       sending.current = false
       setBusy(false)
@@ -173,7 +186,14 @@ export function PeoplePage({
   }
 
   const pickNative = async (folder: boolean) => {
-    if (!thread || busy) return
+    if (!thread) {
+      showNotice('请先打开会话', true)
+      return
+    }
+    if (sending.current) {
+      showNotice('正在发送上一条消息，请稍候', true)
+      return
+    }
     try {
       const picked = await people.filePick({ folder })
       const kind = !folder && picked.fileName.match(/\.(png|jpe?g|gif|webp|bmp)$/i) ? 'image' : 'file'
@@ -181,7 +201,7 @@ export function PeoplePage({
     } catch (e) {
       const msg = e instanceof Error ? e.message : '无法选择文件'
       if (/取消/.test(msg)) return
-      setNotice(msg)
+      showNotice(msg, true)
     }
   }
 
@@ -197,17 +217,28 @@ export function PeoplePage({
   }
 
   const grabScreen = async () => {
-    if (!threadIdRef.current || sending.current) return
+    if (!threadIdRef.current) {
+      showNotice('请先打开会话', true)
+      return
+    }
+    if (sending.current) {
+      showNotice('正在发送上一条消息，请稍候', true)
+      return
+    }
+    showNotice('正在截取本机画面…')
     try {
       const file = await captureThisPcFrame({
-        maxBytes: INLINE_MAX,
+        maxBytes: 512 * 1024,
         nativeCapture: () => people.screenCapture({}),
       })
       await send('image', '', file)
     } catch (e) {
       const name = e instanceof DOMException ? e.name : ''
-      if (name === 'AbortError' || name === 'NotAllowedError') return
-      setNotice(e instanceof Error ? e.message : '无法截取本机画面')
+      if (name === 'AbortError' || name === 'NotAllowedError') {
+        showNotice('')
+        return
+      }
+      showNotice(e instanceof Error ? e.message : '无法截取本机画面', true)
     }
   }
 
@@ -386,7 +417,7 @@ export function PeoplePage({
                 <button type="button" onClick={() => void pickNative(false)} aria-label="发送本机文件" title="从这台电脑选择文件发送，需对方确认后才会保存">📎</button>
                 <button type="button" onClick={() => void pickNative(true)} aria-label="发送文件夹" title="选择本机文件夹并打包为 zip 发送">📁</button>
               </div>
-              {emojiOpen && <div className="people-emoji">{PEOPLE_EMOJI.map(item => <button type="button" key={item} onClick={() => void send('emoji', item)}>{item}</button>)}</div>}
+              {emojiOpen && <div className="people-emoji">{PEOPLE_EMOJI.map(item => <button type="button" key={item} onClick={() => { setDraft(d => d + item); setEmojiOpen(false) }}>{item}</button>)}</div>}
               <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="发消息、拖入文件或粘贴图片。文件需对方确认。" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (draft.trim()) void send('text') } }} />
               <button className="primary" disabled={busy || !draft.trim()}>发送</button>
             </form>
@@ -403,7 +434,7 @@ export function PeoplePage({
             <p>像微信一样点开名片进入一对一。群聊需要先配对。BeeBEEP 式桌面共享和默认自动收文件不会做。</p>
           </div>
         )}
-        {notice && <p className="people-notice" role="status">{notice}</p>}
+        {notice && <p className={`people-notice${noticeError ? ' is-error' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
       </section>
 
       {groupOpen && (

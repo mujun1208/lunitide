@@ -43,7 +43,16 @@ func injectVisionDescription(messages []gateway.Message, text string) []gateway.
 	return append(out, gateway.Message{Role: gateway.RoleUser, Content: block})
 }
 
-func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, images []gateway.Image) (string, bool) {
+func lastUserContent(messages []gateway.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == gateway.RoleUser {
+			return strings.TrimSpace(messages[i].Content)
+		}
+	}
+	return ""
+}
+
+func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, images []gateway.Image, userText string) (string, bool) {
 	if len(images) == 0 || llm.SupportsVision || e.providers == nil {
 		return "", false
 	}
@@ -51,15 +60,18 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if err != nil {
 		return "", false
 	}
-	catalog := provider.CatalogForKind(items, provider.KindVision)
+	catalog := provider.VisionDescribeCatalog(items, llm.ModelID)
 	if len(catalog) == 0 {
 		return "", false
 	}
+	prompt := visionDescribePrompt
+	if hint := strings.TrimSpace(userText); hint != "" {
+		prompt += "\n\nUser message:\n" + hint
+	}
 	req := gateway.Request{
-		Model:      catalog[0].Model.ModelID,
-		Messages:   []gateway.Message{{Role: gateway.RoleUser, Content: visionDescribePrompt}},
-		Images:     images,
-		MaxTokens:  2048,
+		Messages:    []gateway.Message{{Role: gateway.RoleUser, Content: prompt}},
+		Images:      images,
+		MaxTokens:   2048,
 		MaxAttempts: 1,
 	}
 	for _, entry := range catalog {

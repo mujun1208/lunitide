@@ -89,3 +89,38 @@ func CatalogForKind(items []Provider, kind Kind) []CatalogEntry {
 	})
 	return out
 }
+
+// VisionDescribeCatalog is KindVision first, then LLM rows marked SupportsVision
+// (except skipModelID, usually the active chat model). Used when the chat LLM
+// cannot see images and a dedicated OCR/VLM must describe them.
+func VisionDescribeCatalog(items []Provider, skipModelID string) []CatalogEntry {
+	skipModelID = strings.TrimSpace(skipModelID)
+	seen := map[string]bool{}
+	out := make([]CatalogEntry, 0)
+	add := func(entry CatalogEntry) {
+		if skipModelID != "" && entry.Model.ModelID == skipModelID {
+			return
+		}
+		key := entry.Provider.ID + "\x00" + entry.Model.ModelID
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, entry)
+	}
+	for _, entry := range CatalogForKind(items, KindVision) {
+		add(entry)
+	}
+	for _, p := range items {
+		if p.Status != StatusEnabled || p.CredentialState != CredentialConfigured || p.CredentialRef == "" {
+			continue
+		}
+		for _, m := range p.Models {
+			if !m.SupportsVision || m.EffectiveKind() != KindLLM {
+				continue
+			}
+			add(CatalogEntry{Provider: p, Model: m})
+		}
+	}
+	return out
+}

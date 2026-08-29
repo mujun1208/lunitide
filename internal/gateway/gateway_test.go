@@ -274,17 +274,45 @@ func TestCancelAndRequestBudget(t *testing.T) {
 
 func TestVisionPayloadContracts(t *testing.T) {
 	in := Request{Model: "vision", Messages: []Message{{Role: RoleUser, Content: "inspect"}}, Images: []Image{{MIME: "image/png", Data: []byte{1, 2, 3}}}}
-	openBody, err := json.Marshal(openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil)})
+	openBody, err := json.Marshal(openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil, false)})
 	if err != nil || !strings.Contains(string(openBody), `"type":"image_url"`) || !strings.Contains(string(openBody), `data:image/png;base64,AQID`) {
 		t.Fatalf("OpenAI vision payload=%s err=%v", openBody, err)
+	}
+	rawBody, err := json.Marshal(openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil, true)})
+	if err != nil || strings.Contains(string(rawBody), `data:image`) || !strings.Contains(string(rawBody), `"url":"AQID"`) {
+		t.Fatalf("OpenAI raw base64 vision payload=%s err=%v", rawBody, err)
 	}
 	anthropicBody, err := json.Marshal(anthropicPayload(in, false, nil))
 	if err != nil || !strings.Contains(string(anthropicBody), `"type":"image"`) || !strings.Contains(string(anthropicBody), `"media_type":"image/png"`) || !strings.Contains(string(anthropicBody), `"data":"AQID"`) {
 		t.Fatalf("Anthropic vision payload=%s err=%v", anthropicBody, err)
 	}
-	plain, _ := json.Marshal(openAIRequest{Model: "plain", Messages: openAIMessages(Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil)})
+	plain, _ := json.Marshal(openAIRequest{Model: "plain", Messages: openAIMessages(Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil, false)})
 	if !strings.Contains(string(plain), `"content":"hi"`) {
 		t.Fatalf("plain payload compatibility lost: %s", plain)
+	}
+}
+
+func TestOpenAIRetriesRawBase64WhenDataURIRejected(t *testing.T) {
+	f := &fakeConnector{responses: []*http.Response{
+		response(400, `{"error":{"message":"\"url\" field must be a base64 encoded image"}}`),
+		response(200, `{"choices":[{"message":{"role":"assistant","content":"ocr ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`),
+	}}
+	out, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, Request{
+		Model: "qwen2-vl-8b", Messages: []Message{{Role: RoleUser, Content: "describe"}}, Images: []Image{{MIME: "image/png", Data: []byte{1, 2, 3}}},
+	})
+	if err != nil || out.Message.Content != "ocr ok" {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	if len(f.requests) != 2 {
+		t.Fatalf("requests=%d", len(f.requests))
+	}
+	first, _ := io.ReadAll(f.requests[0].Body)
+	second, _ := io.ReadAll(f.requests[1].Body)
+	if !strings.Contains(string(first), "data:image/png;base64,") {
+		t.Fatalf("first should be data URI: %s", first)
+	}
+	if strings.Contains(string(second), "data:image") || !strings.Contains(string(second), `"url":"AQID"`) {
+		t.Fatalf("second should be raw base64: %s", second)
 	}
 }
 

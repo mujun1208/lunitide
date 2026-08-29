@@ -1,5 +1,12 @@
+import { BridgeClientError } from '../bridge/client'
+
 const CAPTURE_HINT = '当前环境无法截取本机画面。可粘贴截图或选择图片。这不会把桌面共享给其他电脑。'
-const NATIVE_UNSUPPORTED = 'PEOPLE_CAPTURE_UNSUPPORTED'
+const NATIVE_FALLBACK_CODES = new Set([
+  'PEOPLE_CAPTURE_UNSUPPORTED',
+  'PEOPLE_CAPTURE_FAILED',
+  'REQUEST_DEADLINE_EXCEEDED',
+  'BRIDGE_UNAVAILABLE',
+])
 
 export type CaptureThisPcOptions = {
   maxBytes?: number
@@ -87,10 +94,11 @@ async function grabVideoFrame(stream: MediaStream): Promise<HTMLCanvasElement> {
   return canvas
 }
 
-function isNativeUnsupported(err: unknown): boolean {
+function shouldFallbackFromNative(err: unknown): boolean {
+  if (err instanceof BridgeClientError) return NATIVE_FALLBACK_CODES.has(err.code)
   if (!err || typeof err !== 'object') return false
   const code = 'code' in err ? String((err as { code?: string }).code ?? '') : ''
-  return code === NATIVE_UNSUPPORTED
+  return NATIVE_FALLBACK_CODES.has(code)
 }
 
 async function captureViaDisplayMedia(options: CaptureThisPcOptions, maxBytes: number, fileName: string): Promise<File> {
@@ -107,7 +115,7 @@ async function captureViaDisplayMedia(options: CaptureThisPcOptions, maxBytes: n
 }
 
 export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Promise<File> {
-  const maxBytes = options.maxBytes ?? 80 * 1024
+  const maxBytes = options.maxBytes ?? 512 * 1024
   const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
   const fileName = `screenshot-${stamp}.jpg`
   const preferNative = options.preferNative !== false
@@ -117,7 +125,7 @@ export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Pr
       const shot = await options.nativeCapture()
       return pngBase64ToJpegFile(shot.contentBase64, maxBytes, fileName)
     } catch (err) {
-      if (!isNativeUnsupported(err)) throw err
+      if (!shouldFallbackFromNative(err)) throw err
     }
   }
 

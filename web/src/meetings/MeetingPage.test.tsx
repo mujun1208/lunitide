@@ -31,22 +31,19 @@ const speech = vi.hoisted(() => ({
   }),
 }))
 
-vi.mock('./meetingAsr', () => ({
-  startMeetingSpeech: (options: { onFinal: (text: string) => void; onError?: (error: Error) => void }) => {
-    speech.onFinal = options.onFinal
-    speech.onError = options.onError
-    return speech.start(options)
-  },
-  prepareMeetingCapture: (...args: unknown[]) => speech.prepare(...args),
-  recoverMeetingSystemAudio: (plan: { extraStreams: unknown[]; audioSource: string; notice: string }) => Promise.resolve(plan),
-  releaseMeetingCapture: vi.fn(),
-  planHasLiveSystemAudio: (plan?: { extraStreams?: { getAudioTracks?: () => { readyState?: string }[] }[] }) =>
-    !!plan?.extraStreams?.some(stream => (stream.getAudioTracks?.() ?? []).some(track => track.readyState !== 'ended')),
-  captureStateNotice: (plan?: { notice?: string; audioSource?: string }) => plan?.notice ?? '',
-  audioSourceLabel: (source: string, live?: boolean) => source === 'microphone_and_system'
-    ? (live ? '正在录制麦克风与系统声音' : '麦克风 + 系统声音（未共享给其他电脑）')
-    : (live ? '正在录制麦克风' : '麦克风（系统声音未收录时仍可一直录）'),
-}))
+vi.mock('./meetingAsr', async importOriginal => {
+  const actual = await importOriginal<typeof import('./meetingAsr')>()
+  return {
+    ...actual,
+    startMeetingSpeech: (options: { onFinal: (text: string) => void; onError?: (error: Error) => void }) => {
+      speech.onFinal = options.onFinal
+      speech.onError = options.onError
+      return speech.start(options)
+    },
+    prepareMeetingCapture: (...args: unknown[]) => speech.prepare(...args),
+    recoverMeetingSystemAudio: (plan: { extraStreams: unknown[]; audioSource: string; notice: string }) => Promise.resolve(plan),
+  }
+})
 
 vi.mock('./meetingAudio', async importOriginal => {
   const actual = await importOriginal<typeof import('./meetingAudio')>()
@@ -66,6 +63,7 @@ function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
     start: vi.fn(),
     append: vi.fn(),
     audioAppend: vi.fn().mockResolvedValue({ meetingId, audioMs: 1000 }),
+    loopbackPoll: vi.fn().mockResolvedValue({ meetingId, active: false, pcm: '' }),
     stop: vi.fn(),
     get: vi.fn(),
     heartbeat: vi.fn().mockResolvedValue({ ...base, status: 'recording' as const }),
@@ -121,8 +119,8 @@ describe('MeetingPage', () => {
     await screen.findByRole('button', { name: '开始录制' })
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone_and_system' })
     expect(speech.prepare).toHaveBeenCalledWith({ interactive: false })
-    expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone' })
     speech.onFinal?.('先对齐范围')
     expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
     expect(meetings.append).toHaveBeenCalledWith(expect.objectContaining({ meetingId, text: '先对齐范围' }))
@@ -156,21 +154,24 @@ describe('MeetingPage', () => {
     expect(screen.queryByText('编造的决议')).not.toBeInTheDocument()
   })
 
-  test('one-click start always tries system audio and records the mix when capture succeeds', async () => {
+  test('engine mix skips browser capture and polls native loopback', async () => {
     const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, audioSource: 'microphone_and_system' }
-    const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
-    speech.prepare.mockResolvedValue({ extraStreams: [{ id: 'loop' }], audioSource: 'microphone_and_system', notice: '' })
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      loopbackPoll: vi.fn().mockResolvedValue({ meetingId, active: true, pcm: '' }),
+    })
     speech.start.mockResolvedValue(speech.handle())
     const user = userEvent.setup()
     render(<MeetingPage meetings={meetings} />)
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
-    expect(speech.prepare).toHaveBeenCalledWith({ interactive: false })
     expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone_and_system' })
+    expect(speech.prepare).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(meetings.loopbackPoll).toHaveBeenCalledWith({ meetingId }))
     expect(await screen.findByText('正在录制麦克风与系统声音')).toBeInTheDocument()
   })
 
-  test('starts mic-only recording when loopback is unavailable without opening the share picker', async () => {
+  test('starts mic-only recording when engine loopback is unavailable without opening the share picker', async () => {
     speech.prepare.mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '未能收录系统声音，已继续录制麦克风。' })
     const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
     const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
@@ -179,7 +180,7 @@ describe('MeetingPage', () => {
     render(<MeetingPage meetings={meetings} />)
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     await vi.waitFor(() => expect(speech.prepare).toHaveBeenCalledWith({ interactive: false }))
-    expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone' })
+    expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone_and_system' })
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
   })
 
@@ -198,6 +199,22 @@ describe('MeetingPage', () => {
     expect(meetings.get).toHaveBeenCalledWith({ meetingId })
     expect(speech.start).toHaveBeenCalled()
     expect(screen.getByText(/录制中/)).toBeInTheDocument()
+  })
+
+  test('resumes leftover engine mix without browser capture', async () => {
+    const leftover: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, audioSource: 'microphone_and_system', transcript: '已听到的一句' }
+    const meetings = bridge({
+      list: vi.fn().mockResolvedValue({ items: [leftover] }),
+      get: vi.fn().mockResolvedValue(leftover),
+      stop: vi.fn(),
+      heartbeat: vi.fn().mockResolvedValue(leftover),
+      loopbackPoll: vi.fn().mockResolvedValue({ meetingId, active: true, pcm: '' }),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    render(<MeetingPage meetings={meetings} />)
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(speech.prepare).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(meetings.loopbackPoll).toHaveBeenCalledWith({ meetingId }))
   })
 
   test('keeps recording after a retryable append timeout and still writes the next line', async () => {
@@ -278,7 +295,7 @@ describe('MeetingPage', () => {
       stop: vi.fn(),
     }
     const extra = { getAudioTracks: () => [track], getVideoTracks: () => [], getTracks: () => [track] }
-    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, audioSource: 'microphone_and_system' }
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
     const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
     speech.prepare.mockResolvedValue({ extraStreams: [extra], audioSource: 'microphone_and_system', notice: '' })
     speech.start.mockResolvedValue(speech.handle())

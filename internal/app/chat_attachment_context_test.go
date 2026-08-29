@@ -33,7 +33,7 @@ func (chatAttachmentProvider) Get(context.Context, string) (provider.Provider, e
 		ID: chatAttachmentProviderID, Protocol: provider.ProtocolOpenAICompatible,
 		BaseURL: "https://example.com", CredentialRef: "credential-ref",
 		CredentialState: provider.CredentialConfigured, Status: provider.StatusEnabled,
-		Models: []provider.Model{{ModelID: "model", ContextWindow: 128000}},
+		Models: []provider.Model{{ModelID: "model", ContextWindow: 128000, SupportsVision: true}},
 	}, nil
 }
 
