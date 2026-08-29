@@ -93,15 +93,16 @@ func handleTemplateList(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Name           string `json:"name"`
-		TemplateType   string `json:"templateType"`
-		DocumentType   string `json:"documentType"`
-		Description    string `json:"description"`
-		Client         string `json:"client"`
-		MimeType       string `json:"mimeType"`
-		FileName       string `json:"fileName"`
-		FilePath       string `json:"filePath"`
-		ContentBase64  string `json:"contentBase64"`
+		Name          string `json:"name"`
+		TemplateType  string `json:"templateType"`
+		DocumentType  string `json:"documentType"`
+		Description   string `json:"description"`
+		Client        string `json:"client"`
+		MimeType      string `json:"mimeType"`
+		FileName      string `json:"fileName"`
+		FilePath      string `json:"filePath"`
+		UploadID      string `json:"uploadId"`
+		ContentBase64 string `json:"contentBase64"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 参数无效", false)
@@ -139,15 +140,26 @@ func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err := asset.ValidateTemplateFile(tplType, fileName); err != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", err.Error(), false)
 	}
-	if p.ContentBase64 == "" {
+	var content []byte
+	switch {
+	case strings.TrimSpace(p.UploadID) != "":
+		if strings.TrimSpace(p.ContentBase64) != "" {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 不能同时提供 uploadId 与 contentBase64", false)
+		}
+		content, err = e.consumeTemplateStage(strings.TrimSpace(p.UploadID))
+		if err != nil {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 分片上传未完成或已过期", false)
+		}
+	case strings.TrimSpace(p.ContentBase64) != "":
+		if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
+			return bridge.Failure(r.ID, r.TraceID, "TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
+		}
+		content, err = base64.StdEncoding.DecodeString(p.ContentBase64)
+		if err != nil || len(content) == 0 || len(content) > attachmentapp.MaxFileSize {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create contentBase64 无效", false)
+		}
+	default:
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create 需要上传附件", false)
-	}
-	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
-		return bridge.Failure(r.ID, r.TraceID, "TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
-	}
-	content, err := base64.StdEncoding.DecodeString(p.ContentBase64)
-	if err != nil || len(content) == 0 || len(content) > attachmentapp.MaxFileSize {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.create contentBase64 无效", false)
 	}
 	mimeType := asset.DetectMimeType(fileName)
 	fileRef := ulid.Make().String()

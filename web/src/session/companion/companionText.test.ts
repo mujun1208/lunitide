@@ -184,6 +184,8 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('打开桌面上的协议文档')).toBe(false)
     expect(looksIncompleteUtterance('帮我在文档的身份证号码')).toBe(true)
     expect(looksIncompleteUtterance('帮我在文档的身份证号码写进去')).toBe(false)
+    expect(looksIncompleteUtterance('身份证号码后面写204040')).toBe(false)
+    expect(looksIncompleteUtterance('在身份证号码后面写204040')).toBe(false)
   })
 })
 

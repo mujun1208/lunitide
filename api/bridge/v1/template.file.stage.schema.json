@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/template.file.stage.schema.json",
+  "title": "template.file.stage payload",
+  "x-method": "template.file.stage",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "uploadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "fileName": { "type": "string", "maxLength": 260 },
+    "fileMime": { "type": "string", "maxLength": 128 },
+    "index": { "type": "integer", "minimum": 0, "maximum": 4096 },
+    "last": { "type": "boolean" },
+    "contentBase64": { "type": "string", "minLength": 1, "maxLength": 360000 }
+  },
+  "required": ["uploadId", "last", "contentBase64"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ready": { "type": "boolean" },
+      "uploadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "bytes": { "type": "integer", "minimum": 0 }
+    },
+    "required": ["ready", "uploadId", "bytes"]
+  },
+  "x-examples": {
+    "positive": [{ "uploadId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "last": true, "contentBase64": "c2VjcmV0", "fileName": "blueprint.dot" }],
+    "negative": [{}, { "uploadId": "bad", "last": false, "contentBase64": "aa" }]
+  }
+}

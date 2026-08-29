@@ -38,11 +38,16 @@ describe('conversation stream scroll pin', () => {
     expect(pauseFollowOnUserIntent({userFollowPaused: false, nearBottom: true, deltaY: -40})).toBe(true)
   })
 
-  it('resumes follow only after the user scrolls back to the bottom', () => {
+  it('stays paused after manual scroll until an explicit resume', () => {
     const mid = applyConversationUserScroll({userFollowPaused: true, lastScrollTop: 200}, {scrollHeight: 900, clientHeight: 300, scrollTop: 360})
     expect(mid.userFollowPaused).toBe(true)
     const bottom = applyConversationUserScroll(mid, {scrollHeight: 900, clientHeight: 300, scrollTop: 600})
-    expect(bottom.userFollowPaused).toBe(false)
+    expect(bottom.userFollowPaused).toBe(true)
+    expect(conversationNearBottom({scrollHeight: 900, clientHeight: 300, scrollTop: 600})).toBe(true)
+  })
+
+  it('pauses on any user scroll movement including scroll-down', () => {
+    expect(applyConversationUserScroll({userFollowPaused: false, lastScrollTop: 200}, {scrollHeight: 900, clientHeight: 300, scrollTop: 360}).userFollowPaused).toBe(true)
   })
 
   it('does not call scrollTo when userFollowPaused, including mermaid layout complete', () => {

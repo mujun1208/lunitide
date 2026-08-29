@@ -79,14 +79,62 @@ func pickNamedEdit(nodes []mediaUINode, want string) *mediaUINode {
 	return best
 }
 
+func normalizeAfterLabel(s string) string {
+	s = strings.TrimSpace(s)
+	return strings.TrimRight(s, "：:")
+}
+
+func dismissFindPlaceCaretAfterMatch(ctx context.Context, invoke ccInvoker, session string, approved bool) {
+	// Word keeps the Navigation pane open after Ctrl+F; Esc clears search but
+	// focus often stays in the pane, so End/Right never reach the document.
+	_ = ccPress(ctx, invoke, session, "esc", approved)
+	mediaSleep(100 * time.Millisecond)
+	_ = ccPress(ctx, invoke, session, "esc", approved)
+	mediaSleep(120 * time.Millisecond)
+	_ = ccPress(ctx, invoke, session, "right", approved)
+	mediaSleep(40 * time.Millisecond)
+	// Skip a trailing colon/full-width colon after labels like 身份证号码：
+	_ = ccPress(ctx, invoke, session, "right", approved)
+}
+
 func nodeIsLabelText(name, want string) bool {
-	g, w := foldMedia(name), foldMedia(want)
-	if g == "" || w == "" {
-		return false
+	return labelsMatch(want, name)
+}
+
+func documentLabelSearchTerms(after string) []string {
+	after = strings.TrimSpace(after)
+	if after == "" {
+		return nil
 	}
-	g = strings.TrimRight(g, "：:")
-	w = strings.TrimRight(w, "：:")
-	return g == w
+	seen := map[string]bool{}
+	var terms []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		terms = append(terms, s)
+	}
+	add(after)
+	for _, alias := range labelAliases(after) {
+		add(alias)
+	}
+	return terms
+}
+
+func documentLabelSearchTerm(after string) string {
+	terms := documentLabelSearchTerms(after)
+	if len(terms) == 0 {
+		return after
+	}
+	best := terms[0]
+	for _, term := range terms[1:] {
+		if len([]rune(term)) > len([]rune(best)) {
+			best = term
+		}
+	}
+	return best
 }
 
 func pickDocumentLabel(nodes []mediaUINode, want string) *mediaUINode {
@@ -139,7 +187,7 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 	}
 
 	window := strings.TrimSpace(a.Window)
-	after := strings.TrimSpace(a.After)
+	after := normalizeAfterLabel(a.After)
 	prevWin := mediaInputWindow
 	if window != "" {
 		mediaInputWindow = window
@@ -172,22 +220,22 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
 			}
 			mediaSleep(80 * time.Millisecond)
-			_ = ccPress(ctx, invoke, session, "end", approved)
 			if err := ccType(ctx, invoke, session, text, approved); err != nil {
 				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
 			}
 		} else if label := pickDocumentLabel(nodes, after); label != nil {
 			_ = ccClickName(ctx, invoke, session, clipMediaName(label.Name), 1, approved)
 			mediaSleep(80 * time.Millisecond)
-			_ = ccPress(ctx, invoke, session, "end", approved)
+			_ = ccPress(ctx, invoke, session, "right", approved)
 			_ = ccPress(ctx, invoke, session, "right", approved)
 			if err := ccType(ctx, invoke, session, text, approved); err != nil {
 				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
 			}
 		} else {
+			search := documentLabelSearchTerm(after)
 			_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "f")
 			mediaSleep(220 * time.Millisecond)
-			if err := ccType(ctx, invoke, session, after, approved); err != nil {
+			if err := ccType(ctx, invoke, session, search, approved); err != nil {
 				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
 			}
 			mediaSleep(80 * time.Millisecond)
@@ -195,10 +243,7 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
 			}
 			mediaSleep(180 * time.Millisecond)
-			_ = ccPress(ctx, invoke, session, "esc", approved)
-			mediaSleep(80 * time.Millisecond)
-			_ = ccPress(ctx, invoke, session, "end", approved)
-			_ = ccPress(ctx, invoke, session, "right", approved)
+			dismissFindPlaceCaretAfterMatch(ctx, invoke, session, approved)
 			if err := ccType(ctx, invoke, session, text, approved); err != nil {
 				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
 			}

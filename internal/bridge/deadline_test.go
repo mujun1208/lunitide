@@ -27,4 +27,16 @@ func TestMaxDeadlineMSAllowsLongMeetings(t *testing.T) {
 	if MeetingLiveDeadlineMS <= 60_000 {
 		t.Fatalf("live meeting RPCs must outlast a 60s mock: %d", MeetingLiveDeadlineMS)
 	}
+	if MaxDeadlineMS("people.file.stage") != PeopleFileDeadlineMS {
+		t.Fatalf("people.file.stage cap = %d", MaxDeadlineMS("people.file.stage"))
+	}
+	if MaxDeadlineMS("people.thread.send") != PeopleFileDeadlineMS {
+		t.Fatalf("people.thread.send cap = %d", MaxDeadlineMS("people.thread.send"))
+	}
+	if MaxDeadlineMS("template.file.stage") != TemplateFileDeadlineMS {
+		t.Fatalf("template.file.stage cap = %d", MaxDeadlineMS("template.file.stage"))
+	}
+	if MaxDeadlineMS("template.create") != TemplateFileDeadlineMS {
+		t.Fatalf("template.create cap = %d", MaxDeadlineMS("template.create"))
+	}
 }

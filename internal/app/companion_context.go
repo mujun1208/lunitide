@@ -440,6 +440,14 @@ func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMes
 	return e.resolveMediaPlayArgs(sessionID, raw), true
 }
 
+func (e *Engine) companionAutoDesktopTypeArgs(sessionID, goal string) (json.RawMessage, bool) {
+	args := fallbackDesktopTypeArgs(goal)
+	if len(args) == 0 {
+		return nil, false
+	}
+	return args, true
+}
+
 func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
 	if name == "media.play" {
 		args = e.resolveMediaPlayArgs(session, args)

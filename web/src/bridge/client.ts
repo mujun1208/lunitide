@@ -106,6 +106,7 @@ import {
   type AttachmentListPayload, type AttachmentListResult,
   type TemplateListPayload, type TemplateListResult,
   type TemplateCreatePayload, type TemplateCreateResult,
+  type TemplateFileStagePayload, type TemplateFileStageResult,
   type TemplateEnablePayload, type TemplateEnableResult,
   type TemplateVoidPayload, type TemplateVoidResult,
   type TemplateRestorePayload, type TemplateRestoreResult,
@@ -134,6 +135,7 @@ import {
   type PeopleFileDecidePayload, type PeopleContactDTO, type PeopleFileOfferDTO, type PeopleThreadDTO,
   type PeoplePeerAddPayload, type PeopleContactUpdatePayload, type PeopleThreadTypingPayload,
   type PeopleFileStagePayload, type PeopleFileStageResult, type PeopleFilePickPayload, type PeopleFilePickResult,
+  type PeopleScreenCapturePayload, type PeopleScreenCaptureResult,
   type MeetingsListResult, type MeetingsStartPayload, type MeetingsStartResult,
   type MeetingsAppendPayload, type MeetingsAppendResult, type MeetingsStopPayload, type MeetingsStopResult,
   type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
@@ -466,10 +468,14 @@ export const MEETING_STOP_DEADLINE_MS = 120_000
 export const MEETING_HEARTBEAT_DEADLINE_MS = 120_000
 export const MEETING_SUMMARIZE_DEADLINE_MS = 600_000
 export const MEETING_HEARTBEAT_INTERVAL_MS = 20_000
+export const PEOPLE_FILE_DEADLINE_MS = 120_000
+export const TEMPLATE_FILE_DEADLINE_MS = 120_000
 export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
   let cap = BRIDGE_DEADLINE_CAP_MS
   if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
   else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
+  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send') cap = PEOPLE_FILE_DEADLINE_MS
+  else if (method === 'template.file.stage' || method === 'template.create') cap = TEMPLATE_FILE_DEADLINE_MS
   else if (method === 'appUpdate.install') cap = 120_000
   return Math.min(cap, Math.max(1, deadlineMs))
 }
@@ -1011,6 +1017,7 @@ export const attachmentBridge: AttachmentBridge = {
 
 export interface TemplateBridge {
   list(payload?: TemplateListPayload): Promise<TemplateListResult>
+  fileStage(payload: TemplateFileStagePayload): Promise<TemplateFileStageResult>
   create(payload: TemplateCreatePayload, options?: MutationOptions<TemplateCreatePayload>): Promise<TemplateCreateResult>
   enable(payload: TemplateEnablePayload, options?: MutationOptions<TemplateEnablePayload>): Promise<TemplateEnableResult>
   void(payload: TemplateVoidPayload, options?: MutationOptions<TemplateVoidPayload>): Promise<TemplateVoidResult>
@@ -1021,7 +1028,8 @@ export function createTemplateBridge(transport: WebViewTransport, defaultDeadlin
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
   return {
     list: p => core.request('template.list', p ?? {}),
-    create: (p, o) => core.request('template.create', p, defaultDeadlineMs, o?.attempt),
+    fileStage: p => retryBridgeRequest(() => core.request('template.file.stage', p, TEMPLATE_FILE_DEADLINE_MS)),
+    create: (p, o) => retryBridgeRequest(() => core.request('template.create', p, TEMPLATE_FILE_DEADLINE_MS, o?.attempt)),
     enable: (p, o) => core.request('template.enable', p, defaultDeadlineMs, o?.attempt),
     void: (p, o) => core.request('template.void', p, defaultDeadlineMs, o?.attempt),
     restore: (p, o) => core.request('template.restore', p, defaultDeadlineMs, o?.attempt),
@@ -1032,6 +1040,7 @@ let templateSingleton: TemplateBridge | undefined
 export function getTemplateBridge(): TemplateBridge { return templateSingleton ??= createTemplateBridge(webview()) }
 export const templateBridge: TemplateBridge = {
   list: p => getTemplateBridge().list(p),
+  fileStage: p => getTemplateBridge().fileStage(p),
   create: (p, o) => getTemplateBridge().create(p, o),
   enable: (p, o) => getTemplateBridge().enable(p, o),
   void: (p, o) => getTemplateBridge().void(p, o),
@@ -1333,6 +1342,7 @@ export interface PeopleBridge{
   fileDecide(payload:PeopleFileDecidePayload):Promise<PeopleFileOfferDTO>
   fileStage(payload:PeopleFileStagePayload):Promise<PeopleFileStageResult>
   filePick(payload?:PeopleFilePickPayload):Promise<PeopleFilePickResult>
+  screenCapture(payload?:PeopleScreenCapturePayload):Promise<PeopleScreenCaptureResult>
   peerAdd(payload:PeoplePeerAddPayload):Promise<PeopleContactDTO>
   contactUpdate(payload:PeopleContactUpdatePayload):Promise<PeopleContactDTO>
 }
@@ -1342,7 +1352,7 @@ export function createIdentityBridge(transport:WebViewTransport=webview()):Ident
 }
 export function createPeopleBridge(transport:WebViewTransport=webview()):PeopleBridge{
   const core=createSimpleBridge(transport,{},12_000)
-  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>core.request('people.thread.send',p,30_000),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>core.request('people.file.stage',p,30_000),filePick:p=>core.request('people.file.pick',p??{},30_000),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
+  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS)),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>core.request('people.screen.capture',p??{},15_000),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
 }
 let identitySingleton:IdentityBridge|undefined
 let peopleSingleton:PeopleBridge|undefined

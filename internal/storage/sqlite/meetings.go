@@ -63,6 +63,11 @@ func (s *Store) InsertSegment(ctx context.Context, seg meetings.Segment) error {
 	return err
 }
 
+func (s *Store) DeleteSegments(ctx context.Context, meetingID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM meeting_segments WHERE meeting_id=?`, meetingID)
+	return err
+}
+
 func (s *Store) CountSegments(ctx context.Context, meetingID string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM meeting_segments WHERE meeting_id=?`, meetingID).Scan(&n)

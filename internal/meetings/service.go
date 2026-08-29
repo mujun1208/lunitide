@@ -104,6 +104,7 @@ type Store interface {
 	GetMeeting(ctx context.Context, id string) (Meeting, error)
 	ListMeetings(ctx context.Context, limit int) ([]Meeting, error)
 	InsertSegment(ctx context.Context, seg Segment) error
+	DeleteSegments(ctx context.Context, meetingID string) error
 	CountSegments(ctx context.Context, meetingID string) (int, error)
 	ListSegments(ctx context.Context, meetingID string) ([]Segment, error)
 	ReplaceDocs(ctx context.Context, meetingID string, docs []Doc) error
@@ -385,6 +386,9 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	m, err := s.Get(ctx, meetingID)
 	if err != nil {
 		return Meeting{}, err
+	}
+	if strings.TrimSpace(m.Transcript) == "" && len(m.Segments) > 0 {
+		m.Transcript = assembleTranscript(m.Segments)
 	}
 	if m.Status == StatusRecording {
 		return Meeting{}, ErrNotRecording

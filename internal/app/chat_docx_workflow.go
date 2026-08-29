@@ -1,11 +1,14 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -47,7 +50,7 @@ const (
 		"4) 必要时 web.search/web.fetch 核对时代或设定细节。\n" +
 		"5) 分章正文：每章可朗读的场景与对话。\n" +
 		"6) 再修订文风与去AI味。\n" +
-		"7) 最后生成：docx.gen（kind=novel；title+author；各章 Heading 1；桌面则 desktop=true）。\n" +
+		"7) 最后生成：docx.gen（kind=novel；title；author 可省略会自动填；各章 Heading 1；桌面则 desktop=true）。\n" +
 		"用户问进度时继续本流水线，不要重开一稿。\n"
 
 	reportGenBlockedMsg = "ok:false\ndocx.gen 被流水线拦住：还没做完调研与章节撰写。先 web.search（必要时 web.fetch）至少两轮，写好摘要/背景/分析/结论/待办，再调用 docx.gen。空稿或无标题样式的文件会被拒绝。\n"
@@ -378,6 +381,38 @@ func docxStageNudge(kind, stage string) gateway.Message {
 	return gateway.Message{Role: gateway.RoleSystem, Content: "继续报告流水线的下一步（" + stage + "）。" +
 		"还没有合格 docx.gen 之前不要结束本轮。需要网上论据就调用 web.search / web.fetch。" +
 		"禁止交无标题样式或特别简单的空稿。"}
+}
+
+func defaultNovelAuthor(e *Engine, goal string) string {
+	if e != nil && e.identity != nil {
+		nick := strings.TrimSpace(e.identity.Public().Nickname)
+		if nick != "" && nick != identity.DefaultNickname {
+			return nick
+		}
+	}
+	_ = goal
+	return officetools.DefaultNovelAuthor
+}
+
+func enrichDocxGenArgs(e *Engine, goal string, args json.RawMessage) json.RawMessage {
+	var m map[string]any
+	if json.Unmarshal(args, &m) != nil {
+		return args
+	}
+	kind, _ := m["kind"].(string)
+	if strings.ToLower(strings.TrimSpace(kind)) != docxKindNovel {
+		return args
+	}
+	author, _ := m["author"].(string)
+	if strings.TrimSpace(author) != "" {
+		return args
+	}
+	m["author"] = defaultNovelAuthor(e, goal)
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return args
+	}
+	return raw
 }
 
 func startDocxWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {

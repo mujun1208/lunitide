@@ -17,6 +17,8 @@ const (
 	catchupSlackMS = 15_000
 	// Skip the last live utterance's start so catch-up does not repeat it.
 	catchupOverlapMS = 4_000
+	// Mandarin meetings below this density are probably fragmentary live captions.
+	minTranscriptCharsPerSec = 2.0
 )
 
 var catchupJobDeadline = 9 * time.Minute
@@ -31,12 +33,41 @@ func (s *Service) SetAudioTranscriber(fn AudioTranscriber) { s.transcribe = fn }
 
 func (s *Service) SetAudioRoot(dir string) { s.audioRoot = strings.TrimSpace(dir) }
 
+// transcriptTooSparse flags live captions that kept pace but are far too short
+// for the recorded audio — common when streaming ASR drops most of a turn.
+func transcriptTooSparse(audioMS int64, transcript string) bool {
+	if audioMS < 60_000 {
+		return false
+	}
+	text := strings.TrimSpace(transcript)
+	if text == "" {
+		return true
+	}
+	secs := float64(audioMS) / 1000
+	if secs <= 0 {
+		return false
+	}
+	return float64(utf8.RuneCountInString(text))/secs < minTranscriptCharsPerSec
+}
+
+// shouldReplaceLiveCaptions drops fragmentary live captions only when they kept
+// pace with the recording clock. A large audio gap still needs append-only catch-up.
+func shouldReplaceLiveCaptions(audioMS, lastSegmentMS int64, transcript string) bool {
+	if !transcriptTooSparse(audioMS, transcript) {
+		return false
+	}
+	return audioMS-lastSegmentMS <= catchupSlackMS
+}
+
 // NeedsCatchup reports whether leftover audio should be transcribed after stop.
-func NeedsCatchup(audioMS, lastSegmentMS int64, hasTranscript bool) bool {
+func NeedsCatchup(audioMS, lastSegmentMS int64, hasTranscript bool, transcript string) bool {
 	if audioMS <= 3_000 {
 		return false
 	}
 	if !hasTranscript {
+		return true
+	}
+	if transcriptTooSparse(audioMS, transcript) {
 		return true
 	}
 	return audioMS-lastSegmentMS > catchupSlackMS
@@ -63,7 +94,7 @@ func (s *Service) CatchUp(ctx context.Context, meetingID string) (Meeting, error
 	}
 	audioMS := s.audioDurationMS(meetingID)
 	lastMS, hasText := lastSegmentWatermark(m.Segments, m.Transcript)
-	if !NeedsCatchup(audioMS, lastMS, hasText) {
+	if !NeedsCatchup(audioMS, lastMS, hasText, m.Transcript) {
 		return m, nil
 	}
 	// A long session whose live ASR died mid-way can leave large audio gaps.
@@ -84,12 +115,20 @@ func (s *Service) catchUpOnce(ctx context.Context, meetingID string) (Meeting, e
 	}
 	audioMS := s.audioDurationMS(meetingID)
 	lastMS, hasText := lastSegmentWatermark(m.Segments, m.Transcript)
-	if !NeedsCatchup(audioMS, lastMS, hasText) {
+	if !NeedsCatchup(audioMS, lastMS, hasText, m.Transcript) {
 		return m, nil
 	}
+	replaceLive := shouldReplaceLiveCaptions(audioMS, lastMS, m.Transcript)
 	fromMS := int64(0)
-	if hasText && lastMS > 0 {
+	if hasText && lastMS > 0 && !replaceLive {
 		fromMS = lastMS + catchupOverlapMS
+	}
+	if replaceLive {
+		if err := s.store.DeleteSegments(ctx, meetingID); err != nil {
+			return Meeting{}, err
+		}
+		hasText = false
+		fromMS = 0
 	}
 	if strings.TrimSpace(s.audioRoot) == "" || s.transcribe == nil {
 		return s.catchupUnavailable(m, hasText)

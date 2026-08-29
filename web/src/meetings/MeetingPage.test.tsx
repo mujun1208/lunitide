@@ -121,7 +121,7 @@ describe('MeetingPage', () => {
     await screen.findByRole('button', { name: '开始录制' })
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
-    expect(speech.prepare).toHaveBeenCalledWith({ interactive: true })
+    expect(speech.prepare).toHaveBeenCalledWith({ interactive: false })
     expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone' })
     speech.onFinal?.('先对齐范围')
     expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
@@ -165,12 +165,12 @@ describe('MeetingPage', () => {
     render(<MeetingPage meetings={meetings} />)
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
-    expect(speech.prepare).toHaveBeenCalledWith({ interactive: true })
+    expect(speech.prepare).toHaveBeenCalledWith({ interactive: false })
     expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone_and_system' })
     expect(await screen.findByText('正在录制麦克风与系统声音')).toBeInTheDocument()
   })
 
-  test('canceled system-audio picker still starts mic-only recording', async () => {
+  test('starts mic-only recording when loopback is unavailable without opening the share picker', async () => {
     speech.prepare.mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '未能收录系统声音，已继续录制麦克风。' })
     const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
     const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
@@ -178,7 +178,7 @@ describe('MeetingPage', () => {
     const user = userEvent.setup()
     render(<MeetingPage meetings={meetings} />)
     await user.click(screen.getByRole('button', { name: '开始录制' }))
-    await vi.waitFor(() => expect(speech.prepare).toHaveBeenCalledWith({ interactive: true }))
+    await vi.waitFor(() => expect(speech.prepare).toHaveBeenCalledWith({ interactive: false }))
     expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone' })
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
   })

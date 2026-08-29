@@ -22,7 +22,7 @@ import {
   type CompanionSpeechOptions,
 } from './speech'
 import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
-import { absorbHeldTranscript } from '../../meetings/meetingText'
+import { absorbHeldTranscript, pickMeetingFinalText } from '../../meetings/meetingText'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
@@ -121,7 +121,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       const fresh = text.trim()
       if (emit === 'final') {
         resetUtterance()
-        const final = settled || carried
+        const final = holdUtterance ? pickMeetingFinalText(carried, settled) : (settled || carried)
         if (!final) return
         options.onFinal(final)
         return

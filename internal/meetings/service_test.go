@@ -576,17 +576,53 @@ func TestManyAppendsAndDeleteRemovesAudio(t *testing.T) {
 }
 
 func TestNeedsCatchup(t *testing.T) {
-	if meetings.NeedsCatchup(2_000, 0, false) {
+	if meetings.NeedsCatchup(2_000, 0, false, "") {
 		t.Fatal("tiny audio should not catch up")
 	}
-	if !meetings.NeedsCatchup(120_000, 0, false) {
+	if !meetings.NeedsCatchup(120_000, 0, false, "") {
 		t.Fatal("hour of audio with no transcript needs catch-up")
 	}
-	if meetings.NeedsCatchup(120_000, 118_000, true) {
+	if meetings.NeedsCatchup(120_000, 118_000, true, strings.Repeat("逐", 400)) {
 		t.Fatal("live captions covering the clock should skip catch-up")
 	}
-	if !meetings.NeedsCatchup(3_600_000, 600_000, true) {
+	if !meetings.NeedsCatchup(3_600_000, 600_000, true, strings.Repeat("逐", 400)) {
 		t.Fatal("ASR dying at 10 minutes of a 1h meeting needs catch-up")
+	}
+	if !meetings.NeedsCatchup(282_000, 280_000, true, "火焰已把火烧到天亮。往前走") {
+		t.Fatal("fragmentary live captions on a long meeting should re-transcribe")
+	}
+}
+
+func TestCatchupReplacesSparseLiveCaptions(t *testing.T) {
+	svc := testMeetings(t)
+	audioRoot := t.TempDir()
+	svc.SetAudioRoot(audioRoot)
+	svc.SetAudioTranscriber(func(ctx context.Context, pcm []byte) (string, error) {
+		return "离线补转写完整句子。", nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "稀疏字幕", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "火焰已把火烧到天亮", 270_000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(282_000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	caught, err := svc.CatchUp(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(caught.Transcript, "火焰已把火烧到天亮") {
+		t.Fatalf("sparse live captions should be replaced: %q", caught.Transcript)
+	}
+	if !strings.Contains(caught.Transcript, "离线补转写完整句子") {
+		t.Fatalf("catch-up transcript = %q", caught.Transcript)
 	}
 }
 

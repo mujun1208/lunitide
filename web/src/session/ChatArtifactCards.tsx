@@ -3,6 +3,21 @@ import { sessionFolderBridge, type StreamArtifact } from '../bridge/client'
 
 export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 
+/** User-facing deliverables only — not intermediate web.search/fetch HTML. */
+export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName' | 'kind' | 'path'>): boolean {
+  if (artifact.toolName === 'web.search' || artifact.toolName === 'web.fetch') return false
+  if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen'].includes(artifact.toolName)) return true
+  const base = artifact.path.split('/').pop()?.toLowerCase() ?? ''
+  if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
+  if (artifact.kind === 'image') return true
+  if (artifact.kind === 'html' && artifact.toolName === 'workspace.write') return true
+  return false
+}
+
+export function filterChatDeliverables(artifacts: readonly ChatArtifact[]): ChatArtifact[] {
+  return artifacts.filter(isChatDeliverableArtifact)
+}
+
 const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图' }
 const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣' }
 
@@ -15,7 +30,8 @@ export function ChatArtifactCards({
   artifacts: ChatArtifact[]
   onError?: (message: string) => void
 }): React.JSX.Element | null {
-  if (!artifacts.length) return null
+  const visible = filterChatDeliverables(artifacts)
+  if (!visible.length) return null
   const open = async (artifact: ChatArtifact) => {
     try {
       await sessionFolderBridge.open({ sessionId, relativePath: artifact.path })
@@ -25,7 +41,7 @@ export function ChatArtifactCards({
   }
   return (
     <div className="chat-artifacts" role="list" aria-label="本次对话产物">
-      {artifacts.map(artifact => (
+      {visible.map(artifact => (
         <button
           type="button"
           key={artifact.callId}

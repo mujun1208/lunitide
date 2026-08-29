@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/people"
 )
@@ -369,6 +371,33 @@ func handlePeopleFilePick(e *Engine, _ context.Context, r bridge.Request) bridge
 		return peopleFailure(r, err)
 	}
 	return bridge.Success(r.ID, out)
+}
+
+func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+	var p struct{}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.screen.capture 参数无效", false)
+	}
+	if e.people == nil {
+		return peopleUnavailable(r)
+	}
+	if e.ccctrl == nil {
+		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
+	}
+	png, err := e.ccctrl.CaptureDesktopPNG()
+	if err != nil {
+		if errors.Is(err, ccapp.ErrCcEngineUnavailable) {
+			return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
+		}
+		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_FAILED", "无法截取本机画面", false)
+	}
+	if len(png) == 0 {
+		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_FAILED", "无法截取本机画面", false)
+	}
+	return bridge.Success(r.ID, map[string]any{
+		"contentBase64": base64.StdEncoding.EncodeToString(png),
+		"mimeType":      "image/png",
+	})
 }
 
 func peopleUnavailable(r bridge.Request) bridge.Response {

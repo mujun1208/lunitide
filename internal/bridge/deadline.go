@@ -8,6 +8,8 @@ const (
 	MeetingLiveDeadlineMS  = 120_000
 	MeetingNotesDeadlineMS = 600_000
 	AppUpdateInstallMS     = 120_000
+	PeopleFileDeadlineMS   = 120_000
+	TemplateFileDeadlineMS = 120_000
 )
 
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
@@ -19,6 +21,10 @@ func MaxDeadlineMS(method string) int {
 		return MeetingLiveDeadlineMS
 	case MethodAppUpdateInstall:
 		return AppUpdateInstallMS
+	case MethodPeopleFileStage, MethodPeopleFilePick, MethodPeopleThreadSend:
+		return PeopleFileDeadlineMS
+	case MethodTemplateCreate, MethodTemplateFileStage:
+		return TemplateFileDeadlineMS
 	default:
 		return DefaultMaxDeadlineMS
 	}

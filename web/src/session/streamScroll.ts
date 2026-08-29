@@ -38,14 +38,13 @@ export function pauseFollowOnUserIntent(opts: {
   return false
 }
 
-/** After a scroll position change: pause on scroll-up, resume only at the live tail. */
+/** After a user-driven scroll: pause when leaving the tail; never auto-resume (use 回到底部 / send). */
 export function applyConversationUserScroll(state: UserFollowState, box: ConversationScrollBox): UserFollowState {
-  const nearBottom = conversationNearBottom(box)
   const movedUp = box.scrollTop < state.lastScrollTop - USER_SCROLL_AWAY_PX
+  const moved = box.scrollTop !== state.lastScrollTop
   let paused = state.userFollowPaused
   if (movedUp) paused = true
-  else if (nearBottom) paused = false
-  else if (box.scrollTop !== state.lastScrollTop) paused = true
+  else if (moved) paused = true
   return {userFollowPaused: paused, lastScrollTop: box.scrollTop}
 }
 

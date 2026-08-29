@@ -65,6 +65,29 @@ func saveSessionArtifactsDoc(path string, doc sessionArtifactsDoc) error {
 	return os.Rename(tmp, path)
 }
 
+// chatDeliverableArtifact decides whether a tool output should appear as a
+// user-facing chat deliverable card. Intermediate web.search / web.fetch HTML
+// (search.html, fetch.html) stays in the workspace browser only.
+func chatDeliverableArtifact(toolName, kind, path string) bool {
+	switch toolName {
+	case "web.search", "web.fetch":
+		return false
+	case "pptx.gen", "docx.gen", "excel.gen", "pdf.gen", "html.gen":
+		return true
+	}
+	base := strings.ToLower(filepath.Base(path))
+	if kind == "html" && (base == "search.html" || base == "fetch.html") {
+		return false
+	}
+	if kind == "image" {
+		return true
+	}
+	if kind == "html" && toolName == "workspace.write" {
+		return true
+	}
+	return false
+}
+
 func normalizeSessionArtifact(a SessionArtifact) (SessionArtifact, bool) {
 	a.Kind = strings.TrimSpace(a.Kind)
 	a.Path = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(strings.TrimSpace(a.Path), "\\", "/")))
@@ -94,7 +117,7 @@ func (e *Engine) loadSessionArtifactsByMessage(sessionID string) map[string][]Se
 		}
 		clean := make([]SessionArtifact, 0, len(items))
 		for _, item := range items {
-			if norm, ok := normalizeSessionArtifact(item); ok {
+			if norm, ok := normalizeSessionArtifact(item); ok && chatDeliverableArtifact(norm.ToolName, norm.Kind, norm.Path) {
 				clean = append(clean, norm)
 			}
 		}
@@ -115,7 +138,7 @@ func (e *Engine) appendMessageArtifacts(sessionID, messageID string, artifacts [
 	}
 	clean := make([]SessionArtifact, 0, len(artifacts))
 	for _, item := range artifacts {
-		if norm, ok := normalizeSessionArtifact(item); ok {
+		if norm, ok := normalizeSessionArtifact(item); ok && chatDeliverableArtifact(norm.ToolName, norm.Kind, norm.Path) {
 			clean = append(clean, norm)
 		}
 	}

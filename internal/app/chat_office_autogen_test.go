@@ -63,6 +63,9 @@ func TestFallbackOfficeGenArgsDesktopAndKind(t *testing.T) {
 	if !strings.Contains(string(novel), `"desktop":true`) || !strings.Contains(string(novel), `"kind":"novel"`) {
 		t.Fatalf("novel args = %s", novel)
 	}
+	if !strings.Contains(string(novel), `"author":"佚名"`) {
+		t.Fatalf("novel fallback must include default author: %s", novel)
+	}
 	report := fallbackOfficeGenArgs("docx.gen", "写一份调研报告放到桌面", "摘要")
 	if !strings.Contains(string(report), `"kind":"report"`) || !strings.Contains(string(report), `"desktop":true`) {
 		t.Fatalf("report args = %s", report)
@@ -84,6 +87,16 @@ func TestShouldAutoOfficeGenOnIncompleteNovel(t *testing.T) {
 	}
 	if officeGenToolForTurn(turn) != "docx.gen" {
 		t.Fatalf("tool = %s", officeGenToolForTurn(turn))
+	}
+}
+
+func TestOfficeGenFailNoticeFriendlyCause(t *testing.T) {
+	got := officeGenFailNotice(errors.New("officetools: novel needs chapter Heading 1"))
+	if strings.Contains(got, "officetools:") {
+		t.Fatalf("raw error leaked: %q", got)
+	}
+	if !strings.Contains(got, "章节标题") {
+		t.Fatalf("expected friendly chapter message: %q", got)
 	}
 }
 

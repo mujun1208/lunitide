@@ -58,7 +58,7 @@ export const workspaceTabForTool = (name: string): WorkspaceTab | undefined => {
 
 export const autoRevealWorkspaceTab = (name: string, userWantsBrowser = false): WorkspaceTab | undefined => {
   const tab = workspaceTabForTool(name)
-  if (!tab || tab === 'terminal') return undefined
+  if (!tab || tab === 'terminal' || tab === 'files') return undefined
   if (tab === 'browser') {
     if (name === 'browser.open') return 'browser'
     return userWantsBrowser ? 'browser' : undefined

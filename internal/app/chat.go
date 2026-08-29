@@ -626,7 +626,7 @@ func companionPersonaInstruction() string {
 		"- 打开页面：browser.act 或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL）\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、协议文档、汽水音乐、网易云音乐）。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」。做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
-		"- 在文档或对话框里填写：desktop.type（text=要写的内容，after=证件号码这类字段名，window=文档或对话框标题，需要发送时 submit=true）。先 desktop.open 打开文件，再 desktop.type。找不到字段就报无法执行\n" +
+		"- 在文档或对话框里填写：desktop.type（text=要写的内容，after=文档里真实的字段名如身份证号码或证件号码，window=文档或对话框标题，需要发送时 submit=true）。先 desktop.open 打开文件，再 desktop.type。找不到字段就报无法执行\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），点播放/随机播放并核对照片，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
 		"- 操作电脑：电脑控制开启时用 cc.*。先 cc.screen_capture（或 cc.observe_ui）看清界面，再动手；鼠标坐标必须用你看到的那张图的像素。点按钮优先 cc.observe_ui 后 cc.mouse_click id=B1 或 name=控件名，或 cc.observe_dialog 后再 cc.confirm_dialog，不要盲点像素。普通对话框确认是 Yes/OK/确认/是/确定 后再点；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。拖拽用 cc.mouse_drag；切窗口用 cc.window_list 再 cc.window_focus（已在运行的应用），对指定应用先 cc.window_focus 再 keyboard_type。启动未打开的应用用 desktop.open。关/最小化/移动窗口用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器）。滚动用 cc.mouse_click scroll=±1。按回车用 cc.press key=enter。粘贴用 cc.paste。菜单用 cc.menu_click。填输入框优先 cc.set_value。UI 未就绪用 cc.wait until=change。剪贴板用 cc.clipboard（纯文本）。command.run 仅在需要跑命令时用\n" +
@@ -704,7 +704,7 @@ func companionWantsTools(text string) bool {
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
 		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水", "网易云", "周杰伦", "协议",
 		"截图", "屏幕", "对话框", "确认", "点击", "鼠标", "电脑",
-		"填写", "输入", "证件", "发送", "写入", "文档", "word", "打字", "随机播放",
+		"填写", "输入", "证件", "身份证", "号码", "后面", "之后", "发送", "写入", "文档", "word", "打字", "随机播放",
 		"生图", "画一张", "画图", "生成图片", "生成视频", "生视频", "做个视频",
 		"search", "open http", "play song", "install", "generate image", "generate video",
 	} {
@@ -1021,6 +1021,9 @@ func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, sessio
 // stream between tool_started and tool_completed so long-running commands
 // stop black-boxing.
 func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+	if name == "docx.gen" {
+		args = enrichDocxGenArgs(e, "", args)
+	}
 	approved := mode == executionModeFullAccess
 	if e.fullDiskChat(mode) {
 		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, approved, progress)
@@ -1045,7 +1048,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Every slide needs a visible title; dark backgrounds must use light text. Empty or fill-only slides are rejected. Call this only after the PPT pipeline (outline, copy, two web research passes). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","minLength":1},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
-		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
+		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 身份证号码 or 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 身份证号码, 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
@@ -1857,6 +1860,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		toolsFallbackUsed := false
 		usedTools := false
 		autoMediaPlayDone := false
+		autoDesktopTypeDone := false
 		nudges := 0
 		if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
 			turn.Goal = prev.Goal
@@ -1940,14 +1944,26 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			if streamErr != nil {
 				break
 			}
-			if state.companion && !autoMediaPlayDone && len(result.Message.ToolCalls) == 0 {
-				if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
-					result.Message.ToolCalls = []gateway.ToolCall{{
-						ID:        "auto-" + ulid.Make().String(),
-						Name:      "media.play",
-						Arguments: playArgs,
-					}}
-					autoMediaPlayDone = true
+			if state.companion && len(result.Message.ToolCalls) == 0 {
+				if !autoMediaPlayDone && companionTurnWantsMusicPlay(turn.Goal) {
+					if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
+						result.Message.ToolCalls = []gateway.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "media.play",
+							Arguments: playArgs,
+						}}
+						autoMediaPlayDone = true
+					}
+				}
+				if !autoDesktopTypeDone && looksLikeTypeAfterLabelTurn(turn.Goal) {
+					if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
+						result.Message.ToolCalls = []gateway.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "desktop.type",
+							Arguments: typeArgs,
+						}}
+						autoDesktopTypeDone = true
+					}
 				}
 			}
 			stepText := ""
@@ -2297,7 +2313,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					} else if artifactKindValid(k) {
 						toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: ""}
 					}
-					if toolEvent.Artifact != nil {
+					if toolEvent.Artifact != nil && chatDeliverableArtifact(call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path) {
 						turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(call.ID, call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path))
 					}
 				}
@@ -2344,6 +2360,48 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 							req.Messages = append(req.Messages,
 								gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: playArgs}}},
+								gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+							)
+							turn.LastTools = append(turn.LastTools, name)
+						}
+					}
+				}
+			}
+			if state.companion && looksLikeTypeAfterLabelTurn(turn.Goal) {
+				hasDesktopType := autoDesktopTypeDone
+				for _, call := range result.Message.ToolCalls {
+					if call.Name == "desktop.type" {
+						hasDesktopType = true
+						break
+					}
+				}
+				if !hasDesktopType {
+					if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
+						autoDesktopTypeDone = true
+						callID := "auto-" + ulid.Make().String()
+						name := "desktop.type"
+						digest := toolruntime.Digest(name, typeArgs)
+						if digest != "" {
+							if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(name, typeArgs))}}); err != nil {
+								return err
+							}
+							r, toolErr := e.executeUserToolWithCompanion(op, mode, sessionID, name, typeArgs, nil)
+							summary := r.Output
+							if toolErr != nil {
+								summary = toolErr.Error()
+								if !strings.HasPrefix(summary, "ok:false") {
+									summary = "ok:false\n" + summary
+								}
+								turn.ToolFailed = true
+							} else {
+								completedDigests[digest] = summary
+							}
+							summary = clipToolSummary(summary)
+							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: summary}}); err != nil {
+								return err
+							}
+							req.Messages = append(req.Messages,
+								gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: typeArgs}}},
 								gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
 							)
 							turn.LastTools = append(turn.LastTools, name)
@@ -2417,8 +2475,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 		}
 	}
-	if err == nil && finalizationClaimed && sessionID != "" && e.messages != nil {
-		text := assistantText.String()
+	cancelling := e.isStreamCancelling(state)
+	if sessionID != "" && e.messages != nil {
+		text := assistantTurnPersistText(assistantText.String(), thinkingText.String())
 		if text == "" && turn.ToolFailed && len(turn.LastTools) > 0 {
 			if failNotice := createTurnFailureNotice(turn.LastTools, ""); failNotice != "" {
 				text = failNotice
@@ -2426,7 +2485,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: failNotice}})
 			}
 		}
-		if text != "" {
+		persist := strings.TrimSpace(text) != "" && shouldPersistAssistantTurn(err, finalizationClaimed, cancelling)
+		if persist && !finalizationClaimed {
+			finalizationClaimed = e.claimStreamFinalization(state)
+			persist = finalizationClaimed
+		}
+		if persist {
 			usage := messageapp.AssistantUsage{
 				Provider:     string(p.Protocol),
 				Model:        req.Model,
@@ -2548,6 +2612,34 @@ func hasActingComputerTool(tools []string) bool {
 		}
 	}
 	return false
+}
+
+// assistantTurnPersistText folds streamed reasoning into the durable assistant
+// message so a failed or interrupted turn survives reload/navigation.
+func assistantTurnPersistText(assistant, thinking string) string {
+	assistant = strings.TrimSpace(assistant)
+	thinking = strings.TrimSpace(thinking)
+	if thinking == "" {
+		return assistant
+	}
+	block := "【思考过程】\n" + thinking
+	if assistant == "" {
+		return block
+	}
+	return block + "\n\n" + assistant
+}
+
+// shouldPersistAssistantTurn keeps partial work when a turn ends in failure,
+// but preserves the early-cancel contract (no durable append before
+// finalization is claimed).
+func shouldPersistAssistantTurn(err error, finalizationClaimed, cancelling bool) bool {
+	if err == nil {
+		return finalizationClaimed
+	}
+	if cancelling {
+		return finalizationClaimed
+	}
+	return true
 }
 
 func assistantTextContainsDone(text string) bool {

@@ -5,6 +5,7 @@ import type { ChatBridge, MessageBridge, PlanBridge, ProjectBridge, ProviderBrid
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { RootErrorBoundary } from '../RootErrorBoundary'
 import { resetLiveChatForTests } from '../session/liveChat'
+import { phaseSessionTitle } from './projectPhaseSession'
 import { ProjectWorkbenchShell } from './ProjectWorkbenchShell'
 
 vi.mock('./DeliverablePanel', () => ({ DeliverablePanel: () => <div data-testid="deliverable-panel">交付物</div> }))
@@ -15,6 +16,7 @@ vi.mock('./phaseExperts', () => ({ applySessionPhaseExperts: vi.fn().mockResolve
 afterEach(() => {
   cleanup()
   resetLiveChatForTests()
+  localStorage.removeItem(`lunitide:project-phase:${project.id}`)
 })
 
 const NOW = '2025-01-01T00:00:00Z'
@@ -31,7 +33,7 @@ const project: ProjectDTO = {
 const session: SessionDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAA',
   projectId: project.id,
-  title: '在线电商',
+  title: phaseSessionTitle(1, '需求架构规范'),
   pinned: false,
   status: 'active',
   createdAt: NOW,

@@ -88,15 +88,15 @@ func TestDesktopTypeFindAfterThenTypeAndSubmit(t *testing.T) {
 	if !strings.Contains(res.Output, "typed after") || !strings.Contains(res.Output, "submitted") {
 		t.Fatalf("output %q", res.Output)
 	}
-	if len(typed) < 2 || typed[0] != "证件号码" || typed[1] != "330102199001011234" {
+	if len(typed) < 2 || typed[0] != "身份证号码" || typed[1] != "330102199001011234" {
 		t.Fatalf("typed %v", typed)
 	}
 	joined := strings.Join(keys, ",")
 	if !strings.Contains(joined, "ctrl+f") || !strings.Contains(joined, "enter") {
 		t.Fatalf("keys %v", keys)
 	}
-	if strings.Contains(joined, "ctrl+a") {
-		t.Fatalf("after= must not select-all: %v", keys)
+	if strings.Contains(joined, "ctrl+a") || strings.Contains(joined, "end") {
+		t.Fatalf("after= must not select-all or jump to line end: %v", keys)
 	}
 	if len(clicked) == 0 || clicked[len(clicked)-1] != "发送" {
 		t.Fatalf("clicked %v", clicked)
@@ -150,6 +150,80 @@ func TestDesktopTypeNamedEditThenSubmit(t *testing.T) {
 	}
 	if len(clicked) == 0 || clicked[len(clicked)-1] != "发送" {
 		t.Fatalf("clicked %v", clicked)
+	}
+}
+
+func TestDesktopTypeFindAfterUsesIdCardAlias(t *testing.T) {
+	if got := documentLabelSearchTerm("证件号码"); got != "身份证号码" {
+		t.Fatalf("search term %q", got)
+	}
+	if !labelsMatch("证件号码", "身份证号码：") {
+		t.Fatal("label alias match")
+	}
+}
+
+func TestPickDocumentLabelMatchesIDCardAliases(t *testing.T) {
+	nodes := []mediaUINode{
+		{Role: "text", Name: "身份证号码：", Y: 120, H: 18, W: 80},
+	}
+	if got := pickDocumentLabel(nodes, "证件号码"); got == nil || got.Name != "身份证号码：" {
+		t.Fatalf("label %+v", got)
+	}
+}
+
+func TestDesktopTypeFindAfterIDCardNumber(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+
+	var typed []string
+	var keys []string
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolWindowFocus:
+			return result("focused"), nil
+		case ccapp.ToolObserveUI:
+			return Result{Output: `{"nodes":[]}`}, nil
+		case ccapp.ToolKeyboardType:
+			var a struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(args, &a)
+			typed = append(typed, a.Text)
+			return result("ok"), nil
+		case ccapp.ToolKeyboardShortcut:
+			var a struct {
+				Keys []string `json:"keys"`
+			}
+			_ = json.Unmarshal(args, &a)
+			keys = append(keys, strings.Join(a.Keys, "+"))
+			return result("ok"), nil
+		case ccapp.ToolPress:
+			var a struct {
+				Key string `json:"key"`
+			}
+			_ = json.Unmarshal(args, &a)
+			keys = append(keys, a.Key)
+			return result("ok"), nil
+		default:
+			return result("ok"), nil
+		}
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"text": "204040", "after": "身份证号码", "window": "协议",
+	})
+	res, err := executeDesktopType(context.Background(), invoke, "s1", payload, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Output, `typed after "身份证号码"`) {
+		t.Fatalf("output %q", res.Output)
+	}
+	if len(typed) != 2 || typed[0] != "身份证号码" || typed[1] != "204040" {
+		t.Fatalf("typed %v", typed)
+	}
+	joined := strings.Join(keys, ",")
+	if strings.Count(joined, "esc") < 2 || strings.Count(joined, "right") < 2 {
+		t.Fatalf("Word find dismiss keys = %v", keys)
 	}
 }
 

@@ -1,11 +1,53 @@
 package app
 
 import (
+	"encoding/json"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 )
+
+var typeAfterWriteRe = regexp.MustCompile(`(?:.*?(?:在|对))?([^，,。！？]+?)(?:后面|之后)(?:写上|写入|写|填|输入)(.+)`)
+
+func normalizeTypeAfterLabel(after string) string {
+	after = strings.TrimSpace(after)
+	for _, prefix := range []string{"文档的", "文件里的", "表格中的", "这一栏的", "那一格的"} {
+		if strings.HasPrefix(after, prefix) {
+			after = strings.TrimPrefix(after, prefix)
+		}
+	}
+	return strings.TrimSpace(after)
+}
+
+func parseDesktopTypeArgsFromGoal(goal string) (after, text string, ok bool) {
+	m := typeAfterWriteRe.FindStringSubmatch(strings.TrimSpace(goal))
+	if len(m) < 3 {
+		return "", "", false
+	}
+	after = normalizeTypeAfterLabel(m[1])
+	text = strings.TrimSpace(m[2])
+	if after == "" || text == "" {
+		return "", "", false
+	}
+	return after, text, true
+}
+
+func fallbackDesktopTypeArgs(goal string) json.RawMessage {
+	after, text, ok := parseDesktopTypeArgsFromGoal(goal)
+	if !ok {
+		return nil
+	}
+	window := ""
+	if strings.Contains(goal, "协议") || strings.Contains(goal, "劳动") || strings.Contains(goal, "合同") {
+		window = "协议"
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"text": text, "after": after, "window": window,
+	})
+	return raw
+}
 
 // officeGenInternalHint is the model-only reminder for writing Office
 // files onto the Desktop. It must never appear in assistant deltas,
@@ -38,8 +80,11 @@ func looksLikeTypeAfterLabelTurn(text string) bool {
 	if t == "" {
 		return false
 	}
-	return (strings.Contains(t, "后面") || strings.Contains(t, "填写") || strings.Contains(t, "写入") || strings.Contains(t, "输入")) &&
-		(strings.Contains(t, "号码") || strings.Contains(t, "证件") || strings.Contains(t, "身份证") || strings.Contains(t, "文档"))
+	if _, _, ok := parseDesktopTypeArgsFromGoal(t); ok {
+		return true
+	}
+	return (strings.Contains(t, "后面") || strings.Contains(t, "之后") || strings.Contains(t, "填写") || strings.Contains(t, "写入") || strings.Contains(t, "输入")) &&
+		(strings.Contains(t, "号码") || strings.Contains(t, "证件") || strings.Contains(t, "身份证") || strings.Contains(t, "住址") || strings.Contains(t, "电话") || strings.Contains(t, "文档"))
 }
 
 func looksLikeWeatherTurn(text string) bool {
