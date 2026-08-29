@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
 import { ENDPOINT_BACKSTOP_MS } from './localSpeech'
-import { INCOMPLETE_HARD_MS, MEETING_TURN_END_SILENCE_MS } from './speech'
+import { INCOMPLETE_HARD_MS, MEETING_TURN_END_SILENCE_MS, TURN_END_INCOMPLETE_SILENCE_MS, TURN_END_SILENCE_MS } from './speech'
 
 const asr = {
   finish: vi.fn(),
@@ -209,6 +209,23 @@ describe('startLocalCompanionSpeech', () => {
     }
   })
 
+  it('does not reopen the microphone while playback or the echo guard is active', async () => {
+    const stage = harness()
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    handle.setAssistantPlayback(true, 400)
+    handle.resumeCapture()
+    expect(asr.setMuted).toHaveBeenLastCalledWith(true)
+
+    handle.setAssistantPlayback(false, 400)
+    handle.resumeCapture()
+    expect(asr.setMuted).toHaveBeenLastCalledWith(true)
+
+    await vi.advanceTimersByTimeAsync(400)
+    handle.resumeCapture()
+    expect(asr.setMuted).toHaveBeenLastCalledWith(false)
+  })
+
   it('keeps the microphone muted for the whole reply, then reopens it', async () => {
     const stage = harness()
     const handle = await startLocalCompanionSpeech(stage.options)
@@ -391,6 +408,53 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
+  it('does not lose the next user turn when recycle(false) overlaps endpoint', async () => {
+    const stage = harness()
+    stage.say('好的，谢谢')
+    asr.commit.mockImplementation(
+      () =>
+        new Promise<string>(resolve => {
+          window.setTimeout(() => resolve(''), 200)
+        }),
+    )
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    handle.setAssistantPlayback(true)
+    await vi.advanceTimersByTimeAsync(100)
+    handle.setAssistantPlayback(false, 0)
+
+    onTranscript('能听过吗', false)
+    expect(stage.onInterim).toHaveBeenCalledWith('能听过吗')
+    await vi.advanceTimersByTimeAsync(250)
+    await vi.advanceTimersByTimeAsync(1400)
+
+    expect(stage.onFinal).toHaveBeenCalledWith('能听过吗')
+  })
+
+  it('retries endpointing after a blocked final commit finishes recycling', async () => {
+    const stage = harness()
+    asr.commit.mockImplementation(
+      () =>
+        new Promise<string>(resolve => {
+          window.setTimeout(() => resolve(''), 150)
+        }),
+    )
+    const handle = await startLocalCompanionSpeech(stage.options)
+
+    handle.setAssistantPlayback(false, 0)
+    onTranscript('下一句你好吗', false)
+    onTranscript('下一句你好吗', true)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(200)
+    asr.commit.mockResolvedValue('下一句你好吗')
+    await vi.advanceTimersByTimeAsync(1400)
+
+    expect(stage.onFinal).toHaveBeenCalledWith('下一句你好吗')
+    handle.stop()
+  })
+
   it('restarts a silent local recognizer on pulse instead of waiting forever', async () => {
     const stage = harness()
     asr.restart.mockResolvedValue(undefined)
@@ -398,5 +462,60 @@ describe('startLocalCompanionSpeech', () => {
     handle.pulseRecognition()
     await Promise.resolve()
     expect(asr.restart).toHaveBeenCalled()
+  })
+
+  it('keeps listening across a mid-clause engine endpoint and commits the full sentence', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('帮我在文档的身份证号码写进去')
+    await startLocalCompanionSpeech(stage.options)
+
+    onTranscript('帮我在文档的身份证号码', false)
+    onTranscript('帮我在文档的身份证号码', true)
+    await vi.advanceTimersByTimeAsync(800)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    onTranscript('写进去', false)
+    expect(stage.onInterim).toHaveBeenLastCalledWith('帮我在文档的身份证号码写进去')
+
+    onTranscript('帮我在文档的身份证号码写进去', true)
+    for (let i = 0; i < 10; i++) {
+      onLevel(0.01)
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 200)
+    expect(stage.onFinal).toHaveBeenCalledWith('帮我在文档的身份证号码写进去')
+  })
+
+  it('waits 1.5s of silence before committing an incomplete ending', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('帮我在文档的身份证号码')
+    await startLocalCompanionSpeech(stage.options)
+
+    onTranscript('帮我在文档的身份证号码', false)
+    onTranscript('帮我在文档的身份证号码', true)
+    for (let i = 0; i < 8; i++) {
+      onLevel(0.01)
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    await vi.advanceTimersByTimeAsync(1300)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(400)
+    expect(stage.onFinal).toHaveBeenCalledWith('帮我在文档的身份证号码')
+  })
+
+  it('uses the refiner transcript when commit returns a fuller sentence', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('帮我在文档的身份证号码后面写上姓名')
+    await startLocalCompanionSpeech(stage.options)
+
+    onTranscript('帮我在文档的身份证号码', false)
+    onTranscript('帮我在文档的身份证号码', true)
+    for (let i = 0; i < 10; i++) {
+      onLevel(0.01)
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    await vi.advanceTimersByTimeAsync(TURN_END_INCOMPLETE_SILENCE_MS + 200)
+    expect(stage.onFinal).toHaveBeenCalledWith('帮我在文档的身份证号码后面写上姓名')
   })
 })

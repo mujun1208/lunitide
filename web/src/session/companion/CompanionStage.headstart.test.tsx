@@ -9,6 +9,7 @@ import type { TtsPlayerCallbacks } from './ttsPlayer'
 
 interface CapturedSpeech {
   onFinal: (transcript: string) => void
+  onInterim?: (transcript: string) => void
   onBargeIn?: (transcript: string) => void
   spokenText?: () => string
   onError: (error: unknown) => void
@@ -274,6 +275,31 @@ test('reopens the microphone once the machine says the turn is the user\u2019s a
 
   expect(stateOf(utils.container)).toBe('listening')
   expect(speech.setAssistantPlayback).toHaveBeenLastCalledWith(false, expect.any(Number))
+})
+
+test('does not paint echo crumbs as the user line while she is speaking', async () => {
+  const onSend = vi.fn()
+  const props = { ...baseProps, onSend }
+  const utils = render(<CompanionStage {...props} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('打开桌面协议')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="好，我来执行。" />)
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('speaking')
+
+  await act(async () => {
+    speech.callbacks!.onInterim?.('谢你见')
+    speech.callbacks!.onFinal('谢你见')
+  })
+  await flush(0)
+
+  expect(onSend).toHaveBeenCalledTimes(1)
+  expect(utils.container.textContent).not.toMatch(/我[\s\S]*谢你见/)
 })
 
 test('hands the speech layer what is currently being spoken, for echo rejection', async () => {

@@ -23,7 +23,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionExecutingSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk, accumulateSpeakableCaption } from './companionText'
+import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
 import { startLocalCompanionSpeech } from './localSpeech'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
@@ -134,6 +134,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   }
   const chatStatusRef = useRef(chatStatus)
   chatStatusRef.current = chatStatus
+  const activityStatusRef = useRef(activityStatus)
+  activityStatusRef.current = activityStatus
   const lastDeltaAtRef = useRef(0)
   const assistantTextRef = useRef(assistantText)
   assistantTextRef.current = assistantText
@@ -175,6 +177,44 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     () => chatStatusRef.current === 'streaming' && !!assistantTextRef.current.trim(),
     [],
   )
+
+  const assistantTurnBusy = useCallback(() => {
+    const state = stateRef.current
+    if (userInterruptedRef.current && (state === 'listening' || state === 'idle')) {
+      return speakingRef.current
+    }
+    return (
+      state === 'thinking' ||
+      state === 'speaking' ||
+      speakingRef.current ||
+      companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)
+    )
+  }, [])
+
+  const transcriptAcceptance = useCallback(
+    (text: string) => {
+      const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
+      return shouldAcceptUserTranscript({
+        state: stateRef.current,
+        text,
+        lastSpoken: lastSpokenRef.current,
+        lastAssistant,
+        assistantBusy: assistantTurnBusy(),
+      })
+    },
+    [assistantTurnBusy],
+  )
+
+  const discardEchoCaption = useCallback((text: string) => {
+    setInterimText('')
+    const cleaned = cleanUserTranscript(text)
+    if (!cleaned) return
+    setRounds(current => {
+      const user = current.find(round => round.role === 'user')
+      if (!user || cleanUserTranscript(user.text) !== cleaned) return current
+      return current.filter(round => round.role !== 'user')
+    })
+  }, [])
 
   const markAssistantAloud = useCallback((aloud: boolean) => {
     speakingRef.current = aloud
@@ -219,6 +259,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
     const unlock = () => {
       void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
+      syncSpeechModesRef.current()
       speechHandleRef.current?.resumeCapture()
     }
     window.addEventListener('pointerdown', unlock)
@@ -332,15 +373,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (text.trim() && stateRef.current === 'thinking') {
       machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
     }
+    const shown = companionCaptionFromStream(text)
+    if (!shown.trim()) return
+    streamCaptionRef.current = shown
     setRounds(current => {
-      const incoming = stripTaskDonePhrases(text)
       const last = current[current.length - 1]
-      const prev = last?.role === 'assistant' ? last.text : streamCaptionRef.current
-      const shown = accumulateSpeakableCaption(prev, incoming)
-      if (!shown.trim()) return current
-      streamCaptionRef.current = shown
+      if (last?.role === 'assistant' && last.segments === undefined && last.text === shown) return current
       if (last?.role === 'assistant' && last.segments === undefined) {
-        if (last.text === shown) return current
         return withCurrentAssistant(current, { ...last, text: shown })
       }
       return withCurrentAssistant(current, { role: 'assistant', text: shown })
@@ -354,9 +393,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   // flips to "done" between React renders.
   useEffect(() => {
     if (chatStatus !== 'done') return
-    const text = assistantText.trim()
-    const shown = accumulateSpeakableCaption(streamCaptionRef.current, stripTaskDonePhrases(text))
+    const shown = companionCaptionFromStream(assistantText)
     if (!shown) return
+    streamCaptionRef.current = shown
     setRounds(current => {
       const last = current[current.length - 1]
       if (last?.role === 'assistant' && last.text === shown) return current
@@ -384,7 +423,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (stateRef.current !== 'speaking' && stateRef.current !== 'thinking') return
     if (ttsAvailable === false || !settings.autoSpeak) return
     const flush = () => {
-      const pending = assistantText.slice(spokenUpToRef.current)
+      const streamText = companionCaptionFromStream(assistantText)
+      const pending = streamText.slice(spokenUpToRef.current)
       if (!pending.trim()) return
       const stalled = performance.now() - lastDeltaAtRef.current >= 800
       const chunk = takeSpeakableChunk(pending, spokenUpToRef.current === 0, stalled)
@@ -477,7 +517,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
       // then flush the queue and transition the machine.
-      const remaining = stripTaskDonePhrases(assistantText.slice(spokenUpToRef.current))
+      const remaining = companionCaptionFromStream(assistantText).slice(spokenUpToRef.current)
       const segments = prepareSpeech(remaining).filter(seg => {
         const cleaned = stripTaskDonePhrases(seg)
         if (!cleaned.trim()) return false
@@ -635,6 +675,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (userInterruptedRef.current) return
     const line = activityStatus?.trim()
     if (!line) return
+    // Once tokens land, the stream owns the subtitle — a tool-status prefix
+    // used to poison accumulateSpeakableCaption and replay the whole reply.
+    if (assistantText.trim()) return
     setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: line }))
     const spoken = companionExecutingSpeech()
     if (spoken === lastActivitySpokenRef.current) return
@@ -663,7 +706,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         syncSpeechModesRef.current()
       },
     })
-  }, [activityStatus, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback])
+  }, [activityStatus, assistantText, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback])
 
   const speakChunk = useCallback(
     (text: string) => {
@@ -876,16 +919,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const beginUserTurn = useCallback(
     (transcript: string) => {
       const text = cleanUserTranscript(transcript)
-      const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-      if (
-        !shouldAcceptUserTranscript({
-          state: stateRef.current,
-          text,
-          lastSpoken: lastSpokenRef.current,
-          lastAssistant,
-        })
-      ) {
-        setInterimText('')
+      if (!transcriptAcceptance(text)) {
+        discardEchoCaption(transcript)
         return
       }
       cancelCaptionFade()
@@ -914,7 +949,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       onSendRef.current(text)
       syncSpeechModes()
     },
-    [machine, syncSpeechModes],
+    [machine, syncSpeechModes, transcriptAcceptance, discardEchoCaption],
   )
 
   useEffect(() => {
@@ -969,8 +1004,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setEngineHint('')
     unlockTtsAudio()
     if (speechHandleRef.current) {
-      speechHandleRef.current.resumeCapture()
       syncSpeechModes()
+      speechHandleRef.current.resumeCapture()
       if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
       autoLoopRef.current = true
       setHintVisible(false)
@@ -984,18 +1019,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       environment: settingsRef.current.speechEnvironment,
       onInterim: transcript => {
         const next = cleanUserTranscript(transcript)
-        const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-        if (
-          !shouldAcceptUserTranscript({
-            state: stateRef.current === 'listening' || stateRef.current === 'idle' ? 'listening' : stateRef.current,
-            text: next,
-            lastSpoken: lastSpokenRef.current,
-            lastAssistant,
-          })
-        ) {
+        if (!transcriptAcceptance(next)) {
+          discardEchoCaption(transcript)
           return
         }
-        if (looksLikeOmniPersonaCaption(transcript) || looksLikePlaybackEcho(next, lastSpokenRef.current)) return
         cancelCaptionFade()
         setInterimText(next)
         setVoiceHeard(true)
@@ -1066,8 +1093,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       openingListenRef.current = false
       if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
       speechHandleRef.current = handle
-      handle.resumeCapture()
       syncSpeechModes()
+      handle.resumeCapture()
       autoLoopRef.current = true
       setHintVisible(false)
       void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
@@ -1115,7 +1142,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
     }
     void begin()
-  }, [beginUserTurn, machine, markAssistantAloud, syncSpeechModes])
+  }, [beginUserTurn, machine, markAssistantAloud, syncSpeechModes, transcriptAcceptance, discardEchoCaption])
 
   useEffect(() => {
     if (machine.state === 'speaking') justSpokeRef.current = true
@@ -1132,8 +1159,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       if (stateRef.current !== 'idle' || !autoLoopRef.current || exitedRef.current) return
       if (speechHandleRef.current) {
         silentRestartsRef.current = 0
-        speechHandleRef.current.resumeCapture()
         syncSpeechModes()
+        speechHandleRef.current.resumeCapture()
         machine.dispatch({ type: 'MIC_ACTIVATE' })
         return
       }
@@ -1407,6 +1434,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       aria-label="月伴对话舞台"
       onPointerDown={() => {
         void unlockTtsAudio()
+        syncSpeechModes()
         speechHandleRef.current?.resumeCapture()
       }}
       onKeyDown={onKeyDown}

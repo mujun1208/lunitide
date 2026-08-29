@@ -188,9 +188,9 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
 
 /** Silence that ends a turn: 1.2s after they actually stop talking. */
 export const TURN_END_SILENCE_MS = 1200
-/** Incomplete phrases like 「打开网」 still wait for more words, but 1.2s
- *  of true silence after they stopped means the question ended. */
-export const TURN_END_INCOMPLETE_SILENCE_MS = 1200
+/** Incomplete phrases like 「打开网」 wait a beat longer than a finished
+ *  sentence so a breath mid-clause is not treated as done. */
+export const TURN_END_INCOMPLETE_SILENCE_MS = 1500
 /** Meeting notes: people pause mid-thought; keep the clause open longer than companion turn-taking. */
 export const MEETING_TURN_END_SILENCE_MS = 2000
 /** Unfinished meeting phrases wait a little past the 2s hold. */
