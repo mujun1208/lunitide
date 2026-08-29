@@ -497,6 +497,48 @@ func TestCatchupSkippedWhenLiveTranscriptCoversAudio(t *testing.T) {
 	}
 }
 
+func TestCatchUpSecondPassWhenFirstPassLeavesGap(t *testing.T) {
+	svc := testMeetings(t)
+	audioRoot := t.TempDir()
+	svc.SetAudioRoot(audioRoot)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "长会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "实时字幕", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(120_000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	const firstPassSpans = 6
+	svc.SetAudioTranscriber(func(context.Context, []byte) (string, error) {
+		calls++
+		if calls <= firstPassSpans {
+			return "", nil
+		}
+		return "补转写尾段", nil
+	})
+	caught, err := svc.CatchUp(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls < 2 {
+		t.Fatalf("expected a second catch-up pass, calls=%d", calls)
+	}
+	if !strings.Contains(caught.Transcript, "实时字幕") {
+		t.Fatalf("live lines dropped: %q", caught.Transcript)
+	}
+	if !strings.Contains(caught.Transcript, "补转写尾段") {
+		t.Fatalf("second pass missing: %q", caught.Transcript)
+	}
+}
+
 func TestManyAppendsAndDeleteRemovesAudio(t *testing.T) {
 	svc := testMeetings(t)
 	audioRoot := t.TempDir()

@@ -23,7 +23,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionExecutingSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, isOmniUnavailableNotice, looksLikeOmniPersonaCaption, looksLikeOmniUnavailable, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk, accumulateSpeakableCaption } from './companionText'
+import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionExecutingSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk, accumulateSpeakableCaption } from './companionText'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
 import { startLocalCompanionSpeech } from './localSpeech'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
@@ -37,8 +37,6 @@ import {
   type CompanionSpeechOptions,
 } from './speech'
 import { getTtsAudioState, TtsPlayer, unlockTtsAudio } from './ttsPlayer'
-import { OmniInstallRow } from '../../settings/OmniInstallRow'
-import { probeOmniChannel, startOmniCompanion, type OmniCompanionHandle } from '../omni/omniAudio'
 import { prepareCompanionEntry } from './prepareCompanionEntry'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
@@ -117,15 +115,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const localAsrProbeRef = useRef<Promise<boolean> | undefined>(undefined)
   const activeRecognizerRef = useRef<'cloud' | 'local'>('cloud')
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
-  const omniHandleRef = useRef<OmniCompanionHandle | undefined>(undefined)
-  const omniFallbackRef = useRef(false)
-  /** This turn's voice is MiniCPM-o, so Edge/GPT-SoVITS must not also speak. */
-  const omniTurnRef = useRef(false)
-  const omniCaptionRef = useRef('')
+  const streamCaptionRef = useRef('')
   const [assistantAloud, setAssistantAloud] = useState(false)
   const startListeningRef = useRef<(auto: boolean) => void>(() => {})
   const openingListenRef = useRef(false)
-  const [omniInstallHint, setOmniInstallHint] = useState(false)
   const captionHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
@@ -178,10 +171,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const speechSyncRef = useRef<{ commitPaused: boolean; playback: boolean; echoGuardMs: number } | undefined>(undefined)
   const onSendRef = useRef(onSend)
   onSendRef.current = onSend
-  const omniVoiceActive = () =>
-    omniTurnRef.current ||
-    (settingsRef.current.voicePath === 'omni' && !!omniHandleRef.current && !omniFallbackRef.current)
-
   const shouldAwaitMoreReply = useCallback(
     () => chatStatusRef.current === 'streaming' && !!assistantTextRef.current.trim(),
     [],
@@ -239,10 +228,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setTtsAvailable(true)
     const deferTtsWarmup = window.setTimeout(() => {
       if (cancelled) return
-      if (stored.voicePath === 'omni') {
-        setTtsAvailable(true)
-        return
-      }
       const probeEngines = companionEngineProbeOrder(stored.engine)
       void (async () => {
         for (const engine of [...new Set(probeEngines)]) {
@@ -311,9 +296,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       document.documentElement.classList.remove('companion-active')
       speechHandleRef.current?.stop()
       speechHandleRef.current = undefined
-      const omni = omniHandleRef.current
-      omniHandleRef.current = undefined
-      omni?.stop()
       captionHandleRef.current?.stop()
       captionHandleRef.current = undefined
       openingListenRef.current = false
@@ -353,10 +335,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setRounds(current => {
       const incoming = stripTaskDonePhrases(text)
       const last = current[current.length - 1]
-      const prev = last?.role === 'assistant' ? last.text : omniCaptionRef.current
+      const prev = last?.role === 'assistant' ? last.text : streamCaptionRef.current
       const shown = accumulateSpeakableCaption(prev, incoming)
       if (!shown.trim()) return current
-      omniCaptionRef.current = shown
+      streamCaptionRef.current = shown
       if (last?.role === 'assistant' && last.segments === undefined) {
         if (last.text === shown) return current
         return withCurrentAssistant(current, { ...last, text: shown })
@@ -373,7 +355,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   useEffect(() => {
     if (chatStatus !== 'done') return
     const text = assistantText.trim()
-    const shown = accumulateSpeakableCaption(omniCaptionRef.current, stripTaskDonePhrases(text))
+    const shown = accumulateSpeakableCaption(streamCaptionRef.current, stripTaskDonePhrases(text))
     if (!shown) return
     setRounds(current => {
       const last = current[current.length - 1]
@@ -399,7 +381,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   useEffect(() => {
     if (chatStatus !== 'streaming') return
     if (userInterruptedRef.current) return
-    if (omniTurnRef.current || omniVoiceActive()) return
     if (stateRef.current !== 'speaking' && stateRef.current !== 'thinking') return
     if (ttsAvailable === false || !settings.autoSpeak) return
     const flush = () => {
@@ -492,10 +473,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           return
         }
         machine.dispatch({ type: 'REPLY_TERMINAL' })
-        return
-      }
-      if (omniTurnRef.current || omniVoiceActive()) {
-        if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
         return
       }
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
@@ -631,7 +608,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (machine.state !== 'speaking' || chatStatus !== 'streaming') return
     const timer = window.setInterval(() => {
       if (stateRef.current !== 'speaking' || chatStatusRef.current !== 'streaming') return
-      if (omniTurnRef.current) return
       if (playerRef.current?.isBusy()) return
       if (!assistantTextRef.current.trim()) return
       machine.dispatch({ type: 'AWAIT_MORE' })
@@ -736,7 +712,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   const speak = useCallback(
     (text: string) => {
-      if (looksLikeOmniUnavailable(text)) return
       const segments = prepareSpeech(text)
       lastSpokenRef.current = `${lastSpokenRef.current}${segments.join('')}`.slice(-1200)
       setRounds(current => withCurrentAssistant(current, { role: 'assistant', text, segments, activeIndex: undefined }))
@@ -780,7 +755,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setGain(0)
     speakingRef.current = false
     setAssistantAloud(false)
-    omniTurnRef.current = false
     interruptEchoRef.current = true
     echoUntilRef.current = performance.now() + INTERRUPT_ECHO_MS
     if (stateRef.current === 'speaking' || stateRef.current === 'thinking') {
@@ -789,7 +763,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // INTERRUPT is batched; keep syncSpeechModes from remuting the mic
     // while stateRef still says speaking.
     stateRef.current = 'idle'
-    omniHandleRef.current?.resumeListen()
     captionHandleRef.current?.resumeCapture()
     speechHandleRef.current?.resumeCapture()
     syncSpeechModesRef.current()
@@ -804,7 +777,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setGain(0)
     speakingRef.current = false
     setAssistantAloud(false)
-    omniTurnRef.current = false
     setStreamTick(0)
     interruptEchoRef.current = true
     echoUntilRef.current = performance.now() + INTERRUPT_ECHO_MS
@@ -812,7 +784,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       machine.dispatch({ type: 'INTERRUPT' })
     }
     stateRef.current = 'idle'
-    omniHandleRef.current?.resumeListen()
     captionHandleRef.current?.resumeCapture()
     speechHandleRef.current?.resumeCapture()
     syncSpeechModesRef.current()
@@ -847,7 +818,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // underneath it was listening.
     if (state === 'listening' || state === 'idle') {
       speakingRef.current = false
-      if (!omniTurnRef.current) setAssistantAloud(false)
     }
     const speakingAloud = state === 'speaking' || speakingRef.current
     const assistantBusy = state === 'thinking' || speakingAloud
@@ -868,12 +838,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   syncSpeechModesRef.current = syncSpeechModes
 
   const releaseSpeakingTurn = useCallback(() => {
-    if (omniTurnRef.current) return
     setGain(0)
     speakingRef.current = false
     setAssistantAloud(false)
-    omniTurnRef.current = false
-    omniHandleRef.current?.resumeListen()
     if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
     else if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
     syncSpeechModes()
@@ -891,7 +858,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const timer = window.setInterval(() => {
       if (stateRef.current !== 'speaking') return
       if (chatStatusRef.current === 'streaming') return
-      if (omniTurnRef.current) return
       if (playerRef.current?.isBusy()) return
       releaseSpeakingTurn()
     }, 350)
@@ -928,7 +894,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       spokenUpToRef.current = 0
       speakingRef.current = false
       setAssistantAloud(false)
-      omniCaptionRef.current = ''
+      streamCaptionRef.current = ''
       lastActivitySpokenRef.current = ''
       setStreamTick(0)
       setInterimText('')
@@ -946,7 +912,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       machine.dispatch({ type: 'RECOGNIZED_FINAL' })
       void unlockTtsAudio()
       onSendRef.current(text)
-      omniTurnRef.current = omniHandleRef.current?.commitUserAudio() === true
       syncSpeechModes()
     },
     [machine, syncSpeechModes],
@@ -998,164 +963,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }
   }, [])
 
-  const fallBackFromOmni = useCallback(() => {
-    const omni = omniHandleRef.current
-    omniHandleRef.current = undefined
-    omni?.stop()
-    setOmniInstallHint(true)
-    setLocalError(undefined)
-    if (omniFallbackRef.current) return
-    omniFallbackRef.current = true
-    if (captionHandleRef.current && !speechHandleRef.current) {
-      speechHandleRef.current = captionHandleRef.current
-      captionHandleRef.current = undefined
-      speechHandleRef.current.resumeCapture()
-      syncSpeechModes()
-      if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-      autoLoopRef.current = true
-      openingListenRef.current = false
-      return
-    }
-    openingListenRef.current = false
-    if (!exitedRef.current) startListeningRef.current(true)
-  }, [machine, syncSpeechModes])
-
   const startListening = useCallback((auto: boolean) => {
     if (exitedRef.current) return
     setLocalError(undefined)
     setEngineHint('')
     unlockTtsAudio()
-    if (settingsRef.current.voicePath === 'omni') omniFallbackRef.current = true
-    if (settingsRef.current.voicePath === 'omni' && !omniFallbackRef.current) {
-      if (omniHandleRef.current) {
-        if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-        autoLoopRef.current = true
-        setHintVisible(false)
-        omniHandleRef.current.resumeListen()
-        captionHandleRef.current?.resumeCapture()
-        return
-      }
-      if (captionHandleRef.current) {
-        captionHandleRef.current.resumeCapture()
-        autoLoopRef.current = true
-        setHintVisible(false)
-        if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-        return
-      }
-      if (openingListenRef.current) return
-      openingListenRef.current = true
-      autoLoopRef.current = true
-      setHintVisible(false)
-      if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
-      // Caption ASR must start now. Waiting on probeOmniChannel used to
-      // leave the stage in 聆听中 with no recognizer — talking did nothing.
-      void startCompanionSpeech({
-        duplex: true,
-        meterless: true,
-        environment: settingsRef.current.speechEnvironment,
-        spokenText: () => lastSpokenRef.current,
-        onInterim: transcript => {
-          const next = cleanUserTranscript(transcript)
-          if (!next || looksLikeOmniUnavailable(next)) return
-          const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-          if (
-            !shouldAcceptUserTranscript({
-              state: stateRef.current === 'listening' || stateRef.current === 'idle' ? 'listening' : stateRef.current,
-              text: next,
-              lastSpoken: lastSpokenRef.current,
-              lastAssistant,
-            })
-          ) {
-            return
-          }
-          cancelCaptionFade()
-          setInterimText(next)
-          setRounds([{ role: 'user', text: next }])
-        },
-        onFinal: beginUserTurn,
-        onError: () => {
-          captionHandleRef.current = undefined
-        },
-      })
-        .then(handle => {
-          if (exitedRef.current) {
-            handle.stop()
-            openingListenRef.current = false
-            return
-          }
-          if (omniFallbackRef.current) {
-            if (!speechHandleRef.current) {
-              speechHandleRef.current = handle
-              handle.resumeCapture()
-              syncSpeechModes()
-            } else {
-              handle.stop()
-            }
-            openingListenRef.current = false
-            return
-          }
-          captionHandleRef.current = handle
-          openingListenRef.current = false
-        })
-        .catch(() => {
-          captionHandleRef.current = undefined
-          openingListenRef.current = false
-        })
-      void (async () => {
-        const available = await probeOmniChannel()
-        if (exitedRef.current) return
-        if (!available) {
-          fallBackFromOmni()
-          return
-        }
-        void startOmniCompanion({
-          personaId: settingsRef.current.omniPersonaId,
-          onText: text => {
-            const shown = accumulateSpeakableCaption(omniCaptionRef.current, text)
-            if (!shown || looksLikeOmniUnavailable(shown) || looksLikeOmniPersonaCaption(shown)) return
-            omniCaptionRef.current = shown
-            lastSpokenRef.current = shown
-            setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: shown }))
-          },
-          onError: () => {
-            if (exitedRef.current) return
-            omniTurnRef.current = false
-            fallBackFromOmni()
-          },
-          onSpeaking: speaking => {
-            setGain(speaking ? 0.7 : 0)
-            captionHandleRef.current?.setAssistantPlayback(speaking)
-            echoUntilRef.current = performance.now() + ECHO_GUARD_MS
-            markAssistantAloud(speaking)
-            if (speaking) {
-              omniTurnRef.current = true
-              return
-            }
-            omniTurnRef.current = false
-            // Never resumeListen here. That stopPlayback() cut MiniCPM-o after
-            // the first 2-character wav. The idle auto-loop resumes listening
-            // once PLAYBACK_ENDED actually ends her turn.
-            if (stateRef.current === 'speaking') machine.dispatch({ type: 'PLAYBACK_ENDED' })
-            else if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
-          },
-        })
-          .then(handle => {
-            if (exitedRef.current || omniFallbackRef.current) {
-              handle.stop()
-              return
-            }
-            omniHandleRef.current = handle
-            silentRestartsRef.current = 0
-            openingListenRef.current = false
-          })
-          .catch(() => {
-            if (exitedRef.current) return
-            omniTurnRef.current = false
-            fallBackFromOmni()
-          })
-      })()
-      return
-    }
     if (speechHandleRef.current) {
       speechHandleRef.current.resumeCapture()
       syncSpeechModes()
@@ -1303,21 +1115,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
     }
     void begin()
-  }, [beginUserTurn, fallBackFromOmni, machine, markAssistantAloud, syncSpeechModes])
-
-  const retryOmni = useCallback(() => {
-    omniFallbackRef.current = false
-    setOmniInstallHint(false)
-    openingListenRef.current = false
-    speechHandleRef.current?.stop()
-    speechHandleRef.current = undefined
-    const omni = omniHandleRef.current
-    omniHandleRef.current = undefined
-    omni?.stop()
-    captionHandleRef.current?.stop()
-    captionHandleRef.current = undefined
-    startListening(true)
-  }, [startListening])
+  }, [beginUserTurn, machine, markAssistantAloud, syncSpeechModes])
 
   useEffect(() => {
     if (machine.state === 'speaking') justSpokeRef.current = true
@@ -1327,7 +1125,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   // the mic. After TTS, wait out speaker ring-out so the next listen is clean.
   useEffect(() => {
     if (machine.state !== 'idle' || !autoLoopRef.current || exitedRef.current) return
-    const hasHandle = !!(speechHandleRef.current || omniHandleRef.current || captionHandleRef.current)
+    const hasHandle = !!(speechHandleRef.current || captionHandleRef.current)
     const delay = hasHandle ? 40 : handsFreeRetryDelayMs(silentRestartsRef.current)
     justSpokeRef.current = false
     const timer = window.setTimeout(() => {
@@ -1336,13 +1134,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         silentRestartsRef.current = 0
         speechHandleRef.current.resumeCapture()
         syncSpeechModes()
-        machine.dispatch({ type: 'MIC_ACTIVATE' })
-        return
-      }
-      if (omniHandleRef.current) {
-        silentRestartsRef.current = 0
-        omniHandleRef.current.resumeListen()
-        captionHandleRef.current?.resumeCapture()
         machine.dispatch({ type: 'MIC_ACTIVATE' })
         return
       }
@@ -1486,10 +1277,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       if (exitedRef.current) return
       setSettings(prepared.settings)
       settingsRef.current = prepared.settings
-      if (prepared.usedFallback) {
-        setOmniInstallHint(true)
-        omniFallbackRef.current = true
-      }
     })
     return () => window.clearTimeout(timer)
   }, [])
@@ -1506,10 +1293,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setAssistantAloud(false)
     speechHandleRef.current?.resumeCapture()
     captionHandleRef.current?.resumeCapture()
-    omniHandleRef.current?.resumeListen()
     syncSpeechModes()
     machine.dispatch({ type: 'MIC_ACTIVATE' })
-    if (!speechHandleRef.current && !captionHandleRef.current && !omniHandleRef.current) {
+    if (!speechHandleRef.current && !captionHandleRef.current) {
       startListening(false)
     }
   }, [cancelReply, machine, startListening, syncSpeechModes])
@@ -1541,9 +1327,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     openingListenRef.current = false
     speechHandleRef.current?.stop()
     speechHandleRef.current = undefined
-    const omni = omniHandleRef.current
-    omniHandleRef.current = undefined
-    omni?.stop()
     captionHandleRef.current?.stop()
     captionHandleRef.current = undefined
     if (stateRef.current === 'speaking') interrupt()
@@ -1662,18 +1445,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           </button>
         </div>
       )}
-      {omniInstallHint && (
-        <div className="companion-banner companion-omni-hint" role="status">
-          <p className="companion-omni-hint-copy">MiniCPM-o 尚未就绪，已用现有语音通道继续对话。安装完成后可重试。</p>
-          <OmniInstallRow onReady={retryOmni} />
-          <button type="button" onClick={() => setOmniInstallHint(false)}>
-            知道了
-          </button>
-        </div>
-      )}
       {(localError ?? error) &&
-        (localError ?? error)!.code !== 'CHAT_CONFIG_MISSING' &&
-        !isOmniUnavailableNotice((localError ?? error)!.code, (localError ?? error)!.message) && (
+        (localError ?? error)!.code !== 'CHAT_CONFIG_MISSING' && (
         <div className="companion-banner error" role="alert">
           {(localError ?? error)!.message}
           <span>代码 {(localError ?? error)!.code}</span>
