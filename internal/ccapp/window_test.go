@@ -48,6 +48,24 @@ func TestProtectedDesktopProcess(t *testing.T) {
 	}
 }
 
+func TestChromeCloseControlAndDocumentEditor(t *testing.T) {
+	if !ChromeCloseControl("关闭", 8, 28, 28) {
+		t.Fatal("title-bar close")
+	}
+	if !ChromeCloseControl("关闭文档", 80, 120, 32) {
+		t.Fatal("close-document command")
+	}
+	if ChromeCloseControl("发送", 8, 64, 28) {
+		t.Fatal("send is not close")
+	}
+	if !documentEditorProcess("WINWORD.EXE") || !documentEditorProcess("wps.exe") || !documentEditorProcess("notepad.exe") {
+		t.Fatal("document editors")
+	}
+	if documentEditorProcess("cloudmusic.exe") {
+		t.Fatal("music player is not a document editor")
+	}
+}
+
 func TestSplitMenuPath(t *testing.T) {
 	got := SplitMenuPath("File > Save As")
 	if len(got) != 2 || got[0] != "File" || got[1] != "Save As" {

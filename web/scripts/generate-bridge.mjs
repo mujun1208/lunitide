@@ -171,6 +171,8 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'identity.password.set',
   'identity.unlock',
   'identity.update',
+  'im.channels.get',
+  'im.channels.set',
   'kb.upsertDocument',
 
   'mc.config.validate',

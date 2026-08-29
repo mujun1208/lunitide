@@ -73,6 +73,8 @@ import {
   type CcUpdateConfigPayload, type CcUpdateConfigResult,
   type CcGetAuditLogPayload, type CcGetAuditLogResult,
   type CcEmergencyStopPayload, type CcEmergencyStopResult,
+  type ImChannelsGetPayload, type ImChannelsGetResult,
+  type ImChannelsSetPayload, type ImChannelsSetResult,
   type FeedbackRecordPayload, type FeedbackRecordResult, type FeedbackCandidatesPayload, type FeedbackCandidatesResult,
   type OntologyNodeGetPayload, type OntologyNodeGetResult, type OntologyNodeListPayload, type OntologyNodeListResult,
   type OntologyNodeSearchPayload, type OntologyNodeSearchResult, type OntologyEdgeListPayload, type OntologyEdgeListResult,
@@ -846,6 +848,24 @@ export const ccBridge: CcBridge = {
   updateConfig: p => getCcBridge().updateConfig(p),
   getAuditLog: p => getCcBridge().getAuditLog(p),
   emergencyStop: p => getCcBridge().emergencyStop(p),
+}
+
+export interface ImBridge {
+  get(payload?: ImChannelsGetPayload): Promise<ImChannelsGetResult>
+  set(payload: ImChannelsSetPayload): Promise<ImChannelsSetResult>
+}
+export function createImBridge(transport: WebViewTransport, defaultDeadlineMs = 10_000): ImBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    get: () => core.request('im.channels.get', {}),
+    set: p => core.request('im.channels.set', p),
+  }
+}
+let imSingleton: ImBridge | undefined
+export function getImBridge(): ImBridge { return imSingleton ??= createImBridge(webview()) }
+export const imBridge: ImBridge = {
+  get: p => getImBridge().get(p),
+  set: p => getImBridge().set(p),
 }
 
 export interface OntologyBridge {

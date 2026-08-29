@@ -151,6 +151,8 @@
         "identity.password.set",
         "identity.unlock",
         "identity.update",
+        "im.channels.get",
+        "im.channels.set",
         "kb.upsertDocument",
         "mc.config.validate",
         "mc.confirm.token",

@@ -144,6 +144,9 @@ func pickPlayControl(nodes []mediaUINode) *mediaUINode {
 			continue
 		}
 		name := foldMedia(n.Name)
+		if isLikedPlaylistName(n.Name) {
+			continue
+		}
 		if strings.Contains(name, "随机") || strings.Contains(name, "shuffle") {
 			shuffle = n
 			continue
@@ -260,12 +263,27 @@ func isMediaNavName(name string) bool {
 		return true
 	}
 	switch n {
-	case "我喜欢的音乐", "喜欢", "推荐", "首页", "发现", "播客", "电台", "视频",
+	case "我喜欢的音乐", "喜欢", "我喜欢", "收藏", "我的收藏", "红心", "liked", "favorites",
+		"推荐", "首页", "发现", "播客", "电台", "视频",
 		"设置", "搜索", "search", "我的", "歌单", "排行榜", "每日推荐", "音乐库",
 		"播放", "暂停", "下一首", "上一首", "play", "pause", "next", "previous":
 		return true
 	}
+	if isLikedPlaylistName(name) {
+		return true
+	}
 	return false
+}
+
+func isLikedPlaylistName(name string) bool {
+	n := foldMedia(name)
+	if n == "" {
+		return false
+	}
+	if strings.Contains(n, "我喜欢") || strings.Contains(n, "收藏") || strings.Contains(n, "红心") {
+		return true
+	}
+	return n == "喜欢" || strings.Contains(n, "liked") || strings.Contains(n, "favorite")
 }
 
 func clipMediaName(name string) string {
@@ -287,6 +305,9 @@ func pickTrackNode(nodes []mediaUINode, query string) *mediaUINode {
 	for i := range nodes {
 		n := &nodes[i]
 		if isMediaNavName(n.Name) && mediaNameScore(n.Name, query) < 100 {
+			continue
+		}
+		if isLikedPlaylistName(n.Name) && !isLikedPlaylistName(query) {
 			continue
 		}
 		score := mediaNameScore(n.Name, query)

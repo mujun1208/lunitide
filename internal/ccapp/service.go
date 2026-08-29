@@ -1293,6 +1293,12 @@ func (s *Service) rejectTargetProcess(settings Settings, tool string, args json.
 		if checkProtected && ProtectedDesktopProcess(w.Process) {
 			return fmt.Errorf("%w: protected process %s", ErrCcRiskBlocked, w.Process)
 		}
+		if checkProtected && documentEditorProcess(w.Process) {
+			q := strings.ToLower(strings.TrimSpace(query))
+			if q == "" || q == "foreground" {
+				return fmt.Errorf("%w: refusing to close the open document", ErrCcRiskBlocked)
+			}
+		}
 	}
 	return nil
 }
@@ -1522,6 +1528,9 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 	bestScore := 0
 	for i := range nodes {
 		n := &nodes[i]
+		if ChromeCloseControl(n.Name, n.Y, n.W, n.H) {
+			continue
+		}
 		got := strings.ToLower(strings.TrimSpace(n.Name))
 		score := 0
 		switch {
@@ -1538,6 +1547,9 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		}
 	}
 	if best == nil || bestScore == 0 {
+		if chromeCloseName(query) {
+			return "", 0, 0, "", fmt.Errorf("%w: refusing window close unless the user asked to close", ErrCcRiskBlocked)
+		}
 		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
 	}
 	name := strings.TrimSpace(best.Name)

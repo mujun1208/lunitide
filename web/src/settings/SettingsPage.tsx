@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,conversationsBridge,type BrBridge,type CcBridge,type HooksPolicyBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
-import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getSystemHealthBridge,getTtsBridge,hooksPolicyBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,brBridge,ccBridge,imBridge,conversationsBridge,type BrBridge,type CcBridge,type ImBridge,type HooksPolicyBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import type{BrDataUsageResult,BrModeDetectResult,BrPermissionListResult,BrPermissionPolicyPayload,BrSessionListResult,BrSettingsGetResult,BrSettingsUpdatePayload,CcGetAuditLogResult,CcGetConfigResult,CcUpdateConfigPayload,ImChannelsGetResult,ImChannelsSetPayload,Mcp6PresetsListResult,ProjectDTO,ToolsHooksPolicySetPayload}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{ChoiceTiles}from'./ChoiceTiles'
 import{VoicePathPicker}from'./VoicePathPicker'
@@ -163,6 +163,7 @@ export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'gene
           </div>}
           {category === 'browser' && <BrowserPanel />}
           {category === 'computer' && <ComputerPanel />}
+          {category === 'channels' && <ChannelsPanel />}
           {category === 'subagents' && <SubagentsPanel onSaved={() => setSaved(true)} />}
           {category === 'collab' && <CollabGatePanel />}
           {category === 'diagnostics' && <DiagnosticsPanel />}
@@ -967,6 +968,73 @@ const CC_TOOL_LABELS: Record<string, string> = {
 const CC_LEVEL_META: Record<'standard' | 'strict', { label: string; desc: string }> = {
   standard: { label: '标准', desc: '高危操作（组合键等）需人工确认；极高风险默认拦截' },
   strict: { label: '严格', desc: '仅允许低/中风险操作；高危一律拦截，适合首次试用' },
+}
+
+export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): React.JSX.Element {
+  const [channels, setChannels] = useState<ImChannelsGetResult['channels']>([])
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [status, setStatus] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const refresh = async () => {
+    setBusy(true)
+    try {
+      const r = await bridge.get()
+      setChannels(r.channels)
+      setDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.webhookUrl])))
+      setStatus('')
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : '消息通道加载失败')
+    } finally { setBusy(false) }
+  }
+  useEffect(() => { void refresh() }, [])
+
+  const apply = async (p: ImChannelsSetPayload, okMsg: string) => {
+    setBusy(true); setStatus('')
+    try {
+      const r = await bridge.set(p)
+      setChannels(r.channels)
+      setDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.webhookUrl])))
+      setStatus(okMsg)
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : '保存失败')
+    } finally { setBusy(false) }
+  }
+
+  const webhookKind = (kind: string) => kind === 'feishu' || kind === 'wecom' || kind === 'dingtalk'
+  const modeLabel = (mode: string) => mode === 'webhook' ? '机器人 Webhook' : mode === 'desktop' ? '本机客户端' : '未启用'
+
+  return (
+    <div className="setting-group">
+      <div className="setting-group-title">消息通道</div>
+      <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+        <div className="setting-desc">飞书 / 企业微信 / 钉钉：粘贴群机器人 https Webhook。微信 / QQ：使用本机已登录的桌面客户端，不经过公网网关。对月伴说「发给飞书…」即可。</div>
+      </div>
+      {channels.map(ch => (
+        <div key={ch.kind} className="setting-row im-channel-row" style={{ gridTemplateColumns: '1fr' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <div className="setting-label">{ch.label}</div>
+              <div className="setting-desc">当前：{modeLabel(ch.mode)}{ch.desktopApp ? ` · 客户端 ${ch.desktopApp}` : ''}</div>
+            </div>
+            <button disabled={busy} onClick={() => void apply({ kind: ch.kind, enabled: !ch.enabled }, ch.enabled ? `${ch.label}已关闭` : `${ch.label}已启用`)}>{ch.enabled ? '停用' : '启用'}</button>
+          </div>
+          {webhookKind(ch.kind) ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <input className="setting-input" style={{ flex: 1, minWidth: 240, fontFamily: 'var(--mono)', fontSize: 12 }}
+                value={drafts[ch.kind] ?? ''} placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"
+                aria-label={`${ch.label} Webhook 地址`}
+                onChange={ev => setDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
+              <button disabled={busy} onClick={() => void apply({ kind: ch.kind, enabled: true, webhookUrl: (drafts[ch.kind] ?? '').trim() }, `${ch.label} Webhook 已保存`)}>保存{ch.label} Webhook</button>
+            </div>
+          ) : (
+            <div className="setting-desc">启用后，月伴打开已登录的{ch.desktopApp}再输入。本机没有该软件时无法发送。</div>
+          )}
+        </div>
+      ))}
+      {status && <p className="notice" role="status">{status}</p>}
+    </div>
+  )
 }
 
 export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): React.JSX.Element {

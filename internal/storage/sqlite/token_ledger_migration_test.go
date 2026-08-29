@@ -213,6 +213,7 @@ DROP TABLE local_identity;
 DROP TABLE meeting_docs;
 DROP TABLE meeting_segments;
 DROP TABLE meetings;
+DROP TABLE im_channels;
 DROP INDEX IF EXISTS ux_provider_kind_default;
 ALTER TABLE provider_models DROP COLUMN kind;
 ALTER TABLE provider_models DROP COLUMN supports_vision;

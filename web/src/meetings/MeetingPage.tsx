@@ -81,6 +81,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const [interim, setInterim] = useState('')
   const [elapsed, setElapsed] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [notice, setNotice] = useState('')
   const [draftSummary, setDraftSummary] = useState('')
   const [draftActions, setDraftActions] = useState('')
@@ -294,7 +295,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   }, [refresh, meetings])
 
   useEffect(() => {
-    if (current?.status !== 'recording' || !current.startedAt) {
+    if (current?.status !== 'recording' || !current.startedAt || stopping) {
       window.clearInterval(tickRef.current)
       return
     }
@@ -303,10 +304,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     pulse()
     tickRef.current = window.setInterval(pulse, 250)
     return () => window.clearInterval(tickRef.current)
-  }, [current?.status, current?.startedAt])
+  }, [current?.status, current?.startedAt, stopping])
 
   useEffect(() => {
-    if (current?.status !== 'recording' || !meetings.heartbeat) {
+    if (current?.status !== 'recording' || !meetings.heartbeat || stopping) {
       window.clearInterval(heartbeatRef.current)
       return
     }
@@ -321,11 +322,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     pulse()
     heartbeatRef.current = window.setInterval(pulse, MEETING_HEARTBEAT_INTERVAL_MS)
     return () => window.clearInterval(heartbeatRef.current)
-  }, [current?.status, current?.meetingId, meetings])
+  }, [current?.status, current?.meetingId, meetings, stopping])
 
   useEffect(() => {
     const live = current
-    if (live?.status !== 'recording' || live.audioSource !== 'microphone_and_system' || !meetings.loopbackPoll) {
+    if (live?.status !== 'recording' || live.audioSource !== 'microphone_and_system' || !meetings.loopbackPoll || stopping) {
       window.clearInterval(loopbackPollRef.current)
       loopbackHoldRef.current = undefined
       return
@@ -351,11 +352,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     pulse()
     loopbackPollRef.current = window.setInterval(pulse, LOOPBACK_POLL_MS)
     return () => window.clearInterval(loopbackPollRef.current)
-  }, [current?.status, current?.meetingId, current?.audioSource, meetings])
+  }, [current?.status, current?.meetingId, current?.audioSource, meetings, stopping])
 
   useEffect(() => {
     const live = current
-    if (live?.status !== 'recording' || live.audioSource === 'microphone_and_system') {
+    if (live?.status !== 'recording' || live.audioSource === 'microphone_and_system' || stopping) {
       window.clearInterval(recoverRef.current)
       return
     }
@@ -377,7 +378,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
     recoverRef.current = window.setInterval(tick, SYSTEM_AUDIO_RECOVER_MS)
     return () => window.clearInterval(recoverRef.current)
-  }, [current?.status, current?.meetingId])
+  }, [current?.status, current?.meetingId, stopping])
 
   useEffect(() => {
     if (current?.status !== 'summarizing' || !current.meetingId) {
@@ -416,8 +417,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   }, [])
 
   const start = async () => {
-    if (busy) return
+    if (busy || stopping) return
     userStopRef.current = false
+    setStopping(false)
     setBusy(true)
     setNotice('')
     setInterim('')
@@ -488,12 +490,20 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   }
 
   const stop = async () => {
-    if (!current || current.status !== 'recording' || busy) return
+    if (!current || current.status !== 'recording' || busy || stopping || userStopRef.current) return
     userStopRef.current = true
+    setStopping(true)
+    const startedAt = Date.parse(current.startedAt)
+    const frozenMs = Math.max(elapsed, Number.isNaN(startedAt) ? 0 : Date.now() - startedAt)
+    setElapsed(frozenMs)
+    window.clearInterval(tickRef.current)
+    window.clearInterval(heartbeatRef.current)
+    window.clearInterval(loopbackPollRef.current)
+    window.clearInterval(stallWatchRef.current)
+    window.clearInterval(recoverRef.current)
     setBusy(true)
     setNotice('正在结束录制…')
     speechGen.current += 1
-    window.clearInterval(stallWatchRef.current)
     const handle = speechRef.current
     speechRef.current = null
     pcmTapRef.current = undefined
@@ -516,7 +526,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     setInterim('')
     try {
       await appendChain.current
-      await meetings.stop({ meetingId: current.meetingId })
+      const stopped = await meetings.stop({ meetingId: current.meetingId })
+      adopt({ ...stopped, durationMs: stopped.durationMs || frozenMs })
       await finishNotes(current.meetingId)
     } catch (error) {
       try {
@@ -527,6 +538,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         setNotice(error instanceof Error ? error.message : '无法结束录制')
       }
     } finally {
+      setStopping(false)
       setBusy(false)
     }
   }
@@ -608,7 +620,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
   }
 
-  const recording = current?.status === 'recording'
+  const recording = current?.status === 'recording' && !stopping
   const segments: MeetingSegmentDTO[] = current?.segments ?? []
   const liveLines = segments.map(seg => seg.text)
   if (current?.transcript && liveLines.length === 0) liveLines.push(...current.transcript.split('\n').filter(Boolean))
@@ -629,7 +641,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
               onClick={() => void open(item.meetingId)}
             >
               <b>{item.title}</b>
-              <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.status === 'recording' && item.meetingId === current?.meetingId ? elapsed : item.durationMs)} · {STATUS[item.status]}</small>
+              <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.status === 'recording' && item.meetingId === current?.meetingId ? elapsed : item.durationMs)} · {item.meetingId === current?.meetingId && stopping ? '整理中' : STATUS[item.status]}</small>
             </button>
             {item.status !== 'recording' && (
               <button type="button" className="meeting-row-delete" aria-label={`删除 ${item.title}`} onClick={() => setDeleteTarget(item)}>删除</button>
@@ -644,13 +656,13 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             <h2>{current?.title || '新的会议'}</h2>
             <p>开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束；如有中断会补转写，再生成摘要、待办和逐字稿。</p>
           </div>
-          <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording ? elapsed : current?.durationMs ?? 0)}</div>
+          <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording || stopping ? elapsed : current?.durationMs ?? 0)}</div>
         </header>
         <div className="meeting-rec">
           {recording
             ? <button type="button" className="meeting-stop" disabled={busy} onClick={() => void stop()}>停止</button>
-            : <button type="button" className="meeting-start" disabled={busy} onClick={() => void start()}>开始录制</button>}
-          <span>{recording ? audioSourceLabel(current?.audioSource, true) : '开始录制后一直收录，直到你点停止。'}</span>
+            : <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>}
+          <span>{recording ? audioSourceLabel(current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">

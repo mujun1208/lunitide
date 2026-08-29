@@ -436,4 +436,32 @@ describe('MeetingPage', () => {
       intervalSpy.mockRestore()
     }
   })
+
+  test('stop freezes the clock and hides 录制中 while catchup hangs', async () => {
+    let resolveCatchup: (value: MeetingDTO) => void = () => undefined
+    const startedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, startedAt, title: '会议 2026-08-30 00:43' }
+    const stopped: MeetingDTO = { ...started, status: 'transcribed', endedAt: now, durationMs: 600_000, transcript: '歌词' }
+    const ready: MeetingDTO = { ...stopped, status: 'ready', summary: '摘要', actions: '- 待办' }
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      stop: vi.fn().mockResolvedValue(stopped),
+      catchup: vi.fn().mockImplementation(() => new Promise<MeetingDTO>(resolve => { resolveCatchup = resolve })),
+      summarize: vi.fn().mockResolvedValue(ready),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始录制' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '停止' }))
+    expect(await screen.findByRole('button', { name: '处理中…' })).toBeInTheDocument()
+    expect(screen.getAllByText(/正在结束录制|正在转写补全|录音已停止/).length).toBeGreaterThan(0)
+    expect(screen.queryByText('正在录制麦克风与系统声音')).not.toBeInTheDocument()
+    expect(screen.queryByText('录制中')).not.toBeInTheDocument()
+    expect(screen.getByText('整理中', { exact: false })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument()
+    resolveCatchup(stopped)
+    expect(await screen.findByRole('heading', { name: '会议摘要' })).toBeInTheDocument()
+  })
 })

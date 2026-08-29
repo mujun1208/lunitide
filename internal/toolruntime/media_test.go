@@ -49,6 +49,29 @@ func TestPickTrackNodePrefersNamedListItemOverNav(t *testing.T) {
 	}
 }
 
+func TestPickTrackAndPlaySkipLikedPlaylist(t *testing.T) {
+	if !isLikedPlaylistName("我喜欢的音乐") || !isLikedPlaylistName("我的收藏") {
+		t.Fatal("liked names")
+	}
+	nodes := []mediaUINode{
+		{Role: "listitem", Name: "我喜欢的音乐", Y: 40, H: 32, W: 200},
+		{Role: "button", Name: "收藏", Y: 80, H: 28, W: 64},
+		{Role: "listitem", Name: "晴天", Y: 160, H: 48, W: 400},
+		{Role: "button", Name: "播放", Y: 900, H: 32, W: 32},
+	}
+	got := pickTrackNode(nodes, "晴天")
+	if got == nil || got.Name != "晴天" {
+		t.Fatalf("track %+v", got)
+	}
+	if picked := pickTrackNode(nodes, "周杰伦"); picked != nil && isLikedPlaylistName(picked.Name) {
+		t.Fatalf("liked playlist leaked into track pick %+v", picked)
+	}
+	play := pickPlayControl(nodes)
+	if play == nil || play.Name != "播放" {
+		t.Fatalf("play %+v", play)
+	}
+}
+
 func TestNowPlayingConfirmedIgnoresListAndRequiresBar(t *testing.T) {
 	listAndWrongBar := []mediaUINode{
 		{Role: "button", Name: "我喜欢的音乐", Y: 40, H: 32, W: 160},

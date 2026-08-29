@@ -475,7 +475,7 @@ func TestCatchupSkippedWhenLiveTranscriptCoversAudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Append(ctx, started.MeetingID, "全程都有字幕", 1000); err != nil {
+	if _, err := svc.Append(ctx, started.MeetingID, strings.Repeat("全程都有字幕。", 20), 1000); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(8_000)); err != nil {
@@ -586,6 +586,9 @@ func TestNeedsCatchup(t *testing.T) {
 	}
 	if !meetings.NeedsCatchup(3_600_000, 600_000, true, strings.Repeat("逐", 400)) {
 		t.Fatal("ASR dying at 10 minutes of a 1h meeting needs catch-up")
+	}
+	if meetings.NeedsCatchup(600_000, 598_000, true, strings.Repeat("词", 400)) {
+		t.Fatal("10-minute meeting with substantial live captions should skip catch-up")
 	}
 	if !meetings.NeedsCatchup(282_000, 280_000, true, "火焰已把火烧到天亮。往前走") {
 		t.Fatal("fragmentary live captions on a long meeting should re-transcribe")
