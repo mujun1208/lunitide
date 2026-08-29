@@ -39,10 +39,10 @@ func handleConversationsRootSet(e *Engine, _ context.Context, r bridge.Request) 
 	}
 	status, _ := e.conversations.Status()
 	return bridge.Success(r.ID, struct {
-		Path              string `json:"path"`
-		Configured        bool   `json:"configured"`
-		MigratedSessions  int    `json:"migratedSessions"`
-		LegacyPath        string `json:"legacyPath,omitempty"`
+		Path             string `json:"path"`
+		Configured       bool   `json:"configured"`
+		MigratedSessions int    `json:"migratedSessions"`
+		LegacyPath       string `json:"legacyPath,omitempty"`
 	}{status.Path, status.Configured, migrated, status.LegacyPath})
 }
 
@@ -111,7 +111,7 @@ func handleSessionFolderOpen(e *Engine, _ context.Context, r bridge.Request) bri
 	}
 	selectFile := strings.TrimSpace(p.RelativePath) != ""
 	if err := openInShell(target, selectFile); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "SESSION_FOLDER_OPEN_FAILED", "无法在资源管理器中打开", false)
+		return bridge.Failure(r.ID, r.TraceID, "SESSION_FOLDER_OPEN_FAILED", "无法打开文件", false)
 	}
 	return bridge.Success(r.ID, map[string]any{"opened": target})
 }
@@ -148,8 +148,12 @@ func openInShell(target string, selectFile bool) error {
 	if runtime.GOOS != "windows" {
 		return exec.Command("xdg-open", target).Start()
 	}
+	clean := filepath.Clean(target)
 	if selectFile {
-		return exec.Command("explorer.exe", "/select,", filepath.Clean(target)).Start()
+		info, err := os.Stat(clean)
+		if err == nil && !info.IsDir() {
+			return exec.Command("cmd", "/c", "start", "", clean).Start()
+		}
 	}
-	return exec.Command("explorer.exe", filepath.Clean(target)).Start()
+	return exec.Command("explorer.exe", clean).Start()
 }

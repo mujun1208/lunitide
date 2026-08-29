@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		fatal("read source: %v", err)
 	}
-	keyed := knockOutBlack(src)
+	keyed := knockOutMoonHalo(knockOutBlack(src))
 	if err := writePNG(*pngPath, keyed); err != nil {
 		fatal("write png: %v", err)
 	}
@@ -60,6 +60,32 @@ func knockOutBlack(src *image.RGBA) *image.RGBA {
 			i := out.PixOffset(x, y)
 			r, g, bl := out.Pix[i], out.Pix[i+1], out.Pix[i+2]
 			if r < 14 && g < 14 && bl < 18 {
+				out.Pix[i+3] = 0
+			}
+		}
+	}
+	return out
+}
+
+// knockOutMoonHalo clears the navy ring / glow around the moon while leaving
+// the pale disc and the lower cloud bank intact.
+func knockOutMoonHalo(src *image.RGBA) *image.RGBA {
+	b := src.Bounds()
+	out := image.NewRGBA(b)
+	copy(out.Pix, src.Pix)
+	cutoff := b.Min.Y + b.Dy()*62/100
+	for y := b.Min.Y; y < cutoff; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			i := out.PixOffset(x, y)
+			r, g, bl, a := out.Pix[i], out.Pix[i+1], out.Pix[i+2], out.Pix[i+3]
+			if a == 0 {
+				continue
+			}
+			lum := int(r) + int(g) + int(bl)
+			if lum >= 420 {
+				continue
+			}
+			if bl >= r && bl >= g {
 				out.Pix[i+3] = 0
 			}
 		}

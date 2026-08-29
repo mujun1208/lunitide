@@ -213,12 +213,13 @@ export class TtsPlayer {
    * the count lives at this level rather than at each call site.
    */
   private async synthesizeReadySegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
+    const generation = this.generation
     this.inFlightSynths++
     const started = performance.now()
     try {
       return await this.requestSegment(text, callbacks)
     } finally {
-      this.inFlightSynths--
+      if (this.generation === generation && this.inFlightSynths > 0) this.inFlightSynths--
       this.observeSynthDuration((performance.now() - started) / 1000)
     }
   }
@@ -789,6 +790,7 @@ export class TtsPlayer {
   private interruptLocal(): void {
     this.generation++
     this.queueGeneration++
+    this.inFlightSynths = 0
     this.prefetchQueue = []
     this.pendingSegments = []
     this.queueProcessing = false

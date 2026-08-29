@@ -25,6 +25,24 @@ func TestKnockOutBlackLeavesMoonAndClouds(t *testing.T) {
 	}
 }
 
+func TestKnockOutMoonHaloRemovesBlueRing(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	src.Set(5, 1, color.RGBA{80, 120, 190, 255})
+	src.Set(4, 1, color.RGBA{1, 9, 60, 255})
+	src.Set(5, 3, color.RGBA{240, 248, 255, 255})
+	src.Set(5, 8, color.RGBA{59, 130, 246, 255})
+	out := knockOutMoonHalo(src)
+	if out.RGBAAt(5, 1).A != 0 || out.RGBAAt(4, 1).A != 0 {
+		t.Fatal("upper halo should be transparent")
+	}
+	if out.RGBAAt(5, 3).A != 255 {
+		t.Fatal("moon body must stay opaque")
+	}
+	if out.RGBAAt(5, 8).A != 255 {
+		t.Fatal("lower clouds must stay opaque")
+	}
+}
+
 func TestWriteICOUsesPNGFrames(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 32, 32))
 	src.Set(16, 16, color.RGBA{255, 255, 255, 255})
@@ -66,5 +84,16 @@ func TestRepoIconHasTransparentFill(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte{0x89, 'P', 'N', 'G'}) {
 		t.Fatal("shipped ICO should embed PNG frames so Explorer keeps alpha")
+	}
+	x := img.Bounds().Min.X + img.Bounds().Dx()/2
+	yHalo := img.Bounds().Min.Y + img.Bounds().Dy()*8/100
+	halo := img.RGBAAt(x, yHalo)
+	if halo.A > 40 {
+		t.Fatalf("desktop halo at (%d,%d) still visible alpha=%d rgb=%d,%d,%d", x, yHalo, halo.A, halo.R, halo.G, halo.B)
+	}
+	yMoon := img.Bounds().Min.Y + img.Bounds().Dy()*35/100
+	moon := img.RGBAAt(x, yMoon)
+	if moon.A < 200 {
+		t.Fatalf("moon body vanished at (%d,%d) alpha=%d", x, yMoon, moon.A)
 	}
 }

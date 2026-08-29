@@ -190,6 +190,23 @@ describe('PeoplePage', () => {
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
   })
 
+  test('desktop camera sends the full frame without opening a crop overlay', async () => {
+    const bytes = Uint8Array.from([1, 2, 3])
+    const shot = new File([bytes as BlobPart], 'screenshot.jpg', { type: 'image/jpeg' })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ file: shot, source: 'display' })
+    const { identity, people } = bridges()
+    people.threadSend = vi.fn().mockResolvedValue({
+      message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB2', kind: 'image', fileName: 'screenshot.jpg', offerId: undefined, offerStatus: undefined },
+    })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    await user.click(screen.getByRole('button', { name: '截取桌面' }))
+    expect(captureThisPcFrame).toHaveBeenCalled()
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
+    expect(screen.queryByRole('dialog', { name: '框选截图' })).not.toBeInTheDocument()
+  })
+
   test('region snip cancel does not send a screenshot', async () => {
     const { BridgeClientError } = await import('../bridge/client')
     vi.mocked(captureThisPcFrame).mockRejectedValue(new BridgeClientError('已取消截图', 'PEOPLE_CANCELED', false, 'trace'))

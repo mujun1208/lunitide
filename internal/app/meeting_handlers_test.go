@@ -212,7 +212,7 @@ func TestMeetingsHandlersUpdateAndDelete(t *testing.T) {
 }
 
 func TestMeetingNotesSystemAsksForActionsAndConclusions(t *testing.T) {
-	for _, needle := range []string{"待办", "结论", "背景", "讨论要点", "不要编造"} {
+	for _, needle := range []string{"待办", "结论", "背景", "讨论要点", "不要编造", "不要漏", "内容零散"} {
 		if !strings.Contains(meetingNotesSystem, needle) {
 			t.Fatalf("prompt missing %q:\n%s", needle, meetingNotesSystem)
 		}

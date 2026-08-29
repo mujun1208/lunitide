@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
-import { ChatArtifactCards, filterChatDeliverables, isChatDeliverableArtifact } from './ChatArtifactCards'
+import { artifactOpenRelativePath, ChatArtifactCards, filterChatDeliverables, isChatDeliverableArtifact } from './ChatArtifactCards'
 
 vi.mock('../bridge/client', () => ({
   sessionFolderBridge: { open: vi.fn() },
@@ -18,6 +18,8 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   expect(isChatDeliverableArtifact({ toolName: 'web.search', kind: 'html', path: 'search.html' })).toBe(false)
   expect(isChatDeliverableArtifact({ toolName: 'web.fetch', kind: 'html', path: 'fetch.html' })).toBe(false)
   expect(isChatDeliverableArtifact({ toolName: 'pptx.gen', kind: 'pptx', path: 'deck.pptx' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'pptx', path: 'desktop/介绍.pptx' })).toBe(true)
+  expect(artifactOpenRelativePath(String.raw`C:\Users\mujun\Desktop\介绍.pptx`)).toBe('desktop/介绍.pptx')
   const visible = filterChatDeliverables([
     { kind: 'html', path: 'search.html', content: '', callId: 's1', toolName: 'web.search' },
     { kind: 'html', path: 'fetch.html', content: '', callId: 'f1', toolName: 'web.fetch' },

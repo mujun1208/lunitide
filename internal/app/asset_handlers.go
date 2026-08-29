@@ -176,6 +176,9 @@ func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 		_ = e.templateFiles.DeleteFile(ctx, fileRef)
 		return assetFailure(r, err)
 	}
+	if strings.TrimSpace(p.UploadID) != "" {
+		e.finishTemplateStage(strings.TrimSpace(p.UploadID))
+	}
 	return bridge.Success(r.ID, newAssetTemplateDTO(created))
 }
 

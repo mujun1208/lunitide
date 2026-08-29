@@ -14,7 +14,8 @@ import{App,PERSONAL_CHAT_PROJECT}from'./App'
 import{SKILL_CREATE_PROMPT}from'./skill/ensureSkillCreator'
 import{EXPERT_CREATE_PROMPT}from'./skill/ensureExpertManager'
 import{PLUGIN_CREATE_PROMPT}from'./plugin/ensurePluginCreator'
-afterEach(()=>{cleanup();mockPeopleThreadList.mockResolvedValue({items:[]});localStorage.removeItem('lunitide:language');localStorage.removeItem('lunitide:language-default-en')})
+import{resetLiveChatForTests}from'./session/liveChat'
+afterEach(()=>{cleanup();resetLiveChatForTests();mockPeopleThreadList.mockResolvedValue({items:[]});localStorage.removeItem('lunitide:language');localStorage.removeItem('lunitide:language-default-en')})
 const now='2026-01-01T00:00:00Z'
 const personal:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:PERSONAL_CHAT_PROJECT,projectCode:'ITM00000',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1}
 const project:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAA',name:'Moon',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1}

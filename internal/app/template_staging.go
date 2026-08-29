@@ -90,6 +90,12 @@ func handleTemplateFileStage(e *Engine, ctx context.Context, r bridge.Request) b
 
 	up.mu.Lock()
 	defer up.mu.Unlock()
+	if up.file == nil {
+		if p.Last {
+			return bridge.Success(r.ID, map[string]any{"ready": true, "uploadId": p.UploadID, "bytes": up.size})
+		}
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
+	}
 	if up.size+int64(len(raw)) > attachmentapp.MaxFileSize {
 		return bridge.Failure(r.ID, r.TraceID, "TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
 	}
@@ -105,9 +111,6 @@ func handleTemplateFileStage(e *Engine, ctx context.Context, r bridge.Request) b
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板分片暂存失败", true)
 	}
 	up.file = nil
-	state.mu.Lock()
-	delete(state.uploads, p.UploadID)
-	state.mu.Unlock()
 	return bridge.Success(r.ID, map[string]any{"ready": true, "uploadId": p.UploadID, "bytes": up.size})
 }
 
@@ -127,8 +130,18 @@ func (e *Engine) consumeTemplateStage(uploadID string) ([]byte, error) {
 	if len(data) == 0 || len(data) > attachmentapp.MaxFileSize {
 		return nil, fmt.Errorf("staged file invalid")
 	}
-	_ = os.Remove(path)
 	return data, nil
+}
+
+func (e *Engine) finishTemplateStage(uploadID string) {
+	if !validCanonicalULID(uploadID) {
+		return
+	}
+	state := e.templateStage()
+	state.mu.Lock()
+	delete(state.uploads, uploadID)
+	state.mu.Unlock()
+	cleanupTemplateStage(uploadID)
 }
 
 func cleanupTemplateStage(uploadID string) {
