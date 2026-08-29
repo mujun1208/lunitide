@@ -32,6 +32,8 @@ import {
   companionTaskCompleteSpeech,
   takeSpeakableChunk,
   accumulateSpeakableCaption,
+  collapseRepeatedCaptionBlocks,
+  companionCaptionFromStream,
   repairOpenCommandTranscript,
 } from './companionText'
 
@@ -180,6 +182,8 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('把开了我把它桌面上的')).toBe(true)
     expect(looksIncompleteUtterance('打开桌面上的')).toBe(true)
     expect(looksIncompleteUtterance('打开桌面上的协议文档')).toBe(false)
+    expect(looksIncompleteUtterance('帮我在文档的身份证号码')).toBe(true)
+    expect(looksIncompleteUtterance('帮我在文档的身份证号码写进去')).toBe(false)
   })
 })
 
@@ -229,11 +233,22 @@ describe('looksLikePlaybackEcho', () => {
     expect(looksLikePlaybackEcho('今晚是满月适合抬头', '今晚是满月，适合抬头。')).toBe(true)
     expect(looksLikePlaybackEcho('嗨我在呢', '嗨，我在呢。')).toBe(true)
     expect(looksLikePlaybackEcho('我在呢', '嗨，我在呢。')).toBe(true)
+    expect(looksLikePlaybackEcho('谢你见', '谢谢你，我看到了。')).toBe(true)
+    expect(looksLikePlaybackEcho('我来执行', '好，我来执行。')).toBe(true)
   })
 
   test('does not treat a new question as echo of the previous reply', () => {
     expect(looksLikePlaybackEcho('帮我打开桌面协议', '今晚是满月，适合抬头。')).toBe(false)
     expect(looksLikePlaybackEcho('嗯', '今晚是满月，适合抬头。')).toBe(false)
+    expect(looksLikePlaybackEcho('下一句你好吗', '好的，搜索周杰伦放一首')).toBe(false)
+    expect(
+      shouldAcceptUserTranscript({
+        state: 'listening',
+        text: '下一句你好吗',
+        lastSpoken: '好的，搜索周杰伦放一首',
+        lastAssistant: '好的，搜索周杰伦放一首',
+      }),
+    ).toBe(true)
   })
 })
 
@@ -288,6 +303,24 @@ describe('accumulateSpeakableCaption', () => {
     expect(accumulateSpeakableCaption('人生：优质台湾腔', '在的。')).toBe('在的。')
   })
 
+  test('prefers the live chat stream when a tool-status prefix diverged', () => {
+    const toolLine = '联网搜索中…'
+    const answer = '合肥今天小雨转阴，气温在25到32度，吹3到4级风。'
+    expect(companionCaptionFromStream(answer)).toBe(answer)
+    expect(companionCaptionFromStream(`${toolLine}${answer}`)).toBe(`${toolLine}${answer}`)
+  })
+
+  test('old accumulate path would stack tool prefix then replay the whole reply', () => {
+    const para =
+      '合肥今天小雨转阴，气温在25到32度，吹3到4级风。出门记得带把伞，稍等，我查一下合肥今天的天气！搜索结果里没直接给出具体气温，我再抓一下实时天气页面确认一下。'
+    let poisoned = '联网搜索中…'
+    for (const incoming of [para.slice(0, 12), para.slice(0, 28), para]) {
+      poisoned = accumulateSpeakableCaption(poisoned, incoming)
+    }
+    expect(poisoned).not.toBe(para)
+    expect(companionCaptionFromStream(para)).toBe(para)
+  })
+
   test('grows a last-token paint into the full sentence including 问', () => {
     let caption = ''
     for (const piece of ['当', '然可以啦，你有什么问', '题']) {
@@ -295,6 +328,20 @@ describe('accumulateSpeakableCaption', () => {
     }
     expect(caption).toBe('当然可以啦，你有什么问题')
     expect(caption.endsWith('问')).toBe(false)
+  })
+})
+
+describe('companionCaptionFromStream', () => {
+  const weather =
+    '合肥今天小雨转阴，气温在25到32度，吹3到4级风。出门记得带把伞，稍等，我查一下合肥今天的天气！搜索结果里没直接给出具体气温，我再抓一下实时天气页面确认一下。'
+
+  test('shows one weather answer from the live chat buffer', () => {
+    expect(companionCaptionFromStream(weather)).toBe(weather)
+  })
+
+  test('collapses nudge-loop replays of the same paragraph', () => {
+    expect(companionCaptionFromStream(weather.repeat(8))).toBe(weather)
+    expect(collapseRepeatedCaptionBlocks(weather.repeat(3))).toBe(weather)
   })
 })
 
@@ -314,6 +361,9 @@ describe('shouldAcceptUserTranscript', () => {
     expect(shouldAcceptUserTranscript({ ...base, text: '今晚是满月适合抬头' })).toBe(false)
     expect(shouldAcceptUserTranscript({ ...base, state: 'speaking' })).toBe(false)
     expect(shouldAcceptUserTranscript({ ...base, state: 'thinking' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, assistantBusy: true })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, text: '谢你见', lastSpoken: '谢谢你，我看到了。', lastAssistant: '谢谢你，我看到了。' })).toBe(false)
+    expect(looksLikePlaybackEcho('谢你见', '好，我来执行。')).toBe(false)
   })
 
   test('never paints the MiniCPM-o clone label as a dialogue round', () => {

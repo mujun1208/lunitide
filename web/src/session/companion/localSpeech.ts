@@ -28,10 +28,10 @@ import { absorbHeldTranscript } from '../../meetings/meetingText'
 const TICK_MS = 60
 
 /**
- * Reached only if the engine never reports an endpoint. Sized to the
- * 1.2s turn-end window plus a little slack, not a multi-second stall.
+ * Reached only if the engine never reports an endpoint. Sized just above the
+ * incomplete hard ceiling so a stuck recognizer still commits, not mid-breath.
  */
-export const ENDPOINT_BACKSTOP_MS = 1400
+export const ENDPOINT_BACKSTOP_MS = 2300
 
 /** Peak that paints a full ring. Chosen so normal speech sits mid-scale. */
 const FULL_SCALE_PEAK = 0.35
@@ -68,6 +68,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   let unmuteTimer = 0
   let commitPaused = false
   let recycling = false
+  let pendingEvaluate = false
   let ticker = 0
 
   const resetUtterance = () => {
@@ -117,13 +118,29 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         fail(error)
         return
       }
-      resetUtterance()
-      if (!emit) return
-      const final = settled || carried
-      if (!final) return
-      options.onFinal(final)
+      const fresh = text.trim()
+      if (emit === 'final') {
+        resetUtterance()
+        const final = settled || carried
+        if (!final) return
+        options.onFinal(final)
+        return
+      }
+      // Non-final recycle seals her echo window. The user often starts the
+      // next turn while commit() is still in flight — clearing unconditionally
+      // here left the caption on screen with an empty recognizer buffer, so
+      // endpointing never fired and the stage sat on 聆听中 after round 3+.
+      if (!fresh || fresh === carried) {
+        resetUtterance()
+      }
     } finally {
       recycling = false
+      if (pendingEvaluate) {
+        pendingEvaluate = false
+        evaluate()
+      } else if (!closed && !playback && !commitPaused && text.trim()) {
+        evaluate()
+      }
     }
   }
 
@@ -137,7 +154,11 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
    * shorter than an ordinary pause mid-sentence. They ended turns half-said.
    */
   const evaluate = () => {
-    if (closed || recycling || playback || commitPaused) return
+    if (closed || playback || commitPaused) return
+    if (recycling) {
+      pendingEvaluate = true
+      return
+    }
     if (Date.now() < guardUntil) return
     const trimmed = text.trim()
     if (!trimmed) return
@@ -192,11 +213,14 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         resetUtterance()
         return
       }
-      const absorbed = holdUtterance ? absorbHeldTranscript(sealed || text, next) : next
+      // Sherpa starts a new segment after its own 1.2s endpoint. Glue segments
+      // so a caption keeps growing and a mid-clause breath is not the turn.
+      const absorbed = absorbHeldTranscript(holdUtterance ? sealed || text : text, next)
       if (absorbed !== text.trim()) {
         text = absorbed
         lastTextAt = now
         if (!textSince) textSince = now
+        speechActive = true
         if (!announcedSpeech) {
           announcedSpeech = true
           options.onSpeechStart?.()
@@ -209,9 +233,11 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         return
       }
       if (final) {
-        speechActive = false
-        // Engine endpoint is not the product endpoint. Wait 1.2s of true
-        // silence after they stopped, complete phrase or not.
+        // Engine endpoint is not the product endpoint. Incomplete phrases stay
+        // open through a micro-pause; complete ones may settle on silence.
+        if (!looksIncompleteUtterance(text.trim())) {
+          speechActive = false
+        }
         evaluate()
       }
     },
@@ -290,7 +316,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       void asr?.restart()
     },
     resumeCapture: () => {
-      if (closed) return
+      if (closed || playback || commitPaused || Date.now() < guardUntil) return
       asr?.setMuted(false)
     },
     pushPcm: frame => {

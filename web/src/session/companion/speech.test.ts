@@ -306,7 +306,7 @@ describe('when the user has finished speaking', () => {
 
   test('the product window is 1.2s after they stop talking', () => {
     expect(TURN_END_SILENCE_MS).toBe(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1200)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
     expect(TURN_END_SILENCE_MS).toBeLessThanOrEqual(TURN_END_INCOMPLETE_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeLessThan(2700)
@@ -398,6 +398,10 @@ describe('when the user has finished speaking', () => {
       textStableForMs: STUCK_TRANSCRIPT_MS,
       incomplete: true,
     })).toBe(true)
+  })
+
+  test('incomplete endings wait 1.5s before commit', () => {
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
   })
 
   test('does not hard-commit an incomplete caption on a short breath', () => {

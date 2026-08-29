@@ -142,7 +142,10 @@ const TRAILING_FILLERS = /[，,、\s]+(?:嗯+|啊+|呃+)\s*$/u
  * mid-sentence, so endpointing waits for the rest.
  */
 const INCOMPLETE_TAIL =
-  /(?:儿|的|把|给|和|与|或|从|往|向|在|到|去|来|做|说|问|查|看|听|用|帮|请|要|想|能|会|可|以|这|那|哪|啥|一个|一下|怎么)$/u
+  /(?:儿|的|把|给|和|与|或|从|往|向|在|到|去|来|做|说|问|查|看|听|用|帮|请|要|想|能|会|可|以|这|那|哪|啥|一个|一下|怎么|号码)$/u
+/** Waiting for the value after a field name — 「文档的身份证号码」. */
+const INCOMPLETE_FIELD_WAIT =
+  /(?:身份证号码|证件号码|手机号|电话号码|文档的|文件里的|表格中的|这一栏的|那一格的)$/u
 
 /**
  * Sentence-final particles and question words. 「我知道了」「你在干什么」
@@ -177,6 +180,9 @@ const INCOMPLETE_TRUNCATED_OPEN =
 /** Whole launch targets — do not wait as if the object were still coming. */
 const COMPLETE_OPEN_OBJECTS =
   /(?:打开|启动|运行)(?:桌面|设置|文件|网页|微信|日历|浏览器|网易云音乐|汽水音乐|qq音乐|QQ音乐|协议文档|协议)$/u
+/** Finished edit/fill commands — 「写进去」must not wait on trailing 去. */
+const COMPLETE_ACTION_ENDINGS =
+  /(?:写进去|填进去|填上|写入|加上|改好|做好|完成了|打开)$/u
 
 const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/岳西|越席|月西|悦溪|跃溪|月息|悦西|悦希|月希|月夕|月惜|越汐/g, '月汐'],
@@ -229,6 +235,7 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (INCOMPLETE_OPEN_GARBLE.test(compact)) return true
   if (INCOMPLETE_DESKTOP_WAITING.test(compact) && !/(?:协议|文档|文件)/.test(compact)) return true
   if (COMPLETE_OPEN_OBJECTS.test(compact)) return false
+  if (COMPLETE_ACTION_ENDINGS.test(compact)) return false
   if (INCOMPLETE_BARE_COMMAND.test(compact)) return true
   if (INCOMPLETE_APP_PREFIX.test(compact)) return true
   if (INCOMPLETE_TRUNCATED_OPEN.test(compact)) return true
@@ -236,7 +243,12 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (INCOMPLETE_ENDINGS.test(trimmed) && Array.from(trimmed).length <= 6) return true
   if (INCOMPLETE_OPENERS.test(trimmed) && Array.from(trimmed).length <= 6) return true
   if (COMPLETE_TAIL.test(trimmed)) return false
+  if (INCOMPLETE_FIELD_WAIT.test(compact)) return true
   if (INCOMPLETE_TAIL.test(trimmed)) return true
+  // Unpunctuated mid-thought: wait for a real stop or the rest of the clause.
+  if (!/[。？！?!…]$/.test(trimmed) && Array.from(compact).length >= 8 && /(?:的|在|和|与)$/.test(compact)) {
+    return true
+  }
   // Short unpunctuated fragments like「你可以」are mid-command, not a turn.
   return Array.from(trimmed).length <= 3
 }
@@ -284,6 +296,9 @@ export function companionTaskCompleteSpeech(summary?: string): string {
 /**
  * MiniCPM-o SSE (and other token streams) often arrive as 1–2 character
  * deltas. The subtitle must keep the whole utterance, never the last crumb.
+ *
+ * ChatBridge turns should call `companionCaptionFromStream` instead — that
+ * buffer is already cumulative and must not be re-accumulated here.
  */
 export function accumulateSpeakableCaption(previous: string, incoming: string): string {
   const next = stripTaskDonePhrases(incoming)
@@ -298,6 +313,33 @@ export function accumulateSpeakableCaption(previous: string, incoming: string): 
   return `${prev}${next}`
 }
 
+/** Live chat caption: strip machine phrases and drop nudge-loop replays. */
+export function companionCaptionFromStream(assistantText: string): string {
+  return collapseRepeatedCaptionBlocks(stripTaskDonePhrases(assistantText))
+}
+
+/** Collapse exact consecutive repeats (companion nudge loops replay whole answers). */
+export function collapseRepeatedCaptionBlocks(text: string): string {
+  let out = text.trim()
+  if (!out) return ''
+  for (;;) {
+    let collapsed = false
+    for (let repeats = 2; repeats <= 12; repeats++) {
+      if (out.length % repeats !== 0) continue
+      const unit = out.length / repeats
+      if (unit < 8) continue
+      const block = out.slice(0, unit)
+      if (block.repeat(repeats) === out) {
+        out = block
+        collapsed = true
+        break
+      }
+    }
+    if (!collapsed) break
+  }
+  return out
+}
+
 /**
  * Whether a transcript is a new user turn, not her reply coming back
  * through the microphone, and not a leftover from the previous round.
@@ -307,8 +349,10 @@ export function shouldAcceptUserTranscript(input: {
   text: string
   lastSpoken: string
   lastAssistant: string
+  /** True while TTS plays, the model thinks, or tools run — mic captions must not commit. */
+  assistantBusy?: boolean
 }): boolean {
-  if (input.state === 'speaking' || input.state === 'thinking') return false
+  if (input.assistantBusy || input.state === 'speaking' || input.state === 'thinking') return false
   if (!input.text.trim()) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false
   if (looksLikeOmniUnavailable(input.text)) return false
@@ -365,6 +409,41 @@ export function cleanUserTranscript(raw: string): string {
   return text.replace(/^[，,、]+|[，,、]+$/g, '').trim()
 }
 
+/** Levenshtein distance for short zh crumbs — bounded so echo checks stay cheap. */
+function shortSpeechEditDistance(a: string, b: string): number {
+  const rows = a.length + 1
+  const cols = b.length + 1
+  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0))
+  for (let i = 0; i < rows; i++) matrix[i]![0] = i
+  for (let j = 0; j < cols; j++) matrix[0]![j] = j
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i]![j] = Math.min(matrix[i - 1]![j]! + 1, matrix[i]![j - 1]! + 1, matrix[i - 1]![j - 1]! + cost)
+    }
+  }
+  return matrix[a.length]![b.length]!
+}
+
+/** Fuzzy match for 2–6 char misheard TTS tails like 「谢你见」≈「谢谢你」. */
+function looksLikeShortPlaybackEcho(heard: string, spoken: string): boolean {
+  if (heard.length > 6 || heard.length < 2 || spoken.length < 2) return false
+  const minRun = Math.min(heard.length, Math.max(3, Math.ceil(heard.length * 0.6)))
+  for (let run = heard.length; run >= minRun; run--) {
+    for (let i = 0; i <= heard.length - run; i++) {
+      if (spoken.includes(heard.slice(i, i + run))) return true
+    }
+  }
+  if (heard.length > 4) return false
+  for (let i = 0; i <= spoken.length - 2; i++) {
+    for (let len = Math.max(2, heard.length - 1); len <= Math.min(heard.length + 1, spoken.length - i); len++) {
+      const slice = spoken.slice(i, i + len)
+      if (shortSpeechEditDistance(heard, slice) <= 1) return true
+    }
+  }
+  return false
+}
+
 /**
  * True when the recognizer almost certainly heard our own TTS playback
  * (speaker → microphone loop) rather than a new user utterance.
@@ -373,15 +452,18 @@ export function looksLikePlaybackEcho(heard: string, spoken: string): boolean {
   const a = compactSpeech(heard)
   const b = compactSpeech(spoken)
   if (!a || !b) return false
+  // Echo is almost always the last line bleeding back, not a crumb from rounds ago.
+  const recent = b.slice(-Math.max(a.length + 48, 160))
   // Laptop speaker bleed often comes back as a short fragment of the last line.
-  if (a.length >= 2 && b.includes(a)) return true
-  if (b.length >= 4 && a.includes(b)) return true
+  if (a.length >= 2 && recent.includes(a)) return true
+  if (recent.length >= 4 && recent.length <= a.length + 2 && a.includes(recent)) return true
   const window = Math.min(6, a.length)
-  if (window < 4) return false
-  for (let i = 0; i <= a.length - window; i++) {
-    if (b.includes(a.slice(i, i + window))) return true
+  if (window >= 4) {
+    for (let i = 0; i <= a.length - window; i++) {
+      if (recent.includes(a.slice(i, i + window))) return true
+    }
   }
-  return false
+  return looksLikeShortPlaybackEcho(a, recent)
 }
 
 /**

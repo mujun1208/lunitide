@@ -39,7 +39,7 @@ describe('对话模式多轮契约（云端 / 本地 共用）', () => {
       incomplete: false,
     }
     expect(TURN_END_SILENCE_MS).toBe(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1200)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
     expect(turnEnded({ ...settled, silentForMs: 400 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: 1200 })).toBe(true)
   })
@@ -59,7 +59,7 @@ describe('对话模式多轮契约（云端 / 本地 共用）', () => {
     })).toBe(false)
     expect(turnEnded({
       speechActive: false,
-      silentForMs: 1200,
+      silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
       msSinceLastResult: TURN_END_TEXT_SETTLE_MS + 50,
       incomplete: true,
     })).toBe(true)

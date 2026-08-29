@@ -66,7 +66,7 @@ describe('识别速度', () => {
     expect(turnEnded({ ...settled, silentForMs: 1100 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: TURN_END_SILENCE_MS })).toBe(true)
     expect(TURN_END_SILENCE_MS).toBe(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1200)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
     expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeLessThan(2700)
   })
