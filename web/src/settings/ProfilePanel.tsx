@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { getIdentityBridge, getPeopleBridge, type IdentityBridge, type PeopleBridge } from '../bridge/client'
 import type { IdentityDTO } from '../generated/bridge'
 import { ChoiceTiles } from './ChoiceTiles'
+import { useZh } from '../i18n/language'
 
 const STATUS_OPTIONS = [
   { value: 'online', label: '在线', desc: '局域网可见为在线' },
@@ -32,6 +33,7 @@ export function ProfilePanel({
   identity?: IdentityBridge
   people?: PeopleBridge
 }): React.JSX.Element {
+  const zh = useZh()
   const [profile, setProfile] = useState<IdentityDTO>()
   const [nickname, setNickname] = useState('')
   const [department, setDepartment] = useState('')
@@ -171,7 +173,7 @@ export function ProfilePanel({
         <h3 id="profile-lan-title" className="profile-section-title">局域网</h3>
         <div className="profile-stack-row">
           <div>
-            <b>让同网段的月汐看见我</b>
+            <b>{zh ? '让同网段的月汐看见我' : 'Let others on this LAN see me'}</b>
             <div className="setting-desc">默认关闭。打开后用 UDP 广播昵称、部门和状态；发现到的人默认不信任，发文件必须对方确认。</div>
           </div>
           <button type="button" className={`profile-disc-toggle${profile?.discoveryEnabled ? ' on' : ''}`} disabled={busy} aria-pressed={!!profile?.discoveryEnabled} onClick={() => void people.discoverySet({ enabled: !profile?.discoveryEnabled }).then(d => profile && apply({ ...profile, discoveryEnabled: d.enabled })).catch(e => setNotice(e instanceof Error ? e.message : '无法切换发现'))}>

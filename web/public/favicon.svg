@@ -1,35 +1,59 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
   <defs>
-    <radialGradient id="moonFill" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(412 374) rotate(45) scale(500)">
+    <radialGradient id="moonFill" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(412 340) rotate(45) scale(500)">
       <stop offset="0" stop-color="#FFFFFF"/>
       <stop offset="0.30" stop-color="#F2F7FF"/>
       <stop offset="0.66" stop-color="#C8DAF5"/>
       <stop offset="1" stop-color="#88A9D8"/>
     </radialGradient>
-    <linearGradient id="outerRing" x1="278" y1="245" x2="773" y2="798" gradientUnits="userSpaceOnUse">
+    <linearGradient id="outerRing" x1="278" y1="200" x2="773" y2="740" gradientUnits="userSpaceOnUse">
       <stop stop-color="#EAF3FF"/>
       <stop offset="0.42" stop-color="#A9C3E8"/>
       <stop offset="1" stop-color="#587DB5"/>
     </linearGradient>
-    <linearGradient id="innerRing" x1="357" y1="332" x2="676" y2="691" gradientUnits="userSpaceOnUse">
+    <linearGradient id="innerRing" x1="357" y1="280" x2="676" y2="640" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FBFF" stop-opacity="0.96"/>
       <stop offset="0.48" stop-color="#B9D0F2" stop-opacity="0.48"/>
       <stop offset="1" stop-color="#5078B2" stop-opacity="0.90"/>
     </linearGradient>
-    <filter id="moonGlow" x="48" y="26" width="928" height="928" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+    <linearGradient id="cloudFront" x1="200" y1="680" x2="820" y2="980" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DD3FC"/>
+      <stop offset="0.45" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="cloudBack" x1="140" y1="640" x2="880" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <filter id="moonGlow" x="48" y="0" width="928" height="880" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
       <feDropShadow dx="0" dy="0" stdDeviation="52" flood-color="#75A8ED" flood-opacity="0.78"/>
       <feDropShadow dx="0" dy="6" stdDeviation="22" flood-color="#3F75C1" flood-opacity="0.62"/>
     </filter>
-    <filter id="softHighlight" x="260" y="252" width="504" height="504" filterUnits="userSpaceOnUse">
+    <filter id="softHighlight" x="260" y="200" width="504" height="504" filterUnits="userSpaceOnUse">
       <feGaussianBlur stdDeviation="22"/>
+    </filter>
+    <filter id="cloudGlow" x="40" y="560" width="944" height="480" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="18" flood-color="#38BDF8" flood-opacity="0.85"/>
     </filter>
   </defs>
 
   <g filter="url(#moonGlow)">
-    <circle cx="512" cy="490" r="348" fill="url(#outerRing)"/>
-    <circle cx="512" cy="490" r="324" fill="url(#moonFill)"/>
-    <circle cx="512" cy="490" r="311" stroke="url(#innerRing)" stroke-width="6"/>
-    <ellipse cx="414" cy="375" rx="142" ry="112" fill="#FFFFFF" fill-opacity="0.58" filter="url(#softHighlight)"/>
-    <circle cx="512" cy="490" r="288" fill="#FFFFFF" fill-opacity="0.10"/>
+    <circle cx="512" cy="430" r="348" fill="url(#outerRing)"/>
+    <circle cx="512" cy="430" r="324" fill="url(#moonFill)"/>
+    <circle cx="512" cy="430" r="311" stroke="url(#innerRing)" stroke-width="6"/>
+    <ellipse cx="414" cy="315" rx="142" ry="112" fill="#FFFFFF" fill-opacity="0.58" filter="url(#softHighlight)"/>
+    <circle cx="512" cy="430" r="288" fill="#FFFFFF" fill-opacity="0.10"/>
+  </g>
+  <g filter="url(#cloudGlow)">
+    <ellipse cx="250" cy="780" rx="210" ry="110" fill="url(#cloudBack)"/>
+    <ellipse cx="512" cy="810" rx="280" ry="130" fill="url(#cloudBack)"/>
+    <ellipse cx="790" cy="770" rx="200" ry="108" fill="url(#cloudBack)"/>
+    <ellipse cx="180" cy="840" rx="150" ry="86" fill="url(#cloudFront)"/>
+    <ellipse cx="390" cy="860" rx="190" ry="96" fill="url(#cloudFront)"/>
+    <ellipse cx="620" cy="870" rx="210" ry="100" fill="url(#cloudFront)"/>
+    <ellipse cx="850" cy="840" rx="150" ry="88" fill="url(#cloudFront)"/>
+    <ellipse cx="300" cy="800" rx="92" ry="70" fill="#7DD3FC"/>
+    <ellipse cx="540" cy="808" rx="110" ry="78" fill="#93C5FD"/>
+    <ellipse cx="760" cy="798" rx="90" ry="66" fill="#60A5FA"/>
   </g>
 </svg>

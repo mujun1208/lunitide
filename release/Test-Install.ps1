@@ -53,7 +53,10 @@ try {
   & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -Version $ExpectedVersion -VerifyManifest -Installed -ExpectedSignerThumbprint $ExpectedSignerThumbprint
   & (Join-Path $PSScriptRoot 'Test-Runtime.ps1') -Executable (Join-Path $install 'Lunitide.exe')
   & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -Version $ExpectedVersion -VerifyManifest -Installed -ExpectedSignerThumbprint $ExpectedSignerThumbprint
-  if((Get-ItemProperty $uninstallKey).DisplayName -cne 'Lunitide 月汐'){throw 'registered display name is missing or incorrectly encoded'}
+  if((Get-ItemProperty $uninstallKey).DisplayName -cne 'Lunitide'){throw 'registered display name is missing or incorrectly encoded'}
+  if((Get-ItemProperty $uninstallKey).Publisher -cne 'Yy.MJ'){throw 'registered publisher is missing or incorrectly encoded'}
+  $displayIcon=[string](Get-ItemProperty $uninstallKey).DisplayIcon
+  if($displayIcon -cne (Join-Path $install 'Lunitide.exe')){throw "registered DisplayIcon does not point at Lunitide.exe: $displayIcon"}
   if((Get-ItemProperty $uninstallKey).InstallLocation -ne $install){throw 'registered installation path does not match the selected directory'}
   if((Get-ItemProperty $uninstallKey).UninstallString -ne ('"'+(Join-Path $install 'Uninstall.exe')+'"')){throw 'uninstall registration does not match the selected directory'}
   if(-not(Test-Path (Join-Path $profileAppData 'Microsoft\Windows\Start Menu\Programs\Lunitide\Lunitide.lnk'))){throw 'Start Menu shortcut missing'}

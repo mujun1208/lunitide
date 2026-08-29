@@ -281,7 +281,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if atom, _ := win32.RegisterClassEx(&wc); atom == 0 {
 		return errors.New("RegisterClassEx failed")
 	}
-	h.hwnd, _ = win32.CreateWindowEx(0, wc.LpszClassName, win32.StrToPwstr("Lunitide 月汐"), hostWindowStyle, win32.CW_USEDEFAULT, win32.CW_USEDEFAULT, 1280, 800, 0, 0, instance, nil)
+	h.hwnd, _ = win32.CreateWindowEx(0, wc.LpszClassName, win32.StrToPwstr("Lunitide"), hostWindowStyle, win32.CW_USEDEFAULT, win32.CW_USEDEFAULT, 1280, 800, 0, 0, instance, nil)
 	if h.hwnd == 0 {
 		return errors.New("CreateWindowEx failed")
 	}
@@ -1039,7 +1039,7 @@ func (h *Host) addTrayIcon() {
 		uCallbackMessage: trayMessage,
 		hIcon:            h.appIcon,
 	}
-	copy(nid.szTip[:], syscall.StringToUTF16("Lunitide 月汐"))
+	copy(nid.szTip[:], syscall.StringToUTF16("Lunitide"))
 	shellNotifyIcon.Call(uintptr(nimAdd), uintptr(unsafe.Pointer(&nid)))
 	// Version 4 delivers WM_CONTEXTMENU / NIN_SELECT with the event in
 	// LOWORD(lParam). Without SETVERSION some overflow-area clicks never

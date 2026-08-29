@@ -16,6 +16,7 @@ import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
 import{ProfilePanel}from'./ProfilePanel'
+import{useZh}from'../i18n/language'
 
 
 interface GeneralSettings {
@@ -74,6 +75,7 @@ function saveSettings<T>(key: string, value: T): void {
 }
 
 export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'general', providers }: { onNavigateExpert?: () => void; onBack?: () => void; initialCategory?: SettingsCategory; providers?: ProviderBridge }): React.JSX.Element {
+  const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
   const [general, setGeneral] = useState<GeneralSettings>(() => loadSettings('general', DEFAULT_GENERAL))
@@ -101,10 +103,10 @@ export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'gene
 
   return (
     <div className="settings-shell">
-      <nav className="settings-nav" aria-label="设置导航">
-        <button className="settings-back" onClick={onBack}>← 返回主页</button>
+      <nav className="settings-nav" aria-label={zh ? '设置导航' : 'Settings'}>
+        <button className="settings-back" onClick={onBack}>← {zh ? '返回主页' : 'Home'}</button>
         <div className="settings-search" role="search">
-          <input type="search" placeholder="搜索设置…" aria-label="搜索设置" value={search} onChange={e => setSearch(e.target.value)} />
+          <input type="search" placeholder={zh ? '搜索设置…' : 'Search settings…'} aria-label={zh ? '搜索设置' : 'Search settings'} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="settings-menu">
           {SETTINGS_NAV_GROUPS.map(group => {
@@ -113,7 +115,7 @@ export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'gene
             const meta = SETTINGS_CATEGORIES
             return (
               <div key={group.label} className="settings-nav-group">
-                <div className="settings-nav-group-label">{group.label}</div>
+                <div className="settings-nav-group-label">{zh ? group.label : group.labelEn}</div>
                 {items.map(c => {
                   const item = meta.find(x => x.id === c.id) ?? c
                   return (
@@ -124,20 +126,20 @@ export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'gene
                       aria-current={category === c.id ? 'page' : undefined}
                     >
                       <span className="ic" aria-hidden="true">{item.icon}</span>
-                      {item.label}
+                      {zh ? item.label : item.labelEn}
                     </button>
                   )
                 })}
               </div>
             )
           })}
-          {filterSettingsNav(search).length === 0 && <p className="settings-nav-empty">没有匹配的设置</p>}
+          {filterSettingsNav(search).length === 0 && <p className="settings-nav-empty">{zh ? '没有匹配的设置' : 'No matching settings'}</p>}
         </div>
       </nav>
       <div className="settings-content">
         <div className="settings-top">
           <h2 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '20px' }}>
-            {SETTINGS_CATEGORIES.find(c => c.id === category)?.label}
+            {(() => { const item = SETTINGS_CATEGORIES.find(c => c.id === category); return item ? (zh ? item.label : item.labelEn) : '' })()}
           </h2>
           {saved && <span className="save-indicator" role="status">✓ 已保存</span>}
         </div>
@@ -556,27 +558,28 @@ export function CompanionSection():React.JSX.Element{
 }
 
 function AboutPanel(): React.JSX.Element {
+  const zh = useZh()
   const [version, setVersion] = useState('')
   useEffect(() => {
     getSystemHealthBridge().health().then(result => setVersion(result.version)).catch(() => setVersion(''))
   }, [])
   return (
     <div className="setting-group">
-      <div className="setting-group-title">关于 Lunitide 月汐</div>
+      <div className="setting-group-title">{zh ? '关于 Lunitide' : 'About Lunitide'}</div>
       <div className="about-content">
         <div className="about-logo">
           <div className="moon-logo" aria-hidden="true" />
           <div>
-            <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>Lunitide <span style={{ color: 'var(--tide1)', fontWeight: 400 }}>月汐</span></h3>
-            <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>本地优先 · BYOK · AI 软件生命周期工作台</p>
+            <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>Lunitide</h3>
+            <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>{zh ? '本地优先 · BYOK · AI 软件生命周期工作台' : 'Local-first · BYOK · AI software lifecycle workbench'}</p>
           </div>
         </div>
         <dl className="about-info">
-          <div><dt>版本</dt><dd>{version || '—'}</dd></div>
-          <div><dt>作者</dt><dd>Lunitide 月汐</dd></div>
+          <div><dt>{zh ? '版本' : 'Version'}</dt><dd>{version || '—'}</dd></div>
+          <div><dt>{zh ? '作者' : 'Author'}</dt><dd>Yy.MJ</dd></div>
         </dl>
         <div className="about-links">
-          <span>产品定位：不只是一个“更好的界面”，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。</span>
+          <span>{zh ? '产品定位：不只是一个“更好的界面”，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。' : 'A local-first AI workbench that keeps project context, history, and governance boundaries — not just a prettier chat box.'}</span>
         </div>
       </div>
     </div>

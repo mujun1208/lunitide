@@ -101,7 +101,7 @@ function Assert-AbsentCell {
     $dialog=[IntPtr]::Zero
     # Title must match showRuntimeMissingDialog in internal/webviewhost/runtime_missing_windows.go.
     while([DateTime]::UtcNow -lt $deadline -and -not $desktop.HasExited){
-      $dialog=[LunitideDialogProbe]::FindWindow('#32770','Lunitide 月汐 - 缺少 WebView2 Runtime')
+      $dialog=[LunitideDialogProbe]::FindWindow('#32770','Lunitide - WebView2 Runtime missing')
       if($dialog -ne [IntPtr]::Zero){break}
       Start-Sleep -Milliseconds 250
     }

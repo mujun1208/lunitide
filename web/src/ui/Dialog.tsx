@@ -1,4 +1,5 @@
 import React,{useEffect,useId,useRef}from'react'
+import{useZh}from'../i18n/language'
 
 const focusable='button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[href],[tabindex]:not([tabindex="-1"])'
 
@@ -11,7 +12,9 @@ export function Dialog({open,title,description,onClose,children,initialFocus,wid
  return <div className="modal-backdrop" onMouseDown={()=>closeRef.current()}><section ref={panel} tabIndex={-1} className={`moon-dialog${wide?' wide':''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description?descriptionId:undefined} onMouseDown={e=>e.stopPropagation()}><h2 id={titleId}>{title}</h2>{description&&<p id={descriptionId}>{description}</p>}{children}</section></div>
 }
 
-export function ConfirmDialog({open,title,description,confirmLabel='确认删除',danger=true,busy=false,onCancel,onConfirm}:{open:boolean;title:string;description:string;confirmLabel?:string;danger?:boolean;busy?:boolean;onCancel:()=>void;onConfirm:()=>void}):React.JSX.Element|null{
+export function ConfirmDialog({open,title,description,confirmLabel,danger=true,busy=false,onCancel,onConfirm}:{open:boolean;title:string;description:string;confirmLabel?:string;danger?:boolean;busy?:boolean;onCancel:()=>void;onConfirm:()=>void}):React.JSX.Element|null{
+ const zh=useZh()
  const cancel=useRef<HTMLButtonElement>(null)
- return <Dialog open={open} title={title} description={description} onClose={()=>{if(!busy)onCancel()}} initialFocus={cancel}><div className="dialog-actions"><button ref={cancel} disabled={busy} onClick={onCancel}>取消</button><button className={danger?'danger':'primary'} disabled={busy} onClick={onConfirm}>{busy?'处理中…':confirmLabel}</button></div></Dialog>
+ const confirm=confirmLabel??(zh?'确认删除':'Delete')
+ return <Dialog open={open} title={title} description={description} onClose={()=>{if(!busy)onCancel()}} initialFocus={cancel}><div className="dialog-actions"><button ref={cancel} disabled={busy} onClick={onCancel}>{zh?'取消':'Cancel'}</button><button className={danger?'danger':'primary'} disabled={busy} onClick={onConfirm}>{busy?(zh?'处理中…':'Working…'):confirm}</button></div></Dialog>
 }

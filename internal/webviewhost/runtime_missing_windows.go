@@ -19,11 +19,11 @@ var messageBoxW = syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
 // unusable WebView2 Evergreen Runtime on a console-less windowsgui process:
 // without it the window would flash and vanish with no actionable message.
 func showRuntimeMissingDialog(hwnd win32.HWND) {
-	text, err := syscall.UTF16PtrFromString("Lunitide 需要 Microsoft Edge WebView2 Runtime，但当前系统未安装或版本不可用。\n\n请从微软官方页面下载并安装 Evergreen Runtime 后重新启动 Lunitide：\n" + RuntimeDownloadURL)
+	text, err := syscall.UTF16PtrFromString("Lunitide needs the Microsoft Edge WebView2 Runtime, but it is not installed or the installed version cannot be used.\n\nDownload the Evergreen Runtime from Microsoft, then start Lunitide again:\n" + RuntimeDownloadURL)
 	if err != nil {
 		return
 	}
-	title, err := syscall.UTF16PtrFromString("Lunitide 月汐 - 缺少 WebView2 Runtime")
+	title, err := syscall.UTF16PtrFromString("Lunitide - WebView2 Runtime missing")
 	if err != nil {
 		return
 	}
