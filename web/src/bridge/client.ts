@@ -138,6 +138,7 @@ import {
   type MeetingsAppendPayload, type MeetingsAppendResult, type MeetingsStopPayload, type MeetingsStopResult,
   type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
   type MeetingsHeartbeatPayload, type MeetingsHeartbeatResult,
+  type MeetingsAudioAppendPayload, type MeetingsAudioAppendResult, type MeetingsCatchupPayload, type MeetingsCatchupResult,
   type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
@@ -467,8 +468,8 @@ export const MEETING_SUMMARIZE_DEADLINE_MS = 600_000
 export const MEETING_HEARTBEAT_INTERVAL_MS = 20_000
 export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
   let cap = BRIDGE_DEADLINE_CAP_MS
-  if (method === 'meetings.summarize') cap = MEETING_SUMMARIZE_DEADLINE_MS
-  else if (method === 'meetings.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
+  if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
+  else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
   else if (method === 'appUpdate.install') cap = 120_000
   return Math.min(cap, Math.max(1, deadlineMs))
 }
@@ -489,9 +490,11 @@ export interface MeetingsBridge{
   list():Promise<MeetingsListResult>
   start(payload?:MeetingsStartPayload):Promise<MeetingDTO>
   append(payload:MeetingsAppendPayload):Promise<MeetingSegmentDTO>
+  audioAppend(payload:MeetingsAudioAppendPayload):Promise<MeetingsAudioAppendResult>
   stop(payload:MeetingsStopPayload):Promise<MeetingDTO>
   get(payload:MeetingsGetPayload):Promise<MeetingDTO>
   heartbeat(payload:MeetingsHeartbeatPayload):Promise<MeetingDTO>
+  catchup(payload:MeetingsCatchupPayload):Promise<MeetingsCatchupResult>
   summarize(payload:MeetingsSummarizePayload):Promise<MeetingDTO>
   exportMeeting(payload:MeetingsExportPayload):Promise<MeetingsExportResult>
   update(payload:MeetingsUpdatePayload):Promise<MeetingDTO>
@@ -503,9 +506,11 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
     list:()=>core.request('meetings.list',{}),
     start:p=>core.request('meetings.start',p??{}),
     append:p=>retryBridgeRequest(()=>core.request('meetings.append',p,MEETING_APPEND_DEADLINE_MS)),
+    audioAppend:p=>retryBridgeRequest(()=>core.request('meetings.audio.append',p,MEETING_APPEND_DEADLINE_MS)),
     stop:p=>retryBridgeRequest(()=>core.request('meetings.stop',p,MEETING_STOP_DEADLINE_MS)),
     get:p=>core.request('meetings.get',p,MEETING_HEARTBEAT_DEADLINE_MS),
     heartbeat:p=>retryBridgeRequest(()=>core.request('meetings.heartbeat',p,MEETING_HEARTBEAT_DEADLINE_MS)),
+    catchup:p=>core.request('meetings.catchup',p,MEETING_SUMMARIZE_DEADLINE_MS),
     summarize:p=>core.request('meetings.summarize',p,MEETING_SUMMARIZE_DEADLINE_MS),
     exportMeeting:p=>core.request('meetings.export',p,MEETING_APPEND_DEADLINE_MS),
     update:p=>core.request('meetings.update',p),
@@ -514,7 +519,7 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
 }
 let meetingsSingleton:MeetingsBridge|undefined
 export function getMeetingsBridge():MeetingsBridge{return meetingsSingleton??=createMeetingsBridge()}
-export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
+export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},audioAppend:p=>{try{return getMeetingsBridge().audioAppend(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},catchup:p=>{try{return getMeetingsBridge().catchup(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(

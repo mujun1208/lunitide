@@ -3,6 +3,7 @@ package m8app
 import (
 	_ "embed"
 	"encoding/json"
+	"strings"
 )
 
 //go:embed catalog/conversation_experts.json
@@ -14,6 +15,20 @@ var ConversationExpertIDs = []string{
 	"ppt-expert", "report-writer", "novel-writer", "excel-maker", "ui-designer",
 	"pm-expert", "architect-expert", "db-expert", "repo-expert", "standards-expert",
 	"test-expert", "hardware-expert", "dev-expert",
+}
+
+// ConversationExpertCapabilityClause is appended to every specialist's rules
+// so catalog seeds instruct think / skills / tools / draw / write. Runtime
+// chat also injects the same contract (clipped six-section cannot drop it).
+const ConversationExpertCapabilityClause = "任务过程中必须思考（todo.write）；需要技能立刻 skill.invoke；事实与素材先 web.search（必要时 web.fetch / browser.act）；结构/流程/架构用 mermaid 画图（节点双引号，换行 <br/>）；成文调用 docx.gen / excel.gen / pptx.gen / html.gen / workspace.write（桌面 desktop=true）。不要只口头交差，不要倾倒 200 页全书。"
+
+func withConversationExpertCapabilities(item CatalogItem) CatalogItem {
+	body := item.SixSection.Rules + "\n" + item.SixSection.Workflow + "\n" + item.SixSection.Mission
+	if strings.Contains(body, "skill.invoke") && strings.Contains(body, "web.search") && strings.Contains(body, "mermaid") {
+		return item
+	}
+	item.SixSection.Rules = strings.TrimSpace(item.SixSection.Rules) + "\n" + ConversationExpertCapabilityClause
+	return item
 }
 
 // ConversationExperts answers the 对话 specialists (PPT / 报告 / 小说 /
@@ -28,7 +43,7 @@ func ConversationExperts() []CatalogItem {
 	out := make([]CatalogItem, 0, len(ConversationExpertIDs))
 	for _, item := range items {
 		if want[item.ID] {
-			out = append(out, item)
+			out = append(out, withConversationExpertCapabilities(item))
 		}
 	}
 	return out
@@ -38,6 +53,9 @@ func loadConversationExpertItems() []CatalogItem {
 	var file catalogFile
 	if err := json.Unmarshal(conversationExpertsJSON, &file); err != nil {
 		return nil
+	}
+	for i := range file.Items {
+		file.Items[i] = withConversationExpertCapabilities(file.Items[i])
 	}
 	return file.Items
 }

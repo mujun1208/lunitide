@@ -49,6 +49,11 @@ export interface LocalAsrCallbacks {
   onTranscript?: (text: string, final: boolean) => void
   /** Extra this-PC streams mixed into the microphone frames (meeting loopback). */
   extraStreams?: MediaStream[]
+  /**
+   * Meeting notes owns the microphone so ASR recycle cannot drop the WAV
+   * recording. Frames arrive through `pushFrame` on the returned handle.
+   */
+  externalPcm?: boolean
   /** Fires when the session ends for a reason the caller did not ask for. */
   onError?: (error: Error) => void
   /**
@@ -86,6 +91,11 @@ export interface LocalAsrHandle {
   setMuted: (muted: boolean) => void
   /** Retire a hung sidecar session and open a fresh one without dropping the mic. */
   restart: () => Promise<void>
+  /**
+   * Feed a frame captured elsewhere. No-op unless this session was opened
+   * with `externalPcm`.
+   */
+  pushFrame: (frame: { base64: string; samples: Int16Array; peak: number }) => void
 }
 
 /**
@@ -271,26 +281,24 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     }
   }
 
-  capture = await startPcmCapture({
-    extraStreams: callbacks.extraStreams,
-    onFrame: frame => {
-      // The level drives the meter, so it is reported even while muted —
-      // otherwise the rings freeze every time the assistant speaks.
-      callbacks.onLevel?.(frame.peak)
-      if (closed || muted) return
-      pending.push({ base64: frame.base64, samples: frame.samples })
-      pendingSamples += frame.samples.length
-      // An engine that has fallen behind for this long is not going to
-      // catch up within the utterance, and an unbounded queue would trade
-      // the missing characters for growing memory and a caption drifting
-      // ever further behind the speaker.
-      while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
-        pendingSamples -= pending.shift()!.samples.length
-      }
-      pump()
-    },
-    onError: fail,
-  })
+  const acceptFrame = (frame: { base64: string; samples: Int16Array; peak: number }) => {
+    callbacks.onLevel?.(frame.peak)
+    if (closed || muted) return
+    pending.push({ base64: frame.base64, samples: frame.samples })
+    pendingSamples += frame.samples.length
+    while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
+      pendingSamples -= pending.shift()!.samples.length
+    }
+    pump()
+  }
+
+  if (!callbacks.externalPcm) {
+    capture = await startPcmCapture({
+      extraStreams: callbacks.extraStreams,
+      onFrame: acceptFrame,
+      onError: fail,
+    })
+  }
 
   try {
     sessionId = (await bridge.start({ language: 'zh-CN' })).sessionId
@@ -392,6 +400,10 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
         swapping = false
         pump()
       }
+    },
+    pushFrame: frame => {
+      if (!callbacks.externalPcm || closed) return
+      acceptFrame(frame)
     },
   }
 }

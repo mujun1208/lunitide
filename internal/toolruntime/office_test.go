@@ -7,9 +7,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lunitide/lunitide/internal/officetools"
 )
 
 const officeSession = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+func styledDocxArgs(path, title string, extra map[string]any) json.RawMessage {
+	args := map[string]any{
+		"path": path, "title": title, "blocks": officetools.SampleStyledDocxBlocks(),
+	}
+	for k, v := range extra {
+		args[k] = v
+	}
+	raw, _ := json.Marshal(args)
+	return raw
+}
 
 func TestOfficeGenToolsApprovalGating(t *testing.T) {
 	r, _ := New(t.TempDir())
@@ -23,7 +36,7 @@ func TestOfficeGenToolsApprovalGating(t *testing.T) {
 		t.Fatalf("approved excel.gen failed: %v", err)
 	}
 	// Auto-edit mode rides without approval (file creation class).
-	docx := json.RawMessage(`{"path":"r.docx","title":"T","blocks":[{"type":"paragraph","text":"hi"}]}`)
+	docx := styledDocxArgs("r.docx", "T", nil)
 	if _, err := r.Execute(context.Background(), AutoEdit, officeSession, "docx.gen", docx, false); err != nil {
 		t.Fatalf("auto-edit docx.gen failed: %v", err)
 	}
@@ -114,10 +127,10 @@ func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 		t.Skip("desktop folder not found:", err)
 	}
 	cases := []struct {
-		tool   string
-		name   string
-		kind   string
-		args   map[string]any
+		tool string
+		name string
+		kind string
+		args map[string]any
 	}{
 		{"excel.gen", "半年财报.xlsx", "xlsx", map[string]any{
 			"path": "半年财报.xlsx", "desktop": true,
@@ -125,7 +138,7 @@ func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 		}},
 		{"docx.gen", "半年报告.docx", "docx", map[string]any{
 			"path": "半年报告.docx", "desktop": true, "title": "半年报告",
-			"blocks": []any{map[string]any{"type": "paragraph", "text": "摘要"}},
+			"blocks": officetools.SampleStyledDocxBlocks(),
 		}},
 		{"pptx.gen", "结构.pptx", "pptx", map[string]any{
 			"path": "结构.pptx", "desktop": true, "title": "结构",

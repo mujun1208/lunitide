@@ -194,6 +194,8 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'mcp6.register',
   'mcp6.revoke',
   'meetings.append',
+  'meetings.audio.append',
+  'meetings.catchup',
   'meetings.delete',
   'meetings.export',
   'meetings.get',

@@ -636,6 +636,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMeetingsList:                  handleMeetingsList,
 	bridge.MethodMeetingsStart:                 handleMeetingsStart,
 	bridge.MethodMeetingsAppend:                handleMeetingsAppend,
+	bridge.MethodMeetingsAudioAppend:           handleMeetingsAudioAppend,
+	bridge.MethodMeetingsCatchup:               handleMeetingsCatchup,
 	bridge.MethodMeetingsStop:                  handleMeetingsStop,
 	bridge.MethodMeetingsGet:                   handleMeetingsGet,
 	bridge.MethodMeetingsHeartbeat:             handleMeetingsHeartbeat,
@@ -1464,6 +1466,7 @@ func (e *Engine) SetMeetingsService(svc *meetings.Service) {
 	e.meetings = svc
 	if svc != nil {
 		svc.SetCompleter(e.completeMeeting)
+		svc.SetAudioTranscriber(e.transcribeMeetingPCM)
 	}
 }
 

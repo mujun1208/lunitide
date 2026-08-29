@@ -385,3 +385,165 @@ func TestSummarizeInFlightIsNotReclaimed(t *testing.T) {
 		t.Fatalf("ready = %#v", ready)
 	}
 }
+
+func silencePCM(ms int) []byte {
+	if ms <= 0 {
+		return nil
+	}
+	return make([]byte, ms*32)
+}
+
+func TestSegmentCapAllowsHourScaleUtterances(t *testing.T) {
+	if meetings.MaxSegments < 100_000 {
+		t.Fatalf("MaxSegments = %d; 1–2h of typical ASR chops needs >= 100000", meetings.MaxSegments)
+	}
+}
+
+func TestDurableAudioSurvivesAndCatchupFillsGap(t *testing.T) {
+	svc := testMeetings(t)
+	audioRoot := t.TempDir()
+	svc.SetAudioRoot(audioRoot)
+	var transcribed []int
+	svc.SetAudioTranscriber(func(ctx context.Context, pcm []byte) (string, error) {
+		transcribed = append(transcribed, len(pcm))
+		if len(pcm) == 0 {
+			return "", nil
+		}
+		return "补转写这一段", nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "长会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		if _, err := svc.Append(ctx, started.MeetingID, "实时字幕一句", int64(i*800)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const liveMS = 40 * 800
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(liveMS+25_000)); err != nil {
+		t.Fatal(err)
+	}
+	beat, err := svc.Heartbeat(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beat.DurationMS < 25_000 {
+		t.Fatalf("heartbeat should follow audio/file clock, duration=%d", beat.DurationMS)
+	}
+	dir := filepath.Join(audioRoot, started.MeetingID)
+	files, _ := filepath.Glob(filepath.Join(dir, "chunk_*.wav"))
+	if len(files) == 0 {
+		t.Fatal("expected WAV chunks on disk while recording")
+	}
+	stopped, err := svc.Stop(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stopped.Transcript, "实时字幕一句") {
+		t.Fatalf("live transcript lost: %q", stopped.Transcript)
+	}
+	afterStop, _ := filepath.Glob(filepath.Join(dir, "chunk_*.wav"))
+	if len(afterStop) == 0 {
+		t.Fatal("audio files must survive stop")
+	}
+	caught, err := svc.CatchUp(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transcribed) == 0 {
+		t.Fatal("expected leftover audio to be transcribed")
+	}
+	if !strings.Contains(caught.Transcript, "补转写这一段") {
+		t.Fatalf("catch-up missing: %q", caught.Transcript)
+	}
+	if !strings.Contains(caught.Transcript, "实时字幕一句") {
+		t.Fatalf("live lines dropped during catch-up: %q", caught.Transcript)
+	}
+}
+
+func TestCatchupSkippedWhenLiveTranscriptCoversAudio(t *testing.T) {
+	svc := testMeetings(t)
+	svc.SetAudioRoot(t.TempDir())
+	calls := 0
+	svc.SetAudioTranscriber(func(ctx context.Context, pcm []byte) (string, error) {
+		calls++
+		return "不应调用", nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "短会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "全程都有字幕", 1000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(8_000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.CatchUp(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("catch-up should skip complete live transcript, calls=%d", calls)
+	}
+	if !strings.Contains(got.Transcript, "全程都有字幕") {
+		t.Fatalf("transcript = %q", got.Transcript)
+	}
+}
+
+func TestManyAppendsAndDeleteRemovesAudio(t *testing.T) {
+	svc := testMeetings(t)
+	audioRoot := t.TempDir()
+	svc.SetAudioRoot(audioRoot)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "多段", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1200; i++ {
+		if _, err := svc.Append(ctx, started.MeetingID, "一句对齐范围", int64(i*1500)); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(3_000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Get(ctx, started.MeetingID)
+	if err != nil || len(got.Segments) != 1200 {
+		t.Fatalf("segments = %d err=%v", len(got.Segments), err)
+	}
+	dir := filepath.Join(audioRoot, started.MeetingID)
+	if files, _ := filepath.Glob(filepath.Join(dir, "chunk_*.wav")); len(files) == 0 {
+		t.Fatal("audio missing before delete")
+	}
+	if err := svc.Delete(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("audio dir should be gone: %v", err)
+	}
+}
+
+func TestNeedsCatchup(t *testing.T) {
+	if meetings.NeedsCatchup(2_000, 0, false) {
+		t.Fatal("tiny audio should not catch up")
+	}
+	if !meetings.NeedsCatchup(120_000, 0, false) {
+		t.Fatal("hour of audio with no transcript needs catch-up")
+	}
+	if meetings.NeedsCatchup(120_000, 118_000, true) {
+		t.Fatal("live captions covering the clock should skip catch-up")
+	}
+	if !meetings.NeedsCatchup(3_600_000, 600_000, true) {
+		t.Fatal("ASR dying at 10 minutes of a 1h meeting needs catch-up")
+	}
+}

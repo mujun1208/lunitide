@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -186,5 +187,34 @@ func TestMeetingsHandlersHeartbeatAndLongDeadline(t *testing.T) {
 	denied := e.Handle(context.Background(), health)
 	if denied.OK || denied.Error == nil || denied.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("health must keep the 30s cap: %+v", denied)
+	}
+}
+
+func TestMeetingsHandlersAudioAppendAndCatchup(t *testing.T) {
+	e, svc := newMeetingsEngine(t)
+	svc.SetAudioRoot(t.TempDir())
+	svc.SetAudioTranscriber(func(ctx context.Context, pcm []byte) (string, error) {
+		if len(pcm) == 0 {
+			return "", nil
+		}
+		return "补转写", nil
+	})
+	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"title": "长会"})
+	id, _ := started["meetingId"].(string)
+	meetingsOK[map[string]any](t, e, "meetings.append", map[string]any{"meetingId": id, "text": "开头一句", "startedMs": 0})
+	chunk := base64.StdEncoding.EncodeToString(make([]byte, 32_000))
+	var lastAudio float64
+	for i := 0; i < 20; i++ {
+		got := meetingsOK[map[string]any](t, e, "meetings.audio.append", map[string]any{"meetingId": id, "pcm": chunk})
+		lastAudio, _ = got["audioMs"].(float64)
+	}
+	if lastAudio < 15_000 {
+		t.Fatalf("audioMs = %v", lastAudio)
+	}
+	meetingsOK[map[string]any](t, e, "meetings.stop", map[string]any{"meetingId": id})
+	caught := meetingsOK[map[string]any](t, e, "meetings.catchup", map[string]any{"meetingId": id})
+	transcript, _ := caught["transcript"].(string)
+	if !strings.Contains(transcript, "开头一句") || !strings.Contains(transcript, "补转写") {
+		t.Fatalf("catchup transcript = %q", transcript)
 	}
 }

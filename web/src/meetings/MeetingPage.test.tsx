@@ -48,14 +48,30 @@ vi.mock('./meetingAsr', () => ({
     : (live ? '正在录制本机麦克风' : '仅本机麦克风，未混录系统扬声器'),
 }))
 
+vi.mock('./meetingAudio', async importOriginal => {
+  const actual = await importOriginal<typeof import('./meetingAudio')>()
+  return {
+    ...actual,
+    startMeetingAudioRecorder: vi.fn(async () => ({
+      stop: vi.fn().mockResolvedValue(undefined),
+      flush: vi.fn().mockResolvedValue(undefined),
+      attachExtraStream: vi.fn(),
+    })),
+  }
+})
+
 function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
   return {
     list: vi.fn().mockResolvedValue({ items: [] }),
     start: vi.fn(),
     append: vi.fn(),
+    audioAppend: vi.fn().mockResolvedValue({ meetingId, audioMs: 1000 }),
     stop: vi.fn(),
     get: vi.fn(),
     heartbeat: vi.fn().mockResolvedValue({ ...base, status: 'recording' as const }),
+    catchup: vi.fn().mockImplementation(async ({ meetingId: id }: { meetingId: string }) => ({
+      ...base, meetingId: id, status: 'transcribed' as const, transcript: '逐字稿',
+    })),
     summarize: vi.fn(),
     exportMeeting: vi.fn(),
     update: vi.fn(),
@@ -96,6 +112,7 @@ describe('MeetingPage', () => {
       start: vi.fn().mockResolvedValue(started),
       append: vi.fn().mockResolvedValue(segment),
       stop: vi.fn().mockResolvedValue(stopped),
+      catchup: vi.fn().mockResolvedValue(stopped),
       summarize: vi.fn().mockResolvedValue(ready),
       exportMeeting: vi.fn().mockResolvedValue({ path: 'C:/notes.md', format: 'markdown' }),
     })
@@ -110,6 +127,8 @@ describe('MeetingPage', () => {
     expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
     expect(meetings.append).toHaveBeenCalledWith(expect.objectContaining({ meetingId, text: '先对齐范围' }))
     await user.click(screen.getByRole('button', { name: '停止' }))
+    expect(meetings.catchup).toHaveBeenCalledWith({ meetingId })
+    expect(meetings.summarize).toHaveBeenCalledWith({ meetingId })
     expect(await screen.findByRole('heading', { name: '会议摘要' })).toBeInTheDocument()
     expect(screen.getByDisplayValue('已对齐范围。')).toBeInTheDocument()
     expect(screen.getByDisplayValue('- 写纪要')).toBeInTheDocument()
@@ -223,7 +242,7 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
     expect(meetings.heartbeat).toHaveBeenCalledWith({ meetingId })
     speech.onError?.(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, 'trace'))
-    expect(await screen.findByRole('status')).toHaveTextContent('Bridge 请求超时')
+    expect(await screen.findByRole('status')).toHaveTextContent(/实时转写中断/)
     await vi.waitFor(() => expect(speech.start).toHaveBeenCalledTimes(2), { timeout: 3000 })
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
     speech.onFinal?.('继续对齐')
@@ -336,5 +355,17 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '确认删除' }))
     await vi.waitFor(() => expect(meetings.delete).toHaveBeenCalledWith({ meetingId: past.meetingId }))
+  })
+
+  test('keeps recording when live ASR cannot start', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started), stop: vi.fn() })
+    speech.start.mockRejectedValue(new Error('本地语音识别中断'))
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(meetings.stop).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent(/实时转写中断/)
   })
 })

@@ -236,42 +236,46 @@ func ParseXLSX(data []byte) (string, error) {
 
 // DocxBlock is one docx body block.
 type DocxBlock struct {
-	Type string `json:"type"` // heading | paragraph | bullet
-	Text string `json:"text"`
+	Type  string `json:"type"` // heading | heading2 | paragraph | bullet | quote | caption
+	Text  string `json:"text"`
+	Level int    `json:"level,omitempty"` // 2 on type=heading → Heading2
 }
 
-// GenDocx writes a minimal-but-valid Word document (OOXML zip: content
-// types, package rels, one document part; headings via Heading1/2 styles
-// referenced by name, bullets as ListParagraph).
+// GenDocx writes a styled Word document (OOXML zip with styles, fonts,
+// theme, numbering). Empty or unstyled single-style bodies are rejected.
 func GenDocx(title string, blocks []DocxBlock) ([]byte, error) {
-	if len(blocks) == 0 || len(blocks) > MaxDocxBlocks {
-		return nil, fmt.Errorf("%w: blocks must be 1-%d", ErrLimit, MaxDocxBlocks)
+	return GenDocxDoc(DocxDoc{Title: title, Blocks: blocks})
+}
+
+// GenDocxDoc writes one production-shaped Word file. Reports get a cover
+// page; novels get title + author then chapter Heading 1.
+func GenDocxDoc(doc DocxDoc) ([]byte, error) {
+	if err := validateDocxSpec(doc); err != nil {
+		return nil, err
 	}
-	var body strings.Builder
-	for _, b := range blocks {
-		text := xmlEscape(b.Text)
-		style := ""
-		switch b.Type {
-		case "heading":
-			style = `<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>`
-		case "bullet":
-			style = `<w:pPr><w:pStyle w:val="ListParagraph"/></w:pPr>`
-		case "paragraph", "":
-		default:
-			return nil, fmt.Errorf("officetools: docx block type %q not supported (heading|paragraph|bullet)", b.Type)
-		}
-		body.WriteString(`<w:p>` + style + `<w:r><w:t xml:space="preserve">` + text + `</w:t></w:r></w:p>`)
-	}
-	doc := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
-		`<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t xml:space="preserve">` + xmlEscape(title) + `</w:t></w:r></w:p>` +
-		body.String() +
-		`<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`
-	return zipBytes([]zipPart{
-		{"[Content_Types].xml", contentTypesDocx},
+	body := xmlDecl + `
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>` +
+		buildDocxBody(doc) +
+		`<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/><w:pgNumType w:fmt="decimal"/></w:sectPr></w:body></w:document>`
+	data, err := zipBytes([]zipPart{
+		{"[Content_Types].xml", contentTypesDocx()},
 		{"_rels/.rels", relsDocx},
-		{"word/document.xml", doc},
+		{"word/document.xml", body},
+		{"word/_rels/document.xml.rels", wordRelsDocx},
+		{"word/styles.xml", docxStylesXML},
+		{"word/numbering.xml", docxNumberingXML},
+		{"word/fontTable.xml", docxFontTableXML},
+		{"word/settings.xml", docxSettingsXML},
+		{"word/theme/theme1.xml", themeXML},
+		{"docProps/core.xml", coreXML(doc.Title)},
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateDocx(data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // SlideSpec is one pptx slide. Layout is title (cover), section, or content.
@@ -287,6 +291,9 @@ type SlideSpec struct {
 func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 	if len(slides) == 0 || len(slides) > MaxPptxSlides {
 		return nil, fmt.Errorf("%w: slides must be 1-%d", ErrLimit, MaxPptxSlides)
+	}
+	if err := validateSlideSpecs(title, slides); err != nil {
+		return nil, err
 	}
 	parts := []zipPart{
 		{"[Content_Types].xml", contentTypesPptx(len(slides))},
@@ -305,8 +312,8 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		}
 		name := fmt.Sprintf("ppt/slides/slide%d.xml", i+1)
 		parts = append(parts, zipPart{name, slideXML(i, len(slides), title, s)})
-		rels := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></p:Relationships>`)
+		rels := xmlDecl + `
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`
 		parts = append(parts, zipPart{path.Dir(name) + "/_rels/" + path.Base(name) + ".rels", rels})
 	}
 	// Deck title lands in the presentation properties (core.xml).
@@ -314,7 +321,14 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		zipPart{"docProps/core.xml", coreXML(title)},
 		zipPart{"docProps/app.xml", appXML(len(slides))},
 	)
-	return zipBytes(parts)
+	data, err := zipBytes(parts)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidatePptx(data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // GenPDF renders title + body paragraphs through gofpdf (A4, built-in

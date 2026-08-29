@@ -60,6 +60,71 @@ export const READ_CAP_OPTIONS = [
   'evidence.list',
 ] as const
 
+export type SubagentCapPackId = 'all' | 'read' | 'web' | 'browser'
+
+export const SUBAGENT_CAP_PACK_IDS: readonly SubagentCapPackId[] = ['all', 'read', 'web', 'browser']
+
+/** Default pack for new custom profiles and 恢复默认. Expert/council spawn still uses 全部权限 at runtime even if a saved profile is 网络检索. */
+export const DEFAULT_CAP_PACK: SubagentCapPackId = 'all'
+
+export const SUBAGENT_CAP_PACKS: Record<SubagentCapPackId, { label: string; desc: string; caps: readonly string[] }> = {
+  all: {
+    label: '全部权限',
+    desc: '本产品支持的全部子智能体能力。',
+    caps: READ_CAP_OPTIONS,
+  },
+  read: {
+    label: '只读权限',
+    desc: '读文件与网页；不含浏览器导航。',
+    caps: [
+      'fs.read', 'fs.tree', 'fs.grep', 'fs.glob', 'fs.stat', 'fs.readMany',
+      'web.search', 'web.fetch', 'evidence.list',
+    ],
+  },
+  web: {
+    label: '网络检索',
+    desc: '网页搜索与抓取。',
+    caps: ['web.search', 'web.fetch'],
+  },
+  browser: {
+    label: '浏览器操作',
+    desc: '导航、读取、快照，并附带网页检索。',
+    caps: [
+      'web.search', 'web.fetch',
+      'browser.act:navigate', 'browser.act:read', 'browser.act:snapshot',
+    ],
+  },
+}
+
+function capSetKey(caps: readonly string[]): string {
+  return [...new Set(caps.filter(Boolean))].sort().join('\0')
+}
+
+export function capsForPack(id: SubagentCapPackId): string[] {
+  return [...SUBAGENT_CAP_PACKS[id].caps]
+}
+
+export function packForCaps(caps: readonly string[]): SubagentCapPackId | 'custom' {
+  const key = capSetKey(caps)
+  for (const id of SUBAGENT_CAP_PACK_IDS) {
+    if (capSetKey(SUBAGENT_CAP_PACKS[id].caps) === key) return id
+  }
+  return 'custom'
+}
+
+const ALLOWED_READ_CAPS = new Set<string>(READ_CAP_OPTIONS)
+
+export function normalizeReadCaps(caps: readonly string[] | undefined): string[] {
+  const next: string[] = []
+  const seen = new Set<string>()
+  for (const cap of caps ?? []) {
+    if (!ALLOWED_READ_CAPS.has(cap) || seen.has(cap)) continue
+    seen.add(cap)
+    next.push(cap)
+  }
+  return next.length ? next : capsForPack(DEFAULT_CAP_PACK)
+}
+
 export function defaultSubagentSettings(): SubagentSettings {
   const overrides: Record<string, SubagentProfileOverride> = {}
   for (const id of BUILTIN_SUBAGENT_IDS) overrides[id] = { enabled: true }
@@ -80,7 +145,10 @@ export function loadSubagentSettings(): SubagentSettings {
       overrides[id] = { enabled: overrides[id]?.enabled !== false, ...overrides[id] }
     }
     const customProfiles = Array.isArray(parsed.customProfiles)
-      ? parsed.customProfiles.filter(p => p && typeof p.id === 'string' && typeof p.systemPrompt === 'string').slice(0, 16)
+      ? parsed.customProfiles
+        .filter(p => p && typeof p.id === 'string' && typeof p.systemPrompt === 'string')
+        .slice(0, 16)
+        .map(p => ({ ...p, readCaps: normalizeReadCaps(p.readCaps) }))
       : []
     return { rev: SETTINGS_REV, delegationMode, overrides, customProfiles }
   } catch {
@@ -107,7 +175,7 @@ export function buildSubagentChatPolicy(settings: SubagentSettings): {
       id: p.id.trim(),
       displayName: p.displayName.trim() || p.id.trim(),
       systemPrompt: p.systemPrompt.trim(),
-      readCaps: p.readCaps?.length ? [...p.readCaps] : ['web.search', 'web.fetch'],
+      readCaps: normalizeReadCaps(p.readCaps),
       maxSteps: p.maxSteps ?? 4,
       budgetTokens: p.budgetTokens ?? 8192,
     })),

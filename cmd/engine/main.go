@@ -272,9 +272,9 @@ func main() {
 		engine.SetVoiceService(voiceService)
 		defer voiceService.Close()
 	}
-	// MiniCPM-o 4.5 Q4 duplex. Weights download on demand; llama-omni-server
-	// is copied from the install payload on first launch, then spawned only
-	// when this channel is selected.
+	// MiniCPM-o 4.5 Q4 duplex stays in-tree for leftover installs, but Setup
+	// does not ship llama-omni-server / Comni / GGUF. Weights and runtime
+	// download on demand; the process is spawned only if this channel is used.
 	if omniRoot, err := dataRoot.PrepareSubdirectory("omni"); err != nil {
 		log.Printf("omni directory unavailable; MiniCPM-o stays off: %v", err)
 	} else {
@@ -317,6 +317,11 @@ func main() {
 	peopleSvc.StartDiscoveryIfEnabled()
 	defer peopleSvc.Close()
 	meetingsSvc := meetings.New(store)
+	if meetingsRoot, err := dataRoot.PrepareSubdirectory("meetings-audio"); err != nil {
+		log.Printf("meetings audio directory unavailable; long sessions cannot persist WAV: %v", err)
+	} else {
+		meetingsSvc.SetAudioRoot(meetingsRoot.Path())
+	}
 	engine.SetMeetingsService(meetingsSvc)
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
@@ -392,6 +397,11 @@ func main() {
 			log.Printf("bundled skills: %v", err)
 		} else if n > 0 {
 			log.Printf("bundled skills published: %d", n)
+		}
+		if n, err := skillService.EnsureComposeSkills(ctx); err != nil {
+			log.Printf("compose skills: %v", err)
+		} else if n > 0 {
+			log.Printf("compose skills published: %d", n)
 		}
 		engine.SeedRecommendedMcpKit(ctx)
 		engine.SeedPlaywrightMcp(ctx)

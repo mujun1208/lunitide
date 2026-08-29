@@ -1,9 +1,16 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
   BUILTIN_SUBAGENT_IDS,
+  DEFAULT_CAP_PACK,
+  READ_CAP_OPTIONS,
+  SUBAGENT_CAP_PACK_IDS,
+  SUBAGENT_CAP_PACKS,
   buildSubagentChatPolicy,
+  capsForPack,
   defaultSubagentSettings,
   loadSubagentSettings,
+  normalizeReadCaps,
+  packForCaps,
   saveSubagentSettings,
 } from './subagentSettings'
 
@@ -38,5 +45,33 @@ describe('subagentSettings', () => {
     expect(policy.delegationMode).toBe('proactive')
     expect(policy.customProfiles[0]?.id).toBe('docs')
     expect(policy.overrides.explore?.enabled).not.toBe(false)
+  })
+
+  it('maps named cap packs onto the product readCaps whitelist', () => {
+    expect(SUBAGENT_CAP_PACKS.all.label).toBe('全部权限')
+    expect(SUBAGENT_CAP_PACKS.read.label).toBe('只读权限')
+    expect(SUBAGENT_CAP_PACKS.web.label).toBe('网络检索')
+    expect(SUBAGENT_CAP_PACKS.browser.label).toBe('浏览器操作')
+    expect(capsForPack('all')).toEqual([...READ_CAP_OPTIONS])
+    expect(capsForPack('read')).toEqual([
+      'fs.read', 'fs.tree', 'fs.grep', 'fs.glob', 'fs.stat', 'fs.readMany',
+      'web.search', 'web.fetch', 'evidence.list',
+    ])
+    expect(capsForPack('web')).toEqual(['web.search', 'web.fetch'])
+    expect(capsForPack('browser')).toEqual([
+      'web.search', 'web.fetch',
+      'browser.act:navigate', 'browser.act:read', 'browser.act:snapshot',
+    ])
+    expect(capsForPack('read')).not.toContain('browser.act:navigate')
+    for (const id of SUBAGENT_CAP_PACK_IDS) {
+      expect(packForCaps(capsForPack(id))).toBe(id)
+      for (const cap of SUBAGENT_CAP_PACKS[id].caps) {
+        expect(READ_CAP_OPTIONS).toContain(cap)
+      }
+    }
+    expect(DEFAULT_CAP_PACK).toBe('all')
+    expect(packForCaps(['web.fetch'])).toBe('custom')
+    expect(normalizeReadCaps([])).toEqual(capsForPack('all'))
+    expect(normalizeReadCaps(['fs.write', 'web.search'])).toEqual(['web.search'])
   })
 })

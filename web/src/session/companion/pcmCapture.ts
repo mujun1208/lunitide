@@ -49,6 +49,8 @@ export interface PcmCaptureHandle {
   contextSampleRate: () => number
   /** Emit the partial frame held back by the accumulator. End of turn only. */
   flush: () => void
+  /** Mix in a later this-PC loopback stream without reopening the microphone. */
+  attachExtraStream: (stream: MediaStream) => void
 }
 
 /** The processor name registered inside pcmWorklet.js. */
@@ -222,6 +224,21 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
       if (stopped || muted) return
       const tail = accumulator.flush()
       if (tail) emit(tail)
+    },
+    attachExtraStream: (stream: MediaStream) => {
+      if (stopped || extraStreams.includes(stream) || stream.getAudioTracks().length === 0) return
+      extraStreams.push(stream)
+      const extra = context.createMediaStreamSource(stream)
+      extra.connect(worklet)
+      extraSources.push(extra)
+      stream.getAudioTracks().forEach(track => {
+        const prior = track.onended
+        track.onended = event => {
+          if (typeof prior === 'function') prior.call(track, event)
+          if (stopped) return
+          options.onExtraEnded?.()
+        }
+      })
     },
   }
 }

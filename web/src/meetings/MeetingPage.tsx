@@ -4,6 +4,7 @@ import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, captureStateNotice, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { watchAudioTrackEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 
@@ -82,6 +83,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   })
   const speechRef = useRef<CompanionSpeechHandle | null>(null)
   const captureRef = useRef<MeetingCapturePlan | undefined>(undefined)
+  const audioRef = useRef<MeetingAudioHandle | null>(null)
+  const pcmTapRef = useRef<((frame: { base64: string; samples: Int16Array; peak: number }) => void) | undefined>(undefined)
   const tickRef = useRef<number>(0)
   const heartbeatRef = useRef<number>(0)
   const recoverRef = useRef<number>(0)
@@ -101,13 +104,16 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   const adopt = (next: MeetingDTO) => {
     currentIdRef.current = next.meetingId
-    setCurrent(next)
-    setDraftSummary(next.summary || '')
-    setDraftActions(next.actions || '')
-    setDraftTranscript(next.transcript || '')
+    const view = next.status === 'recording' && next.segments
+      ? { ...next, segments: trimLiveSegments(next.segments) }
+      : next
+    setCurrent(view)
+    setDraftSummary(view.summary || '')
+    setDraftActions(view.actions || '')
+    setDraftTranscript(view.transcript || '')
     setItems(values => {
-      const rest = values.filter(item => item.meetingId !== next.meetingId)
-      return [next, ...rest]
+      const rest = values.filter(item => item.meetingId !== view.meetingId)
+      return [view, ...rest]
     })
   }
 
@@ -130,6 +136,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         return
       }
       captureRef.current = recovered
+      recovered.extraStreams.forEach(stream => audioRef.current?.attachExtraStream(stream))
       bindSystemWatch(recovered)
       const notice = captureStateNotice(recovered)
       if (notice) setNotice(notice)
@@ -153,6 +160,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       bindSystemWatch(livePlan)
       const handle = await startMeetingSpeech({
         extraStreams: livePlan.extraStreams,
+        externalPcm: !!audioRef.current,
         duplex: true,
         spokenText: () => '',
         onFinal: text => {
@@ -162,11 +170,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             retryMeetingWrite(() => meetings.append({ meetingId: id, text, startedMs })).then(seg => {
               setCurrent(value => value && value.meetingId === id ? {
                 ...value,
-                segments: [...(value.segments ?? []), seg],
-                transcript: [value.transcript, seg.text].filter(Boolean).join('\n'),
+                segments: trimLiveSegments([...(value.segments ?? []), seg]),
               } : value)
               setInterim('')
-              setNotice(prev => /Bridge 请求超时|转写写入失败|本地语音识别中断/.test(prev) ? '' : prev)
+              setNotice(prev => /Bridge 请求超时|转写写入失败|本地语音识别中断|实时转写中断/.test(prev) ? '' : prev)
             }),
           ).catch(error => {
             if (currentIdRef.current === id && speechGen.current === gen) {
@@ -175,15 +182,16 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           })
         },
         onInterim: text => setInterim(text),
-        onError: error => {
+        onError: () => {
           if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
-          setNotice(error.message)
+          setNotice(ASR_INTERRUPTED_NOTICE)
           speechRef.current = null
+          pcmTapRef.current = undefined
           window.setTimeout(() => {
             if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
-            void listen().catch(restartErr => {
+            void listen().catch(() => {
               if (speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
-                setNotice(restartErr instanceof Error ? restartErr.message : '转写中断，仍在录制')
+                setNotice(ASR_INTERRUPTED_NOTICE)
               }
             })
           }, 900)
@@ -194,6 +202,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         return
       }
       speechRef.current = handle
+      pcmTapRef.current = handle.pushPcm
       const notice = captureStateNotice(livePlan) || livePlan.notice
       if (notice) setNotice(notice)
     }
@@ -218,7 +227,20 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           releaseMeetingCapture(plan)
           return
         }
-        await attachSpeech(detail, plan)
+        try {
+          audioRef.current = await startMeetingAudioRecorder({
+            extraStreams: plan.extraStreams,
+            append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: live.meetingId, pcm })),
+            onFrame: frame => pcmTapRef.current?.(frame),
+          })
+        } catch {
+          if (alive) setNotice('无法写入本机录音。实时转写仍会尝试，长会停止后可能无法补转写。')
+        }
+        try {
+          await attachSpeech(detail, plan)
+        } catch {
+          if (alive) setNotice(ASR_INTERRUPTED_NOTICE)
+        }
       } catch (error) {
         if (alive) setNotice(error instanceof Error ? error.message : '无法继续上一场录制')
       }
@@ -273,6 +295,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         }
         if (!planHasLiveSystemAudio(recovered) || recovered === captureRef.current) return
         captureRef.current = recovered
+        recovered.extraStreams.forEach(stream => audioRef.current?.attachExtraStream(stream))
         setNotice('')
         speechRef.current?.stop()
         speechRef.current = null
@@ -305,7 +328,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     speechGen.current += 1
     speechRef.current?.stop()
     speechRef.current = null
+    pcmTapRef.current = undefined
     unwatchRef.current()
+    void audioRef.current?.stop()
+    audioRef.current = null
     releaseMeetingCapture(captureRef.current)
     window.clearInterval(tickRef.current)
     window.clearInterval(heartbeatRef.current)
@@ -324,16 +350,27 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       const started = await meetings.start({ audioSource: plan.audioSource })
       adopt(started)
       try {
+        audioRef.current = await startMeetingAudioRecorder({
+          extraStreams: plan.extraStreams,
+          append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: started.meetingId, pcm })),
+          onFrame: frame => pcmTapRef.current?.(frame),
+        })
+      } catch {
+        setNotice('无法写入本机录音。实时转写仍会尝试，长会停止后可能无法补转写。')
+      }
+      try {
         await attachSpeech(started, plan)
-      } catch (speechError) {
-        await meetings.stop({ meetingId: started.meetingId }).catch(() => undefined)
-        throw speechError
+      } catch {
+        setNotice(ASR_INTERRUPTED_NOTICE)
       }
     } catch (error) {
       speechGen.current += 1
       speechRef.current?.stop()
       speechRef.current = null
+      pcmTapRef.current = undefined
       unwatchRef.current()
+      void audioRef.current?.stop()
+      audioRef.current = null
       releaseMeetingCapture(plan)
       captureRef.current = undefined
       if (!isCanceled(error) && !(error instanceof DOMException && (error.name === 'AbortError' || error.name === 'NotAllowedError'))) {
@@ -348,10 +385,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const stop = async () => {
     if (!current || current.status !== 'recording' || busy) return
     setBusy(true)
-    setNotice('正在生成会议纪要…')
+    setNotice('正在结束录制…')
     speechGen.current += 1
     const handle = speechRef.current
     speechRef.current = null
+    pcmTapRef.current = undefined
     try {
       await handle?.flush?.()
     } catch {
@@ -359,13 +397,24 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
     handle?.stop()
     unwatchRef.current()
+    try {
+      await audioRef.current?.flush()
+      await audioRef.current?.stop()
+    } catch {
+      /* WAV tail is best-effort; stop still persists what landed */
+    }
+    audioRef.current = null
     releaseMeetingCapture(captureRef.current)
     captureRef.current = undefined
     setInterim('')
     try {
       await appendChain.current
       const stopped = await meetings.stop({ meetingId: current.meetingId })
-      adopt({ ...stopped, status: 'summarizing' })
+      adopt(stopped)
+      setNotice('正在转写补全…')
+      const caught = await meetings.catchup({ meetingId: current.meetingId })
+      adopt(caught)
+      setNotice('正在生成会议纪要…')
       const notes = await meetings.summarize({ meetingId: current.meetingId })
       adopt(notes)
       setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要，逐字稿已保存。')
@@ -385,8 +434,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const retry = async () => {
     if (!current || busy) return
     setBusy(true)
-    setNotice('正在生成会议纪要…')
+    setNotice('正在转写补全…')
     try {
+      const caught = await meetings.catchup({ meetingId: current.meetingId })
+      adopt(caught)
+      setNotice('正在生成会议纪要…')
       const notes = await meetings.summarize({ meetingId: current.meetingId })
       adopt(notes)
       setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要')
@@ -473,7 +525,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       <aside className="meeting-list" aria-label="历史会议">
         <header>
           <h2>会议记录</h2>
-          <p>本机麦克风转写。勾选后混录这台电脑的系统声音（扬声器对面更准）。不会共享给其他电脑。</p>
+          <p>本机麦克风转写。勾选后混录这台电脑的系统声音（扬声器对面更准）。长会以本机录音为准，停止后再补转写。不会共享给其他电脑。</p>
         </header>
         {items.length === 0 ? <p className="meeting-empty">还没有会议。点开始录制这一场。</p> : items.map(item => (
           <div className="meeting-row" key={item.meetingId}>
@@ -496,7 +548,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         <header className="meeting-hero">
           <div>
             <h2>{current?.title || '新的会议'}</h2>
-            <p>点击开始后进入实时转写。系统声音优先走立体声混音，否则请选择整个屏幕并勾选共享音频（只为收录声音，画面不保存）。结束后生成摘要、待办和逐字稿，可导出。</p>
+            <p>点击开始后写入本机录音，实时转写只作字幕。停止后如有中断会补转写，再生成摘要、待办和逐字稿，可导出。不会共享给其他电脑。</p>
           </div>
           <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording ? elapsed : current?.durationMs ?? 0)}</div>
         </header>

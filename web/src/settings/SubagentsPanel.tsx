@@ -5,13 +5,20 @@ import { ChoiceTiles } from './ChoiceTiles'
 import {
   BUILTIN_SUBAGENT_IDS,
   BUILTIN_SUBAGENT_META,
+  DEFAULT_CAP_PACK,
   READ_CAP_OPTIONS,
+  SUBAGENT_CAP_PACK_IDS,
+  SUBAGENT_CAP_PACKS,
+  capsForPack,
   configuredModelOptions,
   defaultSubagentSettings,
   inheritModelLabel,
   loadSubagentSettings,
+  normalizeReadCaps,
+  packForCaps,
   saveSubagentSettings,
   type CustomSubagentProfile,
+  type SubagentCapPackId,
   type SubagentDelegationMode,
   type SubagentSettings,
 } from './subagentSettings'
@@ -21,6 +28,19 @@ const DELEGATION_OPTIONS = [
   { value: 'explicit', label: '按需委派', desc: '暴露工具，由模型自行决定是否派出。' },
   { value: 'disabled', label: '关闭', desc: '隐藏 subagent.spawn / join。' },
 ] as const
+
+const CAP_PACK_TILES = SUBAGENT_CAP_PACK_IDS.map(id => ({
+  value: id,
+  label: SUBAGENT_CAP_PACKS[id].label,
+  desc: SUBAGENT_CAP_PACKS[id].desc,
+}))
+
+function emptyCustomDraft(): CustomSubagentProfile {
+  return {
+    id: '', displayName: '', description: '', systemPrompt: '',
+    readCaps: capsForPack(DEFAULT_CAP_PACK), maxSteps: 4, budgetTokens: 8192,
+  }
+}
 
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }): React.JSX.Element {
   return (
@@ -37,12 +57,56 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   )
 }
 
+function CapPackPicker({
+  legend,
+  name,
+  caps,
+  onCapsChange,
+}: {
+  legend: string
+  name: string
+  caps: string[]
+  onCapsChange: (caps: string[]) => void
+}): React.JSX.Element {
+  const pack = packForCaps(caps)
+  const selected = (pack === 'custom' ? '' : pack) as SubagentCapPackId
+  return (
+    <div className="subagent-cap-packs">
+      <ChoiceTiles
+        legend={legend}
+        name={name}
+        value={selected}
+        options={CAP_PACK_TILES}
+        onChange={id => onCapsChange(capsForPack(id))}
+      />
+      {pack === 'custom' && (
+        <p className="setting-desc">当前为自定义能力组合。选一个能力包即可覆盖。</p>
+      )}
+      <details className="subagent-cap-advanced">
+        <summary>高级：逐项能力</summary>
+        <div className="subagent-cap-grid">
+          {READ_CAP_OPTIONS.map(cap => (
+            <label key={cap} className="subagent-cap-chip">
+              <input
+                type="checkbox"
+                checked={caps.includes(cap)}
+                onChange={e => onCapsChange(normalizeReadCaps(
+                  e.target.checked ? [...caps, cap] : caps.filter(x => x !== cap),
+                ))}
+              />
+              {cap}
+            </label>
+          ))}
+        </div>
+      </details>
+    </div>
+  )
+}
+
 export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX.Element {
   const [settings, setSettings] = useState<SubagentSettings>(() => loadSubagentSettings())
   const [providers, setProviders] = useState<ProviderDTO[]>([])
-  const [draft, setDraft] = useState<CustomSubagentProfile>({
-    id: '', displayName: '', description: '', systemPrompt: '', readCaps: ['web.search', 'web.fetch'], maxSteps: 4, budgetTokens: 8192,
-  })
+  const [draft, setDraft] = useState<CustomSubagentProfile>(emptyCustomDraft)
 
   useEffect(() => {
     void providerBridge.list().then(r => setProviders(r.items)).catch(() => {})
@@ -60,6 +124,13 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
     persist({ ...settings, overrides: { ...settings.overrides, [id]: { ...settings.overrides[id], ...patch } } })
   }
 
+  const setCustomCaps = (id: string, readCaps: string[]) => {
+    persist({
+      ...settings,
+      customProfiles: settings.customProfiles.map(p => p.id === id ? { ...p, readCaps: normalizeReadCaps(readCaps) } : p),
+    })
+  }
+
   const models = configuredModelOptions(providers)
 
   const addCustom = () => {
@@ -73,15 +144,20 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
         displayName: draft.displayName.trim() || id,
         description: draft.description?.trim(),
         systemPrompt: draft.systemPrompt.trim(),
-        readCaps: draft.readCaps.length ? draft.readCaps : ['web.search'],
+        readCaps: normalizeReadCaps(draft.readCaps),
         maxSteps: draft.maxSteps ?? 4,
         budgetTokens: draft.budgetTokens ?? 8192,
       }],
     })
-    setDraft({ id: '', displayName: '', description: '', systemPrompt: '', readCaps: ['web.search', 'web.fetch'], maxSteps: 4, budgetTokens: 8192 })
+    setDraft(emptyCustomDraft())
   }
 
   const removeCustom = (id: string) => persist({ ...settings, customProfiles: settings.customProfiles.filter(p => p.id !== id) })
+
+  const restoreDefault = () => {
+    persist(defaultSubagentSettings())
+    setDraft(emptyCustomDraft())
+  }
 
   return (
     <div className="setting-group subagent-settings">
@@ -135,13 +211,22 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
       </div>
 
       <h3>自定义子智能体 · {settings.customProfiles.length} 项</h3>
-      <p className="setting-desc">保存到本机；随 chat.start 传给引擎（最多 16 个）。</p>
+      <p className="setting-desc">保存到本机；随 chat.start 传给引擎（最多 16 个）。选一个能力包即可，不必勾选底层权限名。</p>
       {settings.customProfiles.length > 0 && (
         <ul className="subagent-custom-list">
           {settings.customProfiles.map(p => (
-            <li key={p.id}>
-              <b>{p.displayName}</b> <code>{p.id}</code>
-              <button type="button" onClick={() => removeCustom(p.id)}>删除</button>
+            <li key={p.id} className="subagent-custom-item">
+              <div className="subagent-custom-item-head">
+                <b>{p.displayName}</b>
+                <code>{p.id}</code>
+                <button type="button" onClick={() => removeCustom(p.id)}>删除</button>
+              </div>
+              <CapPackPicker
+                legend={`${p.displayName} 能力包`}
+                name={`cap-pack-${p.id}`}
+                caps={p.readCaps}
+                onCapsChange={next => setCustomCaps(p.id, next)}
+              />
             </li>
           ))}
         </ul>
@@ -150,26 +235,16 @@ export function SubagentsPanel({ onSaved }: { onSaved?: () => void }): React.JSX
         <label>ID<input value={draft.id} onChange={e => setDraft(v => ({ ...v, id: e.target.value }))} placeholder="my-research" /></label>
         <label>名称<input value={draft.displayName} onChange={e => setDraft(v => ({ ...v, displayName: e.target.value }))} /></label>
         <label>系统提示<textarea rows={3} value={draft.systemPrompt} onChange={e => setDraft(v => ({ ...v, systemPrompt: e.target.value }))} /></label>
-        <fieldset>
-          <legend>readCaps</legend>
-          {READ_CAP_OPTIONS.map(cap => (
-            <label key={cap} className="subagent-cap-chip">
-              <input
-                type="checkbox"
-                checked={draft.readCaps.includes(cap)}
-                onChange={e => setDraft(v => ({
-                  ...v,
-                  readCaps: e.target.checked ? [...v.readCaps, cap] : v.readCaps.filter(x => x !== cap),
-                }))}
-              />
-              {cap}
-            </label>
-          ))}
-        </fieldset>
+        <CapPackPicker
+          legend="新 profile 能力包"
+          name="cap-pack-draft"
+          caps={draft.readCaps}
+          onCapsChange={readCaps => setDraft(v => ({ ...v, readCaps }))}
+        />
         <button type="button" className="primary" onClick={addCustom}>添加自定义 profile</button>
       </div>
 
-      <button type="button" onClick={() => persist(defaultSubagentSettings())}>恢复默认</button>
+      <button type="button" onClick={restoreDefault}>恢复默认</button>
     </div>
   )
 }

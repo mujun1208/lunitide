@@ -57,19 +57,19 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		}, "\n")
 		switch item.ID {
 		case "ppt-expert":
-			for _, needle := range []string{"大纲", "视觉层级", "演讲备注", "pptx.gen", "结构", "desktop=true", `A["封面<br/>副标题"]`} {
+			for _, needle := range []string{"大纲", "演讲备注", "pptx.gen", "结构", "desktop=true", `A["封面<br/>副标题"]`, "收集素材", "web.search", "九步", "再思考"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("PPT专家 missing %q", needle)
 				}
 			}
 		case "report-writer":
-			for _, needle := range []string{"去AI味", "结构", "赋能", "首先/其次", "翻译腔", "docx.gen", "desktop=true"} {
+			for _, needle := range []string{"去AI味", "结构", "赋能", "首先/其次", "翻译腔", "docx.gen", "desktop=true", "流水线", "两轮", "完整章节", "特别简单", "封面"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("报告编写专家 missing %q", needle)
 				}
 			}
 		case "novel-writer":
-			for _, needle := range []string{"去AI味", "人物", "场景", "虚构", "不是工作报告", "desktop=true", "docx.gen"} {
+			for _, needle := range []string{"去AI味", "人物", "场景", "虚构", "不是工作报告", "desktop=true", "docx.gen", "起承转合", "分章", "提纲", "kind=novel"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("小说编写专家 missing %q", needle)
 				}
@@ -219,6 +219,88 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 	if !foundDev {
 		t.Fatal("conversation catalog missing dev-expert 开发专家")
 	}
+}
+
+func TestConversationExpertsInstructThinkSkillsToolsDrawWrite(t *testing.T) {
+	needles := []string{
+		"todo.write", "skill.invoke", "web.search", "web.fetch", "mermaid",
+		"docx.gen", "excel.gen", "pptx.gen", "html.gen", "desktop=true", "200 页",
+	}
+	for _, item := range m8app.ConversationExperts() {
+		body := strings.Join([]string{
+			item.SixSection.Identity, item.SixSection.Mission, item.SixSection.Rules,
+			item.SixSection.Workflow, item.SixSection.DeliverableTemplate, item.SixSection.SuccessMetrics,
+		}, "\n")
+		for _, needle := range needles {
+			if !strings.Contains(body, needle) {
+				t.Fatalf("%s (%s) missing capability %q", item.Name, item.ID, needle)
+			}
+		}
+	}
+	if len(m8app.ConversationExperts()) != 13 {
+		t.Fatalf("want 13 specialists, got %d", len(m8app.ConversationExperts()))
+	}
+}
+
+func TestConversationExpertComposeAttachLists(t *testing.T) {
+	want := map[string][]string{
+		"ppt-expert":       {"slide-builder", "web-researcher", "mermaid-diagrams"},
+		"report-writer":    {"web-researcher", "docx-writer", "anti-ai-prose"},
+		"novel-writer":     {"docx-writer", "anti-ai-prose", "fiction-continuity"},
+		"excel-maker":      {"excel-analyst", "csv-workbook"},
+		"ui-designer":      {"frontend-design", "ui-components", "design-system"},
+		"pm-expert":        {"pm-skill", "grill-me", "to-spec"},
+		"architect-expert": {"improve-architecture", "mermaid-diagrams"},
+		"db-expert":        {"mermaid-diagrams"},
+		"repo-expert":      {"knowledge-index", "mermaid-diagrams"},
+		"standards-expert": {"code-reviewer", "grill-me"},
+		"test-expert":      {"test-writer", "e2e-browser", "browser-automation"},
+		"hardware-expert":  {"web-researcher", "hardware-bom"},
+		"dev-expert":       {"implement", "tdd-loop", "debugger", "code-reviewer"},
+	}
+	wantTools := map[string][]string{
+		"ppt-expert":       {"web.search", "pptx.gen", "skill.invoke"},
+		"report-writer":    {"web.search", "docx.gen", "skill.invoke"},
+		"novel-writer":     {"docx.gen", "skill.invoke"},
+		"excel-maker":      {"excel.gen", "excel.parse"},
+		"ui-designer":      {"html.gen", "skill.invoke"},
+		"pm-expert":        {"web.search", "skill.invoke"},
+		"architect-expert": {"skill.invoke", "workspace.read"},
+		"db-expert":        {"skill.invoke"},
+		"repo-expert":      {"workspace.list", "workspace.read"},
+		"standards-expert": {"skill.invoke", "workspace.read"},
+		"test-expert":      {"skill.invoke", "browser.act"},
+		"hardware-expert":  {"web.search", "excel.gen"},
+		"dev-expert":       {"workspace.edit", "command.run", "skill.invoke"},
+	}
+	for _, item := range m8app.ConversationExperts() {
+		if len(item.PreferredSkills) == 0 || len(item.RequiredTools) == 0 {
+			t.Fatalf("%s missing preferredSkills/requiredTools", item.ID)
+		}
+		skills, tools, _, _ := m8app.ComposeForExpertNames([]string{item.Name})
+		for _, id := range want[item.ID] {
+			if !m8app.SkillMatchesPreferred(id, "builtin://"+id, skills) && !containsStr(skills, id) {
+				t.Fatalf("%s compose skills %#v missing %q", item.ID, skills, id)
+			}
+		}
+		for _, tool := range wantTools[item.ID] {
+			if !containsStr(tools, tool) {
+				t.Fatalf("%s compose tools %#v missing %q", item.ID, tools, tool)
+			}
+		}
+	}
+	if got := m8app.PreferredComposeTemplateIDs(); len(got) < 10 {
+		t.Fatalf("preferred compose union too small: %#v", got)
+	}
+}
+
+func containsStr(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEnsureBuiltinExpertsSeedsConversationRoster(t *testing.T) {

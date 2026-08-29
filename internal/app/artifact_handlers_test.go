@@ -11,6 +11,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/artifactreview"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -80,7 +81,16 @@ func TestArtifactReviewAppendRejectsInvalid(t *testing.T) {
 func TestArtifactPreviewKindAware(t *testing.T) {
 	e := newArtifactEngine(t)
 	ctx := context.Background()
-	if _, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "docx.gen", json.RawMessage(`{"path":"周报.docx","title":"周报","blocks":[{"type":"heading","text":"进展"},{"type":"paragraph","text":"完成了 P2-2 验收闭环 & 测试 <b>x</b>"}]}`), false); err != nil {
+	previewBlocks, _ := json.Marshal(map[string]any{
+		"path": "周报.docx", "title": "周报",
+		"blocks": []officetools.DocxBlock{
+			{Type: "heading", Text: "进展"},
+			{Type: "paragraph", Text: "完成了 P2-2 验收闭环 & 测试 <b>x</b>。" + officetools.SampleStyledDocxBlocks()[1].Text},
+			{Type: "heading2", Text: "说明"},
+			{Type: "paragraph", Text: officetools.SampleStyledDocxBlocks()[1].Text},
+		},
+	})
+	if _, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "docx.gen", previewBlocks, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "pdf.gen", json.RawMessage(`{"path":"说明.pdf","title":"t","body":"b"}`), false); err != nil {
@@ -138,7 +148,10 @@ func TestOfficeGeneratorsSurfaceArtifactMetadata(t *testing.T) {
 func TestArtifactExportRoundTripAndGuards(t *testing.T) {
 	e := newArtifactEngine(t)
 	ctx := context.Background()
-	if _, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "docx.gen", json.RawMessage(`{"path":"交付/周报.docx","title":"周报","blocks":[{"type":"paragraph","text":"交付内容"}]}`), false); err != nil {
+	exportBlocks, _ := json.Marshal(map[string]any{
+		"path": "交付/周报.docx", "title": "周报", "blocks": officetools.SampleStyledDocxBlocks(),
+	})
+	if _, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "docx.gen", exportBlocks, false); err != nil {
 		t.Fatal(err)
 	}
 	target := t.TempDir()

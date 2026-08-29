@@ -72,29 +72,86 @@ func TestGenXLSXGuards(t *testing.T) {
 }
 
 func TestGenDocxStructure(t *testing.T) {
-	data, err := GenDocx("测试报告 <Q1>", []DocxBlock{
-		{Type: "heading", Text: "第一章 & 概述"},
-		{Type: "paragraph", Text: "这是正文段落。"},
-		{Type: "bullet", Text: "要点 '一'"},
-	})
+	blocks := SampleStyledDocxBlocks()
+	blocks[0].Text = "第一章 & 概述"
+	blocks = append(blocks, DocxBlock{Type: "bullet", Text: "要点 '一'"})
+	data, err := GenDocx("测试报告 <Q1>", blocks)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !zipHasPart(data, "word/document.xml") || !zipHasPart(data, "[Content_Types].xml") {
-		t.Fatal("docx missing required parts")
+	for _, part := range []string{
+		"word/document.xml", "word/styles.xml", "word/theme/theme1.xml",
+		"word/fontTable.xml", "word/numbering.xml", "[Content_Types].xml",
+	} {
+		if !zipHasPart(data, part) {
+			t.Fatalf("docx missing part %s", part)
+		}
 	}
 	doc := zipPartBody(t, data, "word/document.xml")
 	if !strings.Contains(doc, "&lt;Q1&gt;") || !strings.Contains(doc, "&amp; 概述") || !strings.Contains(doc, "&apos;一&apos;") {
 		t.Fatalf("docx escaping broken: %.200s", doc)
 	}
-	if !strings.Contains(doc, `w:val="Heading1"`) || !strings.Contains(doc, `w:val="Title"`) {
-		t.Fatal("docx styles missing")
+	if !strings.Contains(doc, `w:val="Heading1"`) || !strings.Contains(doc, `w:val="Heading2"`) || !strings.Contains(doc, `w:val="Title"`) {
+		t.Fatal("docx heading styles missing")
+	}
+	if !strings.Contains(doc, "SimSun") || !strings.Contains(doc, "SimHei") {
+		t.Fatal("docx must set Chinese-friendly fonts on runs")
+	}
+	styles := zipPartBody(t, data, "word/styles.xml")
+	if !strings.Contains(styles, `w:styleId="Heading1"`) || !strings.Contains(styles, `w:line="360"`) || !strings.Contains(styles, "SimSun") {
+		t.Fatal("styles.xml must define headings, 1.5 line spacing, and 宋体")
+	}
+	if err := ValidateDocx(data); err != nil {
+		t.Fatalf("valid doc failed validation: %v", err)
 	}
 	if _, err := GenDocx("t", nil); err == nil {
 		t.Fatal("empty blocks accepted")
 	}
 	if _, err := GenDocx("t", []DocxBlock{{Type: "table", Text: "x"}}); err == nil {
 		t.Fatal("unknown block type accepted")
+	}
+	if _, err := GenDocx("t", []DocxBlock{{Type: "paragraph", Text: "hi"}}); err == nil {
+		t.Fatal("unstyled trivial body accepted")
+	}
+}
+
+func TestValidateDocxRejectsEmptyAndUnstyled(t *testing.T) {
+	if err := ValidateDocx(UnstyledDocxFixture()); err == nil {
+		t.Fatal("unstyled single-style body must fail validation")
+	}
+	if err := ValidateDocx(EmptyDocxFixture()); err == nil {
+		t.Fatal("empty docx must fail validation")
+	}
+	data, err := GenDocxDoc(DocxDoc{Title: "季度报告", Kind: "report", Subtitle: "内部稿", Author: "月汐", Blocks: SampleReportDocxBlocks()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateDocx(data); err != nil {
+		t.Fatalf("report fixture must pass: %v", err)
+	}
+	doc := zipPartBody(t, data, "word/document.xml")
+	if !strings.Contains(doc, `w:type="page"`) || !strings.Contains(doc, `w:val="Title"`) {
+		t.Fatal("report must have a cover/title page break")
+	}
+	novel, err := GenDocxDoc(SampleNovelDocxDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateDocx(novel); err != nil {
+		t.Fatalf("novel fixture must pass: %v", err)
+	}
+	nxml := zipPartBody(t, novel, "word/document.xml")
+	if !strings.Contains(nxml, "作者") || strings.Count(nxml, `w:val="Heading1"`) < 2 {
+		t.Fatal("novel must include author and chapter Heading 1")
+	}
+	if _, err := GenDocxDoc(DocxDoc{Title: "残稿", Kind: "novel", Author: "阿潮", Blocks: []DocxBlock{
+		{Type: "heading", Text: "第一章"},
+		{Type: "bullet", Text: "起"},
+		{Type: "bullet", Text: "承"},
+		{Type: "heading", Text: "第二章"},
+		{Type: "bullet", Text: "转"},
+	}}); err == nil {
+		t.Fatal("outline dump must not pass as a novel")
 	}
 }
 
@@ -132,6 +189,31 @@ func TestGenPptxStructure(t *testing.T) {
 	}
 	if _, err := GenPptx("t", nil); err == nil {
 		t.Fatal("empty slides accepted")
+	}
+	if _, err := GenPptx("t", []SlideSpec{{Title: "   "}}); err == nil {
+		t.Fatal("blank title accepted")
+	}
+	if !strings.Contains(slide1, "</a:pPr>") || strings.Contains(slide1, `<a:pPr algn="l"><a:r>`) {
+		t.Fatal("title run must sit after a closed a:pPr, not inside it")
+	}
+	if strings.Contains(zipPartBody(t, data, "ppt/slides/_rels/slide1.xml.rels"), "p:Relationships") {
+		t.Fatal("slide rels must use the package Relationships element")
+	}
+	if err := ValidatePptx(data); err != nil {
+		t.Fatalf("valid deck failed validation: %v", err)
+	}
+	preview, err := ExtractPptxText(data)
+	if err != nil || !strings.Contains(preview, "封面") || !strings.Contains(preview, "第二章") {
+		t.Fatalf("valid deck must expose titles in XML text: %q %v", preview, err)
+	}
+}
+
+func TestValidatePptxRejectsEmptyDarkOnlySlides(t *testing.T) {
+	if err := ValidatePptx(DarkOnlySlideFixture()); err == nil {
+		t.Fatal("empty navy fill-only slides must fail validation")
+	}
+	if _, err := GenPptx("", []SlideSpec{{Title: "A", Bullets: []string{"x"}}}); err == nil {
+		t.Fatal("empty deck title accepted")
 	}
 }
 

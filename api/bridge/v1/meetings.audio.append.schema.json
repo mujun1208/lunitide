@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.audio.append.schema.json",
+  "title": "meetings.audio.append payload",
+  "x-method": "meetings.audio.append",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "pcm": { "type": "string", "minLength": 1, "maxLength": 65536, "contentEncoding": "base64" }
+  },
+  "required": ["meetingId", "pcm"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "audioMs": { "type": "integer", "minimum": 0 }
+    },
+    "required": ["meetingId", "audioMs"]
+  },
+  "x-examples": {
+    "positive": [{ "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "pcm": "AAAA" }],
+    "negative": [{ "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }, { "extra": true }]
+  }
+}

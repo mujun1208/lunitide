@@ -180,10 +180,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// summary); the full SKILL body loads only when skill.invoke runs.
 	// Companion idle chat still skips an unmatched catalog so TTFT stays short.
 	var (
-		item    provider.Provider
-		getErr  error
-		memPack chatMemoryPack
-		catalog string
+		item        provider.Provider
+		getErr      error
+		memPack     chatMemoryPack
+		catalog     string
+		preferred   []string
+		composeHint string
 	)
 	var prep sync.WaitGroup
 	prep.Add(1)
@@ -210,7 +212,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				catalogQuery += " implement tdd code review 开发"
 			}
 		}
-		catalog = e.skillCatalogInjection(ctx, catalogQuery, p.Companion)
+		if !p.Companion {
+			preferred, composeHint = e.expertComposeForTurn(ctx, p.SessionID, turnText)
+		}
+		catalog = e.skillCatalogInjection(ctx, catalogQuery, p.Companion, preferred)
 	}()
 	prep.Wait()
 	if p.Companion {
@@ -238,6 +243,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		TurnText:     turnText,
 		ExplicitMsgs: p.Messages,
 	})
+	if councilCfg != nil {
+		councilCfg.Mode = mode
+	}
+	expertWork := !p.Companion && (councilCfg != nil || e.sessionSelectsExperts(ctx, p.SessionID, turnText))
+	subagentPolicy.ExpertWork = expertWork
+	if expertWork {
+		instruction += specialistRuntimeInstruction()
+	}
+	if composeHint != "" {
+		instruction += composeHint
+	}
 	if councilCfg == nil {
 		if persona := e.expertPersonaInjection(ctx, p.SessionID, p.Messages, turnText); persona != "" {
 			instruction += persona
@@ -746,7 +762,7 @@ func executionModeInstruction(mode executionMode) string {
 // model can proactively invoke skills. Query hits are sorted to the front
 // (Claude Code / Trae catalog-then-body): the full SKILL body is never
 // injected here. Companion idle turns with zero hits inject nothing.
-func (e *Engine) skillCatalogInjection(ctx context.Context, query string, companion bool) string {
+func (e *Engine) skillCatalogInjection(ctx context.Context, query string, companion bool, preferred []string) string {
 	if !skillServiceAvailable(e.skills) {
 		return ""
 	}
@@ -758,7 +774,7 @@ func (e *Engine) skillCatalogInjection(ctx context.Context, query string, compan
 	if len(skills) == 0 {
 		return ""
 	}
-	ranked := rankSkillsForCatalog(skills, query)
+	ranked := pinPreferredSkills(rankSkillsForCatalog(skills, query), preferred)
 	maxItems := skillInjectMaxItems
 	if companion {
 		hits := catalogHitCount(ranked)
@@ -1024,8 +1040,8 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Use for current facts, docs, or links — do not invent temperatures or prices. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query. Example: {\"query\":\"北京明天天气\",\"max\":5}", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"Search query. Example: 北京明天天气"},"max":{"type":"integer","description":"Number of results to return, default 5 (1-10).","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace. Set desktop=true to write onto the real Desktop (filename in path is enough). Never build XLSX via Excel COM, Python, or command.run — that truncates the tool call and fails the turn. Keep sheets compact (monthly totals, not hundreds of daily rows).", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .xlsx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
-		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace. Set desktop=true to write onto the real Desktop. Never build DOCX via Word COM or command.run. Keep one document per call; split a novel by chapter.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .docx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
-		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
+		{Name: "docx.gen", Description: "Generate a print-ready .docx (Chinese 宋体/黑体, Heading 1/2, body, optional quote/caption, 1.5 line spacing). Empty or unstyled single-style bodies are rejected. Reports: kind=report (cover + sections). Novels: kind=novel (title+author, chapter Heading 1, substantial prose — not an outline dump). Call only after the report/novel pipeline. Set desktop=true to write onto the real Desktop. Never build DOCX via Word COM or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .docx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"subtitle":{"type":"string"},"author":{"type":"string"},"kind":{"type":"string","enum":["report","novel","document"]},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","heading2","paragraph","bullet","quote","caption"]},"text":{"type":"string"},"level":{"type":"integer","minimum":1,"maximum":2}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
+		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Every slide needs a visible title; dark backgrounds must use light text. Empty or fill-only slides are rejected. Call this only after the PPT pipeline (outline, copy, two web research passes). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","minLength":1},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
 		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
@@ -1796,6 +1812,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		e.applyExpertCouncil(op, a, credential, req.Model, state.council, &req, state.companion, send)
 		state.council = nil
+		startPptWorkflow(&req, &turn, send)
+		startDocxWorkflow(&req, &turn, send)
 		seen := map[string]bool{}
 		completedDigests := map[string]string{}
 		var result gateway.Response
@@ -1896,11 +1914,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					autoMediaPlayDone = true
 				}
 			}
+			stepText := ""
+			if assistantText.Len() > stepTextStart {
+				stepText = assistantText.String()[stepTextStart:]
+			}
+			noteDocxChars(&turn, stepText)
 			if len(result.Message.ToolCalls) == 0 {
-				stepText := ""
-				if assistantText.Len() > stepTextStart {
-					stepText = assistantText.String()[stepTextStart:]
-				}
 				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) {
 					nudges++
 					msg := result.Message
@@ -1924,7 +1943,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					req.Messages = append(req.Messages, queuedSupplementMessage(note))
 					turn.Injected = append(turn.Injected, texts...)
 					assistantText.WriteString(queueInjectNotice)
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
 					_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
+					continue
+				}
+				if nudgePptWorkflow(&req, &turn, send) {
+					e.saveTurnCheckpoint(sessionID, turn)
+					continue
+				}
+				if nudgeDocxWorkflow(&req, &turn, send) {
+					e.saveTurnCheckpoint(sessionID, turn)
 					continue
 				}
 				break
@@ -2155,6 +2183,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// between started and completed. The runtime serializes
 					// progress callbacks, so the non-concurrent send closure
 					// stays safe.
+					if blocked, msg := pptGenBlocked(&turn, call.Name); blocked {
+						return blockedPptGenResult(msg), nil
+					}
+					if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
+						return blockedDocxGenResult(msg), nil
+					}
 					if call.Name == "command.run" {
 						progress := func(chunk string) {
 							if chunk == "" {
@@ -2202,6 +2236,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				summary = clipToolSummary(summary)
 				if toolErr == nil {
 					completedDigests[digest] = summary
+					if call.Name == "pptx.gen" && !strings.Contains(summary, "被流水线拦住") {
+						turn.PptGenerated = true
+					}
+					if call.Name == "docx.gen" && !strings.Contains(summary, "被流水线拦住") {
+						turn.DocxGenerated = true
+					}
 					if state.companion {
 						e.noteCompanionToolSuccess(sessionID, call.Name, call.Arguments, summary)
 					}
@@ -2270,6 +2310,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			for _, call := range result.Message.ToolCalls {
 				turn.LastTools = append(turn.LastTools, call.Name)
 			}
+			notePptTools(&turn, turn.LastTools)
+			noteDocxTools(&turn, turn.LastTools)
 			e.saveTurnCheckpoint(sessionID, turn)
 		}
 		streamResult = result
@@ -2590,6 +2632,20 @@ func collectExpertIDs(mounted []string, texts ...string) []string {
 	return ids
 }
 
+func (e *Engine) sessionSelectsExperts(ctx context.Context, sessionID, turnText string) bool {
+	var mounted []string
+	if sessionID != "" && e.sessionExperts != nil {
+		if ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, sessionID); err == nil {
+			mounted = ids
+		}
+	}
+	last := ""
+	if sessionID != "" && e.messageReader != nil {
+		last = e.peekLastUserMessage(ctx, sessionID)
+	}
+	return len(selectedTurnExpertIDs(mounted, turnText, last)) > 0
+}
+
 func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _ []gateway.Message, turnText string) string {
 	if e.m8expert == nil {
 		return ""
@@ -2644,10 +2700,13 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _
 }
 
 func expertPersonaHeader(count int) string {
+	caps := specialistPersonaCapabilityLine()
 	if count >= 2 {
-		return "\n\n你是月汐主编排（会议主席）。以下专家已常驻挂载到本会话，直到用户移除。请在思考/推理通道内部召开有界专家理事会：具名专家轮流发言，全场合计最多 5–6 轮（不是每位专家各 5–6 轮），再给出用户可见的一份综合结论。不要把每位专家的发言拆成多条助手消息，不要并行打满多路完整 completion。仅当某位专家真正需要技能时才调用 skill.invoke。协作包：\n"
+		return "\n\n你是月汐主编排（会议主席）。以下专家已常驻挂载到本会话，直到用户移除。请在思考/推理通道内部召开有界专家理事会：具名专家轮流发言，全场合计最多 5–6 轮（不是每位专家各 5–6 轮），再给出用户可见的一份综合结论。不要把每位专家的发言拆成多条助手消息，不要并行打满多路完整 completion。" +
+			caps + "协作包：\n"
 	}
-	return "\n\n你是月汐主编排。以下专家已常驻挂载到本会话，直到用户移除。请统筹他们的职责：按岗位约束作答；需要专项技能时调用 skill.invoke；不要并行打满多路完整 completion。协作包：\n"
+	return "\n\n你是月汐主编排。以下专家已常驻挂载到本会话，直到用户移除。请统筹他们的职责：按岗位约束作答；" +
+		caps + "不要并行打满多路完整 completion。协作包：\n"
 }
 
 func clipExpertBody(body []byte) string {

@@ -1,7 +1,7 @@
-import {cleanup, render, screen} from '@testing-library/react'
+import {cleanup, render, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {afterEach, expect, it, vi} from 'vitest'
-import type {ExpertBridge, MessageBridge, ProviderBridge, SessionBridge} from '../bridge/client'
+import type {ExpertBridge, MessageBridge, ProviderBridge, SessionBridge, SkillBridge} from '../bridge/client'
 import type {ProjectDTO, ProviderDTO, SessionDTO} from '../generated/bridge'
 import {CONVERSATION_EXPERTS, conversationExpertDivision} from '../expert/conversationExperts'
 import {SessionPage} from './SessionPage'
@@ -10,6 +10,7 @@ import {resetLiveChatForTests} from './liveChat'
 afterEach(() => {
   cleanup()
   resetLiveChatForTests()
+  localStorage.clear()
 })
 
 const P = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
@@ -37,7 +38,8 @@ it('lets the 对话 picker select 系统架构师专家 with the other conversat
     mount: vi.fn(), mountingGet: vi.fn(), scenarioCreate: vi.fn(), scenarioList: vi.fn(), scenarioDelete: vi.fn(),
   } as unknown as ExpertBridge
   const user = userEvent.setup()
-  render(<SessionPage project={project} bridge={sessionBridge} messages={{list: vi.fn().mockResolvedValue({items: [], hasMore: false, nextCursor: null, snapshotSequence: 0}), append: vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} experts={experts} />)
+  const skills = {list: vi.fn().mockResolvedValue({items: []})} as unknown as SkillBridge
+  render(<SessionPage project={project} bridge={sessionBridge} messages={{list: vi.fn().mockResolvedValue({items: [], hasMore: false, nextCursor: null, snapshotSequence: 0}), append: vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} experts={experts} skills={skills} />)
   await user.click(await screen.findByText('Session'))
   await screen.findByText('还没有消息')
   await user.click(screen.getByRole('button', {name: '添加上下文'}))
@@ -58,4 +60,46 @@ it('lets the 对话 picker select 系统架构师专家 with the other conversat
   for (const name of mountNames) {
     expect(mounted).toHaveTextContent(name)
   }
+})
+
+it('auto-attaches published slide-builder when 选专家 PPT专家', async () => {
+  const sessionSolo = {...session, id: '01ARZ3NDEKTSV4RRFFQ69G5F99'}
+  const ppt = {
+    expertId: '01ARZ3NDEKTSV4RRFFQ69G5F00',
+    name: 'PPT专家',
+    division: 'product' as const,
+    source: 'local' as const, semver: '1.0.0', state: 'enabled' as const,
+    versionCount: 1, mountedPhaseCount: 0,
+  }
+  const skill = (id: string, name: string, displayName: string, entryPoint: string) => ({
+    id, name, displayName, description: displayName,
+    version: '1.0.0', status: 'published' as const, permissions: ['read_write' as const],
+    entryPoint, manifestJson: '{}', category: 'writing' as const, categorySource: 'keyword' as const,
+    createdAt: NOW, updatedAt: NOW,
+  })
+  const published = [
+    skill('01ARZ3NDEKTSV4RRFFQ69G5F10', 'tpl-slide-builder', '演示文稿助手', 'builtin://slide-builder'),
+    skill('01ARZ3NDEKTSV4RRFFQ69G5F11', 'tpl-web-researcher', '联网调研', 'builtin://web-researcher'),
+    skill('01ARZ3NDEKTSV4RRFFQ69G5F12', 'tpl-mermaid-diagrams', 'Mermaid 结构图', 'builtin://mermaid-diagrams'),
+  ]
+  const skills = {list: vi.fn().mockResolvedValue({items: published})} as unknown as SkillBridge
+  const experts = {
+    list: vi.fn().mockResolvedValue({experts: [ppt]}),
+    sessionMountGet: vi.fn().mockResolvedValue({expertIds: []}),
+    sessionMountSet: vi.fn().mockResolvedValue({expertIds: [ppt.expertId]}),
+    detail: vi.fn(), create: vi.fn(), update: vi.fn(), toggle: vi.fn(), archive: vi.fn(),
+    mount: vi.fn(), mountingGet: vi.fn(), scenarioCreate: vi.fn(), scenarioList: vi.fn(), scenarioDelete: vi.fn(),
+  } as unknown as ExpertBridge
+  const user = userEvent.setup()
+  render(<SessionPage project={project} bridge={sessionBridge} messages={{list: vi.fn().mockResolvedValue({items: [], hasMore: false, nextCursor: null, snapshotSequence: 0}), append: vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={sessionSolo} providers={providers} experts={experts} skills={skills} />)
+  await user.click(await screen.findByText('Session'))
+  await screen.findByText('还没有消息')
+  await user.click(screen.getByRole('button', {name: '添加上下文'}))
+  await user.click(screen.getByRole('button', {name: /选专家/}))
+  await user.click(await screen.findByRole('option', {name: (n) => n.startsWith('PPT专家 ')}))
+  await waitFor(() => expect(skills.list).toHaveBeenCalled())
+  const chips = await screen.findByRole('list', {name: '已引用技能'})
+  expect(chips).toHaveTextContent('演示文稿助手')
+  expect(chips).toHaveTextContent('联网调研')
+  expect(chips).toHaveTextContent('Mermaid 结构图')
 })

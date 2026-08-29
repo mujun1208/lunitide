@@ -13,9 +13,9 @@ const (
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
 func MaxDeadlineMS(method string) int {
 	switch Method(method) {
-	case "meetings.summarize":
+	case "meetings.summarize", "meetings.catchup":
 		return MeetingNotesDeadlineMS
-	case "meetings.append", "meetings.stop", "meetings.heartbeat", "meetings.get", "meetings.export":
+	case "meetings.append", "meetings.audio.append", "meetings.stop", "meetings.heartbeat", "meetings.get", "meetings.export":
 		return MeetingLiveDeadlineMS
 	case MethodAppUpdateInstall:
 		return AppUpdateInstallMS
