@@ -57,6 +57,21 @@ func lastSegmentWatermark(segs []Segment, transcript string) (int64, bool) {
 }
 
 func (s *Service) CatchUp(ctx context.Context, meetingID string) (Meeting, error) {
+	m, err := s.catchUpOnce(ctx, meetingID)
+	if err != nil {
+		return m, err
+	}
+	audioMS := s.audioDurationMS(meetingID)
+	lastMS, hasText := lastSegmentWatermark(m.Segments, m.Transcript)
+	if !NeedsCatchup(audioMS, lastMS, hasText) {
+		return m, nil
+	}
+	// A long session whose live ASR died mid-way can leave large audio gaps.
+	// One 9-minute pass may not finish every span; retry once from the new watermark.
+	return s.catchUpOnce(ctx, meetingID)
+}
+
+func (s *Service) catchUpOnce(ctx context.Context, meetingID string) (Meeting, error) {
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
 	}
