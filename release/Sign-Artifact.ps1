@@ -22,8 +22,14 @@ $cert=Get-ChildItem Cert:\CurrentUser\My,Cert:\LocalMachine\My -ErrorAction Sile
 if(-not $cert){throw "Signer certificate $Thumbprint not found in CurrentUser\\My or LocalMachine\\My"}
 if(-not $cert.HasPrivateKey){throw "Signer certificate $Thumbprint has no private key in the certificate store"}
 if($cert.NotAfter -lt [DateTime]::Now){throw "Signer certificate $Thumbprint expired at $($cert.NotAfter.ToString('u'))"}
-& $signtool sign /fd sha256 /td sha256 /tr $TimestampUrl /sha1 $Thumbprint $Artifact
-if($LASTEXITCODE){throw "signtool sign failed for $Artifact (exit $LASTEXITCODE); check timestamp server reachability: $TimestampUrl"}
+$urls=@($TimestampUrl,'http://timestamp.digicert.com','http://timestamp.sectigo.com','http://timestamp.globalsign.com/tsa/r6advanced1') | Select-Object -Unique
+$signExit=1
+foreach($url in $urls){
+  & $signtool sign /fd sha256 /td sha256 /tr $url /d 'Lunitide' /sha1 $Thumbprint $Artifact
+  $signExit=$LASTEXITCODE
+  if($signExit -eq 0){ break }
+}
+if($signExit){throw "signtool sign failed for $Artifact (exit $signExit); check timestamp server reachability: $($urls -join ', ')"}
 $sig=Get-AuthenticodeSignature $Artifact
 if($sig.Status -eq 'NotSigned'){throw "signtool reported success but no signature is present: $Artifact"}
 if(-not $sig.TimeStamperCertificate){throw "Signature is missing the RFC3161 countersignature: $Artifact"}

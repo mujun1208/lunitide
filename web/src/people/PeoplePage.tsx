@@ -338,7 +338,7 @@ export function PeoplePage({
           <div className="people-me-summary">
             <span className="people-ava" aria-hidden="true">{me?.avatar ? <img src={me.avatar} alt="" /> : initials(me?.nickname || '月')}</span>
             <div className="people-me-copy">
-              <h2>{me?.nickname || '月汐用户'}</h2>
+              <h2>{me?.nickname || 'Lunitide user'}</h2>
               <p>{[me?.orgName, me?.department, me?.title].filter(Boolean).join(' · ') || '还没有填写组织信息'}</p>
               <small><span className={`people-dot ${me?.status || 'online'}`} aria-hidden="true" />{statusLabel(me?.status || 'online')} · {me?.discoveryEnabled ? '局域网可见' : '发现关闭'}</small>
             </div>

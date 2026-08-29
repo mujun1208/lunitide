@@ -14,14 +14,14 @@ export function composerPrimaryAction(opts: {
   return 'follow-up-send'
 }
 
-export function composerPrimaryLabel(action: ComposerPrimaryAction): string {
+export function composerPrimaryLabel(action: ComposerPrimaryAction, zh = true): string {
   switch (action) {
     case 'send':
-      return '↑ 发送并对话'
+      return zh ? '↑ 发送并对话' : '↑ Send'
     case 'stop':
-      return '停止'
+      return zh ? '停止' : 'Stop'
     case 'follow-up-send':
-      return '↑ 发送'
+      return zh ? '↑ 发送' : '↑ Send'
   }
 }
 

@@ -1,4 +1,4 @@
-# Lunitide 月汐
+# Lunitide
 
 本地优先的 AI 桌面工作台。生产架构为 **Go Core Engine + Windows WebView2 Host + React/TypeScript Renderer**。
 

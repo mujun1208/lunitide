@@ -63,19 +63,22 @@ if (-not (Test-Path $wv)) { Invoke-WebRequest -UseBasicParsing "https://www.nuge
 if ((Get-FileHash $wv -Algorithm SHA256).Hash.ToLowerInvariant() -ne $wvHash) { Remove-Item $wv -Force; throw 'WebView2 NuGet SHA-256 mismatch' }
 $signatureVerified=$false
 $nuget=Get-Command nuget.exe -ErrorAction SilentlyContinue
-$dotnet=Get-Command dotnet.exe -ErrorAction SilentlyContinue
 if ($nuget) {
   & $nuget.Source verify -Signatures $wv; if ($LASTEXITCODE) { throw 'WebView2 NuGet signature verification failed' }; $signatureVerified=$true
-} elseif ($dotnet) {
-  $oldPreference=$ErrorActionPreference
-  try {
-    $ErrorActionPreference='Continue'
-    $help=(& $dotnet.Source nuget verify --help 2>&1 | Out-String)
-    $verifySupported=($LASTEXITCODE -eq 0 -and $help -notmatch 'could not be loaded|Unrecognized command')
-  } finally {
-    $ErrorActionPreference=$oldPreference
+} else {
+  # Hosted runners usually have an SDK (`dotnet nuget verify`). Developer
+  # machines may only have the runtime, so fetch a pinned nuget.exe the same
+  # way this script already fetches NSIS.
+  $nugetVersion='6.12.1'; $nugetHash='0790bb7a0c898e44b70f2b65e3070b4db8af23897e38b8653d72d268b6e8bb11'
+  $nugetExe=Join-Path $cache "nuget-$nugetVersion.exe"
+  if (-not (Test-Path $nugetExe)) {
+    & curl.exe --fail --location --silent --show-error --output $nugetExe "https://dist.nuget.org/win-x86-commandline/v$nugetVersion/nuget.exe"
+    if ($LASTEXITCODE) { Remove-Item $nugetExe -Force -ErrorAction SilentlyContinue; throw 'nuget.exe download failed' }
   }
-  if ($verifySupported) { & $dotnet.Source nuget verify $wv --all; if ($LASTEXITCODE) { throw 'WebView2 NuGet signature verification failed' }; $signatureVerified=$true }
+  if ((Get-FileHash $nugetExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $nugetHash) { Remove-Item $nugetExe -Force; throw 'nuget.exe SHA-256 mismatch' }
+  & $nugetExe verify -Signatures $wv
+  if ($LASTEXITCODE) { throw 'WebView2 NuGet signature verification failed' }
+  $signatureVerified=$true
 }
 if (-not $signatureVerified) {
   if ($RequireSignature) { throw 'A trustworthy nuget/dotnet package signature verifier is required for -RequireSignature builds' }

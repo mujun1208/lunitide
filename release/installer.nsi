@@ -8,9 +8,11 @@ RequestExecutionLevel user
 !insertmacro VersionCompare
 !insertmacro GetFileName
 !insertmacro GetParent
+!insertmacro GetSize
 !define APPID "Lunitide.Desktop.7A565D82-936E-4E06-962D-83B5DD24E53C"
 !define OWNERFILE ".lunitide-install-owner"
-!define PRODUCT "Lunitide 月汐"
+!define PRODUCT "Lunitide"
+!define PUBLISHER "Yy.MJ"
 ; ADR-003: v1 ships against the Evergreen WebView2 Runtime. The installer MUST
 ; detect a minimum runtime version and offer recoverable acquisition guidance.
 ; The minimum tracks the pinned loader generation (1.0.3537.50 SDK ~ runtime
@@ -23,9 +25,29 @@ OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\Lunitide"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "InstallLocation"
 SetCompressor /SOLID lzma
+VIProductVersion "${VERSION}.0"
+VIAddVersionKey "CompanyName" "${PUBLISHER}"
+VIAddVersionKey "FileDescription" "${PRODUCT}"
+VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "ProductName" "${PRODUCT}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
+VIAddVersionKey "LegalCopyright" "${PUBLISHER}"
 !define MUI_ABORTWARNING
 !define MUI_ICON "${STAGE}\lunitide-icon.ico"
 !define MUI_UNICON "${STAGE}\lunitide-icon.ico"
+!macro WriteUninstallRegistration Ver
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "Publisher" "${PUBLISHER}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion" "${Ver}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayIcon" "$INSTDIR\Lunitide.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoModify" 1
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoRepair" 1
+  ${GetSize} "$INSTDIR" "/S=0K" $R0 $R1 $R2
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "EstimatedSize" $R0
+!macroend
 !insertmacro MUI_PAGE_WELCOME
 Page custom WV2GuideShow WV2GuideLeave
 !insertmacro MUI_PAGE_DIRECTORY
@@ -35,7 +57,7 @@ Page custom WV2GuideShow WV2GuideLeave
 UninstPage custom un.PurgePage un.PurgeLeave
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_UNPAGE_FINISH
-!insertmacro MUI_LANGUAGE "SimpChinese"
+!insertmacro MUI_LANGUAGE "English"
 Var PurgeCheck
 Var PurgeData
 Var AllowDowngrade
@@ -110,7 +132,7 @@ FunctionEnd
 Function WV2Recheck
   Call DetectWebView2
   ${If} $WV2Version != ""
-    MessageBox MB_ICONINFORMATION|MB_OK "已检测到 WebView2 运行时（版本 $WV2Version），请点击“下一步”继续。"
+    MessageBox MB_ICONINFORMATION|MB_OK "WebView2 Runtime detected (version $WV2Version). Click Next to continue."
   ${EndIf}
 FunctionEnd
 Function WV2GuideShow
@@ -122,12 +144,12 @@ Function WV2GuideShow
   ${EndIf}
   nsDialogs::Create 1018
   Pop $0
-  ${NSD_CreateLabel} 0 0 100% 40u "Lunitide 需要 Microsoft Edge WebView2 运行时（${WV2MINVERSION} 或更高版本），当前系统未检测到。请使用微软官方 Evergreen 安装程序安装后点击“重新检测”；也可以暂时继续安装、稍后再装运行时。运行时缺失时 Lunitide 将无法启动。"
+  ${NSD_CreateLabel} 0 0 100% 40u "Lunitide needs the Microsoft Edge WebView2 Runtime (${WV2MINVERSION} or later). None was detected. Install Microsoft's official Evergreen runtime, then click Recheck. You can continue without it, but Lunitide will not start until the runtime is installed."
   Pop $0
-  ${NSD_CreateButton} 0 46u 48% 14u "打开运行时下载页面"
+  ${NSD_CreateButton} 0 46u 48% 14u "Open runtime download page"
   Pop $WV2BtnDownload
   ${NSD_OnClick} $WV2BtnDownload WV2OpenDownload
-  ${NSD_CreateButton} 52% 46u 48% 14u "重新检测"
+  ${NSD_CreateButton} 52% 46u 48% 14u "Recheck"
   Pop $WV2BtnRetry
   ${NSD_OnClick} $WV2BtnRetry WV2Recheck
   nsDialogs::Show
@@ -136,7 +158,7 @@ Function WV2GuideLeave
   Call DetectWebView2
   ${If} $WV2Version == ""
     ${If} $WV2Continue != 1
-      MessageBox MB_ICONEXCLAMATION|MB_YESNO "仍未检测到 WebView2 运行时，未安装前 Lunitide 将无法启动。$\r$\n$\r$\n是否仍要继续安装？" IDYES wv2_continue_install
+      MessageBox MB_ICONEXCLAMATION|MB_YESNO "WebView2 Runtime is still missing. Lunitide will not start until it is installed.$\r$\n$\r$\nContinue the installation anyway?" IDYES wv2_continue_install
       Abort
 wv2_continue_install:
       StrCpy $WV2Continue 1
@@ -155,11 +177,11 @@ Section "Install"
 registered_path_mismatch:
   !insertmacro Log "event=failure code=I101 phase=target reason=registered-location-mismatch selected=$INSTDIR registered=$0"
   SetErrorLevel 10
-  Abort "已存在的 Lunitide 安装必须原地升级。如需更换安装位置，请先卸载当前版本。诊断日志：$InstallLog"
+  Abort "An existing Lunitide install must be upgraded in place. Uninstall first to change the location. Log: $InstallLog"
 invalid_install_path:
   !insertmacro Log "event=failure code=I100 phase=target reason=invalid-path path=$INSTDIR"
   SetErrorLevel 10
-  Abort "请选择本地固定磁盘下的文件夹，例如 D:\Apps\Lunitide。诊断日志：$InstallLog"
+  Abort "Choose a folder on a local fixed drive, for example D:\Apps\Lunitide. Log: $InstallLog"
 target_selected:
   !insertmacro Log "event=target path=$INSTDIR parent=$InstallParent"
   IfFileExists "$INSTDIR\*.*" 0 ownership_ok
@@ -177,7 +199,7 @@ legacy_owner:
 ownership_invalid:
   !insertmacro Log "event=failure code=I110 phase=ownership path=$INSTDIR"
   SetErrorLevel 11
-  Abort "所选文件夹非空且不属于 Lunitide，请选择一个空文件夹。诊断日志：$InstallLog"
+  Abort "The selected folder is not empty and is not a Lunitide install. Choose an empty folder. Log: $InstallLog"
 ownership_version:
   ReadRegStr $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion"
   StrCmp $1 "" ownership_ok
@@ -188,7 +210,7 @@ ownership_version:
   StrCmp $AllowDowngrade 1 ownership_ok
   !insertmacro Log "event=failure code=I111 phase=version reason=downgrade"
   SetErrorLevel 12
-  Abort "已拒绝降级安装。如确需降级，请附加参数 /ALLOWDOWNGRADE 重新运行。诊断日志：$InstallLog"
+  Abort "Downgrade refused. Re-run with /ALLOWDOWNGRADE if you really need an older version. Log: $InstallLog"
 ownership_ok:
   InitPluginsDir
   ClearErrors
@@ -218,15 +240,15 @@ target_path_ok:
   StrCmp $0 0 stop_ok
   !insertmacro Log "event=failure code=I120 phase=stop-processes helper-exit=$0"
   SetErrorLevel 14
-  Abort "无法停止正在运行的 Lunitide 进程，未替换任何文件。请关闭 Lunitide 后重试。诊断日志：$InstallLog"
+  Abort "Could not stop a running Lunitide process. Close Lunitide and retry. Log: $InstallLog"
 unsafe_path:
   !insertmacro Log "event=failure code=I130 phase=path-validation helper-exit=$0"
   SetErrorLevel 13
-  Abort "所选安装路径或临时替换路径不安全。诊断日志：$InstallLog"
+  Abort "The selected install path or a temporary replace path is not safe. Log: $InstallLog"
 parent_failed:
   !insertmacro Log "event=failure code=I131 phase=create-parent path=$InstallParent"
   SetErrorLevel 13
-  Abort "无法创建所选安装文件夹，请检查磁盘是否可写。诊断日志：$InstallLog"
+  Abort "Could not create the selected install folder. Check that the disk is writable. Log: $InstallLog"
 stop_ok:
   ClearErrors
   CreateDirectory "$InstallStage"
@@ -267,25 +289,13 @@ activate_stage:
   CreateDirectory "$SMPROGRAMS\Lunitide"
   IfErrors commit_failed
   ClearErrors
-  CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
+  CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\Lunitide.exe" 0
   IfErrors commit_failed
   ClearErrors
-  CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
+  CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\Lunitide.exe" 0
   IfErrors commit_failed
   ClearErrors
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
-  IfErrors commit_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion" "${VERSION}"
-  IfErrors commit_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "InstallLocation" "$INSTDIR"
-  IfErrors commit_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  IfErrors commit_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
-  IfErrors commit_failed
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoModify" 1
-  IfErrors commit_failed
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoRepair" 1
+  !insertmacro WriteUninstallRegistration "${VERSION}"
   IfErrors commit_failed
   ClearErrors
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion"
@@ -300,13 +310,13 @@ stage_failed:
 	RMDir /r "$InstallStage"
 	!insertmacro Log "event=failure code=I210 phase=stage"
 	SetErrorLevel 21
-	Abort "无法暂存完整的 Lunitide 发行文件，现有安装未被更改。诊断日志：$InstallLog"
+	Abort "Could not stage a complete Lunitide release. The existing install was not changed. Log: $InstallLog"
 swap_failed:
 	SetOutPath "$PLUGINSDIR"
 	RMDir /r "$InstallStage"
 	!insertmacro Log "event=failure code=I300 phase=preserve-existing path=$INSTDIR"
 	SetErrorLevel 30
-	Abort "无法保留现有 Lunitide 安装，安装已中止。诊断日志：$InstallLog"
+	Abort "Could not preserve the existing Lunitide install. Setup was aborted. Log: $InstallLog"
 activate_failed:
 	SetOutPath "$PLUGINSDIR"
 	RMDir /r "$InstallStage"
@@ -318,7 +328,7 @@ commit_failed:
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}"
   RMDir /r "$INSTDIR"
   StrCmp $PreviousInstall 1 restore_previous
-  Abort "无法提交新安装，未更改任何先前安装。"
+  Abort "Could not commit the new install. No previous install was changed."
 restore_previous:
 	IfFileExists "$InstallBackup\*" 0 restore_failed
 	ClearErrors
@@ -326,19 +336,7 @@ restore_previous:
 	IfErrors restore_failed
   StrCmp $PreviousRegistration 1 0 restored
   ClearErrors
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
-  IfErrors restore_metadata_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion" "$PreviousVersion"
-  IfErrors restore_metadata_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "InstallLocation" "$INSTDIR"
-  IfErrors restore_metadata_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  IfErrors restore_metadata_failed
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
-  IfErrors restore_metadata_failed
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoModify" 1
-  IfErrors restore_metadata_failed
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoRepair" 1
+  !insertmacro WriteUninstallRegistration "$PreviousVersion"
   IfErrors restore_metadata_failed
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayVersion"
   IfErrors restore_metadata_failed
@@ -347,9 +345,9 @@ restored:
 	ClearErrors
 	CreateDirectory "$SMPROGRAMS\Lunitide"
 	IfErrors restore_metadata_failed
-	CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
+	CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\Lunitide.exe" 0
 	IfErrors restore_metadata_failed
-	CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
+	CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\Lunitide.exe" 0
 	IfErrors restore_metadata_failed
 	IfFileExists "$SMPROGRAMS\Lunitide\Lunitide.lnk" restored_start_menu restore_metadata_failed
 restored_start_menu:
@@ -357,13 +355,13 @@ restored_start_menu:
 restored_complete:
 	!insertmacro Log "event=failure code=I320 phase=commit rollback=complete"
 	SetErrorLevel 32
-	Abort "无法提交新版本，已恢复先前的安装。诊断日志：$InstallLog"
+	Abort "Could not commit the new version. The previous install was restored. Log: $InstallLog"
 restore_metadata_failed:
 	SetErrorLevel 23
-	Abort "先前版本的文件已恢复，但其注册信息或快捷方式未能恢复。"
+	Abort "Previous files were restored, but registration or shortcuts could not be restored."
 restore_failed:
 	SetErrorLevel 22
-	Abort "无法启用新版本，也无法恢复先前版本，备份已保留。"
+	Abort "Could not enable the new version or restore the previous version. The backup was kept."
 install_done:
   !insertmacro Log "event=success path=$INSTDIR version=${VERSION}"
 SectionEnd
@@ -383,7 +381,7 @@ FunctionEnd
 Function un.PurgePage
   nsDialogs::Create 1018
   Pop $0
-  ${NSD_CreateCheckbox} 0 20u 100% 20u "永久删除本地 Lunitide 数据（数据库与凭据）"
+  ${NSD_CreateCheckbox} 0 20u 100% 20u "Permanently delete local Lunitide data (database and credentials)"
   Pop $PurgeCheck
   ${If} $PurgeData == 1
     ${NSD_Check} $PurgeCheck
@@ -398,7 +396,7 @@ Section "Uninstall"
   StrCmp $0 "$INSTDIR" path_registered
   !insertmacro Log "event=failure code=U100 phase=registration path=$INSTDIR registered=$0"
   IfSilent +2
-  MessageBox MB_ICONSTOP|MB_OK "拒绝卸载：注册信息与当前安装不一致。$\r$\n$\r$\n诊断日志：$InstallLog"
+  MessageBox MB_ICONSTOP|MB_OK "Uninstall refused: registration does not match this install.$\r$\n$\r$\nLog: $InstallLog"
   SetErrorLevel 20
   Quit
 path_registered:
@@ -407,7 +405,7 @@ path_registered:
   StrCmp $0 0 path_ok
   !insertmacro Log "event=failure code=U101 phase=path-validation helper-exit=$0"
   IfSilent +2
-  MessageBox MB_ICONSTOP|MB_OK "安装路径不安全，拒绝卸载。$\r$\n$\r$\n诊断日志：$InstallLog"
+  MessageBox MB_ICONSTOP|MB_OK "Install path is not safe. Uninstall refused.$\r$\n$\r$\nLog: $InstallLog"
   SetErrorLevel 20
   Quit
 path_ok:
@@ -422,14 +420,14 @@ path_ok:
 ownership_invalid:
   !insertmacro Log "event=failure code=U110 phase=ownership path=$INSTDIR"
   IfSilent +2
-  MessageBox MB_ICONSTOP|MB_OK "拒绝卸载：Lunitide 所有权标记缺失或无效。$\r$\n$\r$\n诊断日志：$InstallLog"
+  MessageBox MB_ICONSTOP|MB_OK "Uninstall refused: Lunitide ownership mark is missing or invalid.$\r$\n$\r$\nLog: $InstallLog"
   SetErrorLevel 20
   Quit
 ownership_ok:
   nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\stop-install-processes.ps1" -Path "$INSTDIR" -LogPath "$InstallLog"'
   Pop $0
   StrCmp $0 0 +2
-  Abort "无法停止 Lunitide，卸载已取消。"
+  Abort "Could not stop Lunitide. Uninstall cancelled."
   ${If} $PurgeData == 1
     !insertmacro Log "event=purge-start"
     StrCpy $PurgeAttempts 0
@@ -444,7 +442,7 @@ purge_wait:
       Goto purge_retry
 purge_failed:
       !insertmacro Log "event=failure code=U120 phase=purge helper-exit=$0"
-      Abort "安全清除数据失败，应用数据已保留。"
+      Abort "Secure data purge failed. Application data was kept."
     ${EndIf}
     !insertmacro Log "event=purge-success"
   ${EndIf}
@@ -455,7 +453,7 @@ purge_failed:
   IfFileExists "$INSTDIR\*" 0 uninstall_clean
   !insertmacro Log "event=failure code=U130 phase=remove-install path=$INSTDIR"
   SetErrorLevel 21
-  Abort "无法移除全部 Lunitide 安装文件，卸载注册信息已保留以便重试。"
+  Abort "Could not remove all Lunitide files. Uninstall registration was kept so you can retry."
 uninstall_clean:
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}"
   !insertmacro Log "event=uninstall-success path=$INSTDIR"

@@ -41,6 +41,7 @@ import { prepareCompanionEntry } from './prepareCompanionEntry'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, companionSurfaceState, companionStatusLabel } from './useCompanionMachine'
+import { useZh } from '../../i18n/language'
 
 const RECOGNIZER_DEAF_MS = 2500
 
@@ -79,6 +80,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
 }
 
 export function CompanionStage({ chatStatus, assistantText, activityStatus, error, chatReady, onSend, onCancel, onExit }: CompanionStageProps): React.JSX.Element {
+  const zh = useZh()
   const machine = useCompanionMachine()
   const [settings, setSettings] = useState<CompanionSettings>(defaultCompanionSettings())
   const [ttsAvailable, setTtsAvailable] = useState<boolean | undefined>(undefined)
@@ -1549,7 +1551,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       </div>
       {hintVisible && machine.state === 'idle' && (
         <p className="companion-hint" aria-live="polite">
-          轻点月亮或按空格，开始和月汐说话；她说话时点「打断」或按 {formatInterruptHotkey(settings.interruptHotkey)} 停止
+          {zh
+            ? `轻点月亮或按空格，开始和月汐说话；她说话时点「打断」或按 ${formatInterruptHotkey(settings.interruptHotkey)} 停止`
+            : `Tap the moon or press Space to talk; tap Interrupt or ${formatInterruptHotkey(settings.interruptHotkey)} while she is speaking`}
         </p>
       )}
       {/* Current round only: previous Q&A clears as soon as the next
@@ -1599,17 +1603,17 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         </div>
       </div>
       <div className="companion-chrome">
-        <button type="button" className="companion-exit" aria-label="退出月伴对话（Esc）" onClick={exit}>
-          退出
+        <button type="button" className="companion-exit" aria-label={zh ? '退出月伴对话（Esc）' : 'Exit companion talk (Esc)'} onClick={exit}>
+          {zh ? '退出' : 'Exit'}
         </button>
         <button
           type="button"
           className="companion-interrupt"
-          aria-label={`打断月汐（${formatInterruptHotkey(settings.interruptHotkey)}）`}
+          aria-label={zh ? `打断月汐（${formatInterruptHotkey(settings.interruptHotkey)}）` : `Interrupt (${formatInterruptHotkey(settings.interruptHotkey)})`}
           disabled={surfaceState !== 'thinking' && surfaceState !== 'speaking'}
           onClick={interruptAssistant}
         >
-          打断
+          {zh ? '打断' : 'Interrupt'}
           <span className="companion-interrupt-key">{formatInterruptHotkey(settings.interruptHotkey)}</span>
         </button>
       </div>
@@ -1618,6 +1622,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 }
 
 function SubtitleRow({ round, live }: { round: SubtitleRound; live?: boolean }): React.JSX.Element {
+  const zh = useZh()
   if (round.role === 'user') {
     return (
       <p className={`companion-line user${live ? ' live' : ''}`}>
@@ -1629,7 +1634,7 @@ function SubtitleRow({ round, live }: { round: SubtitleRound; live?: boolean }):
   }
   return (
     <p className="companion-line assistant">
-      <span className="who" aria-hidden="true">月汐</span>
+      <span className="who" aria-hidden="true">{zh ? '月汐' : 'Lunitide'}</span>
       <span className="plain-text">{round.text || '…'}</span>
     </p>
   )
