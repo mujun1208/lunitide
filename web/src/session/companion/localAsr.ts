@@ -25,6 +25,9 @@ const DRAIN_ROUNDS = 40
  */
 export const LOCAL_ASR_DECISION_MS = 400
 
+/** Sherpa often rejects an un-endpointed utterance past ~60s. Recycle before that. */
+export const LOCAL_ASR_MAX_SESSION_SAMPLES = TARGET_SAMPLE_RATE * 45
+
 /** Race a boolean probe against a deadline; hanging probes become false. */
 export async function readyWithin(probe: Promise<boolean> | undefined, timeoutMs = LOCAL_ASR_DECISION_MS): Promise<boolean> {
   if (!probe) return false
@@ -150,6 +153,8 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
   let inFlight = false
   /** Whether the open session has been given any audio since the last commit. */
   let fed = false
+  /** Samples actually sent on the current sherpa session. */
+  let sessionSamples = 0
   let capture: PcmCaptureHandle | undefined
 
   const stop = () => {
@@ -178,6 +183,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     const dying = sessionId
     sessionId = ''
     fed = false
+    sessionSamples = 0
     if (dying) void bridge.stop({ sessionId: dying }).catch(() => {})
     let last: unknown
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -232,17 +238,28 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
 
   const pump = () => {
     if (closed || swapping || inFlight || !sessionId) return
+    const n = pendingSamples
     const pcm = takePending()
     if (!pcm) return
     const owner = sessionId
     inFlight = true
     fed = true
+    sessionSamples += n
     bridge
       .append({ sessionId: owner, pcm })
-      .then(result => {
+      .then(async result => {
         // A reply from a session that has since been retired describes an
         // utterance the caller has already been given.
         if (result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
+        if (sessionSamples < LOCAL_ASR_MAX_SESSION_SAMPLES || closed || swapping || owner !== sessionId) return
+        swapping = true
+        try {
+          await recoverSession()
+        } catch (recoverErr) {
+          fail(recoverErr)
+        } finally {
+          swapping = false
+        }
       })
       .catch(async error => {
         if (closed || owner !== sessionId) return
@@ -358,6 +375,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
         }
         sessionId = opened.value.sessionId
         fed = false
+        sessionSamples = 0
         if (transcript.status === 'rejected') {
           // One turn's words, not the microphone.
           //

@@ -6,9 +6,10 @@ import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO }
 import { captureThisPcFrame } from './peopleCapture'
 import { PeoplePage } from './PeoplePage'
 
-vi.mock('./peopleCapture', () => ({
-  captureThisPcFrame: vi.fn(),
-}))
+vi.mock('./peopleCapture', async importOriginal => {
+  const actual = await importOriginal<typeof import('./peopleCapture')>()
+  return { ...actual, captureThisPcFrame: vi.fn() }
+})
 
 const now = '2026-08-27T00:00:00.000Z'
 const me: IdentityDTO = {
@@ -174,7 +175,7 @@ describe('PeoplePage', () => {
     const bytes = Uint8Array.from([1, 2, 3])
     const shot = new File([bytes as BlobPart], 'screenshot.jpg', { type: 'image/jpeg' })
     Object.defineProperty(shot, 'arrayBuffer', { value: async () => bytes.buffer.slice(0) })
-    vi.mocked(captureThisPcFrame).mockResolvedValue(shot)
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ file: shot, source: 'native' })
     const { identity, people } = bridges()
     people.threadSend = vi.fn().mockResolvedValue({
       message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB0', kind: 'image', fileName: 'screenshot.jpg', offerId: undefined, offerStatus: undefined },
@@ -184,9 +185,36 @@ describe('PeoplePage', () => {
     await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
     expect(await screen.findByRole('button', { name: '发送图片' })).toBeInTheDocument()
     expect(await screen.findByText(/一对一 · 局域网投递，文件需对方确认/)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '截取本机画面' }))
+    await user.click(screen.getByRole('button', { name: '框选截图' }))
     expect(captureThisPcFrame).toHaveBeenCalled()
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
+  })
+
+  test('region snip cancel does not send a screenshot', async () => {
+    const { BridgeClientError } = await import('../bridge/client')
+    vi.mocked(captureThisPcFrame).mockRejectedValue(new BridgeClientError('已取消截图', 'PEOPLE_CANCELED', false, 'trace'))
+    const { identity, people } = bridges()
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    await user.click(await screen.findByRole('button', { name: '框选截图' }))
+    await vi.waitFor(() => expect(captureThisPcFrame).toHaveBeenCalled())
+    expect(people.threadSend).not.toHaveBeenCalled()
+  })
+
+  test('display-capture fallback opens a crop overlay instead of sending immediately', async () => {
+    const bytes = Uint8Array.from([1, 2, 3])
+    const shot = new File([bytes as BlobPart], 'screenshot.jpg', { type: 'image/jpeg' })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ file: shot, source: 'display' })
+    const { identity, people } = bridges()
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    await user.click(await screen.findByRole('button', { name: '框选截图' }))
+    const overlay = await screen.findByRole('dialog', { name: '框选截图' })
+    expect(people.threadSend).not.toHaveBeenCalled()
+    await user.click(within(overlay).getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '框选截图' })).not.toBeInTheDocument()
   })
 
   test('folder send uses the native picker and asks the engine to zip', async () => {

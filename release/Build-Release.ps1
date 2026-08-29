@@ -53,8 +53,9 @@ try {
 Copy-Item (Join-Path $root 'web\dist\*') (Join-Path $stage 'web\dist') -Recurse -Force
 Copy-Item (Join-Path $root 'resources\lunitide-icon.ico') $stage -Force
 # The PE-embedded icon (cmd/desktop/lunitide.syso) is committed to the repo and
-# automatically linked by `go build`. To regenerate after updating the icon:
-#   go run ./cmd/gen-syso -ico resources/lunitide-icon.ico -out cmd/desktop/lunitide.syso -machine amd64
+# automatically linked by `go build`. To regenerate after updating the mark:
+#   go run ./cmd/gen-icon
+#   go run ./cmd/gen-syso -ico resources/lunitide-icon.ico -out cmd/desktop/lunitide.syso
 
 $wvVersion='1.0.3537.50'; $wvHash='5ea526bbd728adda0da4d31219267e96460494a427e4894c4e09d9f320f4b9aa'
 $wvLoaderX64Hash='2f965e10aed3b356a408978a0e6d74eb86e3e722dd008fa9ad39f68884479e85'

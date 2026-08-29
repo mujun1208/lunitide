@@ -58,6 +58,9 @@ var (
 	ErrCcExecFailed = errors.New("ccapp: operation failed")
 	// ErrCcDisabled: computer control is not enabled (M10-CC-012).
 	ErrCcDisabled = errors.New("ccapp: computer control disabled")
+	// ErrCaptureCanceled: the operator dismissed an interactive region snip
+	// (Esc / right-click / 取消) before confirming a crop.
+	ErrCaptureCanceled = errors.New("ccapp: region capture canceled")
 )
 
 // Frozen enum values (wire contract).
@@ -446,8 +449,26 @@ func (s *Service) captureDesktop() ([]byte, error) {
 }
 
 // CaptureDesktopPNG grabs the virtual desktop without running the cc tool
-// pipeline. People chat uses this for a local screenshot (no browser share UI).
+// pipeline. Agent computer-control still uses the full framebuffer.
 func (s *Service) CaptureDesktopPNG() ([]byte, error) {
+	return s.host.ScreenCapture()
+}
+
+// regionCaptureHost is implemented by the Windows host so people chat can
+// freeze the desktop and let the operator drag a WeChat-style crop.
+type regionCaptureHost interface {
+	RegionCapture() ([]byte, error)
+}
+
+// CaptureRegionPNG runs an interactive region snip when the host supports it,
+// otherwise it returns a full-desktop PNG (test fakes, non-Windows).
+func (s *Service) CaptureRegionPNG() ([]byte, error) {
+	if s == nil || s.host == nil {
+		return nil, ErrCcEngineUnavailable
+	}
+	if r, ok := s.host.(regionCaptureHost); ok {
+		return r.RegionCapture()
+	}
 	return s.host.ScreenCapture()
 }
 

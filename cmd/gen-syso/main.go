@@ -21,8 +21,8 @@ import (
 
 // COFF machine types.
 const (
-	machineI386  = 0x014c // IMAGE_FILE_MACHINE_I386 — works with Go internal linker on amd64
-	machineAMD64 = 0x8664 // IMAGE_FILE_MACHINE_AMD64
+	machineI386  = 0x014c // IMAGE_FILE_MACHINE_I386
+	machineAMD64 = 0x8664 // IMAGE_FILE_MACHINE_AMD64 — required by go build GOARCH=amd64
 )
 
 // COFF section characteristics.
@@ -42,7 +42,7 @@ const (
 
 // Relocation types.
 const (
-	relI386Dir32NB  = 0x07 // IMAGE_REL_I386_DIR32NB
+	relI386Dir32NB   = 0x07 // IMAGE_REL_I386_DIR32NB
 	relAMD64Addr32NB = 0x02 // IMAGE_REL_AMD64_ADDR32NB
 )
 
@@ -75,7 +75,7 @@ type iconDirEntry struct {
 func main() {
 	icoPath := flag.String("ico", "resources/lunitide-icon.ico", "path to .ico file")
 	outPath := flag.String("out", "cmd/desktop/lunitide.syso", "path to output .syso")
-	machine := flag.String("machine", "i386", "COFF machine: i386 or amd64")
+	machine := flag.String("machine", "amd64", "COFF machine: i386 or amd64")
 	flag.Parse()
 
 	machineID, relocType := uint16(machineI386), uint16(relI386Dir32NB)
@@ -177,15 +177,15 @@ func buildSyso(entries []iconDirEntry, images [][]byte, machineID uint16, relocT
 	// Section Header (.rsrc, 40 bytes)
 	sec := make([]byte, sectionHeaderSize)
 	copy(sec[0:8], ".rsrc\x00\x00\x00")
-	binary.LittleEndian.PutUint32(sec[8:12], uint32(len(rsrc)))             // VirtualSize
-	binary.LittleEndian.PutUint32(sec[12:16], 0)                            // VirtualAddress (linker sets)
-	binary.LittleEndian.PutUint32(sec[16:20], uint32(len(rsrc)))            // SizeOfRawData
-	binary.LittleEndian.PutUint32(sec[20:24], uint32(coffHeaderSize+sectionHeaderSize)) // PointerToRawData
+	binary.LittleEndian.PutUint32(sec[8:12], uint32(len(rsrc)))                                   // VirtualSize
+	binary.LittleEndian.PutUint32(sec[12:16], 0)                                                  // VirtualAddress (linker sets)
+	binary.LittleEndian.PutUint32(sec[16:20], uint32(len(rsrc)))                                  // SizeOfRawData
+	binary.LittleEndian.PutUint32(sec[20:24], uint32(coffHeaderSize+sectionHeaderSize))           // PointerToRawData
 	binary.LittleEndian.PutUint32(sec[24:28], uint32(coffHeaderSize+sectionHeaderSize+len(rsrc))) // PointerToRelocations
-	binary.LittleEndian.PutUint32(sec[28:32], 0)                            // PointerToLinenumbers
-	binary.LittleEndian.PutUint16(sec[32:34], uint16(numRelocs))            // NumberOfRelocations
-	binary.LittleEndian.PutUint16(sec[34:36], 0)                            // NumberOfLinenumbers
-	binary.LittleEndian.PutUint32(sec[36:40], sectionRsrc)                  // Characteristics
+	binary.LittleEndian.PutUint32(sec[28:32], 0)                                                  // PointerToLinenumbers
+	binary.LittleEndian.PutUint16(sec[32:34], uint16(numRelocs))                                  // NumberOfRelocations
+	binary.LittleEndian.PutUint16(sec[34:36], 0)                                                  // NumberOfLinenumbers
+	binary.LittleEndian.PutUint32(sec[36:40], sectionRsrc)                                        // Characteristics
 	buf = append(buf, sec...)
 
 	// Section data
@@ -202,12 +202,12 @@ func buildSyso(entries []iconDirEntry, images [][]byte, machineID uint16, relocT
 
 	// Symbol table: one symbol for .rsrc section (18 bytes)
 	sym := make([]byte, symbolSize)
-	copy(sym[0:8], ".rsrc\x00\x00\x00") // short name
-	binary.LittleEndian.PutUint32(sym[8:12], 0)       // Value
-	binary.LittleEndian.PutUint16(sym[12:14], 1)      // SectionNumber (1-based)
+	copy(sym[0:8], ".rsrc\x00\x00\x00")                    // short name
+	binary.LittleEndian.PutUint32(sym[8:12], 0)            // Value
+	binary.LittleEndian.PutUint16(sym[12:14], 1)           // SectionNumber (1-based)
 	binary.LittleEndian.PutUint16(sym[14:16], symTypeNull) // Type
-	sym[16] = symClassStatic                           // StorageClass = IMAGE_SYM_CLASS_STATIC
-	sym[17] = 0                                         // NumberOfAuxSymbols
+	sym[16] = symClassStatic                               // StorageClass = IMAGE_SYM_CLASS_STATIC
+	sym[17] = 0                                            // NumberOfAuxSymbols
 	buf = append(buf, sym...)
 
 	// String table: 4 bytes (size = 4, meaning empty)
@@ -239,125 +239,110 @@ func buildGroupIconData(entries []iconDirEntry) []byte {
 	return data
 }
 
+const resourceDataIsDirectory = uint32(0x80000000)
+
+func dirOffset(off uint32) uint32 { return off | resourceDataIsDirectory }
+
+func align4(n uint32) uint32 { return (n + 3) &^ 3 }
+
 // buildRsrcSection builds the .rsrc section data containing the resource directory
 // tree and the resource data blobs. Returns the section bytes and a slice of
 // offsets (within the section) to each IMAGE_RESOURCE_DATA_ENTRY's OffsetToData
 // field, which need relocations.
+//
+// Tree (IDs must be sorted at each level):
+//
+//	Root → RT_ICON(3), RT_GROUP_ICON(14)
+//	RT_ICON → ID=1..N → lang 0 → data
+//	RT_GROUP_ICON → ID=1 → lang 0 → data
 func buildRsrcSection(entries []iconDirEntry, images [][]byte, groupData []byte) ([]byte, []uint32) {
 	count := len(entries)
+	dirSize := func(n int) uint32 { return uint32(16 + 8*n) }
 
-	// Resource directory tree:
-	//   Root → RT_GROUP_ICON (ID=14), RT_ICON (ID=3)
-	//   RT_GROUP_ICON → ID=1 → data
-	//   RT_ICON → ID=1..count → data
-
-	// Directory sizes: 16 bytes header + 8 bytes per entry
-	rootEntries := 1 + count
-	rootDirSize := 16 + 8*rootEntries
-	groupTypeDirSize := 16 + 8*1
-	iconTypeDirSize := 16 + 8*count
-	groupIDDirSize := 16 + 8*1
-	iconIDDirSize := 16 + 8*1
-
-	// Compute offsets within the section.
 	off := uint32(0)
-	rootDirOff := off
-	off += uint32(rootDirSize)
-	groupTypeDirOff := off
-	off += uint32(groupTypeDirSize)
-	iconTypeDirOff := off
-	off += uint32(iconTypeDirSize)
-	groupIDDirOff := off
-	off += uint32(groupIDDirSize)
-	iconIDDirsOff := off
-	off += uint32(iconIDDirSize) * uint32(count)
-	// Data entries (IMAGE_RESOURCE_DATA_ENTRY: 16 bytes each)
+	rootOff := off
+	off += dirSize(2)
+	iconTypeOff := off
+	off += dirSize(count)
+	groupTypeOff := off
+	off += dirSize(1)
+	iconNameOffs := make([]uint32, count)
+	for i := 0; i < count; i++ {
+		iconNameOffs[i] = off
+		off += dirSize(1)
+	}
+	groupNameOff := off
+	off += dirSize(1)
 	groupDataEntryOff := off
 	off += 16
-	iconDataEntriesOff := off
-	off += 16 * uint32(count)
-	// Data blobs
+	iconDataEntryOffs := make([]uint32, count)
+	for i := 0; i < count; i++ {
+		iconDataEntryOffs[i] = off
+		off += 16
+	}
+	off = align4(off)
 	groupDataOff := off
 	off += uint32(len(groupData))
+	off = align4(off)
 	iconDataOffs := make([]uint32, count)
 	for i := 0; i < count; i++ {
 		iconDataOffs[i] = off
 		off += uint32(len(images[i]))
-	}
-	totalSize := off
-
-	rsrc := make([]byte, totalSize)
-
-	// Write root directory: RT_GROUP_ICON (ID=14) and RT_ICON (ID=3)
-	writeResourceDir(rsrc, rootDirOff, uint16(rootEntries))
-	binary.LittleEndian.PutUint32(rsrc[rootDirOff+16+0:], rtGroupIcon)
-	binary.LittleEndian.PutUint32(rsrc[rootDirOff+16+4:], groupTypeDirOff)
-	for i := 0; i < count; i++ {
-		eo := rootDirOff + 16 + uint32(1+i)*8
-		binary.LittleEndian.PutUint32(rsrc[eo+0:], rtIcon)
-		binary.LittleEndian.PutUint32(rsrc[eo+4:], iconTypeDirOff)
+		off = align4(off)
 	}
 
-	// RT_GROUP_ICON type directory: 1 entry (ID=1)
-	writeResourceDir(rsrc, groupTypeDirOff, 1)
-	binary.LittleEndian.PutUint32(rsrc[groupTypeDirOff+16+0:], 1)
-	binary.LittleEndian.PutUint32(rsrc[groupTypeDirOff+16+4:], groupIDDirOff)
+	rsrc := make([]byte, off)
 
-	// RT_ICON type directory: count entries (ID=1..count)
-	writeResourceDir(rsrc, iconTypeDirOff, uint16(count))
+	writeResourceDir(rsrc, rootOff, 2)
+	binary.LittleEndian.PutUint32(rsrc[rootOff+16+0:], rtIcon)
+	binary.LittleEndian.PutUint32(rsrc[rootOff+16+4:], dirOffset(iconTypeOff))
+	binary.LittleEndian.PutUint32(rsrc[rootOff+16+8:], rtGroupIcon)
+	binary.LittleEndian.PutUint32(rsrc[rootOff+16+12:], dirOffset(groupTypeOff))
+
+	writeResourceDir(rsrc, iconTypeOff, uint16(count))
 	for i := 0; i < count; i++ {
-		eo := iconTypeDirOff + 16 + uint32(i)*8
+		eo := iconTypeOff + 16 + uint32(i)*8
 		binary.LittleEndian.PutUint32(rsrc[eo+0:], uint32(i+1))
-		binary.LittleEndian.PutUint32(rsrc[eo+4:], iconIDDirsOff+uint32(i)*uint32(iconIDDirSize))
+		binary.LittleEndian.PutUint32(rsrc[eo+4:], dirOffset(iconNameOffs[i]))
 	}
 
-	// RT_GROUP_ICON/ID=1 directory: 1 data entry
-	writeResourceDir(rsrc, groupIDDirOff, 1)
-	binary.LittleEndian.PutUint32(rsrc[groupIDDirOff+16+0:], 1)
-	binary.LittleEndian.PutUint32(rsrc[groupIDDirOff+16+4:], groupDataEntryOff)
+	writeResourceDir(rsrc, groupTypeOff, 1)
+	binary.LittleEndian.PutUint32(rsrc[groupTypeOff+16+0:], 1)
+	binary.LittleEndian.PutUint32(rsrc[groupTypeOff+16+4:], dirOffset(groupNameOff))
 
-	// RT_ICON/ID=1..count directories: 1 data entry each
 	for i := 0; i < count; i++ {
-		dirOff := iconIDDirsOff + uint32(i)*uint32(iconIDDirSize)
-		dataEntryOff := iconDataEntriesOff + uint32(i)*16
-		writeResourceDir(rsrc, dirOff, 1)
-		binary.LittleEndian.PutUint32(rsrc[dirOff+16+0:], 1)
-		binary.LittleEndian.PutUint32(rsrc[dirOff+16+4:], dataEntryOff)
+		writeResourceDir(rsrc, iconNameOffs[i], 1)
+		binary.LittleEndian.PutUint32(rsrc[iconNameOffs[i]+16+0:], 0) // LANG_NEUTRAL
+		binary.LittleEndian.PutUint32(rsrc[iconNameOffs[i]+16+4:], iconDataEntryOffs[i])
 	}
 
-	// Data entries (IMAGE_RESOURCE_DATA_ENTRY: OffsetToData(4), Size(4), CodePage(4), Reserved(4))
+	writeResourceDir(rsrc, groupNameOff, 1)
+	binary.LittleEndian.PutUint32(rsrc[groupNameOff+16+0:], 0)
+	binary.LittleEndian.PutUint32(rsrc[groupNameOff+16+4:], groupDataEntryOff)
+
 	binary.LittleEndian.PutUint32(rsrc[groupDataEntryOff+0:], groupDataOff)
 	binary.LittleEndian.PutUint32(rsrc[groupDataEntryOff+4:], uint32(len(groupData)))
-	binary.LittleEndian.PutUint32(rsrc[groupDataEntryOff+8:], 0)
-	binary.LittleEndian.PutUint32(rsrc[groupDataEntryOff+12:], 0)
 	for i := 0; i < count; i++ {
-		eo := iconDataEntriesOff + uint32(i)*16
+		eo := iconDataEntryOffs[i]
 		binary.LittleEndian.PutUint32(rsrc[eo+0:], iconDataOffs[i])
 		binary.LittleEndian.PutUint32(rsrc[eo+4:], uint32(len(images[i])))
-		binary.LittleEndian.PutUint32(rsrc[eo+8:], 0)
-		binary.LittleEndian.PutUint32(rsrc[eo+12:], 0)
 	}
 
-	// Copy data blobs
 	copy(rsrc[groupDataOff:], groupData)
 	for i := 0; i < count; i++ {
 		copy(rsrc[iconDataOffs[i]:], images[i])
 	}
 
-	// Relocation offsets: the OffsetToData field (first 4 bytes) of each data entry.
 	relocOffsets := make([]uint32, 0, 1+count)
 	relocOffsets = append(relocOffsets, groupDataEntryOff)
-	for i := 0; i < count; i++ {
-		relocOffsets = append(relocOffsets, iconDataEntriesOff+uint32(i)*16)
-	}
-
+	relocOffsets = append(relocOffsets, iconDataEntryOffs...)
 	return rsrc, relocOffsets
 }
 
 // writeResourceDir writes an IMAGE_RESOURCE_DIRECTORY header at the given offset.
 func writeResourceDir(buf []byte, off uint32, numIDEntries uint16) {
-	binary.LittleEndian.PutUint32(buf[off+0:off+4], 0) // Characteristics
-	binary.LittleEndian.PutUint32(buf[off+4:off+8], 0) // TimeDateStamp
+	binary.LittleEndian.PutUint32(buf[off+0:off+4], 0)   // Characteristics
+	binary.LittleEndian.PutUint32(buf[off+4:off+8], 0)   // TimeDateStamp
 	binary.LittleEndian.PutUint16(buf[off+8:off+10], 0)  // MajorVersion
 	binary.LittleEndian.PutUint16(buf[off+10:off+12], 0) // MinorVersion
 	binary.LittleEndian.PutUint16(buf[off+12:off+14], 0) // NumberOfNamedEntries

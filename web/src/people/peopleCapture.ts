@@ -27,6 +27,66 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mime })
 }
 
+export type CapturedFrame = {
+  file: File
+  /** native engine already ran a WeChat-style region snip */
+  source: 'native' | 'display'
+}
+
+export type CropRect = { x: number; y: number; w: number; h: number }
+
+export function normalizeCropRect(x0: number, y0: number, x1: number, y1: number, maxW: number, maxH: number): CropRect | undefined {
+  if (maxW <= 0 || maxH <= 0) return undefined
+  const left = Math.max(0, Math.min(x0, x1))
+  const top = Math.max(0, Math.min(y0, y1))
+  const right = Math.min(maxW, Math.max(x0, x1))
+  const bottom = Math.min(maxH, Math.max(y0, y1))
+  const w = Math.round(right - left)
+  const h = Math.round(bottom - top)
+  if (w < 8 || h < 8) return undefined
+  return { x: Math.round(left), y: Math.round(top), w, h }
+}
+
+/** Map a pointer on an object-fit:contain box onto natural image pixels. */
+export function mapContainPoint(
+  clientX: number,
+  clientY: number,
+  box: { left: number; top: number; width: number; height: number },
+  naturalW: number,
+  naturalH: number,
+): { x: number; y: number } | undefined {
+  if (naturalW <= 0 || naturalH <= 0 || box.width <= 0 || box.height <= 0) return undefined
+  const scale = Math.min(box.width / naturalW, box.height / naturalH)
+  const dispW = naturalW * scale
+  const dispH = naturalH * scale
+  const offX = box.left + (box.width - dispW) / 2
+  const offY = box.top + (box.height - dispH) / 2
+  const x = (clientX - offX) / scale
+  const y = (clientY - offY) / scale
+  if (x < 0 || y < 0 || x > naturalW || y > naturalH) return undefined
+  return { x, y }
+}
+
+export async function cropImageFile(file: File, rect: CropRect, maxBytes: number): Promise<File> {
+  if (typeof createImageBitmap !== 'function') throw new Error(CAPTURE_HINT)
+  const bitmap = await createImageBitmap(file)
+  try {
+    const x = Math.max(0, Math.min(bitmap.width - 1, rect.x))
+    const y = Math.max(0, Math.min(bitmap.height - 1, rect.y))
+    const w = Math.max(1, Math.min(bitmap.width - x, rect.w))
+    const h = Math.max(1, Math.min(bitmap.height - y, rect.h))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('无法裁剪截图')
+    ctx.drawImage(bitmap, x, y, w, h, 0, 0, w, h)
+    return canvasToJpegFile(canvas, maxBytes, file.name)
+  } finally {
+    bitmap.close()
+  }
+}
+
 export async function canvasToJpegFile(canvas: HTMLCanvasElement, maxBytes: number, fileName: string): Promise<File> {
   let quality = 0.82
   let width = canvas.width || 1
@@ -114,7 +174,7 @@ async function captureViaDisplayMedia(options: CaptureThisPcOptions, maxBytes: n
   }
 }
 
-export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Promise<File> {
+export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Promise<CapturedFrame> {
   const maxBytes = options.maxBytes ?? 512 * 1024
   const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
   const fileName = `screenshot-${stamp}.jpg`
@@ -123,13 +183,13 @@ export async function captureThisPcFrame(options: CaptureThisPcOptions = {}): Pr
   if (preferNative && options.nativeCapture) {
     try {
       const shot = await options.nativeCapture()
-      return pngBase64ToJpegFile(shot.contentBase64, maxBytes, fileName)
+      return { file: await pngBase64ToJpegFile(shot.contentBase64, maxBytes, fileName), source: 'native' }
     } catch (err) {
       if (!shouldFallbackFromNative(err)) throw err
     }
   }
 
-  return captureViaDisplayMedia(options, maxBytes, fileName)
+  return { file: await captureViaDisplayMedia(options, maxBytes, fileName), source: 'display' }
 }
 
 export { CAPTURE_HINT }

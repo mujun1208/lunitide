@@ -384,8 +384,11 @@ func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) b
 	if e.ccctrl == nil {
 		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
 	}
-	png, err := e.ccctrl.CaptureDesktopPNG()
+	png, err := e.ccctrl.CaptureRegionPNG()
 	if err != nil {
+		if errors.Is(err, ccapp.ErrCaptureCanceled) {
+			return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CANCELED", "已取消截图", false)
+		}
 		if errors.Is(err, ccapp.ErrCcEngineUnavailable) {
 			return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
 		}
