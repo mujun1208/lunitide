@@ -182,7 +182,10 @@ let savingCompanionSettings = false
 
 export function saveCompanionSettings(settings: CompanionSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, rev: SETTINGS_REV }))
+    const payload: Record<string, unknown> = { ...settings, rev: SETTINGS_REV }
+    // MiniCPM-o is retired; cloud saves must not carry omni persona refs.
+    if (settings.voicePath === 'cloud') delete payload.omniPersonaId
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     if (savingCompanionSettings) return
     savingCompanionSettings = true
     try {

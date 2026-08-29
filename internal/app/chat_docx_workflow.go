@@ -75,7 +75,7 @@ func looksLikeNovelTask(text string) bool {
 	if t == "" || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
 		return false
 	}
-	for _, k := range []string{"小说", "短篇", "长篇", "连载", "写个故事", "虚构", "小说编写", "起承转合"} {
+	for _, k := range []string{"小说", "短篇", "长篇", "连载", "写个故事", "虚构", "小说编写", "起承转合", "星座", "爱情小说"} {
 		if strings.Contains(t, k) {
 			return true
 		}
@@ -286,11 +286,20 @@ func docxPipelineReady(turn *chatTurnCheckpoint) bool {
 	if turn == nil {
 		return false
 	}
+	if turn.DocxStage == docxStageGenerate || turn.DocxStage == docxStageWrite || turn.DocxStage == docxStageRevise {
+		return true
+	}
+	if turn.DocxNudges >= 3 {
+		return true
+	}
 	if turn.DocxKind == docxKindNovel {
+		if turn.DocxChars >= minNovelDocxChars {
+			return true
+		}
 		if !docxHasOutline(turn) {
 			return false
 		}
-		return turn.DocxChars >= minNovelDocxChars || turn.DocxNudges >= 3
+		return turn.DocxChars >= minNovelDocxChars || turn.DocxNudges >= 2
 	}
 	web := docxWebPasses(turn)
 	if web >= 2 {
@@ -303,7 +312,7 @@ func docxGenBlocked(turn *chatTurnCheckpoint, name string) (bool, string) {
 	if name != "docx.gen" || turn == nil || !turn.DocxActive {
 		return false, ""
 	}
-	if docxPipelineReady(turn) {
+	if docxPipelineReady(turn) || turn.DocxStage == docxStageGenerate || turn.DocxNudges >= 3 {
 		return false, ""
 	}
 	if turn.DocxKind == docxKindNovel {

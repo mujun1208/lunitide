@@ -19,6 +19,8 @@ export type MeetingCapturePlan = {
   notice: string
 }
 
+const MIC_ONLY_NOTICE = '未能收录系统声音，已继续录制麦克风。'
+
 export function planHasLiveSystemAudio(plan: MeetingCapturePlan | undefined): boolean {
   return !!plan && plan.audioSource === 'microphone_and_system' && plan.extraStreams.some(hasLiveAudioTrack)
 }
@@ -69,15 +71,10 @@ export async function startMeetingSpeech(options: CompanionSpeechOptions): Promi
   }
 }
 
+/** Always tries mic + this-PC system audio (Stereo Mix, then entire-screen loopback). Never blocks the meeting on picker cancel. */
 export async function prepareMeetingCapture(
-  includeSystemAudio: boolean,
   options: CaptureThisPcSystemAudioOptions = {},
 ): Promise<MeetingCapturePlan> {
-  if (!includeSystemAudio) return { extraStreams: [], audioSource: 'microphone', notice: '' }
-  const probe = await localAsrStatus()
-  if (!(probe?.supported === true && probe.ready === true)) {
-    return { extraStreams: [], audioSource: 'microphone', notice: '收录系统声音需要本机识别模型。当前仅转写麦克风。' }
-  }
   try {
     const stream = await captureThisPcSystemAudio(options)
     if (!hasLiveAudioTrack(stream)) {
@@ -86,7 +83,9 @@ export async function prepareMeetingCapture(
     }
     return { extraStreams: [stream], audioSource: 'microphone_and_system', notice: '' }
   } catch (error) {
-    if (isCaptureCanceled(error)) throw error
+    if (isCaptureCanceled(error)) {
+      return { extraStreams: [], audioSource: 'microphone', notice: MIC_ONLY_NOTICE }
+    }
     const message = error instanceof Error && error.message ? error.message : NO_SYSTEM_AUDIO_NOTICE
     return { extraStreams: [], audioSource: 'microphone', notice: message }
   }
@@ -98,7 +97,7 @@ export async function recoverMeetingSystemAudio(
   options: CaptureThisPcSystemAudioOptions = {},
 ): Promise<MeetingCapturePlan> {
   if (planHasLiveSystemAudio(current)) return current ?? { extraStreams: [], audioSource: 'microphone', notice: '' }
-  const next = await prepareMeetingCapture(true, options)
+  const next = await prepareMeetingCapture(options)
   if (planHasLiveSystemAudio(next) && current) {
     current.extraStreams.filter(stream => !next.extraStreams.includes(stream)).forEach(stopMediaStream)
   }
@@ -107,9 +106,9 @@ export async function recoverMeetingSystemAudio(
 
 export function audioSourceLabel(source: MeetingAudioSource | string | undefined, live = false): string {
   if (source === 'microphone_and_system') {
-    return live ? '正在录制本机麦克风和系统声音' : '本机麦克风 + 本机系统声音（未共享给其他电脑）'
+    return live ? '正在录制麦克风与系统声音' : '麦克风 + 系统声音（未共享给其他电脑）'
   }
-  return live ? '正在录制本机麦克风' : '仅本机麦克风，未混录系统扬声器'
+  return live ? '正在录制麦克风' : '麦克风（系统声音未收录时仍可一直录）'
 }
 
 export function releaseMeetingCapture(plan: MeetingCapturePlan | undefined): void {

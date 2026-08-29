@@ -19,10 +19,10 @@ func TestCreateTurnFailureNotice(t *testing.T) {
 	if got := createTurnFailureNotice([]string{"desktop.open"}, "已完成播放。"); got != "" {
 		t.Fatalf("done text must not add failure notice: %q", got)
 	}
-	if got := createTurnFailureNotice([]string{"excel.gen"}, ""); !strings.Contains(got, "desktop=true") {
+	if got := createTurnFailureNotice([]string{"excel.gen"}, ""); !strings.Contains(got, "生成失败") {
 		t.Fatalf("excel.gen failure = %q", got)
 	}
-	if got := createTurnFailureNotice([]string{"docx.gen"}, ""); !strings.Contains(got, "desktop=true") {
+	if got := createTurnFailureNotice([]string{"docx.gen"}, ""); !strings.Contains(got, "生成失败") {
 		t.Fatalf("docx.gen failure = %q", got)
 	}
 }
@@ -64,16 +64,19 @@ func TestCompanionPersonaForbidsTaskDonePhrases(t *testing.T) {
 }
 
 func TestTurnOutcomeNotice(t *testing.T) {
-	if got := turnOutcomeNotice(true, errors.New("upstream")); got != turnInterruptNotice {
+	if got := turnOutcomeNotice(true, errors.New("upstream"), "", nil); got != turnInterruptNotice {
 		t.Fatalf("stop must win over error: %q", got)
 	}
-	if got := turnOutcomeNotice(false, errors.New("upstream")); !strings.HasPrefix(got, turnErrorNotice) || !strings.Contains(got, "desktop=true") {
+	got := turnOutcomeNotice(false, errors.New("upstream"), "", nil)
+	if !strings.HasPrefix(got, turnErrorNotice) {
 		t.Fatalf("failed notice = %q", got)
 	}
-	if strings.Contains(turnOutcomeNotice(false, errors.New("upstream")), "模型请求失败") {
-		t.Fatal("generic upstream must not leak 模型请求失败")
+	for _, leak := range []string{"写到桌面请用", "desktop=true", "*.gen", "不要用 command.run", "模型请求失败"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("failed notice leaked %q: %q", leak, got)
+		}
 	}
-	if got := turnOutcomeNotice(false, nil); got != "" {
+	if got := turnOutcomeNotice(false, nil, "", nil); got != "" {
 		t.Fatalf("success must not add outcome notice: %q", got)
 	}
 	next, delta := appendAssistantNotice("正在写文件", turnInterruptNotice)

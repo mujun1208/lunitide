@@ -1,6 +1,6 @@
-const SYSTEM_AUDIO_HINT = '当前环境无法收录本机系统声音。只会转写麦克风。请在窗口选择器里点整个屏幕（不要点飞书窗口）并勾选共享音频，以便收录对面说话；取消则不会开这场会。这不会把桌面共享给其他电脑。'
+const SYSTEM_AUDIO_HINT = '当前环境无法收录本机系统声音。已继续录制麦克风。'
 
-export const NO_SYSTEM_AUDIO_NOTICE = '未获得系统声音（请选择整个屏幕并勾选共享音频，或启用立体声混音）。已仅转写麦克风，仍会继续尝试收录会议播放。'
+export const NO_SYSTEM_AUDIO_NOTICE = '未能收录系统声音，已继续录制麦克风。'
 
 const LOOPBACK_INPUT = /stereo mix|立体声混音|what u hear|loopback|wave out mix|立体声 混音/i
 
@@ -38,14 +38,16 @@ export function stopMediaStream(stream: MediaStream | undefined): void {
   stream?.getTracks().forEach(track => track.stop())
 }
 
-/** Prefer entire-screen WASAPI loopback. Feishu/Electron window share usually has no audio. */
+/** Prefer entire-screen WASAPI loopback. Feishu/Electron window share usually has no audio.
+ *  Video is keep-alive only: Chromium ends getDisplayMedia (audio included)
+ *  around ~2 minutes when the video track is 16×16 @ 1fps. */
 export function displayMediaConstraints(): DisplayMediaStreamOptions {
   return {
     video: {
       displaySurface: 'monitor',
-      width: 16,
-      height: 16,
-      frameRate: 1,
+      width: 640,
+      height: 360,
+      frameRate: 5,
     },
     audio: {
       echoCancellation: false,
@@ -125,8 +127,8 @@ export async function captureThisPcSystemAudio(options: CaptureThisPcSystemAudio
   throw new Error(NO_SYSTEM_AUDIO_NOTICE)
 }
 
-export function watchAudioTrackEnded(stream: MediaStream, onEnded: () => void): () => void {
-  const tracks = stream.getAudioTracks()
+export function watchCaptureTracksEnded(stream: MediaStream, onEnded: () => void): () => void {
+  const tracks = [...(stream.getAudioTracks?.() ?? []), ...(stream.getVideoTracks?.() ?? [])]
   const handler = () => onEnded()
   tracks.forEach(track => {
     track.addEventListener('ended', handler)
@@ -134,6 +136,11 @@ export function watchAudioTrackEnded(stream: MediaStream, onEnded: () => void): 
   return () => {
     tracks.forEach(track => track.removeEventListener('ended', handler))
   }
+}
+
+/** @deprecated use watchCaptureTracksEnded — Chrome often kills audio when video ends. */
+export function watchAudioTrackEnded(stream: MediaStream, onEnded: () => void): () => void {
+  return watchCaptureTracksEnded(stream, onEnded)
 }
 
 export { SYSTEM_AUDIO_HINT }

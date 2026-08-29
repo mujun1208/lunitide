@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { startPcmCapture } from '../session/companion/pcmCapture'
 import { int16ToBase64 } from '../session/companion/pcmFrames'
 import { LIVE_CAPTION_MAX_LINES, MEETING_AUDIO_BATCH_FRAMES, MEETING_AUDIO_MAX_B64, startMeetingAudioRecorder, trimLiveSegments } from './meetingAudio'
 
 type FrameSink = (frame: { base64: string; samples: Int16Array; peak: number }) => void
+type CaptureOpts = { onFrame: FrameSink; onError?: (error: Error) => void }
 let emitFrame: FrameSink = () => {}
+let failCapture: ((error: Error) => void) | undefined
 const stopCapture = vi.fn()
 const flushCapture = vi.fn()
 const attachExtra = vi.fn()
 
 vi.mock('../session/companion/pcmCapture', () => ({
-  startPcmCapture: vi.fn(async (options: { onFrame: FrameSink }) => {
+  startPcmCapture: vi.fn(async (options: CaptureOpts) => {
     emitFrame = options.onFrame
+    failCapture = options.onError
     return { stop: stopCapture, flush: flushCapture, setMuted: vi.fn(), attachExtraStream: attachExtra }
   }),
 }))
@@ -70,5 +74,15 @@ describe('meetingAudio', () => {
       expect(typeof pcm).toBe('string')
       expect((pcm as string).length).toBeLessThanOrEqual(MEETING_AUDIO_MAX_B64)
     }
+  })
+
+  test('restarts PCM capture on device error without ending the meeting', async () => {
+    const append = vi.fn().mockResolvedValue({ audioMs: 1 })
+    await startMeetingAudioRecorder({ append })
+    expect(startPcmCapture).toHaveBeenCalledOnce()
+    failCapture?.(new Error('麦克风已断开'))
+    await vi.waitFor(() => expect(vi.mocked(startPcmCapture).mock.calls.length).toBe(2))
+    for (let i = 0; i < MEETING_AUDIO_BATCH_FRAMES; i++) emitFrame(frame())
+    await vi.waitFor(() => expect(append).toHaveBeenCalled())
   })
 })

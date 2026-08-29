@@ -176,12 +176,44 @@ func looksLikeIndependentRequest(text string) bool {
 	if t == "" || looksLikeResume(t) || looksLikeStatusFollowUp(t) || looksLikeSteer(t) {
 		return false
 	}
-	for _, p := range []string{"只要", "改成", "改用", "换成", "不要用", "别用", "补充", "再加上", "还有就是", "用这个", "继续用", "只装"} {
+	for _, p := range []string{
+		"只要", "改成", "改用", "换成", "不要用", "别用", "补充", "再加上", "还有就是",
+		"用这个", "继续用", "只装", "封面", "先做出", "先写", "加上", "别忘了", "记得",
+	} {
 		if strings.HasPrefix(t, p) {
 			return false
 		}
 	}
 	return true
+}
+
+// looksLikeTaskChange detects a pivot away from the in-flight goal (negation or a
+// clearly independent new ask). Supplements and progress checks must stay false.
+func looksLikeTaskChange(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || looksLikeResume(t) || looksLikeStatusFollowUp(t) {
+		return false
+	}
+	for _, p := range []string{
+		"别做", "不要做", "不要", "别写", "别生成", "别用", "停止这个", "不做", "算了",
+		"换话题", "换个话题", "别管", "先别", "别帮我做", "不用做",
+	} {
+		if strings.Contains(t, p) {
+			return true
+		}
+	}
+	return looksLikeIndependentRequest(text)
+}
+
+func followUpIntent(text string) string {
+	switch {
+	case looksLikeStatusFollowUp(text):
+		return "progress"
+	case looksLikeTaskChange(text):
+		return "task_change"
+	default:
+		return "supplement"
+	}
 }
 
 func closedLoopTurnInjection(userText string) string {
@@ -192,7 +224,10 @@ func closedLoopTurnInjection(userText string) string {
 }
 
 func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
-	if sessionID == "" || !looksLikeResume(userText) {
+	if sessionID == "" {
+		return ""
+	}
+	if !looksLikeResume(userText) && !looksLikeStatusFollowUp(userText) {
 		return ""
 	}
 	cp := e.loadTurnCheckpoint(sessionID)
@@ -228,7 +263,7 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string) (s
 		return "", nil
 	}
 	for _, m := range pending {
-		if looksLikeIndependentRequest(m.Payload) {
+		if looksLikeTaskChange(m.Payload) {
 			return "", nil
 		}
 	}

@@ -547,3 +547,128 @@ func TestNeedsCatchup(t *testing.T) {
 		t.Fatal("ASR dying at 10 minutes of a 1h meeting needs catch-up")
 	}
 }
+
+func TestRollingWavChunksDoNotStopTheMeeting(t *testing.T) {
+	svc := testMeetings(t)
+	audioRoot := t.TempDir()
+	svc.SetAudioRoot(audioRoot)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "长会", meetings.AudioMicrophoneAndSystem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(150_000)); err != nil {
+		t.Fatalf("150s append: %v", err)
+	}
+	live, err := svc.Get(ctx, started.MeetingID)
+	if err != nil || live.Status != meetings.StatusRecording {
+		t.Fatalf("after 150s status=%#v err=%v", live, err)
+	}
+	dir := filepath.Join(audioRoot, started.MeetingID)
+	files, _ := filepath.Glob(filepath.Join(dir, "chunk_*.wav"))
+	if len(files) < 2 {
+		t.Fatalf("expected 2+ rolling WAVs after 150s, got %d", len(files))
+	}
+	if _, err := svc.Heartbeat(ctx, started.MeetingID); err != nil {
+		t.Fatalf("heartbeat after rotate: %v", err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "旋转后仍在录", 151_000); err != nil {
+		t.Fatalf("caption after rotate: %v", err)
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(180_000)); err != nil {
+		t.Fatalf("180s append: %v", err)
+	}
+	still, err := svc.Get(ctx, started.MeetingID)
+	if err != nil || still.Status != meetings.StatusRecording {
+		t.Fatalf("after 330s status=%#v err=%v — rotate must not call Stop", still, err)
+	}
+	files, _ = filepath.Glob(filepath.Join(dir, "chunk_*.wav"))
+	if len(files) < 2 {
+		t.Fatalf("expected 2+ WAVs after 330s, got %d", len(files))
+	}
+	stopped, err := svc.Stop(ctx, started.MeetingID)
+	if err != nil || stopped.Status != meetings.StatusTranscribed {
+		t.Fatalf("explicit stop = %#v %v", stopped, err)
+	}
+}
+
+func TestCatchupSplitsLongWavUnderSherpaLimit(t *testing.T) {
+	svc := testMeetings(t)
+	svc.SetAudioRoot(t.TempDir())
+	var sizes []int
+	svc.SetAudioTranscriber(func(ctx context.Context, pcm []byte) (string, error) {
+		sizes = append(sizes, len(pcm))
+		return "补转写", nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "长会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendAudio(ctx, started.MeetingID, silencePCM(150_000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	caught, err := svc.CatchUp(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxBytes := meetings.CatchupSpanSeconds * 16000 * 2
+	if len(sizes) < 2 {
+		t.Fatalf("expected multiple catch-up spans for 150s, got %v", sizes)
+	}
+	for i, n := range sizes {
+		if n > maxBytes {
+			t.Fatalf("span %d is %d bytes; sherpa max window is %d", i, n, maxBytes)
+		}
+	}
+	if !strings.Contains(caught.Transcript, "补转写") {
+		t.Fatalf("catch-up transcript = %q", caught.Transcript)
+	}
+}
+
+func TestSummarizeAfterStopWritesNotesOrNeedsSummary(t *testing.T) {
+	ctx := context.Background()
+	t.Run("notes", func(t *testing.T) {
+		svc := testMeetings(t)
+		svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+			return meetings.Notes{Title: "纪要", Summary: "背景：对齐。\n讨论要点：范围。\n结论：继续。", Actions: "- 写BRD"}, nil
+		})
+		started, err := svc.Start(ctx, "周会", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Append(ctx, started.MeetingID, "先对齐范围", 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+			t.Fatal(err)
+		}
+		got, err := svc.Summarize(ctx, started.MeetingID)
+		if err != nil || got.Status != meetings.StatusReady || got.Summary == "" || got.Actions == "" {
+			t.Fatalf("summarize = %#v %v", got, err)
+		}
+	})
+	t.Run("needs_summary", func(t *testing.T) {
+		svc := testMeetings(t)
+		started, err := svc.Start(ctx, "周会", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Append(ctx, started.MeetingID, "只有逐字稿", 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+			t.Fatal(err)
+		}
+		got, err := svc.Summarize(ctx, started.MeetingID)
+		if err != nil || got.Status != meetings.StatusNeedsSummary {
+			t.Fatalf("honest hang/missing model = %#v %v", got, err)
+		}
+		if got.Summary != "" {
+			t.Fatalf("must not fake 摘要: %#v", got)
+		}
+	})
+}

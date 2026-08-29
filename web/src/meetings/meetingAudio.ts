@@ -5,7 +5,7 @@ import { startPcmCapture, type PcmCaptureHandle } from '../session/companion/pcm
 export const MEETING_AUDIO_BATCH_FRAMES = 12
 /** Bridge schema maxLength for meetings.audio.append pcm (base64 characters). */
 export const MEETING_AUDIO_MAX_B64 = 65536
-export const ASR_INTERRUPTED_NOTICE = '录制中，实时转写中断，停止后会补转写'
+export const ASR_INTERRUPTED_NOTICE = '录制中，实时转写中断可补，停止后会补转写'
 export const LIVE_CAPTION_MAX_LINES = 80
 
 export function trimLiveSegments<T>(items: T[], max = LIVE_CAPTION_MAX_LINES): T[] {
@@ -25,11 +25,14 @@ export async function startMeetingAudioRecorder(options: {
   append: (pcm: string) => Promise<unknown>
   onFrame?: (frame: MeetingPcmFrame) => void
   onError?: (error: Error) => void
+  onExtraEnded?: () => void
 }): Promise<MeetingAudioHandle> {
   let closed = false
+  let recycling = false
   let inFlight = false
   let pending: Int16Array[] = []
   let pendingSamples = 0
+  const extras = [...(options.extraStreams ?? [])]
   const frameSamples = 1600
   const batchSamples = frameSamples * MEETING_AUDIO_BATCH_FRAMES
 
@@ -92,23 +95,55 @@ export async function startMeetingAudioRecorder(options: {
   }
 
   let capture: PcmCaptureHandle | undefined
-  capture = await startPcmCapture({
-    extraStreams: options.extraStreams,
-    onFrame: frame => {
+
+  const boot = async () => {
+    capture = await startPcmCapture({
+      extraStreams: extras,
+      onFrame: frame => {
+        if (closed) return
+        options.onFrame?.(frame)
+        pending.push(frame.samples)
+        pendingSamples += frame.samples.length
+        void pump()
+      },
+      onError: error => {
+        if (closed) return
+        options.onError?.(error)
+        void recycle()
+      },
+      onExtraEnded: () => {
+        if (closed) return
+        options.onExtraEnded?.()
+      },
+    })
+  }
+
+  const recycle = async () => {
+    if (closed || recycling) return
+    recycling = true
+    try {
+      await capture?.stop()
+      capture = undefined
       if (closed) return
-      options.onFrame?.(frame)
-      pending.push(frame.samples)
-      pendingSamples += frame.samples.length
-      void pump()
-    },
-    onError: error => {
-      if (closed) return
-      options.onError?.(error)
-    },
-  })
+      await boot()
+    } catch (error) {
+      options.onError?.(error instanceof Error ? error : new Error(String(error)))
+      if (!closed) {
+        window.setTimeout(() => { void recycle() }, 1_200)
+      }
+    } finally {
+      recycling = false
+    }
+  }
+
+  await boot()
 
   return {
-    attachExtraStream: stream => { capture?.attachExtraStream(stream) },
+    attachExtraStream: stream => {
+      if (closed) return
+      if (!extras.includes(stream)) extras.push(stream)
+      capture?.attachExtraStream(stream)
+    },
     flush: async () => {
       capture?.flush()
       await drain()

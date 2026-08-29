@@ -5,6 +5,7 @@ import { act, cleanup, render, renderHook, waitFor } from '@testing-library/reac
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, runQueueBridge, type RunQueueBridge } from '../bridge/client'
+import { FOLLOW_UP_QUEUE_NOTICE } from './turnControl'
 import { QueueStrip, useInputQueue } from './inputQueue'
 
 vi.mock('../bridge/client', async importOriginal => {
@@ -34,7 +35,7 @@ it('loads the queued projection on mount and after enqueue', async () => {
   await act(async () => { await result.current.enqueue('second') })
   expect(bridge.input).toHaveBeenCalledWith(expect.objectContaining({ sessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', text: 'second' }))
   await waitFor(() => expect(result.current.items).toHaveLength(2))
-  expect(result.current.notice).toBe('')
+  expect(result.current.notice).toBe(FOLLOW_UP_QUEUE_NOTICE)
 })
 
 it('maps queue-full failures to an actionable notice and keeps items', async () => {

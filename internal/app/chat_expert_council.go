@@ -269,7 +269,10 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 		op.Text = "（该专家未返回有效意见）"
 		return op
 	}
-	op.Text = lastText
+	op.Text = stripOfficeGenLecture(lastText)
+	if strings.Contains(op.Text, "写到桌面请用对应") {
+		op.Text = "（该专家本轮未能完成发言）"
+	}
 	return op
 }
 

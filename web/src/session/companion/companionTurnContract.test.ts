@@ -160,7 +160,7 @@ describe('多轮直到退出', () => {
 })
 
 describe('字幕与说话状态', () => {
-  test('assistant caption accumulates MiniCPM-o crumbs into one line', () => {
+  test('assistant caption accumulates streaming crumbs into one line', () => {
     let caption = ''
     for (const piece of ['在', '的。', '我在听，请说。']) {
       caption = accumulateSpeakableCaption(caption, piece)

@@ -29,6 +29,15 @@ func TestLooksLikeResume(t *testing.T) {
 	if !looksLikeStatusFollowUp("做好了没有") || !looksLikeStatusFollowUp("还要多久？") || !looksLikeStatusFollowUp("进度") {
 		t.Fatal("status follow-ups must attach to the in-flight task")
 	}
+	if looksLikeTaskChange("做好了没有") || looksLikeTaskChange("封面先做出来") || looksLikeTaskChange("改方案用深色封面") {
+		t.Fatal("status, supplement and steer must not start a new task")
+	}
+	if !looksLikeTaskChange("别做PPT了帮我查天气") || !looksLikeTaskChange("帮我打开桌面协议的文件") {
+		t.Fatal("explicit pivots must start a new task")
+	}
+	if followUpIntent("做好了吗") != "progress" || followUpIntent("封面先做出来") != "supplement" || followUpIntent("别做PPT了") != "task_change" {
+		t.Fatal("follow-up intent classification mismatch")
+	}
 	if looksLikeIndependentRequest("做好了没有") || looksLikeIndependentRequest("改方案用深色封面") {
 		t.Fatal("status and steer must not start a new task")
 	}
@@ -247,5 +256,31 @@ func TestUnfinishedTurnInjectionUsesCheckpoint(t *testing.T) {
 	}
 	if e.unfinishedTurnInjection(session, "新开一个话题") != "" {
 		t.Fatal("non-resume turns must not force the old task")
+	}
+}
+
+func TestCancelStreamByCheckpointStreamID(t *testing.T) {
+	tools, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tools.Close()
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetToolRuntime(tools)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	streamID := "01ARZ3NDEKTSV4RRFFQ69G5FAD"
+	_, cancel := context.WithCancel(context.Background())
+	state := &streamState{cancel: cancel, state: streamRunning}
+	e.streams[streamID] = state
+	e.saveTurnCheckpoint(session, chatTurnCheckpoint{Status: turnStatusRunning, Goal: "写报告", StreamID: streamID})
+	cp := e.loadTurnCheckpoint(session)
+	if cp.StreamID != streamID {
+		t.Fatalf("checkpoint streamId=%q", cp.StreamID)
+	}
+	if !e.cancelStream(cp.StreamID) {
+		t.Fatal("expected running stream to cancel")
+	}
+	if state.state != streamCancelling {
+		t.Fatalf("state=%v", state.state)
 	}
 }

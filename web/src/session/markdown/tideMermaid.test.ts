@@ -1,12 +1,15 @@
 import { afterEach, expect, it } from 'vitest'
 import {
+  MERMAID_MAX_HEIGHT_CSS,
   TIDE_PALETTE_FALLBACK,
   fitMermaidSvg,
   mountMermaidSvg,
   prepareMermaidSource,
   readTidePalette,
+  recoverMermaidSource,
   tideMermaidConfig,
   tideMermaidThemeCSS,
+  trimMermaidFenceLeak,
 } from './tideMermaid'
 
 afterEach(() => {
@@ -61,7 +64,10 @@ it('fits mermaid SVG so inline height cannot leave a huge empty band', () => {
   expect(svg.getAttribute('height')).toBeNull()
   expect(svg.getAttribute('width')).toBeNull()
   expect(svg.style.height).toBe('auto')
+  expect(svg.style.width).toBe('auto')
   expect(svg.style.maxWidth).toBe('100%')
+  expect(svg.style.maxHeight).toBe(MERMAID_MAX_HEIGHT_CSS)
+  expect(svg.style.objectFit).toBe('contain')
   expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet')
 })
 
@@ -90,6 +96,30 @@ it('quotes the PPT structure graph so Chinese labels, <br/>, · and / stay in on
   expect(prepared).toContain('G["愿景收尾<br/>深耕IT · 欢迎交流"]')
   expect(prepared).not.toContain('A[封面')
   expect(prepared).not.toContain('E[能力四维')
+})
+
+const LEAKED_PPT_FENCE = `flowchart TD
+    A["封面<br/>穆军 · IT公司副总经理"] --> B["目录<br/>六段式导读"]
+    B --> C["关于我<br/>35岁 · 15年从业"]
+    C --> D["职业历程<br/>从技术到管理的15年"]
+    D --> E["核心能力<br/>技术+管理双轮驱动"]
+    E --> F["管理理念<br/>三个坚持"]
+    F --> G["代表成果<br/>可量化战绩"]
+    G --> H["个人特质<br/>性格与成长关键词"]
+    H --> I["愿景规划<br/>未来三年的目标"]
+    I --> J["致谢<br/>联系方式与邀请"]
+第二轮检索结果对个人信息类 PPT 帮助有限（这类 PPT 的事实来自本人而非公开网络），我已按流水线完成两轮检索并据此收录结构。现在定稿...无法执行。模型结果不完整。写到桌面请用对应 *.gen 工具并设 desktop=true，不要用 command.run。`
+
+it('trims leaked Chinese prose and desktop=true closed-loop tails from a mermaid fence', () => {
+  const prepared = prepareMermaidSource(LEAKED_PPT_FENCE)
+  expect(prepared).toContain('A["封面<br/>穆军 · IT公司副总经理"]')
+  expect(prepared).toContain('J["致谢<br/>联系方式与邀请"]')
+  expect(prepared).not.toContain('第二轮检索')
+  expect(prepared).not.toContain('无法执行')
+  expect(prepared).not.toContain('desktop=true')
+  expect(prepared).not.toContain('NODE_STRING')
+  expect(recoverMermaidSource(LEAKED_PPT_FENCE)).toContain('I --> J[')
+  expect(trimMermaidFenceLeak(`${LEAKED_PPT_FENCE}\n\`\`\`\nextra`)).not.toContain('extra')
 })
 
 it('mounts mermaid SVG that XML would reject because of HTML <br> in foreignObject', () => {

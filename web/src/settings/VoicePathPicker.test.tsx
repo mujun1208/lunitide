@@ -8,7 +8,7 @@ import { VoicePathPicker } from './VoicePathPicker'
 describe('VoicePathPicker', () => {
   afterEach(() => cleanup())
 
-  test('offers exactly two equal-weight cards and no MiniCPM-o slot', () => {
+  test('offers exactly two equal-weight cards', () => {
     render(<VoicePathPicker value="cloud" onChange={() => undefined} />)
     const cards = screen.getAllByRole('radio')
     expect(cards).toHaveLength(2)
@@ -17,19 +17,15 @@ describe('VoicePathPicker', () => {
     expect(screen.getByText('默认')).toBeInTheDocument()
     expect(screen.getByText('晓晓 · 微软 Neural')).toBeInTheDocument()
     expect(screen.getByText('sherpa + GPT-SoVITS')).toBeInTheDocument()
-    expect(screen.queryByText(/MiniCPM/i)).not.toBeInTheDocument()
     expect(document.querySelectorAll('.voice-path-card')).toHaveLength(2)
     expect(document.querySelectorAll('.voice-path-card.on')).toHaveLength(1)
     expect(document.querySelector('.voice-path-picker')?.className).not.toMatch(/3/)
   })
 
-  test('maps leftover MiniCPM-o saves onto 云端 without a third hole', async () => {
+  test('switches between cloud and local', async () => {
     const picked: string[] = []
     const user = userEvent.setup()
-    render(<VoicePathPicker value="omni" onChange={path => picked.push(path)} />)
-    expect(screen.getAllByRole('radio')).toHaveLength(2)
-    expect(screen.getByRole('radio', { name: /云端/ })).toHaveAttribute('aria-checked', 'true')
-    expect(document.querySelectorAll('.voice-path-pip.on')).toHaveLength(1)
+    render(<VoicePathPicker value="cloud" onChange={path => picked.push(path)} />)
     await user.click(screen.getByRole('radio', { name: /本地/ }))
     expect(picked).toEqual(['local'])
   })

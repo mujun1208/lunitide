@@ -225,7 +225,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
 		instruction += identityAndFewShotInstruction()
-		instruction += bundledWorkflowInjection()
+		instruction += bundledWorkflowInjection(turnText)
 		instruction += e.workspaceRepoGuidance()
 		instruction += chatRichMarkdownInstruction()
 	}
@@ -622,7 +622,8 @@ func companionPersonaInstruction() string {
 		"- 闲聊立刻回答，不要先调工具\n" +
 		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
-		"- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或 browser.act\n" +
+		"- 搜网页/查火车/查航班/查天气：必须 web.search，再用一两句把结果说出来（气温、阴晴），不要只说等一下就停\n" +
+		"- 打开页面：browser.act 或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL）\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、协议文档、汽水音乐、网易云音乐）。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」。做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
 		"- 在文档或对话框里填写：desktop.type（text=要写的内容，after=证件号码这类字段名，window=文档或对话框标题，需要发送时 submit=true）。先 desktop.open 打开文件，再 desktop.type。找不到字段就报无法执行\n" +
@@ -698,7 +699,7 @@ func companionWantsTools(text string) bool {
 	lower := strings.ToLower(text)
 	for _, needle := range []string{
 		"搜索", "搜一下", "搜网页", "打开", "把开", "播放", "播一首", "播歌", "音乐", "听歌", "随便", "放一首",
-		"查一下", "查询", "查火车", "查航班", "火车票", "航班",
+		"查一下", "查询", "查火车", "查航班", "火车票", "航班", "天气", "气温", "温度", "查天气", "weather",
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
 		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水", "网易云", "周杰伦", "协议",
@@ -1735,6 +1736,40 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var streamResult gateway.Response
 	var turnArtifacts []SessionArtifact
 	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
+	if !looksLikeStatusFollowUp(turn.Goal) && !looksLikeResume(turn.Goal) {
+		if prev := e.loadTurnCheckpoint(sessionID); prev.PptActive || prev.DocxActive {
+			prev.PptActive = false
+			prev.DocxActive = false
+			prev.PptStage = ""
+			prev.DocxStage = ""
+			prev.PptTools = nil
+			prev.DocxTools = nil
+			if prev.Status == turnStatusRunning {
+				prev.Status = turnStatusInterrupted
+			}
+			e.saveTurnCheckpoint(sessionID, prev)
+		}
+	}
+	if looksLikeStatusFollowUp(turn.Goal) || looksLikeResume(turn.Goal) {
+		if prev := e.loadTurnCheckpoint(sessionID); prev.PptActive || prev.DocxActive || prev.Status == turnStatusInterrupted || prev.Status == turnStatusRunning {
+			if strings.TrimSpace(prev.Goal) != "" {
+				turn.Goal = prev.Goal
+			}
+			turn.PptActive = prev.PptActive
+			turn.PptStage = prev.PptStage
+			turn.PptTools = append([]string{}, prev.PptTools...)
+			turn.PptNudges = prev.PptNudges
+			turn.PptGenerated = prev.PptGenerated
+			turn.DocxActive = prev.DocxActive
+			turn.DocxKind = prev.DocxKind
+			turn.DocxStage = prev.DocxStage
+			turn.DocxTools = append([]string{}, prev.DocxTools...)
+			turn.DocxNudges = prev.DocxNudges
+			turn.DocxGenerated = prev.DocxGenerated
+			turn.DocxChars = prev.DocxChars
+			turn.Injected = append([]string{}, prev.Injected...)
+		}
+	}
 	mode := executionModeApproval
 	if len(modes) > 0 {
 		mode = modes[0]
@@ -1775,6 +1810,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				return err
 			}
 		}
+		sanitizeOutgoingEvent(&event)
 		if err := rawSend(event); err != nil {
 			if event.Type == bridge.EventApprovalRequired {
 				return err
@@ -1920,14 +1956,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 			noteDocxChars(&turn, stepText)
 			if len(result.Message.ToolCalls) == 0 {
-				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) {
+				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) ||
+					(state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) && nudges < maxContinueNudges) {
 					nudges++
 					msg := result.Message
 					if strings.TrimSpace(msg.Content) == "" {
 						msg.Role = gateway.RoleAssistant
 						msg.Content = stepText
 					}
-					req.Messages = append(req.Messages, msg, continueNudgeMessage())
+					nudge := continueNudgeMessage()
+					if state.companion && isCompanionLeadInOnly(assistantText.String()) {
+						nudge = gateway.Message{Role: gateway.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
+					}
+					req.Messages = append(req.Messages, msg, nudge)
 					continue
 				}
 				note, texts := e.pullQueuedSupplements(op, sessionID)
@@ -2189,6 +2230,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
 						return blockedDocxGenResult(msg), nil
 					}
+					if call.Name == "command.run" && (turn.PptActive || turn.DocxActive || wantsOfficeFileOnDesktop(turn.Goal)) {
+						return toolruntime.Result{Output: "ok:false\n" + officeGenInternalHint + "立刻调用对应 *.gen，不要 command.run。"}, nil
+					}
 					if call.Name == "command.run" {
 						progress := func(chunk string) {
 							if chunk == "" {
@@ -2356,7 +2400,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	if err == nil {
 		finalizationClaimed = e.claimStreamFinalization(state)
 	}
-	if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
+	if finished, notice := e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, send); finished || notice != "" {
+		if finished {
+			err = nil
+			finalizationClaimed = e.claimStreamFinalization(state)
+		}
+		if next, delta := appendAssistantNotice(assistantText.String(), notice); delta != "" {
+			assistantText.Reset()
+			assistantText.WriteString(next)
+			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+		}
+	} else if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err, turn.Goal, turn.LastTools); outcome != "" {
 		if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
 			assistantText.Reset()
 			assistantText.WriteString(next)
@@ -2470,7 +2524,7 @@ func createTurnFailureNotice(tools []string, assistantText string) string {
 	for _, name := range tools {
 		switch name {
 		case "excel.gen", "docx.gen", "pptx.gen", "pdf.gen":
-			return "文件没写成功。放到桌面请用 excel.gen/docx.gen/pptx.gen 并设 desktop=true（不要 command.run 或 COM）。\n"
+			return "生成失败：文件没有写成功。\n"
 		}
 	}
 	if usedVision {
@@ -2532,29 +2586,35 @@ func skipExpertCouncil(text string) bool {
 	return createFolder || htmlOnDesktop || openWeb || playMusic
 }
 
-func turnOutcomeNotice(cancelling bool, err error) string {
+func turnOutcomeNotice(cancelling bool, err error, goal string, tools []string) string {
 	if cancelling {
 		return turnInterruptNotice
 	}
 	if err != nil {
-		return turnErrorNotice + turnFailureCause(err)
+		return turnErrorNotice + turnFailureCause(err, goal, tools)
 	}
 	return ""
 }
 
-func turnFailureCause(err error) string {
+func turnFailureCause(err error, goal string, tools []string) string {
 	se := chatStreamError(err)
 	switch se.Code {
 	case "UPSTREAM_TIMEOUT":
-		return "请求超时。写桌面文件请用 excel.gen/docx.gen 并设 desktop=true，表格用月度汇总。"
+		return "请求超时，请稍后重试。"
 	case "ASSISTANT_RESPONSE_TOO_LARGE", "REQUEST_TOO_LARGE":
-		return "回复或工具参数过大。请改用 excel.gen/docx.gen（desktop=true）并减少行数。"
-	default:
-		return "模型结果不完整。写到桌面请用对应 *.gen 工具并设 desktop=true，不要用 command.run。"
+		return "回复或工具参数过大，请减少内容后重试。"
 	}
+	if officeGenToolForGoal(goal) != "" || hasOfficeGenTool(tools) {
+		return officeGenFailNotice(err)
+	}
+	if looksLikeComputerControlTurn(goal) || hasComputerControlTool(tools) {
+		return "这次操作没成功，请再说具体一点让我重试。"
+	}
+	return "模型结果不完整，请重试。"
 }
 
 func appendAssistantNotice(existing, notice string) (next, delta string) {
+	notice = sanitizeUserVisibleNotice(notice)
 	if notice == "" || strings.Contains(existing, notice) {
 		return existing, ""
 	}
@@ -2733,7 +2793,7 @@ func sendDeltaChunks(send func(bridge.Event) error, text string) error {
 }
 
 func clipToolSummary(summary string) string {
-	return truncateUTF8Bytes(summary, toolSummaryMaxBytes)
+	return userVisibleToolSummary(truncateUTF8Bytes(summary, toolSummaryMaxBytes))
 }
 
 func toolStartedSummary(name string, args json.RawMessage) string {
