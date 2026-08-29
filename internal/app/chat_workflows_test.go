@@ -23,3 +23,14 @@ func TestProjectPhaseWorkflowInjectionOpsDev(t *testing.T) {
 		t.Fatalf("expected ops dev pm-phase-4, got %q", hint)
 	}
 }
+
+func TestProjectPhaseWorkflowInjectionAsksDecisions(t *testing.T) {
+	hint := projectPhaseWorkflowInjection(1, "需求架构规范")
+	if !strings.Contains(hint, "user.ask") {
+		t.Fatalf("spec phase must require user.ask, got %q", hint)
+	}
+	ops := projectPhaseWorkflowInjection(8, "运维")
+	if !strings.Contains(ops, "user.ask") {
+		t.Fatalf("default phase must require user.ask, got %q", ops)
+	}
+}

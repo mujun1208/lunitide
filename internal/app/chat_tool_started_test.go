@@ -20,6 +20,16 @@ func TestToolStartedSummary(t *testing.T) {
 	if got := toolStartedSummary("workspace.read", json.RawMessage(`{}`)); got != "" {
 		t.Fatalf("other: %q", got)
 	}
+	if got := toolStartedSummary("user.ask", json.RawMessage(`{"title":"需求边界","questions":[{"prompt":"部署","options":[{"label":"A"},{"label":"B"}]}]}`)); got != "需要你决策：需求边界" {
+		t.Fatalf("user.ask started: %q", got)
+	}
+	args := json.RawMessage(`{"title":"需求边界","questions":[{"prompt":"部署","options":[{"label":"容器化"},{"label":"虚拟机"}]}]}`)
+	if got := approvalRequiredSummary("user.ask", args); !strings.Contains(got, `"questions"`) || !strings.Contains(got, "需求边界") {
+		t.Fatalf("user.ask approval summary: %q", got)
+	}
+	if got := approvalRequiredSummary("command.run", args); got != "approval required" {
+		t.Fatalf("other approval summary: %q", got)
+	}
 	long := strings.Repeat("x", 5000)
 	got := clipToolSummary(toolStartedSummary("command.run", json.RawMessage(`{"argv":["echo","`+long+`"]}`)))
 	if len(got) > 4096 {

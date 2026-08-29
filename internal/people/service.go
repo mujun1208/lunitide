@@ -45,7 +45,8 @@ const (
 	maxFileBytes = 32 << 20
 	maxMembers   = 32
 	maxList      = 200
-	maxMessages  = 200
+	maxMessages     = 200
+	maxPreviewBytes = 4 << 20
 	chunkSize    = 48 << 10
 	defaultTCP   = 36422
 	typingTTL    = 4 * time.Second
@@ -194,6 +195,7 @@ type Store interface {
 	InsertMessage(ctx context.Context, m Message, offer *FileOffer) error
 	HasPeopleMessage(ctx context.Context, messageID string) (bool, error)
 	GetOffer(ctx context.Context, offerID string) (FileOffer, error)
+	GetOfferByMessage(ctx context.Context, messageID string) (FileOffer, error)
 	DecideOffer(ctx context.Context, offerID, status, destPath, decidedAt string) error
 	MarkThreadRead(ctx context.Context, threadID, subjectID, at string) error
 	CountUnread(ctx context.Context, threadID, subjectID string) (int, error)
@@ -678,6 +680,7 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, *FileOffer, 
 	}
 	msg.OfferID = offer.OfferID
 	msg.OfferStatus = "pending"
+	msg.DestPath = stagePath
 	go s.deliverMessage(t, msg, stagePath)
 	return msg, &offer, nil
 }

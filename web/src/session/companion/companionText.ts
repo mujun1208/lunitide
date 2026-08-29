@@ -7,10 +7,10 @@
 // segments per reply.
 export const MAX_SEGMENT_CHARS = 1200
 export const MAX_SEGMENTS = 20
-/** First unpunctuated flush: only used when the stream stalls, never to slice commas. */
-export const FIRST_SPEAK_CHARS = 4
-/** Later stalled tails may flush a bit later so a sentence can still land. */
-export const FOLLOW_SPEAK_CHARS = 4
+/** First unpunctuated flush: greetings may speak immediately; other first clips wait for a phrase. */
+export const FIRST_SPEAK_CHARS = 16
+/** Later stalled tails may flush a shorter leftover so the turn does not hang. */
+export const FOLLOW_SPEAK_CHARS = 8
 /**
  * First-token watchdog. sendAndChat marks the turn `streaming` before
  * chat.start returns, so 5–6s used to cancel a live DeepSeek V4 request
@@ -145,7 +145,7 @@ const INCOMPLETE_TAIL =
   /(?:儿|的|把|给|和|与|或|从|往|向|在|到|去|来|做|说|问|查|看|听|用|帮|请|要|想|能|会|可|以|这|那|哪|啥|一个|一下|怎么|号码)$/u
 /** Waiting for the value after a field name — 「文档的身份证号码」. */
 const INCOMPLETE_FIELD_WAIT =
-  /(?:身份证号码|证件号码|手机号|电话号码|文档的|文件里的|表格中的|这一栏的|那一格的)$/u
+  /(?:身份证号码|证件号码|手机号|电话号码|联系电话|电话|文档的|文件里的|表格中的|这一栏的|那一格的)$/u
 
 /**
  * Sentence-final particles and question words. 「我知道了」「你在干什么」
@@ -229,7 +229,7 @@ export function repairOpenCommandTranscript(text: string): string {
 
 /** Whole greetings / acknowledgements — commit quickly even without punctuation. */
 const COMPLETE_SHORT_UTTERANCE =
-  /^(?:你好(?:月汐|啊|呀)?|嗨|嘿|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好|好的|好啊|嗯嗯|月汐|停|停下|别说了|继续)$/
+  /^(?:你好(?:月汐|啊|呀)?|嗨(?:我在呢|我在)?|嘿|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好|好的|好啊|嗯嗯|月汐|停|停下|别说了|继续)$/
 
 /** True when the recognizer likely stopped mid-thought — wait longer before commit. */
 export function looksIncompleteUtterance(text: string): boolean {
@@ -493,6 +493,10 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean, force = fa
     return { text: sentences[1], consumed: sentences[1].length }
   }
   if (!force) return null
+  const trimmed = pending.trim()
+  if (isFirst && COMPLETE_SHORT_UTTERANCE.test(trimmed)) {
+    return { text: pending, consumed: pending.length }
+  }
   const minChars = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
   if (Array.from(pending).length < minChars) return null
   return { text: pending, consumed: pending.length }

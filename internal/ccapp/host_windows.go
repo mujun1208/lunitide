@@ -241,12 +241,85 @@ func (h *windowsHost) CursorPosition() (int, int, error) {
 	return int(pt.X), int(pt.Y), nil
 }
 
-func (h *windowsHost) MouseMove(x, y int) error {
-	ok, _, err := procSetCursorPos.Call(uintptr(int32(x)), uintptr(int32(y)))
-	if ok == 0 {
-		return fmt.Errorf("setcursorpos: %w", err)
+// ErrCursorBusy is returned when the live desktop refused a cursor move
+// (FALSE + cleared last-error, or another process immediately stole input).
+var ErrCursorBusy = errors.New("cc: desktop did not accept cursor move")
+
+func winErrSuccess(err error) bool {
+	return err == nil || err == windows.ERROR_SUCCESS || err == windows.Errno(0)
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
 	}
-	return nil
+	return n
+}
+
+func (h *windowsHost) cursorNear(x, y int) bool {
+	gotX, gotY, err := h.CursorPosition()
+	return err == nil && absInt(gotX-x) <= 3 && absInt(gotY-y) <= 3
+}
+
+func (h *windowsHost) MouseMove(x, y int) error {
+	if err := h.setCursorPosRetry(x, y); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrCursorBusy) {
+		return err
+	}
+	return h.sendAbsoluteMove(x, y)
+}
+
+func (h *windowsHost) setCursorPosRetry(x, y int) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		var ok uintptr
+		ok, _, err = procSetCursorPos.Call(uintptr(int32(x)), uintptr(int32(y)))
+		if ok != 0 {
+			return nil
+		}
+		if h.cursorNear(x, y) {
+			return nil
+		}
+		if !winErrSuccess(err) {
+			return fmt.Errorf("setcursorpos: %w", err)
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return ErrCursorBusy
+}
+
+func (h *windowsHost) sendAbsoluteMove(x, y int) error {
+	ox, oy, vw, vh := virtualScreenRect()
+	if vw <= 1 || vh <= 1 {
+		return ErrCursorBusy
+	}
+	nx := (x - ox) * 65535 / (vw - 1)
+	ny := (y - oy) * 65535 / (vh - 1)
+	if nx < 0 {
+		nx = 0
+	}
+	if ny < 0 {
+		ny = 0
+	}
+	if nx > 65535 {
+		nx = 65535
+	}
+	if ny > 65535 {
+		ny = 65535
+	}
+	if err := sendMouse([]mouseEvent{{
+		Type: inputMouse,
+		Dx:   int32(nx),
+		Dy:   int32(ny),
+		Flag: mouseEventfMove | mouseEventfAbsolute | mouseEventfVirtualDesk,
+	}}); err != nil {
+		return err
+	}
+	if h.cursorNear(x, y) {
+		return nil
+	}
+	return ErrCursorBusy
 }
 
 func (h *windowsHost) MouseClick(button string, clicks int) error {

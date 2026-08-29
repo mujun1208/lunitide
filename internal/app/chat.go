@@ -1027,7 +1027,7 @@ func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMod
 	if name == "docx.gen" {
 		args = enrichDocxGenArgs(e, "", args)
 	}
-	approved := mode == executionModeFullAccess
+	approved := mode == executionModeFullAccess && name != "user.ask"
 	if e.fullDiskChat(mode) {
 		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, approved, progress)
 	}
@@ -1042,6 +1042,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "workspace.search", Description: "Search session workspace files for a literal substring or regex; answers path:line: text matches (binary and oversized files skipped)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"literal substring, or regex when regex=true"},"path":{"type":"string","description":"workspace-relative directory to search (default .)"},"regex":{"type":"boolean"},"max":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "workspace.edit", Description: "Anchored edit of a controlled session workspace file: oldText must match exactly once (or pass replaceAll=true) and is replaced by newText; everything else stays untouched", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["path","oldText","newText"],"additionalProperties":false}`)},
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
+		{Name: "user.ask", Description: "Ask the user to decide with numbered options (Claude/Cursor-style). One pack of 1–8 questions, each with 2–5 options. The UI shows one question at a time plus 其他. 拍板必须用选项，不要用长文代替决策。Always wait — never assume an answer.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200,"description":"Short heading for the decision pack"},"questions":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"prompt":{"type":"string","minLength":1,"maxLength":500},"options":{"type":"array","minItems":2,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"label":{"type":"string","minLength":1,"maxLength":200}},"required":["label"]}}},"required":["prompt","options"]}}},"required":["questions"],"additionalProperties":false}`)},
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
 		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body). The workspace browser address bar shows this URL.", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
 		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Use for current facts, docs, or links — do not invent temperatures or prices. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query. Example: {\"query\":\"北京明天天气\",\"max\":5}", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"Search query. Example: 北京明天天气"},"max":{"type":"integer","description":"Number of results to return, default 5 (1-10).","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
@@ -2270,7 +2271,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, nil)
 				}()
 				if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
-					if state.companion && mode == executionModeFullAccess {
+					if state.companion && mode == executionModeFullAccess && call.Name != "user.ask" {
 						if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 							return prepareErr
 						}
@@ -2286,7 +2287,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 							return prepareErr
 						}
-						if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: "approval required"}}); sendErr != nil {
+						if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: approvalRequiredSummary(call.Name, call.Arguments)}}); sendErr != nil {
 							return sendErr
 						}
 						return nil
@@ -2908,8 +2909,25 @@ func clipToolSummary(summary string) string {
 	return userVisibleToolSummary(truncateUTF8Bytes(summary, toolSummaryMaxBytes))
 }
 
+func approvalRequiredSummary(name string, args json.RawMessage) string {
+	if name == "user.ask" {
+		if packed := toolruntime.UserAskApprovalSummary(args); packed != "" {
+			return truncateUTF8Bytes(packed, toolSummaryMaxBytes)
+		}
+	}
+	return "approval required"
+}
+
 func toolStartedSummary(name string, args json.RawMessage) string {
 	switch name {
+	case "user.ask":
+		var a struct {
+			Title string `json:"title"`
+		}
+		if json.Unmarshal(args, &a) == nil && strings.TrimSpace(a.Title) != "" {
+			return "需要你决策：" + strings.TrimSpace(a.Title)
+		}
+		return "需要你决策"
 	case "command.run":
 		var a struct {
 			Argv []string `json:"argv"`

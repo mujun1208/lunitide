@@ -135,9 +135,14 @@ describe('takeSpeakableChunk', () => {
       text: '你好月汐',
       consumed: '你好月汐'.length,
     })
-    expect(takeSpeakableChunk('然后我再给你', false, true)).toEqual({
-      text: '然后我再给你',
-      consumed: '然后我再给你'.length,
+    expect(takeSpeakableChunk('嗨我在呢', true, true)).toEqual({
+      text: '嗨我在呢',
+      consumed: '嗨我在呢'.length,
+    })
+    expect(takeSpeakableChunk('今晚月色很好', true, true)).toBeNull()
+    expect(takeSpeakableChunk('然后我再给你一些建议明天再看', false, true)).toEqual({
+      text: '然后我再给你一些建议明天再看',
+      consumed: '然后我再给你一些建议明天再看'.length,
     })
   })
 })
@@ -183,6 +188,8 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('打开桌面上的')).toBe(true)
     expect(looksIncompleteUtterance('打开桌面上的协议文档')).toBe(false)
     expect(looksIncompleteUtterance('帮我在文档的身份证号码')).toBe(true)
+    expect(looksIncompleteUtterance('文档联系电话')).toBe(true)
+    expect(looksIncompleteUtterance('联系电话')).toBe(true)
     expect(looksIncompleteUtterance('帮我在文档的身份证号码写进去')).toBe(false)
     expect(looksIncompleteUtterance('身份证号码后面写204040')).toBe(false)
     expect(looksIncompleteUtterance('在身份证号码后面写204040')).toBe(false)
