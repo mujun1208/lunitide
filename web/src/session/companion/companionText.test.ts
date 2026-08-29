@@ -26,6 +26,10 @@ import {
   isOmniUnavailableNotice,
   handsFreeRetryDelayMs,
   stripTaskDonePhrases,
+  companionToolsExecuting,
+  companionExecutingSpeech,
+  companionCannotExecuteSpeech,
+  companionTaskCompleteSpeech,
   takeSpeakableChunk,
   accumulateSpeakableCaption,
   repairOpenCommandTranscript,
@@ -258,6 +262,20 @@ describe('stripTaskDonePhrases', () => {
     expect(stripTaskDonePhrases('任务已完成。')).toBe('')
     expect(stripTaskDonePhrases('文件夹建好了。我已经做完了。')).toBe('文件夹建好了。')
     expect(stripTaskDonePhrases('人生：优质台湾腔')).toBe('')
+  })
+})
+
+describe('companion task speech', () => {
+  test('detects 执行中 from tool activity lines', () => {
+    expect(companionToolsExecuting('streaming', '打开桌面文件中…')).toBe(true)
+    expect(companionToolsExecuting('streaming', '等你确认…')).toBe(true)
+    expect(companionToolsExecuting('streaming', '已打开协议.docx')).toBe(false)
+    expect(companionToolsExecuting('done', '打开桌面文件中…')).toBe(false)
+    expect(companionExecutingSpeech()).toBe('正在执行。')
+    expect(companionCannotExecuteSpeech('找不到证件号码')).toBe('无法执行。找不到证件号码')
+    expect(companionCannotExecuteSpeech('无法执行。权限不足')).toBe('无法执行。权限不足')
+    expect(companionTaskCompleteSpeech('已在证件号码后写入')).toBe('已在证件号码后写入。')
+    expect(companionTaskCompleteSpeech('我做完了')).toBe('好，完成了。')
   })
 })
 

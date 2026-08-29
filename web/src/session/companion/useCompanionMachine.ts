@@ -91,8 +91,20 @@ export const COMPANION_STATE_LABELS: Record<CompanionState, string> = {
   speaking: '说话中',
 }
 
+export const COMPANION_EXECUTING_LABEL = '执行中'
+
 /** Status pill must never say 聆听中 while she is actually talking. */
-export function companionSurfaceState(state: CompanionState, assistantAloud: boolean): CompanionState {
+export function companionSurfaceState(
+  state: CompanionState,
+  assistantAloud: boolean,
+  executing = false,
+): CompanionState {
+  if (executing && state !== 'listening') return 'thinking'
   if (assistantAloud && state !== 'speaking') return 'speaking'
   return state
+}
+
+export function companionStatusLabel(state: CompanionState, executing = false): string {
+  if (executing) return COMPANION_EXECUTING_LABEL
+  return COMPANION_STATE_LABELS[state]
 }

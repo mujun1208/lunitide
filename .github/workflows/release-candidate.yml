@@ -23,6 +23,9 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
       - run: npm --prefix web run verify:bridge
+      - name: Reject MiniCPM-o / Comni in Setup layout
+        shell: pwsh
+        run: ./release/Test-OmniExcluded.ps1
         # Same budget as the Quality workflow: the per-package default of ten
         # minutes is under what a hosted runner needs for the packages that
         # replay migrations, and a release must not fail for being slow.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/meetings"
@@ -102,5 +103,20 @@ func TestSummarizeLongStitchesWhenReduceFails(t *testing.T) {
 	}
 	if !strings.Contains(notes.Summary, "一段") || !strings.Contains(notes.Actions, "BRD") {
 		t.Fatalf("stitched = %#v", notes)
+	}
+}
+
+func TestSummarizeLongTimesOutHungCompleter(t *testing.T) {
+	restore := meetings.SetSummarizeDeadlinesForTest(30*time.Millisecond, 80*time.Millisecond)
+	t.Cleanup(restore)
+	complete := func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		time.Sleep(400 * time.Millisecond)
+		return meetings.Notes{Title: "迟到", Summary: "不该用"}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	defer cancel()
+	_, err := meetings.SummarizeLong(ctx, complete, "周会", "对齐范围。")
+	if err == nil {
+		t.Fatal("hung completer should time out")
 	}
 }

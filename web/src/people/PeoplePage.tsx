@@ -300,10 +300,12 @@ export function PeoplePage({
         )}
         {rail === 'me' && (
           <div className="people-me-summary">
-            <button type="button" className="people-ava lg" aria-label="更换头像" onClick={() => setRail('me')}>{me?.avatar ? <img src={me.avatar} alt="" /> : initials(me?.nickname || '月')}</button>
-            <h2>{me?.nickname || '月汐用户'}</h2>
-            <p>{[me?.orgName, me?.department, me?.title].filter(Boolean).join(' · ') || '还没有填写组织信息'}</p>
-            <small>{statusLabel(me?.status || 'online')} · {me?.discoveryEnabled ? '局域网可见' : '发现关闭'}</small>
+            <span className="people-ava" aria-hidden="true">{me?.avatar ? <img src={me.avatar} alt="" /> : initials(me?.nickname || '月')}</span>
+            <div className="people-me-copy">
+              <h2>{me?.nickname || '月汐用户'}</h2>
+              <p>{[me?.orgName, me?.department, me?.title].filter(Boolean).join(' · ') || '还没有填写组织信息'}</p>
+              <small><span className={`people-dot ${me?.status || 'online'}`} aria-hidden="true" />{statusLabel(me?.status || 'online')} · {me?.discoveryEnabled ? '局域网可见' : '发现关闭'}</small>
+            </div>
           </div>
         )}
       </aside>

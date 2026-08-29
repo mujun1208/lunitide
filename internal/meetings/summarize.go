@@ -17,10 +17,31 @@ const (
 	// sentence split across a chunk boundary is not lost.
 	SummarizeOverlapRunes = 240
 	summarizeMaxChunks    = 32
+)
+
+var (
 	// summarizeChunkDeadline bounds one Completer call so a hung provider
 	// cannot consume the whole meetings.summarize Bridge deadline.
 	summarizeChunkDeadline = 2 * time.Minute
+	// summarizeJobDeadline is slightly under the 10-minute Bridge cap so
+	// the meeting is always flipped off 生成摘要中 before the RPC dies.
+	summarizeJobDeadline = 9 * time.Minute
 )
+
+// SetSummarizeDeadlinesForTest shortens hang/timeout coverage. Restore via the returned func.
+func SetSummarizeDeadlinesForTest(chunk, job time.Duration) func() {
+	prevChunk, prevJob := summarizeChunkDeadline, summarizeJobDeadline
+	if chunk > 0 {
+		summarizeChunkDeadline = chunk
+	}
+	if job > 0 {
+		summarizeJobDeadline = job
+	}
+	return func() {
+		summarizeChunkDeadline = prevChunk
+		summarizeJobDeadline = prevJob
+	}
+}
 
 // SplitTranscript cuts a cleaned 逐字稿 into sliding windows. A short
 // transcript is a single chunk so summarize stays one Completer call.
@@ -159,7 +180,21 @@ func runComplete(ctx context.Context, complete Completer, title, transcript stri
 	}
 	chunkCtx, cancel := context.WithTimeout(ctx, summarizeChunkDeadline)
 	defer cancel()
-	return complete(chunkCtx, title, transcript)
+	type out struct {
+		notes Notes
+		err   error
+	}
+	ch := make(chan out, 1)
+	go func() {
+		notes, err := complete(chunkCtx, title, transcript)
+		ch <- out{notes, err}
+	}()
+	select {
+	case <-chunkCtx.Done():
+		return Notes{}, chunkCtx.Err()
+	case got := <-ch:
+		return got.notes, got.err
+	}
 }
 
 func formatPartialNotes(fallbackTitle string, parts []Notes) string {

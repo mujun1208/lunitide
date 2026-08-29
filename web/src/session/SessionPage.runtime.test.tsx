@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
-import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT } from './SessionPage'
+import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { resetLiveChatForTests } from './liveChat'
 import { RootErrorBoundary } from '../RootErrorBoundary'
 
-afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
+afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
 const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}
@@ -21,6 +21,15 @@ const micDefault={audio:micBase}
 // A missing device silently falls back to the default, and speech.ts writes the
 // device actually acquired back to storage, so a stale id self-heals.
 const micDevice=(id:string)=>({audio:{...micBase,deviceId:{ideal:id}}})
+
+it('maps stream failure codes to a safe cause without leaking UPSTREAM_FAILED',()=>{
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).toMatch(/^无法执行。/)
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).toContain('desktop=true')
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('UPSTREAM_FAILED')
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('模型请求失败')
+ expect(turnFailureNotice({code:'UPSTREAM_TIMEOUT'})).toContain('请求超时')
+ expect(turnFailureNotice({code:'ASSISTANT_RESPONSE_TOO_LARGE'})).toContain('过大')
+})
 
 async function open(props:Partial<React.ComponentProps<typeof SessionPage>>={}){
  const user=userEvent.setup()
@@ -162,7 +171,12 @@ it('keeps multiple mounted experts on the conversation after send',async()=>{
  await waitFor(()=>expect(start).toHaveBeenCalled())
  expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('安全工程师')
  expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('测试专家')
- expect(vi.mocked(append).mock.calls[0][0].text).toBe('请协作审查')
+ const sent=String(vi.mocked(append).mock.calls[0][0].text)
+ expect(sent).toContain('[引用专家 安全工程师|01ARZ3NDEKTSV4RRFFQ69G5FAC]')
+ expect(sent).toContain('[引用专家 测试专家|01ARZ3NDEKTSV4RRFFQ69G5FAD]')
+ expect(sent).toContain('请协作审查')
+ expect(sent).not.toContain('PPT专家')
+ expect(sent).not.toContain('小说编写专家')
 })
 
 it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn',async()=>{
@@ -181,7 +195,8 @@ it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
  expect(vi.mocked(append).mock.calls[0][0].text).toBe('再试一次')
- expect(await screen.findByText('出错了，无法完成。')).toBeInTheDocument()
+ expect(await screen.findByText(/无法执行/)).toBeInTheDocument()
+ expect(screen.getByText(/模型结果不完整/)).toBeInTheDocument()
  expect(screen.queryByText('模型请求失败')).toBeNull()
  expect(screen.queryByText(/代码 UPSTREAM_FAILED/)).toBeNull()
  expect(screen.queryByRole('button',{name:'从最新页重试'})).toBeNull()
@@ -194,7 +209,7 @@ it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
 })
 
-it('surfaces stream failure only as 出错了，无法完成 without the UPSTREAM_FAILED card',async()=>{
+it('surfaces stream failure only as 无法执行 without the UPSTREAM_FAILED card',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
@@ -203,7 +218,8 @@ it('surfaces stream failure only as 出错了，无法完成 without the UPSTREA
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'failed',error:{code:'UPSTREAM_FAILED',message:'模型请求失败',retryable:true}}))
- expect(await screen.findByText('出错了，无法完成。')).toBeInTheDocument()
+ expect(await screen.findByText(/无法执行/)).toBeInTheDocument()
+ expect(screen.getByText(/模型结果不完整/)).toBeInTheDocument()
  expect(screen.queryByText('模型请求失败')).toBeNull()
  expect(screen.queryByText(/代码 UPSTREAM_FAILED/)).toBeNull()
  expect(screen.queryByRole('button',{name:'从最新页重试'})).toBeNull()
@@ -273,7 +289,8 @@ it('collapses streaming thinking by default, expands on demand and shows a live 
  expect(details).not.toHaveAttribute('open')
  expect(screen.getByText('正在思考…')).toBeInTheDocument()
  await user.click(screen.getByText('任务过程'))
- expect(details).toHaveAttribute('open');expect(screen.getByText('内部推理').tagName).toBe('STRONG')
+ expect(details).toHaveAttribute('open')
+ expect(screen.queryByText('内部推理')).toBeNull()
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'delta',delta:{text:'最终答案'}}))
  expect(screen.getByText('最终答案')).toBeInTheDocument()
 })
@@ -316,10 +333,14 @@ it('keeps tool activity inside the task process and follows the growing stream',
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
  const user=await open({messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge,chat:{start,dispose:vi.fn()},providers})
  const box=document.querySelector('.conversation-scroll') as HTMLDivElement,scrollTo=vi.fn()
- Object.defineProperties(box,{scrollHeight:{value:900},clientHeight:{value:300},scrollTop:{value:600,writable:true}});Object.defineProperty(box,'scrollTo',{value:scrollTo})
+ Object.defineProperties(box,{scrollHeight:{value:900},clientHeight:{value:300},scrollTop:{value:400,writable:true}});Object.defineProperty(box,'scrollTo',{value:scrollTo})
  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'读取文件');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  scrollTo.mockClear();await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'tool_started',tool:{callId:'read-1',name:'fs.read',argsDigest:'a'.repeat(64),summary:'README.md'}}))
- const details=screen.getByText('任务过程').closest('details')!;expect(details).toHaveTextContent('读取');expect(details).toHaveTextContent('README.md');await waitFor(()=>expect(scrollTo).toHaveBeenCalledWith({top:900,behavior:'auto'}))
+ const details=screen.getByText('任务过程').closest('details')!;expect(details).toHaveTextContent('读取');expect(details).toHaveTextContent('README.md');await waitFor(()=>expect(scrollTo).toHaveBeenCalledWith({top:600,behavior:'auto'}))
+ scrollTo.mockClear()
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'thinking',thinking:{text:'逐步推理'.repeat(20)}}))
+ expect(scrollTo).not.toHaveBeenCalled()
+ expect(box.classList.contains('is-streaming')).toBe(true)
 })
 
 it('opens image selection from share instead of showing a permanent toolbar',async()=>{
@@ -517,4 +538,24 @@ it('sends from project workbench home-chat without throwing and includes the act
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'delta',delta:{text:'```mermaid\nflowchart TD\nsubgraph ui["界面"]\nA["工作台"]\nend\nA-->B\n```'}}))
  expect(screen.getByRole('status')).toBeInTheDocument()
  expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
+})
+
+it('prefixes only selected PM chips on rethink and never the conversation catalog',async()=>{
+ const ai={expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',name:'AI 工程师',division:'engineering' as const,source:'local' as const,semver:'1.0.0',state:'enabled' as const,versionCount:1,mountedPhaseCount:0}
+ const ppt={...ai,expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',name:'PPT专家',division:'product' as const}
+ const experts={list:vi.fn().mockResolvedValue({experts:[ai,ppt]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[ai.expertId]}),sessionMountSet:vi.fn().mockResolvedValue({expertIds:[ai.expertId]}),detail:vi.fn(),create:vi.fn(),update:vi.fn(),toggle:vi.fn(),archive:vi.fn(),mount:vi.fn(),mountingGet:vi.fn(),scenarioCreate:vi.fn(),scenarioList:vi.fn(),scenarioDelete:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
+ const append=vi.fn().mockResolvedValue({}),start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ const user=userEvent.setup()
+ render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge} onBack={vi.fn()} initialSession={session} homeChat experts={experts} providers={providers} chat={{start,approve:vi.fn(),dispose:vi.fn()}} projectPhase={1} projectPhaseLabel="需求架构规范"/>)
+ await screen.findByText('还没有消息')
+ await waitFor(()=>expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('AI 工程师'))
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'重新思考，给出一个新的方案。'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(append).toHaveBeenCalled())
+ const sent=String(vi.mocked(append).mock.calls[0][0].text)
+ expect(sent).toContain(`[引用专家 AI 工程师|${ai.expertId}]`)
+ expect(sent).toContain('重新思考，给出一个新的方案。')
+ expect(sent).not.toContain('PPT专家')
+ expect(sent).not.toContain('小说编写专家')
+ expect(sent).not.toContain('报告编写专家')
 })

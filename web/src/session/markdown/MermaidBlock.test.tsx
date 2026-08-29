@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './MermaidBlock'
-import { resetMermaidEngineForTests } from './tideMermaid'
+import { prepareMermaidSource, resetMermaidEngineForTests } from './tideMermaid'
 
 const mermaid = vi.hoisted(() => ({
   initialize: vi.fn(),
@@ -69,6 +69,27 @@ it('copies mermaid source from the toolbar', async () => {
   render(<MermaidBlock source={'flowchart TD\nA-->B'} onCopy={onCopy} />)
   fireEvent.click(screen.getByRole('button', { name: '复制 Mermaid 源码' }))
   await waitFor(() => expect(onCopy).toHaveBeenCalledWith('flowchart TD\nA-->B'))
+})
+
+it('renders the PPT structure graph even when mermaid returns HTML <br> inside SVG', async () => {
+  const graph = `flowchart LR
+    A[封面<br/>穆俊 · IT公司副总] --> B[关于我<br/>基本档案]
+    B --> C[技术出身的管理者<br/>十年IT经验]
+    C --> D[职业履历<br/>从工程师到管理者]
+    D --> E[能力四维<br/>技术/团队/交付/经营]
+    E --> F[管理实践<br/>实干派业绩]
+    F --> G[愿景收尾<br/>深耕IT · 欢迎交流]`
+  mermaid.render.mockImplementation(async (_id: string, src: string) => {
+    expect(src).toBe(prepareMermaidSource(graph))
+    expect(src).toContain('A["封面<br/>穆俊 · IT公司副总"]')
+    return {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 80"><g class="node"><foreignObject width="160" height="48"><div>封面<br>穆俊 · IT公司副总</div></foreignObject></g></svg>',
+    }
+  })
+  render(<MermaidBlock source={graph} />)
+  await waitFor(() => expect(document.querySelector('.mermaid-host svg .node')).not.toBeNull())
+  expect(screen.queryByText(/无法解析/)).toBeNull()
+  expect(document.querySelector('.mermaid-host svg')?.textContent).toMatch(/封面/)
 })
 
 it('serializes concurrent mermaid.render calls so overlapping diagrams cannot crash the host', async () => {

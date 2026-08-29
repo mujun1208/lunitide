@@ -1,23 +1,17 @@
 param([Parameter(Mandatory)][string]$Stage,[string]$Version,[switch]$VerifyManifest,[switch]$Installed,[string]$ExpectedSignerThumbprint)
 $ErrorActionPreference='Stop'; $Stage=(Resolve-Path $Stage).Path
-$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt','licenses\llama.cpp-omni-NOTICE.txt')
+$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt')
 foreach($f in $required){if(-not(Test-Path (Join-Path $Stage $f)-PathType Leaf)){throw "Missing staged file: $f"}}
 $allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','SHA256SUMS.txt')
 if($Installed){$allowedRootFiles += @('Uninstall.exe','.lunitide-install-owner')}
 $files=Get-ChildItem $Stage -File -Recurse
 foreach($item in $files){
   $rel=$item.FullName.Substring($Stage.Length+1).Replace('\','/')
-  $allowed=($rel -in $allowedRootFiles) -or $rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -or $rel.StartsWith('licenses/',[StringComparison]::Ordinal) -or ($rel -eq 'omni/llama-omni-runtime.zip')
+  if($rel -match '(?i)(^|/)omni(/|$)' -or $rel -match '(?i)Comni-Setup' -or $rel -match '(?i)llama-omni-server' -or $rel -match '(?i)\.gguf$'){
+    throw "Omni/Comni/MiniCPM-o runtime must not ship in Setup: $rel"
+  }
+  $allowed=($rel -in $allowedRootFiles) -or $rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -or $rel.StartsWith('licenses/',[StringComparison]::Ordinal)
   if(-not $allowed){throw "Staged file is not on the exact release allowlist: $rel"}
-	if($rel -eq 'omni/llama-omni-runtime.zip'){
-	  Add-Type -AssemblyName System.IO.Compression.FileSystem
-	  $archive=[IO.Compression.ZipFile]::OpenRead($item.FullName)
-	  try {
-	    $names=@($archive.Entries | ForEach-Object { $_.FullName.Replace('\','/') })
-	    if(-not ($names | Where-Object { $_ -match '(^|/)llama-omni-server\.exe$' })){throw 'omni/llama-omni-runtime.zip is missing llama-omni-server.exe'}
-	    if($names | Where-Object { $_.ToLowerInvariant().EndsWith('.gguf') }){throw 'omni/llama-omni-runtime.zip must not contain GGUF weights'}
-	  } finally { $archive.Dispose() }
-	}
 	if($rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -and $rel -notmatch '(?i)\.(html|js|css|map|json|png|jpe?g|gif|webp|svg|ico|woff2?|ttf)$'){throw "Renderer asset type is not allowed: $rel"}
 	if($rel.StartsWith('licenses/',[StringComparison]::Ordinal) -and $rel -notmatch '(?i)\.(txt|md)$'){throw "License asset type is not allowed: $rel"}
 	if($rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -or $rel.StartsWith('licenses/',[StringComparison]::Ordinal)){

@@ -56,8 +56,10 @@ const (
 	companionMaxToolLoopSteps = 10
 	// chatMaxTokens leaves headroom after long reasoning so a short tool
 	// call still fits. Dumping a full HTML game under 4096 truncated the
-	// tool JSON and surfaced “出错了，无法完成。”
-	chatMaxTokens = 16384
+	// tool JSON and surfaced “出错了，无法完成。” Office generators
+	// (excel.gen with a 半年财报) need more than 16k so the tool JSON
+	// can finish instead of dying at ~30s with a generic turn failure.
+	chatMaxTokens = 32768
 )
 
 // Skill catalog injection budget (c4-skill): the installed-skill directory
@@ -606,7 +608,9 @@ func companionPersonaInstruction() string {
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
 		"- 搜网页/查火车航班：web.search（结果会显示在工作区浏览器）；打开页面：command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL），或 browser.act\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、协议文档、汽水音乐、网易云音乐）。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
-		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框填查询并回车，点结果；歌手名核对不到曲名时仍以点到的搜索结果为准。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
+		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」。做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
+		"- 在文档或对话框里填写：desktop.type（text=要写的内容，after=证件号码这类字段名，window=文档或对话框标题，需要发送时 submit=true）。先 desktop.open 打开文件，再 desktop.type。找不到字段就报无法执行\n" +
+		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），点播放/随机播放并核对照片，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
 		"- 操作电脑：电脑控制开启时用 cc.*。先 cc.screen_capture（或 cc.observe_ui）看清界面，再动手；鼠标坐标必须用你看到的那张图的像素。点按钮优先 cc.observe_ui 后 cc.mouse_click id=B1 或 name=控件名，或 cc.observe_dialog 后再 cc.confirm_dialog，不要盲点像素。普通对话框确认是 Yes/OK/确认/是/确定 后再点；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。拖拽用 cc.mouse_drag；切窗口用 cc.window_list 再 cc.window_focus（已在运行的应用），对指定应用先 cc.window_focus 再 keyboard_type。启动未打开的应用用 desktop.open。关/最小化/移动窗口用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器）。滚动用 cc.mouse_click scroll=±1。按回车用 cc.press key=enter。粘贴用 cc.paste。菜单用 cc.menu_click。填输入框优先 cc.set_value。UI 未就绪用 cc.wait until=change。剪贴板用 cc.clipboard（纯文本）。command.run 仅在需要跑命令时用\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
@@ -657,6 +661,8 @@ func companionToolLeadIn(toolName string) string {
 		return "好，我来生成视频。"
 	case "skill.invoke":
 		return "好，我用技能处理一下。"
+	case "desktop.type":
+		return "好，我来输入。"
 	default:
 		if strings.HasPrefix(toolName, "cc.") {
 			return "好，我来操作电脑。"
@@ -681,6 +687,7 @@ func companionWantsTools(text string) bool {
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",
 		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水", "网易云", "周杰伦", "协议",
 		"截图", "屏幕", "对话框", "确认", "点击", "鼠标", "电脑",
+		"填写", "输入", "证件", "发送", "写入", "文档", "word", "打字", "随机播放",
 		"生图", "画一张", "画图", "生成图片", "生成视频", "生视频", "做个视频",
 		"search", "open http", "play song", "install", "generate image", "generate video",
 	} {
@@ -973,7 +980,7 @@ func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefi
 			defs[i].Description += "; absolute paths on any drive are accepted (full-disk full-access is enabled)"
 		case "workspace.write", "workspace.edit", "workspace.search":
 			defs[i].Description += "; absolute paths on any drive are accepted and missing parent directories are created (full-disk full-access is enabled)"
-		case "html.gen":
+		case "html.gen", "excel.gen", "docx.gen", "pptx.gen", "pdf.gen":
 			defs[i].Description += "; desktop=true writes a double-clickable file on the real Desktop (full-disk full-access is enabled)"
 		case "desktop.open":
 			defs[i].Description += "; full-disk full-access is enabled — opens one real Desktop file with the default app"
@@ -1015,14 +1022,15 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
 		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body). The workspace browser address bar shows this URL.", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
 		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Use for current facts, docs, or links — do not invent temperatures or prices. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query. Example: {\"query\":\"北京明天天气\",\"max\":5}", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"Search query. Example: 北京明天天气"},"max":{"type":"integer","description":"Number of results to return, default 5 (1-10).","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
-		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .xlsx"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
+		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace. Set desktop=true to write onto the real Desktop (filename in path is enough). Never build XLSX via Excel COM, Python, or command.run — that truncates the tool call and fails the turn. Keep sheets compact (monthly totals, not hundreds of daily rows).", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .xlsx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
-		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .docx"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
-		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Write it into the session workspace. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pptx"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
+		{Name: "docx.gen", Description: "Generate a .docx Word document (title plus heading/paragraph/bullet blocks) into the session workspace. Set desktop=true to write onto the real Desktop. Never build DOCX via Word COM or command.run. Keep one document per call; split a novel by chapter.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .docx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","paragraph","bullet"]},"text":{"type":"string"}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
+		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
+		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
-		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"workspace-relative output path ending in .pdf"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
+		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
 		{Name: "image.generate", Description: "Generate an image with the configured 生图模型 catalog (default, then backups). Use when the user asks to draw, illustrate, or generate a picture. Prompt is the image description.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Image description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
 		{Name: "video.generate", Description: "Generate a video with the configured 生视频模型 catalog (default, then backups). Use when the user asks to make or generate a video.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Video description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
@@ -2417,6 +2425,12 @@ func createTurnFailureNotice(tools []string, assistantText string) string {
 	if triedMedia {
 		return "这次没能开始播放。你可以再说「随便放一首」或具体歌名让我再试。\n"
 	}
+	for _, name := range tools {
+		switch name {
+		case "excel.gen", "docx.gen", "pptx.gen", "pdf.gen":
+			return "文件没写成功。放到桌面请用 excel.gen/docx.gen/pptx.gen 并设 desktop=true（不要 command.run 或 COM）。\n"
+		}
+	}
 	if usedVision {
 		return "这次没能通过看屏幕完成操作。播放音乐请让我用 media.play，你可以再说「随便放一首」。\n"
 	}
@@ -2430,7 +2444,7 @@ func hasActingComputerTool(tools []string) bool {
 	for _, name := range tools {
 		switch name {
 		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "web.search", "browser.act", "browser.open",
-			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "media.play", "image.generate", "video.generate":
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "desktop.type", "media.play", "image.generate", "video.generate":
 			return true
 		}
 		if strings.HasPrefix(name, "cc.") {
@@ -2454,7 +2468,7 @@ func assistantTextContainsDone(text string) bool {
 
 const (
 	turnInterruptNotice   = "终止打断了"
-	turnErrorNotice       = "出错了，无法完成。"
+	turnErrorNotice       = "无法执行。"
 	duplicateToolResult   = "already done this turn"
 	expertSectionMaxRunes = 2500
 )
@@ -2481,9 +2495,21 @@ func turnOutcomeNotice(cancelling bool, err error) string {
 		return turnInterruptNotice
 	}
 	if err != nil {
-		return turnErrorNotice
+		return turnErrorNotice + turnFailureCause(err)
 	}
 	return ""
+}
+
+func turnFailureCause(err error) string {
+	se := chatStreamError(err)
+	switch se.Code {
+	case "UPSTREAM_TIMEOUT":
+		return "请求超时。写桌面文件请用 excel.gen/docx.gen 并设 desktop=true，表格用月度汇总。"
+	case "ASSISTANT_RESPONSE_TOO_LARGE", "REQUEST_TOO_LARGE":
+		return "回复或工具参数过大。请改用 excel.gen/docx.gen（desktop=true）并减少行数。"
+	default:
+		return "模型结果不完整。写到桌面请用对应 *.gen 工具并设 desktop=true，不要用 command.run。"
+	}
 }
 
 func appendAssistantNotice(existing, notice string) (next, delta string) {
@@ -2564,7 +2590,7 @@ func collectExpertIDs(mounted []string, texts ...string) []string {
 	return ids
 }
 
-func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, explicit []gateway.Message, turnText string) string {
+func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _ []gateway.Message, turnText string) string {
 	if e.m8expert == nil {
 		return ""
 	}
@@ -2577,14 +2603,12 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, e
 			mounted = ids
 		}
 	}
-	var texts []string
-	for _, m := range explicit {
-		texts = append(texts, m.Content)
-	}
+	turn := strings.TrimSpace(turnText)
+	last := ""
 	if sessionID != "" && e.messageReader != nil {
-		texts = append(texts, e.peekLastUserMessage(ctx, sessionID))
+		last = e.peekLastUserMessage(ctx, sessionID)
 	}
-	ids := collectExpertIDs(mounted, texts...)
+	ids := selectedTurnExpertIDs(mounted, turn, last)
 	if len(ids) == 0 {
 		return ""
 	}

@@ -73,6 +73,9 @@ func isPlayControlName(name string) bool {
 	if strings.Contains(n, "列表") || strings.Contains(n, "队列") || strings.Contains(n, "历史") || strings.Contains(n, "全部") {
 		return false
 	}
+	if strings.Contains(n, "随机") || n == "shuffle" || strings.Contains(n, "shuffle") {
+		return true
+	}
 	switch n {
 	case "播放", "play", "开始播放", "播放/暂停", "play/pause", "play pause":
 		return true
@@ -89,7 +92,7 @@ func isPauseControlName(name string) bool {
 }
 
 func pickPlayControl(nodes []mediaUINode) *mediaUINode {
-	var best *mediaUINode
+	var shuffle, play *mediaUINode
 	bestY := -1
 	for i := range nodes {
 		n := &nodes[i]
@@ -100,12 +103,20 @@ func pickPlayControl(nodes []mediaUINode) *mediaUINode {
 		if role != "" && role != "button" && role != "menuitem" && role != "link" {
 			continue
 		}
+		name := foldMedia(n.Name)
+		if strings.Contains(name, "随机") || strings.Contains(name, "shuffle") {
+			shuffle = n
+			continue
+		}
 		if n.Y >= bestY {
 			bestY = n.Y
-			best = n
+			play = n
 		}
 	}
-	return best
+	if shuffle != nil {
+		return shuffle
+	}
+	return play
 }
 
 func pickPauseControl(nodes []mediaUINode) *mediaUINode {

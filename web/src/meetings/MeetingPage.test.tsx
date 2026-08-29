@@ -38,7 +38,11 @@ vi.mock('./meetingAsr', () => ({
     return speech.start(options)
   },
   prepareMeetingCapture: (...args: unknown[]) => speech.prepare(...args),
+  recoverMeetingSystemAudio: (plan: { extraStreams: unknown[]; audioSource: string; notice: string }) => Promise.resolve(plan),
   releaseMeetingCapture: vi.fn(),
+  planHasLiveSystemAudio: (plan?: { extraStreams?: { getAudioTracks?: () => { readyState?: string }[] }[] }) =>
+    !!plan?.extraStreams?.some(stream => (stream.getAudioTracks?.() ?? []).some(track => track.readyState !== 'ended')),
+  captureStateNotice: (plan?: { notice?: string; audioSource?: string }) => plan?.notice ?? '',
   audioSourceLabel: (source: string, live?: boolean) => source === 'microphone_and_system'
     ? (live ? '正在录制本机麦克风和系统声音' : '本机麦克风 + 本机系统声音（未共享给其他电脑）')
     : (live ? '正在录制本机麦克风' : '仅本机麦克风，未混录系统扬声器'),
@@ -224,6 +228,84 @@ describe('MeetingPage', () => {
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
     speech.onFinal?.('继续对齐')
     expect(await screen.findByText('继续对齐')).toBeInTheDocument()
+  })
+
+  test('list duration follows the live clock while recording', async () => {
+    const startedAt = new Date(Date.now() - 59_000).toISOString()
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, startedAt, title: '会议 2026-08-29 09:11' }
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      heartbeat: vi.fn().mockResolvedValue({ ...started, durationMs: 59_000 }),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    await vi.waitFor(() => expect(meetings.heartbeat).toHaveBeenCalledWith({ meetingId }))
+    await vi.waitFor(() => {
+      expect(screen.getAllByText(/0:59|1:00/).length).toBeGreaterThanOrEqual(2)
+      expect(screen.queryByText(/· 0:00 ·/)).not.toBeInTheDocument()
+    })
+  })
+
+  test('restarts speech after the system-audio track ends without dropping the meeting', async () => {
+    const listeners = new Map<string, () => void>()
+    const track = {
+      kind: 'audio',
+      readyState: 'live',
+      addEventListener: (name: string, fn: () => void) => { listeners.set(name, fn) },
+      removeEventListener: (name: string) => { listeners.delete(name) },
+      stop: vi.fn(),
+    }
+    const extra = { getAudioTracks: () => [track], getTracks: () => [track] }
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0, audioSource: 'microphone_and_system' }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
+    speech.prepare.mockResolvedValue({ extraStreams: [extra], audioSource: 'microphone_and_system', notice: '' })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('checkbox', { name: '同时收录本机系统声音' }))
+    await user.click(screen.getByRole('button', { name: '开始' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(speech.start).toHaveBeenCalledOnce()
+    listeners.get('ended')?.()
+    await vi.waitFor(() => expect(speech.start).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+  })
+
+  test('summarize timeout leaves retry instead of spinning 生成纪要中', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const stopped: MeetingDTO = { ...started, status: 'transcribed', transcript: '只有逐字稿' }
+    const pending: MeetingDTO = { ...stopped, status: 'needs_summary', summaryError: '尚未生成摘要：context deadline exceeded' }
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      stop: vi.fn().mockResolvedValue(stopped),
+      summarize: vi.fn().mockRejectedValue(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, 'trace')),
+      get: vi.fn().mockResolvedValue(pending),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始' }))
+    await user.click(await screen.findByRole('button', { name: '停止' }))
+    expect(await screen.findByRole('button', { name: '重试生成摘要' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/尚未生成摘要|超时/)
+    expect(screen.queryByText('生成纪要中')).not.toBeInTheDocument()
+  })
+
+  test('abandoned summarizing on open offers retry after get flips', async () => {
+    const hung: MeetingDTO = { ...base, status: 'summarizing', transcript: '稿' }
+    const pending: MeetingDTO = { ...hung, status: 'needs_summary', summaryError: '摘要生成中断，逐字稿已保存。可重试生成摘要。' }
+    const meetings = bridge({
+      list: vi.fn().mockResolvedValue({ items: [hung] }),
+      get: vi.fn().mockResolvedValue(pending),
+    })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByText('周会'))
+    expect(await screen.findByRole('button', { name: '重试生成摘要' })).toBeInTheDocument()
+    expect(screen.getByText(/尚未生成摘要/)).toBeInTheDocument()
   })
 
   test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {

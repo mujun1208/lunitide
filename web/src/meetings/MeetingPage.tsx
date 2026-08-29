@@ -3,8 +3,12 @@ import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, ty
 import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, prepareMeetingCapture, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { watchAudioTrackEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
+
+const SUMMARIZE_POLL_MS = 4_000
+const SYSTEM_AUDIO_RECOVER_MS = 15_000
 
 const MIX_KEY = 'lunitide:meeting-include-system-audio'
 
@@ -80,9 +84,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const captureRef = useRef<MeetingCapturePlan | undefined>(undefined)
   const tickRef = useRef<number>(0)
   const heartbeatRef = useRef<number>(0)
+  const recoverRef = useRef<number>(0)
+  const summarizePollRef = useRef<number>(0)
+  const unwatchRef = useRef<() => void>(() => undefined)
   const speechGen = useRef(0)
   const appendChain = useRef(Promise.resolve())
   const currentIdRef = useRef('')
+  const includeSystemRef = useRef(includeSystem)
+  includeSystemRef.current = includeSystem
 
   const refresh = useCallback(async () => {
     const listed = await meetings.list()
@@ -105,10 +114,45 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const attachSpeech = async (meeting: MeetingDTO, plan: MeetingCapturePlan) => {
     captureRef.current = plan
     const gen = ++speechGen.current
+    const bindSystemWatch = (live: MeetingCapturePlan) => {
+      unwatchRef.current()
+      const unsubs = live.extraStreams.map(stream => watchAudioTrackEnded(stream, () => {
+        if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+        void recoverAndRelisten()
+      }))
+      unwatchRef.current = () => unsubs.forEach(stop => stop())
+    }
+    const recoverAndRelisten = async () => {
+      if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      const recovered = await recoverMeetingSystemAudio(captureRef.current, { interactive: false })
+      if (speechGen.current !== gen) {
+        if (recovered !== captureRef.current) releaseMeetingCapture(recovered)
+        return
+      }
+      captureRef.current = recovered
+      bindSystemWatch(recovered)
+      const notice = captureStateNotice(recovered)
+      if (notice) setNotice(notice)
+      else setNotice(prev => /系统声音|共享音频|立体声混音/.test(prev) ? '' : prev)
+      speechRef.current?.stop()
+      speechRef.current = null
+      await listen()
+    }
     const listen = async () => {
       if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      let livePlan = captureRef.current ?? plan
+      if (includeSystemRef.current && !planHasLiveSystemAudio(livePlan)) {
+        const recovered = await recoverMeetingSystemAudio(livePlan, { interactive: false })
+        if (speechGen.current !== gen) {
+          if (recovered !== livePlan) releaseMeetingCapture(recovered)
+          return
+        }
+        livePlan = recovered
+        captureRef.current = livePlan
+      }
+      bindSystemWatch(livePlan)
       const handle = await startMeetingSpeech({
-        extraStreams: plan.extraStreams,
+        extraStreams: livePlan.extraStreams,
         duplex: true,
         spokenText: () => '',
         onFinal: text => {
@@ -150,7 +194,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         return
       }
       speechRef.current = handle
-      if (plan.notice) setNotice(plan.notice)
+      const notice = captureStateNotice(livePlan) || livePlan.notice
+      if (notice) setNotice(notice)
     }
     await listen()
   }
@@ -202,20 +247,70 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
     const id = current.meetingId
     const pulse = () => {
-      void meetings.heartbeat({ meetingId: id }).catch(() => undefined)
+      void meetings.heartbeat({ meetingId: id }).then(next => {
+        if (currentIdRef.current !== id) return
+        setCurrent(value => value && value.meetingId === id ? { ...value, durationMs: next.durationMs, updatedAt: next.updatedAt } : value)
+        setItems(values => values.map(item => item.meetingId === id ? { ...item, durationMs: next.durationMs, updatedAt: next.updatedAt } : item))
+      }).catch(() => undefined)
     }
     pulse()
     heartbeatRef.current = window.setInterval(pulse, MEETING_HEARTBEAT_INTERVAL_MS)
     return () => window.clearInterval(heartbeatRef.current)
   }, [current?.status, current?.meetingId, meetings])
 
+  useEffect(() => {
+    const live = current
+    if (live?.status !== 'recording' || !includeSystem) {
+      window.clearInterval(recoverRef.current)
+      return
+    }
+    const tick = () => {
+      if (planHasLiveSystemAudio(captureRef.current)) return
+      void recoverMeetingSystemAudio(captureRef.current, { interactive: false }).then(recovered => {
+        if (currentIdRef.current !== live.meetingId) {
+          if (recovered !== captureRef.current) releaseMeetingCapture(recovered)
+          return
+        }
+        if (!planHasLiveSystemAudio(recovered) || recovered === captureRef.current) return
+        captureRef.current = recovered
+        setNotice('')
+        speechRef.current?.stop()
+        speechRef.current = null
+        void attachSpeech(live, recovered).catch(() => undefined)
+      })
+    }
+    recoverRef.current = window.setInterval(tick, SYSTEM_AUDIO_RECOVER_MS)
+    return () => window.clearInterval(recoverRef.current)
+  }, [current?.status, current?.meetingId, includeSystem])
+
+  useEffect(() => {
+    if (current?.status !== 'summarizing' || !current.meetingId) {
+      window.clearInterval(summarizePollRef.current)
+      return
+    }
+    const id = current.meetingId
+    const pulse = () => {
+      void meetings.get({ meetingId: id }).then(next => {
+        if (currentIdRef.current !== id) return
+        if (next.status !== 'summarizing') adopt(next)
+        else setItems(values => values.map(item => item.meetingId === id ? { ...item, status: next.status, updatedAt: next.updatedAt } : item))
+      }).catch(() => undefined)
+    }
+    pulse()
+    summarizePollRef.current = window.setInterval(pulse, SUMMARIZE_POLL_MS)
+    return () => window.clearInterval(summarizePollRef.current)
+  }, [current?.status, current?.meetingId, meetings])
+
   useEffect(() => () => {
     speechGen.current += 1
     speechRef.current?.stop()
     speechRef.current = null
+    unwatchRef.current()
     releaseMeetingCapture(captureRef.current)
     window.clearInterval(tickRef.current)
     window.clearInterval(heartbeatRef.current)
+    window.clearInterval(recoverRef.current)
+    window.clearInterval(summarizePollRef.current)
   }, [])
 
   const start = async () => {
@@ -238,6 +333,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       speechGen.current += 1
       speechRef.current?.stop()
       speechRef.current = null
+      unwatchRef.current()
       releaseMeetingCapture(plan)
       captureRef.current = undefined
       if (!isCanceled(error) && !(error instanceof DOMException && (error.name === 'AbortError' || error.name === 'NotAllowedError'))) {
@@ -262,18 +358,25 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       /* last utterance still flushed below */
     }
     handle?.stop()
+    unwatchRef.current()
     releaseMeetingCapture(captureRef.current)
     captureRef.current = undefined
     setInterim('')
     try {
       await appendChain.current
       const stopped = await meetings.stop({ meetingId: current.meetingId })
-      adopt(stopped)
+      adopt({ ...stopped, status: 'summarizing' })
       const notes = await meetings.summarize({ meetingId: current.meetingId })
       adopt(notes)
       setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要，逐字稿已保存。')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法结束录制')
+      try {
+        const latest = await meetings.get({ meetingId: current.meetingId })
+        adopt(latest)
+        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
+      } catch {
+        setNotice(error instanceof Error ? error.message : '无法结束录制')
+      }
     } finally {
       setBusy(false)
     }
@@ -288,7 +391,13 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       adopt(notes)
       setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法生成摘要')
+      try {
+        const latest = await meetings.get({ meetingId: current.meetingId })
+        adopt(latest)
+        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
+      } catch {
+        setNotice(error instanceof Error ? error.message : '无法生成摘要')
+      }
     } finally {
       setBusy(false)
     }
@@ -374,7 +483,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
               onClick={() => void open(item.meetingId)}
             >
               <b>{item.title}</b>
-              <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.durationMs)} · {STATUS[item.status]}</small>
+              <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.status === 'recording' && item.meetingId === current?.meetingId ? elapsed : item.durationMs)} · {STATUS[item.status]}</small>
             </button>
             {item.status !== 'recording' && (
               <button type="button" className="meeting-row-delete" aria-label={`删除 ${item.title}`} onClick={() => setDeleteTarget(item)}>删除</button>
@@ -387,7 +496,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         <header className="meeting-hero">
           <div>
             <h2>{current?.title || '新的会议'}</h2>
-            <p>点击开始后进入实时转写。系统声音走本机屏幕/窗口选择（只为收录声音，画面不保存）。结束后生成摘要、待办和逐字稿，可导出。</p>
+            <p>点击开始后进入实时转写。系统声音优先走立体声混音，否则请选择整个屏幕并勾选共享音频（只为收录声音，画面不保存）。结束后生成摘要、待办和逐字稿，可导出。</p>
           </div>
           <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording ? elapsed : current?.durationMs ?? 0)}</div>
         </header>
@@ -408,7 +517,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             />
             同时收录本机系统声音
           </label>
-          <span>{recording ? audioSourceLabel(current?.audioSource, true) : includeSystem ? '开始时请在窗口选择器里点腾讯会议、飞书或浏览器标签页，以便收录对面说话（本机环回，取消则不会开这场会）' : audioSourceLabel('microphone')}</span>
+          <span>{recording ? audioSourceLabel(current?.audioSource, true) : includeSystem ? '开始时请选择整个屏幕并勾选共享音频（不要点飞书窗口；窗口分享通常没有声音）。也可启用立体声混音。取消则不会开这场会。' : audioSourceLabel('microphone')}</span>
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">
@@ -432,7 +541,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             </section>
             <p className="meeting-empty">{audioSourceLabel(source)}</p>
             <div className="meeting-export">
-              {current.status === 'needs_summary' || current.status === 'transcribed' ? (
+              {current.status === 'needs_summary' || current.status === 'transcribed' || current.status === 'summarizing' ? (
                 <button type="button" disabled={busy} onClick={() => void retry()}>重试生成摘要</button>
               ) : null}
               <button type="button" disabled={busy} onClick={() => void persistEdits().then(() => setNotice('纪要已保存')).catch(error => setNotice(error instanceof Error ? error.message : '无法保存'))}>保存编辑</button>

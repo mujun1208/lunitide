@@ -92,3 +92,76 @@ func TestOfficeGenGuardsAndContainment(t *testing.T) {
 		t.Fatal("read-only office tool created workspace")
 	}
 }
+
+func TestOfficeGenDesktopNeedsUnconfined(t *testing.T) {
+	r, _ := New(t.TempDir())
+	defer r.Close()
+	args := json.RawMessage(`{"path":"半年财报.xlsx","desktop":true,"sheets":[{"name":"S","headers":["月"],"rows":[["1月"]]}]}`)
+	if _, err := r.Execute(context.Background(), FullAccess, officeSession, "excel.gen", args, false); err == nil {
+		t.Fatal("desktop write escaped confined runtime")
+	}
+}
+
+func TestOfficeGenDesktopArtifactPath(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	enableFullDisk(t, r)
+	desktop, err := userDesktopDir()
+	if err != nil {
+		t.Skip("desktop folder not found:", err)
+	}
+	cases := []struct {
+		tool   string
+		name   string
+		kind   string
+		args   map[string]any
+	}{
+		{"excel.gen", "半年财报.xlsx", "xlsx", map[string]any{
+			"path": "半年财报.xlsx", "desktop": true,
+			"sheets": []any{map[string]any{"name": "S", "headers": []any{"月"}, "rows": []any{[]any{"1月", 10}}}},
+		}},
+		{"docx.gen", "半年报告.docx", "docx", map[string]any{
+			"path": "半年报告.docx", "desktop": true, "title": "半年报告",
+			"blocks": []any{map[string]any{"type": "paragraph", "text": "摘要"}},
+		}},
+		{"pptx.gen", "结构.pptx", "pptx", map[string]any{
+			"path": "结构.pptx", "desktop": true, "title": "结构",
+			"slides": []any{map[string]any{"title": "封面", "layout": "title"}},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			target := filepath.Join(desktop, tc.name)
+			t.Cleanup(func() { _ = os.Remove(target) })
+			raw, _ := json.Marshal(tc.args)
+			out, err := r.ExecuteUnconfined(context.Background(), officeSession, tc.tool, raw, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "desktop/" + tc.name
+			if out.Artifact == nil || out.Artifact.Kind != tc.kind || out.Artifact.Path != want {
+				t.Fatalf("artifact = %+v want %s %s", out.Artifact, tc.kind, want)
+			}
+			if strings.Contains(out.Artifact.Path, `:\`) || strings.Contains(out.Artifact.Path, `\`) {
+				t.Fatalf("absolute path leaked: %+v", out.Artifact)
+			}
+			resolved, err := r.ResolveSessionArtifact(officeSession, out.Artifact.Path)
+			if err != nil || resolved != target {
+				t.Fatalf("ResolveSessionArtifact = %q err=%v want %q", resolved, err, target)
+			}
+			if _, err := os.Stat(target); err != nil {
+				t.Fatalf("desktop write failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestDesktopPreviewPathStripsDrive(t *testing.T) {
+	got := desktopPreviewPath(`C:\Users\a\Desktop\半年财报.xlsx`, true, "workbook.xlsx")
+	if !strings.HasPrefix(got, "desktop/") || strings.Contains(got, `\`) {
+		t.Fatalf("preview = %q", got)
+	}
+}

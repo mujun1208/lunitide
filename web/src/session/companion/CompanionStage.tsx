@@ -23,7 +23,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionReplyStallMs, handsFreeRetryDelayMs, isOmniUnavailableNotice, looksLikeOmniPersonaCaption, looksLikeOmniUnavailable, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk, accumulateSpeakableCaption } from './companionText'
+import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionExecutingSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, isOmniUnavailableNotice, looksLikeOmniPersonaCaption, looksLikeOmniUnavailable, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk, accumulateSpeakableCaption } from './companionText'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
 import { startLocalCompanionSpeech } from './localSpeech'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
@@ -42,7 +42,7 @@ import { probeOmniChannel, startOmniCompanion, type OmniCompanionHandle } from '
 import { prepareCompanionEntry } from './prepareCompanionEntry'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
-import { useCompanionMachine, companionSurfaceState, COMPANION_STATE_LABELS } from './useCompanionMachine'
+import { useCompanionMachine, companionSurfaceState, companionStatusLabel } from './useCompanionMachine'
 
 const RECOGNIZER_DEAF_MS = 2500
 
@@ -100,6 +100,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const voiceEnergyAtRef = useRef(0)
   const interimTextRef = useRef('')
   const [deafRecognizer, setDeafRecognizer] = useState(false)
+  const deafRecoveriesRef = useRef(0)
   const [heardThisVisit, setHeardThisVisit] = useState(false)
   const [listenSeconds, setListenSeconds] = useState(0)
   const [engineHint, setEngineHint] = useState('')
@@ -364,11 +365,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     })
   }, [assistantText, chatStatus, machine.dispatch])
 
-  useEffect(() => {
-    if (chatStatus === 'done' || chatStatus === 'cancelled' || chatStatus === 'failed') {
-      userInterruptedRef.current = false
-    }
-  }, [chatStatus])
+  // Do not clear userInterruptedRef when the stream ends. A leftover
+  // done/failed event after 打断 used to restart TTS and trap 说话中.
 
   // Ensure the final reply lands in the subtitle strip even if the stream
   // flips to "done" between React renders.
@@ -433,15 +431,24 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           setGain(0)
           echoUntilRef.current = performance.now() + ECHO_GUARD_MS
           setStreamTick(t => t + 1)
-          // Only once the reply is over. Draining mid-stream means she has
-          // more to say and is waiting on the model for it; reopening the
-          // microphone there is what let her own last sentence back in.
-          if (playerRef.current?.isBusy() !== true && chatStatusRef.current !== 'streaming') {
+          const busy = playerRef.current?.isBusy() === true
+          if (reason !== 'completed' || !busy) {
             speakingRef.current = false
             setAssistantAloud(false)
             syncSpeechModesRef.current()
           }
-          if (reason !== 'completed' || playerRef.current?.isBusy()) return
+          if (reason === 'interrupted' || reason === 'circuit-broken' || reason === 'engine-unavailable') {
+            if (reason === 'engine-unavailable') {
+              setTtsAvailable(false)
+              setDegraded(true)
+            }
+            if (reason === 'circuit-broken') setCircuitBroken(true)
+            if (stateRef.current === 'speaking' && !userInterruptedRef.current) {
+              machine.dispatch({ type: 'PLAYBACK_ENDED' })
+            }
+            return
+          }
+          if (reason !== 'completed' || busy) return
           if (stateRef.current !== 'speaking') return
           if (shouldAwaitMoreReply()) machine.dispatch({ type: 'AWAIT_MORE' })
           else if (chatStatusRef.current !== 'streaming') {
@@ -476,11 +483,14 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         machine.dispatch({ type: 'REPLY_TERMINAL' })
         return
       }
-      // A turn that produced no words of her own ends on a tool's status
-      // line. Machine self-reports like 「我做完了」 are dropped; a real
-      // summary can still sit in the caption without being spoken.
       if (!reply) {
-        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: completionLine }))
+        const spoken = companionTaskCompleteSpeech(completionLine)
+        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: spoken }))
+        if (speakable) {
+          if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
+          speak(spoken)
+          return
+        }
         machine.dispatch({ type: 'REPLY_TERMINAL' })
         return
       }
@@ -567,7 +577,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       // conversation.
       if (!handledReplyRef.current && chatStatus === 'failed') {
         handledReplyRef.current = true
-        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: '抱歉，这次任务没有完成。' }))
+        const spoken = companionCannotExecuteSpeech((error ?? localError)?.message || assistantText.trim())
+        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: spoken }))
+        if (ttsAvailable !== false && settings.autoSpeak && !userInterruptedRef.current) {
+          if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
+          speak(spoken)
+          return
+        }
       }
       if (stateRef.current === 'thinking') {
         machine.dispatch({ type: 'REPLY_TERMINAL' })
@@ -636,17 +652,42 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     return (zh.find(voice => voice.gender === 'female') ?? voices.find(voice => voice.gender === 'female') ?? zh[0] ?? voices[0])?.voice_id ?? ''
   }, [settings.voiceId, voices])
 
-  // Tool-status lines used to be extra TTS clips and chopped the real
-  // reply. The model already says “稍等片刻”; keep the caption only.
+  // Tool-status: speak 正在执行 once, show the live caption, and drop
+  // 说话中 so a desktop task is never silent idle-chat.
   useEffect(() => {
-    if (chatStatus !== 'streaming') return
+    if (!companionToolsExecuting(chatStatus, activityStatus)) return
     if (userInterruptedRef.current) return
-    if (stateRef.current !== 'thinking') return
-    if (assistantText.trim()) return
     const line = activityStatus?.trim()
-    if (!line || line === '等你确认…' || line === lastActivitySpokenRef.current) return
-    lastActivitySpokenRef.current = line
-  }, [activityStatus, assistantText, chatStatus])
+    if (!line) return
+    setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: line }))
+    const spoken = companionExecutingSpeech()
+    if (spoken === lastActivitySpokenRef.current) return
+    lastActivitySpokenRef.current = spoken
+    if (stateRef.current === 'speaking') machine.dispatch({ type: 'AWAIT_MORE' })
+    playerRef.current?.interrupt()
+    speakingRef.current = false
+    setAssistantAloud(false)
+    if (ttsAvailable === false || !settings.autoSpeak) {
+      syncSpeechModesRef.current()
+      return
+    }
+    const player = ensurePlayer()
+    const voiceId = activeVoiceId()
+    player.configure(voiceId, settings.rate, settings.volume, settings)
+    speakingRef.current = true
+    setAssistantAloud(true)
+    syncSpeechModesRef.current()
+    player.enqueue([spoken], { ...settings, voiceId }, {
+      onEngineFallback: handleEngineFallback,
+      onGain: value => setGain(speakingGain(value)),
+      onFinished: () => {
+        setGain(0)
+        speakingRef.current = false
+        setAssistantAloud(false)
+        syncSpeechModesRef.current()
+      },
+    })
+  }, [activityStatus, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback])
 
   const speakChunk = useCallback(
     (text: string) => {
@@ -740,30 +781,41 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     speakingRef.current = false
     setAssistantAloud(false)
     omniTurnRef.current = false
+    interruptEchoRef.current = true
+    echoUntilRef.current = performance.now() + INTERRUPT_ECHO_MS
+    if (stateRef.current === 'speaking' || stateRef.current === 'thinking') {
+      machine.dispatch({ type: 'INTERRUPT' })
+    }
+    // INTERRUPT is batched; keep syncSpeechModes from remuting the mic
+    // while stateRef still says speaking.
+    stateRef.current = 'idle'
     omniHandleRef.current?.resumeListen()
+    captionHandleRef.current?.resumeCapture()
+    speechHandleRef.current?.resumeCapture()
     syncSpeechModesRef.current()
     setCircuitBroken(false)
     setStreamTick(0)
-    interruptEchoRef.current = true
-    echoUntilRef.current = performance.now() + INTERRUPT_ECHO_MS
-    if (stateRef.current === 'speaking') machine.dispatch({ type: 'INTERRUPT' })
   }, [machine])
 
   const cancelReply = useCallback(() => {
     onCancel?.()
-    omniHandleRef.current?.resumeListen()
     spokenUpToRef.current = 0
+    playerRef.current?.interrupt()
+    setGain(0)
     speakingRef.current = false
     setAssistantAloud(false)
     omniTurnRef.current = false
-    syncSpeechModesRef.current()
     setStreamTick(0)
-    playerRef.current?.interrupt()
-    setGain(0)
     interruptEchoRef.current = true
     echoUntilRef.current = performance.now() + INTERRUPT_ECHO_MS
-    if (stateRef.current === 'thinking') machine.dispatch({ type: 'INTERRUPT' })
-    else if (stateRef.current === 'speaking') machine.dispatch({ type: 'INTERRUPT' })
+    if (stateRef.current === 'thinking' || stateRef.current === 'speaking') {
+      machine.dispatch({ type: 'INTERRUPT' })
+    }
+    stateRef.current = 'idle'
+    omniHandleRef.current?.resumeListen()
+    captionHandleRef.current?.resumeCapture()
+    speechHandleRef.current?.resumeCapture()
+    syncSpeechModesRef.current()
   }, [machine, onCancel])
 
   const syncSpeechModes = useCallback(() => {
@@ -852,13 +904,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (issue?.code === 'CHAT_CONFIG_MISSING') {
       machine.dispatch({ type: 'REPLY_TERMINAL' })
       syncSpeechModes()
-      return
     }
-    if (chatStatus === 'failed' || chatStatus === 'cancelled') {
-      machine.dispatch({ type: 'REPLY_TERMINAL' })
-      syncSpeechModes()
-    }
-  }, [chatStatus, error, localError, machine, syncSpeechModes])
+  }, [error, localError, machine, syncSpeechModes])
 
   const beginUserTurn = useCallback(
     (transcript: string) => {
@@ -978,6 +1025,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     setLocalError(undefined)
     setEngineHint('')
     unlockTtsAudio()
+    if (settingsRef.current.voicePath === 'omni') omniFallbackRef.current = true
     if (settingsRef.current.voicePath === 'omni' && !omniFallbackRef.current) {
       if (omniHandleRef.current) {
         if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
@@ -1322,7 +1370,25 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     }
     const timer = window.setInterval(() => {
       const heardRecently = performance.now() - voiceEnergyAtRef.current < RECOGNIZER_DEAF_MS
-      setDeafRecognizer(heardRecently && !interimTextRef.current.trim())
+      const deaf = heardRecently && !interimTextRef.current.trim()
+      setDeafRecognizer(deaf)
+      if (!deaf) {
+        deafRecoveriesRef.current = 0
+        return
+      }
+      deafRecoveriesRef.current += 1
+      if (deafRecoveriesRef.current % 5 === 0) {
+        speechHandleRef.current?.pulseRecognition()
+        captionHandleRef.current?.pulseRecognition()
+      }
+      if (deafRecoveriesRef.current < 10) return
+      deafRecoveriesRef.current = 0
+      speechHandleRef.current?.stop()
+      speechHandleRef.current = undefined
+      captionHandleRef.current?.stop()
+      captionHandleRef.current = undefined
+      openingListenRef.current = false
+      startListeningRef.current(true)
     }, 500)
     return () => window.clearInterval(timer)
   }, [machine.state])
@@ -1432,13 +1498,19 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const state = stateRef.current
     if (state !== 'thinking' && state !== 'speaking') return
     userInterruptedRef.current = true
+    handledReplyRef.current = true
     cancelReply()
     autoLoopRef.current = true
-    if (!settingsRef.current.fullDuplex || !speechHandleRef.current) startListening(false)
-    else {
-      speechHandleRef.current.resumeCapture()
-      syncSpeechModes()
-      if (stateRef.current === 'idle') machine.dispatch({ type: 'MIC_ACTIVATE' })
+    stateRef.current = 'idle'
+    speakingRef.current = false
+    setAssistantAloud(false)
+    speechHandleRef.current?.resumeCapture()
+    captionHandleRef.current?.resumeCapture()
+    omniHandleRef.current?.resumeListen()
+    syncSpeechModes()
+    machine.dispatch({ type: 'MIC_ACTIVATE' })
+    if (!speechHandleRef.current && !captionHandleRef.current && !omniHandleRef.current) {
+      startListening(false)
     }
   }, [cancelReply, machine, startListening, syncSpeechModes])
 
@@ -1535,7 +1607,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   }
 
   /** A caption is live only during the turn it belongs to. */
-  const surfaceState = companionSurfaceState(machine.state, assistantAloud)
+  const executing = companionToolsExecuting(chatStatus, activityStatus)
+  const surfaceState = companionSurfaceState(machine.state, assistantAloud && !executing, executing)
   const liveCaption = surfaceState === 'listening' && !!interimText.trim()
   interimTextRef.current = interimText
 
@@ -1620,7 +1693,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       />
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${surfaceState}`} aria-hidden="true" />
-        {COMPANION_STATE_LABELS[surfaceState]}
+        {companionStatusLabel(surfaceState, executing)}
         {surfaceState === 'listening' && (
           <span className="companion-status-sub">
             {interimText.trim()
@@ -1635,11 +1708,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         {surfaceState === 'thinking' && (
           <span className="companion-status-sub">
             {activityStatus?.trim() ||
-              (assistantText.trim()
-                ? '边写边读…'
-                : chatReady
-                  ? '正在回你…'
-                  : '连接模型…')}
+              (executing
+                ? '正在执行…'
+                : assistantText.trim()
+                  ? '边写边读…'
+                  : chatReady
+                    ? '正在回你…'
+                    : '连接模型…')}
           </span>
         )}
         {surfaceState === 'speaking' && (

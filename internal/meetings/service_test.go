@@ -220,13 +220,16 @@ func TestHeartbeatKeepsRecordingAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := started.UpdatedAt
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(15 * time.Millisecond)
 	got, err := svc.Heartbeat(ctx, started.MeetingID)
 	if err != nil || got.Status != meetings.StatusRecording {
 		t.Fatalf("heartbeat = %#v %v", got, err)
 	}
 	if got.UpdatedAt == "" || got.UpdatedAt == before {
 		t.Fatalf("heartbeat did not touch updatedAt: before=%q after=%q", before, got.UpdatedAt)
+	}
+	if got.DurationMS <= 0 {
+		t.Fatalf("heartbeat duration = %d, list must not stay 0:00", got.DurationMS)
 	}
 	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
 		t.Fatal(err)
@@ -272,3 +275,113 @@ func TestSummarizeLargeTranscriptSucceedsChunked(t *testing.T) {
 	}
 }
 
+func TestSummarizeCanceledContextPersistsNeedsSummary(t *testing.T) {
+	svc := testMeetings(t)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "周会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "先对齐范围", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	ctx2, cancel := context.WithCancel(context.Background())
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		cancel()
+		<-ctx.Done()
+		return meetings.Notes{}, ctx.Err()
+	})
+	got, err := svc.Summarize(ctx2, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != meetings.StatusNeedsSummary {
+		t.Fatalf("canceled summarize = %#v", got)
+	}
+	if !strings.Contains(got.SummaryError, "尚未生成摘要") {
+		t.Fatalf("error = %q", got.SummaryError)
+	}
+}
+
+func TestGetAndListReclaimAbandonedSummarizing(t *testing.T) {
+	store, err := sqlitestore.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "meetings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := meetings.New(store)
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "卡住的会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "只有逐字稿", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.GetMeeting(ctx, started.MeetingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Status = meetings.StatusSummarizing
+	m.SummaryError = ""
+	if err := store.UpdateMeeting(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.List(ctx)
+	if err != nil || len(listed) != 1 || listed[0].Status != meetings.StatusNeedsSummary {
+		t.Fatalf("list reclaim = %#v %v", listed, err)
+	}
+	got, err := svc.Get(ctx, started.MeetingID)
+	if err != nil || got.Status != meetings.StatusNeedsSummary {
+		t.Fatalf("get reclaim = %#v %v", got, err)
+	}
+	if !strings.Contains(got.SummaryError, "可重试") {
+		t.Fatalf("error = %q", got.SummaryError)
+	}
+}
+
+func TestSummarizeInFlightIsNotReclaimed(t *testing.T) {
+	svc := testMeetings(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		close(entered)
+		<-release
+		return meetings.Notes{Title: title, Summary: "背景：进行中。\n讨论要点：范围。\n结论：完成。", Actions: "- 导出"}, nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "进行中", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "先对齐范围", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan meetings.Meeting, 1)
+	go func() {
+		got, sumErr := svc.Summarize(ctx, started.MeetingID)
+		if sumErr != nil {
+			t.Errorf("summarize: %v", sumErr)
+		}
+		done <- got
+	}()
+	<-entered
+	listed, err := svc.List(ctx)
+	if err != nil || len(listed) != 1 || listed[0].Status != meetings.StatusSummarizing {
+		t.Fatalf("in-flight list = %#v %v", listed, err)
+	}
+	close(release)
+	ready := <-done
+	if ready.Status != meetings.StatusReady {
+		t.Fatalf("ready = %#v", ready)
+	}
+}

@@ -73,3 +73,30 @@ it('mounts mermaid SVG through the parser and fits height', () => {
   expect(svg?.getAttribute('height')).toBeNull()
   expect(() => mountMermaidSvg(host, '<div>nope</div>')).toThrow(/无法解析/)
 })
+
+const PPT_STRUCTURE_GRAPH = `flowchart LR
+    A[封面<br/>穆俊 · IT公司副总] --> B[关于我<br/>基本档案]
+    B --> C[技术出身的管理者<br/>十年IT经验]
+    C --> D[职业履历<br/>从工程师到管理者]
+    D --> E[能力四维<br/>技术/团队/交付/经营]
+    E --> F[管理实践<br/>实干派业绩]
+    F --> G[愿景收尾<br/>深耕IT · 欢迎交流]`
+
+it('quotes the PPT structure graph so Chinese labels, <br/>, · and / stay in one node', () => {
+  const prepared = prepareMermaidSource(PPT_STRUCTURE_GRAPH)
+  expect(prepared).toContain('A["封面<br/>穆俊 · IT公司副总"]')
+  expect(prepared).toContain('B["关于我<br/>基本档案"]')
+  expect(prepared).toContain('E["能力四维<br/>技术/团队/交付/经营"]')
+  expect(prepared).toContain('G["愿景收尾<br/>深耕IT · 欢迎交流"]')
+  expect(prepared).not.toContain('A[封面')
+  expect(prepared).not.toContain('E[能力四维')
+})
+
+it('mounts mermaid SVG that XML would reject because of HTML <br> in foreignObject', () => {
+  const host = document.createElement('div')
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80"><g class="node"><foreignObject width="120" height="40"><div>封面<br>穆俊 · IT公司副总</div></foreignObject></g></svg>'
+  expect(() => new DOMParser().parseFromString(svg, 'image/svg+xml').querySelector('parsererror')).not.toBeUndefined()
+  mountMermaidSvg(host, svg)
+  expect(host.querySelector('svg .node')).not.toBeNull()
+  expect(host.querySelector('svg')?.textContent).toMatch(/封面/)
+})

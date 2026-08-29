@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './markdown/MermaidBlock'
@@ -95,34 +95,51 @@ export function formatTaskElapsed(ms: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
+function TaskElapsedChip({elapsed, startedAt, streaming}: {elapsed?: string; startedAt?: number; streaming?: boolean}) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!streaming || !startedAt) return
+    setNow(Date.now())
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [streaming, startedAt])
+  const label = elapsed ?? (startedAt ? formatTaskElapsed((streaming ? now : Date.now()) - startedAt) : '')
+  if (!label) return null
+  return <span className="thinking-summary-chip">耗时 {label}</span>
+}
+
 export function ThinkingPanel({
-  text, open, onToggle, status, elapsed, skillCount, searchCount, streaming, children, onCopy,
+  text, open, onToggle, status, elapsed, startedAt, skillCount, searchCount, streaming, children, onCopy,
 }: {
   text: string
   open: boolean
   onToggle: (open: boolean) => void
   status?: string
   elapsed?: string
+  startedAt?: number
   skillCount?: number
   searchCount?: number
   streaming?: boolean
   children?: React.ReactNode
   onCopy?: (value: string) => void | Promise<void>
 }) {
+  const [reasonOpen, setReasonOpen] = useState(false)
   if (!text && !children) return null
   const preview = compressThinking(text)
   return <details className="thinking-panel" open={open} onToggle={event => onToggle(event.currentTarget.open)}>
     <summary>
       <span className="thinking-summary-label">任务过程</span>
-      {elapsed && <span className="thinking-summary-chip">耗时 {elapsed}</span>}
+      <TaskElapsedChip elapsed={elapsed} startedAt={startedAt} streaming={streaming} />
       {!!skillCount && <span className="thinking-summary-chip">已调用 {skillCount} 次技能</span>}
       {!!searchCount && <span className="thinking-summary-chip">已搜索 {searchCount} 次网页</span>}
       {status && <span className="thinking-summary-status">{status}</span>}
     </summary>
     <div className="thinking-content">
-      {text && <details className="thinking-reasoning-fold" open={false}>
+      {text && <details className="thinking-reasoning-fold" open={reasonOpen} onToggle={event => setReasonOpen(event.currentTarget.open)}>
         <summary>思考{preview && <em>{streaming ? preview : compressThinking(text, 48)}</em>}</summary>
-        <div className="thinking-reasoning"><MarkdownMessage text={text} onCopy={onCopy} /></div>
+        <div className={`thinking-reasoning${streaming ? ' is-live' : ''}`}>
+          {reasonOpen ? (streaming ? <pre className="thinking-live-text">{text}</pre> : <MarkdownMessage text={text} onCopy={onCopy} />) : null}
+        </div>
       </details>}
       {children}
     </div>

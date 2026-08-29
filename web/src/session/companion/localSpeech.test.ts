@@ -9,6 +9,7 @@ const asr = {
   cancel: vi.fn(),
   commit: vi.fn(),
   setMuted: vi.fn(),
+  restart: vi.fn(),
 }
 
 let onTranscript: (text: string, final: boolean) => void = () => {}
@@ -388,5 +389,14 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onInterim).toHaveBeenCalledWith('下一句你好吗')
     await vi.advanceTimersByTimeAsync(400)
     expect(stage.onFinal).not.toHaveBeenCalled()
+  })
+
+  it('restarts a silent local recognizer on pulse instead of waiting forever', async () => {
+    const stage = harness()
+    asr.restart.mockResolvedValue(undefined)
+    const handle = await startLocalCompanionSpeech(stage.options)
+    handle.pulseRecognition()
+    await Promise.resolve()
+    expect(asr.restart).toHaveBeenCalled()
   })
 })

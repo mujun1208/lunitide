@@ -356,7 +356,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
   test('interrupt button and Tab shortcut stop speaking without exiting', async () => {
     const onSend = vi.fn()
     const onExit = vi.fn()
-    speech.start.mockResolvedValue(speech.handle())
+    const handle = speech.handle()
+    speech.start.mockResolvedValue(handle)
     const { container, rerender } = await renderStage({ onSend, onExit })
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     await act(async () => {
@@ -377,6 +378,13 @@ describe('MC-06 state distinguishability + live announcements', () => {
     fireEvent.click(interruptBtn)
     await waitFor(() => expect(tts.interrupts).toBe(1))
     expect(onExit).not.toHaveBeenCalled()
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    expect(statusRegion(container).textContent).toContain('聆听中')
+    expect(handle.resumeCapture).toHaveBeenCalled()
+    await act(async () => {
+      speech.callbacks!.onFinal('下一句你好吗')
+    })
+    expect(onSend).toHaveBeenLastCalledWith('下一句你好吗')
   })
 
   test('voice does not interrupt speaking; only the interrupt control does', async () => {

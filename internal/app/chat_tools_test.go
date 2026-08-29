@@ -251,17 +251,23 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 		t.Fatal("html.gen missing from engine tools")
 	}
 	foundOpen := false
+	foundType := false
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "desktop.open" {
 			foundOpen = true
-			break
+		}
+		if d.Name == "desktop.type" {
+			foundType = true
 		}
 	}
 	if !foundOpen {
 		t.Fatal("desktop.open missing from engine tools")
 	}
+	if !foundType {
+		t.Fatal("desktop.type missing from engine tools")
+	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "image.generate" || d.Name == "video.generate" {
+		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" {
 			t.Fatal("subagents must not receive html.gen, desktop.open, or media generation tools")
 		}
 	}
@@ -273,6 +279,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	}
 	if !strings.Contains(bundledWorkflowInjection(), "desktop.open") || !strings.Contains(bundledWorkflowInjection(), "闭环") {
 		t.Fatal("desktop open and closed-loop workflow missing")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "desktop.type") || !strings.Contains(bundledWorkflowInjection(), "证件号码") {
+		t.Fatal("desktop type-after-label workflow missing")
 	}
 	if !strings.Contains(bundledWorkflowInjection(), "cc.observe_dialog") || !strings.Contains(bundledWorkflowInjection(), "cc.confirm_dialog") {
 		t.Fatal("dialog confirm workflow missing")
@@ -309,6 +318,27 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	}
 	if !strings.Contains(chatRichMarkdownInstruction(), "subgraph") || !strings.Contains(chatRichMarkdownInstruction(), "ASCII") {
 		t.Fatal("mermaid instruction must prefer flowchart subgraphs over ASCII boxes")
+	}
+	if !strings.Contains(chatRichMarkdownInstruction(), `A["封面<br/>副标题"]`) || !strings.Contains(chatRichMarkdownInstruction(), "禁止裸写") {
+		t.Fatal("mermaid instruction must require quoted labels with <br/>")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "desktop=true") || !strings.Contains(bundledWorkflowInjection(), "半年财报.xlsx") {
+		t.Fatal("office desktop workflow must use *.gen desktop=true")
+	}
+	for _, name := range []string{"excel.gen", "docx.gen", "pptx.gen", "pdf.gen"} {
+		found := false
+		for _, d := range engineToolDefinitions() {
+			if d.Name != name {
+				continue
+			}
+			found = true
+			if !strings.Contains(string(d.Schema), `"desktop"`) || !strings.Contains(d.Description, "desktop=true") {
+				t.Fatalf("%s must advertise desktop=true", name)
+			}
+		}
+		if !found {
+			t.Fatalf("%s missing from engine tools", name)
+		}
 	}
 }
 

@@ -57,25 +57,25 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		}, "\n")
 		switch item.ID {
 		case "ppt-expert":
-			for _, needle := range []string{"大纲", "视觉层级", "演讲备注", "pptx.gen", "结构"} {
+			for _, needle := range []string{"大纲", "视觉层级", "演讲备注", "pptx.gen", "结构", "desktop=true", `A["封面<br/>副标题"]`} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("PPT专家 missing %q", needle)
 				}
 			}
 		case "report-writer":
-			for _, needle := range []string{"去AI味", "结构", "赋能", "首先/其次", "翻译腔", "docx.gen"} {
+			for _, needle := range []string{"去AI味", "结构", "赋能", "首先/其次", "翻译腔", "docx.gen", "desktop=true"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("报告编写专家 missing %q", needle)
 				}
 			}
 		case "novel-writer":
-			for _, needle := range []string{"去AI味", "人物", "场景", "虚构", "不是工作报告"} {
+			for _, needle := range []string{"去AI味", "人物", "场景", "虚构", "不是工作报告", "desktop=true", "docx.gen"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("小说编写专家 missing %q", needle)
 				}
 			}
 		case "excel-maker":
-			for _, needle := range []string{"excel.gen", "冻结", "公式", "表头"} {
+			for _, needle := range []string{"excel.gen", "冻结", "公式", "表头", "desktop=true", "月度汇总"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("Excel表格制作专家 missing %q", needle)
 				}

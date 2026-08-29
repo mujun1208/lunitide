@@ -20,7 +20,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'appearance', icon: '◐', label: '外观', keywords: '主题 星光 月光 密度 动效 动画' },
   { id: 'profile', icon: '☺', label: '个人资料', keywords: '昵称 头像 状态 部门 职位 组织 局域网 发现 配对 密码 名片' },
   { id: 'providers', icon: '◈', label: '模型与供应商', keywords: '模型 API Key 供应商 BYOK endpoint 视觉 生图 生视频 OCR LLM' },
-  { id: 'voice', icon: '◉', label: '语音与麦克风', keywords: '月伴 TTS ASR 朗读 麦克风 MiniCPM 全双工 音色 云端 本地模型 人生' },
+  { id: 'voice', icon: '◉', label: '语音与麦克风', keywords: '月伴 TTS ASR 朗读 麦克风 全双工 音色 云端 本地 晓晓 sherpa GPT-SoVITS 克隆 人生' },
   { id: 'personal', icon: '✧', label: '个人智能', keywords: '记忆 偏好 专家 画像' },
   { id: 'security', icon: '⛨', label: '安全与治理', keywords: '命令白名单 编码 技能 MCP 权限 审批 hooks 全盘' },
   { id: 'browser', icon: '⬟', label: '浏览器', keywords: 'Playwright Chrome 探测 snapshot 浏览' },
