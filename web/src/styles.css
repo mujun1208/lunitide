@@ -1844,7 +1844,7 @@ html[data-theme="light"] .voice-path-card:hover,html[data-theme="light"] .voice-
 .persona-card.on{border-color:color-mix(in srgb,var(--glow) 50%,var(--rule));background:rgba(127,180,255,.08)}
 .persona-card b{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .persona-card small{color:var(--muted);font-size:10px}
-.setting-select,.setting-input{min-height:36px;border-radius:8px;border-color:var(--rule);background:var(--bg2)}
+.im-channel-row{align-items:start}
 .omni-note{margin:0;padding:0 16px 16px;color:var(--muted);font-size:12px;line-height:1.55}
 .profile-panel{container-type:inline-size;container-name:profile;display:grid;gap:10px;max-width:720px;min-width:0;padding:0 0 16px}
 .profile-panel>.setting-group{margin-bottom:0;min-width:0}

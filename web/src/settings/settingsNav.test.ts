@@ -15,6 +15,8 @@ describe('settings nav search and groups', () => {
     expect(filterSettingsNav('晓晓').map(c => c.id)).toEqual(['voice'])
     expect(filterSettingsNav('sherpa').map(c => c.id)).toEqual(['voice'])
     expect(filterSettingsNav('生图').map(c => c.id)).toEqual(['providers'])
+    expect(filterSettingsNav('飞书').map(c => c.id)).toEqual(['channels'])
+    expect(filterSettingsNav('webhook').map(c => c.id)).toEqual(['channels'])
     expect(filterSettingsNav('没有这个设置项xyz').length).toBe(0)
   })
 })

@@ -17,8 +17,9 @@ const (
 	catchupSlackMS = 15_000
 	// Skip the last live utterance's start so catch-up does not repeat it.
 	catchupOverlapMS = 4_000
-	// Mandarin meetings below this density are probably fragmentary live captions.
-	minTranscriptCharsPerSec = 2.0
+	// Keep live captions at or above this size. A 10-minute meeting with a
+	// screen of lyrics is well above it; two short fragments are not.
+	minKeepLiveCaptions = 80
 )
 
 var catchupJobDeadline = 9 * time.Minute
@@ -33,27 +34,15 @@ func (s *Service) SetAudioTranscriber(fn AudioTranscriber) { s.transcribe = fn }
 
 func (s *Service) SetAudioRoot(dir string) { s.audioRoot = strings.TrimSpace(dir) }
 
-// transcriptTooSparse flags live captions that kept pace but are far too short
-// for the recorded audio — common when streaming ASR drops most of a turn.
-func transcriptTooSparse(audioMS int64, transcript string) bool {
-	if audioMS < 60_000 {
-		return false
-	}
-	text := strings.TrimSpace(transcript)
-	if text == "" {
-		return true
-	}
-	secs := float64(audioMS) / 1000
-	if secs <= 0 {
-		return false
-	}
-	return float64(utf8.RuneCountInString(text))/secs < minTranscriptCharsPerSec
+func liveCaptionRunes(transcript string) int {
+	return utf8.RuneCountInString(strings.TrimSpace(transcript))
 }
 
-// shouldReplaceLiveCaptions drops fragmentary live captions only when they kept
-// pace with the recording clock. A large audio gap still needs append-only catch-up.
+// shouldReplaceLiveCaptions drops scraps only when they kept pace with the
+// clock. A large audio gap still needs append-only catch-up so earlier live
+// lines are kept. Do not wipe a usable transcript to re-decode the whole WAV.
 func shouldReplaceLiveCaptions(audioMS, lastSegmentMS int64, transcript string) bool {
-	if !transcriptTooSparse(audioMS, transcript) {
+	if liveCaptionRunes(transcript) >= minKeepLiveCaptions {
 		return false
 	}
 	return audioMS-lastSegmentMS <= catchupSlackMS
@@ -67,10 +56,10 @@ func NeedsCatchup(audioMS, lastSegmentMS int64, hasTranscript bool, transcript s
 	if !hasTranscript {
 		return true
 	}
-	if transcriptTooSparse(audioMS, transcript) {
+	if audioMS-lastSegmentMS > catchupSlackMS {
 		return true
 	}
-	return audioMS-lastSegmentMS > catchupSlackMS
+	return liveCaptionRunes(transcript) < minKeepLiveCaptions
 }
 
 func lastSegmentWatermark(segs []Segment, transcript string) (int64, bool) {

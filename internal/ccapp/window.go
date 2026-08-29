@@ -54,6 +54,42 @@ func ProtectedDesktopProcess(process string) bool {
 	return false
 }
 
+func chromeCloseName(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	n = strings.TrimRight(n, "….")
+	switch n {
+	case "关闭", "close", "关闭窗口", "关闭文档", "关闭文件", "关闭程序", "退出", "exit":
+		return true
+	}
+	return strings.HasPrefix(n, "关闭") || strings.HasPrefix(n, "close ")
+}
+
+// ChromeCloseControl is a title-bar or document-close affordance. Clicking
+// it closes the user's work; refuse unless they asked to close.
+func ChromeCloseControl(name string, y, w, h int) bool {
+	if !chromeCloseName(name) {
+		return false
+	}
+	n := strings.ToLower(strings.TrimSpace(name))
+	switch n {
+	case "关闭窗口", "关闭文档", "关闭文件", "关闭程序", "退出", "exit":
+		return true
+	}
+	if h > 0 && h <= 44 && w <= 96 && y < 56 {
+		return true
+	}
+	return n == "关闭" || n == "close"
+}
+
+func documentEditorProcess(process string) bool {
+	switch processStem(process) {
+	case "winword", "excel", "powerpnt", "onenote", "wordpad", "notepad",
+		"wps", "et", "wpp", "wpsoffice", "wpscloudsvr", "soffice", "swriter", "scalc":
+		return true
+	}
+	return false
+}
+
 func processStem(process string) string {
 	name := strings.ToLower(strings.TrimSpace(process))
 	return strings.TrimSuffix(strings.TrimSuffix(name, ".lnk"), ".exe")

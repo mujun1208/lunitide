@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 )
 
@@ -194,6 +196,9 @@ func pickLaunchTarget(query string) (string, []string, error) {
 		}
 		searches = append(searches, known.Aliases...)
 	}
+	if recalled := recallDesktopOpen(query); recalled != "" && looksLikeReopenQuery(query) {
+		return recalled, nil, nil
+	}
 	if dir, err := userDesktopDir(); err == nil {
 		for _, q := range searches {
 			path, others, err := pickDesktopNamedFile(dir, q)
@@ -216,11 +221,77 @@ func pickLaunchTarget(query string) (string, []string, error) {
 			return path, others, err
 		}
 	}
+	if recalled := recallDesktopOpen(query); recalled != "" {
+		return recalled, nil, nil
+	}
 	return "", nil, errors.New("no desktop, install path, or start-menu item matching " + strings.TrimSpace(query))
 }
 
 func openWithDefaultApp(path string) error {
-	return startOpenedPath(path, func(cmd *exec.Cmd) error { return cmd.Start() })
+	err := startOpenedPath(path, func(cmd *exec.Cmd) error { return cmd.Start() })
+	if err != nil {
+		time.Sleep(350 * time.Millisecond)
+		err = startOpenedPath(path, func(cmd *exec.Cmd) error { return cmd.Start() })
+	}
+	if err == nil {
+		rememberDesktopOpen(path)
+	}
+	return err
+}
+
+var (
+	lastDesktopOpenMu   sync.Mutex
+	lastDesktopOpenPath string
+)
+
+func rememberDesktopOpen(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	lastDesktopOpenMu.Lock()
+	lastDesktopOpenPath = path
+	lastDesktopOpenMu.Unlock()
+}
+
+func looksLikeReopenQuery(query string) bool {
+	q := foldLaunchQuery(launchQueryCore(query))
+	if q == "" {
+		q = foldLaunchQuery(query)
+	}
+	switch q {
+	case "文档", "文件", "刚才", "那个", "刚才的", "那个文档", "刚才那个", "再打开", "重新打开":
+		return true
+	}
+	return strings.Contains(q, "再打开") || strings.Contains(q, "重新打开") || strings.Contains(q, "再开一下")
+}
+
+func recallDesktopOpen(query string) string {
+	lastDesktopOpenMu.Lock()
+	path := lastDesktopOpenPath
+	lastDesktopOpenMu.Unlock()
+	if path == "" {
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	q := foldLaunchQuery(launchQueryCore(query))
+	if q == "" {
+		q = foldLaunchQuery(query)
+	}
+	if q == "" {
+		return ""
+	}
+	base := strings.ToLower(filepath.Base(path))
+	stem := strings.TrimSuffix(base, strings.ToLower(filepath.Ext(path)))
+	if looksLikeReopenQuery(query) {
+		return path
+	}
+	if strings.Contains(stem, q) || strings.Contains(base, q) || strings.Contains(q, stem) {
+		return path
+	}
+	return ""
 }
 
 // startOpenedPath launches a Desktop/Start-Menu target. Windows .exe files

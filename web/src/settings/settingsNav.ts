@@ -8,6 +8,7 @@ export type SettingsCategory =
   | 'security'
   | 'browser'
   | 'computer'
+  | 'channels'
   | 'subagents'
   | 'collab'
   | 'diagnostics'
@@ -25,6 +26,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'security', icon: '⛨', label: '安全与治理', labelEn: 'Security', keywords: '命令白名单 编码 技能 MCP 权限 审批 hooks 全盘' },
   { id: 'browser', icon: '⬟', label: '浏览器', labelEn: 'Browser', keywords: 'Playwright Chrome 探测 snapshot 浏览' },
   { id: 'computer', icon: '⌖', label: '电脑控制', labelEn: 'Computer control', keywords: '本机 桌面 键鼠 截图 UAC' },
+  { id: 'channels', icon: '✉', label: '消息通道', labelEn: 'Message channels', keywords: '飞书 企微 钉钉 微信 QQ webhook 机器人 发消息 im' },
   { id: 'subagents', icon: '⎇', label: '子智能体', labelEn: 'Subagents', keywords: '委派 spawn 并行' },
   { id: 'collab', icon: '⌘', label: '协作门禁', labelEn: 'Collaboration', keywords: '协作 门禁 审批' },
   { id: 'diagnostics', icon: '◉', label: '诊断与更新', labelEn: 'Diagnostics', keywords: '日志 更新 健康 诊断' },
@@ -34,7 +36,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
 export const SETTINGS_NAV_GROUPS: { label: string; labelEn: string; ids: SettingsCategory[] }[] = [
   { label: '界面', labelEn: 'Interface', ids: ['general', 'appearance', 'profile'] },
   { label: '智能', labelEn: 'Intelligence', ids: ['providers', 'voice', 'personal'] },
-  { label: '能力', labelEn: 'Capabilities', ids: ['security', 'browser', 'computer', 'subagents', 'collab'] },
+  { label: '能力', labelEn: 'Capabilities', ids: ['security', 'browser', 'computer', 'channels', 'subagents', 'collab'] },
   { label: '系统', labelEn: 'System', ids: ['diagnostics', 'about'] },
 ]
 

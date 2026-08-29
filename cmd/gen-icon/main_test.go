@@ -11,6 +11,34 @@ import (
 	"testing"
 )
 
+func TestRenderMoonMarkHasGapAndCloudLine(t *testing.T) {
+	img := renderMoonMark(256)
+	corner := img.RGBAAt(0, 0)
+	if corner.A != 0 {
+		t.Fatalf("canvas must be transparent, alpha=%d", corner.A)
+	}
+	moon := img.RGBAAt(128, 256*40/100)
+	if moon.A < 200 {
+		t.Fatalf("moon missing alpha=%d", moon.A)
+	}
+	gap := img.RGBAAt(128, 256*62/100)
+	if gap.A > 40 {
+		t.Fatalf("gap should be empty, alpha=%d", gap.A)
+	}
+	cloudY := 256 * 78 / 100
+	foundCloud := false
+	for dx := -50; dx <= 50; dx++ {
+		c := img.RGBAAt(128+dx, cloudY)
+		if c.A > 40 && c.B >= c.R {
+			foundCloud = true
+			break
+		}
+	}
+	if !foundCloud {
+		t.Fatalf("cloud line missing around y=%d", cloudY)
+	}
+}
+
 func TestKnockOutBlackLeavesMoonAndClouds(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	src.Set(0, 0, color.RGBA{0, 0, 0, 255})
@@ -95,5 +123,22 @@ func TestRepoIconHasTransparentFill(t *testing.T) {
 	moon := img.RGBAAt(x, yMoon)
 	if moon.A < 200 {
 		t.Fatalf("moon body vanished at (%d,%d) alpha=%d", x, yMoon, moon.A)
+	}
+	yGap := img.Bounds().Min.Y + img.Bounds().Dy()*62/100
+	gap := img.RGBAAt(x, yGap)
+	if gap.A > 40 {
+		t.Fatalf("moon/cloud gap at (%d,%d) should be open, alpha=%d", x, yGap, gap.A)
+	}
+	yCloud := img.Bounds().Min.Y + img.Bounds().Dy()*78/100
+	foundCloud := false
+	for dx := -img.Bounds().Dx() / 5; dx <= img.Bounds().Dx()/5; dx++ {
+		c := img.RGBAAt(x+dx, yCloud)
+		if c.A > 40 && c.B >= c.R {
+			foundCloud = true
+			break
+		}
+	}
+	if !foundCloud {
+		t.Fatalf("faint cloud line missing around y=%d", yCloud)
 	}
 }

@@ -30,6 +30,22 @@ func TestPickSendAndNamedEdit(t *testing.T) {
 	}
 }
 
+func TestWindowCloseIsNotASendControl(t *testing.T) {
+	if !isWindowCloseControlName("关闭") || !isWindowCloseControlName("关闭窗口") {
+		t.Fatal("close names")
+	}
+	if isSendControlName("关闭") || isSendControlName("关闭窗口") {
+		t.Fatal("close must not count as send")
+	}
+	nodes := []mediaUINode{
+		{Role: "button", Name: "关闭", Y: 8, W: 28, H: 28},
+		{Role: "button", Name: "发送", Y: 400, W: 64, H: 28},
+	}
+	if got := pickSendControl(nodes); got == nil || got.Name != "发送" {
+		t.Fatalf("send %+v", got)
+	}
+}
+
 func TestDesktopTypeFindAfterThenTypeAndSubmit(t *testing.T) {
 	mediaSleep = func(time.Duration) {}
 	t.Cleanup(func() { mediaSleep = time.Sleep })

@@ -8,8 +8,8 @@ import (
 )
 
 // Wave-2 audit actions (memory.purge / queue.input / skill.category_set ...)
-// must exist in the audit_events CHECK enum, otherwise execWithAudit rolls
-// the whole business write back at runtime.
+// and 0097 asset-library actions must exist in the audit_events CHECK enum,
+// otherwise execWithAudit rolls the whole business write back at runtime.
 func TestM10AuditActionsAccepted(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "m10-audit.db"))
@@ -23,6 +23,8 @@ func TestM10AuditActionsAccepted(t *testing.T) {
 		"memory.growth.enroll", "memory.growth.decide", "memory.purge",
 		"queue.input", "queue.withdraw", "queue.consume",
 		"skill.category_set", "skill.category_seeded",
+		"asset_template.created", "asset_template.status", "asset_template.deleted",
+		"project_deliverable.upserted", "project_deliverable.gate_confirmed", "project_attachment.created",
 	}
 	for _, action := range actions {
 		id, err := store.newULID(time.Now().UTC())

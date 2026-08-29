@@ -30,6 +30,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/imapp"
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
@@ -323,6 +324,8 @@ func main() {
 		meetingsSvc.SetAudioRoot(meetingsRoot.Path())
 	}
 	engine.SetMeetingsService(meetingsSvc)
+	imSvc := imapp.New(store)
+	engine.SetIMChannelsService(imSvc)
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
 	// never blindly retried). Failure means unreconciled jobs remain, so
@@ -384,6 +387,20 @@ func main() {
 	// M10 wave-4: the cc.* agent tools execute through the ccapp
 	// service (three-layer interception, risk gate, audit ledger).
 	tools.SetCcExecutor(ccSvc.ExecuteTool)
+	tools.SetIMSend(func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error) {
+		k, err := imapp.ParseKind(kind)
+		if err != nil {
+			return "", "", err
+		}
+		ch, msg, err := imSvc.Send(ctx, k, to, text)
+		if err != nil {
+			return "", "", err
+		}
+		if strings.HasPrefix(msg, "desktop:") {
+			return ch.DesktopApp, msg, nil
+		}
+		return "", msg, nil
+	})
 	// stdio MCP sessions sandbox under the tool workspaces tree (M6-MCP-004
 	// gate opened 2026-08-16; per-endpoint subdirectory, per-call lifetime).
 	mcpStdioRoot, err := toolRoot.PrepareSubdirectory("mcp-stdio")

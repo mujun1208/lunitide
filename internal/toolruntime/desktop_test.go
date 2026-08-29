@@ -215,3 +215,52 @@ func TestWalkForProcessFindsCloudMusic(t *testing.T) {
 		t.Fatalf("found %v want %q", found, exe)
 	}
 }
+
+func TestRecallDesktopOpenReopenAndStem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "协议.docx")
+	if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rememberDesktopOpen(path)
+	t.Cleanup(func() {
+		lastDesktopOpenMu.Lock()
+		lastDesktopOpenPath = ""
+		lastDesktopOpenMu.Unlock()
+	})
+	if got := recallDesktopOpen("再打开刚才的文档"); got != path {
+		t.Fatalf("reopen %q", got)
+	}
+	if got := recallDesktopOpen("协议"); got != path {
+		t.Fatalf("stem %q", got)
+	}
+	if got := recallDesktopOpen("汽水音乐"); got != "" {
+		t.Fatalf("unrelated recall %q", got)
+	}
+}
+
+func TestLooksLikeReopenQuery(t *testing.T) {
+	for _, q := range []string{"刚才", "那个文档", "再打开", "重新打开", "打开刚才"} {
+		if !looksLikeReopenQuery(q) {
+			t.Fatalf("%q should reopen", q)
+		}
+	}
+	if looksLikeReopenQuery("网易云音乐") {
+		t.Fatal("app name is not a reopen query")
+	}
+}
+
+func TestMatchKnownLaunchAppQQDoesNotStealQQMusic(t *testing.T) {
+	qq, ok := matchKnownLaunchApp("QQ")
+	if !ok || qq.Canonical != "QQ" {
+		t.Fatalf("QQ %+v ok=%v", qq, ok)
+	}
+	music, ok := matchKnownLaunchApp("QQ音乐")
+	if !ok || music.Canonical != "QQ音乐" {
+		t.Fatalf("QQ音乐 %+v ok=%v", music, ok)
+	}
+	wechat, ok := matchKnownLaunchApp("微信")
+	if !ok || wechat.Canonical != "微信" {
+		t.Fatalf("微信 %+v ok=%v", wechat, ok)
+	}
+}

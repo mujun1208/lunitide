@@ -82,6 +82,7 @@ type Runtime struct {
 	// ccExec runs the cc.* computer-control tools through the ccapp
 	// service (injected by the host; nil keeps them unavailable).
 	ccExec func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
+	imSend func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)
 }
 type Result struct {
 	Output     string    `json:"output"`
@@ -309,6 +310,10 @@ func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (netw
 // agent tools (ccapp.Service.ExecuteTool).
 func (r *Runtime) SetCcExecutor(f func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)) {
 	r.ccExec = f
+}
+
+func (r *Runtime) SetIMSend(f func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)) {
+	r.imSend = f
 }
 
 // SetFullAccessRootResolver installs the user-workspace root resolver used by
@@ -814,7 +819,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved && name != userAskTool {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || officeGenTools[name]
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name]
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
@@ -1383,6 +1388,8 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)
 		}
 		return executeMediaPlayWithCC(ctx, invoke, session, args, unconfined, approved)
+	case "im.send":
+		return r.executeIMSend(ctx, session, args, approved, unconfined)
 	case "pdf.gen":
 		var a struct {
 			Path    string `json:"path"`

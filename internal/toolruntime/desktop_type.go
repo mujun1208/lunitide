@@ -13,6 +13,9 @@ import (
 )
 
 func isSendControlName(name string) bool {
+	if isWindowCloseControlName(name) {
+		return false
+	}
 	n := foldMedia(name)
 	if n == "" {
 		return false
@@ -25,6 +28,32 @@ func isSendControlName(name string) bool {
 		return true
 	}
 	return strings.HasPrefix(n, "发送") || n == "send message"
+}
+
+func isWindowCloseControlName(name string) bool {
+	n := foldMedia(name)
+	n = strings.TrimRight(n, "….")
+	switch n {
+	case "关闭", "close", "关闭窗口", "关闭文档", "关闭文件", "关闭程序", "退出", "exit":
+		return true
+	}
+	return strings.HasPrefix(n, "关闭") || strings.HasPrefix(n, "close ")
+}
+
+// IsChromeCloseControl reports a title-bar / document close affordance that
+// computer-control must not click unless the user asked to close.
+func IsChromeCloseControl(name string, y, w, h int) bool {
+	if !isWindowCloseControlName(name) {
+		return false
+	}
+	n := foldMedia(name)
+	if n == "关闭窗口" || n == "关闭文档" || n == "关闭文件" || n == "关闭程序" || n == "退出" || n == "exit" {
+		return true
+	}
+	if h > 0 && h <= 44 && w <= 96 && y < 56 {
+		return true
+	}
+	return n == "关闭" || n == "close"
 }
 
 func pickSendControl(nodes []mediaUINode) *mediaUINode {
@@ -204,6 +233,9 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 	if after != "" {
 		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
 		if field := pickNamedEdit(nodes, after); field != nil {
+			if isWindowCloseControlName(field.Name) {
+				return Result{}, fmt.Errorf("无法执行：拒绝点击关闭按钮")
+			}
 			target := clipMediaName(field.Name)
 			_ = ccClickName(ctx, invoke, session, target, 1, approved)
 			mediaSleep(80 * time.Millisecond)
@@ -211,6 +243,9 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
 			}
 		} else if label := pickDocumentLabel(nodes, after); label != nil && (label.W > 0 || label.H > 0) {
+			if isWindowCloseControlName(label.Name) {
+				return Result{}, fmt.Errorf("无法执行：拒绝点击关闭按钮")
+			}
 			x := label.X + label.W + 4
 			y := label.Y + label.H/2
 			if y == 0 {

@@ -32,6 +32,7 @@ import (
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/handoffapp"
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/imapp"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
@@ -228,6 +229,8 @@ type Engine struct {
 
 	// This-PC meeting notes (meetings.*). Independent of 对话 and 同事.
 	meetings *meetings.Service
+	// Settings → 消息通道 (Feishu/WeCom/DingTalk webhooks + WeChat/QQ desktop).
+	imChannels *imapp.Service
 
 	// M9 slice-1: org-admin bridge service (org.* methods, T-9.1.3).
 	m9org *m9app.OrgAdminService
@@ -344,6 +347,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodCcUpdateConfig:                handleCcUpdateConfig,
 	bridge.MethodCcGetAuditLog:                 handleCcGetAuditLog,
 	bridge.MethodCcEmergencyStop:               handleCcEmergencyStop,
+	bridge.MethodImChannelsGet:                 handleImChannelsGet,
+	bridge.MethodImChannelsSet:                 handleImChannelsSet,
 	bridge.MethodWorkspaceConvert:              handleWorkspaceConvert,
 	bridge.MethodExtensionSearch:               handleExtensionSearch,
 	bridge.MethodExtensionInstall:              handleExtensionInstall,
@@ -1472,6 +1477,10 @@ func (e *Engine) SetMeetingsService(svc *meetings.Service) {
 		svc.SetCompleter(e.completeMeeting)
 		svc.SetAudioTranscriber(e.transcribeMeetingPCM)
 	}
+}
+
+func (e *Engine) SetIMChannelsService(svc *imapp.Service) {
+	e.imChannels = svc
 }
 
 // SetM9OrgAdminService wires the M9 slice-1 org-admin bridge service.

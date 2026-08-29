@@ -15,17 +15,24 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func main() {
-	srcPath := flag.String("src", "resources/lunitide-icon.png", "source PNG (may have a black fill)")
+	srcPath := flag.String("src", "", "optional source PNG (drawn moon mark is used when empty)")
 	pngPath := flag.String("png", "resources/lunitide-icon.png", "output PNG with alpha")
 	icoPath := flag.String("ico", "resources/lunitide-icon.ico", "output ICO")
 	flag.Parse()
 
-	src, err := loadPNG(*srcPath)
-	if err != nil {
-		fatal("read source: %v", err)
+	var src *image.RGBA
+	if strings.TrimSpace(*srcPath) != "" {
+		loaded, err := loadPNG(*srcPath)
+		if err != nil {
+			fatal("read source: %v", err)
+		}
+		src = loaded
+	} else {
+		src = renderMoonMark(1024)
 	}
 	keyed := knockOutMoonHalo(knockOutBlack(src))
 	if err := writePNG(*pngPath, keyed); err != nil {

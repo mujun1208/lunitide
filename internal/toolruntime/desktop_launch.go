@@ -71,6 +71,55 @@ var knownLaunchApps = []knownLaunchApp{
 			`%LOCALAPPDATA%\Tencent\QQMusic\QQMusic.exe`,
 		},
 	},
+	{
+		Canonical: "微信",
+		Aliases:   []string{"微信", "wechat", "WeChat", "weixin", "WeiXin"},
+		Processes: []string{"WeChat.exe", "Weixin.exe"},
+		ExeHints: []string{
+			`%ProgramFiles%\Tencent\WeChat\WeChat.exe`,
+			`%ProgramFiles(x86)%\Tencent\WeChat\WeChat.exe`,
+			`%LOCALAPPDATA%\Tencent\WeChat\WeChat.exe`,
+		},
+	},
+	{
+		Canonical: "QQ",
+		Aliases:   []string{"QQ", "qq", "腾讯qq", "腾讯QQ", "qqnt", "QQNT"},
+		Processes: []string{"QQ.exe", "QQNT.exe"},
+		ExeHints: []string{
+			`%ProgramFiles%\Tencent\QQ\Bin\QQ.exe`,
+			`%ProgramFiles(x86)%\Tencent\QQ\Bin\QQ.exe`,
+			`%LOCALAPPDATA%\Programs\Tencent\QQNT\QQ.exe`,
+		},
+	},
+	{
+		Canonical: "飞书",
+		Aliases:   []string{"飞书", "feishu", "lark", "Lark"},
+		Processes: []string{"Feishu.exe", "Lark.exe"},
+		ExeHints: []string{
+			`%LOCALAPPDATA%\Feishu\Feishu.exe`,
+			`%LOCALAPPDATA%\Lark\Lark.exe`,
+		},
+	},
+	{
+		Canonical: "企业微信",
+		Aliases:   []string{"企业微信", "企微", "wecom", "wxwork"},
+		Processes: []string{"WXWork.exe"},
+		ExeHints: []string{
+			`%ProgramFiles%\WXWork\WXWork.exe`,
+			`%ProgramFiles(x86)%\WXWork\WXWork.exe`,
+			`%LOCALAPPDATA%\WXWork\WXWork.exe`,
+		},
+	},
+	{
+		Canonical: "钉钉",
+		Aliases:   []string{"钉钉", "dingtalk"},
+		Processes: []string{"DingTalk.exe"},
+		ExeHints: []string{
+			`%ProgramFiles%\DingDing\DingtalkLauncher.exe`,
+			`%ProgramFiles(x86)%\DingDing\DingtalkLauncher.exe`,
+			`%LOCALAPPDATA%\DingTalk\DingTalk.exe`,
+		},
+	},
 }
 
 var launchOpenPrefix = regexp.MustCompile(`^(?:你)?(?:请)?(?:可以)?(?:帮我)?(?:给我)?(?:把开了?|打开了?|打开|启动|运行)`)
@@ -147,7 +196,7 @@ func matchKnownLaunchApp(query string) (knownLaunchApp, bool) {
 			}
 		}
 		canon := foldLaunchQuery(app.Canonical)
-		if utf8.RuneCountInString(core) >= 2 && (strings.HasPrefix(canon, folded) || strings.HasPrefix(folded, canon)) {
+		if utf8.RuneCountInString(core) >= 3 && utf8.RuneCountInString(canon) >= 3 && (strings.HasPrefix(canon, folded) || strings.HasPrefix(folded, canon)) {
 			return app, true
 		}
 	}
