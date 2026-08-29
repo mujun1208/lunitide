@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
-import { loadMermaidEngine, mountMermaidSvg, prepareMermaidSource } from './tideMermaid'
+import { loadMermaidEngine, mountMermaidSvg, prepareMermaidSource, recoverMermaidSource } from './tideMermaid'
 
 export { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './tideMermaid'
 
@@ -12,8 +12,18 @@ function withMermaidLock<T>(work: () => Promise<T>): Promise<T> {
   return run
 }
 
-export function MermaidBlock({ source, onCopy }: { source: string; onCopy?: (value: string) => void | Promise<void> }) {
+export function MermaidBlock({
+  source,
+  onCopy,
+  onLayout,
+}: {
+  source: string
+  onCopy?: (value: string) => void | Promise<void>
+  onLayout?: () => void
+}) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const onLayoutRef = useRef(onLayout)
+  onLayoutRef.current = onLayout
   const id = useId().replace(/:/g, '')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -35,12 +45,22 @@ export function MermaidBlock({ source, onCopy }: { source: string; onCopy?: (val
         setError('空图表')
         return
       }
+      const mount = async (src: string) => {
+        const mermaid = await loadMermaidEngine()
+        const { svg } = await mermaid.render(`mmd-${id}-${++renderSeq}`, src)
+        if (cancelled || !hostRef.current) return
+        mountMermaidSvg(hostRef.current, svg)
+        onLayoutRef.current?.()
+      }
       try {
         await withMermaidLock(async () => {
-          const mermaid = await loadMermaidEngine()
-          const { svg } = await mermaid.render(`mmd-${id}-${++renderSeq}`, prepared)
-          if (cancelled || !hostRef.current) return
-          mountMermaidSvg(hostRef.current, svg)
+          try {
+            await mount(prepared)
+          } catch (first) {
+            const recovered = prepareMermaidSource(recoverMermaidSource(source))
+            if (!recovered || recovered === prepared) throw first
+            await mount(recovered)
+          }
         })
       } catch (e) {
         if (cancelled) return
@@ -51,9 +71,14 @@ export function MermaidBlock({ source, onCopy }: { source: string; onCopy?: (val
     void run()
     return () => {
       cancelled = true
-      if (hostRef.current) hostRef.current.replaceChildren()
     }
   }, [id, source, themeEpoch])
+
+  useEffect(() => {
+    return () => {
+      if (hostRef.current) hostRef.current.replaceChildren()
+    }
+  }, [])
 
   const copySource = async () => {
     if (!onCopy) return

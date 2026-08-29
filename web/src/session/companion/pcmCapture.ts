@@ -183,6 +183,22 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
   worklet.connect(sink)
   sink.connect(context.destination)
 
+  const keepAlive = window.setInterval(() => {
+    if (stopped) return
+    if (context.state === 'suspended') void context.resume()
+  }, 8_000)
+  context.onstatechange = () => {
+    if (stopped) return
+    if (context.state === 'suspended') void context.resume()
+  }
+
+  const origTeardown = teardown
+  const teardownWithKeepAlive = async () => {
+    window.clearInterval(keepAlive)
+    context.onstatechange = null
+    await origTeardown()
+  }
+
   // Losing the device mid-turn is not an error anyone catches — the promise
   // that started capture resolved long ago — so it is reported through onError.
   stream.getAudioTracks().forEach(track => {
@@ -191,8 +207,17 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
       options.onError?.(new BridgeClientError('麦克风已断开', 'MICROPHONE_DEVICE_BUSY', false, 'renderer'))
     }
   })
-  extraStreams.forEach(item => {
+  extraStreams.forEach((item, index) => {
     item.getAudioTracks().forEach(track => {
+      const prior = track.onended
+      track.onended = event => {
+        if (typeof prior === 'function') prior.call(track, event)
+        if (stopped) return
+        extraSources[index]?.disconnect()
+        options.onExtraEnded?.()
+      }
+    })
+    item.getVideoTracks?.().forEach(track => {
       const prior = track.onended
       track.onended = event => {
         if (typeof prior === 'function') prior.call(track, event)
@@ -211,7 +236,7 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
       extraSources.forEach(item => item.disconnect())
       worklet.disconnect()
       sink.disconnect()
-      await teardown()
+      await teardownWithKeepAlive()
     },
     setMuted: (next: boolean) => {
       muted = next
@@ -231,7 +256,17 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
       const extra = context.createMediaStreamSource(stream)
       extra.connect(worklet)
       extraSources.push(extra)
+      const index = extraSources.length - 1
       stream.getAudioTracks().forEach(track => {
+        const prior = track.onended
+        track.onended = event => {
+          if (typeof prior === 'function') prior.call(track, event)
+          if (stopped) return
+          extraSources[index]?.disconnect()
+          options.onExtraEnded?.()
+        }
+      })
+      stream.getVideoTracks?.().forEach(track => {
         const prior = track.onended
         track.onended = event => {
           if (typeof prior === 'function') prior.call(track, event)

@@ -24,11 +24,17 @@ const micDevice=(id:string)=>({audio:{...micBase,deviceId:{ideal:id}}})
 
 it('maps stream failure codes to a safe cause without leaking UPSTREAM_FAILED',()=>{
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).toMatch(/^无法执行。/)
- expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).toContain('desktop=true')
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('desktop=true')
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('写到桌面请用')
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('*.gen')
+ expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('不要用 command.run')
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('UPSTREAM_FAILED')
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('模型请求失败')
  expect(turnFailureNotice({code:'UPSTREAM_TIMEOUT'})).toContain('请求超时')
  expect(turnFailureNotice({code:'ASSISTANT_RESPONSE_TOO_LARGE'})).toContain('过大')
+ for (const code of ['UPSTREAM_FAILED','UPSTREAM_TIMEOUT','ASSISTANT_RESPONSE_TOO_LARGE','REQUEST_TOO_LARGE'] as const) {
+  expect(turnFailureNotice({code})).not.toMatch(/写到桌面请用对应 \*\.gen/)
+ }
 })
 
 async function open(props:Partial<React.ComponentProps<typeof SessionPage>>={}){
@@ -82,11 +88,12 @@ it('blocks Enter re-entry after chat.start resolves, retains one stream, and can
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await user.type(input,'second')
- await user.keyboard('{Enter}')
  expect(start).toHaveBeenCalledOnce()
  expect(append).toHaveBeenCalledOnce()
- await user.click(screen.getByRole('button',{name:'停止'}))
- expect(cancel).toHaveBeenCalledOnce()
+ fireEvent.change(input,{target:{value:''}})
+ cancel.mockClear()
+ await user.click(screen.getByRole('button', { name: '停止' }))
+ expect(cancel).toHaveBeenCalledTimes(1)
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'delta',delta:{text:'## 实时标题\n\n- 第一项\n- 第二项'}}))
  const response=screen.getByRole('heading',{name:'实时标题'})
  expect(response.closest('.bubble')).toHaveTextContent('实时标题 第一项 第二项')
@@ -196,7 +203,8 @@ it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn
  expect(JSON.stringify(start.mock.calls)).not.toContain(TURN_RESUME_PROMPT)
  expect(vi.mocked(append).mock.calls[0][0].text).toBe('再试一次')
  expect(await screen.findByText(/无法执行/)).toBeInTheDocument()
- expect(screen.getByText(/模型结果不完整/)).toBeInTheDocument()
+ expect(screen.queryByText(/写到桌面请用/)).toBeNull()
+ expect(screen.queryByText(/desktop=true/)).toBeNull()
  expect(screen.queryByText('模型请求失败')).toBeNull()
  expect(screen.queryByText(/代码 UPSTREAM_FAILED/)).toBeNull()
  expect(screen.queryByRole('button',{name:'从最新页重试'})).toBeNull()
@@ -219,7 +227,8 @@ it('surfaces stream failure only as 无法执行 without the UPSTREAM_FAILED car
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'failed',error:{code:'UPSTREAM_FAILED',message:'模型请求失败',retryable:true}}))
  expect(await screen.findByText(/无法执行/)).toBeInTheDocument()
- expect(screen.getByText(/模型结果不完整/)).toBeInTheDocument()
+ expect(screen.queryByText(/写到桌面请用/)).toBeNull()
+ expect(screen.queryByText(/desktop=true/)).toBeNull()
  expect(screen.queryByText('模型请求失败')).toBeNull()
  expect(screen.queryByText(/代码 UPSTREAM_FAILED/)).toBeNull()
  expect(screen.queryByRole('button',{name:'从最新页重试'})).toBeNull()
@@ -341,6 +350,21 @@ it('keeps tool activity inside the task process and follows the growing stream',
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'thinking',thinking:{text:'逐步推理'.repeat(20)}}))
  expect(scrollTo).not.toHaveBeenCalled()
  expect(box.classList.contains('is-streaming')).toBe(true)
+})
+
+it('pauses auto-follow on wheel-up so mermaid layout and later tokens do not steal scroll',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
+ const user=await open({messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge,chat:{start,dispose:vi.fn()},providers})
+ const box=document.querySelector('.conversation-scroll') as HTMLDivElement,scrollTo=vi.fn()
+ Object.defineProperties(box,{scrollHeight:{value:900},clientHeight:{value:300},scrollTop:{value:400,writable:true}});Object.defineProperty(box,'scrollTo',{value:scrollTo})
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'画图');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'delta',delta:{text:'卡片'}}))
+ await waitFor(()=>expect(scrollTo).toHaveBeenCalledWith({top:600,behavior:'auto'}))
+ scrollTo.mockClear();box.scrollTop=200;fireEvent.wheel(box,{deltaY:-48});fireEvent.scroll(box)
+ expect(screen.getByRole('button',{name:'回到最新消息'})).toBeInTheDocument()
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'delta',delta:{text:'```mermaid\nflowchart TD\nA-->B\n```'}}))
+ expect(scrollTo).not.toHaveBeenCalled()
 })
 
 it('opens image selection from share instead of showing a permanent toolbar',async()=>{

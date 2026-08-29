@@ -5,13 +5,11 @@ import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, captureStateNotice, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
-import { watchAudioTrackEnded } from './meetingCapture'
+import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 
 const SUMMARIZE_POLL_MS = 4_000
 const SYSTEM_AUDIO_RECOVER_MS = 15_000
-
-const MIX_KEY = 'lunitide:meeting-include-system-audio'
 
 const STATUS: Record<MeetingDTO['status'], string> = {
   recording: '录制中',
@@ -40,12 +38,17 @@ const formatWhen = (iso: string) => {
 
 const isCanceled = (error: unknown) => error instanceof Error && /取消/.test(error.message)
 
-const loadIncludeSystem = () => {
-  try {
-    return localStorage.getItem(MIX_KEY) === '1'
-  } catch {
-    return false
+function honestNotes(meeting: MeetingDTO): MeetingDTO {
+  if (meeting.status === 'recording' || meeting.status === 'summarizing' || meeting.status === 'needs_summary') return meeting
+  if (meeting.status === 'ready' && (meeting.summary || meeting.actions)) return meeting
+  if (!meeting.summary && !meeting.actions) {
+    return {
+      ...meeting,
+      status: 'needs_summary',
+      summaryError: meeting.summaryError || '尚未生成摘要，逐字稿已保存。可重试生成摘要。',
+    }
   }
+  return meeting
 }
 
 async function retryMeetingWrite<T>(op: () => Promise<T>): Promise<T> {
@@ -70,7 +73,6 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const [elapsed, setElapsed] = useState(0)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [includeSystem, setIncludeSystem] = useState(loadIncludeSystem)
   const [draftSummary, setDraftSummary] = useState('')
   const [draftActions, setDraftActions] = useState('')
   const [draftTranscript, setDraftTranscript] = useState('')
@@ -91,10 +93,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const summarizePollRef = useRef<number>(0)
   const unwatchRef = useRef<() => void>(() => undefined)
   const speechGen = useRef(0)
+  const userStopRef = useRef(false)
   const appendChain = useRef(Promise.resolve())
   const currentIdRef = useRef('')
-  const includeSystemRef = useRef(includeSystem)
-  includeSystemRef.current = includeSystem
 
   const refresh = useCallback(async () => {
     const listed = await meetings.list()
@@ -122,14 +123,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     const gen = ++speechGen.current
     const bindSystemWatch = (live: MeetingCapturePlan) => {
       unwatchRef.current()
-      const unsubs = live.extraStreams.map(stream => watchAudioTrackEnded(stream, () => {
-        if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      const unsubs = live.extraStreams.map(stream => watchCaptureTracksEnded(stream, () => {
+        if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId || userStopRef.current) return
         void recoverAndRelisten()
       }))
       unwatchRef.current = () => unsubs.forEach(stop => stop())
     }
     const recoverAndRelisten = async () => {
-      if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
       const recovered = await recoverMeetingSystemAudio(captureRef.current, { interactive: false })
       if (speechGen.current !== gen) {
         if (recovered !== captureRef.current) releaseMeetingCapture(recovered)
@@ -148,7 +149,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     const listen = async () => {
       if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
       let livePlan = captureRef.current ?? plan
-      if (includeSystemRef.current && !planHasLiveSystemAudio(livePlan)) {
+      if (!planHasLiveSystemAudio(livePlan)) {
         const recovered = await recoverMeetingSystemAudio(livePlan, { interactive: false })
         if (speechGen.current !== gen) {
           if (recovered !== livePlan) releaseMeetingCapture(recovered)
@@ -183,14 +184,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         },
         onInterim: text => setInterim(text),
         onError: () => {
-          if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+          if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
           setNotice(ASR_INTERRUPTED_NOTICE)
           speechRef.current = null
           pcmTapRef.current = undefined
           window.setTimeout(() => {
-            if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+            if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
             void listen().catch(() => {
-              if (speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
+              if (!userStopRef.current && speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
                 setNotice(ASR_INTERRUPTED_NOTICE)
               }
             })
@@ -220,9 +221,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         const detail = await meetings.get({ meetingId: live.meetingId }).catch(() => live)
         if (!alive) return
         adopt(detail)
-        const wantMix = detail.audioSource === 'microphone_and_system'
-        setIncludeSystem(wantMix)
-        const plan = await prepareMeetingCapture(wantMix)
+        if (detail.status !== 'recording') return
+        userStopRef.current = false
+        const plan = await prepareMeetingCapture({ interactive: false })
         if (!alive) {
           releaseMeetingCapture(plan)
           return
@@ -232,6 +233,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             extraStreams: plan.extraStreams,
             append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: live.meetingId, pcm })),
             onFrame: frame => pcmTapRef.current?.(frame),
+            onError: () => {
+              if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
+            },
           })
         } catch {
           if (alive) setNotice('无法写入本机录音。实时转写仍会尝试，长会停止后可能无法补转写。')
@@ -282,7 +286,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   useEffect(() => {
     const live = current
-    if (live?.status !== 'recording' || !includeSystem) {
+    if (live?.status !== 'recording') {
       window.clearInterval(recoverRef.current)
       return
     }
@@ -304,7 +308,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
     recoverRef.current = window.setInterval(tick, SYSTEM_AUDIO_RECOVER_MS)
     return () => window.clearInterval(recoverRef.current)
-  }, [current?.status, current?.meetingId, includeSystem])
+  }, [current?.status, current?.meetingId])
 
   useEffect(() => {
     if (current?.status !== 'summarizing' || !current.meetingId) {
@@ -315,7 +319,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     const pulse = () => {
       void meetings.get({ meetingId: id }).then(next => {
         if (currentIdRef.current !== id) return
-        if (next.status !== 'summarizing') adopt(next)
+        if (next.status !== 'summarizing') adopt(honestNotes(next))
         else setItems(values => values.map(item => item.meetingId === id ? { ...item, status: next.status, updatedAt: next.updatedAt } : item))
       }).catch(() => undefined)
     }
@@ -341,12 +345,13 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   const start = async () => {
     if (busy) return
+    userStopRef.current = false
     setBusy(true)
     setNotice('')
     setInterim('')
     let plan: MeetingCapturePlan | undefined
     try {
-      plan = await prepareMeetingCapture(includeSystem)
+      plan = await prepareMeetingCapture({ interactive: true })
       const started = await meetings.start({ audioSource: plan.audioSource })
       adopt(started)
       try {
@@ -354,6 +359,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           extraStreams: plan.extraStreams,
           append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: started.meetingId, pcm })),
           onFrame: frame => pcmTapRef.current?.(frame),
+          onError: () => {
+            if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
+          },
         })
       } catch {
         setNotice('无法写入本机录音。实时转写仍会尝试，长会停止后可能无法补转写。')
@@ -382,8 +390,30 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
   }
 
+  const finishNotes = async (meetingId: string) => {
+    setNotice('正在转写补全…')
+    const caught = await meetings.catchup({ meetingId })
+    if (caught.status === 'ready') {
+      adopt(caught)
+      setNotice('纪要已生成，可以导出。')
+      return
+    }
+    adopt({ ...caught, status: 'summarizing' })
+    setNotice('正在生成会议纪要…')
+    try {
+      const notes = honestNotes(await meetings.summarize({ meetingId }))
+      adopt(notes)
+      setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要，逐字稿已保存。')
+    } catch (error) {
+      const latest = honestNotes(await meetings.get({ meetingId }))
+      adopt(latest)
+      setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
+    }
+  }
+
   const stop = async () => {
     if (!current || current.status !== 'recording' || busy) return
+    userStopRef.current = true
     setBusy(true)
     setNotice('正在结束录制…')
     speechGen.current += 1
@@ -409,20 +439,13 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     setInterim('')
     try {
       await appendChain.current
-      const stopped = await meetings.stop({ meetingId: current.meetingId })
-      adopt(stopped)
-      setNotice('正在转写补全…')
-      const caught = await meetings.catchup({ meetingId: current.meetingId })
-      adopt(caught)
-      setNotice('正在生成会议纪要…')
-      const notes = await meetings.summarize({ meetingId: current.meetingId })
-      adopt(notes)
-      setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要，逐字稿已保存。')
+      await meetings.stop({ meetingId: current.meetingId })
+      await finishNotes(current.meetingId)
     } catch (error) {
       try {
-        const latest = await meetings.get({ meetingId: current.meetingId })
+        const latest = honestNotes(await meetings.get({ meetingId: current.meetingId }))
         adopt(latest)
-        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
+        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法结束录制'))
       } catch {
         setNotice(error instanceof Error ? error.message : '无法结束录制')
       }
@@ -434,19 +457,13 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const retry = async () => {
     if (!current || busy) return
     setBusy(true)
-    setNotice('正在转写补全…')
     try {
-      const caught = await meetings.catchup({ meetingId: current.meetingId })
-      adopt(caught)
-      setNotice('正在生成会议纪要…')
-      const notes = await meetings.summarize({ meetingId: current.meetingId })
-      adopt(notes)
-      setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要')
+      await finishNotes(current.meetingId)
     } catch (error) {
       try {
-        const latest = await meetings.get({ meetingId: current.meetingId })
+        const latest = honestNotes(await meetings.get({ meetingId: current.meetingId }))
         adopt(latest)
-        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
+        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要'))
       } catch {
         setNotice(error instanceof Error ? error.message : '无法生成摘要')
       }
@@ -458,7 +475,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const open = async (id: string) => {
     if (busy || current?.status === 'recording') return
     try {
-      adopt(await meetings.get({ meetingId: id }))
+      adopt(honestNotes(await meetings.get({ meetingId: id })))
       setNotice('')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '无法打开会议')
@@ -518,14 +535,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const segments: MeetingSegmentDTO[] = current?.segments ?? []
   const liveLines = segments.map(seg => seg.text)
   if (current?.transcript && liveLines.length === 0) liveLines.push(...current.transcript.split('\n').filter(Boolean))
-  const source = current?.audioSource ?? (includeSystem ? 'microphone_and_system' : 'microphone')
+  const source = current?.audioSource ?? 'microphone_and_system'
 
   return (
     <div className="meeting-shell" style={{ '--meeting-list-width': `${listWidth}px` } as React.CSSProperties}>
       <aside className="meeting-list" aria-label="历史会议">
         <header>
           <h2>会议记录</h2>
-          <p>本机麦克风转写。勾选后混录这台电脑的系统声音（扬声器对面更准）。长会以本机录音为准，停止后再补转写。不会共享给其他电脑。</p>
+          <p>一点「开始录制」即收录麦克风与系统声音，一直录到你点停止。长会以本机录音为准，停止后再补转写。不会共享给其他电脑。</p>
         </header>
         {items.length === 0 ? <p className="meeting-empty">还没有会议。点开始录制这一场。</p> : items.map(item => (
           <div className="meeting-row" key={item.meetingId}>
@@ -548,28 +565,15 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         <header className="meeting-hero">
           <div>
             <h2>{current?.title || '新的会议'}</h2>
-            <p>点击开始后写入本机录音，实时转写只作字幕。停止后如有中断会补转写，再生成摘要、待办和逐字稿，可导出。不会共享给其他电脑。</p>
+            <p>开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束；如有中断会补转写，再生成摘要、待办和逐字稿。</p>
           </div>
           <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording ? elapsed : current?.durationMs ?? 0)}</div>
         </header>
         <div className="meeting-rec">
           {recording
             ? <button type="button" className="meeting-stop" disabled={busy} onClick={() => void stop()}>停止</button>
-            : <button type="button" className="meeting-start" disabled={busy} onClick={() => void start()}>开始</button>}
-          <label className="meeting-mix">
-            <input
-              type="checkbox"
-              checked={includeSystem}
-              disabled={recording || busy}
-              onChange={event => {
-                const next = event.target.checked
-                setIncludeSystem(next)
-                try { localStorage.setItem(MIX_KEY, next ? '1' : '0') } catch { /* ignore */ }
-              }}
-            />
-            同时收录本机系统声音
-          </label>
-          <span>{recording ? audioSourceLabel(current?.audioSource, true) : includeSystem ? '开始时请选择整个屏幕并勾选共享音频（不要点飞书窗口；窗口分享通常没有声音）。也可启用立体声混音。取消则不会开这场会。' : audioSourceLabel('microphone')}</span>
+            : <button type="button" className="meeting-start" disabled={busy} onClick={() => void start()}>开始录制</button>}
+          <span>{recording ? audioSourceLabel(current?.audioSource, true) : '开始录制后一直收录，直到你点停止。'}</span>
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">

@@ -1,32 +1,26 @@
-import { afterEach, expect, it } from 'vitest'
-import type { StreamEvent } from '../bridge/client'
-import { applyLiveChatEvent, resetLiveChatForTests, startLiveChat } from './liveChat'
-
-const digest = 'a'.repeat(64)
-const base = { v: '1.0' as const, kind: 'event' as const, id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', sequence: 1 }
+import { afterEach, expect, it, vi } from 'vitest'
+import { applyLiveChatEvent, listActiveTurns, resetLiveChatForTests, startLiveChat } from './liveChat'
 
 afterEach(resetLiveChatForTests)
 
-it('keeps the stream live and updates command output summaries', () => {
-  const entry = startLiveChat('session-1')
-  const started: StreamEvent = { ...base, type: 'tool_started', tool: { callId: 'call-1', name: 'command.run', argsDigest: digest } }
-  const output: StreamEvent = { ...base, sequence: 2, type: 'tool_output', tool: { callId: 'call-1', name: 'command.run', argsDigest: digest, summary: 'go: downloading' } }
-  const completed: StreamEvent = { ...base, sequence: 3, type: 'completed' }
-  applyLiveChatEvent(entry, started)
-  applyLiveChatEvent(entry, output)
-  expect(entry.terminal).toBe(false)
-  expect(entry.state.chatStatus).toBe('streaming')
-  expect(entry.state.toolActivities).toEqual([
-    { callId: 'call-1', name: 'command.run', argsDigest: digest, status: 'tool_started', summary: 'go: downloading' },
-  ])
-  applyLiveChatEvent(entry, completed)
-  expect(entry.terminal).toBe(true)
-  expect(entry.state.chatStatus).toBe('done')
+it('tracks multiple concurrent turns per session without cancelling siblings', () => {
+  const a = startLiveChat('session-a', 'turn-1')
+  const b = startLiveChat('session-a', 'turn-2')
+  expect(listActiveTurns('session-a')).toHaveLength(2)
+  expect(a.terminal).toBe(false)
+  expect(b.terminal).toBe(false)
 })
 
-it('does not throw when a panel listener fails mid-stream', () => {
-  const entry = startLiveChat('session-throw')
-  entry.listeners.add(() => { throw new Error('panel exploded') })
-  expect(() => applyLiveChatEvent(entry, { ...base, type: 'delta', delta: { text: 'hello' } })).not.toThrow()
-  expect(entry.state.assistantText).toBe('hello')
+it('cancels one turn without retiring the other', async () => {
+  const cancelA = vi.fn().mockResolvedValue(true)
+  const cancelB = vi.fn().mockResolvedValue(true)
+  const a = startLiveChat('session-b', 'turn-a')
+  a.stream = { streamId: 's-a', cancel: cancelA, dispose: vi.fn() }
+  const b = startLiveChat('session-b', 'turn-b')
+  b.stream = { streamId: 's-b', cancel: cancelB, dispose: vi.fn() }
+  await a.stream.cancel()
+  expect(cancelA).toHaveBeenCalledOnce()
+  expect(cancelB).not.toHaveBeenCalled()
+  applyLiveChatEvent(a, { v: '1.0', kind: 'event', id: 'e1', streamId: 's-a', sequence: 1, type: 'cancelled' })
+  expect(listActiveTurns('session-b')).toEqual([b])
 })

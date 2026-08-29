@@ -1,6 +1,6 @@
 // Multi-round pass bar for 对话模式: listen → 1.2s silence → answer →
 // next listen, eight times, on the shared contract used by 云端 Web Speech,
-// 本地 sherpa, and MiniCPM-o captions. No live microphone — the same
+// 本地 sherpa captions. No live microphone — the same
 // functions every path calls.
 import { describe, expect, test } from 'vitest'
 import {
@@ -31,7 +31,7 @@ const ROUNDS = [
   '再见',
 ]
 
-describe('对话模式多轮契约（云端 / 本地 / MiniCPM-o 共用）', () => {
+describe('对话模式多轮契约（云端 / 本地 共用）', () => {
   test('1.2s of true silence ends a turn; a 400ms breath does not', () => {
     const settled = {
       speechActive: false,

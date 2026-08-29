@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from 'vitest'
-import { applyVoicePath, defaultCompanionSettings, saveCompanionSettings } from './companionSettings'
+import { applyVoicePath, defaultCompanionSettings, loadCompanionSettings, saveCompanionSettings } from './companionSettings'
 import { MICROPHONE_DEVICE_KEY, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { prepareCompanionEntry, resolveCompanionVoicePath } from './prepareCompanionEntry'
+
+const STORAGE_KEY = 'lunitide:companion'
 
 afterEach(() => {
   localStorage.clear()
@@ -14,17 +16,14 @@ describe('prepareCompanionEntry', () => {
     expect(selectedMicrophoneId()).toBe('')
     expect(localStorage.getItem(MICROPHONE_DEVICE_KEY)).toBeNull()
     expect(prepared.voicePath).toBe('cloud')
-    expect(prepared.usedFallback).toBe(false)
   })
 
-  test('retired MiniCPM-o saves enter 云端 instead of duplex', async () => {
-    const stored = { ...defaultCompanionSettings(), voicePath: 'omni' as const }
-    const prepared = await prepareCompanionEntry(stored)
+  test('retired omni saves load as cloud through settings migration', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ enabled: true, voicePath: 'omni', engine: 'edge' }))
+    const prepared = await prepareCompanionEntry(loadCompanionSettings())
     expect(prepared.voicePath).toBe('cloud')
     expect(prepared.settings.voicePath).toBe('cloud')
-    expect(prepared.omniRequested).toBe(true)
-    expect(prepared.omniReady).toBe(false)
-    expect(prepared.usedFallback).toBe(false)
+    expect(prepared.settings.engine).toBe('edge')
   })
 
   test('keeps an explicit 本地模型 card without a settings trip', async () => {
@@ -32,11 +31,10 @@ describe('prepareCompanionEntry', () => {
     saveCompanionSettings(stored)
     const prepared = await prepareCompanionEntry(stored)
     expect(prepared.voicePath).toBe('local')
-    expect(prepared.usedFallback).toBe(false)
   })
 
   test('defaults an unset path to 云端', async () => {
     const resolved = await resolveCompanionVoicePath(defaultCompanionSettings())
-    expect(resolved.voicePath).toBe('cloud')
+    expect(resolved).toBe('cloud')
   })
 })

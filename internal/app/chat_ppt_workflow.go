@@ -170,6 +170,12 @@ func pptPipelineReady(turn *chatTurnCheckpoint) bool {
 	if turn == nil {
 		return false
 	}
+	if turn.PptStage == pptStageWrite || turn.PptStage == pptStageGenerate {
+		return true
+	}
+	if turn.PptNudges >= 4 {
+		return true
+	}
 	web := pptWebPasses(turn)
 	if web >= 2 {
 		return true
@@ -183,7 +189,7 @@ func pptGenBlocked(turn *chatTurnCheckpoint, name string) (bool, string) {
 	if name != "pptx.gen" || turn == nil || !turn.PptActive {
 		return false, ""
 	}
-	if pptPipelineReady(turn) {
+	if pptPipelineReady(turn) || turn.PptStage == pptStageGenerate || turn.PptStage == pptStageWrite {
 		return false, ""
 	}
 	return true, pptGenBlockedMsg
@@ -233,15 +239,33 @@ func pptStageNudge(stage string) gateway.Message {
 }
 
 func startPptWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {
-	if req == nil || turn == nil || req.DisableReasoning || turn.PptActive {
+	if req == nil || turn == nil || req.DisableReasoning {
+		return
+	}
+	if turn.PptActive {
+		injectPptPipelineOnce(req)
 		return
 	}
 	if !pptTaskFromRequest(*req, turn.Goal) {
 		return
 	}
 	turn.PptActive = true
-	turn.PptStage = pptStageClarify
-	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: pptThinkingBanner(pptStageClarify)}})
+	if turn.PptStage == "" {
+		turn.PptStage = pptStageClarify
+	}
+	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: pptThinkingBanner(turn.PptStage)}})
+	injectPptPipelineOnce(req)
+}
+
+func injectPptPipelineOnce(req *gateway.Request) {
+	if req == nil {
+		return
+	}
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "九步流水线") {
+			return
+		}
+	}
 	req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleSystem, Content: pptPipelineInstruction})
 }
 

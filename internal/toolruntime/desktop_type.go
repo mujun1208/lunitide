@@ -64,10 +64,48 @@ func pickNamedEdit(nodes []mediaUINode, want string) *mediaUINode {
 	for i := range nodes {
 		n := &nodes[i]
 		role := strings.ToLower(strings.TrimSpace(n.Role))
-		if role != "" && role != "edit" && role != "textbox" && role != "document" && role != "combobox" {
+		if role != "edit" && role != "textbox" && role != "combobox" {
 			continue
 		}
 		score := mediaNameScore(n.Name, want)
+		if score > bestScore {
+			bestScore = score
+			best = n
+		}
+	}
+	if bestScore < 40 {
+		return nil
+	}
+	return best
+}
+
+func nodeIsLabelText(name, want string) bool {
+	g, w := foldMedia(name), foldMedia(want)
+	if g == "" || w == "" {
+		return false
+	}
+	g = strings.TrimRight(g, "：:")
+	w = strings.TrimRight(w, "：:")
+	return g == w
+}
+
+func pickDocumentLabel(nodes []mediaUINode, want string) *mediaUINode {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return nil
+	}
+	var best *mediaUINode
+	bestScore := 0
+	for i := range nodes {
+		n := &nodes[i]
+		role := strings.ToLower(strings.TrimSpace(n.Role))
+		if role == "button" || role == "menuitem" || role == "link" {
+			continue
+		}
+		score := mediaNameScore(n.Name, want)
+		if nodeIsLabelText(n.Name, want) {
+			score += 20
+		}
 		if score > bestScore {
 			bestScore = score
 			best = n
@@ -119,21 +157,36 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
 		if field := pickNamedEdit(nodes, after); field != nil {
 			target := clipMediaName(field.Name)
-			_, _ = ccCall(ctx, invoke, session, ccapp.ToolSetValue, map[string]any{
-				"target": target, "value": text,
-			}, approved)
 			_ = ccClickName(ctx, invoke, session, target, 1, approved)
 			mediaSleep(80 * time.Millisecond)
-			_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "a")
-			mediaSleep(60 * time.Millisecond)
 			if err := ccType(ctx, invoke, session, text, approved); err != nil {
-				return Result{}, fmt.Errorf("无法执行：无法在「%s」输入（%v）", after, err)
+				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
+			}
+		} else if label := pickDocumentLabel(nodes, after); label != nil && (label.W > 0 || label.H > 0) {
+			x := label.X + label.W + 4
+			y := label.Y + label.H/2
+			if y == 0 {
+				y = label.Y
+			}
+			if err := ccClickXY(ctx, invoke, session, x, y, 1, approved); err != nil {
+				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
+			}
+			mediaSleep(80 * time.Millisecond)
+			_ = ccPress(ctx, invoke, session, "end", approved)
+			if err := ccType(ctx, invoke, session, text, approved); err != nil {
+				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
+			}
+		} else if label := pickDocumentLabel(nodes, after); label != nil {
+			_ = ccClickName(ctx, invoke, session, clipMediaName(label.Name), 1, approved)
+			mediaSleep(80 * time.Millisecond)
+			_ = ccPress(ctx, invoke, session, "end", approved)
+			_ = ccPress(ctx, invoke, session, "right", approved)
+			if err := ccType(ctx, invoke, session, text, approved); err != nil {
+				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
 			}
 		} else {
 			_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "f")
 			mediaSleep(220 * time.Millisecond)
-			_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "a")
-			mediaSleep(60 * time.Millisecond)
 			if err := ccType(ctx, invoke, session, after, approved); err != nil {
 				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
 			}
@@ -144,6 +197,7 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 			mediaSleep(180 * time.Millisecond)
 			_ = ccPress(ctx, invoke, session, "esc", approved)
 			mediaSleep(80 * time.Millisecond)
+			_ = ccPress(ctx, invoke, session, "end", approved)
 			_ = ccPress(ctx, invoke, session, "right", approved)
 			if err := ccType(ctx, invoke, session, text, approved); err != nil {
 				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)

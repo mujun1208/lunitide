@@ -16,8 +16,13 @@ const (
 	audioBytesPerSample = 2
 	audioBytesPerMS     = audioSampleRate * audioBytesPerSample / 1000 // 32
 	audioWAVHeader      = 44
-	// 2 minutes of 16 kHz mono 16-bit PCM per rolling file.
-	audioChunkBytes = audioSampleRate * audioBytesPerSample * 120
+	// AudioChunkSeconds is one rolling WAV. Rotating must not end the meeting.
+	AudioChunkSeconds = 120
+	audioChunkBytes   = audioSampleRate * audioBytesPerSample * AudioChunkSeconds
+	// CatchupSpanSeconds is one sherpa-sized decode. The offline server
+	// rejects >60s utterances; 20s leaves margin and keeps catch-up moving.
+	CatchupSpanSeconds = 20
+	catchupSpanBytes   = audioSampleRate * audioBytesPerSample * CatchupSpanSeconds
 )
 
 type audioSink struct {
@@ -153,23 +158,39 @@ func (s *audioSink) appendPCM(pcm []byte) (int64, error) {
 	if len(pcm) == 0 {
 		return pcmDurationMS(s.totalBytes), nil
 	}
-	if s.file == nil || s.chunkBytes >= audioChunkBytes {
-		if err := s.rotateLocked(); err != nil {
+	for len(pcm) > 0 {
+		if s.file == nil || s.chunkBytes >= audioChunkBytes {
+			if err := s.rotateLocked(); err != nil {
+				return pcmDurationMS(s.totalBytes), err
+			}
+		}
+		room := int(audioChunkBytes - s.chunkBytes)
+		if room < 2 {
+			if err := s.rotateLocked(); err != nil {
+				return pcmDurationMS(s.totalBytes), err
+			}
+			continue
+		}
+		if room%2 != 0 {
+			room--
+		}
+		chunk := pcm
+		if len(chunk) > room {
+			chunk = pcm[:room]
+		}
+		n, err := s.file.Write(chunk)
+		s.chunkBytes += int64(n)
+		s.totalBytes += int64(n)
+		pcm = pcm[n:]
+		if err != nil {
 			return pcmDurationMS(s.totalBytes), err
 		}
-	}
-	n, err := s.file.Write(pcm)
-	s.chunkBytes += int64(n)
-	s.totalBytes += int64(n)
-	if err != nil {
-		return pcmDurationMS(s.totalBytes), err
-	}
-	if s.chunkBytes >= audioChunkBytes {
-		_ = s.rotateLocked()
 	}
 	return pcmDurationMS(s.totalBytes), nil
 }
 
+// rotateLocked finalizes the current WAV and opens the next file. It must
+// not set closed, drop extra tracks, or otherwise end the meeting.
 func (s *audioSink) rotateLocked() error {
 	if s.file != nil {
 		_ = finalizeWAV(s.file, s.chunkBytes)
@@ -280,9 +301,39 @@ func walkAudioSpans(dir string, fromMS int64, fn func(audioSpan) error) error {
 		if len(pcm) == 0 {
 			continue
 		}
-		if err := fn(audioSpan{startedMS: started, pcm: pcm}); err != nil {
+		if err := yieldAudioSpans(audioSpan{startedMS: started, pcm: pcm}, fn); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func yieldAudioSpans(span audioSpan, fn func(audioSpan) error) error {
+	pcm := span.pcm
+	started := span.startedMS
+	max := int(catchupSpanBytes)
+	if max < 2 {
+		return fn(span)
+	}
+	if max%2 != 0 {
+		max--
+	}
+	for len(pcm) > 0 {
+		n := len(pcm)
+		if n > max {
+			n = max
+		}
+		if n%2 != 0 {
+			n--
+		}
+		if n < 2 {
+			break
+		}
+		if err := fn(audioSpan{startedMS: started, pcm: pcm[:n]}); err != nil {
+			return err
+		}
+		started += pcmDurationMS(int64(n))
+		pcm = pcm[n:]
 	}
 	return nil
 }

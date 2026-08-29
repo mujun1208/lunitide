@@ -90,6 +90,28 @@ describe('meetingCapture', () => {
     expect(listeners.has('ended')).toBe(false)
   })
 
+  test('watchCaptureTracksEnded fires when the keep-alive video track dies', () => {
+    const listeners = new Map<string, () => void>()
+    const video = {
+      kind: 'video',
+      readyState: 'live',
+      addEventListener: (name: string, fn: () => void) => listeners.set(`video:${name}`, fn),
+      removeEventListener: (name: string) => listeners.delete(`video:${name}`),
+    }
+    const stream = { getAudioTracks: () => [], getVideoTracks: () => [video] } as unknown as MediaStream
+    const onEnded = vi.fn()
+    watchAudioTrackEnded(stream, onEnded)
+    listeners.get('video:ended')?.()
+    expect(onEnded).toHaveBeenCalledOnce()
+  })
+
+  test('display keep-alive video is large enough Chromium will not end capture at ~2 minutes', () => {
+    const video = displayMediaConstraints().video as { width?: number; height?: number; frameRate?: number }
+    expect(video.width ?? 0).toBeGreaterThanOrEqual(320)
+    expect(video.height ?? 0).toBeGreaterThanOrEqual(180)
+    expect(video.frameRate ?? 0).toBeGreaterThanOrEqual(2)
+  })
+
   test('recognizes Windows loopback device labels', () => {
     expect(isLoopbackInputLabel('Stereo Mix (Realtek)')).toBe(true)
     expect(isLoopbackInputLabel('立体声混音')).toBe(true)

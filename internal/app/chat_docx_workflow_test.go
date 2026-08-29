@@ -63,6 +63,16 @@ func TestNovelDocxGenBlockedUntilOutlineAndProse(t *testing.T) {
 	}
 }
 
+func TestNovelTwelveStoriesUnlocksAfterNudges(t *testing.T) {
+	turn := &chatTurnCheckpoint{DocxActive: true, DocxKind: docxKindNovel, DocxNudges: 3, Goal: "写一份12星座爱情小说Word到桌面"}
+	if !docxPipelineReady(turn) {
+		t.Fatal("12 short stories must unlock after last-stage nudges, not wait forever")
+	}
+	if blocked, _ := docxGenBlocked(turn, "docx.gen"); blocked {
+		t.Fatal("last-stage novel gen must run")
+	}
+}
+
 func TestDocxStageNudgeVisibleInThinking(t *testing.T) {
 	turn := &chatTurnCheckpoint{DocxActive: true, DocxKind: docxKindReport}
 	req := gateway.Request{Model: "m"}

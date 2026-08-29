@@ -4,6 +4,7 @@
 // consumes leftover rows after a stream settles (zero loss).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, runQueueBridge } from '../bridge/client'
+import { FOLLOW_UP_QUEUE_NOTICE } from './turnControl'
 
 export interface QueuedItem {
   queuedId: string
@@ -54,7 +55,7 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
     if (!trimmed) return false
     try {
       await runQueueBridge.input({ sessionId: sessionRef.current, text: trimmed, requestId: `ui-${crypto.randomUUID()}` })
-      setNotice('')
+      setNotice(FOLLOW_UP_QUEUE_NOTICE)
       await refresh()
       return true
     } catch (e) {

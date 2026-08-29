@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './MermaidBlock'
-import { prepareMermaidSource, resetMermaidEngineForTests } from './tideMermaid'
+import { pinConversationScroll } from '../streamScroll'
+import { MERMAID_MAX_HEIGHT_CSS, prepareMermaidSource, resetMermaidEngineForTests } from './tideMermaid'
 
 const mermaid = vi.hoisted(() => ({
   initialize: vi.fn(),
@@ -110,4 +111,50 @@ it('serializes concurrent mermaid.render calls so overlapping diagrams cannot cr
   )
   await waitFor(() => expect(document.querySelectorAll('.mermaid-host svg').length).toBe(2))
   expect(maxActive).toBe(1)
+})
+
+const LEAKED_PPT_FENCE = `flowchart TD
+    A["封面<br/>穆军 · IT公司副总经理"] --> B["目录<br/>六段式导读"]
+    B --> C["关于我<br/>35岁 · 15年从业"]
+    C --> D["职业历程<br/>从技术到管理的15年"]
+    D --> E["核心能力<br/>技术+管理双轮驱动"]
+    E --> F["管理理念<br/>三个坚持"]
+    F --> G["代表成果<br/>可量化战绩"]
+    G --> H["个人特质<br/>性格与成长关键词"]
+    H --> I["愿景规划<br/>未来三年的目标"]
+    I --> J["致谢<br/>联系方式与邀请"]
+第二轮检索结果对个人信息类 PPT 帮助有限（这类 PPT 的事实来自本人而非公开网络），我已按流水线完成两轮检索并据此收录结构。现在定稿...无法执行。模型结果不完整。写到桌面请用对应 *.gen 工具并设 desktop=true，不要用 command.run。`
+
+it('still draws A–J when prose leaks into the mermaid fence and does not show NODE_STRING', async () => {
+  mermaid.render.mockImplementation(async (_id: string, src: string) => {
+    if (/第二轮检索|无法执行|desktop\s*=\s*true|NODE_STRING/.test(src)) {
+      throw new Error("Parse error on line 11: ... Expecting 'SEMI', got 'NODE_STRING'")
+    }
+    expect(src).toContain('A["封面<br/>穆军 · IT公司副总经理"]')
+    expect(src).toContain('J["致谢<br/>联系方式与邀请"]')
+    return {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 80"><g class="node"><text>封面</text></g><g class="node"><text>致谢</text></g></svg>',
+    }
+  })
+  render(<MermaidBlock source={LEAKED_PPT_FENCE} />)
+  await waitFor(() => expect(document.querySelector('.mermaid-host svg .node')).not.toBeNull())
+  expect(screen.queryByText(/Parse error/)).toBeNull()
+  expect(screen.queryByText(/NODE_STRING/)).toBeNull()
+  expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+  expect(document.querySelector('.mermaid-host')?.textContent).toMatch(/封面/)
+  expect((document.querySelector('.mermaid-host svg') as HTMLElement | null)?.style.maxHeight).toBe(MERMAID_MAX_HEIGHT_CSS)
+})
+
+it('does not call scrollTo on mermaid layout complete when follow is paused', async () => {
+  mermaid.render.mockResolvedValue({ svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"/>' })
+  const scrollTo = vi.fn()
+  const box = { scrollHeight: 900, clientHeight: 300, scrollTop: 120, scrollTo }
+  render(
+    <MermaidBlock
+      source={'flowchart TD\nA-->B'}
+      onLayout={() => pinConversationScroll(box, { userFollowPaused: true })}
+    />,
+  )
+  await waitFor(() => expect(document.querySelector('.mermaid-host svg')).not.toBeNull())
+  expect(scrollTo).not.toHaveBeenCalled()
 })

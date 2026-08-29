@@ -31,7 +31,7 @@ import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from
 import { captureStateNotice, audioSourceLabel, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
-const extra = { getAudioTracks: () => [{ kind: 'audio' }], getTracks: () => [] } as unknown as MediaStream
+const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
 
 describe('startMeetingSpeech', () => {
   beforeEach(() => {
@@ -104,40 +104,41 @@ describe('startMeetingSpeech', () => {
 
 describe('prepareMeetingCapture', () => {
   beforeEach(() => {
-    asr.probe.mockReset().mockResolvedValue(undefined)
     asr.capture.mockReset()
   })
 
-  test('stays microphone-only when the mix is off', async () => {
-    await expect(prepareMeetingCapture(false)).resolves.toEqual({ extraStreams: [], audioSource: 'microphone', notice: '' })
-    expect(asr.capture).not.toHaveBeenCalled()
-  })
-
-  test('does not open the picker without a local recognizer', async () => {
-    const plan = await prepareMeetingCapture(true)
-    expect(plan.audioSource).toBe('microphone')
-    expect(plan.notice).toMatch(/本机识别/)
-    expect(asr.capture).not.toHaveBeenCalled()
-  })
-
-  test('keeps the loopback stream when the picker returns system audio', async () => {
-    asr.probe.mockResolvedValue({ supported: true, ready: true })
+  test('always tries this-PC system audio capture', async () => {
     asr.capture.mockResolvedValue(extra)
-    const plan = await prepareMeetingCapture(true)
+    const plan = await prepareMeetingCapture()
+    expect(asr.capture).toHaveBeenCalled()
+    expect(plan.audioSource).toBe('microphone_and_system')
+    expect(plan.extraStreams).toEqual([extra])
+  })
+
+  test('keeps the loopback stream when capture succeeds', async () => {
+    asr.capture.mockResolvedValue(extra)
+    const plan = await prepareMeetingCapture({ interactive: true })
     expect(plan.audioSource).toBe('microphone_and_system')
     expect(plan.extraStreams).toEqual([extra])
     expect(plan.notice).toBe('')
   })
 
-  test('falls back honestly when the picker gives video but no audio', async () => {
-    asr.probe.mockResolvedValue({ supported: true, ready: true })
+  test('falls back to mic-only when the picker gives video but no audio', async () => {
     const stop = vi.fn()
     asr.capture.mockResolvedValue({ getAudioTracks: () => [], getTracks: () => [{ stop }] })
-    const plan = await prepareMeetingCapture(true)
+    const plan = await prepareMeetingCapture()
     expect(plan.audioSource).toBe('microphone')
     expect(plan.extraStreams).toEqual([])
-    expect(plan.notice).toMatch(/共享音频|立体声混音/)
+    expect(plan.notice).toBe(NO_SYSTEM_AUDIO_NOTICE)
     expect(stop).toHaveBeenCalled()
+  })
+
+  test('picker cancel still returns a mic-only plan instead of throwing', async () => {
+    asr.capture.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'))
+    const plan = await prepareMeetingCapture({ interactive: true })
+    expect(plan.audioSource).toBe('microphone')
+    expect(plan.extraStreams).toEqual([])
+    expect(plan.notice).toMatch(/继续录制麦克风/)
   })
 
   test('captureStateNotice stays honest about warning vs live loopback', () => {
@@ -149,17 +150,10 @@ describe('prepareMeetingCapture', () => {
   })
 
   test('recoverMeetingSystemAudio upgrades a mic-only plan when loopback appears', async () => {
-    asr.probe.mockResolvedValue({ supported: true, ready: true })
     asr.capture.mockResolvedValue(extra)
     const next = await recoverMeetingSystemAudio({ extraStreams: [], audioSource: 'microphone', notice: NO_SYSTEM_AUDIO_NOTICE }, { interactive: false })
     expect(next.audioSource).toBe('microphone_and_system')
     expect(next.extraStreams).toEqual([extra])
-  })
-
-  test('rethrows a canceled picker so the meeting is not created', async () => {
-    asr.probe.mockResolvedValue({ supported: true, ready: true })
-    asr.capture.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'))
-    await expect(prepareMeetingCapture(true)).rejects.toMatchObject({ name: 'NotAllowedError' })
   })
 })
 
@@ -167,8 +161,7 @@ describe('audioSourceLabel', () => {
   test('labels mix vs microphone honestly', () => {
     expect(audioSourceLabel('microphone_and_system')).toMatch(/系统声音/)
     expect(audioSourceLabel('microphone_and_system')).toMatch(/未共享给其他电脑/)
-    expect(audioSourceLabel('microphone')).toMatch(/仅本机麦克风，未混录系统扬声器/)
-    expect(audioSourceLabel('microphone', true)).toMatch(/正在录制本机麦克风/)
-    expect(audioSourceLabel('microphone', true)).not.toMatch(/系统扬声器/)
+    expect(audioSourceLabel('microphone')).toMatch(/麦克风/)
+    expect(audioSourceLabel('microphone', true)).toMatch(/正在录制麦克风/)
   })
 })

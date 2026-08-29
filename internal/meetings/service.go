@@ -306,6 +306,8 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	if m.Status != StatusRecording {
 		return m, nil
 	}
+	// Stop is the only path that ends a meeting. WAV rotate, ASR death,
+	// and display-track recycle must never call this.
 	segs, err := s.store.ListSegments(ctx, meetingID)
 	if err != nil {
 		return Meeting{}, err
@@ -434,6 +436,9 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	}
 	m.Summary = clipRunes(strings.TrimSpace(notes.Summary), maxSummary)
 	m.Actions = clipRunes(strings.TrimSpace(notes.Actions), maxActions)
+	if m.Summary == "" && m.Actions == "" {
+		return s.finishNeedsSummary(m, "模型没有写出摘要，逐字稿已保存。可重试生成摘要。")
+	}
 	m.SummaryError = ""
 	m.Status = StatusReady
 	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)

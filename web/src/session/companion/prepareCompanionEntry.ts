@@ -1,6 +1,6 @@
 // Entering 对话模式 inspects the voice path once and starts listening.
 // It never bounces the user to Settings: 云端 is the default card, and a
-// saved 本地 card is kept. MiniCPM-o is no longer a 月伴 channel.
+// saved 本地 card is kept.
 import { applyVoicePath, loadCompanionSettings, type CompanionSettings } from './companionSettings'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import type { VoicePath } from './voicePersonas'
@@ -8,19 +8,12 @@ import type { VoicePath } from './voicePersonas'
 export interface PreparedCompanionEntry {
   settings: CompanionSettings
   voicePath: VoicePath
-  omniRequested: boolean
-  omniReady: boolean
-  usedFallback: boolean
+  /** True when a retired MiniCPM-o save was migrated onto 云端 on entry. */
+  usedFallback?: boolean
 }
 
-export async function resolveCompanionVoicePath(settings: CompanionSettings): Promise<{
-  voicePath: VoicePath
-  omniReady: boolean
-}> {
-  if (settings.voicePath === 'local') {
-    return { voicePath: 'local', omniReady: false }
-  }
-  return { voicePath: 'cloud', omniReady: false }
+export async function resolveCompanionVoicePath(settings: CompanionSettings): Promise<VoicePath> {
+  return settings.voicePath === 'local' ? 'local' : 'cloud'
 }
 
 /** Inspect once on 对话模式 enter: Windows-default mic + keep an explicit ready path. */
@@ -28,15 +21,7 @@ export async function prepareCompanionEntry(
   loaded: CompanionSettings = loadCompanionSettings(),
 ): Promise<PreparedCompanionEntry> {
   useWindowsDefaultMicrophone()
-  const omniRequested = loaded.voicePath === 'omni'
-  const resolved = await resolveCompanionVoicePath(loaded)
-  const settings =
-    resolved.voicePath === loaded.voicePath ? loaded : applyVoicePath(loaded, resolved.voicePath)
-  return {
-    settings,
-    voicePath: resolved.voicePath,
-    omniRequested,
-    omniReady: false,
-    usedFallback: false,
-  }
+  const voicePath = await resolveCompanionVoicePath(loaded)
+  const settings = voicePath === loaded.voicePath ? loaded : applyVoicePath(loaded, voicePath)
+  return { settings, voicePath }
 }

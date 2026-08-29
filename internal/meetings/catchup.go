@@ -85,6 +85,7 @@ func (s *Service) CatchUp(ctx context.Context, meetingID string) (Meeting, error
 	defer stop()
 	wrote := false
 	visited := false
+	var lastTranscribe error
 	err = walkAudioSpans(audioDir(s.audioRoot, meetingID), fromMS, func(span audioSpan) error {
 		visited = true
 		if workCtx.Err() != nil {
@@ -92,7 +93,8 @@ func (s *Service) CatchUp(ctx context.Context, meetingID string) (Meeting, error
 		}
 		text, transErr := s.transcribe(workCtx, span.pcm)
 		if transErr != nil {
-			return transErr
+			lastTranscribe = transErr
+			return nil
 		}
 		text = strings.TrimSpace(text)
 		if text == "" {
@@ -110,6 +112,10 @@ func (s *Service) CatchUp(ctx context.Context, meetingID string) (Meeting, error
 			return s.finishNeedsSummary(m, "转写补全中断，音频已保存。可重试补转写。")
 		}
 		return s.finishNeedsSummary(m, "转写补全失败："+err.Error())
+	}
+	if lastTranscribe != nil && !wrote && !hasText {
+		m, _ = s.Get(context.Background(), meetingID)
+		return s.finishNeedsSummary(m, "转写补全失败："+lastTranscribe.Error())
 	}
 	if !visited {
 		return m, nil

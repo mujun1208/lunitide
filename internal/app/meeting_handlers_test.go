@@ -218,3 +218,26 @@ func TestMeetingsHandlersAudioAppendAndCatchup(t *testing.T) {
 		t.Fatalf("catchup transcript = %q", transcript)
 	}
 }
+
+func TestMeetingsHandlersRollingAudioDoesNotStop(t *testing.T) {
+	e, svc := newMeetingsEngine(t)
+	svc.SetAudioRoot(t.TempDir())
+	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"title": "长会"})
+	id, _ := started["meetingId"].(string)
+	chunk := base64.StdEncoding.EncodeToString(make([]byte, 48_000))
+	for i := 0; i < 120; i++ {
+		got := meetingsOK[map[string]any](t, e, "meetings.audio.append", map[string]any{"meetingId": id, "pcm": chunk})
+		if got["meetingId"] != id {
+			t.Fatalf("audio.append %d = %#v", i, got)
+		}
+	}
+	live := meetingsOK[map[string]any](t, e, "meetings.get", map[string]any{"meetingId": id})
+	if live["status"] != "recording" {
+		t.Fatalf("rolling appends must not stop the meeting: %#v", live)
+	}
+	beat := meetingsOK[map[string]any](t, e, "meetings.heartbeat", map[string]any{"meetingId": id})
+	if beat["status"] != "recording" {
+		t.Fatalf("heartbeat after rotate = %#v", beat)
+	}
+	meetingsOK[map[string]any](t, e, "meetings.stop", map[string]any{"meetingId": id})
+}

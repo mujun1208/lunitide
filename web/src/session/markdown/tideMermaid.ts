@@ -47,10 +47,68 @@ export function readTidePalette(root?: Element | null): TidePalette {
   return palette
 }
 
+/** Closed-loop / tool-failure prose that models leak into mermaid fences. */
+const MERMAID_CLOSED_LOOP_LEAK =
+  /无法执行|模型结果不完整|写到桌面请用|desktop\s*=\s*true|不要用\s*command\.run/i
+
+const MERMAID_DIAGRAM_START =
+  /^(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|quadrantChart|sankey(?:-beta)?|xychart(?:-beta)?|block(?:-beta)?|C4Context|requirementDiagram|packet-beta|kanban|architecture-beta|radar-beta)\b/i
+
+const MERMAID_KEYWORD =
+  /^(subgraph|end|direction|classDef|class|style|click|linkStyle|accTitle|accDescr|title|participant|actor|note|loop|alt|opt|par|rect|and|else|option|section|dateFormat)\b/i
+
+function stripTrailingMermaidProse(line: string): string {
+  const fence = line.indexOf('```')
+  if (fence >= 0) line = line.slice(0, fence)
+  const fail = line.search(/无法执行/)
+  if (fail >= 0) line = line.slice(0, fail)
+  const lastClose = line.lastIndexOf(']')
+  if (lastClose >= 0) {
+    const rest = line.slice(lastClose + 1).trim()
+    if (rest && (/^[\u4e00-\u9fff]/.test(rest) || MERMAID_CLOSED_LOOP_LEAK.test(rest) || rest.startsWith('```'))) {
+      return line.slice(0, lastClose + 1)
+    }
+  }
+  return line.trimEnd()
+}
+
+export function isLikelyMermaidLine(line: string): boolean {
+  const t = stripTrailingMermaidProse(line).trim()
+  if (!t) return true
+  if (t.startsWith('```')) return false
+  if (t.startsWith('%%')) return true
+  if (MERMAID_DIAGRAM_START.test(t) || MERMAID_KEYWORD.test(t)) return true
+  if (/^[A-Za-z][\w-]*\b/.test(t)) return true
+  if (/^[&|;]/.test(t)) return true
+  if (MERMAID_CLOSED_LOOP_LEAK.test(t)) return false
+  if (/^[\u4e00-\u9fff]/.test(t)) return false
+  return true
+}
+
+/** Drop leaked Chinese prose, a second fence, or desktop=true closed-loop tails. */
+export function trimMermaidFenceLeak(source: string): string {
+  let cut = source.replace(/```[\s\S]*$/, '')
+  cut = cut.replace(/无法执行[\s\S]*$/, '')
+  cut = cut.replace(/[。.]?\s*(?:模型结果不完整[。.]?)?\s*写到桌面请用对应[\s\S]*$/u, '')
+  const kept: string[] = []
+  for (const raw of cut.split('\n')) {
+    const line = stripTrailingMermaidProse(raw)
+    if (!isLikelyMermaidLine(line)) break
+    if (MERMAID_CLOSED_LOOP_LEAK.test(line) && !/^[A-Za-z][\w-]*\b/.test(line.trim())) break
+    kept.push(line)
+  }
+  return kept.join('\n').trim()
+}
+
+/** Last-resort cut: keep lines until the first non-diagram row. */
+export function recoverMermaidSource(source: string): string {
+  return trimMermaidFenceLeak(source)
+}
+
 /** Drop author init directives so stock dark/default cannot wipe the Tide theme. */
 export function prepareMermaidSource(source: string): string {
   const stripped = source.replace(/%%\{\s*init[\s\S]*?\}%%/gi, '').trim()
-  return quoteFlowchartNodeLabels(normalizeMermaidBreaks(stripped))
+  return quoteFlowchartNodeLabels(normalizeMermaidBreaks(trimMermaidFenceLeak(stripped)))
 }
 
 function normalizeMermaidBreaks(source: string): string {
@@ -74,11 +132,16 @@ export function sanitizeMermaidSvg(svg: string): string {
   return svg.replace(/<br\s*\/?>/gi, '<br/>').replace(/&nbsp;/gi, '&#160;')
 }
 
+/** Cap so a PPT cover / tall flowchart cannot swallow the chat column. */
+export const MERMAID_MAX_HEIGHT_CSS = 'min(40vh, 360px)'
+
 /** Responsive SVG: mermaid often sets inline height=viewBox px, which leaves a huge empty band. */
 export function fitMermaidSvg(svg: SVGSVGElement): void {
   svg.style.maxWidth = '100%'
-  svg.style.width = '100%'
+  svg.style.maxHeight = MERMAID_MAX_HEIGHT_CSS
+  svg.style.width = 'auto'
   svg.style.height = 'auto'
+  svg.style.objectFit = 'contain'
   svg.removeAttribute('width')
   svg.removeAttribute('height')
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')

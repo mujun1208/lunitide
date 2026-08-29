@@ -95,6 +95,9 @@ func TestDesktopTypeFindAfterThenTypeAndSubmit(t *testing.T) {
 	if !strings.Contains(joined, "ctrl+f") || !strings.Contains(joined, "enter") {
 		t.Fatalf("keys %v", keys)
 	}
+	if strings.Contains(joined, "ctrl+a") {
+		t.Fatalf("after= must not select-all: %v", keys)
+	}
 	if len(clicked) == 0 || clicked[len(clicked)-1] != "发送" {
 		t.Fatalf("clicked %v", clicked)
 	}

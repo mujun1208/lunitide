@@ -36,19 +36,17 @@ describe('CompanionSection voice path', () => {
 
   afterEach(() => cleanup())
 
-  test('settings still offer two voice paths and never MiniCPM-o', async () => {
+  test('settings offer two voice paths only', async () => {
     render(<CompanionSection />)
     expect(await screen.findByRole('radiogroup', { name: '语音通道' })).toBeTruthy()
     expect(screen.getAllByRole('radio')).toHaveLength(2)
     expect(screen.getByRole('radio', { name: /云端/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText('晓晓 · 微软 Neural')).toBeInTheDocument()
     expect(screen.getByText('sherpa + GPT-SoVITS')).toBeInTheDocument()
-    expect(screen.queryByText(/MiniCPM/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/omni/i)).not.toBeInTheDocument()
     expect(document.querySelectorAll('.voice-path-card')).toHaveLength(2)
   })
 
-  test('leftover MiniCPM-o settings open the 云端 extras', async () => {
+  test('retired omni saves show cloud extras after migration', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       enabled: true,
       voicePath: 'omni',
@@ -58,9 +56,11 @@ describe('CompanionSection voice path', () => {
     render(<CompanionSection />)
     expect(await screen.findByRole('radio', { name: /云端/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getAllByRole('radio')).toHaveLength(2)
-    expect(screen.queryByText(/MiniCPM/i)).not.toBeInTheDocument()
     expect(screen.getByText('朗读音色')).toBeInTheDocument()
     expect(screen.getByText('回复自动朗读')).toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>
+    expect(stored.voicePath).toBe('cloud')
+    expect(stored).not.toHaveProperty('omniPersonaId')
   })
 
   test('local path keeps two cards and shows GPT-SoVITS extras', async () => {
@@ -70,7 +70,6 @@ describe('CompanionSection voice path', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(2)
     expect(screen.getByRole('radio', { name: /本地/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByLabelText('GPT-SoVITS 服务地址')).toBeInTheDocument()
-    expect(screen.queryByText(/MiniCPM/i)).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/50 种人生已内置/)).toBeInTheDocument())
   })
 })

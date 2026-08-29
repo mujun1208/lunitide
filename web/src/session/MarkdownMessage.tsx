@@ -48,7 +48,7 @@ export const safeMarkdownUrl = (url: string): string => {
   }
 }
 
-function markdownComponents(onCopy?: (value: string) => void | Promise<void>): Components {
+function markdownComponents(onCopy?: (value: string) => void | Promise<void>, onMermaidLayout?: () => void): Components {
   return {
     a: ({ children, href, ...props }) => {
       if (!href) return <>{children}</>
@@ -60,20 +60,20 @@ function markdownComponents(onCopy?: (value: string) => void | Promise<void>): C
     code: ({ className, children, ...props }) => {
       const lang = codeBlockLanguage(className)
       const text = String(children).replace(/\n$/, '')
-      if (lang === 'mermaid') return <MermaidBlock source={text} onCopy={onCopy} />
+      if (lang === 'mermaid') return <MermaidBlock source={text} onCopy={onCopy} onLayout={onMermaidLayout} />
       if (lang) return <RichCodeBlock lang={lang} code={text} onCopy={onCopy} />
       return <code className={className} {...props}>{children}</code>
     },
   }
 }
 
-export function MarkdownMessage({ text, onCopy }: { text: string; onCopy?: (value: string) => void | Promise<void> }) {
+export function MarkdownMessage({ text, onCopy, onMermaidLayout }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void }) {
   return <ReactMarkdown
     remarkPlugins={[remarkGfm, remarkTrimBareUrlPunctuation]}
     allowedElements={allowedElements}
     unwrapDisallowed
     urlTransform={safeMarkdownUrl}
-    components={markdownComponents(onCopy)}
+    components={markdownComponents(onCopy, onMermaidLayout)}
   >{text}</ReactMarkdown>
 }
 
