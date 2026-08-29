@@ -53,12 +53,67 @@ export function validateAttachmentBatch(files:readonly File[]):{accepted:File[];
  return{accepted,skipped}
 }
 
-export type AttachmentProgress={key:string;status:'queued'|'reading'|'uploading'|'processing'|'complete'|'failed';percent:number;name:string;size:number;attachmentId?:string;error?:string}
+export type AttachmentProgress={key:string;status:'queued'|'reading'|'uploading'|'processing'|'complete'|'failed';percent:number;name:string;size:number;attachmentId?:string;error?:string;previewUrl?:string}
 export type AttachmentProgressHandler=(progress:AttachmentProgress)=>void
 export type AttachmentBatchResult={uploaded:number;skipped:string[];attachmentIds:string[];items:AttachmentIngestResult[];failed:Array<{name:string;error:string;file:File}>}
+export type AttachmentPreview={url:string;name:string;mime:string}
+
+const PREVIEW_PREFIX='lunitide:att-preview:'
+const previewMemory=new Map<string,AttachmentPreview>()
+export const isImageAttachmentName=(name:string)=>!!IMAGE_MIME_BY_EXTENSION[extension(name)]
+export const isImageFile=(file:File)=>file.type.startsWith('image/')||isImageAttachmentName(file.name)
+const imageObjectUrl=(file:File)=>{if(!isImageFile(file)||typeof URL==='undefined'||typeof URL.createObjectURL!=='function')return;try{return URL.createObjectURL(file)}catch{return}}
+const previewKey=(id:string)=>PREVIEW_PREFIX+id
+function readStoredPreview(id:string):AttachmentPreview|undefined{
+ try{const raw=sessionStorage.getItem(previewKey(id))??localStorage.getItem(previewKey(id));if(!raw)return;const parsed=JSON.parse(raw) as{data?:string;name?:string;mime?:string};if(!parsed.data)return;return{url:parsed.data,name:parsed.name||'图片',mime:parsed.mime||'image/png'}}catch{return}
+}
+export function attachmentPreview(id:string):AttachmentPreview|undefined{
+ const hit=previewMemory.get(id)
+ if(hit)return hit
+ const stored=readStoredPreview(id)
+ if(stored)previewMemory.set(id,stored)
+ return stored
+}
+function persistPreview(id:string,dataUrl:string,name:string,mime:string){
+ const payload=JSON.stringify({data:dataUrl,name,mime,t:Date.now()})
+ try{sessionStorage.setItem(previewKey(id),payload)}catch{/* quota */}
+ try{localStorage.setItem(previewKey(id),payload)}catch{
+  const keys:string[]=[]
+  for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith(PREVIEW_PREFIX))keys.push(key)}
+  keys.sort((a,b)=>{const stamp=(key:string)=>{try{return JSON.parse(localStorage.getItem(key)??'{}').t??0}catch{return 0}};return stamp(a)-stamp(b)})
+  for(const key of keys.slice(0,Math.max(1,Math.ceil(keys.length/2))))localStorage.removeItem(key)
+  try{localStorage.setItem(previewKey(id),payload)}catch{/* still full */}
+ }
+}
+async function compactPreview(file:File):Promise<string|undefined>{
+ if(typeof createImageBitmap!=='function'||typeof document==='undefined')return
+ try{
+  const bitmap=await createImageBitmap(file)
+  const canvas=document.createElement('canvas'),context=canvas.getContext('2d')
+  if(!context){bitmap.close();return}
+  const scale=Math.min(1,360/Math.max(bitmap.width,bitmap.height))
+  canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale))
+  context.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close()
+  return canvas.toDataURL('image/jpeg',.72)
+ }catch{return}
+}
+export function rememberAttachmentPreview(id:string,file:File,existingUrl?:string){
+ if(!id||!isImageFile(file))return
+ const mime=file.type||IMAGE_MIME_BY_EXTENSION[extension(file.name)]||'image/png'
+ const url=existingUrl||imageObjectUrl(file)||`data:${mime};base64,`
+ previewMemory.set(id,{url,name:file.name,mime})
+ void compactPreview(file).then(dataUrl=>{if(!dataUrl)return;persistPreview(id,dataUrl,file.name,mime)})
+}
+export function forgetAttachmentPreview(id:string){
+ const hit=previewMemory.get(id)
+ if(hit?.url.startsWith('blob:'))try{URL.revokeObjectURL(hit.url)}catch{/* ignore */}
+ previewMemory.delete(id)
+ try{sessionStorage.removeItem(previewKey(id))}catch{/* ignore */}
+ try{localStorage.removeItem(previewKey(id))}catch{/* ignore */}
+}
 export async function ingestAttachments(attachments:AttachmentBridge,projectId:string,sessionId:string,files:readonly File[],onProgress?:AttachmentProgressHandler):Promise<AttachmentBatchResult>{
- const{accepted,skipped}=validateAttachmentBatch(files),items:AttachmentIngestResult[]=[],failed:AttachmentBatchResult['failed']=[]
- accepted.forEach((file,index)=>onProgress?.({key:`${file.name}:${file.lastModified}:${index}`,status:'queued',percent:0,name:file.name,size:file.size}))
- for(const[fileIndex,file]of accepted.entries()){const key=`${file.name}:${file.lastModified}:${fileIndex}`;let uploadId='',percent=0;try{onProgress?.({key,status:'reading',percent:1,name:file.name,size:file.size});percent=1;const bytes=new Uint8Array(await readFile(file)),sha256=hex(await crypto.subtle.digest('SHA-256',bytes)),begin=await attachments.begin({projectId,sessionId,originalName:file.name,mime:file.type||'text/plain',size:file.size,sha256});uploadId=begin.uploadId;if(!Number.isSafeInteger(begin.chunkSize)||begin.chunkSize<=0)throw new Error('上传分块大小无效');let offset=0;while(offset<bytes.length){const part=bytes.subarray(offset,Math.min(bytes.length,offset+begin.chunkSize)),expectedOffset=offset+part.length,chunk=await attachments.chunk({uploadId:begin.uploadId,offset,contentBase64:bytesToBase64(part)});if(!Number.isSafeInteger(chunk.nextOffset)||chunk.nextOffset!==expectedOffset)throw new Error('上传分块响应偏移无效');offset=chunk.nextOffset;percent=Math.min(99,Math.round(offset/Math.max(1,bytes.length)*100));onProgress?.({key,status:'uploading',percent,name:file.name,size:file.size})}percent=99;onProgress?.({key,status:'processing',percent,name:file.name,size:file.size});const item=await attachments.commit({uploadId:begin.uploadId,projectId,sessionId});items.push(item);onProgress?.({key,status:'complete',percent:100,name:file.name,size:file.size,attachmentId:item.attachmentId})}catch(e){if(uploadId)await attachments.abort({uploadId,projectId,sessionId}).catch(()=>{});const error=e instanceof Error?e.message:'上传失败';failed.push({name:file.name,error,file});onProgress?.({key,status:'failed',percent,name:file.name,size:file.size,error})}}
+ const{accepted,skipped}=validateAttachmentBatch(files),items:AttachmentIngestResult[]=[],failed:AttachmentBatchResult['failed']=[],previews=accepted.map(file=>imageObjectUrl(file))
+ accepted.forEach((file,index)=>onProgress?.({key:`${file.name}:${file.lastModified}:${index}`,status:'queued',percent:0,name:file.name,size:file.size,previewUrl:previews[index]}))
+ for(const[fileIndex,file]of accepted.entries()){const key=`${file.name}:${file.lastModified}:${fileIndex}`,previewUrl=previews[fileIndex];let uploadId='',percent=0;try{onProgress?.({key,status:'reading',percent:1,name:file.name,size:file.size,previewUrl});percent=1;const bytes=new Uint8Array(await readFile(file)),sha256=hex(await crypto.subtle.digest('SHA-256',bytes)),begin=await attachments.begin({projectId,sessionId,originalName:file.name,mime:file.type||'text/plain',size:file.size,sha256});uploadId=begin.uploadId;if(!Number.isSafeInteger(begin.chunkSize)||begin.chunkSize<=0)throw new Error('上传分块大小无效');let offset=0;while(offset<bytes.length){const part=bytes.subarray(offset,Math.min(bytes.length,offset+begin.chunkSize)),expectedOffset=offset+part.length,chunk=await attachments.chunk({uploadId:begin.uploadId,offset,contentBase64:bytesToBase64(part)});if(!Number.isSafeInteger(chunk.nextOffset)||chunk.nextOffset!==expectedOffset)throw new Error('上传分块响应偏移无效');offset=chunk.nextOffset;percent=Math.min(99,Math.round(offset/Math.max(1,bytes.length)*100));onProgress?.({key,status:'uploading',percent,name:file.name,size:file.size,previewUrl})}percent=99;onProgress?.({key,status:'processing',percent,name:file.name,size:file.size,previewUrl});const item=await attachments.commit({uploadId:begin.uploadId,projectId,sessionId});items.push(item);rememberAttachmentPreview(item.attachmentId,file,previewUrl);onProgress?.({key,status:'complete',percent:100,name:file.name,size:file.size,attachmentId:item.attachmentId,previewUrl})}catch(e){if(uploadId)await attachments.abort({uploadId,projectId,sessionId}).catch(()=>{});const error=e instanceof Error?e.message:'上传失败';failed.push({name:file.name,error,file});onProgress?.({key,status:'failed',percent,name:file.name,size:file.size,error,previewUrl})}}
  return{uploaded:items.length,skipped,attachmentIds:items.map(item=>item.attachmentId),items,failed}
 }

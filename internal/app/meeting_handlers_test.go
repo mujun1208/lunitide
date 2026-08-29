@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/meetings"
 	sqlitestore "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
@@ -21,6 +23,7 @@ func newMeetingsEngine(t *testing.T) (*Engine, *meetings.Service) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	svc := meetings.New(store)
+	meetings.SilenceLoopbackForTest(t)
 	e := NewEngine(nil, "test")
 	e.SetMeetingsService(svc)
 	return e, svc
@@ -111,9 +114,65 @@ func TestMeetingsHandlersStartSystemAudioAndRejectRemote(t *testing.T) {
 	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("remote = %+v", resp)
 	}
+	meetings.InstallLoopbackForTest(t, func() []byte { return nil })
 	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"title": "周会", "audioSource": "microphone_and_system"})
 	if started["audioSource"] != "microphone_and_system" {
 		t.Fatalf("start mix = %#v", started)
+	}
+}
+
+func TestMeetingsHandlersLoopbackPoll(t *testing.T) {
+	e, _ := newMeetingsEngine(t)
+	idle := meetingsOK[map[string]any](t, e, "meetings.loopback.poll", map[string]any{"meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	if idle["active"] != false || idle["pcm"] != "" {
+		t.Fatalf("idle poll = %#v", idle)
+	}
+	meetings.InstallLoopbackForTest(t, func() []byte {
+		time.Sleep(4 * time.Millisecond)
+		return []byte{0x00, 0x10, 0x00, 0x10}
+	})
+	started := meetingsOK[map[string]any](t, e, "meetings.start", map[string]any{"audioSource": "microphone_and_system"})
+	id, _ := started["meetingId"].(string)
+	deadline := time.Now().Add(2 * time.Second)
+	var pcm string
+	var active bool
+	for time.Now().Before(deadline) {
+		polled := meetingsOK[map[string]any](t, e, "meetings.loopback.poll", map[string]any{"meetingId": id})
+		active, _ = polled["active"].(bool)
+		pcm, _ = polled["pcm"].(string)
+		if active && pcm != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !active || pcm == "" {
+		t.Fatalf("live poll active=%v pcm=%q", active, pcm)
+	}
+	raw, err := base64.StdEncoding.DecodeString(pcm)
+	if err != nil || len(raw) < 2 {
+		t.Fatalf("pcm decode %q %v", pcm, err)
+	}
+	bad := meetingsCall(t, e, "meetings.loopback.poll", map[string]any{"meetingId": "not-a-ulid"})
+	if bad.OK || bad.Error == nil || bad.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("invalid = %+v", bad)
+	}
+}
+
+func TestMeetingSummaryCandidatesPreferFastLLMs(t *testing.T) {
+	items := []provider.Provider{{
+		ID: "p1", Status: provider.StatusEnabled, CredentialState: provider.CredentialConfigured, CredentialRef: "cred",
+		Models: []provider.Model{
+			{ModelID: "deepseek-r1", Kind: provider.KindLLM},
+			{ModelID: "qwen-plus", Kind: provider.KindLLM, KindDefault: true},
+			{ModelID: "qwen2-vl", Kind: provider.KindVision},
+		},
+	}}
+	got := meetingSummaryCandidates(items)
+	if len(got) != 2 {
+		t.Fatalf("len = %d %#v", len(got), got)
+	}
+	if got[0].Model.ModelID != "qwen-plus" || got[1].Model.ModelID != "deepseek-r1" {
+		t.Fatalf("order = %s %s", got[0].Model.ModelID, got[1].Model.ModelID)
 	}
 }
 

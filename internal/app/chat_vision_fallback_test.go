@@ -107,6 +107,66 @@ func TestChatStartVisionFallbackWhenLLMLacksVision(t *testing.T) {
 	}
 }
 
+func TestChatStartStripsImagesWhenVisionDescribeFails(t *testing.T) {
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	digest := sha256.Sum256(data)
+	image := attachment.Attachment{
+		ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		FileRef: "selected-image", OriginalName: "selected.png", MIME: "image/png", Size: int64(len(data)),
+		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+	}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithContextReader(visionCatalogProvider{}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
+	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (gateway.Adapter, error) {
+		if p.ID == visionCatalogProviderID {
+			return failingVisionAdapter{}, nil
+		}
+		return visionFallbackAdapter{id: p.ID, requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"看看这张图"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	if len(req.Images) != 0 {
+		t.Fatalf("non-vision LLM must not receive images: %#v", req.Images)
+	}
+	var combined strings.Builder
+	for _, message := range req.Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "视觉模型未能识别") {
+		t.Fatalf("honest vision failure missing: %q", combined.String())
+	}
+}
+
+type failingVisionAdapter struct{}
+
+func (failingVisionAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	return gateway.Response{}, &gateway.Error{Code: "BAD_REQUEST", Message: `"url" field must be a base64 encoded image`, HTTPStatus: 400}
+}
+func (failingVisionAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, nil
+}
+func (failingVisionAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
+	return gateway.Response{}, nil
+}
+
+func TestImageUnsupportedReason(t *testing.T) {
+	if !imageUnsupportedReason(`This model does not support image`) {
+		t.Fatal("deepseek image rejection")
+	}
+	if !imageUnsupportedReason(`"url" field must be a base64 encoded image`) {
+		t.Fatal("qwen raw-base64 rejection")
+	}
+	if imageUnsupportedReason("additionalProperties not supported") {
+		t.Fatal("tool schema errors are not image failures")
+	}
+}
+
 func TestChatStartKeepsImagesWhenLLMSupportsVision(t *testing.T) {
 	response, req, completeCalls, _ := startVisionFallbackChat(t, true)
 	if !response.OK {

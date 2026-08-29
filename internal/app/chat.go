@@ -520,9 +520,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
-	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images); ok {
+	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, lastUserContent(messages)); ok {
 		messages = injectVisionDescription(messages, text)
 		images = nil
+	} else if len(images) > 0 && !modelByID(item, p.ModelID).SupportsVision {
+		images = nil
+		messages = injectVisionDescription(messages, "已附图片，但视觉模型未能识别。请在设置中确认已启用视觉模型后重试。")
 	}
 	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion}
 	if p.Companion {
@@ -1858,6 +1861,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		var result gateway.Response
 		var streamErr error
 		toolsFallbackUsed := false
+		imagesFallbackUsed := false
 		usedTools := false
 		autoMediaPlayDone := false
 		autoDesktopTypeDone := false
@@ -1908,6 +1912,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 			}
 			var gatewayErr *gateway.Error
+			if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && imageUnsupportedReason(gatewayErr.Message) {
+				req.Images = nil
+				imagesFallbackUsed = true
+				continue
+			}
 			if streamErr != nil && !toolsFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
 				// Some compatible text models reject function definitions. Retry once
 				// as plain chat while preserving messages and attachment context. The
@@ -2703,6 +2712,17 @@ func turnFailureCause(err error, goal string, tools []string) string {
 		return "这次操作没成功，请再说具体一点让我重试。"
 	}
 	return "模型结果不完整，请重试。"
+}
+
+func imageUnsupportedReason(reason string) bool {
+	lower := strings.ToLower(reason)
+	if strings.Contains(lower, "does not support image") || strings.Contains(lower, "image is not supported") {
+		return true
+	}
+	if strings.Contains(lower, "vision") && strings.Contains(lower, "not support") {
+		return true
+	}
+	return strings.Contains(lower, "url") && strings.Contains(lower, "base64") && strings.Contains(lower, "image")
 }
 
 func appendAssistantNotice(existing, notice string) (next, delta string) {

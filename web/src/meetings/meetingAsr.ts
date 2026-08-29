@@ -1,4 +1,5 @@
 import { localAsrStatus } from '../session/companion/localAsr'
+import { int16ToBase64 } from '../session/companion/pcmFrames'
 import { startLocalCompanionSpeech } from '../session/companion/localSpeech'
 import { startCompanionSpeech, type CompanionSpeechHandle, type CompanionSpeechOptions } from '../session/companion/speech'
 import {
@@ -17,12 +18,58 @@ export type MeetingCapturePlan = {
   extraStreams: MediaStream[]
   audioSource: MeetingAudioSource
   notice: string
+  engineOwned?: boolean
 }
 
 const MIC_ONLY_NOTICE = '未能收录系统声音，已继续录制麦克风。'
 
+export function engineLoopbackPlan(): MeetingCapturePlan {
+  return { extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true }
+}
+
+export function mixMeetingPcmS16le(mic: Int16Array, loop: Int16Array): Int16Array {
+  const n = Math.max(mic.length, loop.length)
+  const out = new Int16Array(n)
+  for (let i = 0; i < n; i++) {
+    const a = i < mic.length ? mic[i] : 0
+    const b = i < loop.length ? loop[i] : 0
+    let s = a + b
+    if (s > 32767) s = 32767
+    else if (s < -32768) s = -32768
+    out[i] = s
+  }
+  return out
+}
+
+export function decodeMeetingPcmBase64(b64: string): Int16Array | undefined {
+  const raw = b64.trim()
+  if (!raw) return
+  try {
+    const binary = atob(raw)
+    const bytes = binary.length & ~1
+    if (bytes < 2) return
+    const samples = new Int16Array(bytes / 2)
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = (binary.charCodeAt(i * 2) | (binary.charCodeAt(i * 2 + 1) << 8)) << 16 >> 16
+    }
+    return samples
+  } catch {
+    return
+  }
+}
+
+export function pcmFrameFromSamples(samples: Int16Array): { base64: string; samples: Int16Array; peak: number } {
+  let peak = 0
+  for (let i = 0; i < samples.length; i++) {
+    const mag = samples[i] < 0 ? -samples[i] : samples[i]
+    if (mag > peak) peak = mag
+  }
+  return { base64: int16ToBase64(samples), samples, peak: peak / 32768 }
+}
+
 export function planHasLiveSystemAudio(plan: MeetingCapturePlan | undefined): boolean {
-  return !!plan && plan.audioSource === 'microphone_and_system' && plan.extraStreams.some(hasLiveAudioTrack)
+  if (!plan || plan.audioSource !== 'microphone_and_system') return false
+  return plan.engineOwned === true || plan.extraStreams.some(hasLiveAudioTrack)
 }
 
 export function captureStateNotice(plan: MeetingCapturePlan | undefined): string {

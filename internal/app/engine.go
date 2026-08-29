@@ -640,6 +640,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMeetingsStart:                 handleMeetingsStart,
 	bridge.MethodMeetingsAppend:                handleMeetingsAppend,
 	bridge.MethodMeetingsAudioAppend:           handleMeetingsAudioAppend,
+	bridge.MethodMeetingsLoopbackPoll:          handleMeetingsLoopbackPoll,
 	bridge.MethodMeetingsCatchup:               handleMeetingsCatchup,
 	bridge.MethodMeetingsStop:                  handleMeetingsStop,
 	bridge.MethodMeetingsGet:                   handleMeetingsGet,

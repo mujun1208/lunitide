@@ -141,6 +141,7 @@ import {
   type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
   type MeetingsHeartbeatPayload, type MeetingsHeartbeatResult,
   type MeetingsAudioAppendPayload, type MeetingsAudioAppendResult, type MeetingsCatchupPayload, type MeetingsCatchupResult,
+  type MeetingsLoopbackPollPayload, type MeetingsLoopbackPollResult,
   type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
@@ -497,6 +498,7 @@ export interface MeetingsBridge{
   start(payload?:MeetingsStartPayload):Promise<MeetingDTO>
   append(payload:MeetingsAppendPayload):Promise<MeetingSegmentDTO>
   audioAppend(payload:MeetingsAudioAppendPayload):Promise<MeetingsAudioAppendResult>
+  loopbackPoll(payload:MeetingsLoopbackPollPayload):Promise<MeetingsLoopbackPollResult>
   stop(payload:MeetingsStopPayload):Promise<MeetingDTO>
   get(payload:MeetingsGetPayload):Promise<MeetingDTO>
   heartbeat(payload:MeetingsHeartbeatPayload):Promise<MeetingDTO>
@@ -513,6 +515,7 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
     start:p=>core.request('meetings.start',p??{}),
     append:p=>retryBridgeRequest(()=>core.request('meetings.append',p,MEETING_APPEND_DEADLINE_MS)),
     audioAppend:p=>retryBridgeRequest(()=>core.request('meetings.audio.append',p,MEETING_APPEND_DEADLINE_MS)),
+    loopbackPoll:p=>core.request('meetings.loopback.poll',p),
     stop:p=>retryBridgeRequest(()=>core.request('meetings.stop',p,MEETING_STOP_DEADLINE_MS)),
     get:p=>core.request('meetings.get',p,MEETING_HEARTBEAT_DEADLINE_MS),
     heartbeat:p=>retryBridgeRequest(()=>core.request('meetings.heartbeat',p,MEETING_HEARTBEAT_DEADLINE_MS)),
@@ -525,7 +528,7 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
 }
 let meetingsSingleton:MeetingsBridge|undefined
 export function getMeetingsBridge():MeetingsBridge{return meetingsSingleton??=createMeetingsBridge()}
-export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},audioAppend:p=>{try{return getMeetingsBridge().audioAppend(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},catchup:p=>{try{return getMeetingsBridge().catchup(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
+export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},audioAppend:p=>{try{return getMeetingsBridge().audioAppend(p)}catch(error){return Promise.reject(error)}},loopbackPoll:p=>{try{return getMeetingsBridge().loopbackPoll(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},catchup:p=>{try{return getMeetingsBridge().catchup(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
@@ -1352,7 +1355,7 @@ export function createIdentityBridge(transport:WebViewTransport=webview()):Ident
 }
 export function createPeopleBridge(transport:WebViewTransport=webview()):PeopleBridge{
   const core=createSimpleBridge(transport,{},12_000)
-  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS)),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>core.request('people.screen.capture',p??{},15_000),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
+  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS)),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>retryBridgeRequest(()=>core.request('people.screen.capture',p??{},30_000)),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
 }
 let identitySingleton:IdentityBridge|undefined
 let peopleSingleton:PeopleBridge|undefined

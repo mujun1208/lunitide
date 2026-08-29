@@ -28,7 +28,7 @@ vi.mock('./meetingCapture', async importOriginal => {
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, mixMeetingPcmS16le, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -147,6 +147,15 @@ describe('prepareMeetingCapture', () => {
     const dead = { getAudioTracks: () => [{ readyState: 'ended' }], getTracks: () => [] } as unknown as MediaStream
     expect(captureStateNotice({ extraStreams: [dead], audioSource: 'microphone_and_system', notice: '' })).toMatch(/轨道已中断/)
     expect(captureStateNotice({ extraStreams: [], audioSource: 'microphone', notice: NO_SYSTEM_AUDIO_NOTICE })).toBe(NO_SYSTEM_AUDIO_NOTICE)
+    expect(planHasLiveSystemAudio({ extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true })).toBe(true)
+    expect(captureStateNotice({ extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true })).toBe('')
+  })
+
+  test('mixes 16-bit PCM without overflowing', () => {
+    const mixed = mixMeetingPcmS16le(new Int16Array([20000, -20000]), new Int16Array([20000, -20000]))
+    expect([...mixed]).toEqual([32767, -32768])
+    const decoded = decodeMeetingPcmBase64(btoa(String.fromCharCode(0x00, 0x10)))
+    expect(decoded && decoded[0]).toBe(0x1000)
   })
 
   test('recoverMeetingSystemAudio upgrades a mic-only plan when loopback appears', async () => {

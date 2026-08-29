@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { BridgeClientError } from '../bridge/client'
 import { CAPTURE_HINT, canvasToJpegFile, captureThisPcFrame } from './peopleCapture'
 
 describe('peopleCapture', () => {
@@ -58,6 +59,26 @@ describe('peopleCapture', () => {
     expect(nativeCapture).toHaveBeenCalledOnce()
     expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false })
     expect(stop).toHaveBeenCalledOnce()
+    expect(file.type).toBe('image/jpeg')
+  })
+
+  test('falls back to display capture when native capture fails at runtime', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(jpegUrl)
+    const stop = vi.fn()
+    const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream
+    const canvas = document.createElement('canvas')
+    canvas.width = 8
+    canvas.height = 8
+    const getDisplayMedia = vi.fn().mockResolvedValue(stream)
+    const nativeCapture = vi.fn().mockRejectedValue(new BridgeClientError('无法截取本机画面', 'PEOPLE_CAPTURE_FAILED', false, 'trace'))
+    const file = await captureThisPcFrame({
+      maxBytes: 180 * 1024,
+      getDisplayMedia,
+      grabFrame: async () => canvas,
+      nativeCapture,
+    })
+    expect(nativeCapture).toHaveBeenCalledOnce()
+    expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false })
     expect(file.type).toBe('image/jpeg')
   })
 

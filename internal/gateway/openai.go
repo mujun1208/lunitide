@@ -94,7 +94,7 @@ func (a *OpenAI) Stream(ctx context.Context, secret []byte, in Request, emit fun
 }
 
 func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) error {
-	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil), MaxTokens: in.MaxTokens}
+	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil, false), MaxTokens: in.MaxTokens}
 	body, err := marshalBounded(p, a.o.MaxRequestBytes)
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) 
 
 func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
 	wn := buildWireNames(in.Tools, openAIToolNameMax)
-	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn), MaxTokens: in.MaxTokens, Stream: stream}
+	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn, false), MaxTokens: in.MaxTokens, Stream: stream}
 	if in.DisableReasoning {
 		disabled := false
 		p.EnableThinking = &disabled
@@ -138,6 +138,7 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 	sanitized := false
 	strippedEnableThinking := false
 	strippedThinking := false
+	rawImageURL := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		body, err := marshalBounded(p, a.o.MaxRequestBytes)
 		if err != nil {
@@ -182,6 +183,12 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 				attempt--
 				continue
 			}
+			if resp.StatusCode == http.StatusBadRequest && len(in.Images) > 0 && !rawImageURL && imageURLWantsRawBase64(reason) {
+				rawImageURL = true
+				p.Messages = openAIMessages(in, wn, true)
+				attempt--
+				continue
+			}
 			if resp.StatusCode == http.StatusBadRequest && len(p.Tools) > 0 && !sanitized {
 				sanitized = true
 				for i := range p.Tools {
@@ -223,14 +230,18 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 	return Response{}, last
 }
 
-func openAIMessages(in Request, wn *wireNames) []openAIMessage {
+func openAIMessages(in Request, wn *wireNames, rawImageURL bool) []openAIMessage {
 	out := make([]openAIMessage, 0, len(in.Messages))
 	lastUser := -1
 	for _, m := range in.Messages {
 		x := openAIMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
 		for _, tc := range m.ToolCalls {
 			c := openAIToolCall{ID: tc.ID, Type: "function"}
-			c.Function.Name, c.Function.Arguments = wn.wire(tc.Name), string(tc.Arguments)
+			name := tc.Name
+			if wn != nil {
+				name = wn.wire(tc.Name)
+			}
+			c.Function.Name, c.Function.Arguments = name, string(tc.Arguments)
 			x.ToolCalls = append(x.ToolCalls, c)
 		}
 		out = append(out, x)
@@ -243,13 +254,28 @@ func openAIMessages(in Request, wn *wireNames) []openAIMessage {
 	}
 	parts := []openAIContentPart{{Type: "text", Text: in.Messages[lastUser].Content}}
 	for _, image := range in.Images {
+		encoded := base64.StdEncoding.EncodeToString(image.Data)
+		url := encoded
+		if !rawImageURL {
+			mime := image.MIME
+			if mime == "" {
+				mime = "image/png"
+			}
+			url = "data:" + mime + ";base64," + encoded
+		}
 		imageURL := &struct {
 			URL string `json:"url"`
-		}{URL: "data:" + image.MIME + ";base64," + base64.StdEncoding.EncodeToString(image.Data)}
+		}{URL: url}
 		parts = append(parts, openAIContentPart{Type: "image_url", ImageURL: imageURL})
 	}
 	out[lastUser].Content = parts
 	return out
+}
+
+func imageURLWantsRawBase64(reason string) bool {
+	lower := strings.ToLower(reason)
+	return strings.Contains(lower, "base64") && strings.Contains(lower, "image") &&
+		(strings.Contains(lower, "url") || strings.Contains(lower, "encoded"))
 }
 
 func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, error) {

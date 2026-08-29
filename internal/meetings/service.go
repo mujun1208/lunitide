@@ -123,6 +123,7 @@ type Service struct {
 	recording   string
 	summarizing map[string]bool
 	sinks       map[string]*audioSink
+	loopback    *loopbackSession
 }
 
 func New(store Store) *Service {
@@ -198,8 +199,7 @@ func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting
 	if busy {
 		return Meeting{}, ErrBusy
 	}
-	audioSource, err = NormalizeAudioSource(audioSource)
-	if err != nil {
+	if _, err = NormalizeAudioSource(audioSource); err != nil {
 		return Meeting{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -214,13 +214,21 @@ func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting
 		MeetingID:   ulid.Make().String(),
 		Title:       title,
 		Status:      StatusRecording,
-		AudioSource: audioSource,
+		AudioSource: AudioMicrophone,
 		StartedAt:   now,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 	if err := s.store.InsertMeeting(ctx, m); err != nil {
 		return Meeting{}, err
+	}
+	if s.startLoopback(m.MeetingID) == nil {
+		m.AudioSource = AudioMicrophoneAndSystem
+		m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		if err := s.store.UpdateMeeting(ctx, m); err != nil {
+			s.stopLoopback(m.MeetingID)
+			return Meeting{}, err
+		}
 	}
 	s.mu.Lock()
 	s.recording = m.MeetingID
@@ -313,6 +321,7 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	if err != nil {
 		return Meeting{}, err
 	}
+	s.stopLoopback(meetingID)
 	s.closeSink(meetingID)
 	ended := time.Now().UTC()
 	now := ended.Format(time.RFC3339Nano)
@@ -364,6 +373,9 @@ func (s *Service) AppendAudio(ctx context.Context, meetingID string, pcm []byte)
 	sink, err := s.ensureSink(meetingID)
 	if err != nil {
 		return 0, err
+	}
+	if mixed := s.takeMixPCM(meetingID, len(pcm)); len(mixed) > 0 {
+		pcm = mixS16le(pcm, mixed)
 	}
 	audioMS, err := sink.appendPCM(pcm)
 	if err != nil {
@@ -426,13 +438,14 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	if s.complete == nil {
 		return s.finishNeedsSummary(m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
 	}
+	// Keep the job off the Bridge request ctx: WebView timeouts and page
+	// unmount must not leave the meeting stuck in 生成纪要中.
+	_ = ctx
 	workCtx, workCancel := context.WithTimeout(context.Background(), summarizeJobDeadline)
 	defer workCancel()
-	stop := context.AfterFunc(ctx, workCancel)
-	defer stop()
 	notes, err := SummarizeLong(workCtx, s.complete, m.Title, CleanTranscript(m.Transcript))
 	if err != nil {
-		return s.finishNeedsSummary(m, "尚未生成摘要："+err.Error())
+		return s.finishNeedsSummary(m, "尚未生成摘要，逐字稿已保存。可重试生成摘要。")
 	}
 	title := strings.TrimSpace(notes.Title)
 	if title != "" && utf8.RuneCountInString(title) <= maxTitle {
@@ -569,6 +582,7 @@ func (s *Service) Delete(ctx context.Context, meetingID string) error {
 	if err := s.store.DeleteMeeting(ctx, meetingID); err != nil {
 		return err
 	}
+	s.stopLoopback(meetingID)
 	s.removeAudio(meetingID)
 	s.mu.Lock()
 	if s.recording == meetingID {

@@ -1,7 +1,18 @@
 import{describe,expect,it}from'vitest'
-import{attachmentToken,composeChatPrompt,expertRefPrefix,parseComposer,skillRefPrefix,splitLeadingRefs,splitSkillRefs}from'./composerParser'
+import{attachmentToken,composeChatPrompt,embedPendingAttachments,expertRefPrefix,parseAttachmentMentions,parseComposer,skillRefPrefix,splitLeadingRefs,splitSkillRefs,userBubbleParts}from'./composerParser'
 const A='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA'
-describe('composer parser',()=>{it('round trips stable ids',()=>expect(parseComposer(`${attachmentToken(A,'a.md')} explain`)).toEqual({text:'explain',contextRefs:[{type:'attachment',id:A}]}));it.each(['https://x/y','C:/work/a','foo/bar','mail@host'])('does not mistake ordinary text %s',text=>expect(parseComposer(text)).toEqual({text,contextRefs:[]}))})
+describe('composer parser',()=>{
+ it('round trips stable ids',()=>expect(parseComposer(`${attachmentToken(A,'a.md')} explain`)).toEqual({text:'explain',contextRefs:[{type:'attachment',id:A}]}))
+ it.each(['https://x/y','C:/work/a','foo/bar','mail@host'])('does not mistake ordinary text %s',text=>expect(parseComposer(text)).toEqual({text,contextRefs:[]}))
+ it('keeps attachment labels for the chat bubble',()=>expect(parseAttachmentMentions(`${attachmentToken(A,'shot.png')} 看看这个图片`)).toEqual({mentions:[{id:A,label:'shot.png'}],text:'看看这个图片'}))
+ it('embeds pending attachment ids that are not already in the prompt',()=>{
+  expect(embedPendingAttachments('看看这个图片',[A],{[A]:'shot.png'})).toBe(`${attachmentToken(A,'shot.png')} 看看这个图片`)
+  expect(embedPendingAttachments(`${attachmentToken(A,'shot.png')} 看看这个图片`,[A],{[A]:'shot.png'})).toBe(`${attachmentToken(A,'shot.png')} 看看这个图片`)
+ })
+ it('strips attachment tokens from the visible bubble text',()=>{
+  expect(userBubbleParts(`${attachmentToken(A,'shot.png')} 看看这个图片`)).toEqual({skills:[],experts:[],mentions:[{id:A,label:'shot.png'}],text:'看看这个图片'})
+ })
+})
 describe('skill reference prefix',()=>{
   it('builds a prefix from referenced skills',()=>expect(skillRefPrefix([{displayName:'摘要',id:S}])).toBe(`[引用技能 摘要|${S}]\n`))
   it('returns empty prefix without skills',()=>expect(skillRefPrefix([])).toBe(''))

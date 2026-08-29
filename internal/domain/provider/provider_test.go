@@ -46,6 +46,20 @@ func TestCatalogForKindOrdersDefaultThenBackups(t *testing.T) {
 	}
 }
 
+func TestVisionDescribeCatalogPrefersKindThenVisionLLM(t *testing.T) {
+	chat := Provider{ID: "01K00000000000000000000004", Name: "Chat", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", Models: []Model{
+		{ModelID: "deepseek-v4-pro", DisplayName: "DeepSeek", IsDefault: true, Kind: KindLLM},
+		{ModelID: "gpt-4o", DisplayName: "4o", Kind: KindLLM, SupportsVision: true},
+	}}
+	vlm := Provider{ID: "01K00000000000000000000005", Name: "VLM", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", Models: []Model{
+		{ModelID: "qwen2-vl-8b", DisplayName: "Qwen VL", Kind: KindVision, KindDefault: true},
+	}}
+	got := VisionDescribeCatalog([]Provider{chat, vlm}, "deepseek-v4-pro")
+	if len(got) != 2 || got[0].Model.ModelID != "qwen2-vl-8b" || got[1].Model.ModelID != "gpt-4o" {
+		t.Fatalf("vision describe catalog = %#v", got)
+	}
+}
+
 func mustTime(v string) time.Time {
 	t, err := time.Parse(time.RFC3339, v)
 	if err != nil {

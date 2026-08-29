@@ -92,6 +92,27 @@ func handleMeetingsAudioAppend(e *Engine, ctx context.Context, r bridge.Request)
 	return bridge.Success(r.ID, map[string]any{"meetingId": p.MeetingID, "audioMs": audioMS})
 }
 
+func handleMeetingsLoopbackPoll(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		MeetingID string `json:"meetingId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.MeetingID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.loopback.poll 参数无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	pcm, active, err := e.meetings.PollLoopback(ctx, p.MeetingID)
+	if err != nil {
+		return meetingsFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{
+		"meetingId": p.MeetingID,
+		"active":    active,
+		"pcm":       base64.StdEncoding.EncodeToString(pcm),
+	})
+}
+
 func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		MeetingID string `json:"meetingId"`
@@ -318,6 +339,29 @@ const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转�
 - 全文逐字稿由系统另行保存，不要在 JSON 里重复逐字稿
 - 逐字稿可能混有本机麦克风与扬声器对面的声音，不要臆测发言人`
 
+func meetingSummarySlow(modelID string) bool {
+	id := strings.ToLower(modelID)
+	return strings.Contains(id, "r1") || strings.Contains(id, "reasoner") || strings.Contains(id, "thinking")
+}
+
+func meetingSummaryCandidates(items []provider.Provider) []provider.CatalogEntry {
+	catalog := provider.CatalogForKind(items, provider.KindLLM)
+	preferred := make([]provider.CatalogEntry, 0, len(catalog))
+	rest := make([]provider.CatalogEntry, 0)
+	for _, entry := range catalog {
+		if meetingSummarySlow(entry.Model.ModelID) {
+			rest = append(rest, entry)
+			continue
+		}
+		preferred = append(preferred, entry)
+	}
+	out := append(preferred, rest...)
+	if len(out) > 3 {
+		out = out[:3]
+	}
+	return out
+}
+
 func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) (meetings.Notes, error) {
 	if e.providers == nil {
 		return meetings.Notes{}, errors.New("没有可用模型")
@@ -326,49 +370,44 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 	if err != nil {
 		return meetings.Notes{}, err
 	}
-	var chosen provider.Provider
-	for _, p := range items {
-		if p.Status == provider.StatusEnabled && p.CredentialState == provider.CredentialConfigured && len(p.Models) > 0 {
-			chosen = p
-			break
-		}
-	}
-	if chosen.ID == "" {
+	candidates := meetingSummaryCandidates(items)
+	if len(candidates) == 0 {
 		return meetings.Notes{}, errors.New("没有已启用的模型")
 	}
-	model := chosen.Models[0].ModelID
-	for _, m := range chosen.Models {
-		if m.IsDefault {
-			model = m.ModelID
-			break
-		}
-	}
 	user := "会议标题：" + title + "\n\n以下是本机转写（已去掉部分语气词）。请按系统要求输出 JSON。逐字稿很短时也要分「背景 / 讨论要点 / 结论」写摘要，决议/待办要可执行。\n\n逐字稿：\n" + transcript
-	var content string
-	err = e.withProviderLease(ctx, chosen, secretlease.OperationChat, func(ctx context.Context, secret []byte) error {
-		adapter, adapterErr := e.adapter(ctx, chosen)
-		if adapterErr != nil {
-			return adapterErr
-		}
-		resp, completeErr := adapter.Complete(ctx, secret, gateway.Request{
-			Model: model,
-			Messages: []gateway.Message{
-				{Role: gateway.RoleSystem, Content: meetingNotesSystem},
-				{Role: gateway.RoleUser, Content: user},
-			},
-			MaxTokens:   4096,
-			MaxAttempts: 1,
+	var last error
+	for _, entry := range candidates {
+		var content string
+		err = e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(ctx context.Context, secret []byte) error {
+			adapter, adapterErr := e.adapter(ctx, entry.Provider)
+			if adapterErr != nil {
+				return adapterErr
+			}
+			resp, completeErr := adapter.Complete(ctx, secret, gateway.Request{
+				Model: entry.Model.ModelID,
+				Messages: []gateway.Message{
+					{Role: gateway.RoleSystem, Content: meetingNotesSystem},
+					{Role: gateway.RoleUser, Content: user},
+				},
+				MaxTokens:        4096,
+				MaxAttempts:      2,
+				DisableReasoning: true,
+			})
+			if completeErr != nil {
+				return completeErr
+			}
+			content = strings.TrimSpace(resp.Message.Content)
+			return nil
 		})
-		if completeErr != nil {
-			return completeErr
+		if err == nil {
+			return meetings.ParseNotes(content, title), nil
 		}
-		content = strings.TrimSpace(resp.Message.Content)
-		return nil
-	})
-	if err != nil {
-		return meetings.Notes{}, err
+		last = err
 	}
-	return meetings.ParseNotes(content, title), nil
+	if last == nil {
+		return meetings.Notes{}, errors.New("没有已启用的模型")
+	}
+	return meetings.Notes{}, last
 }
 
 func (e *Engine) transcribeMeetingPCM(ctx context.Context, pcm []byte) (string, error) {

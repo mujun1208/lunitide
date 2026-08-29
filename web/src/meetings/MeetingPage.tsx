@@ -3,13 +3,19 @@ import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, ty
 import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, captureStateNotice, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, mixMeetingPcmS16le, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 
 const SUMMARIZE_POLL_MS = 4_000
 const SYSTEM_AUDIO_RECOVER_MS = 15_000
+const LOOPBACK_POLL_MS = 80
+
+async function capturePlanForStarted(meeting: MeetingDTO): Promise<MeetingCapturePlan> {
+  if (meeting.audioSource === 'microphone_and_system') return engineLoopbackPlan()
+  return prepareMeetingCapture({ interactive: false })
+}
 
 const STATUS: Record<MeetingDTO['status'], string> = {
   recording: '录制中',
@@ -90,6 +96,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const tickRef = useRef<number>(0)
   const heartbeatRef = useRef<number>(0)
   const recoverRef = useRef<number>(0)
+  const loopbackPollRef = useRef<number>(0)
+  const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
   const summarizePollRef = useRef<number>(0)
   const unwatchRef = useRef<() => void>(() => undefined)
   const speechGen = useRef(0)
@@ -131,6 +139,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
     const recoverAndRelisten = async () => {
       if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      if (captureRef.current?.engineOwned) return
       const recovered = await recoverMeetingSystemAudio(captureRef.current, { interactive: false })
       if (speechGen.current !== gen) {
         if (recovered !== captureRef.current) releaseMeetingCapture(recovered)
@@ -160,7 +169,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       }
       bindSystemWatch(livePlan)
       const handle = await startMeetingSpeech({
-        extraStreams: livePlan.extraStreams,
+        extraStreams: livePlan.engineOwned ? undefined : livePlan.extraStreams,
         externalPcm: !!audioRef.current,
         duplex: true,
         spokenText: () => '',
@@ -223,7 +232,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         adopt(detail)
         if (detail.status !== 'recording') return
         userStopRef.current = false
-        const plan = await prepareMeetingCapture({ interactive: false })
+        const plan = await capturePlanForStarted(detail)
         if (!alive) {
           releaseMeetingCapture(plan)
           return
@@ -232,7 +241,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           audioRef.current = await startMeetingAudioRecorder({
             extraStreams: plan.extraStreams,
             append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: live.meetingId, pcm })),
-            onFrame: frame => pcmTapRef.current?.(frame),
+            onFrame: frame => {
+              const extra = loopbackHoldRef.current
+              loopbackHoldRef.current = undefined
+              pcmTapRef.current?.(extra ? pcmFrameFromSamples(mixMeetingPcmS16le(frame.samples, extra)) : frame)
+            },
             onError: () => {
               if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
             },
@@ -286,7 +299,37 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   useEffect(() => {
     const live = current
-    if (live?.status !== 'recording') {
+    if (live?.status !== 'recording' || live.audioSource !== 'microphone_and_system' || !meetings.loopbackPoll) {
+      window.clearInterval(loopbackPollRef.current)
+      loopbackHoldRef.current = undefined
+      return
+    }
+    const id = live.meetingId
+    const pulse = () => {
+      void meetings.loopbackPoll({ meetingId: id }).then(next => {
+        if (currentIdRef.current !== id) return
+        if (!next.active) {
+          loopbackHoldRef.current = undefined
+          return
+        }
+        const samples = decodeMeetingPcmBase64(next.pcm)
+        if (!samples) return
+        if (pcmTapRef.current && !audioRef.current) {
+          pcmTapRef.current(pcmFrameFromSamples(samples))
+          return
+        }
+        const prev = loopbackHoldRef.current
+        loopbackHoldRef.current = prev ? mixMeetingPcmS16le(prev, samples) : samples
+      }).catch(() => undefined)
+    }
+    pulse()
+    loopbackPollRef.current = window.setInterval(pulse, LOOPBACK_POLL_MS)
+    return () => window.clearInterval(loopbackPollRef.current)
+  }, [current?.status, current?.meetingId, current?.audioSource, meetings])
+
+  useEffect(() => {
+    const live = current
+    if (live?.status !== 'recording' || live.audioSource === 'microphone_and_system') {
       window.clearInterval(recoverRef.current)
       return
     }
@@ -340,7 +383,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     window.clearInterval(tickRef.current)
     window.clearInterval(heartbeatRef.current)
     window.clearInterval(recoverRef.current)
+    window.clearInterval(loopbackPollRef.current)
     window.clearInterval(summarizePollRef.current)
+    loopbackHoldRef.current = undefined
   }, [])
 
   const start = async () => {
@@ -351,14 +396,18 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     setInterim('')
     let plan: MeetingCapturePlan | undefined
     try {
-      plan = await prepareMeetingCapture({ interactive: false })
-      const started = await meetings.start({ audioSource: plan.audioSource })
+      const started = await meetings.start({ audioSource: 'microphone_and_system' })
       adopt(started)
+      plan = await capturePlanForStarted(started)
       try {
         audioRef.current = await startMeetingAudioRecorder({
           extraStreams: plan.extraStreams,
           append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: started.meetingId, pcm })),
-          onFrame: frame => pcmTapRef.current?.(frame),
+          onFrame: frame => {
+            const extra = loopbackHoldRef.current
+            loopbackHoldRef.current = undefined
+            pcmTapRef.current?.(extra ? pcmFrameFromSamples(mixMeetingPcmS16le(frame.samples, extra)) : frame)
+          },
           onError: () => {
             if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
           },

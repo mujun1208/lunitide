@@ -176,3 +176,9 @@ it('retries meetings.stop after a retryable timeout', async () => {
     vi.useRealTimers()
   }
 })
+
+it('sends meetings.loopback.poll', async () => {
+  const { sent, bridge } = meetingsHarness(() => ({ meetingId: U, active: false, pcm: '' }))
+  await expect(bridge.loopbackPoll({ meetingId: U })).resolves.toEqual({ meetingId: U, active: false, pcm: '' })
+  expect(sent[0]?.method).toBe('meetings.loopback.poll')
+})

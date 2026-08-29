@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
+import { rememberAttachmentPreview } from './attachments'
 import { resetLiveChatForTests } from './liveChat'
 import { RootErrorBoundary } from '../RootErrorBoundary'
 
@@ -288,6 +289,33 @@ it('uploads multiple dropped files and a pasted screenshot from the composer',as
  const picker=document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])') as HTMLInputElement;expect(picker.multiple).toBe(true);expect(picker.accept).toContain('image/png')
 })
 
+it('shows the uploaded image in the user bubble instead of a raw attachment token',async()=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD'
+ const bytes=new Uint8Array([1,2,3]),file=new File([bytes],'shot.png',{type:'image/png'})
+ rememberAttachmentPreview(id,file)
+ const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:`[attachment:${id}|shot.png] 看看这个图片`,status:'completed',sequence:1,createdAt:NOW}
+ render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session}/>)
+ expect(await screen.findByText('看看这个图片')).toBeInTheDocument()
+ expect(screen.getByRole('img',{name:'shot.png'})).toBeInTheDocument()
+ expect(screen.queryByText(/\[attachment:/)).toBeNull()
+})
+
+it('persists pending image attachments into the sent message so the bubble can render them',async()=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD'
+ const bytes=new Uint8Array([1,2,3]),file=new File([bytes],'shot.png',{type:'image/png'});Object.defineProperty(file,'arrayBuffer',{value:async()=>bytes.buffer})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),ingest:vi.fn(),begin:vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:128*1024,expiresAt:NOW}),chunk:vi.fn().mockResolvedValue({nextOffset:3}),commit:vi.fn().mockResolvedValue({attachmentId:id}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
+ const user=await open({personal:true,providers,initialSession:session,attachments,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+ const picker=document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])') as HTMLInputElement
+ await fireEvent.change(picker,{target:{files:[file]}})
+ await waitFor(()=>expect(attachments.commit).toHaveBeenCalledOnce())
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'看看这个图片')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(append).toHaveBeenCalledOnce())
+ expect(append.mock.calls[0][0].text).toContain(`[attachment:${id}|shot.png]`)
+ expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id}]})
+})
+
 it('waits for initial attachments, then includes their ids in the first chat context',async()=>{
  let finish!:(value:{nextOffset:number})=>void
  const data=new Uint8Array([1,2,3]),file=new File([data],'initial.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
@@ -295,7 +323,7 @@ it('waits for initial attachments, then includes their ids in the first chat con
  const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
  await open({personal:true,initialSession:session,initialPrompt:'首条问题',initialUploadFiles:[file],attachments,providers,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
  await waitFor(()=>expect(chunk).toHaveBeenCalledOnce());expect(start).not.toHaveBeenCalled();finish({nextOffset:3})
- await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-initial'}]})
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-initial'}]});expect(append.mock.calls[0][0].text).toContain('[attachment:attachment-initial|initial.txt]')
 })
 
 it('keeps the initial prompt and does not auto-send when an initial attachment fails',async()=>{
@@ -309,7 +337,7 @@ it('retries a failed initial attachment and continues with its context id',async
  const data=new Uint8Array([1]),file=new File([data],'retry.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
  const chunk=vi.fn().mockRejectedValueOnce(new Error('temporary failure')).mockResolvedValue({nextOffset:1}),attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:1}),chunk,commit:vi.fn().mockResolvedValue({attachmentId:'attachment-retried'}),abort:vi.fn().mockResolvedValue({aborted:true}),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge,start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({}),user=await open({personal:true,initialSession:session,initialPrompt:'解读它',initialUploadFiles:[file],attachments,providers,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
  await user.click(await screen.findByRole('button',{name:'重试附件上传并继续提问'}))
- await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-retried'}]});expect(append).toHaveBeenCalledOnce()
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-retried'}]});expect(append).toHaveBeenCalledOnce();expect(append.mock.calls[0][0].text).toContain('[attachment:attachment-retried|retry.txt]')
 })
 
 it('collapses streaming thinking by default, expands on demand and shows a live status line',async()=>{
