@@ -92,6 +92,9 @@ func (e *Engine) invokeSubagentTool(ctx context.Context, a gateway.Adapter, cred
 		if budget < 1000 || budget > m7flow.SubagentMaxBudgetTokens {
 			return "", fmt.Errorf("subagent.spawn budgetTokens must be 1000-%d", m7flow.SubagentMaxBudgetTokens)
 		}
+		if policy.ExpertWork {
+			profile = applyExpertSpawnCaps(profile)
+		}
 		subA, subCred, subModel := e.subagentAdapter(ctx, a, credential, model, ov)
 		return e.runSubagentSession(ctx, subA, subCred, subModel, sessionID, p.Purpose, budget, profile)
 	case "subagent.join":
@@ -325,25 +328,39 @@ func toolNameSet(tools []gateway.ToolDefinition) map[string]bool {
 }
 
 func readOnlyEngineToolDefinitionsForProfile(profile subagentProfileDef) []gateway.ToolDefinition {
+	if capsIncludeAll(profile.ReadCaps, fullSubagentReadCaps()) {
+		return fullReadOnlySubagentTools()
+	}
 	all := readOnlyEngineToolDefinitions()
 	switch profile.ID {
 	case "research":
 		return filterToolDefs(all, map[string]bool{"web.search": true, "web.fetch": true})
 	case "browser":
-		defs := filterToolDefs(all, map[string]bool{"web.search": true, "web.fetch": true})
-		for _, d := range engineToolDefinitions() {
-			if d.Name == "browser.act" {
-				defs = append(defs, d)
-				break
-			}
-		}
-		return defs
+		return withBrowserAct(filterToolDefs(all, map[string]bool{"web.search": true, "web.fetch": true}))
 	case "shell":
 		return filterToolDefs(all, map[string]bool{"command.run": true, "workspace.list": true, "workspace.read": true, "workspace.search": true})
 	case "explore", "review", "test":
 		return filterToolDefs(all, workspaceReadTools())
 	}
 	return all
+}
+
+func fullReadOnlySubagentTools() []gateway.ToolDefinition {
+	return withBrowserAct(readOnlyEngineToolDefinitions())
+}
+
+func withBrowserAct(defs []gateway.ToolDefinition) []gateway.ToolDefinition {
+	for _, d := range defs {
+		if d.Name == "browser.act" {
+			return defs
+		}
+	}
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "browser.act" {
+			return append(defs, d)
+		}
+	}
+	return defs
 }
 
 func workspaceReadTools() map[string]bool {

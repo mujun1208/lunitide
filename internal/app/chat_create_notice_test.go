@@ -108,6 +108,13 @@ func TestExpertPersonaHeaderAndClip(t *testing.T) {
 	if !strings.Contains(council, "不要把每位专家的发言拆成多条助手消息") {
 		t.Fatalf("council must forbid extra bubbles: %q", council)
 	}
+	for _, prompt := range []string{single, council} {
+		for _, needle := range []string{"skill.invoke", "web.search", "mermaid", "docx.gen", "pptx.gen", "desktop=true"} {
+			if !strings.Contains(prompt, needle) {
+				t.Fatalf("persona header missing %q: %q", needle, prompt)
+			}
+		}
+	}
 	short := clipExpertBody([]byte("岗位说明"))
 	if short != "岗位说明" {
 		t.Fatalf("short clip = %q", short)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/voice"
 )
 
 func handleMeetingsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -66,6 +68,45 @@ func handleMeetingsAppend(e *Engine, ctx context.Context, r bridge.Request) brid
 		return meetingsFailure(r, err)
 	}
 	return bridge.Success(r.ID, publicSegment(seg))
+}
+
+func handleMeetingsAudioAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		MeetingID string `json:"meetingId"`
+		PCM       string `json:"pcm"`
+	}
+	if decodePayload(r.Payload, &p) != nil || p.MeetingID == "" || p.PCM == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.audio.append 参数无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	pcm, err := base64.StdEncoding.DecodeString(p.PCM)
+	if err != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.audio.append 音频编码无效", false)
+	}
+	audioMS, err := e.meetings.AppendAudio(ctx, p.MeetingID, pcm)
+	if err != nil {
+		return meetingsFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"meetingId": p.MeetingID, "audioMs": audioMS})
+}
+
+func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		MeetingID string `json:"meetingId"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.catchup 参数无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	m, err := e.meetings.CatchUp(ctx, p.MeetingID)
+	if err != nil {
+		return meetingsFailure(r, err)
+	}
+	return bridge.Success(r.ID, publicMeeting(m, true))
 }
 
 func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -229,9 +270,13 @@ func publicMeeting(m meetings.Meeting, detail bool) map[string]any {
 		out["summaryError"] = m.SummaryError
 	}
 	if detail {
-		segs := make([]map[string]any, 0, len(m.Segments))
-		for _, seg := range m.Segments {
-			segs = append(segs, publicSegment(seg))
+		segs := m.Segments
+		if len(segs) > 4000 {
+			segs = segs[len(segs)-4000:]
+		}
+		outSegs := make([]map[string]any, 0, len(segs))
+		for _, seg := range segs {
+			outSegs = append(outSegs, publicSegment(seg))
 		}
 		docs := make([]map[string]any, 0, len(m.Docs))
 		for _, doc := range m.Docs {
@@ -239,7 +284,7 @@ func publicMeeting(m meetings.Meeting, detail bool) map[string]any {
 				"docId": doc.DocID, "meetingId": doc.MeetingID, "kind": doc.Kind, "body": doc.Body, "createdAt": doc.CreatedAt,
 			})
 		}
-		out["segments"] = segs
+		out["segments"] = outSegs
 		out["docs"] = docs
 	}
 	return out
@@ -324,4 +369,49 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 		return meetings.Notes{}, err
 	}
 	return meetings.ParseNotes(content, title), nil
+}
+
+func (e *Engine) transcribeMeetingPCM(ctx context.Context, pcm []byte) (string, error) {
+	if e.voice == nil || e.voice.backend == nil {
+		return "", errors.New("本机识别不可用")
+	}
+	if len(pcm) < 2 {
+		return "", nil
+	}
+	if err := e.voice.backend.Ready(ctx); err != nil {
+		return "", err
+	}
+	session, err := e.voice.backend.Start(ctx, voice.SessionOptions{Language: "zh-CN"})
+	if err != nil {
+		return "", err
+	}
+	defer session.Close()
+	frame := voice.FrameBytes
+	if frame < 2 {
+		frame = 3200
+	}
+	for i := 0; i < len(pcm); {
+		end := i + frame
+		if end > len(pcm) {
+			end = len(pcm)
+		}
+		if (end-i)%2 != 0 {
+			end--
+		}
+		if end <= i {
+			break
+		}
+		if err := session.Append(ctx, pcm[i:end]); err != nil {
+			return "", err
+		}
+		i = end
+	}
+	text, err := session.Finish(ctx)
+	if err != nil && strings.TrimSpace(text) == "" {
+		if errors.Is(err, voice.ErrNoAudio) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(text), nil
 }

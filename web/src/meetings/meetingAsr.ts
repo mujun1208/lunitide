@@ -36,12 +36,14 @@ export function captureStateNotice(plan: MeetingCapturePlan | undefined): string
 export async function startMeetingSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
   const probe = await localAsrStatus()
   const preferLocal = probe?.supported === true && probe.ready === true
-  const extraStreams = preferLocal ? options.extraStreams : undefined
+  const extraStreams = preferLocal && !options.externalPcm ? options.extraStreams : undefined
   const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
   const buffer = createMeetingLineBuffer(line => options.onFinal(line))
   const handle = await open({
     ...options,
     extraStreams,
+    externalPcm: preferLocal ? options.externalPcm : undefined,
+    meterless: !preferLocal,
     duplex: true,
     holdUtterance: true,
     spokenText: () => '',
@@ -63,6 +65,7 @@ export async function startMeetingSpeech(options: CompanionSpeechOptions): Promi
       buffer.flush()
       origStop()
     },
+    pushPcm: handle.pushPcm,
   }
 }
 

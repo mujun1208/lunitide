@@ -24,13 +24,25 @@ const (
 )
 
 type chatTurnCheckpoint struct {
-	Status     string   `json:"status"`
-	Goal       string   `json:"goal"`
-	StreamID   string   `json:"streamId"`
-	Injected   []string `json:"injected,omitempty"`
-	LastTools  []string `json:"lastTools,omitempty"`
-	ToolFailed bool     `json:"toolFailed,omitempty"`
-	UpdatedAt  string   `json:"updatedAt"`
+	Status        string   `json:"status"`
+	Goal          string   `json:"goal"`
+	StreamID      string   `json:"streamId"`
+	Injected      []string `json:"injected,omitempty"`
+	LastTools     []string `json:"lastTools,omitempty"`
+	ToolFailed    bool     `json:"toolFailed,omitempty"`
+	PptActive     bool     `json:"pptActive,omitempty"`
+	PptStage      string   `json:"pptStage,omitempty"`
+	PptTools      []string `json:"pptTools,omitempty"`
+	PptNudges     int      `json:"pptNudges,omitempty"`
+	PptGenerated  bool     `json:"pptGenerated,omitempty"`
+	DocxActive    bool     `json:"docxActive,omitempty"`
+	DocxKind      string   `json:"docxKind,omitempty"`
+	DocxStage     string   `json:"docxStage,omitempty"`
+	DocxTools     []string `json:"docxTools,omitempty"`
+	DocxNudges    int      `json:"docxNudges,omitempty"`
+	DocxGenerated bool     `json:"docxGenerated,omitempty"`
+	DocxChars     int      `json:"docxChars,omitempty"`
+	UpdatedAt     string   `json:"updatedAt"`
 }
 
 func looksLikeResume(text string) bool {
@@ -118,9 +130,50 @@ func (e *Engine) todoSummary(sessionID string) string {
 	return b.String()
 }
 
+func looksLikeStatusFollowUp(text string) bool {
+	t := strings.TrimSpace(text)
+	t = strings.TrimRight(t, "？?。.!！~… ")
+	if t == "" {
+		return false
+	}
+	if len([]rune(t)) > 40 {
+		return false
+	}
+	lower := strings.ToLower(t)
+	for _, p := range []string{
+		"做好了没有", "做好了吗", "做完了没有", "做完了吗", "做完了没", "做好了没",
+		"好了没有", "好了吗", "好了没", "完成了吗", "完成了没有", "弄好了吗",
+		"还要多久", "要多久", "还要等吗", "等多久",
+		"还在做吗", "在做吗", "还在跑吗", "还在吗",
+		"什么进度", "到哪了", "到哪一步", "怎么样了", "如何了",
+		"done yet", "is it done", "how long", "progress",
+	} {
+		if lower == p || strings.Contains(lower, p) {
+			return true
+		}
+	}
+	if t == "进度" || lower == "status" || lower == "eta" {
+		return true
+	}
+	return false
+}
+
+func looksLikeSteer(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, p := range []string{"改方案", "改方向", "换个方向", "调整一下", "换个结构", "不要这样"} {
+		if strings.Contains(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func looksLikeIndependentRequest(text string) bool {
 	t := strings.TrimSpace(text)
-	if t == "" || looksLikeResume(t) {
+	if t == "" || looksLikeResume(t) || looksLikeStatusFollowUp(t) || looksLikeSteer(t) {
 		return false
 	}
 	for _, p := range []string{"只要", "改成", "改用", "换成", "不要用", "别用", "补充", "再加上", "还有就是", "用这个", "继续用", "只装"} {
@@ -132,7 +185,7 @@ func looksLikeIndependentRequest(text string) bool {
 }
 
 func closedLoopTurnInjection(userText string) string {
-	if looksLikeResume(userText) {
+	if looksLikeResume(userText) || looksLikeStatusFollowUp(userText) || looksLikeSteer(userText) {
 		return ""
 	}
 	return "\n\n[本轮范围] 只执行用户这一条最新消息。上一轮无论成功还是失败都已闭环，禁止重做，禁止和本轮绑在一起。用户没有说「继续」时，不要去完成聊天记录里更早的任务，也不要打开与本轮无关的文件。"
@@ -185,7 +238,18 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string) (s
 	}
 	texts := make([]string, 0, len(items))
 	var b strings.Builder
-	b.WriteString("用户在任务进行中补充了以下说明，请结合当前正在做的工作一并执行，不要另起炉灶、不要丢弃已完成的步骤：\n")
+	statusOnly := true
+	for _, m := range items {
+		if !looksLikeStatusFollowUp(m.Payload) && !looksLikeSteer(m.Payload) && !looksLikeResume(m.Payload) {
+			statusOnly = false
+			break
+		}
+	}
+	if statusOnly {
+		b.WriteString("用户在询问当前任务进度或微调方向。不要中断、不要重开任务。先用一两句话说明此刻进度（已完成步骤/正在做的步骤），若对方改了方案就按新方向调整，然后继续把原任务做完：\n")
+	} else {
+		b.WriteString("用户在任务进行中补充了以下说明，请结合当前正在做的工作一并执行，不要另起炉灶、不要丢弃已完成的步骤：\n")
+	}
 	for _, m := range items {
 		if m.Status == queueinput.StatusWithdrawn {
 			continue
@@ -214,6 +278,7 @@ func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, r
 	req.Messages = append(req.Messages, queuedSupplementMessage(note))
 	cp.Injected = append(cp.Injected, texts...)
 	assistantText.WriteString(queueInjectNotice)
+	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
 	_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
 	return true
 }

@@ -325,6 +325,20 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(bundledWorkflowInjection(), "desktop=true") || !strings.Contains(bundledWorkflowInjection(), "半年财报.xlsx") {
 		t.Fatal("office desktop workflow must use *.gen desktop=true")
 	}
+	if !strings.Contains(bundledWorkflowInjection(), "九步流水线") || !strings.Contains(bundledWorkflowInjection(), "web.search") {
+		t.Fatal("PPT workflow must require the staged research pipeline")
+	}
+	if !strings.Contains(bundledWorkflowInjection(), "报告必须走流水线") || !strings.Contains(bundledWorkflowInjection(), "小说必须走流水线") {
+		t.Fatal("report/novel docx pipelines missing from document workflow")
+	}
+	for _, d := range engineToolDefinitions() {
+		if d.Name != "docx.gen" {
+			continue
+		}
+		if !strings.Contains(string(d.Schema), "heading2") || !strings.Contains(string(d.Schema), `"kind"`) || !strings.Contains(d.Description, "kind=report") {
+			t.Fatalf("docx.gen must advertise heading styles and report/novel kind: %s", d.Description)
+		}
+	}
 	for _, name := range []string{"excel.gen", "docx.gen", "pptx.gen", "pdf.gen"} {
 		found := false
 		for _, d := range engineToolDefinitions() {

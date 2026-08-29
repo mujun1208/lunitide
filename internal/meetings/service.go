@@ -40,7 +40,9 @@ const (
 	maxSummary    = 65536
 	maxActions    = 32768
 	maxList       = 200
-	maxSegments   = 20000
+	// 1–2 hour meetings at ~1s ASR chops still sit well under this.
+	// Audio files on disk are the backup if the cap is ever hit.
+	MaxSegments = 100_000
 )
 
 type Status string
@@ -113,13 +115,17 @@ type Store interface {
 type Service struct {
 	store       Store
 	complete    Completer
+	transcribe  AudioTranscriber
+	audioRoot   string
 	mu          sync.Mutex
+	audioMu     sync.Mutex
 	recording   string
 	summarizing map[string]bool
+	sinks       map[string]*audioSink
 }
 
 func New(store Store) *Service {
-	return &Service{store: store, summarizing: map[string]bool{}}
+	return &Service{store: store, summarizing: map[string]bool{}, sinks: map[string]*audioSink{}}
 }
 
 func (s *Service) SetCompleter(fn Completer) { s.complete = fn }
@@ -243,7 +249,7 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 	if err != nil {
 		return Segment{}, err
 	}
-	if n >= maxSegments {
+	if n >= MaxSegments {
 		return Segment{}, ErrInvalid
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -278,10 +284,7 @@ func (s *Service) Heartbeat(ctx context.Context, meetingID string) (Meeting, err
 		return Meeting{}, ErrNotRecording
 	}
 	now := time.Now().UTC()
-	started, parseErr := time.Parse(time.RFC3339Nano, m.StartedAt)
-	if parseErr == nil && !now.Before(started) {
-		m.DurationMS = now.Sub(started).Milliseconds()
-	}
+	m.DurationMS = recordingDurationMS(m.StartedAt, now, s.audioDurationMS(meetingID))
 	m.UpdatedAt = now.Format(time.RFC3339Nano)
 	if err := s.store.UpdateMeeting(ctx, m); err != nil {
 		return Meeting{}, err
@@ -307,28 +310,13 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	if err != nil {
 		return Meeting{}, err
 	}
-	var b strings.Builder
-	for i, seg := range segs {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(seg.Text)
-	}
-	transcript := b.String()
-	if utf8.RuneCountInString(transcript) > maxTranscript {
-		transcript = string([]rune(transcript)[:maxTranscript])
-	}
+	s.closeSink(meetingID)
 	ended := time.Now().UTC()
-	started, parseErr := time.Parse(time.RFC3339Nano, m.StartedAt)
-	duration := int64(0)
-	if parseErr == nil && !ended.Before(started) {
-		duration = ended.Sub(started).Milliseconds()
-	}
 	now := ended.Format(time.RFC3339Nano)
 	m.Status = StatusTranscribed
 	m.EndedAt = now
-	m.DurationMS = duration
-	m.Transcript = transcript
+	m.DurationMS = recordingDurationMS(m.StartedAt, ended, s.audioDurationMS(meetingID))
+	m.Transcript = assembleTranscript(segs)
 	m.UpdatedAt = now
 	if err := s.store.UpdateMeeting(ctx, m); err != nil {
 		return Meeting{}, err
@@ -340,6 +328,45 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	s.mu.Unlock()
 	m.Segments = segs
 	return m, nil
+}
+
+func recordingDurationMS(startedAt string, now time.Time, audioMS int64) int64 {
+	started, parseErr := time.Parse(time.RFC3339Nano, startedAt)
+	wall := int64(0)
+	if parseErr == nil && !now.Before(started) {
+		wall = now.Sub(started).Milliseconds()
+	}
+	if audioMS > wall {
+		return audioMS
+	}
+	return wall
+}
+
+// AppendAudio writes 16 kHz mono s16le PCM to rolling WAV files. Live ASR is
+// captions; this recording is the source of truth for long sessions.
+func (s *Service) AppendAudio(ctx context.Context, meetingID string, pcm []byte) (int64, error) {
+	if err := s.ready(); err != nil {
+		return 0, err
+	}
+	if _, err := ulid.ParseStrict(meetingID); err != nil {
+		return 0, ErrInvalid
+	}
+	m, err := s.store.GetMeeting(ctx, meetingID)
+	if err != nil {
+		return 0, err
+	}
+	if m.Status != StatusRecording {
+		return 0, ErrNotRecording
+	}
+	sink, err := s.ensureSink(meetingID)
+	if err != nil {
+		return 0, err
+	}
+	audioMS, err := sink.appendPCM(pcm)
+	if err != nil {
+		return audioMS, err
+	}
+	return audioMS, nil
 }
 
 func persistCtx() (context.Context, context.CancelFunc) {
@@ -533,6 +560,7 @@ func (s *Service) Delete(ctx context.Context, meetingID string) error {
 	if err := s.store.DeleteMeeting(ctx, meetingID); err != nil {
 		return err
 	}
+	s.removeAudio(meetingID)
 	s.mu.Lock()
 	if s.recording == meetingID {
 		s.recording = ""

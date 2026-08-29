@@ -9,3 +9,24 @@ Templates marked Source "Codex 推荐" adapt open agent skill practices
 (find-skills, brainstorming, frontend-design, shadcn/ui patterns, superpowers
 execution flow). Prompts are rewritten for Lunitide skill catalog, bridge
 tools, and Chinese user-facing deliverables — not verbatim upstream copies.
+
+Conversation-expert compose templates adapt playbooks only (no vendor
+source trees, no AGPL dump):
+
+- mermaid-diagrams: mermaid-skill / cheriftj/c4-model-skill (MIT);
+  Mermaid C4 syntax https://mermaid.js.org/syntax/c4.html
+- anti-ai-prose: anti-vibe-writing / human-readable-reports (MIT);
+  Chinese AI-tell rules CC-BY-4.0, credit Wechat-ggGitHub/chinese-ai-humanizer
+- e2e-browser: e2e-test-agent (MIT); browser tool shape aligned with
+  Microsoft Playwright MCP (Apache-2.0) — we do not vendor that server
+- csv-workbook: Anthropic / community xlsx skill “formula not dead numbers”
+  (adapted); execution is Lunitide excel.parse / excel.gen
+- hardware-bom: wanghao-io/it-infrastructure-equipment-selection-skill (MIT)
+  and Gao-pw/LLM-Capacity-Planner (MIT) — capacity/BOM mindset only
+- fiction-continuity: ArcVellum / fiction-forge story-bible mindset;
+  no writing-cloud MCP or scanner source
+- slide-builder / PPT 九步: Presenton product mode (Apache-2.0) and
+  hugohe3/ppt-master (MIT) outline-then-generate; no python-pptx pipeline
+- pm-skill / grill-me / to-spec: phuryn/pm-skills (MIT) discovery→spec
+- implement / tdd-loop / debugger: Matt Pocock skills (MIT), already noticed
+- knowledge-index / repo layout: ruvnet/ruflo (MIT) repo-index patterns only

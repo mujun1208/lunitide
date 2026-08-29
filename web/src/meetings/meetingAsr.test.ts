@@ -85,6 +85,13 @@ describe('startMeetingSpeech', () => {
     expect(asr.web.mock.calls[0][0].extraStreams).toBeUndefined()
   })
 
+  test('keeps loopback on the meeting recorder when local ASR is fed external PCM', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), extraStreams: [extra], externalPcm: true })
+    expect(asr.local.mock.calls[0][0].externalPcm).toBe(true)
+    expect(asr.local.mock.calls[0][0].extraStreams).toBeUndefined()
+  })
+
   test('meeting hold windows are longer than the companion 1.2s commit', async () => {
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn() })
     expect(asr.web.mock.calls[0][0].holdUtterance).toBe(true)

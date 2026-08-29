@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/skill"
+	"github.com/lunitide/lunitide/internal/m8app"
 )
 
 //go:embed bundled/skill-creator/SKILL.md
@@ -72,6 +73,7 @@ type CatalogTemplate struct {
 	Manifest    map[string]any
 	Featured    bool
 	Bundled     bool
+	Compose     bool
 	Source      string
 }
 
@@ -216,6 +218,62 @@ func browserAutomationManifest() map[string]any {
 		"浏览器自动化", "browser-automation", "填表", "抓取网页", "点网页", "scraping", "填写表单",
 		"browser.act", "playwright",
 	}, "\n\n--- Lunitide 集成 ---\n只用 browser.act（navigate/snapshot/click/type/read）。桌面软件改走 computer-control。验证码/登录墙/文件选择停下来问用户。抽数后 structured.output 再 excel.gen/docx.gen。")
+}
+
+func mermaidDiagramsManifest() map[string]any {
+	return map[string]any{
+		"triggers": []string{"mermaid", "C4", "erDiagram", "结构图", "架构图", "流程图", "ER 图"},
+		"prompt": "你是月汐画图技能（改编自 mermaid-skill MIT、c4-model-skill MIT；图在对话里用 mermaid 渲染，禁止另起 Draw.io / Structurizr 产品）。\n" +
+			"节点必须双引号，换行用 <br/>：A[\"封面<br/>副标题\"]。\n" +
+			"PPT/流程用 flowchart。系统架构：Simon Brown 黄金法则——默认只出 Context + Container，Component 仅在用户明确要求时。数据库用 erDiagram。\n" +
+			"先证据后图：有仓库就 workspace.read，没有就标提案。每张图配一段说明，不要只丢裸代码块。不要倾倒 mermaid 全书。",
+	}
+}
+
+func antiAIProseManifest() map[string]any {
+	return map[string]any{
+		"triggers": []string{"去AI味", "humanizer", "润色", "翻译腔", "anti-vibe"},
+		"prompt": "你是去AI味技能（改编自 anti-vibe-writing MIT、human-readable-reports MIT 的「先结论」、以及中文 AI 痕迹规则 CC-BY-4.0，署名 Wechat-ggGitHub/chinese-ai-humanizer）。\n" +
+			"结构优先：每节第一句先给结论。删赋能/打通/闭环/抓手/链路；拆掉首先/其次/最后空骨架；改翻译腔；少用不是…而是…、——、英文逗号。\n" +
+			"数字、命令、专名原样。引号用中文“ ”。不要把规则全书倾倒给用户，直接改文。报告走 docx.gen kind=report；小说走 kind=novel。",
+	}
+}
+
+func e2eBrowserManifest() map[string]any {
+	return map[string]any{
+		"triggers": []string{"E2E", "端到端", "playwright", "e2e", "浏览器测", "意图场景"},
+		"prompt": "你是 E2E 技能（改编自 e2e-test-agent MIT；浏览器自动化对齐 Microsoft Playwright MCP）。\n" +
+			"写 3–7 条意图场景（谁、目标、成功/失败），不要绑死 CSS 选择器。\n" +
+			"若会话已连接 Playwright MCP（browser_* 或 mcp.search 能找到），优先用；否则 browser.act：navigate → snapshot → 按 ref click/type。\n" +
+			"登录墙/验证码交给用户。给月汐测时走现有 vitest/go test，不要另起 Playwright 云平台。",
+	}
+}
+
+func csvWorkbookManifest() map[string]any {
+	return map[string]any{
+		"triggers": []string{"csv", "表格", "工作簿", "xlsx", "清单", "台账"},
+		"prompt": "你是表格/CSV 技能（对标 Anthropic/社区 xlsx skill 的公式优先，落地走月汐 excel.parse / excel.gen，禁止 openpyxl/pandas 旁路）。\n" +
+			"已有文件先 excel.parse；定稿 excel.gen（公式以 = 开头，有表头则冻结首行）。汇总列必须是公式不是死数。\n" +
+			"先定列名、类型、是否主键。用户没让自拟时禁止编造业务数字。CSV 当作单 sheet。多主题分 sheet。禁止 Excel COM / Python 拼 OOXML。桌面 desktop=true。",
+	}
+}
+
+func hardwareBOMManifest() map[string]any {
+	return map[string]any{
+		"triggers": []string{"BOM", "硬件选型", "容量", "SKU", "服务器配置", "GPU 显存"},
+		"prompt": "你是硬件 BOM 技能（改编自 it-infrastructure-equipment-selection MIT 与 LLM-Capacity-Planner MIT 的容量心态，不搬源码）。\n" +
+			"先工作负载（QPS/并发/数据量/HA/IOPS/本地模型 GPU），再 2–4 档短名单，再 excel.gen 出 BOM。\n" +
+			"现价必须 web.search，标待确认。禁止电气 DIY。月汐本机才谈 WebView2/ASR/TTS GPU。",
+	}
+}
+
+func fictionContinuityManifest() map[string]any {
+	return map[string]any{
+		"triggers": []string{"连续性", "人设", "伏笔", "故事圣经", "人物卡", "continuity"},
+		"prompt": "你是小说连续性技能（改编自 ArcVellum MIT 与 fiction-forge 的故事圣经心态：长篇必须记得自己，禁止搬 MCP/扫描器源码）。\n" +
+			"维护人物卡（欲望/恐惧/秘密/说话方式）与已对读者做过的承诺。新细节标「暂定」，禁止无声改写人设或世界规则。\n" +
+			"分章正文用 docx.gen kind=novel；一章过长就分次调用。去AI味配合 anti-ai-prose。不写未成年人的性内容。",
+	}
 }
 
 // catalogTemplates is the frozen local market list. Entry points point at
@@ -380,7 +438,7 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://slide-builder",
 		Manifest: map[string]any{
 			"triggers": []string{"做 ppt", "演示文稿", "幻灯片", "pptx"},
-			"prompt":   "你是演示文稿助手。把用户材料拆成 5-10 页要点，每页一句标题+3-5 条要点，调用 pptx.gen 产出 .pptx。",
+			"prompt":   "你是演示文稿助手。按九步做：思考受众→定义结构（mermaid）→写每页要点→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 pptx.gen。每页一句标题+3-5 条要点，禁止空页或只有深色底没有文字。",
 		},
 	},
 	{
@@ -674,6 +732,54 @@ var catalogTemplates = []CatalogTemplate{
 			"prompt":   "你是协作编排助手。把用户目标拆成可并行的子任务，用 subagent.spawn 派出、subagent.join 回收。汇总时列出共识、冲突与你的裁决理由；高风险步骤先征得用户同意。",
 		},
 	},
+	{
+		ID: "mermaid-diagrams", Name: "tpl-mermaid-diagrams", DisplayName: "Mermaid 结构图",
+		Description: "用月汐已有 mermaid 画流程图、C4 与 ER：节点双引号，换行 <br/>。不另起画图产品。",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://mermaid-diagrams", Featured: true, Compose: true, Source: "Mermaid / C4 skill",
+		Manifest:    mermaidDiagramsManifest(),
+	},
+	{
+		ID: "anti-ai-prose", Name: "tpl-anti-ai-prose", DisplayName: "去AI味",
+		Description: "压掉赋能套话、排比与翻译腔，适合报告与小说终检。",
+		Category:    "写作辅助", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://anti-ai-prose", Compose: true, Source: "anti-vibe-writing / humanizer",
+		Manifest:    antiAIProseManifest(),
+	},
+	{
+		ID: "e2e-browser", Name: "tpl-e2e-browser", DisplayName: "E2E 意图场景",
+		Description: "按意图写 E2E：已连接 Playwright MCP 就用，否则 browser.act。不要绑死选择器。",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
+		EntryPoint:  "builtin://e2e-browser", Compose: true, Source: "e2e-test-agent / Playwright MCP",
+		Manifest:    e2eBrowserManifest(),
+	},
+	{
+		ID: "csv-workbook", Name: "tpl-csv-workbook", DisplayName: "CSV/表格工作簿",
+		Description: "把清单或 CSV 做成带表头、类型与公式的 xlsx，走 excel.parse / excel.gen。",
+		Category:    "数据分析", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://csv-workbook", Compose: true, Source: "月汐 office 工具",
+		Manifest:    csvWorkbookManifest(),
+	},
+	{
+		ID: "hardware-bom", Name: "tpl-hardware-bom", DisplayName: "硬件 BOM",
+		Description: "按工作负载出 SKU 短名单与 BOM 表，价格必须检索，禁止电气 DIY。",
+		Category:    "研发效能", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
+		EntryPoint:  "builtin://hardware-bom", Compose: true, Source: "capacity-planner skills",
+		Manifest:    hardwareBOMManifest(),
+	},
+	{
+		ID: "fiction-continuity", Name: "tpl-fiction-continuity", DisplayName: "小说连续性",
+		Description: "人设、伏笔与世界观账本：长篇必须记得自己，禁止无声改写。",
+		Category:    "内容创作", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint:  "builtin://fiction-continuity", Compose: true, Source: "ArcVellum / fiction-forge",
+		Manifest:    fictionContinuityManifest(),
+	},
 }
 
 // InstallFromCatalog materializes one catalog template as a local draft
@@ -739,6 +845,67 @@ func (s *Service) EnsureBundledSkills(ctx context.Context) (int, error) {
 			continue
 		}
 		published++
+	}
+	return published, nil
+}
+
+func composeTemplateWanted() map[string]bool {
+	want := map[string]bool{}
+	for _, id := range m8app.PreferredComposeTemplateIDs() {
+		want[id] = true
+	}
+	for _, tpl := range catalogTemplates {
+		if tpl.Compose {
+			want[tpl.ID] = true
+		}
+	}
+	return want
+}
+
+func (s *Service) publishCatalogTemplate(ctx context.Context, tpl CatalogTemplate) (bool, error) {
+	var sk skill.Skill
+	created, err := s.InstallFromCatalog(ctx, tpl.ID)
+	switch {
+	case err == nil:
+		sk = created
+	case errors.Is(err, ErrTemplateInstalled):
+		existing, gerr := s.GetByNameVersion(ctx, tpl.Name, tpl.Version)
+		if gerr != nil {
+			return false, nil
+		}
+		sk = *existing
+	default:
+		return false, nil
+	}
+	if sk.Status == skill.SkillStatusPublished || sk.Status != skill.SkillStatusDraft {
+		return false, nil
+	}
+	if err := s.Publish(ctx, sk.ID); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// EnsureComposeSkills installs and publishes templates that conversation
+// specialists auto-attach (preferredSkills + Compose flag) so 选专家
+// does not require hunting Skill Center.
+func (s *Service) EnsureComposeSkills(ctx context.Context) (int, error) {
+	if s == nil || s.write == nil {
+		return 0, errors.New("skill writer unavailable")
+	}
+	want := composeTemplateWanted()
+	published := 0
+	for _, tpl := range catalogTemplates {
+		if !want[tpl.ID] {
+			continue
+		}
+		ok, err := s.publishCatalogTemplate(ctx, tpl)
+		if err != nil {
+			continue
+		}
+		if ok {
+			published++
+		}
 	}
 	return published, nil
 }

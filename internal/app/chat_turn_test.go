@@ -26,6 +26,15 @@ func TestLooksLikeResume(t *testing.T) {
 	if looksLikeIndependentRequest("只要 arkcli 相关的技能") || looksLikeIndependentRequest("继续") {
 		t.Fatal("clarifications and resume are not independent tasks")
 	}
+	if !looksLikeStatusFollowUp("做好了没有") || !looksLikeStatusFollowUp("还要多久？") || !looksLikeStatusFollowUp("进度") {
+		t.Fatal("status follow-ups must attach to the in-flight task")
+	}
+	if looksLikeIndependentRequest("做好了没有") || looksLikeIndependentRequest("改方案用深色封面") {
+		t.Fatal("status and steer must not start a new task")
+	}
+	if closedLoopTurnInjection("做好了没有") != "" {
+		t.Fatal("status follow-ups must not close the previous loop")
+	}
 	if closedLoopTurnInjection("继续") != "" {
 		t.Fatal("resume must not add closed-loop scope")
 	}
@@ -124,6 +133,37 @@ func TestRunStreamInjectsQueuedSupplementsMidTurn(t *testing.T) {
 	}
 	if !adapter.sawSupplement {
 		t.Fatal("queued supplement was not injected into the in-flight turn")
+	}
+}
+
+func TestRunStreamInjectsStatusFollowUp(t *testing.T) {
+	store := &memQueueStore{}
+	adapter := &dropUIAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetQueueService(queueapp.New(store))
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-queue-status"
+	e.streams[id] = state
+	store.push("做好了没有")
+	var sawMerge, sawThinking bool
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+		if event.Delta != nil && strings.Contains(event.Delta.Text, "已并入你刚才补充的说明") {
+			sawMerge = true
+		}
+		if event.Thinking != nil && strings.Contains(event.Thinking.Text, "继续当前任务") {
+			sawThinking = true
+		}
+		return nil
+	}, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if !sawMerge || !sawThinking {
+		t.Fatalf("status follow-up must attach without wiping thinking: merge=%v thinking=%v", sawMerge, sawThinking)
+	}
+	left, err := store.ListQueued(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if err != nil || len(left) != 0 {
+		t.Fatalf("status follow-up should be consumed: %+v err=%v", left, err)
 	}
 }
 

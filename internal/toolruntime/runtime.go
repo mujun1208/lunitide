@@ -1270,10 +1270,13 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return result(summary), nil
 	case "docx.gen":
 		var a struct {
-			Path    string                  `json:"path"`
-			Desktop bool                    `json:"desktop"`
-			Title   string                  `json:"title"`
-			Blocks  []officetools.DocxBlock `json:"blocks"`
+			Path     string                  `json:"path"`
+			Desktop  bool                    `json:"desktop"`
+			Title    string                  `json:"title"`
+			Subtitle string                  `json:"subtitle"`
+			Author   string                  `json:"author"`
+			Kind     string                  `json:"kind"`
+			Blocks   []officetools.DocxBlock `json:"blocks"`
 		}
 		if strict(args, &a) != nil || (a.Path == "" && !a.Desktop) {
 			return Result{}, errors.New("invalid arguments")
@@ -1285,7 +1288,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		data, e := officetools.GenDocx(a.Title, a.Blocks)
+		data, e := officetools.GenDocxDoc(officetools.DocxDoc{
+			Title: a.Title, Subtitle: a.Subtitle, Author: a.Author, Kind: a.Kind, Blocks: a.Blocks,
+		})
 		if e != nil {
 			return Result{}, e
 		}

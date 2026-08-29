@@ -32,9 +32,13 @@ type CatalogItem struct {
 	Origin      string            `json:"origin"`
 	Usage       string            `json:"usage"`
 	Scene       string            `json:"scene"`
-	Emoji       string            `json:"emoji"`
-	Version     string            `json:"version"`
-	SixSection  m8core.SixSection `json:"sixSection"`
+	Emoji           string            `json:"emoji"`
+	Version         string            `json:"version"`
+	PreferredSkills []string          `json:"preferredSkills,omitempty"`
+	RequiredTools   []string          `json:"requiredTools,omitempty"`
+	PreferredMcp    []string          `json:"preferredMcp,omitempty"`
+	McpFallback     string            `json:"mcpFallback,omitempty"`
+	SixSection      m8core.SixSection `json:"sixSection"`
 }
 
 // CatalogSummary is the market-card projection of one catalog item.

@@ -79,6 +79,11 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
    * default. Ignores the engine's own endpoint and waits longer before commit.
    */
   holdUtterance?: boolean
+  /**
+   * Meeting notes owns PCM capture. Local ASR must not open a second
+   * microphone or stop the WAV writer when the recognizer recycles.
+   */
+  externalPcm?: boolean
 }
 
 export interface CompanionSpeechHandle {
@@ -96,6 +101,8 @@ export interface CompanionSpeechHandle {
   resumeCapture: () => void
   /** Commit whatever is in the buffer, including unfinished clauses. Meeting notes awaits this before stop. */
   flush?: () => void | Promise<void>
+  /** Feed PCM captured by the meeting recorder into local ASR. */
+  pushPcm?: (frame: { base64: string; samples: Int16Array; peak: number }) => void
 }
 
 /** Commit after this much analyser silence once we already have a complete phrase.

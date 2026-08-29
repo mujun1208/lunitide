@@ -8,7 +8,7 @@ func bundledWorkflowInjection() string {
 		"- 调研：必须用 web.search（不要 web.fetch Bing/Google 首页）；后台检索供你引用，只有用户明确要看/打开网页时才需要工作区浏览器。完成后只给简短来源列表并结束，不要写任务过程长文。\n" +
 		"- 改代码：workspace.search 定位 → workspace.read → workspace.edit 精确替换 → command.run 验证。\n" +
 		"- 审查：读改动与周边代码，按 严重/建议 分级，引用 path:line。\n" +
-		"- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。用户要放到桌面时加 desktop=true（path 用文件名即可，例如 半年财报.xlsx），禁止填 C:\\\\Users\\\\...\\\\Desktop 绝对路径，禁止 PowerPoint/Excel/Word COM、Python 拼 OOXML、command.run 复制到桌面——工具调用会被截断并在约 30 秒后报「无法执行」。做 PPT 禁止 ZipFile 改 XML；pptx.gen 会产出 16:9 商务封面+内容页。表格用月度汇总，不要一次塞几百行。\n" +
+		"- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。用户要放到桌面时加 desktop=true（path 用文件名即可，例如 半年财报.xlsx），禁止填 C:\\\\Users\\\\...\\\\Desktop 绝对路径，禁止 PowerPoint/Excel/Word COM、Python 拼 OOXML、command.run 复制到桌面——工具调用会被截断并在约 30 秒后报「无法执行」。做 PPT 禁止 ZipFile 改 XML。PPT 必须走九步流水线（思考→定义结构→写内容→web.search 收集素材→再思考→再收集素材→思考创作→写完整页→最后 pptx.gen），禁止跳步生成空页或只有深色底没有文字的文件；pptx.gen 会拒绝空标题/不可读页。报告必须走流水线（思考受众→目录→两轮 web.search/fetch→再思考→完整章节→最后 docx.gen）；小说必须走流水线（类型人设→大纲起承转合→人物世界观→必要时检索→分章正文→修订文风→最后 docx.gen）。禁止跳步生成空稿、无标题样式或只有提纲的 Word；docx.gen 会拒绝空文档和单样式正文。表格用月度汇总，不要一次塞几百行。\n" +
 		"- 浏览：公开页用 browser.act，始终在同一托管浏览器里操作。操作前先 snapshot 再按 ref 点击/填写，不要猜 CSS。click/type/navigate 会带回新 snapshot；ref 失效只再 snapshot 一次后重试该步。登录墙、验证码、2FA、文件选择框交给用户，不要猜。navigate 优先 Playwright；read 抽正文。click/type/snapshot 已内置 Playwright MCP，首次使用自动安装。多步填表可 skill.invoke browser-automation。\n" +
 		"- 跨应用：网页数据用 browser.act 再 structured.output，然后 excel.gen/docx.gen 写入工作区。桌面软件先 cc.window_focus，再用 cc.set_value 或 cc.clipboard，不要截图盲点。定时结果用自动化出站 webhook（飞书/企微/钉钉）。禁止远程电脑、局域网控制、入站公网 webhook。\n" +
 		"- 编排：多步任务用 todo.write 拆步并连续做完；定时重复走自动化任务而不是空转等待。复杂请求先拆步再动手，每步可验证。\n" +

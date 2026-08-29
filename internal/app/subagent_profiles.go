@@ -47,9 +47,13 @@ type subagentProfileOverride struct {
 
 // subagentChatPolicy is the per-stream subagent configuration from chat.start.
 type subagentChatPolicy struct {
-	DelegationMode delegationMode                       `json:"delegationMode"`
-	Overrides      map[string]subagentProfileOverride   `json:"overrides,omitempty"`
-	CustomProfiles []subagentProfileDef                 `json:"customProfiles,omitempty"`
+	DelegationMode delegationMode                     `json:"delegationMode"`
+	Overrides      map[string]subagentProfileOverride `json:"overrides,omitempty"`
+	CustomProfiles []subagentProfileDef               `json:"customProfiles,omitempty"`
+	// ExpertWork is set by the engine (not chat.start JSON) when the turn is
+	// a 对话专家 / Expert Center / council session. Those spawns use the full
+	// readCaps pack (全部权限) instead of a crippled web-only default.
+	ExpertWork bool `json:"-"`
 }
 
 func defaultSubagentChatPolicy() subagentChatPolicy {
@@ -62,9 +66,9 @@ func parseSubagentChatPolicy(raw json.RawMessage) subagentChatPolicy {
 		return policy
 	}
 	var p struct {
-		DelegationMode string                          `json:"delegationMode"`
+		DelegationMode string                             `json:"delegationMode"`
 		Overrides      map[string]subagentProfileOverride `json:"overrides"`
-		CustomProfiles []subagentProfileDef            `json:"customProfiles"`
+		CustomProfiles []subagentProfileDef               `json:"customProfiles"`
 	}
 	if json.Unmarshal(raw, &p) != nil {
 		return policy
@@ -162,63 +166,92 @@ func defaultSubagentProfileCaps() []string {
 	return []string{"fs.read", "fs.tree", "fs.grep", "fs.glob", "web.fetch", "web.search"}
 }
 
+// fullSubagentReadCaps is Settings pack 全部权限: every spawn-whitelist
+// readCap (fs.* + web.* + browser.act:* + evidence.list).
+func fullSubagentReadCaps() []string {
+	return []string{
+		"fs.read", "fs.tree", "fs.grep", "fs.glob", "fs.stat", "fs.readMany",
+		"web.search", "web.fetch",
+		"browser.act:navigate", "browser.act:read", "browser.act:snapshot",
+		"evidence.list",
+	}
+}
+
+func applyExpertSpawnCaps(profile subagentProfileDef) subagentProfileDef {
+	profile.ReadCaps = append([]string(nil), fullSubagentReadCaps()...)
+	return profile
+}
+
+func capsIncludeAll(have, want []string) bool {
+	set := make(map[string]struct{}, len(have))
+	for _, cap := range have {
+		set[cap] = struct{}{}
+	}
+	for _, cap := range want {
+		if _, ok := set[cap]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func builtinSubagentProfiles() map[string]subagentProfileDef {
 	return map[string]subagentProfileDef{
 		"explore": {
 			ID: "explore", DisplayName: "Explore", Builtin: true,
-			Description: "Read-only codebase search agent for broad fan-out lookups.",
+			Description:  "Read-only codebase search agent for broad fan-out lookups.",
 			SystemPrompt: "You are the Explore subagent: search and read the workspace read-only. Use listing, glob, grep and file reads. Return one concise report with paths and findings (max 2000 characters). Do not write files or run mutating commands.",
-			ReadCaps: []string{"fs.read", "fs.readMany", "fs.glob", "fs.grep", "fs.tree", "fs.stat"},
-			MaxSteps: 4, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     []string{"fs.read", "fs.readMany", "fs.glob", "fs.grep", "fs.tree", "fs.stat"},
+			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"research": {
 			ID: "research", DisplayName: "Research", Builtin: true,
-			Description: "Web search and page fetch for market or documentation research.",
+			Description:  "Web search and page fetch for market or documentation research.",
 			SystemPrompt: "You are the Research subagent: use web.search and web.fetch only. Summarize sources with URLs in one report (max 2000 characters). Do not invent sources.",
-			ReadCaps: []string{"web.search", "web.fetch"},
-			MaxSteps: 4, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     []string{"web.search", "web.fetch"},
+			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"general-purpose": {
 			ID: "general-purpose", DisplayName: "General purpose", Builtin: true,
-			Description: "General-purpose agent for multi-step read-only investigation.",
+			Description:  "General-purpose agent for multi-step read-only investigation.",
 			SystemPrompt: "You are a general-purpose read-only subagent. Investigate using workspace reads, allowlisted commands, and web tools as needed. Return one concise report (max 2000 characters).",
-			ReadCaps: defaultSubagentProfileCaps(),
-			MaxSteps: 4, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     defaultSubagentProfileCaps(),
+			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"review": {
 			ID: "review", DisplayName: "Review", Builtin: true,
-			Description: "Structured code/doc review with path:line references.",
+			Description:  "Structured code/doc review with path:line references.",
 			SystemPrompt: "You are the Review subagent: read-only code and doc review. Report findings as 严重/建议 with file paths; cite path:line when possible. Max 2000 characters.",
-			ReadCaps: []string{"fs.read", "fs.readMany", "fs.grep", "fs.tree", "fs.stat"},
-			MaxSteps: 4, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     []string{"fs.read", "fs.readMany", "fs.grep", "fs.tree", "fs.stat"},
+			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"browser": {
 			ID: "browser", DisplayName: "Browser", Builtin: true,
-			Description: "Navigate and read public pages through the restricted browser channel.",
+			Description:  "Navigate and read public pages through the restricted browser channel.",
 			SystemPrompt: "You are the Browser subagent: use browser.act navigate/read and web.fetch for public pages. Filter noise; return only relevant excerpts and URLs (max 2000 characters).",
-			ReadCaps: []string{"web.fetch", "web.search", "browser.act:navigate", "browser.act:read", "browser.act:snapshot"},
-			MaxSteps: 4, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     []string{"web.fetch", "web.search", "browser.act:navigate", "browser.act:read", "browser.act:snapshot"},
+			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"shell": {
 			ID: "shell", DisplayName: "Shell", Builtin: true,
-			Description: "Runs read-only shell commands; verbose output stays in the subagent.",
+			Description:  "Runs read-only shell commands; verbose output stays in the subagent.",
 			SystemPrompt: "You are the Shell subagent: run only read-only allowlisted commands (git status/diff/log, go test/vet, etc.). Summarize command output for the parent; max 2000 characters.",
-			ReadCaps: []string{"fs.read", "fs.tree"},
-			MaxSteps: 3, BudgetTokens: 6144,
+			ReadCaps:     []string{"fs.read", "fs.tree"},
+			MaxSteps:     3, BudgetTokens: 6144,
 		},
 		"writer": {
 			ID: "writer", DisplayName: "Writer", Builtin: true,
-			Description: "Drafts outlines and prose in the report (no direct file writes).",
+			Description:  "Drafts outlines and prose in the report (no direct file writes).",
 			SystemPrompt: "You are the Writer subagent: read context read-only and draft structured prose, outlines, or document sections in your final report. Do not write files; max 2000 characters.",
-			ReadCaps: []string{"fs.read", "fs.tree", "web.fetch", "web.search"},
-			MaxSteps: 3, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     []string{"fs.read", "fs.tree", "web.fetch", "web.search"},
+			MaxSteps:     3, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"test": {
 			ID: "test", DisplayName: "Test", Builtin: true,
-			Description: "Finds test gaps and suggests cases using read-only tools.",
+			Description:  "Finds test gaps and suggests cases using read-only tools.",
 			SystemPrompt: "You are the Test subagent: read code read-only, infer test gaps, suggest cases and commands. Max 2000 characters.",
-			ReadCaps: []string{"fs.read", "fs.grep", "fs.glob", "fs.tree"},
-			MaxSteps: 4, BudgetTokens: subagentDefaultBudgetTokens,
+			ReadCaps:     []string{"fs.read", "fs.grep", "fs.glob", "fs.tree"},
+			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 	}
 }

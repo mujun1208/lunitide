@@ -160,7 +160,8 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   }
 
   asr = await startLocalAsr({
-    extraStreams: options.extraStreams,
+    extraStreams: options.externalPcm ? undefined : options.extraStreams,
+    externalPcm: options.externalPcm,
     onLevel: peak => {
       if (closed) return
       bars.shift()
@@ -291,6 +292,10 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     resumeCapture: () => {
       if (closed) return
       asr?.setMuted(false)
+    },
+    pushPcm: frame => {
+      if (closed) return
+      asr?.pushFrame?.(frame)
     },
   }
 }

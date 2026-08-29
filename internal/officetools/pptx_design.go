@@ -57,7 +57,7 @@ func pptxPara(align, run string) string {
 	if align != "" {
 		algn = ` algn="` + align + `"`
 	}
-	return `<a:p><a:pPr` + algn + `>` + run + `<a:endParaRPr lang="zh-CN"/></a:p>`
+	return `<a:p><a:pPr` + algn + `></a:pPr>` + run + `<a:endParaRPr lang="zh-CN"/></a:p>`
 }
 
 func pptxBulletPara(text string) string {

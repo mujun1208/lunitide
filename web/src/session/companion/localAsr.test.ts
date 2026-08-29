@@ -316,4 +316,14 @@ describe('startLocalAsr', () => {
     expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
     expect(bridge.start).toHaveBeenCalledTimes(2)
   })
+
+  it('does not open a second microphone when PCM is supplied externally', async () => {
+    const { startPcmCapture } = await import('./pcmCapture')
+    vi.mocked(startPcmCapture).mockClear()
+    const handle = await startLocalAsr({ externalPcm: true })
+    expect(startPcmCapture).not.toHaveBeenCalled()
+    handle.pushFrame(frame())
+    await settle()
+    expect(bridge.append).toHaveBeenCalledWith({ sessionId: 'v1', pcm: 'AAAA' })
+  })
 })

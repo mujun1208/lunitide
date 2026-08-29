@@ -96,6 +96,50 @@ it('gives meetings.summarize a 10-minute deadline so hour-scale notes can finish
   expect(sent[0]?.deadlineMs).toBe(MEETING_SUMMARIZE_DEADLINE_MS)
 })
 
+it('gives meetings.catchup the same hour-scale deadline as summarize', async () => {
+  const ready = { ...segment, meetingId: U, title: '长会', status: 'transcribed', summary: '', actions: '', transcript: '补转写', audioSource: 'microphone', startedAt: segment.createdAt, endedAt: segment.createdAt, durationMs: 3_600_000, createdAt: segment.createdAt, updatedAt: segment.createdAt }
+  const { sent, bridge } = meetingsHarness(() => ready)
+  await bridge.catchup({ meetingId: U })
+  expect(sent[0]?.method).toBe('meetings.catchup')
+  expect(sent[0]?.deadlineMs).toBe(MEETING_SUMMARIZE_DEADLINE_MS)
+})
+
+it('retries meetings.audio.append after a retryable timeout', async () => {
+  vi.useFakeTimers()
+  try {
+    let listener: (e: MessageEvent) => void = () => {}
+    const sent: Array<{ id: string }> = []
+    const transport: WebViewTransport = {
+      addEventListener: (_t, l) => { listener = l as (e: MessageEvent) => void },
+      removeEventListener: vi.fn(),
+      postMessage: m => {
+        const request = m as { id: string }
+        sent.push(request)
+        queueMicrotask(() => {
+          if (sent.length === 1) {
+            listener(new MessageEvent('message', {
+              data: {
+                v: '1.0', kind: 'response', id: U, requestId: request.id, ok: false,
+                error: { code: 'REQUEST_DEADLINE_EXCEEDED', message: 'Bridge 请求超时', retryable: true, correlationId: 't' },
+              },
+            }))
+            return
+          }
+          listener(new MessageEvent('message', {
+            data: { v: '1.0', kind: 'response', id: U, requestId: request.id, ok: true, payload: { meetingId: U, audioMs: 1200 } },
+          }))
+        })
+      },
+    }
+    const pending = createMeetingsBridge(transport).audioAppend({ meetingId: U, pcm: 'AAAA' })
+    await vi.advanceTimersByTimeAsync(400)
+    await expect(pending).resolves.toEqual({ meetingId: U, audioMs: 1200 })
+    expect(sent).toHaveLength(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('retries meetings.stop after a retryable timeout', async () => {
   vi.useFakeTimers()
   try {

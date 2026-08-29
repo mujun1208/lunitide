@@ -215,6 +215,39 @@ func TestEnsureBundledSkillsPublishesCatalog(t *testing.T) {
 	}
 }
 
+func TestEnsureComposeSkillsPublishesPreferred(t *testing.T) {
+	store := newMemSkillStore()
+	svc := New(store, store)
+	if _, err := svc.EnsureBundledSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GetByNameVersion(context.Background(), "tpl-slide-builder", "1.0.0"); err == nil {
+		t.Fatal("slide-builder must stay market-only until compose ensure")
+	}
+	n, err := svc.EnsureComposeSkills(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 5 {
+		t.Fatalf("compose published %d, want several preferred skills", n)
+	}
+	for _, name := range []string{
+		"tpl-slide-builder", "tpl-web-researcher", "tpl-mermaid-diagrams",
+		"tpl-docx-writer", "tpl-anti-ai-prose", "tpl-e2e-browser", "tpl-fiction-continuity",
+	} {
+		if _, err := svc.GetByNameVersion(context.Background(), name, "1.0.0"); err != nil {
+			t.Fatalf("compose skill %s missing: %v", name, err)
+		}
+	}
+	again, err := svc.EnsureComposeSkills(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != 0 {
+		t.Fatalf("second compose ensure published %d", again)
+	}
+}
+
 func TestCatalogBuiltinEntryPointReturnsWorkingAgreement(t *testing.T) {
 	sk := skill.Skill{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Name: "tpl-meeting-minutes", DisplayName: "会议纪要助手",
