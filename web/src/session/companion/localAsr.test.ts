@@ -307,4 +307,13 @@ describe('startLocalAsr', () => {
     await expect(handle.finish()).resolves.toBe('')
     expect(bridge.finish).not.toHaveBeenCalled()
   })
+
+  it('restart retires the hung session and opens a fresh one', async () => {
+    bridge.start.mockResolvedValueOnce({ sessionId: 'v1' })
+    const handle = await startLocalAsr({})
+    bridge.start.mockResolvedValueOnce({ sessionId: 'v2' })
+    await handle.restart()
+    expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
+    expect(bridge.start).toHaveBeenCalledTimes(2)
+  })
 })

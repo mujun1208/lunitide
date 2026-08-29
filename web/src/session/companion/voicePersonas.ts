@@ -61,10 +61,40 @@ export const VOICE_PERSONAS: VoicePersona[] = [
   { id: 'refpack:老年人旁白（男）.wav', name: '老年旁白', group: '权威旁白', gender: 'male' },
 ]
 
-export const VOICE_PATHS: { value: VoicePath; label: string; desc: string }[] = [
-  { value: 'cloud', label: '云端', desc: '微软晓晓，免密钥，走现有听写与朗读' },
-  { value: 'local', label: '本地模型', desc: '本机 50 种人生音色，克隆引擎' },
-  { value: 'omni', label: 'MiniCPM-o 4.5', desc: '本机全双工 + 音色克隆，不经 chat.start' },
+export type ShownVoicePath = Exclude<VoicePath, 'omni'>
+
+export type VoicePathOption = {
+  value: ShownVoicePath
+  label: string
+  badge: string
+  kicker: string
+  meta: string
+  desc: string
+}
+
+/** Leftover MiniCPM-o saves still type as omni; the picker shows 云端. */
+export function shownVoicePath(path: VoicePath): ShownVoicePath {
+  return path === 'local' ? 'local' : 'cloud'
+}
+
+/** Product picker for 月伴. MiniCPM-o stays in the type for leftover saves but is not offered. */
+export const VOICE_PATHS: VoicePathOption[] = [
+  {
+    value: 'cloud',
+    label: '云端',
+    badge: '默认',
+    kicker: '即开即用',
+    meta: '晓晓 · 微软 Neural',
+    desc: '免密钥。听写与朗读走现有云端通道，适合大多数对话。',
+  },
+  {
+    value: 'local',
+    label: '本地',
+    badge: '本机',
+    kicker: '离线克隆',
+    meta: 'sherpa + GPT-SoVITS',
+    desc: '本机 sherpa 听写，GPT-SoVITS 克隆 50 种人生音色。音频不出设备。',
+  },
 ]
 
 export function voicePersonaGroups(personas = VOICE_PERSONAS): [string, VoicePersona[]][] {

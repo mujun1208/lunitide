@@ -1,8 +1,7 @@
 // Entering 对话模式 inspects the voice path once and starts listening.
 // It never bounces the user to Settings: 云端 is the default card, and a
-// saved 本地 / MiniCPM-o card is kept only when that path is actually ready.
+// saved 本地 card is kept. MiniCPM-o is no longer a 月伴 channel.
 import { applyVoicePath, loadCompanionSettings, type CompanionSettings } from './companionSettings'
-import { probeOmniChannel } from '../omni/omniAudio'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import type { VoicePath } from './voicePersonas'
 
@@ -18,10 +17,6 @@ export async function resolveCompanionVoicePath(settings: CompanionSettings): Pr
   voicePath: VoicePath
   omniReady: boolean
 }> {
-  if (settings.voicePath === 'omni') {
-    const omniReady = await probeOmniChannel()
-    return { voicePath: omniReady ? 'omni' : 'cloud', omniReady }
-  }
   if (settings.voicePath === 'local') {
     return { voicePath: 'local', omniReady: false }
   }
@@ -41,7 +36,7 @@ export async function prepareCompanionEntry(
     settings,
     voicePath: resolved.voicePath,
     omniRequested,
-    omniReady: resolved.omniReady,
-    usedFallback: omniRequested && resolved.voicePath === 'cloud',
+    omniReady: false,
+    usedFallback: false,
   }
 }

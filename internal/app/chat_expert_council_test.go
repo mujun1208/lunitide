@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -81,5 +82,67 @@ func TestExpertDeliberateDigestStable(t *testing.T) {
 	b := expertDeliberateDigest("01ARZ3NDEKTSV4RRFFQ69G5FAV", "打开网站播放音乐")
 	if a == "" || a != b || len(a) != 64 {
 		t.Fatalf("digest = %q", a)
+	}
+}
+
+type stubSessionExperts struct{ ids []string }
+
+func (s stubSessionExperts) ListSessionExpertIDs(context.Context, string) ([]string, error) {
+	return append([]string(nil), s.ids...), nil
+}
+
+func (s stubSessionExperts) ReplaceSessionExpertIDs(context.Context, string, []string) error {
+	return nil
+}
+
+func TestSelectedTurnExpertIDsUsesMountedSubsetOnly(t *testing.T) {
+	ai, arch := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	got := selectedTurnExpertIDs([]string{ai, arch}, "重新思考，给出一个新的方案。")
+	if len(got) != 2 || got[0] != ai || got[1] != arch {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestSelectedTurnExpertIDsSingleChipDoesNotSpawnOthers(t *testing.T) {
+	one := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	got := selectedTurnExpertIDs([]string{one}, "请评审这份架构")
+	if len(got) != 1 || got[0] != one {
+		t.Fatalf("single chip spawned %#v", got)
+	}
+}
+
+func TestSelectedTurnExpertIDsTurnRefsBeatStalePMMounts(t *testing.T) {
+	ppt, novel, report := "01ARZ3NDEKTSV4RRFFQ69G5FAA", "01ARZ3NDEKTSV4RRFFQ69G5FAB", "01ARZ3NDEKTSV4RRFFQ69G5FAC"
+	ai, security := "01ARZ3NDEKTSV4RRFFQ69G5FAD", "01ARZ3NDEKTSV4RRFFQ69G5FAE"
+	turn := "[引用专家 AI工程师|" + ai + "]\n[引用专家 安全工程师|" + security + "]\n重新思考，给出一个新的方案。"
+	got := selectedTurnExpertIDs([]string{ppt, novel, report}, turn)
+	if len(got) != 2 || got[0] != ai || got[1] != security {
+		t.Fatalf("PM rethink must not keep ppt/novel/report: %#v", got)
+	}
+	prev := "[引用专家 PPT专家|" + ppt + "]\n[引用专家 小说编写专家|" + novel + "]\n旧方案"
+	got = selectedTurnExpertIDs([]string{ppt, novel, report}, turn, prev)
+	if len(got) != 2 || got[0] != ai || got[1] != security {
+		t.Fatalf("current chips must ignore previous-turn catalog refs: %#v", got)
+	}
+}
+
+func TestSelectedTurnExpertIDsEmptyPMRethinkDoesNotAttachCatalog(t *testing.T) {
+	got := selectedTurnExpertIDs(nil, "重新思考，给出一个新的方案。")
+	if len(got) != 0 {
+		t.Fatalf("empty chips must not spawn conversation specialists: %#v", got)
+	}
+}
+
+func TestCollectCouncilExpertIDsIgnoresProjectPhaseMatrix(t *testing.T) {
+	ai, arch := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	e := &Engine{sessionExperts: stubSessionExperts{ids: []string{ai, arch}}}
+	got := e.collectCouncilExpertIDs(t.Context(), expertCouncilInputs{
+		SessionID:  "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+		ProjectID:  "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+		PhaseLabel: "需求架构规范",
+		TurnText:   "重新思考，给出一个新的方案。",
+	})
+	if len(got) != 2 || got[0] != ai || got[1] != arch {
+		t.Fatalf("PM council must stay on session chips, not the 13-specialist catalog: %#v", got)
 	}
 }

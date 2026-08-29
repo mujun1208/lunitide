@@ -49,7 +49,29 @@ export function readTidePalette(root?: Element | null): TidePalette {
 
 /** Drop author init directives so stock dark/default cannot wipe the Tide theme. */
 export function prepareMermaidSource(source: string): string {
-  return source.replace(/%%\{\s*init[\s\S]*?\}%%/gi, '').trim()
+  const stripped = source.replace(/%%\{\s*init[\s\S]*?\}%%/gi, '').trim()
+  return quoteFlowchartNodeLabels(normalizeMermaidBreaks(stripped))
+}
+
+function normalizeMermaidBreaks(source: string): string {
+  return source.replace(/<br\s*\/?>/gi, '<br/>')
+}
+
+/** Unquoted `[封面<br/>技术/团队]` is parsed as trapezoid/parallelogram (`[/…/]`)
+ *  and emits HTML `<br>` inside SVG that XML parsers reject. */
+const FLOWCHART_LABEL_NEEDS_QUOTE = /<br|[/<·<>&"']/
+
+function quoteFlowchartNodeLabels(source: string): string {
+  return source.replace(/([A-Za-z][\w-]*)\[(?!["'])([^\n\]]+)\]/g, (full, id: string, label: string) => {
+    if (!FLOWCHART_LABEL_NEEDS_QUOTE.test(label)) return full
+    const escaped = label.replace(/\\/g, '\\\\').replace(/"/g, '#quot;')
+    return `${id}["${escaped}"]`
+  })
+}
+
+/** Mermaid often returns HTML (`<br>`, `&nbsp;`) inside foreignObject. */
+export function sanitizeMermaidSvg(svg: string): string {
+  return svg.replace(/<br\s*\/?>/gi, '<br/>').replace(/&nbsp;/gi, '&#160;')
 }
 
 /** Responsive SVG: mermaid often sets inline height=viewBox px, which leaves a huge empty band. */
@@ -64,15 +86,24 @@ export function fitMermaidSvg(svg: SVGSVGElement): void {
 
 /** Parse mermaid SVG without innerHTML so a bad payload cannot break the chat tree. */
 export function mountMermaidSvg(host: HTMLElement, svg: string): SVGSVGElement {
-  const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml')
-  const root = parsed.documentElement
-  if (!root || root.tagName.toLowerCase() !== 'svg' || parsed.querySelector('parsererror')) {
-    throw new Error('Mermaid 返回了无法解析的 SVG')
-  }
+  const root = parseMermaidSvg(svg)
   const imported = document.importNode(root, true) as unknown as SVGSVGElement
   fitMermaidSvg(imported)
   host.replaceChildren(imported)
   return imported
+}
+
+function parseMermaidSvg(svg: string): SVGSVGElement {
+  const sanitized = sanitizeMermaidSvg(svg)
+  const xml = new DOMParser().parseFromString(sanitized, 'image/svg+xml')
+  const xmlRoot = xml.documentElement
+  if (xmlRoot && xmlRoot.tagName.toLowerCase() === 'svg' && !xml.querySelector('parsererror')) {
+    return xmlRoot as unknown as SVGSVGElement
+  }
+  const html = new DOMParser().parseFromString(sanitized, 'text/html')
+  const htmlRoot = html.querySelector('svg')
+  if (htmlRoot) return htmlRoot as SVGSVGElement
+  throw new Error('Mermaid 返回了无法解析的 SVG')
 }
 
 export function tideMermaidThemeCSS(): string {

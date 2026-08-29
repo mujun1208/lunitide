@@ -84,6 +84,8 @@ export interface LocalAsrHandle {
    * clip the start of the user's next sentence.
    */
   setMuted: (muted: boolean) => void
+  /** Retire a hung sidecar session and open a fresh one without dropping the mic. */
+  restart: () => Promise<void>
 }
 
 /**
@@ -377,6 +379,18 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
       if (next) {
         pending = []
         pendingSamples = 0
+      }
+    },
+    restart: async () => {
+      if (closed) return
+      swapping = true
+      try {
+        await recoverSession()
+      } catch (error) {
+        fail(error)
+      } finally {
+        swapping = false
+        pump()
       }
     },
   }

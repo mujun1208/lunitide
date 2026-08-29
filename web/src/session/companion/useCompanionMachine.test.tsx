@@ -4,7 +4,7 @@
 // state is kept.
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import { useCompanionMachine, companionSurfaceState, type CompanionEvent } from './useCompanionMachine'
+import { useCompanionMachine, companionSurfaceState, companionStatusLabel, type CompanionEvent } from './useCompanionMachine'
 
 const EVENTS: CompanionEvent['type'][] = [
   'MIC_ACTIVATE',
@@ -94,5 +94,13 @@ describe('companionSurfaceState', () => {
     expect(companionSurfaceState('thinking', true)).toBe('speaking')
     expect(companionSurfaceState('listening', false)).toBe('listening')
     expect(companionSurfaceState('speaking', true)).toBe('speaking')
+  })
+
+  test('tools running show thinking not 说话中', () => {
+    expect(companionSurfaceState('speaking', true, true)).toBe('thinking')
+    expect(companionSurfaceState('thinking', false, true)).toBe('thinking')
+    expect(companionSurfaceState('listening', false, true)).toBe('listening')
+    expect(companionStatusLabel('thinking', true)).toBe('执行中')
+    expect(companionStatusLabel('speaking', false)).toBe('说话中')
   })
 })

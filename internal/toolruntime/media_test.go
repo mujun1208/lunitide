@@ -444,6 +444,16 @@ func TestUiaTreeSparseAndPlayControls(t *testing.T) {
 	if play == nil || play.Name != "播放" {
 		t.Fatalf("play %+v", play)
 	}
+	shuffle := pickPlayControl([]mediaUINode{
+		{Role: "button", Name: "播放", Y: 900, H: 32},
+		{Role: "button", Name: "随机播放", Y: 880, H: 32},
+	})
+	if shuffle == nil || shuffle.Name != "随机播放" {
+		t.Fatalf("shuffle %+v", shuffle)
+	}
+	if !isPlayControlName("随机播放") || !isPlayControlName("Shuffle") {
+		t.Fatal("随机播放 must count as play, not chrome")
+	}
 	if pickPauseControl([]mediaUINode{{Role: "button", Name: "暂停", Y: 900}}) == nil {
 		t.Fatal("expected pause control")
 	}

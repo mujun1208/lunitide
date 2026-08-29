@@ -51,7 +51,7 @@ var hookableTools = map[string]bool{
 	"workspace.search": true, "workspace.edit": true, "todo.write": true,
 	"command.run": true, "web.fetch": true, "web.search": true,
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true,
-	"html.gen": true, "desktop.open": true, "media.play": true,
+	"html.gen": true, "desktop.open": true, "desktop.type": true, "media.play": true,
 }
 
 var hookIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)

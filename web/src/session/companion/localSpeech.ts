@@ -281,9 +281,12 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     },
     flush: () => recycle('final'),
     pulseRecognition: () => {
-      /* The cloud recognizer stops returning results while still claiming to
-         listen, which is what pulsing repairs. The sidecar either answers or
-         reports an error, so there is no silent stall to kick. */
+      if (closed || playback || commitPaused) return
+      if (text.trim()) {
+        void recycle('final')
+        return
+      }
+      void asr?.restart()
     },
     resumeCapture: () => {
       if (closed) return

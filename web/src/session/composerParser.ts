@@ -11,6 +11,10 @@ const cleanLabel=(label:string)=>label.replace(/[\]|\r\n]/g,' ')
 export function attachmentToken(id:string,label:string){return`[attachment:${id}|${cleanLabel(label)}]`}
 export function skillRefPrefix(skills:Array<{displayName:string;id:string}>):string{return skills.map(s=>`[引用技能 ${cleanLabel(s.displayName)}|${s.id}]`).join('\n')+(skills.length?'\n':'')}
 export function expertRefPrefix(experts:Array<{name:string;expertId:string}>):string{return experts.map(e=>`[引用专家 ${cleanLabel(e.name)}|${e.expertId}]`).join('\n')+(experts.length?'\n':'')}
+export function composeChatPrompt(text:string,skills:Array<{displayName:string;id:string}>=[],experts:Array<{name:string;expertId:string}>=[],includeExperts=true):string{
+ const withSkills=skills.length?skillRefPrefix(skills)+text:text
+ return includeExperts?expertRefPrefix(experts)+withSkills:withSkills
+}
 export function splitLeadingRefs(text:string):{skills:string[];experts:string[];text:string}{
  const skills:string[]=[],experts:string[]=[];let rest=text
  for(;;){

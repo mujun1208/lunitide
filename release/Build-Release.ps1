@@ -88,10 +88,10 @@ if ((Get-FileHash $loader -Algorithm SHA256).Hash.ToLowerInvariant() -ne $wvLoad
 Copy-Item $loader $stage
 Copy-Item (Join-Path $wvExtract 'LICENSE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-LICENSE.txt')
 Copy-Item (Join-Path $wvExtract 'NOTICE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-NOTICE.txt')
-& (Join-Path $PSScriptRoot 'Publish-OmniRuntime.ps1') -Cache $cache -Stage $stage
-if (-not (Test-Path (Join-Path $stage 'omni\llama-omni-runtime.zip') -PathType Leaf)) {
-  Write-Warning 'omni/llama-omni-runtime.zip omitted (optional MiniCPM-o runtime). 云端 and 本地 voice paths still work.'
-}
+# Do not stage MiniCPM-o / llama-omni-server / Comni-Setup. 0.4.24 copied
+# llama-omni-runtime.zip from .release-cache (slim runtime; Comni-Setup itself
+# is ~538 MB and must never enter the payload). GGUF stays an optional
+# post-install download. Cache leftovers are ignored.
 Copy-Item (Join-Path $PSScriptRoot 'stop-install-processes.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'verify-install-directory.ps1') $stage
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $stage 'WebView2Loader.dll') -RequiredExports @('CreateCoreWebView2EnvironmentWithOptions','GetAvailableCoreWebView2BrowserVersionString','CompareBrowserVersions')

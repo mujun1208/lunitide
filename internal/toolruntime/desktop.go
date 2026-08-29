@@ -11,6 +11,54 @@ import (
 	"unicode/utf8"
 )
 
+// desktopWritePath resolves an office/html generator output. When desktop is
+// set, the file lands in the real Windows Desktop (full-disk full-access
+// required) and the caller should advertise a renderer-safe desktop/ preview
+// path instead of a C:\ absolute path (those break the chat stream).
+func (r *Runtime) desktopWritePath(requested, fallback, requiredExt string, desktop, unconfined bool) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if !desktop {
+		if requested == "" {
+			return "", errors.New("relative path required")
+		}
+		return requested, nil
+	}
+	if r == nil || !unconfined || !r.FullDiskEnabled() {
+		return "", errors.New("desktop=true requires full-disk full-access")
+	}
+	dir, err := userDesktopDir()
+	if err != nil {
+		return "", err
+	}
+	base := filepath.Base(requested)
+	if base == "." || base == "" {
+		base = fallback
+	}
+	ext := strings.ToLower(requiredExt)
+	if ext != "" && !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	if ext != "" && strings.ToLower(filepath.Ext(base)) != ext {
+		base += ext
+	}
+	return filepath.Join(dir, base), nil
+}
+
+// desktopPreviewPath is the renderer-safe artifact name. Host/renderer
+// reject backslashes, drive letters, and file:// URLs; desktop writes
+// therefore preview as desktop/basename.ext.
+func desktopPreviewPath(requested string, desktop bool, fallback string) string {
+	base := filepath.Base(filepath.Clean(strings.TrimSpace(requested)))
+	base = strings.ReplaceAll(base, `\`, "")
+	if base == "" || base == "." || strings.Contains(base, "..") {
+		base = fallback
+	}
+	if desktop {
+		return "desktop/" + base
+	}
+	return filepath.ToSlash(base)
+}
+
 func userDesktopDir() (string, error) {
 	candidates := desktopDirCandidates()
 	if len(candidates) == 0 {

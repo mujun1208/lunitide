@@ -107,8 +107,15 @@ describe('PeoplePage', () => {
 
     await user.click(within(rail).getByRole('button', { name: /我/ }))
     expect(await screen.findByText('让同网段的月汐看见我')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '身份' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '在场' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '局域网' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '安全' })).toBeInTheDocument()
+    expect(document.querySelector('[data-profile-section="identity"]')).toBeTruthy()
     expect(screen.getByDisplayValue(me.subjectId)).toBeInTheDocument()
     expect(screen.queryByText(/private/i)).not.toBeInTheDocument()
+    expect(document.querySelector('.people-me-summary')).toBeTruthy()
+    expect(document.querySelector('.people-me-copy')).toBeTruthy()
   })
 
   test('adds a peer by IP and can remark or block from the open chat', async () => {

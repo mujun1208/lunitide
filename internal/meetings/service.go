@@ -111,14 +111,15 @@ type Store interface {
 }
 
 type Service struct {
-	store     Store
-	complete  Completer
-	mu        sync.Mutex
-	recording string
+	store       Store
+	complete    Completer
+	mu          sync.Mutex
+	recording   string
+	summarizing map[string]bool
 }
 
 func New(store Store) *Service {
-	return &Service{store: store}
+	return &Service{store: store, summarizing: map[string]bool{}}
 }
 
 func (s *Service) SetCompleter(fn Completer) { s.complete = fn }
@@ -134,7 +135,22 @@ func (s *Service) List(ctx context.Context) ([]Meeting, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	return s.store.ListMeetings(ctx, maxList)
+	items, err := s.store.ListMeetings(ctx, maxList)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range items {
+		if m.Status != StatusSummarizing {
+			continue
+		}
+		next, changed, reclaimErr := s.maybeReclaimSummarizing(m)
+		if reclaimErr == nil && changed {
+			items[i] = next
+			items[i].Segments = nil
+			items[i].Docs = nil
+		}
+	}
+	return items, nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (Meeting, error) {
@@ -147,6 +163,9 @@ func (s *Service) Get(ctx context.Context, id string) (Meeting, error) {
 	m, err := s.store.GetMeeting(ctx, id)
 	if err != nil {
 		return Meeting{}, err
+	}
+	if next, changed, reclaimErr := s.maybeReclaimSummarizing(m); reclaimErr == nil && changed {
+		m = next
 	}
 	segs, err := s.store.ListSegments(ctx, id)
 	if err != nil {
@@ -323,6 +342,10 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	return m, nil
 }
 
+func persistCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 20*time.Second)
+}
+
 func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, error) {
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
@@ -337,25 +360,46 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	if m.Status == StatusRecording {
 		return Meeting{}, ErrNotRecording
 	}
+	s.mu.Lock()
+	if s.summarizing[meetingID] {
+		s.mu.Unlock()
+		return m, nil
+	}
+	if s.summarizing == nil {
+		s.summarizing = map[string]bool{}
+	}
+	s.summarizing[meetingID] = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.summarizing, meetingID)
+		s.mu.Unlock()
+	}()
+	persist, persistCancel := persistCtx()
+	defer persistCancel()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	m.Status = StatusSummarizing
 	m.UpdatedAt = now
-	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+	if err := s.store.UpdateMeeting(persist, m); err != nil {
 		return Meeting{}, err
 	}
 	if strings.TrimSpace(m.Transcript) == "" {
 		m.Status = StatusNeedsSummary
 		m.SummaryError = "没有可用的逐字稿，无法生成摘要"
 		m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		_ = s.store.UpdateMeeting(ctx, m)
-		return s.Get(ctx, meetingID)
+		_ = s.store.UpdateMeeting(persist, m)
+		return s.Get(persist, meetingID)
 	}
 	if s.complete == nil {
-		return s.finishNeedsSummary(ctx, m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
+		return s.finishNeedsSummary(m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
 	}
-	notes, err := SummarizeLong(ctx, s.complete, m.Title, CleanTranscript(m.Transcript))
+	workCtx, workCancel := context.WithTimeout(context.Background(), summarizeJobDeadline)
+	defer workCancel()
+	stop := context.AfterFunc(ctx, workCancel)
+	defer stop()
+	notes, err := SummarizeLong(workCtx, s.complete, m.Title, CleanTranscript(m.Transcript))
 	if err != nil {
-		return s.finishNeedsSummary(ctx, m, "尚未生成摘要："+err.Error())
+		return s.finishNeedsSummary(m, "尚未生成摘要："+err.Error())
 	}
 	title := strings.TrimSpace(notes.Title)
 	if title != "" && utf8.RuneCountInString(title) <= maxTitle {
@@ -366,24 +410,48 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	m.SummaryError = ""
 	m.Status = StatusReady
 	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+	if err := s.store.UpdateMeeting(persist, m); err != nil {
 		return Meeting{}, err
 	}
-	if err := s.persistDocs(ctx, m); err != nil {
+	if err := s.persistDocs(persist, m); err != nil {
 		return Meeting{}, err
 	}
-	return s.Get(ctx, meetingID)
+	return s.Get(persist, meetingID)
 }
 
-func (s *Service) finishNeedsSummary(ctx context.Context, m Meeting, msg string) (Meeting, error) {
+func (s *Service) maybeReclaimSummarizing(m Meeting) (Meeting, bool, error) {
+	if m.Status != StatusSummarizing {
+		return m, false, nil
+	}
+	s.mu.Lock()
+	busy := s.summarizing[m.MeetingID]
+	s.mu.Unlock()
+	if busy {
+		return m, false, nil
+	}
+	persist, cancel := persistCtx()
+	defer cancel()
+	m.Status = StatusNeedsSummary
+	m.SummaryError = clipRunes("摘要生成中断，逐字稿已保存。可重试生成摘要。", 1024)
+	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := s.store.UpdateMeeting(persist, m); err != nil {
+		return Meeting{}, false, err
+	}
+	_ = s.persistDocs(persist, m)
+	return m, true, nil
+}
+
+func (s *Service) finishNeedsSummary(m Meeting, msg string) (Meeting, error) {
+	persist, cancel := persistCtx()
+	defer cancel()
 	m.Status = StatusNeedsSummary
 	m.SummaryError = clipRunes(msg, 1024)
 	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+	if err := s.store.UpdateMeeting(persist, m); err != nil {
 		return Meeting{}, err
 	}
-	_ = s.persistDocs(ctx, m)
-	return s.Get(ctx, meetingIDOf(m))
+	_ = s.persistDocs(persist, m)
+	return s.Get(persist, meetingIDOf(m))
 }
 
 func meetingIDOf(m Meeting) string { return m.MeetingID }

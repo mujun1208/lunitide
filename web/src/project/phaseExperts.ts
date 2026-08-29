@@ -1,5 +1,6 @@
 import { expertBridge, type ExpertBridge } from '../bridge/client'
 import type { ExpertMountingGetResult } from '../generated/bridge'
+import { CONVERSATION_EXPERTS } from '../expert/conversationExperts'
 
 export type WorkbenchPhaseKey = ExpertMountingGetResult['matrix'][number]['phaseKey']
 
@@ -14,9 +15,26 @@ const LABEL_TO_PHASE_KEY: Record<string, WorkbenchPhaseKey> = {
   '发布': 'RELEASE_DELIVERY',
 }
 
+const CONVERSATION_SPECIALIST_NAMES = new Set<string>(CONVERSATION_EXPERTS.map(item => item.name))
+
 export function phaseKeyFromLabel(label?: string): WorkbenchPhaseKey | undefined {
   if (!label) return undefined
   return LABEL_TO_PHASE_KEY[label]
+}
+
+export function isConversationSpecialistName(name?: string): boolean {
+  return !!name && CONVERSATION_SPECIALIST_NAMES.has(name)
+}
+
+/** Phase seed is confirmed mounts only — never the advisory 13-specialist catalog. */
+export function phaseSeedExpertIds(row?: ExpertMountingGetResult['matrix'][number]): string[] {
+  if (!row) return []
+  return row.mountings.filter(m => m.state === 'mounted').map(m => m.expertId).slice(0, 4)
+}
+
+export function sessionExpertsAfterPhaseSeed(existing: readonly string[], seed: readonly string[]): string[] {
+  if (existing.length) return [...existing]
+  return [...seed]
 }
 
 export async function resolvePhaseExpertIds(
@@ -28,10 +46,7 @@ export async function resolvePhaseExpertIds(
   if (!phaseKey) return []
   const mounting = await experts.mountingGet({ projectId, phaseKey })
   const row = mounting.matrix.find(m => m.phaseKey === phaseKey)
-  if (!row) return []
-  const mounted = row.mountings.filter(m => m.state === 'mounted').map(m => m.expertId)
-  if (mounted.length) return mounted.slice(0, 4)
-  return row.defaults.slice(0, 4).map(d => d.expertId)
+  return phaseSeedExpertIds(row)
 }
 
 export async function applySessionPhaseExperts(
@@ -40,6 +55,8 @@ export async function applySessionPhaseExperts(
   phaseLabel?: string,
   experts: ExpertBridge = expertBridge,
 ): Promise<string[]> {
+  const existing = await experts.sessionMountGet?.({ sessionId }).catch(() => ({ expertIds: [] as string[] }))
+  if (existing?.expertIds?.length) return existing.expertIds
   const ids = await resolvePhaseExpertIds(projectId, phaseLabel, experts)
   if (!ids.length || !experts.sessionMountSet) return []
   await experts.sessionMountSet({ sessionId, expertIds: ids })

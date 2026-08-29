@@ -99,13 +99,12 @@ describe('companion engine fallback helpers', () => {
     expect(companionEngineProbeOrder('sapi')).toEqual(['edge'])
     expect(companionEngineProbeOrder('edge')).not.toContain('sapi')
     expect(companionEngineProbeOrder('ref')).not.toContain('sapi')
-    expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('omni')
+    expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('cloud')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').engine).toBe('edge')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('refpack:优质台湾腔.wav')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'cloud').voiceId).toBe('')
-    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'omni').omniPersonaId).toBe('refpack:优质台湾腔.wav')
-    expect(applyVoicePath({ ...defaultCompanionSettings(), omniPersonaId: '', voiceId: 'refpack:甜心少女.wav' }, 'omni').omniPersonaId).toBe('refpack:甜心少女.wav')
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'omni').voicePath).toBe('cloud')
   })
 
   test('keeps a saved local clone path', () => {
@@ -145,7 +144,7 @@ describe('companion engine fallback helpers', () => {
     expect(loaded.voiceId).toBe('refpack:优质台湾腔.wav')
   })
 
-  test('migrates saved FLM path onto MiniCPM-o', () => {
+  test('migrates leftover MiniCPM-o / FLM saves onto 云端', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       enabled: true,
       voicePath: 'flm',
@@ -153,8 +152,15 @@ describe('companion engine fallback helpers', () => {
       engine: 'edge',
     }))
     const loaded = loadCompanionSettings()
-    expect(loaded.voicePath).toBe('omni')
+    expect(loaded.voicePath).toBe('cloud')
+    expect(loaded.engine).toBe('edge')
     expect(loaded.omniPersonaId).toBe('refpack:甜心少女.wav')
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      voicePath: 'omni',
+      engine: 'edge',
+    }))
+    expect(loadCompanionSettings().voicePath).toBe('cloud')
   })
 
   test('drops cloud voice ids when falling back to OneCore', () => {

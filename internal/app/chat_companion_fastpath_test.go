@@ -201,6 +201,12 @@ func TestCompanionWantsTools(t *testing.T) {
 	if !companionWantsTools("把开了我把它桌面上的") || !companionWantsTools("打开桌面上的协议文档") {
 		t.Fatal("garbled desktop-open ASR must still request tools")
 	}
+	if !companionWantsTools("在证件号码后面填一下") || !companionWantsTools("输入完点发送") {
+		t.Fatal("document fill and send must request tools")
+	}
+	if !companionWantsTools("随机播放") {
+		t.Fatal("shuffle play must request tools")
+	}
 }
 
 func TestCompanionOpeningAck(t *testing.T) {
@@ -217,6 +223,9 @@ func TestCompanionToolLeadIn(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 	if got := companionToolLeadIn("cc.click"); got != "好，我来操作电脑。" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionToolLeadIn("desktop.type"); got != "好，我来输入。" {
 		t.Fatalf("got %q", got)
 	}
 }

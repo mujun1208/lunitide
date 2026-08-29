@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { MarkdownMessage, compressThinking, formatTaskElapsed, safeMarkdownUrl } from './MarkdownMessage'
+import { MarkdownMessage, ThinkingPanel, compressThinking, formatTaskElapsed, safeMarkdownUrl } from './MarkdownMessage'
 
 afterEach(cleanup)
 
@@ -74,4 +74,11 @@ it('compresses thinking to the last short sentence instead of the full chain', (
   expect(compressThinking('x'.repeat(80)).startsWith('…')).toBe(true)
   expect(formatTaskElapsed(174_000)).toBe('2m 54s')
   expect(formatTaskElapsed(9_000)).toBe('9s')
+})
+
+it('does not parse markdown while thinking is streaming and the reasoning fold is closed', () => {
+  render(<ThinkingPanel text={'**内部推理** 然后给出结论。'} open streaming onToggle={() => {}} />)
+  expect(document.querySelector('.thinking-live-text')).toBeNull()
+  expect(document.querySelector('.thinking-reasoning strong')).toBeNull()
+  expect(document.querySelector('.message-body')).toBeNull()
 })

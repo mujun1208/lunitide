@@ -28,9 +28,12 @@ export interface PcmCaptureOptions {
   onError?: (error: BridgeClientError) => void
   /**
    * Extra this-PC streams mixed into the same frames. Meeting notes uses
-   * Chromium's WASAPI loopback here. Tracks are stopped on teardown.
+   * Chromium's WASAPI loopback here. The meeting page owns those tracks —
+   * they are not stopped when this capture recycles.
    */
   extraStreams?: MediaStream[]
+  /** System/loopback track ended while the microphone is still live. */
+  onExtraEnded?: () => void
 }
 
 export interface PcmCaptureHandle {
@@ -129,7 +132,13 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
   const teardown = async () => {
     stream?.getTracks().forEach(track => track.stop())
     stream = undefined
-    extraStreams.forEach(item => item.getTracks().forEach(track => track.stop()))
+    // Meeting loopback is owned by the meeting page. Stopping it here on every
+    // ASR recycle killed Feishu/system audio after the first two sentences.
+    extraStreams.forEach(item => {
+      item.getAudioTracks().forEach(track => {
+        track.onended = null
+      })
+    })
     accumulator.reset()
     // close() rejects on a context already closed by a prior stop.
     await context.close().catch(() => undefined)
@@ -179,6 +188,16 @@ export async function startPcmCapture(options: PcmCaptureOptions): Promise<PcmCa
       if (stopped) return
       options.onError?.(new BridgeClientError('麦克风已断开', 'MICROPHONE_DEVICE_BUSY', false, 'renderer'))
     }
+  })
+  extraStreams.forEach(item => {
+    item.getAudioTracks().forEach(track => {
+      const prior = track.onended
+      track.onended = event => {
+        if (typeof prior === 'function') prior.call(track, event)
+        if (stopped) return
+        options.onExtraEnded?.()
+      }
+    })
   })
 
   return {

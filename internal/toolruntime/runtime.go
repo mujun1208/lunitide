@@ -814,7 +814,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "media.play" || officeGenTools[name]
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || officeGenTools[name]
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
@@ -1229,20 +1229,25 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return out, nil
 	case "excel.gen":
 		var a struct {
-			Path   string                  `json:"path"`
-			Sheets []officetools.SheetSpec `json:"sheets"`
+			Path    string                  `json:"path"`
+			Desktop bool                    `json:"desktop"`
+			Sheets  []officetools.SheetSpec `json:"sheets"`
 		}
-		if strict(args, &a) != nil || a.Path == "" {
+		if strict(args, &a) != nil || (a.Path == "" && !a.Desktop) {
 			return Result{}, errors.New("invalid arguments")
 		}
-		if strings.ToLower(filepath.Ext(a.Path)) != ".xlsx" {
+		if !a.Desktop && strings.ToLower(filepath.Ext(a.Path)) != ".xlsx" {
 			return Result{}, errors.New("excel.gen path must end with .xlsx")
+		}
+		outPath, e := r.desktopWritePath(a.Path, "workbook.xlsx", ".xlsx", a.Desktop, unconfined)
+		if e != nil {
+			return Result{}, e
 		}
 		data, e := officetools.GenXLSX(a.Sheets)
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, len(a.Sheets), unconfined)
+		return r.finishOfficeGen(mode, session, outPath, data, len(a.Sheets), unconfined, a.Desktop, "workbook.xlsx")
 	case "excel.parse":
 		var a struct {
 			Path string `json:"path"`
@@ -1265,38 +1270,48 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return result(summary), nil
 	case "docx.gen":
 		var a struct {
-			Path   string                  `json:"path"`
-			Title  string                  `json:"title"`
-			Blocks []officetools.DocxBlock `json:"blocks"`
+			Path    string                  `json:"path"`
+			Desktop bool                    `json:"desktop"`
+			Title   string                  `json:"title"`
+			Blocks  []officetools.DocxBlock `json:"blocks"`
 		}
-		if strict(args, &a) != nil || a.Path == "" {
+		if strict(args, &a) != nil || (a.Path == "" && !a.Desktop) {
 			return Result{}, errors.New("invalid arguments")
 		}
-		if strings.ToLower(filepath.Ext(a.Path)) != ".docx" {
+		if !a.Desktop && strings.ToLower(filepath.Ext(a.Path)) != ".docx" {
 			return Result{}, errors.New("docx.gen path must end with .docx")
+		}
+		outPath, e := r.desktopWritePath(a.Path, "document.docx", ".docx", a.Desktop, unconfined)
+		if e != nil {
+			return Result{}, e
 		}
 		data, e := officetools.GenDocx(a.Title, a.Blocks)
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, len(a.Blocks), unconfined)
+		return r.finishOfficeGen(mode, session, outPath, data, len(a.Blocks), unconfined, a.Desktop, "document.docx")
 	case "pptx.gen":
 		var a struct {
-			Path   string                  `json:"path"`
-			Title  string                  `json:"title"`
-			Slides []officetools.SlideSpec `json:"slides"`
+			Path    string                  `json:"path"`
+			Desktop bool                    `json:"desktop"`
+			Title   string                  `json:"title"`
+			Slides  []officetools.SlideSpec `json:"slides"`
 		}
-		if strict(args, &a) != nil || a.Path == "" {
+		if strict(args, &a) != nil || (a.Path == "" && !a.Desktop) {
 			return Result{}, errors.New("invalid arguments")
 		}
-		if strings.ToLower(filepath.Ext(a.Path)) != ".pptx" {
+		if !a.Desktop && strings.ToLower(filepath.Ext(a.Path)) != ".pptx" {
 			return Result{}, errors.New("pptx.gen path must end with .pptx")
+		}
+		outPath, e := r.desktopWritePath(a.Path, "deck.pptx", ".pptx", a.Desktop, unconfined)
+		if e != nil {
+			return Result{}, e
 		}
 		data, e := officetools.GenPptx(a.Title, a.Slides)
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, len(a.Slides), unconfined)
+		return r.finishOfficeGen(mode, session, outPath, data, len(a.Slides), unconfined, a.Desktop, "deck.pptx")
 	case "html.gen":
 		var a struct {
 			Path     string `json:"path"`
@@ -1314,26 +1329,12 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		outPath := strings.TrimSpace(a.Path)
-		if a.Desktop {
-			if !unconfined || !r.FullDiskEnabled() {
-				return Result{}, errors.New("html.gen desktop=true requires full-disk full-access")
-			}
-			dir, de := userDesktopDir()
-			if de != nil {
-				return Result{}, de
-			}
-			base := filepath.Base(outPath)
-			if base == "." || base == "" {
-				base = "世界杯点球大战.html"
-			}
-			if ext := strings.ToLower(filepath.Ext(base)); ext != ".html" && ext != ".htm" {
-				base += ".html"
-			}
-			outPath = filepath.Join(dir, base)
+		if !a.Desktop && strings.TrimSpace(a.Path) == "" {
+			a.Path = "penalty-shootout.html"
 		}
-		if outPath == "" {
-			outPath = "penalty-shootout.html"
+		outPath, de := r.desktopWritePath(a.Path, "世界杯点球大战.html", ".html", a.Desktop, unconfined)
+		if de != nil {
+			return Result{}, de
 		}
 		if ext := strings.ToLower(filepath.Ext(outPath)); ext != ".html" && ext != ".htm" {
 			return Result{}, errors.New("html.gen path must end with .html")
@@ -1365,6 +1366,11 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		return result("opened " + path), nil
+	case "desktop.type":
+		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
+			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)
+		}
+		return executeDesktopType(ctx, invoke, session, args, approved, unconfined)
 	case "media.play":
 		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
 			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)
@@ -1372,21 +1378,26 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return executeMediaPlayWithCC(ctx, invoke, session, args, unconfined, approved)
 	case "pdf.gen":
 		var a struct {
-			Path  string `json:"path"`
-			Title string `json:"title"`
-			Body  string `json:"body"`
+			Path    string `json:"path"`
+			Desktop bool   `json:"desktop"`
+			Title   string `json:"title"`
+			Body    string `json:"body"`
 		}
-		if strict(args, &a) != nil || a.Path == "" {
+		if strict(args, &a) != nil || (a.Path == "" && !a.Desktop) {
 			return Result{}, errors.New("invalid arguments")
 		}
-		if strings.ToLower(filepath.Ext(a.Path)) != ".pdf" {
+		if !a.Desktop && strings.ToLower(filepath.Ext(a.Path)) != ".pdf" {
 			return Result{}, errors.New("pdf.gen path must end with .pdf")
+		}
+		outPath, e := r.desktopWritePath(a.Path, "report.pdf", ".pdf", a.Desktop, unconfined)
+		if e != nil {
+			return Result{}, e
 		}
 		data, e := officetools.GenPDF(a.Title, a.Body)
 		if e != nil {
 			return Result{}, e
 		}
-		return r.writeGenerated(mode, session, a.Path, data, -1, unconfined)
+		return r.finishOfficeGen(mode, session, outPath, data, -1, unconfined, a.Desktop, "report.pdf")
 	case "cc.mouse_move", "cc.mouse_click", "cc.keyboard_type",
 		"cc.keyboard_shortcut", "cc.screen_capture", "cc.get_active_window":
 		return r.runCcTool(ctx, mode, session, name, args, approved, unconfined)
@@ -1550,6 +1561,20 @@ func (r *Runtime) containedRead(root, relPath string) (string, error) {
 
 // maxGeneratedBytes bounds both generated and parsed Office payloads.
 const maxGeneratedBytes = 8 << 20
+
+// finishOfficeGen writes generated office bytes and, for desktop=true,
+// rewrites the artifact path to desktop/basename so the renderer can
+// display a card (absolute C:\ paths are rejected as invalid stream events).
+func (r *Runtime) finishOfficeGen(mode Mode, session, outPath string, data []byte, count int, unconfined, desktop bool, fallback string) (Result, error) {
+	written, err := r.writeGenerated(mode, session, outPath, data, count, unconfined)
+	if err != nil {
+		return Result{}, err
+	}
+	if desktop && written.Artifact != nil {
+		written.Artifact.Path = desktopPreviewPath(outPath, true, fallback)
+	}
+	return written, nil
+}
 
 // writeGenerated persists generated bytes into the session workspace with
 // the same atomic temp+rename discipline as workspace.write.

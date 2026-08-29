@@ -1,6 +1,5 @@
-// Entering 对话模式 must not hard-fail when MiniCPM-o is missing.
-// Omni is optional: fall back to the existing companion ASR path and show
-// a calm install hint instead of a fatal OMNI_UNAVAILABLE banner.
+// MiniCPM-o is no longer a selectable 月伴 path. Leftover saves must enter
+// 云端 ASR/TTS, never start the duplex engine, and still accept speech.
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -27,23 +26,6 @@ const speech = vi.hoisted(() => ({
 const omniAudio = vi.hoisted(() => ({
   probe: vi.fn(),
   start: vi.fn(),
-  options: undefined as
-    | {
-        onText: (text: string) => void
-        onSpeaking?: (speaking: boolean) => void
-        onError: (message: string) => void
-      }
-    | undefined,
-  committed: 0,
-  resumeListen: vi.fn(),
-}))
-
-const omni = vi.hoisted(() => ({
-  status: vi.fn(),
-  install: vi.fn(),
-  ensure: vi.fn(),
-  start: vi.fn(),
-  stop: vi.fn(),
 }))
 
 vi.mock('../../bridge/client', async importOriginal => {
@@ -58,7 +40,6 @@ vi.mock('../../bridge/client', async importOriginal => {
       synthesize: vi.fn(),
       cancel: vi.fn(),
     }),
-    getOmniBridge: () => omni,
     automationBridge: { listRuns: () => Promise.resolve({ runs: [] }) },
   }
 })
@@ -136,34 +117,7 @@ beforeEach(() => {
   speech.start.mockResolvedValue(speech.handle())
   omniAudio.probe.mockReset()
   omniAudio.start.mockReset()
-  omniAudio.options = undefined
-  omniAudio.committed = 0
-  omniAudio.resumeListen.mockReset()
-  omniAudio.start.mockImplementation((options: typeof omniAudio.options) => {
-    omniAudio.options = options
-    return Promise.resolve({
-      stop: vi.fn(),
-      commitUserAudio: () => {
-        omniAudio.committed += 1
-        return true
-      },
-      resumeListen: omniAudio.resumeListen,
-    })
-  })
-  omni.status.mockReset()
-  omni.install.mockReset()
-  omni.status.mockResolvedValue({
-    supported: true,
-    ready: false,
-    installed: false,
-    runtimeFound: false,
-    hostState: 'missing_runtime',
-    downloadBytes: 9_000_000_000,
-    title: 'MiniCPM-o 4.5 Q4',
-    percent: 0,
-    doneBytes: 0,
-    totalBytes: 0,
-  })
+  omniAudio.probe.mockResolvedValue(true)
   localStorage.clear()
   localStorage.setItem(
     'lunitide:companion',
@@ -177,9 +131,7 @@ afterEach(() => {
   cleanup()
 })
 
-test('entering companion without omni runtime starts speech and skips the fatal banner', async () => {
-  omniAudio.probe.mockResolvedValue(false)
-  omniAudio.start.mockRejectedValue(new Error('本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试'))
+test('leftover MiniCPM-o settings start 云端 speech and never open duplex', async () => {
   const { container } = render(<CompanionStage {...baseProps} />)
   await flush(80)
 
@@ -187,8 +139,8 @@ test('entering companion without omni runtime starts speech and skips the fatal 
   expect(speech.start).toHaveBeenCalled()
   expect(container.querySelector('.companion-banner.error')).toBeNull()
   expect(container.textContent).not.toContain('OMNI_UNAVAILABLE')
-  expect(container.querySelector('.companion-omni-hint')).toBeTruthy()
-  expect(container.textContent).toContain('已用现有语音通道继续对话')
+  expect(container.querySelector('.companion-omni-hint')).toBeNull()
+  expect(container.textContent).not.toContain('MiniCPM-o 尚未就绪')
 
   await act(async () => {
     speech.callbacks!.onFinal('你好月汐')
@@ -196,21 +148,7 @@ test('entering companion without omni runtime starts speech and skips the fatal 
   expect(baseProps.onSend).toHaveBeenCalledWith('你好月汐')
 })
 
-test('a MiniCPM-o start failure falls back to ASR instead of a blocking error', async () => {
-  omniAudio.probe.mockResolvedValue(true)
-  omniAudio.start.mockRejectedValue(new Error('本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试'))
-  const { container } = render(<CompanionStage {...baseProps} />)
-  await flush(80)
-
-  expect(omniAudio.start).toHaveBeenCalled()
-  expect(speech.start).toHaveBeenCalled()
-  expect(container.querySelector('.companion-banner.error')).toBeNull()
-  expect(container.textContent).not.toContain('OMNI_UNAVAILABLE')
-  expect(container.querySelector('.companion-omni-hint')).toBeTruthy()
-})
-
 test('never treats OMNI_UNAVAILABLE copy as the first user turn', async () => {
-  omniAudio.probe.mockResolvedValue(false)
   const { container } = render(<CompanionStage {...baseProps} />)
   await flush(80)
   await act(async () => {
@@ -218,111 +156,4 @@ test('never treats OMNI_UNAVAILABLE copy as the first user turn', async () => {
   })
   expect(baseProps.onSend).not.toHaveBeenCalled()
   expect(container.textContent).not.toContain('OMNI_UNAVAILABLE')
-})
-
-test('MiniCPM-o turn: full user caption, full assistant line, 说话中, and chat.send for tools', async () => {
-  omniAudio.probe.mockResolvedValue(true)
-  const { container } = render(<CompanionStage {...baseProps} />)
-  await flush(80)
-  expect(omniAudio.start).toHaveBeenCalled()
-
-  await act(async () => {
-    speech.callbacks!.onInterim?.('打开网易云音乐')
-  })
-  expect(container.textContent).toContain('打开网易云音乐')
-
-  await act(async () => {
-    speech.callbacks!.onFinal('打开网易云音乐')
-  })
-  expect(baseProps.onSend).toHaveBeenCalledWith('打开网易云音乐')
-  expect(omniAudio.committed).toBe(1)
-  expect(container.textContent).toContain('打开网易云音乐')
-
-  await act(async () => {
-    omniAudio.options!.onText('在')
-    omniAudio.options!.onText('的。')
-    omniAudio.options!.onText('好的，已打开。')
-    omniAudio.options!.onSpeaking?.(true)
-  })
-  expect(container.textContent).toContain('好的，已打开。')
-  expect(container.textContent).toContain('打开网易云音乐')
-  expect(container.querySelector('.companion-status')?.textContent).toContain('说话中')
-  expect(container.querySelector('.companion-status')?.textContent).not.toContain('聆听中')
-  expect(container.textContent).not.toContain('我做完了')
-  expect(container.textContent).not.toContain('人生：')
-})
-
-test('MiniCPM-o caption grows to the full sentence and does not resumeListen on the first onSpeaking(false)', async () => {
-  omniAudio.probe.mockResolvedValue(true)
-  const { container } = render(<CompanionStage {...baseProps} />)
-  await flush(80)
-  await act(async () => {
-    speech.callbacks!.onFinal('你好月汐')
-  })
-  await act(async () => {
-    omniAudio.options!.onText('当')
-    omniAudio.options!.onText('然可以啦，你有什么问')
-    omniAudio.options!.onSpeaking?.(true)
-  })
-  expect(container.textContent).toContain('当然可以啦，你有什么问')
-  expect(container.querySelector('.companion-status')?.textContent).toContain('说话中')
-  omniAudio.resumeListen.mockClear()
-  await act(async () => {
-    omniAudio.options!.onText('题')
-  })
-  expect(container.textContent).toContain('当然可以啦，你有什么问题')
-  await act(async () => {
-    omniAudio.options!.onSpeaking?.(false)
-  })
-  expect(omniAudio.resumeListen).not.toHaveBeenCalled()
-})
-
-test('eight MiniCPM-o rounds after a speak cycle still send chat.start', async () => {
-  omniAudio.probe.mockResolvedValue(true)
-  const { container } = render(<CompanionStage {...baseProps} />)
-  await flush(80)
-  for (let i = 0; i < 8; i++) {
-    await act(async () => {
-      speech.callbacks!.onFinal(`第${i + 1}轮你好`)
-    })
-    expect(baseProps.onSend).toHaveBeenLastCalledWith(`第${i + 1}轮你好`)
-    await act(async () => {
-      omniAudio.options!.onText('当然可以啦，你有什么问题')
-      omniAudio.options!.onSpeaking?.(true)
-    })
-    expect(container.querySelector('.companion-status')?.textContent).toContain('说话中')
-    await act(async () => {
-      omniAudio.options!.onSpeaking?.(false)
-    })
-    await flush(80)
-  }
-  expect(baseProps.onSend).toHaveBeenCalledTimes(8)
-})
-
-test('a hung MiniCPM-o probe still starts caption ASR so talking is not dead air', async () => {
-  omniAudio.probe.mockReturnValue(new Promise(() => {}))
-  const { container, unmount } = render(<CompanionStage {...baseProps} />)
-  await flush(80)
-
-  expect(speech.start).toHaveBeenCalled()
-  expect(omniAudio.start).not.toHaveBeenCalled()
-  expect(() => unmount()).not.toThrow()
-})
-
-test('exit after MiniCPM-o start does not throw', async () => {
-  omniAudio.probe.mockResolvedValue(true)
-  const { container, unmount } = render(<CompanionStage {...baseProps} />)
-  await flush(80)
-  expect(omniAudio.start).toHaveBeenCalled()
-
-  await act(async () => {
-    omniAudio.options?.onSpeaking?.(true)
-    omniAudio.options?.onSpeaking?.(false)
-  })
-  const exit = container.querySelector('.companion-exit') as HTMLButtonElement
-  expect(() => {
-    exit.click()
-    unmount()
-  }).not.toThrow()
-  expect(baseProps.onExit).toHaveBeenCalled()
 })

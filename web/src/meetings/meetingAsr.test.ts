@@ -27,7 +27,9 @@ vi.mock('./meetingCapture', async importOriginal => {
   return { ...actual, captureThisPcSystemAudio: asr.capture }
 })
 
-import { audioSourceLabel, prepareMeetingCapture, startMeetingSpeech } from './meetingAsr'
+import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
+import { captureStateNotice, audioSourceLabel, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
+import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio' }], getTracks: () => [] } as unknown as MediaStream
 
@@ -82,6 +84,15 @@ describe('startMeetingSpeech', () => {
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), extraStreams: [extra] })
     expect(asr.web.mock.calls[0][0].extraStreams).toBeUndefined()
   })
+
+  test('meeting hold windows are longer than the companion 1.2s commit', async () => {
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn() })
+    expect(asr.web.mock.calls[0][0].holdUtterance).toBe(true)
+    expect(TURN_END_SILENCE_MS).toBe(1200)
+    expect(turnEndWindows(true).silenceMs).toBe(MEETING_TURN_END_SILENCE_MS)
+    expect(turnEndWindows(true).silenceMs).toBeGreaterThan(TURN_END_SILENCE_MS)
+    expect(turnEndWindows(false).silenceMs).toBe(TURN_END_SILENCE_MS)
+  })
 })
 
 describe('prepareMeetingCapture', () => {
@@ -118,8 +129,24 @@ describe('prepareMeetingCapture', () => {
     const plan = await prepareMeetingCapture(true)
     expect(plan.audioSource).toBe('microphone')
     expect(plan.extraStreams).toEqual([])
-    expect(plan.notice).toMatch(/共享音频/)
+    expect(plan.notice).toMatch(/共享音频|立体声混音/)
     expect(stop).toHaveBeenCalled()
+  })
+
+  test('captureStateNotice stays honest about warning vs live loopback', () => {
+    expect(captureStateNotice({ extraStreams: [extra], audioSource: 'microphone_and_system', notice: '' })).toBe('')
+    expect(planHasLiveSystemAudio({ extraStreams: [extra], audioSource: 'microphone_and_system', notice: '' })).toBe(true)
+    const dead = { getAudioTracks: () => [{ readyState: 'ended' }], getTracks: () => [] } as unknown as MediaStream
+    expect(captureStateNotice({ extraStreams: [dead], audioSource: 'microphone_and_system', notice: '' })).toMatch(/轨道已中断/)
+    expect(captureStateNotice({ extraStreams: [], audioSource: 'microphone', notice: NO_SYSTEM_AUDIO_NOTICE })).toBe(NO_SYSTEM_AUDIO_NOTICE)
+  })
+
+  test('recoverMeetingSystemAudio upgrades a mic-only plan when loopback appears', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
+    asr.capture.mockResolvedValue(extra)
+    const next = await recoverMeetingSystemAudio({ extraStreams: [], audioSource: 'microphone', notice: NO_SYSTEM_AUDIO_NOTICE }, { interactive: false })
+    expect(next.audioSource).toBe('microphone_and_system')
+    expect(next.extraStreams).toEqual([extra])
   })
 
   test('rethrows a canceled picker so the meeting is not created', async () => {

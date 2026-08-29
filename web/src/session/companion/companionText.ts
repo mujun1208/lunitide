@@ -253,6 +253,34 @@ export function stripTaskDonePhrases(raw: string): string {
   return trimmed
 }
 
+/** True while a computer tool is in flight (status like 「打开桌面文件中…」). */
+export function companionToolsExecuting(chatStatus: string, activityStatus?: string): boolean {
+  if (chatStatus !== 'streaming') return false
+  const line = activityStatus?.trim() ?? ''
+  if (!line) return false
+  if (line === '等你确认…') return true
+  return /中[….…]+$/.test(line)
+}
+
+export function companionExecutingSpeech(): string {
+  return '正在执行。'
+}
+
+export function companionCannotExecuteSpeech(reason?: string): string {
+  const why = (reason ?? '')
+    .replace(/^无法执行[。.]?\s*/u, '')
+    .replace(/^出错了[，,]\s*/u, '')
+    .trim()
+  return why ? `无法执行。${why}` : '无法执行。'
+}
+
+export function companionTaskCompleteSpeech(summary?: string): string {
+  const line = stripTaskDonePhrases(summary ?? '').trim()
+  if (!line) return '好，完成了。'
+  if (/[。！？.!?]$/.test(line)) return line
+  return `${line}。`
+}
+
 /**
  * MiniCPM-o SSE (and other token streams) often arrive as 1–2 character
  * deltas. The subtitle must keep the whole utterance, never the last crumb.

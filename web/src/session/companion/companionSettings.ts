@@ -56,7 +56,7 @@ export interface CompanionSettings {
   volume: number
   engine: CompanionEngine
   refEndpoint: string
-  /** cloud = Edge ASR/TTS; local = GPT-SoVITS 50 人生; omni = MiniCPM-o duplex, separate from TTS. */
+  /** cloud = Edge ASR/TTS; local = GPT-SoVITS 50 人生. omni is leftover-only and migrates to cloud. */
   voicePath: VoicePath
   omniPersonaId: string
 }
@@ -138,6 +138,7 @@ export function loadCompanionSettings(): CompanionSettings {
     }
     let persist = rev < SETTINGS_REV
     const voicePath = readVoicePath(parsed.voicePath, engine)
+    if (parsed.voicePath === 'omni' || parsed.voicePath === 'flm') persist = true
     if (voicePath === 'local') {
       engine = 'ref'
     } else if (engine === 'natural' || engine === 'sapi') {
@@ -147,7 +148,6 @@ export function loadCompanionSettings(): CompanionSettings {
       if (!voiceId.startsWith('refpack:')) voiceId = ''
       persist = true
     }
-    if (parsed.voicePath === 'flm') persist = true
     const omniPersonaId = readOmniPersona(parsed.omniPersonaId, parsed.flmPersonaId, fallback.omniPersonaId)
     const interruptHotkey = parseInterruptHotkey(
       (parsed as Partial<CompanionSettings> & { interruptHotkey?: unknown }).interruptHotkey,
@@ -204,7 +204,10 @@ function isVoicePath(value: unknown): value is VoicePath {
 }
 
 function readVoicePath(value: unknown, engine: CompanionEngine): VoicePath {
-  if (value === 'flm') return 'omni'
+  // MiniCPM-o is no longer a selectable 月伴 path: leftover omni/flm saves
+  // move onto 云端 so the stage uses Edge ASR/TTS instead of the duplex
+  // engine that truncated captions and trapped 说话中.
+  if (value === 'flm' || value === 'omni') return 'cloud'
   if (isVoicePath(value)) return value
   return engine === 'ref' ? 'local' : 'cloud'
 }
@@ -216,16 +219,12 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
 }
 
 export function applyVoicePath(settings: CompanionSettings, path: VoicePath): CompanionSettings {
-  if (path === 'cloud') {
-    const voiceId = settings.voiceId.startsWith('refpack:') ? '' : settings.voiceId
-    return { ...settings, voicePath: 'cloud', engine: 'edge', voiceId }
-  }
   if (path === 'local') {
     const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
     return { ...settings, voicePath: 'local', engine: 'ref', voiceId }
   }
-  const omniPersonaId = settings.omniPersonaId || (settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId)
-  return { ...settings, voicePath: 'omni', omniPersonaId }
+  const voiceId = settings.voiceId.startsWith('refpack:') ? '' : settings.voiceId
+  return { ...settings, voicePath: 'cloud', engine: 'edge', voiceId }
 }
 
 function isRecognizer(value: unknown): value is SpeechRecognizer {

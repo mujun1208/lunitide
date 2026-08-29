@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	councilMaxExperts       = 8
-	councilParallelExperts  = 3
-	councilExpertMaxTokens  = 1400
-	councilExpertMaxBody    = 6000
+	councilMaxExperts      = 8
+	councilParallelExperts = 3
+	councilExpertMaxTokens = 1400
+	councilExpertMaxBody   = 6000
 )
 
 type councilExpert struct {
@@ -49,12 +49,12 @@ type expertCouncilConfig struct {
 }
 
 type expertCouncilInputs struct {
-	SessionID      string
-	ProjectID      string
-	PhaseLabel     string
-	Companion      bool
-	TurnText       string
-	ExplicitMsgs   []gateway.Message
+	SessionID    string
+	ProjectID    string
+	PhaseLabel   string
+	Companion    bool
+	TurnText     string
+	ExplicitMsgs []gateway.Message
 }
 
 func phaseKeyFromWorkbenchLabel(label string) string {
@@ -98,6 +98,21 @@ func appendUniqueExpertIDs(ids []string, extra ...string) []string {
 	return out
 }
 
+// selectedTurnExpertIDs is the spawn filter for both 普通对话 and 项目管理.
+// Composer chips ride as `[引用专家 name|id]` on the current turn; those IDs
+// win over a stale session mount (PM used to silently session.experts.set the
+// first four conversation specialists). With no turn refs, only the session
+// chips are used. The 13-specialist catalog and phase-matrix defaults are
+// never unioned in.
+func selectedTurnExpertIDs(mounted []string, turnTexts ...string) []string {
+	for _, text := range turnTexts {
+		if refs := extractExpertRefIDs(text); len(refs) > 0 {
+			return appendUniqueExpertIDs(nil, refs...)
+		}
+	}
+	return appendUniqueExpertIDs(nil, mounted...)
+}
+
 func (e *Engine) collectCouncilExpertIDs(ctx context.Context, in expertCouncilInputs) []string {
 	var mounted []string
 	if in.SessionID != "" && e.sessionExperts != nil {
@@ -105,28 +120,13 @@ func (e *Engine) collectCouncilExpertIDs(ctx context.Context, in expertCouncilIn
 			mounted = ids
 		}
 	}
-	var texts []string
-	for _, m := range in.ExplicitMsgs {
-		texts = append(texts, m.Content)
-	}
+	turn := strings.TrimSpace(in.TurnText)
 	if in.SessionID != "" && e.messageReader != nil {
-		texts = append(texts, e.peekLastUserMessage(ctx, in.SessionID))
-	}
-	ids := collectExpertIDs(mounted, texts...)
-	phaseKey := phaseKeyFromWorkbenchLabel(in.PhaseLabel)
-	if in.ProjectID != "" && phaseKey != "" && e.m8expert != nil {
-		matrix, err := e.m8expert.MountingGet(ctx, m8app.MountingGetInput{ProjectID: in.ProjectID, PhaseKey: phaseKey})
-		if err == nil {
-			for _, row := range matrix.Matrix {
-				for _, m := range row.Mountings {
-					if m.State == m8core.MountingMounted && m.ExpertState == m8core.ExpertEnabled {
-						ids = appendUniqueExpertIDs(ids, m.ExpertID)
-					}
-				}
-			}
+		if last := e.peekLastUserMessage(ctx, in.SessionID); last != "" && last != turn {
+			return selectedTurnExpertIDs(mounted, turn, last)
 		}
 	}
-	return ids
+	return selectedTurnExpertIDs(mounted, turn)
 }
 
 func (e *Engine) resolveCouncilExperts(ctx context.Context, ids []string) []councilExpert {

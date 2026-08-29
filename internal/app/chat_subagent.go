@@ -366,7 +366,7 @@ func readOnlyEngineToolDefinitions() []gateway.ToolDefinition {
 	all := engineToolDefinitions()
 	out := make([]gateway.ToolDefinition, 0, len(all))
 	for _, d := range all {
-		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "media.play" || d.Name == "browser.act" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == toolStructuredOutput {
+		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "media.play" || d.Name == "browser.act" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == toolStructuredOutput {
 			continue
 		}
 		out = append(out, d)
