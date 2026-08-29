@@ -6,6 +6,7 @@ import { ProfilePanel } from '../settings/ProfilePanel'
 import { Dialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { captureThisPcFrame } from './peopleCapture'
+import { ScreenCropOverlay } from './ScreenCropOverlay'
 import { stageBrowserFile } from './peopleStage'
 import { PEOPLE_EMOJI, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, lastPreview, relativeTime, statusLabel, threadTitle, trustLabel } from './peopleRoster'
 
@@ -39,6 +40,7 @@ export function PeoplePage({
   const [groupOwner, setGroupOwner] = useState('')
   const [groupMembers, setGroupMembers] = useState<string[]>([])
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [cropFile, setCropFile] = useState<File>()
   const [pendingSave, setPendingSave] = useState<PeopleMessageDTO>()
   const [notice, setNotice] = useState('')
   const [noticeError, setNoticeError] = useState(false)
@@ -225,16 +227,26 @@ export function PeoplePage({
       showNotice('正在发送上一条消息，请稍候', true)
       return
     }
-    showNotice('正在截取本机画面…')
+    showNotice('拖动鼠标框选要发送的区域…')
     try {
-      const file = await captureThisPcFrame({
+      const shot = await captureThisPcFrame({
         maxBytes: 512 * 1024,
         nativeCapture: () => people.screenCapture({}),
       })
-      await send('image', '', file)
+      if (shot.source === 'display') {
+        setCropFile(shot.file)
+        showNotice('拖动框选要发送的区域，Enter 发送，Esc 取消')
+        return
+      }
+      await send('image', '', shot.file)
     } catch (e) {
       const name = e instanceof DOMException ? e.name : ''
       if (name === 'AbortError' || name === 'NotAllowedError') {
+        showNotice('')
+        return
+      }
+      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code ?? '') : ''
+      if (code === 'PEOPLE_CANCELED' || (e instanceof Error && /取消/.test(e.message))) {
         showNotice('')
         return
       }
@@ -412,8 +424,12 @@ export function PeoplePage({
               <input ref={imageRef} hidden type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void send('image', '', file) }} />
               <div className="people-composer-tools">
                 <button type="button" onClick={() => setEmojiOpen(v => !v)} aria-label="表情">☺</button>
+                <button type="button" className="people-snip-btn" onClick={() => void grabScreen()} aria-label="框选截图" title="像微信一样框选屏幕区域后发送。右键或 Esc 取消。">
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3.5" y="3.5" width="17" height="17" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="3.5 2.5" />
+                  </svg>
+                </button>
                 <button type="button" onClick={() => imageRef.current?.click()} aria-label="发送图片">🖼</button>
-                <button type="button" onClick={() => void grabScreen()} aria-label="截取本机画面" title="直接截取本机桌面并发送，不会弹出共享窗口，也不会把画面共享给其他电脑">📷</button>
                 <button type="button" onClick={() => void pickNative(false)} aria-label="发送本机文件" title="从这台电脑选择文件发送，需对方确认后才会保存">📎</button>
                 <button type="button" onClick={() => void pickNative(true)} aria-label="发送文件夹" title="选择本机文件夹并打包为 zip 发送">📁</button>
               </div>
@@ -493,6 +509,16 @@ export function PeoplePage({
           </>
         )}
       </Dialog>
+      {cropFile ? (
+        <ScreenCropOverlay
+          file={cropFile}
+          onCancel={() => { setCropFile(undefined); showNotice('') }}
+          onConfirm={file => {
+            setCropFile(undefined)
+            void send('image', '', file)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

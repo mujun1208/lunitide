@@ -11,6 +11,9 @@ import type { CompanionSpeechHandle } from '../session/companion/speech'
 const SUMMARIZE_POLL_MS = 4_000
 const SYSTEM_AUDIO_RECOVER_MS = 15_000
 const LOOPBACK_POLL_MS = 80
+/** Web Speech and sherpa both go quiet after a long un-endpointed clip. Restart ASR, keep the WAV. */
+export const MEETING_CAPTION_STALL_MS = 25_000
+export const MEETING_CAPTION_STALL_POLL_MS = 2_000
 
 async function capturePlanForStarted(meeting: MeetingDTO): Promise<MeetingCapturePlan> {
   if (meeting.audioSource === 'microphone_and_system') return engineLoopbackPlan()
@@ -96,6 +99,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const tickRef = useRef<number>(0)
   const heartbeatRef = useRef<number>(0)
   const recoverRef = useRef<number>(0)
+  const stallWatchRef = useRef<number>(0)
   const loopbackPollRef = useRef<number>(0)
   const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
   const summarizePollRef = useRef<number>(0)
@@ -129,6 +133,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const attachSpeech = async (meeting: MeetingDTO, plan: MeetingCapturePlan) => {
     captureRef.current = plan
     const gen = ++speechGen.current
+    window.clearInterval(stallWatchRef.current)
+    let lastCaptionAt = Date.now()
+    let stallRestarting = false
+    const bumpCaption = () => { lastCaptionAt = Date.now() }
     const bindSystemWatch = (live: MeetingCapturePlan) => {
       unwatchRef.current()
       const unsubs = live.extraStreams.map(stream => watchCaptureTracksEnded(stream, () => {
@@ -174,6 +182,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         duplex: true,
         spokenText: () => '',
         onFinal: text => {
+          bumpCaption()
           const id = meeting.meetingId
           const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
           appendChain.current = appendChain.current.then(() =>
@@ -191,9 +200,13 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             }
           })
         },
-        onInterim: text => setInterim(text),
+        onInterim: text => {
+          bumpCaption()
+          setInterim(text)
+        },
         onError: () => {
           if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+          bumpCaption()
           setNotice(ASR_INTERRUPTED_NOTICE)
           speechRef.current = null
           pcmTapRef.current = undefined
@@ -213,9 +226,22 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       }
       speechRef.current = handle
       pcmTapRef.current = handle.pushPcm
+      bumpCaption()
       const notice = captureStateNotice(livePlan) || livePlan.notice
       if (notice) setNotice(notice)
     }
+    stallWatchRef.current = window.setInterval(() => {
+      if (userStopRef.current || speechGen.current !== gen || stallRestarting) return
+      if (Date.now() - lastCaptionAt < MEETING_CAPTION_STALL_MS) return
+      stallRestarting = true
+      bumpCaption()
+      speechRef.current?.stop()
+      speechRef.current = null
+      pcmTapRef.current = undefined
+      void listen().catch(() => {
+        if (!userStopRef.current && speechGen.current === gen) setNotice(ASR_INTERRUPTED_NOTICE)
+      }).finally(() => { stallRestarting = false })
+    }, MEETING_CAPTION_STALL_POLL_MS)
     await listen()
   }
 
@@ -385,6 +411,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     window.clearInterval(recoverRef.current)
     window.clearInterval(loopbackPollRef.current)
     window.clearInterval(summarizePollRef.current)
+    window.clearInterval(stallWatchRef.current)
     loopbackHoldRef.current = undefined
   }, [])
 
@@ -466,6 +493,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     setBusy(true)
     setNotice('正在结束录制…')
     speechGen.current += 1
+    window.clearInterval(stallWatchRef.current)
     const handle = speechRef.current
     speechRef.current = null
     pcmTapRef.current = undefined

@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest'
 import {
   capBridgeDeadlineMs,
   createPeopleBridge,
+  PEOPLE_CAPTURE_DEADLINE_MS,
   PEOPLE_FILE_DEADLINE_MS,
   type WebViewTransport,
 } from './client'
@@ -25,7 +26,8 @@ function peopleHarness() {
   return { sent, transport, bridge: createPeopleBridge(transport) }
 }
 
-it('allows long deadlines for LAN file staging', () => {
+it('allows a longer deadline for region screenshots', () => {
+  expect(capBridgeDeadlineMs('people.screen.capture', PEOPLE_CAPTURE_DEADLINE_MS)).toBe(PEOPLE_CAPTURE_DEADLINE_MS)
   expect(capBridgeDeadlineMs('people.file.stage', PEOPLE_FILE_DEADLINE_MS)).toBe(PEOPLE_FILE_DEADLINE_MS)
   expect(capBridgeDeadlineMs('people.thread.send', PEOPLE_FILE_DEADLINE_MS)).toBe(PEOPLE_FILE_DEADLINE_MS)
   expect(capBridgeDeadlineMs('system.health', PEOPLE_FILE_DEADLINE_MS)).toBe(30_000)
@@ -43,4 +45,11 @@ it('requests people.file.stage with the extended deadline', async () => {
   })
   expect(sent[0]?.method).toBe('people.file.stage')
   expect(sent[0]?.deadlineMs).toBe(PEOPLE_FILE_DEADLINE_MS)
+})
+
+it('requests people.screen.capture with the snip deadline', async () => {
+  const { sent, bridge } = peopleHarness()
+  await bridge.screenCapture({})
+  expect(sent[0]?.method).toBe('people.screen.capture')
+  expect(sent[0]?.deadlineMs).toBe(PEOPLE_CAPTURE_DEADLINE_MS)
 })

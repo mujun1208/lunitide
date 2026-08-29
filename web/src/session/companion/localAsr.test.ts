@@ -35,7 +35,7 @@ vi.mock('./pcmCapture', () => ({
   }),
 }))
 
-const { installLocalAsr, localAsrStatus, startLocalAsr, readyWithin, LOCAL_ASR_DECISION_MS } = await import('./localAsr')
+const { installLocalAsr, localAsrStatus, startLocalAsr, readyWithin, LOCAL_ASR_DECISION_MS, LOCAL_ASR_MAX_SESSION_SAMPLES } = await import('./localAsr')
 
 const frame = (peak = 0.2) => ({ base64: 'AAAA', samples: new Int16Array(1600), peak })
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -325,5 +325,17 @@ describe('startLocalAsr', () => {
     handle.pushFrame(frame())
     await settle()
     expect(bridge.append).toHaveBeenCalledWith({ sessionId: 'v1', pcm: 'AAAA' })
+  })
+
+  it('opens a fresh recognizer session before sherpa rejects a long utterance', async () => {
+    bridge.start.mockResolvedValueOnce({ sessionId: 'v1' }).mockResolvedValueOnce({ sessionId: 'v2' })
+    const handle = await startLocalAsr({ externalPcm: true })
+    handle.pushFrame({ base64: 'AAAA', samples: new Int16Array(LOCAL_ASR_MAX_SESSION_SAMPLES), peak: 0.2 })
+    await vi.waitFor(() => expect(bridge.start).toHaveBeenCalledTimes(2))
+    expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
+    expect(stopCapture).not.toHaveBeenCalled()
+    handle.pushFrame(frame())
+    await settle()
+    expect(bridge.append).toHaveBeenLastCalledWith({ sessionId: 'v2', pcm: 'AAAA' })
   })
 })

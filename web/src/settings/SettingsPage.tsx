@@ -565,12 +565,12 @@ function AboutPanel(): React.JSX.Element {
   }, [])
   return (
     <div className="setting-group">
-      <div className="setting-group-title">{zh ? '关于 Lunitide' : 'About Lunitide'}</div>
+      <div className="setting-group-title">{zh ? '关于月汐' : 'About Lunitide'}</div>
       <div className="about-content">
         <div className="about-logo">
           <div className="moon-logo" aria-hidden="true" />
           <div>
-            <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>Lunitide</h3>
+            <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>{zh ? '月汐' : 'Lunitide'}</h3>
             <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>{zh ? '本地优先 · BYOK · AI 软件生命周期工作台' : 'Local-first · BYOK · AI software lifecycle workbench'}</p>
           </div>
         </div>

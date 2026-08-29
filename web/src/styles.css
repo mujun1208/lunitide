@@ -1944,8 +1944,15 @@ html[data-theme="light"] .voice-path-card:hover,html[data-theme="light"] .voice-
 .people-file-confirm small{color:var(--muted)}
 .people-composer{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 12px 12px;border-top:1px solid var(--rule);position:relative;align-items:end}
 .people-composer-tools{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:2px}
-.people-composer-tools button{width:36px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--ink)}
+.people-composer-tools button{width:36px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--ink);display:inline-flex;align-items:center;justify-content:center}
 .people-composer-tools button:hover{background:color-mix(in srgb,var(--tide1) 12%,transparent)}
+.people-snip-btn svg{display:block}
+.people-snip-overlay{position:fixed;inset:0;z-index:80;background:#111;cursor:crosshair;user-select:none;color:#fff}
+.people-snip-overlay img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;opacity:.42}
+.people-snip-sel{position:absolute;box-shadow:0 0 0 9999px rgba(0,0,0,.55);outline:1px solid #5ee0b5;pointer-events:none}
+.people-snip-hint{position:absolute;top:12px;left:50%;transform:translateX(-50%);margin:0;padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.72);font-size:12px;pointer-events:none;white-space:nowrap}
+.people-snip-toolbar{position:absolute;right:24px;bottom:24px;display:flex;gap:8px;z-index:1}
+.people-snip-toolbar button{min-width:72px}
 .people-composer textarea{min-height:56px;resize:vertical}
 .people-emoji{grid-column:1/-1;position:static;display:flex;flex-wrap:wrap;gap:4px;padding:8px;border:1px solid var(--rule);border-radius:12px;background:var(--bg)}
 .people-group-hero{display:flex;align-items:center;gap:12px}

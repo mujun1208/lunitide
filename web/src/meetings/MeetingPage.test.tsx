@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
-import { MeetingPage } from './MeetingPage'
+import { MeetingPage, MEETING_CAPTION_STALL_MS, MEETING_CAPTION_STALL_POLL_MS } from './MeetingPage'
 
 const now = '2026-08-27T03:00:00.000Z'
 const meetingId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
@@ -20,6 +20,7 @@ const speech = vi.hoisted(() => ({
   start: vi.fn(),
   prepare: vi.fn().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' }),
   onFinal: undefined as ((text: string) => void) | undefined,
+  onInterim: undefined as ((text: string) => void) | undefined,
   onError: undefined as ((error: Error) => void) | undefined,
   handle: (): CompanionSpeechHandle => ({
     stop: vi.fn(),
@@ -35,8 +36,9 @@ vi.mock('./meetingAsr', async importOriginal => {
   const actual = await importOriginal<typeof import('./meetingAsr')>()
   return {
     ...actual,
-    startMeetingSpeech: (options: { onFinal: (text: string) => void; onError?: (error: Error) => void }) => {
+    startMeetingSpeech: (options: { onFinal: (text: string) => void; onInterim?: (text: string) => void; onError?: (error: Error) => void }) => {
       speech.onFinal = options.onFinal
+      speech.onInterim = options.onInterim
       speech.onError = options.onError
       return speech.start(options)
     },
@@ -81,9 +83,11 @@ function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
 describe('MeetingPage', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     speech.start.mockReset()
     speech.prepare.mockReset().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' })
     speech.onFinal = undefined
+    speech.onInterim = undefined
     speech.onError = undefined
   })
 
@@ -397,5 +401,39 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/录制中/)
     expect(meetings.stop).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+  })
+
+  test('restarts captions after a silent stall without stopping the WAV', async () => {
+    const stallFns: Array<() => void> = []
+    const nativeSetInterval = window.setInterval.bind(window)
+    const intervalSpy = vi.spyOn(window, 'setInterval').mockImplementation(((handler: TimerHandler, ms?: number, ...args: unknown[]) => {
+      if (ms === MEETING_CAPTION_STALL_POLL_MS && typeof handler === 'function') {
+        stallFns.push(handler as () => void)
+      }
+      return nativeSetInterval(handler, ms, ...args)
+    }) as typeof setInterval)
+    try {
+      const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+      const meetings = bridge({ start: vi.fn().mockResolvedValue(started), stop: vi.fn() })
+      speech.start.mockResolvedValue(speech.handle())
+      const user = userEvent.setup()
+      render(<MeetingPage meetings={meetings} />)
+      await user.click(await screen.findByRole('button', { name: '开始录制' }))
+      expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+      expect(speech.start).toHaveBeenCalledTimes(1)
+      expect(stallFns.length).toBeGreaterThan(0)
+      const origin = Date.now()
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(origin + MEETING_CAPTION_STALL_MS + 1)
+      try {
+        stallFns[stallFns.length - 1]!()
+        await vi.waitFor(() => expect(speech.start).toHaveBeenCalledTimes(2))
+        expect(meetings.stop).not.toHaveBeenCalled()
+        expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+      } finally {
+        nowSpy.mockRestore()
+      }
+    } finally {
+      intervalSpy.mockRestore()
+    }
   })
 })

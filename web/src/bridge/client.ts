@@ -470,12 +470,13 @@ export const MEETING_HEARTBEAT_DEADLINE_MS = 120_000
 export const MEETING_SUMMARIZE_DEADLINE_MS = 600_000
 export const MEETING_HEARTBEAT_INTERVAL_MS = 20_000
 export const PEOPLE_FILE_DEADLINE_MS = 120_000
+export const PEOPLE_CAPTURE_DEADLINE_MS = 180_000
 export const TEMPLATE_FILE_DEADLINE_MS = 120_000
 export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
   let cap = BRIDGE_DEADLINE_CAP_MS
   if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
   else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
-  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send') cap = PEOPLE_FILE_DEADLINE_MS
+  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
   else if (method === 'template.file.stage' || method === 'template.create') cap = TEMPLATE_FILE_DEADLINE_MS
   else if (method === 'appUpdate.install') cap = 120_000
   return Math.min(cap, Math.max(1, deadlineMs))
@@ -1355,7 +1356,7 @@ export function createIdentityBridge(transport:WebViewTransport=webview()):Ident
 }
 export function createPeopleBridge(transport:WebViewTransport=webview()):PeopleBridge{
   const core=createSimpleBridge(transport,{},12_000)
-  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS)),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>retryBridgeRequest(()=>core.request('people.screen.capture',p??{},30_000)),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
+  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS)),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>core.request('people.screen.capture',p??{},PEOPLE_CAPTURE_DEADLINE_MS),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
 }
 let identitySingleton:IdentityBridge|undefined
 let peopleSingleton:PeopleBridge|undefined

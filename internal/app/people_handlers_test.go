@@ -359,6 +359,55 @@ func TestPeopleScreenCaptureUsesNativeHost(t *testing.T) {
 	}
 }
 
+type peopleRegionHost struct {
+	peopleCaptureHost
+	region []byte
+	err    error
+}
+
+func (h peopleRegionHost) RegionCapture() ([]byte, error) { return h.region, h.err }
+
+func TestPeopleScreenCapturePrefersRegionSnip(t *testing.T) {
+	e, _, _ := newPeopleEngine(t)
+	store, err := sqlitestore.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "cc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ccSvc := ccapp.New(store.AgentRuntimeRepository())
+	full := []byte("FULL")
+	crop := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	ccSvc.SetHost(peopleRegionHost{peopleCaptureHost: peopleCaptureHost{png: full}, region: crop})
+	e.SetCcControlService(ccSvc)
+
+	got := peopleOK[map[string]any](t, e, "people.screen.capture", map[string]any{})
+	raw, _ := got["contentBase64"].(string)
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil || string(decoded) != string(crop) {
+		t.Fatalf("decode = %q err=%v", decoded, err)
+	}
+}
+
+func TestPeopleScreenCaptureCanceled(t *testing.T) {
+	e, _, _ := newPeopleEngine(t)
+	store, err := sqlitestore.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "cc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ccSvc := ccapp.New(store.AgentRuntimeRepository())
+	ccSvc.SetHost(peopleRegionHost{err: ccapp.ErrCaptureCanceled})
+	e.SetCcControlService(ccSvc)
+
+	resp := peopleCall(t, e, "people.screen.capture", map[string]any{})
+	if resp.OK {
+		t.Fatal("expected cancel")
+	}
+	if resp.Error == nil || resp.Error.Code != "PEOPLE_CANCELED" {
+		t.Fatalf("code = %+v", resp.Error)
+	}
+}
+
 func TestPeopleScreenCaptureUnsupportedWithoutHost(t *testing.T) {
 	e, _, _ := newPeopleEngine(t)
 	resp := peopleCall(t, e, "people.screen.capture", map[string]any{})
@@ -369,4 +418,3 @@ func TestPeopleScreenCaptureUnsupportedWithoutHost(t *testing.T) {
 		t.Fatalf("code = %+v", resp.Error)
 	}
 }
-

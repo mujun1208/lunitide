@@ -30,7 +30,7 @@ func bundledWorkflowInjection(turnText ...string) string {
 		"- 安装技能：用户给出含 SKILL.md 的目录时，列出后立刻 workspace.read 每个 SKILL.md，再连续调用 skill.create；不要只列目录就结束。\n" +
 		"- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n" +
 		"- 桌面 HTML 小游戏：必须用 html.gen（template=penalty-shootout；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n" +
-		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个（协议/协议文档 → 桌面上的那个文件）。语音把「打开」听成「把开」时同样执行。禁止把桌面上其它无关文件一起打开。网易云音乐/汽水音乐走开始菜单或本机安装路径（cloudmusic.exe），不要打开网页版。\n" +
+		"- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个（协议/协议文档 → 桌面上的那个文件）。语音把「打开」听成「把开」时同样执行。禁止把桌面上其它无关文件一起打开。网易云音乐走 cloudmusic.exe，汽水音乐走 sodamusic.exe / Soda Music，都从开始菜单或本机安装路径解析，不要打开网页版。\n" +
 		"- 在已打开的 Word/文档/对话框里填写：desktop.type（after=文档里真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。找不到字段必须对用户说无法执行和原因。\n" +
 		"- 播放音乐/视频：打开桌面播放器后用 media.play target=foreground（没说歌名或要随机播放时 query=热门；说了歌手如周杰伦则 query=周杰伦）。未运行则 desktop.open 启动后再 foreground 搜索播放。成功以正在播放为准，不要只启动进程。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 		"- 暂停/下一首：media.play action=pause|next|prev。\n" +
