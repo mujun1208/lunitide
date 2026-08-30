@@ -57,7 +57,56 @@ describe('ensureCompanionCapabilities', () => {
       updatedAt: '2026-08-26T00:00:01Z',
     })
     const out = await ensureCompanionCapabilities()
-    expect(ccBridge.updateConfig).toHaveBeenCalledWith({ enabled: true, securityLevel: 'standard', actor: 'companion' })
+    expect(ccBridge.updateConfig).toHaveBeenCalledWith({
+      enabled: true,
+      securityLevel: 'standard',
+      maxActionsPerMinute: 60,
+      actor: 'companion',
+    })
     expect(out).toEqual({ fullAccess: true, ccEnabled: true })
+  })
+
+  it('bumps a legacy 30/min cap when computer control is already on', async () => {
+    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: true })
+    vi.mocked(ccBridge.getConfig).mockResolvedValue({
+      enabled: true,
+      emergencyStopped: false,
+      securityLevel: 'standard',
+      allowCritical: false,
+      processBlocklist: [],
+      maxActionsPerMinute: 30,
+      confirmTimeoutSeconds: 60,
+      updatedAt: '2026-08-26T00:00:00Z',
+    })
+    vi.mocked(ccBridge.updateConfig).mockResolvedValue({
+      enabled: true,
+      emergencyStopped: false,
+      securityLevel: 'standard',
+      allowCritical: false,
+      processBlocklist: [],
+      maxActionsPerMinute: 60,
+      confirmTimeoutSeconds: 60,
+      updatedAt: '2026-08-26T00:00:01Z',
+    })
+    const out = await ensureCompanionCapabilities()
+    expect(ccBridge.updateConfig).toHaveBeenCalledWith({ maxActionsPerMinute: 60, actor: 'companion' })
+    expect(out).toEqual({ fullAccess: true, ccEnabled: true })
+  })
+
+  it('does not silently enable full-disk command policy', async () => {
+    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: false })
+    vi.mocked(ccBridge.getConfig).mockResolvedValue({
+      enabled: true,
+      emergencyStopped: false,
+      securityLevel: 'standard',
+      allowCritical: false,
+      processBlocklist: [],
+      maxActionsPerMinute: 60,
+      confirmTimeoutSeconds: 60,
+      updatedAt: '2026-08-26T00:00:00Z',
+    })
+    const out = await ensureCompanionCapabilities()
+    expect(toolsPolicyBridge.setCommandPolicy).not.toHaveBeenCalled()
+    expect(out).toEqual({ fullAccess: false, ccEnabled: true })
   })
 })

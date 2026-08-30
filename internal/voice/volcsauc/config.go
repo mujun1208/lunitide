@@ -10,15 +10,17 @@ const (
 	// Name is the backend key the bridge reports. Stable across versions.
 	Name = "volc-sauc"
 
-	DefaultHost        = "openspeech.bytedance.com"
-	DefaultResourceID  = "volc.seedasr.sauc.duration"
-	PathOptimized      = "/api/v3/sauc/bigmodel_async"
-	PathBidirectional  = "/api/v3/sauc/bigmodel"
-	DefaultEndWindowMS = 400
-	DefaultModelName   = "bigmodel"
-	connectIDBytes     = 16
-	handshakeTimeout   = 1500 * time.Millisecond
-	firstDialBudget    = 800 * time.Millisecond
+	DefaultHost           = "openspeech.bytedance.com"
+	DefaultResourceID     = "volc.seedasr.sauc.duration"
+	PathPlanOptimized     = "/api/v3/plan/sauc/bigmodel_async"
+	PathPlanBidirectional = "/api/v3/plan/sauc/bigmodel"
+	PathPaygOptimized     = "/api/v3/sauc/bigmodel_async"
+	PathPaygBidirectional = "/api/v3/sauc/bigmodel"
+	DefaultEndWindowMS    = 400
+	DefaultModelName      = "bigmodel"
+	connectIDBytes        = 16
+	handshakeTimeout      = 1500 * time.Millisecond
+	firstDialBudget       = 800 * time.Millisecond
 )
 
 // DefaultHotwords are product names the ASR should prefer over near-homophones.
@@ -111,14 +113,39 @@ func ResourceIDFromModel(modelID string) string {
 	return DefaultResourceID
 }
 
-// StreamURL is the websocket endpoint. optimized prefers bigmodel_async.
+// StreamURL is the websocket endpoint. Agent Plan is the default
+// (openspeech /api/v3/plan/sauc/…); a stored pay-as-you-go path keeps
+// /api/v3/sauc/…. ark.cn-beijing text Base URLs remap onto openspeech.
 func StreamURL(baseURL string, optimized bool) string {
-	host := hostOf(baseURL)
-	path := PathOptimized
+	host := speechHost(baseURL)
+	path := PathPlanOptimized
+	if !UseAgentPlan(baseURL) {
+		path = PathPaygOptimized
+	}
 	if !optimized {
-		path = PathBidirectional
+		if UseAgentPlan(baseURL) {
+			path = PathPlanBidirectional
+		} else {
+			path = PathPaygBidirectional
+		}
 	}
 	return "wss://" + host + path
+}
+
+// UseAgentPlan is true unless the stored URL already names the payg SAUC path.
+func UseAgentPlan(baseURL string) bool {
+	s := strings.ToLower(strings.TrimSpace(baseURL))
+	return !strings.Contains(s, "/api/v3/sauc/") || strings.Contains(s, "/api/v3/plan/sauc/")
+}
+
+// speechHost is the host the production dialer opens. Agent Plan LLM
+// origins (ark.cn-beijing.volces.com) are not speech endpoints.
+func speechHost(baseURL string) string {
+	h := hostOf(baseURL)
+	if h == "" || strings.Contains(h, "volces.com") {
+		return DefaultHost
+	}
+	return h
 }
 
 // AllowedSpeechHost is the only origin the production dialer will open.
@@ -199,13 +226,16 @@ func SanitizeProbeError(err error) string {
 			if LooksLikeLegacyASRResource(he.Message) || strings.Contains(he.Message, "bigasr") {
 				return "资源 ID 像是 1.0（volc.bigasr.*）。2.0 应用请用 volc.seedasr.sauc.duration"
 			}
-			return "火山语音鉴权失败（403）。请核对 API Key 与 Resource-Id（2.0 用 volc.seedasr.sauc.duration）"
+			return "火山语音鉴权失败（403）。请用 Agent Plan 专属 API Key（不要用方舟平台 Key），Resource-Id 为 volc.seedasr.sauc.duration"
 		}
 		if he.Status == 401 || he.Code == 401 {
-			return "火山语音鉴权失败。请核对 API Key"
+			return "火山语音鉴权失败。请核对 Agent Plan 专属 API Key"
 		}
 	}
 	msg := err.Error()
+	if strings.Contains(msg, "AuthenticationError") {
+		return "火山语音鉴权失败。请用 Agent Plan 专属 API Key，不要用 Coding Plan / 方舟平台 Key"
+	}
 	if strings.Contains(strings.ToLower(msg), "timeout") || strings.Contains(msg, "deadline") {
 		return "火山语音连接超时"
 	}

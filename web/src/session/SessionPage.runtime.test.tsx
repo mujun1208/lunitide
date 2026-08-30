@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
+import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { rememberAttachmentPreview } from './attachments'
@@ -649,4 +649,16 @@ it('prefixes only selected PM chips on rethink and never the conversation catalo
  expect(sent).not.toContain('PPT专家')
  expect(sent).not.toContain('小说编写专家')
  expect(sent).not.toContain('报告编写专家')
+})
+
+it('shows a compact chip when context usage is high and commits the preview',async()=>{
+ const compactPreview=vi.fn().mockResolvedValue({checkpointId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',version:1,sourceStartSeq:1,sourceEndSeq:20,sourceDigest:'a'.repeat(64),summaryPreview:'earlier turns',humanSummary:'把更早的对话收成摘要',status:'succeeded'})
+ const compactCommit=vi.fn().mockResolvedValue({checkpointId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',version:1,status:'succeeded',activated:true})
+ const status=vi.fn().mockResolvedValue({canonicalLogicalTokens:82000,canonicalTokenizerId:'lunitide-canonical-v1',canonicalTokenizerRevision:'v1.0.0',modelContextWindow:100000,activeCheckpointVersion:0,budgetUsage:0.82,isCompacting:false})
+ const context={status,compactPreview,compactCommit,compactCancel:vi.fn(),handoffCreate:vi.fn(),handoffImport:vi.fn(),handoffInspect:vi.fn(),handoffList:vi.fn(),handoffListImports:vi.fn(),handoffRevoke:vi.fn()} as unknown as ContextBridge
+ const user=await open({context})
+ await user.click(await screen.findByRole('button',{name:'压缩 82%'}))
+ await waitFor(()=>expect(compactPreview).toHaveBeenCalledWith({sessionId:S}))
+ await user.click(screen.getByRole('button',{name:'应用压缩'}))
+ await waitFor(()=>expect(compactCommit).toHaveBeenCalledWith({checkpointId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',baseVersion:1}))
 })

@@ -173,6 +173,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'identity.update',
   'im.channels.get',
   'im.channels.set',
+  'im.inbound.deliver',
   'kb.upsertDocument',
 
   'mc.config.validate',
@@ -232,6 +233,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'message.append',
   'message.list',
   'message.rewind',
+  'message.search',
   'node.complete',
   'node.create',
   'node.fail',
@@ -268,6 +270,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'people.discovery.get',
   'people.discovery.set',
   'people.file.decide',
+  'people.file.open',
   'people.file.pick',
   'people.file.stage',
   'people.group.create',

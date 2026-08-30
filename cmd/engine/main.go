@@ -326,6 +326,7 @@ func main() {
 	engine.SetMeetingsService(meetingsSvc)
 	imSvc := imapp.New(store)
 	engine.SetIMChannelsService(imSvc)
+	engine.StartIMInbound(ctx)
 	// M4-F: resolve command jobs left in queued/running by a previous crash
 	// to outcome_unknown before serving traffic (unprovable side effects are
 	// never blindly retried). Failure means unreconciled jobs remain, so

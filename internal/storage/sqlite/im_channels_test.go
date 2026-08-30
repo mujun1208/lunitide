@@ -26,11 +26,11 @@ func TestIMChannelsSeedAndWebhookGuard(t *testing.T) {
 	}
 	on := true
 	url := "http://127.0.0.1/hook"
-	if _, err := svc.Set(ctx, imapp.KindFeishu, &on, &url); err == nil {
+	if _, err := svc.Set(ctx, imapp.KindFeishu, imapp.ChannelPatch{Enabled: &on, WebhookURL: &url}); err == nil {
 		t.Fatal("localhost webhook must fail")
 	}
 	good := "https://open.feishu.cn/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	items, err = svc.Set(ctx, imapp.KindFeishu, &on, &good)
+	items, err = svc.Set(ctx, imapp.KindFeishu, imapp.ChannelPatch{Enabled: &on, WebhookURL: &good})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,10 +43,24 @@ func TestIMChannelsSeedAndWebhookGuard(t *testing.T) {
 	if !feishu.Enabled || feishu.Mode != "webhook" {
 		t.Fatalf("feishu %+v", feishu)
 	}
-	if _, err := svc.Set(ctx, imapp.KindWeChat, &on, &good); err == nil {
+	inOn := true
+	if _, err := svc.Set(ctx, imapp.KindFeishu, imapp.ChannelPatch{InboundEnabled: &inOn}); err == nil {
+		t.Fatal("inbound without allowlist must fail")
+	}
+	allow := "ou_ok"
+	items, err = svc.Set(ctx, imapp.KindFeishu, imapp.ChannelPatch{InboundEnabled: &inOn, InboundAllowlist: &allow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range items {
+		if ch.Kind == imapp.KindFeishu && (!ch.InboundEnabled || ch.InboundAllowlist != "ou_ok" || ch.InboundHasSecret) {
+			t.Fatalf("inbound %+v", ch)
+		}
+	}
+	if _, err := svc.Set(ctx, imapp.KindWeChat, imapp.ChannelPatch{Enabled: &on, WebhookURL: &good}); err == nil {
 		t.Fatal("wechat must not accept a webhook")
 	}
-	items, err = svc.Set(ctx, imapp.KindWeChat, &on, nil)
+	items, err = svc.Set(ctx, imapp.KindWeChat, imapp.ChannelPatch{Enabled: &on})
 	if err != nil {
 		t.Fatal(err)
 	}

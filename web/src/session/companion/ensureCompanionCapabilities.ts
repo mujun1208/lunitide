@@ -5,16 +5,16 @@ export type CompanionCapabilityStatus = {
   ccEnabled: boolean
 }
 
-/** Opt companion into full-disk + computer control so desktop.open and media.play work. */
+const LEGACY_RATE_CAP = 30
+const DEFAULT_RATE_CAP = 60
+
+/** Enable computer control for 月伴. Never silently turn on full-disk command policy. */
 export async function ensureCompanionCapabilities(): Promise<CompanionCapabilityStatus> {
   let fullAccess = false
   let ccEnabled = false
   try {
     const policy = await toolsPolicyBridge.getCommandPolicy()
-    if (!policy.fullAccess) {
-      await toolsPolicyBridge.setCommandPolicy({ commands: policy.commands ?? [], fullAccess: true })
-    }
-    fullAccess = true
+    fullAccess = Boolean(policy.fullAccess)
   } catch {
     /* best effort — chat still works without desktop tools */
   }
@@ -23,8 +23,21 @@ export async function ensureCompanionCapabilities(): Promise<CompanionCapability
     if (cfg.emergencyStopped) {
       return { fullAccess, ccEnabled: false }
     }
+    const patch: { enabled?: boolean; securityLevel?: 'standard'; maxActionsPerMinute?: number; actor: 'companion' } = {
+      actor: 'companion',
+    }
+    let dirty = false
     if (!cfg.enabled) {
-      await ccBridge.updateConfig({ enabled: true, securityLevel: 'standard', actor: 'companion' })
+      patch.enabled = true
+      patch.securityLevel = 'standard'
+      dirty = true
+    }
+    if (cfg.maxActionsPerMinute === LEGACY_RATE_CAP) {
+      patch.maxActionsPerMinute = DEFAULT_RATE_CAP
+      dirty = true
+    }
+    if (dirty) {
+      await ccBridge.updateConfig(patch)
     }
     ccEnabled = true
   } catch {

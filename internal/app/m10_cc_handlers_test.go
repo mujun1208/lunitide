@@ -43,6 +43,7 @@ func (f *fakeCcHost) MouseClick(string, int) error       { return nil }
 func (f *fakeCcHost) MouseDrag(int, int, int, int) error { return nil }
 func (f *fakeCcHost) KeyboardType(string) error          { return nil }
 func (f *fakeCcHost) KeyboardShortcut([]string) error    { return nil }
+func (f *fakeCcHost) HoldKey(string, bool) error         { return nil }
 func (f *fakeCcHost) MouseScroll(int) error              { return nil }
 func (f *fakeCcHost) MouseScrollH(int) error             { return nil }
 func (f *fakeCcHost) EnsureForeground() error            { return nil }
@@ -95,7 +96,7 @@ func TestCcConfigLifecycleThroughBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	if initialCfg.Enabled || initialCfg.EmergencyStopped || initialCfg.SecurityLevel != "standard" ||
-		initialCfg.MaxActionsPerMinute != 30 || initialCfg.ConfirmTimeoutSecond != 60 {
+		initialCfg.MaxActionsPerMinute != 60 || initialCfg.ConfirmTimeoutSecond != 60 {
 		t.Fatalf("seeded defaults invalid: %+v", initialCfg)
 	}
 	if len(initialCfg.ProcessBlocklist) == 0 || initialCfg.ProcessBlocklist[0] != "cmd.exe" {
@@ -208,38 +209,10 @@ func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
 		t.Fatalf("enable failed: %+v", res.Error)
 	}
 	defs := e.ccToolDefinitions()
-	want := []string{
-		"cc.mouse_move", "cc.mouse_click", "cc.mouse_drag",
-		"cc.keyboard_type", "cc.keyboard_shortcut",
-		"cc.screen_capture", "cc.get_active_window",
-		"cc.window_list", "cc.window_focus",
-		"cc.observe_dialog", "cc.confirm_dialog", "cc.observe_ui",
-		"cc.wait", "cc.clipboard",
-		"cc.window_action", "cc.app_list", "cc.app_quit",
-		"cc.paste", "cc.press", "cc.menu_click", "cc.set_value",
+	if len(defs) != 1 || defs[0].Name != "computer.act" {
+		t.Fatalf("model must see only computer.act, got %v", defs)
 	}
-	got := map[string]bool{}
-	for _, d := range defs {
-		got[d.Name] = true
-	}
-	for _, name := range want {
-		if !got[name] {
-			t.Fatalf("missing tool %s in %v", name, got)
-		}
-	}
-	if len(got) != len(want) {
-		t.Fatalf("tool set mismatch: got %d want %d (%v)", len(got), len(want), got)
-	}
-	for _, d := range defs {
-		switch d.Name {
-		case "cc.keyboard_type":
-			if !strings.Contains(d.Description, "cc.window_focus") {
-				t.Fatalf("keyboard_type should mention window_focus first: %q", d.Description)
-			}
-		case "cc.window_focus":
-			if !strings.Contains(d.Description, "cc.keyboard_type") {
-				t.Fatalf("window_focus should mention keyboard_type pairing: %q", d.Description)
-			}
-		}
+	if strings.Contains(defs[0].Description, "do not call cc.*") == false {
+		t.Fatalf("computer.act must tell the model not to call cc.*: %q", defs[0].Description)
 	}
 }

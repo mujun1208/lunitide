@@ -7,7 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/imapp"
+	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/sessionapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -71,4 +76,85 @@ func TestImChannelsGetSeedsAndSetWebhook(t *testing.T) {
 	if !strings.Contains(string(mustJSON(desktop.Payload)), `"mode":"desktop"`) {
 		t.Fatalf("qq payload %s", desktop.Payload)
 	}
+
+	emptyInbound := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true}`))
+	if emptyInbound.OK {
+		t.Fatal("inbound without allowlist must fail")
+	}
+	dingInbound := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"dingtalk","inboundEnabled":true,"inboundAllowlist":"x"}`))
+	if dingInbound.OK {
+		t.Fatal("dingtalk inbound must fail")
+	}
+	in := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAllowlist":"ou_ok"}`))
+	if !in.OK {
+		t.Fatalf("feishu inbound %+v", in.Error)
+	}
+	if !strings.Contains(string(mustJSON(in.Payload)), `"inboundEnabled":true`) {
+		t.Fatalf("inbound payload %s", in.Payload)
+	}
+}
+
+func TestImInboundDeliverAllowlist(t *testing.T) {
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "im-in.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	projects := projectapp.New(store, store)
+	if _, err := projects.Create(context.Background(), "personal-key", "test", struct {
+		Name string `json:"name"`
+	}{imapp.PersonalChatProjectName}, structToProject(imapp.PersonalChatProjectName)); err != nil {
+		t.Fatal(err)
+	}
+	sessions := sessionapp.New(store, store)
+	cursorKey := []byte("0123456789abcdef0123456789abcdef")
+	msgs, err := messageapp.New(store, store, cursorKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngineWithMessages(providerapp.New(store, store), projects, sessions, msgs, "test", nil)
+	e.SetIMChannelsService(imapp.New(store))
+	ctx := context.Background()
+
+	off := e.Handle(ctx, inboundDeliverReq(`{"kind":"feishu","sender":"ou_ok","text":"打开网易云"}`))
+	if off.OK || off.Error == nil || off.Error.Code != "IM_INBOUND_OFF" {
+		t.Fatalf("off = %+v", off.Error)
+	}
+
+	if set := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAllowlist":"ou_ok"}`)); !set.OK {
+		t.Fatalf("enable inbound %+v", set.Error)
+	}
+
+	denied := e.Handle(ctx, inboundDeliverReq(`{"kind":"feishu","sender":"ou_other","text":"打开网易云"}`))
+	if denied.OK || denied.Error == nil || denied.Error.Code != "IM_INBOUND_DENIED" {
+		t.Fatalf("denied = %+v", denied.Error)
+	}
+
+	ok := e.Handle(ctx, inboundDeliverReq(`{"kind":"feishu","sender":"ou_ok","text":"打开网易云"}`))
+	if !ok.OK {
+		t.Fatalf("deliver %+v", ok.Error)
+	}
+	var delivered struct {
+		Accepted  bool   `json:"accepted"`
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(mustJSON(ok.Payload), &delivered); err != nil {
+		t.Fatal(err)
+	}
+	if !delivered.Accepted || delivered.SessionID == "" {
+		t.Fatalf("payload %+v", delivered)
+	}
+	page, err := msgs.List(ctx, messageapp.PageRequest{SessionID: delivered.SessionID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || !strings.Contains(page.Items[0].Text, "打开网易云") {
+		t.Fatalf("messages %#v", page.Items)
+	}
+}
+
+func inboundDeliverReq(payload string) bridge.Request {
+	r := nominationRequest("im.inbound.deliver", payload)
+	r.IdempotencyKey = "im-inbound-test-1"
+	return r
 }

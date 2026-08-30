@@ -105,7 +105,7 @@ it('creates a volc speech provider from the voice tab',async()=>{
  await user.click(screen.getByRole('button',{name:/新建供应商/}))
  expect(screen.getByLabelText('协议')).toHaveValue('volc_speech')
  expect(screen.getByLabelText('基础 URL')).toHaveValue('https://openspeech.bytedance.com')
- expect(screen.getByLabelText('模型 1 ID')).toHaveValue('seed-asr-2.0')
+ expect(screen.getByLabelText('模型 1 ID')).toHaveValue('volc.seedasr.sauc.duration')
  expect(screen.getByLabelText('模型 1 类型')).toHaveValue('voice')
  expect(screen.queryByLabelText('模型 1 上下文窗口')).not.toBeInTheDocument()
  await user.type(screen.getByLabelText('供应商名称'),'Volc')
@@ -115,6 +115,6 @@ it('creates a volc speech provider from the voice tab',async()=>{
  const saved=vi.mocked(create).mock.calls[0][0]
  expect(saved.protocol).toBe('volc_speech')
  expect(saved.baseUrl).toBe('https://openspeech.bytedance.com')
- expect(saved.models[0]).toMatchObject({modelId:'seed-asr-2.0',kind:'voice',kindDefault:true,isDefault:true})
+ expect(saved.models[0]).toMatchObject({modelId:'volc.seedasr.sauc.duration',kind:'voice',kindDefault:true,isDefault:true})
 })
 

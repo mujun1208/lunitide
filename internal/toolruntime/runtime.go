@@ -159,11 +159,10 @@ func (r *Runtime) loadUserCommandPolicy() error {
 	raw, err := os.ReadFile(r.userRulesPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No policy file means the user hasn't explicitly opted out
-			// of full-disk access. Default to full-disk so that FullAccess
-			// mode works as the user expects without extra configuration.
+			// Missing file: fail closed. Full-disk is an explicit Settings
+			// opt-in, never the implicit default of a fresh data root.
 			r.rulesMu.Lock()
-			r.fullDisk = true
+			r.fullDisk = false
 			r.rulesMu.Unlock()
 			return nil
 		}
@@ -953,9 +952,25 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			OldText    string `json:"oldText"`
 			NewText    string `json:"newText"`
 			ReplaceAll bool   `json:"replaceAll"`
+			Edits      []struct {
+				OldText    string `json:"oldText"`
+				NewText    string `json:"newText"`
+				ReplaceAll bool   `json:"replaceAll"`
+			} `json:"edits"`
 		}
-		if strict(args, &a) != nil || a.Path == "" || a.OldText == "" || len(a.OldText) > maxFile || len(a.NewText) > maxFile {
+		if strict(args, &a) != nil || a.Path == "" {
 			return Result{}, errors.New("invalid arguments")
+		}
+		hunks := make([]editHunk, 0, len(a.Edits)+1)
+		if len(a.Edits) > 0 {
+			if len(a.Edits) > 20 {
+				return Result{}, errors.New("invalid arguments")
+			}
+			for _, h := range a.Edits {
+				hunks = append(hunks, editHunk{OldText: h.OldText, NewText: h.NewText, ReplaceAll: h.ReplaceAll})
+			}
+		} else {
+			hunks = append(hunks, editHunk{OldText: a.OldText, NewText: a.NewText, ReplaceAll: a.ReplaceAll})
 		}
 		p, e := r.path(mode, session, a.Path, false, unconfined)
 		if e != nil {
@@ -965,16 +980,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil || len(b) > maxFile {
 			return Result{}, errors.New("file missing or exceeds limit")
 		}
-		count := strings.Count(string(b), a.OldText)
-		if count == 0 {
-			return Result{}, errors.New("oldText not found in file")
-		}
-		if count > 1 && !a.ReplaceAll {
-			return Result{}, fmt.Errorf("oldText found %d times; set replaceAll=true or narrow the anchor", count)
-		}
-		updated := strings.Replace(string(b), a.OldText, a.NewText, 1)
-		if a.ReplaceAll {
-			updated = strings.ReplaceAll(string(b), a.OldText, a.NewText)
+		updated, count, e := applyWorkspaceHunks(string(b), hunks)
+		if e != nil {
+			return Result{}, e
 		}
 		if len(updated) > maxFile {
 			return Result{}, errors.New("edited file exceeds limit")
@@ -1839,6 +1847,41 @@ func (r *Runtime) writeTodos(session string, todos []struct {
 	}
 	return b.String(), nil
 }
+
+type editHunk struct {
+	OldText    string
+	NewText    string
+	ReplaceAll bool
+}
+
+func applyWorkspaceHunks(content string, hunks []editHunk) (string, int, error) {
+	if len(hunks) == 0 {
+		return "", 0, errors.New("invalid arguments")
+	}
+	updated := content
+	total := 0
+	for i, h := range hunks {
+		if h.OldText == "" || len(h.OldText) > maxFile || len(h.NewText) > maxFile {
+			return "", 0, errors.New("invalid arguments")
+		}
+		count := strings.Count(updated, h.OldText)
+		if count == 0 {
+			return "", 0, fmt.Errorf("oldText not found in file (hunk %d)", i+1)
+		}
+		if count > 1 && !h.ReplaceAll {
+			return "", 0, fmt.Errorf("oldText found %d times; set replaceAll=true or narrow the anchor", count)
+		}
+		if h.ReplaceAll {
+			updated = strings.ReplaceAll(updated, h.OldText, h.NewText)
+			total += count
+		} else {
+			updated = strings.Replace(updated, h.OldText, h.NewText, 1)
+			total++
+		}
+	}
+	return updated, total, nil
+}
+
 func strict(b []byte, v any) error {
 	d := json.NewDecoder(strings.NewReader(string(b)))
 	d.DisallowUnknownFields()

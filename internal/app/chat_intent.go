@@ -172,7 +172,7 @@ func looksLikeArchitectMermaidTurn(text string) bool {
 
 func includeOfficeGenWorkflow(turnText string) bool {
 	if strings.TrimSpace(turnText) == "" {
-		return true
+		return false
 	}
 	if looksLikeComputerControlTurn(turnText) && !wantsOfficeGen(turnText) {
 		return false
@@ -260,7 +260,7 @@ func hasComputerControlTool(tools []string) bool {
 		case "desktop.open", "desktop.type", "media.play":
 			return true
 		}
-		if strings.HasPrefix(name, "cc.") {
+		if strings.HasPrefix(name, "cc.") || name == "computer.act" {
 			return true
 		}
 	}
@@ -321,7 +321,7 @@ func isCompanionLeadInOnly(text string) bool {
 	for _, p := range []string{
 		"等一下", "稍等", "稍等我一下", "嗯，我在呢，稍等我一下",
 		"好，我帮你查一下", "好，我来执行", "好，我来打开", "好，我来播放",
-		"好，我来输入", "好，我马上处理", "嗯，", "嗯",
+		"好，我来输入", "好，我马上处理", "好，我来操作电脑", "嗯，", "嗯",
 	} {
 		if t == strings.TrimRight(p, "。.!！ ") || t == p {
 			return true

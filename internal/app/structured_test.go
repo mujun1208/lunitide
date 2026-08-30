@@ -62,4 +62,25 @@ func TestIdentityAndFewShotNamesBoundaries(t *testing.T) {
 	if !strings.Contains(got, "你是月汐") || !strings.Contains(got, "禁止") || !strings.Contains(got, "web.search") {
 		t.Fatalf("got %q", got)
 	}
+	if !strings.Contains(identityAnchorReminder(), "仍是月汐") {
+		t.Fatal("identity reminder missing")
+	}
+}
+
+func TestInferStructuredTemplateFromTurnAndSettings(t *testing.T) {
+	if got := inferStructuredTemplate("把下面文字抽成日程 JSON", ""); got != "event" {
+		t.Fatalf("日程 JSON → %q", got)
+	}
+	if got := inferStructuredTemplate("帮我抽出表单字段", ""); got != "form" {
+		t.Fatalf("表单 → %q", got)
+	}
+	if got := inferStructuredTemplate("总结成键值 JSON", ""); got != "kv" {
+		t.Fatalf("键值 → %q", got)
+	}
+	if got := inferStructuredTemplate("查天气", "event"); got != "event" {
+		t.Fatal("settings lock must win")
+	}
+	if got := inferStructuredTemplate("查北京明天天气", ""); got != "" {
+		t.Fatalf("weather must not force structured output, got %q", got)
+	}
 }

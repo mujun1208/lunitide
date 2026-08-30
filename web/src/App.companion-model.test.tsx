@@ -35,7 +35,7 @@ const peopleHost = vi.hoisted(() => {
     discoveryGet: vi.fn().mockResolvedValue({ enabled: false, pairingCode: '111111' }),
     discoverySet: vi.fn(), threadList: vi.fn().mockResolvedValue({ items: [] }),
     threadOpen: vi.fn(), threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
-    threadTyping: vi.fn(), fileStage: vi.fn(), filePick: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
+    threadTyping: vi.fn(), fileStage: vi.fn(), fileOpen: vi.fn(), filePick: vi.fn(), screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
   }
   return { identity, people }
 })

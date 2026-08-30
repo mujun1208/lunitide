@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,35 @@ func TestProbeRejectsForeignHost(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unsupported volc speech host") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func TestSpeechHostRemapsAgentPlanTextOrigin(t *testing.T) {
+	if got := speechHost("https://ark.cn-beijing.volces.com/api/plan/v3"); got != DefaultHost {
+		t.Fatalf("speechHost = %s", got)
+	}
+	if !AllowedSpeechHost(speechHost("https://ark.cn-beijing.volces.com/api/plan/v3")) {
+		t.Fatal("agent plan text origin must remap onto the speech host")
+	}
+}
+
+func TestLiveAgentPlanHandshake(t *testing.T) {
+	if os.Getenv("VOLC_SPEECH_LIVE") != "1" || strings.TrimSpace(os.Getenv("VOLC_SPEECH_API_KEY")) == "" {
+		t.Skip("set VOLC_SPEECH_LIVE=1 and VOLC_SPEECH_API_KEY to probe Agent Plan ASR")
+	}
+	key := strings.TrimSpace(os.Getenv("VOLC_SPEECH_API_KEY"))
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	cfg := Config{BaseURL: "https://ark.cn-beijing.volces.com/api/plan/v3", APIKey: key, ResourceID: DefaultResourceID}
+	err := Probe(ctx, cfg)
+	if err == nil {
+		return
+	}
+	payg := cfg
+	payg.BaseURL = "https://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+	if paygErr := Probe(ctx, payg); paygErr == nil {
+		t.Fatalf("agent-plan path failed (%s) but payg path worked; keep Agent Plan URL", SanitizeProbeError(err))
+	}
+	t.Fatalf("agent-plan handshake: %s", SanitizeProbeError(err))
 }
 
 func TestStartHonorsHandshakeTimeout(t *testing.T) {

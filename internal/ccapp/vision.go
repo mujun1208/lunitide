@@ -8,12 +8,13 @@ import (
 )
 
 const (
-	visionMaxEdge  = 1280
-	visionMaxBytes = 380 << 10
+	visionMaxEdge  = 1600
+	visionMaxBytes = 512 << 10
 )
 
 // PrepareVisionImage downscales a desktop PNG so it can ride the next model
-// turn as a vision attachment without blowing the 1 MiB gateway budget.
+// turn as a vision attachment. Four recent frames stay in context; 512 KiB
+// each keeps UI chrome readable without sending the raw framebuffer.
 func PrepareVisionImage(pngBytes []byte) (data []byte, mime string, err error) {
 	if len(pngBytes) == 0 {
 		return nil, "", nil

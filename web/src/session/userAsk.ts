@@ -84,3 +84,31 @@ export function userAskActivitySummary(summary?: string): string {
   if (pack?.title) return pack.title
   return '需要你决策'
 }
+
+export const FILE_PICKER_ASK: UserAskPack = {
+  title: '文件对话框',
+  questions: [
+    {
+      id: 'file-dialog',
+      prompt: '屏幕上出现了打开/保存文件对话框。我不能代你选文件，请你在系统对话框里点「保存」「打开」或「取消」。',
+      options: [
+        {id: 'done', label: '我已经点完了'},
+        {id: 'cancel', label: '我点了取消'},
+        {id: 'wait', label: '稍等一下'},
+      ],
+    },
+  ],
+}
+
+export function looksLikeFilePickerHandoff(summary?: string): boolean {
+  const text = summary?.trim() ?? ''
+  if (!text) return false
+  if (text.includes('needs_user') && (text.includes('file_dialog') || text.includes('选文件') || text.includes('不能代你'))) {
+    return true
+  }
+  return text.includes('请你点') && (text.includes('保存') || text.includes('打开'))
+}
+
+export function filePickerHandoffKey(activities: Array<{callId: string; summary?: string}>): string {
+  return activities.filter(item => looksLikeFilePickerHandoff(item.summary)).map(item => item.callId).join('|')
+}

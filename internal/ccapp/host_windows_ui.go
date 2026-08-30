@@ -27,7 +27,10 @@ const (
 
 func (h *windowsHost) ObserveUI(maxNodes int) ([]UINode, error) {
 	if maxNodes <= 0 {
-		maxNodes = 40
+		maxNodes = CcDefaultObserveUINodes
+	}
+	if maxNodes > CcMaxObserveUINodes {
+		maxNodes = CcMaxObserveUINodes
 	}
 	hwnd, _, _ := procGetForegroundWindow.Call()
 	if hwnd == 0 {
@@ -35,6 +38,9 @@ func (h *windowsHost) ObserveUI(maxNodes int) ([]UINode, error) {
 	}
 	_, _, _ = procCoInitializeEx.Call(0, uintptr(windows.COINIT_MULTITHREADED))
 	defer procCoUninitialize.Call()
+	if nodes, err := observeUIAutomation(hwnd, maxNodes); err == nil && len(nodes) > 0 {
+		return nodes, nil
+	}
 	acc := accessibleFromWindow(hwnd)
 	if acc == 0 {
 		return nil, nil
@@ -46,14 +52,14 @@ func (h *windowsHost) ObserveUI(maxNodes int) ([]UINode, error) {
 }
 
 func walkActionable(acc uintptr, nodes *[]UINode, max, depth int) {
-	if acc == 0 || depth > 8 || len(*nodes) >= max {
+	if acc == 0 || depth > 16 || len(*nodes) >= max {
 		return
 	}
 	self := variantI4(0)
 	collectIfActionable(acc, self, nodes, max)
 	var count int32
 	hr, _, _ := syscall.SyscallN(comVtbl(acc, 8), acc, uintptr(unsafe.Pointer(&count)))
-	if hr != 0 || count <= 0 || count > 120 {
+	if hr != 0 || count <= 0 || count > 256 {
 		return
 	}
 	for i := int32(1); i <= count && len(*nodes) < max; i++ {
@@ -79,7 +85,11 @@ func collectIfActionable(acc uintptr, child variant, nodes *[]UINode, max int) b
 	}
 	name := strings.TrimSpace(accName(acc, child))
 	if name == "" {
-		return false
+		name = roleName(role)
+		if name == "" || name == "other" {
+			return false
+		}
+		name = name + " (unnamed)"
 	}
 	if len([]rune(name)) > 80 {
 		name = string([]rune(name)[:80])

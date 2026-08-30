@@ -220,6 +220,27 @@ func TestCompanionSessionInjection(t *testing.T) {
 	}
 }
 
+func TestCompanionWantsToolsForDesktopFollowUp(t *testing.T) {
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	e.noteCompanionToolSuccess("s1", "cc.mouse_click", json.RawMessage(`{"name":"保存"}`), "clicked 保存")
+	if !e.companionWantsToolsForTurn("s1", "继续填表") {
+		t.Fatal("expected tools after recent desktop act")
+	}
+	if e.companionWantsToolsForTurn("s1", "你好") {
+		t.Fatal("idle chat must stay tool-free")
+	}
+	if !companionDesktopToolLoop(e, "s1", "继续") {
+		t.Fatal("DesktopActive session must start the 24-step desktop loop")
+	}
+	if companionDesktopToolLoop(e, "", "今晚月色如何") {
+		t.Fatal("idle chat must keep the short companion loop")
+	}
+}
+
 func TestNoteCompanionDesktopOpen(t *testing.T) {
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {

@@ -185,15 +185,13 @@ describe('MC-06 a11y skeleton', () => {
     // sr-only hiding was the "conversation never shows" bug.
     expect(subtitles.className).not.toContain('sr-only')
     expect(subtitles.textContent).toContain('进入后即可说话')
-    // The voice stage has no legacy toolbar or typing chrome; Phase 2 adds a glass ask bar.
+    // The voice stage has no toolbar, typing chrome, or text ask bar.
     expect(container.querySelector('.companion-controls')).toBeNull()
     expect(container.querySelector('.companion-mic')).toBeNull()
     expect(container.querySelector('.companion-typing')).toBeNull()
     expect(container.querySelector('.companion-tts-toggle')).toBeNull()
     expect(container.querySelector('.companion-type-toggle')).toBeNull()
-    const ask = container.querySelector('.companion-ask') as HTMLElement
-    expect(ask).toBeTruthy()
-    expect(ask.querySelector('input')?.getAttribute('aria-label')).toBe('输入想对月汐说的话')
+    expect(container.querySelector('.companion-ask')).toBeNull()
     // Ghost exit stays reachable for assistive tech.
     const exit = container.querySelector('.companion-exit') as HTMLButtonElement
     expect(exit.getAttribute('aria-label')).toBe('退出月伴对话（Esc）')
@@ -233,20 +231,6 @@ describe('MC-06 zero-mouse operation', () => {
     fireEvent.keyDown(container.querySelector('.companion-exit')!, { key: ' ' })
     expect(stateOf(container)).toBe('idle')
     expect(speech.start).not.toHaveBeenCalled()
-  })
-
-  test('Space inside the glass ask bar does not toggle the mic; Enter sends the line', async () => {
-    const onSend = vi.fn()
-    const { container } = await renderStage({ onSend })
-    await waitFor(() => expect(speech.start).toHaveBeenCalled())
-    speech.start.mockClear()
-    const input = container.querySelector('.companion-ask input') as HTMLInputElement
-    fireEvent.keyDown(input, { key: ' ' })
-    expect(stateOf(container)).toBe('idle')
-    expect(speech.start).not.toHaveBeenCalled()
-    fireEvent.change(input, { target: { value: '帮我看一下屏幕上在干什么' } })
-    fireEvent.submit(container.querySelector('.companion-ask') as HTMLFormElement)
-    expect(onSend).toHaveBeenCalledWith('帮我看一下屏幕上在干什么')
   })
 
   test('clicking the moon in idle opens the microphone', async () => {

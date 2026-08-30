@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/im.inbound.deliver.schema.json",
+  "title": "im.inbound.deliver payload",
+  "x-method": "im.inbound.deliver",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "type": "string", "enum": ["feishu", "wecom"] },
+    "sender": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "messageId": { "type": "string", "maxLength": 128 }
+  },
+  "required": ["kind", "sender", "text"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "accepted": { "type": "boolean" },
+      "sessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "autoRun": { "type": "boolean" },
+      "reason": { "type": "string", "maxLength": 64 }
+    },
+    "required": ["accepted"]
+  },
+  "x-examples": {
+    "positive": [
+      { "kind": "feishu", "sender": "ou_aaa", "text": "打开网易云" },
+      { "kind": "wecom", "sender": "zhangsan", "text": "今天日程", "messageId": "msg_1" }
+    ],
+    "negative": [{}, { "kind": "slack", "sender": "x", "text": "hi" }]
+  }
+}

@@ -207,6 +207,9 @@ func TestCompanionWantsTools(t *testing.T) {
 	if !companionWantsTools("随机播放") {
 		t.Fatal("shuffle play must request tools")
 	}
+	if !companionWantsTools("继续填表") || !companionWantsTools("下一步再点一下") {
+		t.Fatal("desktop follow-through must request tools")
+	}
 }
 
 func TestCompanionOpeningAck(t *testing.T) {

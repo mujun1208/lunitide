@@ -39,7 +39,7 @@ describe('ProfilePanel', () => {
       list: vi.fn(), pair: vi.fn(), discoveryGet: vi.fn(),
       discoverySet: vi.fn(), threadList: vi.fn(), threadOpen: vi.fn(),
       threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
-      threadTyping: vi.fn(), fileStage: vi.fn(), filePick: vi.fn(), screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
+      threadTyping: vi.fn(), fileStage: vi.fn(), fileOpen: vi.fn(), filePick: vi.fn(), screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
     }
     const user = userEvent.setup()
     render(<ProfilePanel identity={identity} people={people} />)
@@ -66,7 +66,7 @@ describe('ProfilePanel', () => {
       list: vi.fn(), pair: vi.fn(), discoveryGet: vi.fn(),
       discoverySet: vi.fn(), threadList: vi.fn(), threadOpen: vi.fn(),
       threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
-      threadTyping: vi.fn(), fileStage: vi.fn(),
+      threadTyping: vi.fn(), fileStage: vi.fn(), fileOpen: vi.fn(),
       filePick: vi.fn().mockResolvedValue({ path: 'C:/Users/mu/Pictures/face.jpg', fileName: 'face.jpg' }),
       screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
     }
@@ -92,7 +92,7 @@ describe('ProfilePanel', () => {
       list: vi.fn(), pair: vi.fn(), discoveryGet: vi.fn(),
       discoverySet: vi.fn(), threadList: vi.fn(), threadOpen: vi.fn(),
       threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
-      threadTyping: vi.fn(), fileStage: vi.fn(), filePick: vi.fn(), screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
+      threadTyping: vi.fn(), fileStage: vi.fn(), fileOpen: vi.fn(), filePick: vi.fn(), screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
     }
     render(<ProfilePanel identity={identity} people={people} />)
     expect(await screen.findByRole('heading', { name: '身份' })).toBeInTheDocument()

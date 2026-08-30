@@ -30,8 +30,9 @@ import { startLocalCompanionSpeech } from './localSpeech'
 import { startVolcCompanionSpeech } from './volc/volcSpeech'
 import { VOLC_ASR_DECISION_MS } from './volc/volcAsr'
 import { pickDefaultVoice } from '../../provider/modelKind'
-import { CompanionAsk } from './CompanionAsk'
 import { CompanionPrompts, shouldShowCompanionPrompts } from './CompanionPrompts'
+import { UserAskWizard } from '../UserAskWizard'
+import type { UserAskPack } from '../userAsk'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
 import { Aurora } from './visual/Aurora'
 import { AURORA_STOPS, auroraForEnter } from './visual/moonVisual'
@@ -64,6 +65,8 @@ export interface CompanionStageProps {
   chatReady: boolean
   /** First user turn when entering from home wake (“你好月汐，查天气”). */
   seedPrompt?: string
+  userAsk?: UserAskPack
+  onUserAsk?: (followUp: string) => void
   onSend: (text: string) => void
   /** Cancel the in-flight LLM stream (interrupt during thinking). */
   onCancel?: () => void
@@ -91,7 +94,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
   return user ? [user, assistant] : [assistant]
 }
 
-export function CompanionStage({ chatStatus, assistantText, activityStatus, error, chatReady, seedPrompt, onSend, onCancel, onExit }: CompanionStageProps): React.JSX.Element {
+export function CompanionStage({ chatStatus, assistantText, activityStatus, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit }: CompanionStageProps): React.JSX.Element {
   const zh = useZh()
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
@@ -971,7 +974,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     const tick = () => {
       const busy = playerRef.current?.isBusy() === true
       setPlayerSounding(current => (current === busy ? current : busy))
-      if (busy && !userInterruptedRef.current) speakingRef.current = true
+      if (busy && !userInterruptedRef.current && stateRef.current !== 'listening' && stateRef.current !== 'idle') speakingRef.current = true
     }
     tick()
     const timer = window.setInterval(tick, 80)
@@ -1023,6 +1026,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
       cancelCaptionFade()
       userInterruptedRef.current = false
+      handledReplyRef.current = false
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
       speakingRef.current = false
@@ -1503,19 +1507,26 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     if (state !== 'thinking' && state !== 'speaking') return
     userInterruptedRef.current = true
     handledReplyRef.current = true
-    cancelReply()
-    armListenLoop()
-    stateRef.current = 'idle'
+    onCancel?.()
+    spokenUpToRef.current = 0
+    dropCompanionPad()
+    playerRef.current?.interrupt()
+    setGain(0)
     speakingRef.current = false
     setAssistantAloud(false)
+    setStreamTick(0)
+    interruptEchoRef.current = true
+    echoUntilRef.current = performance.now() + INTERRUPT_ECHO_MS
+    armListenLoop()
+    machine.dispatch({ type: 'MIC_CLICK_WHILE_SPEAKING' })
+    stateRef.current = 'listening'
+    syncSpeechModes()
     speechHandleRef.current?.resumeCapture()
     captionHandleRef.current?.resumeCapture()
-    syncSpeechModes()
-    machine.dispatch({ type: 'MIC_ACTIVATE' })
     if (!speechHandleRef.current && !captionHandleRef.current) {
       startListening(false)
     }
-  }, [armListenLoop, cancelReply, machine, startListening, syncSpeechModes])
+  }, [armListenLoop, machine, onCancel, startListening, syncSpeechModes])
 
   const toggleMic = useCallback(() => {
     unlockTtsAudio()
@@ -1699,18 +1710,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         language={zh ? 'zh' : 'en'}
         onPick={beginUserTurn}
       />
-      <CompanionAsk
-        language={zh ? 'zh' : 'en'}
-        onSend={text => {
-          if (stateRef.current === 'thinking' || stateRef.current === 'speaking') {
-            staleReplyRef.current = assistantTextRef.current
-            userInterruptedRef.current = true
-            handledReplyRef.current = true
-            cancelReply()
-          }
-          beginUserTurn(text)
-        }}
-      />
+      {userAsk && onUserAsk && (
+        <UserAskWizard pack={userAsk} busy={chatStatus === 'streaming'} onSubmit={onUserAsk} />
+      )}
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${surfaceState}`} aria-hidden="true" />
         {companionStatusLabel(surfaceState, executing)}

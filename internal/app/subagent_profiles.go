@@ -122,8 +122,8 @@ func sanitizeCustomProfiles(in []subagentProfileDef) []subagentProfileDef {
 		if maxSteps < 1 {
 			maxSteps = subagentMaxSteps
 		}
-		if maxSteps > 8 {
-			maxSteps = 8
+		if maxSteps > subagentMaxSteps {
+			maxSteps = subagentMaxSteps
 		}
 		budget := p.BudgetTokens
 		if budget < 1000 {
@@ -202,35 +202,35 @@ func builtinSubagentProfiles() map[string]subagentProfileDef {
 			Description:  "Read-only codebase search agent for broad fan-out lookups.",
 			SystemPrompt: "You are the Explore subagent: search and read the workspace read-only. Use listing, glob, grep and file reads. Return one concise report with paths and findings (max 2000 characters). Do not write files or run mutating commands.",
 			ReadCaps:     []string{"fs.read", "fs.readMany", "fs.glob", "fs.grep", "fs.tree", "fs.stat"},
-			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"research": {
 			ID: "research", DisplayName: "Research", Builtin: true,
 			Description:  "Web search and page fetch for market or documentation research.",
 			SystemPrompt: "You are the Research subagent: use web.search and web.fetch only. Summarize sources with URLs in one report (max 2000 characters). Do not invent sources.",
 			ReadCaps:     []string{"web.search", "web.fetch"},
-			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"general-purpose": {
 			ID: "general-purpose", DisplayName: "General purpose", Builtin: true,
 			Description:  "General-purpose agent for multi-step read-only investigation.",
 			SystemPrompt: "You are a general-purpose read-only subagent. Investigate using workspace reads, allowlisted commands, and web tools as needed. Return one concise report (max 2000 characters).",
 			ReadCaps:     defaultSubagentProfileCaps(),
-			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"review": {
 			ID: "review", DisplayName: "Review", Builtin: true,
 			Description:  "Structured code/doc review with path:line references.",
 			SystemPrompt: "You are the Review subagent: read-only code and doc review. Report findings as 严重/建议 with file paths; cite path:line when possible. Max 2000 characters.",
 			ReadCaps:     []string{"fs.read", "fs.readMany", "fs.grep", "fs.tree", "fs.stat"},
-			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"browser": {
 			ID: "browser", DisplayName: "Browser", Builtin: true,
 			Description:  "Navigate and read public pages through the restricted browser channel.",
 			SystemPrompt: "You are the Browser subagent: use browser.act navigate/read and web.fetch for public pages. Filter noise; return only relevant excerpts and URLs (max 2000 characters).",
 			ReadCaps:     []string{"web.fetch", "web.search", "browser.act:navigate", "browser.act:read", "browser.act:snapshot"},
-			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"shell": {
 			ID: "shell", DisplayName: "Shell", Builtin: true,
@@ -251,7 +251,7 @@ func builtinSubagentProfiles() map[string]subagentProfileDef {
 			Description:  "Finds test gaps and suggests cases using read-only tools.",
 			SystemPrompt: "You are the Test subagent: read code read-only, infer test gaps, suggest cases and commands. Max 2000 characters.",
 			ReadCaps:     []string{"fs.read", "fs.grep", "fs.glob", "fs.tree"},
-			MaxSteps:     4, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 	}
 }
@@ -292,6 +292,9 @@ func resolveSubagentProfile(policy subagentChatPolicy, profileID string) (subage
 	}
 	def.ReadCaps = filtered
 	if def.MaxSteps < 1 {
+		def.MaxSteps = subagentMaxSteps
+	}
+	if def.MaxSteps > subagentMaxSteps {
 		def.MaxSteps = subagentMaxSteps
 	}
 	if def.BudgetTokens < 1000 {

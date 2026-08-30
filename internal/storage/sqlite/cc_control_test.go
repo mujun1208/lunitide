@@ -35,6 +35,8 @@ type fakeCcHost struct {
 	png         []byte
 	originX     int
 	originY     int
+	screens     int
+	screenIndex int
 	cursorX     int
 	cursorY     int
 	drags       [][4]int
@@ -53,6 +55,8 @@ type fakeCcHost struct {
 	values      [][2]string
 	invokes     []string
 	invokeFail  map[string]error
+	ensured     int
+	holds       []string
 }
 
 func newFakeCcHost() *fakeCcHost {
@@ -63,6 +67,24 @@ func newFakeCcHost() *fakeCcHost {
 func (f *fakeCcHost) Available() bool { return f.available }
 func (f *fakeCcHost) ScreenSize() (int, int) {
 	return f.w, f.h
+}
+func (f *fakeCcHost) ScreenCount() int {
+	if f.screens > 0 {
+		return f.screens
+	}
+	return 1
+}
+func (f *fakeCcHost) ScreenIndexAt(x, y int) int {
+	if f.screenIndex > 0 {
+		return f.screenIndex
+	}
+	if f.ScreenCount() <= 1 {
+		return 1
+	}
+	if x < f.originX+f.w/f.ScreenCount() {
+		return 1
+	}
+	return f.ScreenCount()
 }
 func (f *fakeCcHost) ScreenOrigin() (int, int) { return f.originX, f.originY }
 func (f *fakeCcHost) CursorPosition() (int, int, error) {
@@ -88,6 +110,14 @@ func (f *fakeCcHost) KeyboardShortcut(keys []string) error {
 	f.shortcuts = append(f.shortcuts, keys)
 	return nil
 }
+func (f *fakeCcHost) HoldKey(key string, down bool) error {
+	mark := "+"
+	if !down {
+		mark = "-"
+	}
+	f.holds = append(f.holds, key+mark)
+	return nil
+}
 func (f *fakeCcHost) MouseScroll(notches int) error {
 	return nil
 }
@@ -96,7 +126,10 @@ func (f *fakeCcHost) MouseDrag(x1, y1, x2, y2 int) error {
 	f.drags = append(f.drags, [4]int{x1, y1, x2, y2})
 	return nil
 }
-func (f *fakeCcHost) EnsureForeground() error { return nil }
+func (f *fakeCcHost) EnsureForeground() error {
+	f.ensured++
+	return nil
+}
 func (f *fakeCcHost) ScreenCapture() ([]byte, error) {
 	f.captures++
 	if len(f.png) > 0 {
@@ -251,6 +284,23 @@ func enableCc(t *testing.T, svc *ccapp.Service, mutate func(*ccapp.SettingsPatch
 		t.Fatal(err)
 	}
 	return out
+}
+
+func withFrame(t *testing.T, svc *ccapp.Service, body string) []byte {
+	t.Helper()
+	id := svc.CurrentFrameID()
+	if id == "" {
+		t.Fatal("expected frameId after capture")
+	}
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		t.Fatalf("json object required, got %s", body)
+	}
+	inner := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if inner == "" {
+		return []byte(`{"frameId":"` + id + `"}`)
+	}
+	return []byte(`{` + inner + `,"frameId":"` + id + `"}`)
 }
 
 // M10-CC-012: every tool call fails closed while disabled.
@@ -610,7 +660,7 @@ func TestCcMouseMoveMapsVisionPixelsToDesktop(t *testing.T) {
 	vx, vy := visW/2, visH/2
 	wantX, wantY := ccapp.MapCapturePoint(vx, vy, visW, visH, deskW, deskH)
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove,
-		[]byte(fmt.Sprintf(`{"x":%d,"y":%d}`, vx, vy)), false); err != nil {
+		withFrame(t, svc, fmt.Sprintf(`{"x":%d,"y":%d}`, vx, vy)), false); err != nil {
 		t.Fatal(err)
 	}
 	if len(host.moves) != 1 || host.moves[0] != [2]int{wantX, wantY} {
@@ -640,7 +690,7 @@ func TestCcMouseDragMapsVisionPixelsToDesktop(t *testing.T) {
 	mx2, my2 := ccapp.MapCapturePoint(x2, y2, visW, visH, deskW, deskH)
 	want := [4]int{host.originX + mx1, host.originY + my1, host.originX + mx2, host.originY + my2}
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag,
-		[]byte(fmt.Sprintf(`{"x1":%d,"y1":%d,"x2":%d,"y2":%d}`, x1, y1, x2, y2)), true); err != nil {
+		withFrame(t, svc, fmt.Sprintf(`{"x1":%d,"y1":%d,"x2":%d,"y2":%d}`, x1, y1, x2, y2)), true); err != nil {
 		t.Fatal(err)
 	}
 	if len(host.drags) != 1 || host.drags[0] != want {
@@ -757,7 +807,7 @@ func TestCcOpenClawParityTools(t *testing.T) {
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag, []byte(`{"x1":10,"y1":10,"x2":40,"y2":40}`), true); err != nil {
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag, withFrame(t, svc, `{"x1":10,"y1":10,"x2":40,"y2":40}`), true); err != nil {
 		t.Fatal(err)
 	}
 	if len(host.drags) != 1 {
@@ -814,7 +864,7 @@ func TestCcNamedClickByObserveIDInvokesAccessibilityName(t *testing.T) {
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false); err != nil {
 		t.Fatal(err)
 	}
-	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"id":"B1"}`), true)
+	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"id":"B1"}`), true)
 	if err != nil || !strings.Contains(named.Summary, "invoked") {
 		t.Fatalf("id click: %v %s", err, named.Summary)
 	}
@@ -859,7 +909,7 @@ func TestCcClickMapsImagePixelsThroughCaptureOrigin(t *testing.T) {
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
 		t.Fatal(err)
 	}
-	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"x":40,"y":80,"button":"left"}`), true)
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"x":40,"y":80,"button":"left"}`), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,7 +938,7 @@ func TestCcWindowCaptureRemapsClicksIntoWindow(t *testing.T) {
 	if !strings.Contains(cap.Summary, "window") {
 		t.Fatalf("window capture summary %q", cap.Summary)
 	}
-	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, []byte(`{"x":10,"y":20}`), false); err != nil {
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, withFrame(t, svc, `{"x":10,"y":20}`), false); err != nil {
 		t.Fatal(err)
 	}
 	if len(host.moves) != 1 || host.moves[0] != [2]int{110, 70} {
@@ -1273,5 +1323,243 @@ func TestCcWindowFocusByProcess(t *testing.T) {
 	}
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolWindowFocus, []byte(`{}`), true); !errors.Is(err, ccapp.ErrCcInputFiltered) {
 		t.Fatalf("empty focus query: %v", err)
+	}
+}
+
+func TestCcCoordinateActionsRequireFrameID(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 200, 100)
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	id := svc.CurrentFrameID()
+	if id == "" || !strings.HasPrefix(id, "frm_") {
+		t.Fatalf("frameId %q", id)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, []byte(`{"x":10,"y":10}`), false); !errors.Is(err, ccapp.ErrCcInputFiltered) || !strings.Contains(err.Error(), "COMPUTER_STALE_FRAME") {
+		t.Fatalf("missing frameId: %v", err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, []byte(`{"x":10,"y":10,"frameId":"frm_stale"}`), false); !errors.Is(err, ccapp.ErrCcInputFiltered) || !strings.Contains(err.Error(), "COMPUTER_STALE_FRAME") {
+		t.Fatalf("stale frameId: %v", err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, withFrame(t, svc, `{"x":10,"y":10}`), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCcVerifyUnchangedKeepsCurrentFrame(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 160, 90)
+
+	cap, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeID := svc.CurrentFrameID()
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"button":"left"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.CapturePNG) == 0 || !strings.Contains(out.Summary, "screen unchanged") {
+		t.Fatalf("unchanged verify must keep the image, summary=%q png=%d", out.Summary, len(out.CapturePNG))
+	}
+	if svc.CurrentFrameID() != beforeID {
+		t.Fatalf("unchanged pixels must keep frameId %s, got %s", beforeID, svc.CurrentFrameID())
+	}
+	if !strings.Contains(cap.Summary, "frameId=") || !strings.Contains(out.Summary, beforeID) {
+		t.Fatalf("summaries missing frameId: cap=%q out=%q", cap.Summary, out.Summary)
+	}
+}
+
+func TestComputerActExpandsOntoCcTools(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 120, 80)
+
+	cap, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, []byte(`{"action":"screenshot"}`), true)
+	if err != nil || len(cap.CapturePNG) == 0 {
+		t.Fatalf("screenshot act: %v png=%d", err, len(cap.CapturePNG))
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, withFrame(t, svc, `{"action":"click","x":8,"y":8}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.clicks) != 1 {
+		t.Fatalf("clicks=%v", host.clicks)
+	}
+
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, withFrame(t, svc, `{"action":"click","x":8,"y":8,"modifiers":["ctrl"]}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.holds) < 2 || host.holds[len(host.holds)-2] != "ctrl+" || host.holds[len(host.holds)-1] != "ctrl-" {
+		t.Fatalf("ctrl-click must down then up modifiers, holds=%v", host.holds)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, []byte(`{"action":"hold_key","key":"shift"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.holds) == 0 || host.holds[len(host.holds)-1] != "shift+" {
+		t.Fatalf("hold_key: %v", host.holds)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, []byte(`{"action":"key_up","key":"shift"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if host.holds[len(host.holds)-1] != "shift-" {
+		t.Fatalf("key_up: %v", host.holds)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, withFrame(t, svc, `{"action":"click","x":8,"y":8,"modifiers":["super"]}`), true); err == nil {
+		t.Fatal("unknown modifier must fail closed")
+	}
+}
+
+func TestCcObserveUIFilePickerHandoff(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 64, 64)
+	host.title, host.process = "另存为", "winword.exe"
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 10, Y: 10, W: 40, H: 20}}
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.Summary, `"refused"`) {
+		t.Fatalf("file picker must stay visible, got %s", out.Summary)
+	}
+	if !strings.Contains(out.Summary, `"handoff":"file_dialog"`) || !strings.Contains(out.Summary, "needs_user") {
+		t.Fatalf("expected handoff, got %s", out.Summary)
+	}
+	if !strings.Contains(out.Summary, `"name":"保存"`) {
+		t.Fatalf("expected listed buttons, got %s", out.Summary)
+	}
+}
+
+func TestCcCoordinateActionsRejectDisplayResize(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 200, 100)
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	host.w, host.h = 1280, 720
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, withFrame(t, svc, `{"x":10,"y":10}`), false); !errors.Is(err, ccapp.ErrCcInputFiltered) || !strings.Contains(err.Error(), "display topology changed") {
+		t.Fatalf("resized display should stale the frame: %v", err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, withFrame(t, svc, `{"x":10,"y":10}`), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCcCoordinateActionsRejectDisplayOriginAndCount(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 200, 100)
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	host.originX = -1920
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, withFrame(t, svc, `{"x":10,"y":10}`), false); !errors.Is(err, ccapp.ErrCcInputFiltered) || !strings.Contains(err.Error(), "display topology changed") {
+		t.Fatalf("origin shift should stale the frame: %v", err)
+	}
+	host.originX = 0
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	host.screens = 2
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseMove, withFrame(t, svc, `{"x":10,"y":10}`), false); !errors.Is(err, ccapp.ErrCcInputFiltered) || !strings.Contains(err.Error(), "display topology changed") {
+		t.Fatalf("monitor count change should stale the frame: %v", err)
+	}
+}
+
+func TestCcCaptureSummaryBindsScreenIndex(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 120, 80)
+	host.screens = 2
+	host.screenIndex = 2
+	desk, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{"target":"desktop"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(desk.Summary, "screenIndex=0") || !strings.Contains(desk.Summary, "screens=2") {
+		t.Fatalf("desktop shot must be virtual index 0, got %q", desk.Summary)
+	}
+	if !strings.HasSuffix(svc.CurrentFrameID(), "s0") {
+		t.Fatalf("desktop frameId suffix: %s", svc.CurrentFrameID())
+	}
+	host.winX, host.winY = 2000, 40
+	win, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{"target":"foreground"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(win.Summary, "screenIndex=2") {
+		t.Fatalf("window shot must bind monitor index, got %q", win.Summary)
+	}
+	if !strings.HasSuffix(svc.CurrentFrameID(), "s2") {
+		t.Fatalf("window frameId suffix: %s", svc.CurrentFrameID())
+	}
+}
+
+func TestCcTypeRestoresLastWindowWhenCompanionForeground(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 64, 64)
+	host.title, host.process = "Untitled - Notepad", "notepad.exe"
+	host.windows = []ccapp.WindowInfo{
+		{ID: "0xA", Title: "Lunitide", Process: "lunitide.exe", W: 400, H: 300},
+		{ID: "0xB", Title: "Untitled - Notepad", Process: "notepad.exe", Foreground: true, W: 800, H: 600},
+	}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardType, []byte(`{"text":"hello"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	host.title, host.process = "Lunitide", "lunitide.exe"
+	host.windows[0].Foreground = true
+	host.windows[1].Foreground = false
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardType, []byte(`{"text":"world"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if host.process != "notepad.exe" {
+		t.Fatalf("companion FG must restore last app, process=%s focused=%v", host.process, host.focused)
+	}
+	if len(host.focused) == 0 {
+		t.Fatal("expected FocusWindow to restore the last non-companion app")
+	}
+}
+
+func TestComputerActAuditsAsOwnTool(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 80, 60)
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, []byte(`{"action":"screenshot"}`), true); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := svc.GetAuditLog(ctx, 20, "", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Tool == ccapp.ToolComputerAct {
+			found = true
+			if !strings.Contains(e.Detail, `"mapped"`) && !strings.Contains(e.Detail, "cc.screen_capture") {
+				t.Fatalf("computer.act audit should record mapped cc tool: %s", e.Detail)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected computer.act ledger row, got %#v", entries)
 	}
 }

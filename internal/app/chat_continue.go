@@ -10,9 +10,10 @@ import (
 // calls counts as one step. 6 was enough for a single lookup but stopped
 // batch work (install many skills, multi-file edits) mid-task.
 const (
-	maxToolLoopSteps  = 24
-	maxContinueNudges = 3
-	continueNudgeText = "继续执行用户的指令直到完成。不要停下来询问、不要等待确认、不要只做勘查后结束本轮。立刻继续调用工具。仅在任务已完成，或缺少无法推断的必要信息/权限时，才给出最终说明。"
+	maxToolLoopSteps         = 24
+	maxContinueNudges        = 3
+	maxDesktopContinueNudges = 5
+	continueNudgeText        = "继续执行用户的指令直到完成。不要停下来询问、不要等待确认、不要只做勘查后结束本轮。立刻继续调用工具。仅在任务已完成，或缺少无法推断的必要信息/权限时，才给出最终说明。"
 )
 
 // assistantPausedMidTask reports whether the model clearly stopped to ASK the
@@ -53,4 +54,77 @@ func shouldContinueTurn(text string, usedTools bool, nudges int, disableReasonin
 
 func continueNudgeMessage() gateway.Message {
 	return gateway.Message{Role: gateway.RoleSystem, Content: continueNudgeText}
+}
+
+const desktopContinueNudgeText = "桌面操作还没做完。根据最新截图的 frameId 继续 see→act→verify，不要停下来闲聊。画面没变也要用当前帧，不要用点之前的图。做完用一句结果收尾；遇到打开/保存对话框就请用户去点。"
+
+func desktopContinueNudgeMessage() gateway.Message {
+	return gateway.Message{Role: gateway.RoleSystem, Content: desktopContinueNudgeText}
+}
+
+func isDesktopControlTool(name string) bool {
+	return strings.HasPrefix(name, "cc.") || name == "computer.act" || name == "desktop.type"
+}
+
+func shouldContinueDesktopTurn(text string, nudges int) bool {
+	if nudges >= maxDesktopContinueNudges {
+		return false
+	}
+	return !desktopTurnSettled(text)
+}
+
+func companionWantsDesktopControl(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	if looksLikeTypeAfterLabelTurn(t) {
+		return true
+	}
+	lower := strings.ToLower(t)
+	for _, needle := range []string{
+		"截图", "屏幕", "对话框", "点击", "鼠标", "电脑", "填写", "输入", "证件",
+		"填表", "再点", "帮我点", "打字", "点一下", "点按钮", "记事本",
+		"word", "notepad",
+	} {
+		if strings.Contains(t, needle) || strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	if strings.Contains(t, "桌面") && (strings.Contains(t, "点") || strings.Contains(t, "填") || strings.Contains(t, "写") || strings.Contains(t, "操作")) {
+		return true
+	}
+	return false
+}
+
+func companionDesktopToolLoop(e *Engine, sessionID, goal string) bool {
+	if companionWantsDesktopControl(goal) {
+		return true
+	}
+	if e != nil && sessionID != "" {
+		ctx := e.loadCompanionContext(sessionID)
+		if ctx.DesktopActive {
+			return true
+		}
+	}
+	return false
+}
+
+func desktopTurnSettled(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || isCompanionLeadInOnly(t) {
+		return false
+	}
+	lower := strings.ToLower(t)
+	for _, m := range []string{
+		"请你点", "请你在", "需要你点", "needs_user", "无法执行",
+		"已经写", "已经填",
+		"写上了", "填好了", "填完了",
+		"我点不了", "保存对话框",
+	} {
+		if strings.Contains(lower, strings.ToLower(m)) {
+			return true
+		}
+	}
+	return false
 }

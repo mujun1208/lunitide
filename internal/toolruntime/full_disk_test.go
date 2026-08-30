@@ -20,6 +20,17 @@ func enableFullDisk(t *testing.T, r *Runtime) {
 	}
 }
 
+func TestOpenWithoutPolicyFileKeepsFullDiskOff(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.FullDiskEnabled() {
+		t.Fatal("missing command-policy.json must not enable fullAccess")
+	}
+}
+
 func TestFullDiskPolicyLoadAndHotApply(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "command-policy.json"), []byte(`{"commands":[],"fullAccess":true}`), 0600); err != nil {

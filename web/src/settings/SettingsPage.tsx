@@ -965,6 +965,7 @@ const CC_TOOL_LABELS: Record<string, string> = {
   'cc.observe_ui': '界面节点', 'cc.wait': '等待界面', 'cc.clipboard': '剪贴板',
   'cc.window_action': '窗口操作', 'cc.app_list': '应用列表', 'cc.app_quit': '退出应用',
   'cc.paste': '粘贴', 'cc.press': '按键', 'cc.menu_click': '菜单', 'cc.set_value': '填写控件',
+  'computer.act': '电脑操作',
 }
 const CC_LEVEL_META: Record<'standard' | 'strict', { label: string; desc: string }> = {
   standard: { label: '标准', desc: '高危操作（组合键等）需人工确认；极高风险默认拦截' },
@@ -974,6 +975,9 @@ const CC_LEVEL_META: Record<'standard' | 'strict', { label: string; desc: string
 export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): React.JSX.Element {
   const [channels, setChannels] = useState<ImChannelsGetResult['channels']>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [allowDrafts, setAllowDrafts] = useState<Record<string, string>>({})
+  const [appIdDrafts, setAppIdDrafts] = useState<Record<string, string>>({})
+  const [secretDrafts, setSecretDrafts] = useState<Record<string, string>>({})
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -983,6 +987,8 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
       const r = await bridge.get()
       setChannels(r.channels)
       setDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.webhookUrl])))
+      setAllowDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.inboundAllowlist])))
+      setAppIdDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.inboundAppId])))
       setStatus('')
     } catch (e) {
       setStatus(e instanceof Error ? e.message : '消息通道加载失败')
@@ -996,6 +1002,9 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
       const r = await bridge.set(p)
       setChannels(r.channels)
       setDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.webhookUrl])))
+      setAllowDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.inboundAllowlist])))
+      setAppIdDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.inboundAppId])))
+      setSecretDrafts(d => ({ ...d, [p.kind]: '' }))
       setStatus(okMsg)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : '保存失败')
@@ -1003,20 +1012,21 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
   }
 
   const webhookKind = (kind: string) => kind === 'feishu' || kind === 'wecom' || kind === 'dingtalk'
+  const inboundKind = (kind: string) => kind === 'feishu' || kind === 'wecom'
   const modeLabel = (mode: string) => mode === 'webhook' ? '机器人 Webhook' : mode === 'desktop' ? '本机客户端' : '未启用'
 
   return (
     <div className="setting-group">
       <div className="setting-group-title">消息通道</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">飞书 / 企业微信 / 钉钉：粘贴群机器人 https Webhook。微信 / QQ：使用本机已登录的桌面客户端，不经过公网网关。对月伴说「发给飞书…」即可。</div>
+        <div className="setting-desc">飞书 / 企业微信 / 钉钉：粘贴群机器人 https Webhook。微信 / QQ：使用本机已登录的桌面客户端，不经过公网网关。对月伴说「发给飞书…」即可。飞书 / 企微入站默认关闭，只接受白名单发送者，本机向外长连接，不开放公网端口。</div>
       </div>
       {channels.map(ch => (
         <div key={ch.kind} className="setting-row im-channel-row" style={{ gridTemplateColumns: '1fr' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
               <div className="setting-label">{ch.label}</div>
-              <div className="setting-desc">当前：{modeLabel(ch.mode)}{ch.desktopApp ? ` · 客户端 ${ch.desktopApp}` : ''}</div>
+              <div className="setting-desc">当前：{modeLabel(ch.mode)}{ch.desktopApp ? ` · 客户端 ${ch.desktopApp}` : ''}{inboundKind(ch.kind) ? ` · 入站${ch.inboundEnabled ? '已开' : '关闭'}` : ''}</div>
             </div>
             <button disabled={busy} onClick={() => void apply({ kind: ch.kind, enabled: !ch.enabled }, ch.enabled ? `${ch.label}已关闭` : `${ch.label}已启用`)}>{ch.enabled ? '停用' : '启用'}</button>
           </div>
@@ -1031,6 +1041,46 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
           ) : (
             <div className="setting-desc">启用后，月伴打开已登录的{ch.desktopApp}再输入。本机没有该软件时无法发送。</div>
           )}
+          {inboundKind(ch.kind) ? (
+            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+              <div className="setting-desc">入站默认关闭。白名单为空则无法开启。飞书填写 App ID/Secret 后由本机向外长连接；企微通过本机桥接投递。都不监听公网端口。</div>
+              <textarea className="setting-input" style={{ minHeight: 64, fontFamily: 'var(--mono)', fontSize: 12 }}
+                value={allowDrafts[ch.kind] ?? ''} placeholder="发送者 open_id / 邮箱，一行一个"
+                aria-label={`${ch.label} 入站白名单`}
+                onChange={ev => setAllowDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input className="setting-input" style={{ flex: 1, minWidth: 160, fontFamily: 'var(--mono)', fontSize: 12 }}
+                  value={appIdDrafts[ch.kind] ?? ''} placeholder="应用 App ID（可选）"
+                  aria-label={`${ch.label} 入站 App ID`}
+                  onChange={ev => setAppIdDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
+                <input className="setting-input" style={{ flex: 1, minWidth: 160, fontFamily: 'var(--mono)', fontSize: 12 }} type="password"
+                  value={secretDrafts[ch.kind] ?? ''} placeholder={ch.inboundHasSecret ? '已保存，留空不改' : '应用 App Secret'}
+                  aria-label={`${ch.label} 入站 App Secret`}
+                  onChange={ev => setSecretDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
+              </div>
+              <label className="setting-desc" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="checkbox" checked={ch.inboundAutoRun} disabled={busy || !ch.inboundEnabled}
+                  aria-label={`${ch.label} 入站自动执行`}
+                  onChange={ev => void apply({ kind: ch.kind, inboundAutoRun: ev.target.checked }, ev.target.checked ? `${ch.label}入站将自动执行` : `${ch.label}入站只写入会话`)} />
+                白名单消息自动跑一轮对话（默认关闭，只写入「{ch.label} · 入站」会话）
+              </label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button disabled={busy} onClick={() => void apply({
+                  kind: ch.kind,
+                  inboundEnabled: !ch.inboundEnabled,
+                  inboundAllowlist: (allowDrafts[ch.kind] ?? '').trim(),
+                  inboundAppId: (appIdDrafts[ch.kind] ?? '').trim(),
+                  ...(secretDrafts[ch.kind]?.trim() ? { inboundAppSecret: secretDrafts[ch.kind].trim() } : {}),
+                }, ch.inboundEnabled ? `${ch.label}入站已关闭` : `${ch.label}入站已启用`)}>{ch.inboundEnabled ? '关闭入站' : '开启入站'}</button>
+                <button disabled={busy} onClick={() => void apply({
+                  kind: ch.kind,
+                  inboundAllowlist: (allowDrafts[ch.kind] ?? '').trim(),
+                  inboundAppId: (appIdDrafts[ch.kind] ?? '').trim(),
+                  ...(secretDrafts[ch.kind]?.trim() ? { inboundAppSecret: secretDrafts[ch.kind].trim() } : {}),
+                }, `${ch.label}入站名单已保存`)}>保存入站设置</button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ))}
       {status && <p className="notice" role="status">{status}</p>}
@@ -1235,7 +1285,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
 
           <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
             <div className="setting-group-title" style={{ marginTop: 8 }}>频率与确认</div>
-            <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--muted)', maxWidth: 560 }}>每分钟最大操作数（1–120，默认 30）
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--muted)', maxWidth: 560 }}>每分钟最大操作数（1–120，默认 60）
               <div style={{ display: 'flex', gap: 8 }}>
                 <input className="setting-input" style={{ width: 120, fontFamily: 'var(--mono)' }} inputMode="numeric" value={rateDraft} onChange={ev => setRateDraft(ev.target.value.replace(/\D/g, ''))} aria-label="每分钟最大操作数" />
                 <button disabled={busy || rateDraft === '' || Number(rateDraft) === settings.maxActionsPerMinute} onClick={() => void patch({ maxActionsPerMinute: Number(rateDraft) }, '频率上限已保存')}>保存</button>

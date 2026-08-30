@@ -26,9 +26,14 @@ func handleImChannelsGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 
 func handleImChannelsSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Kind       string  `json:"kind"`
-		Enabled    *bool   `json:"enabled"`
-		WebhookURL *string `json:"webhookUrl"`
+		Kind             string  `json:"kind"`
+		Enabled          *bool   `json:"enabled"`
+		WebhookURL       *string `json:"webhookUrl"`
+		InboundEnabled   *bool   `json:"inboundEnabled"`
+		InboundAllowlist *string `json:"inboundAllowlist"`
+		InboundAutoRun   *bool   `json:"inboundAutoRun"`
+		InboundAppID     *string `json:"inboundAppId"`
+		InboundAppSecret *string `json:"inboundAppSecret"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "im.channels.set 参数无效", false)
@@ -40,12 +45,22 @@ func handleImChannelsSet(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "不支持的消息通道", false)
 	}
-	items, err := e.imChannels.Set(ctx, kind, p.Enabled, p.WebhookURL)
+	items, err := e.imChannels.Set(ctx, kind, imapp.ChannelPatch{
+		Enabled: p.Enabled, WebhookURL: p.WebhookURL,
+		InboundEnabled: p.InboundEnabled, InboundAllowlist: p.InboundAllowlist,
+		InboundAutoRun: p.InboundAutoRun, InboundAppID: p.InboundAppID, InboundAppSecret: p.InboundAppSecret,
+	})
 	if err != nil {
 		if errors.Is(err, scheduler.ErrWebhookInvalid) {
 			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "Webhook 地址无效：仅支持飞书/企微/钉钉的 https 机器人地址", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", err.Error(), false)
+		if errors.Is(err, imapp.ErrInboundAllowlist) {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "开启入站前请填写发送者白名单", false)
+		}
+		if errors.Is(err, imapp.ErrInboundKind) {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "仅飞书和企业微信支持入站", false)
+		}
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "消息通道设置无效", false)
 	}
 	return bridge.Success(r.ID, map[string]any{"channels": items})
 }

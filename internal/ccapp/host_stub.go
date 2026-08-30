@@ -24,6 +24,7 @@ func (unavailableHost) MouseClick(button string, clicks int) error {
 func (unavailableHost) MouseDrag(int, int, int, int) error   { return ErrCcEngineUnavailable }
 func (unavailableHost) KeyboardType(text string) error       { return ErrCcEngineUnavailable }
 func (unavailableHost) KeyboardShortcut(keys []string) error { return ErrCcEngineUnavailable }
+func (unavailableHost) HoldKey(string, bool) error           { return ErrCcEngineUnavailable }
 func (unavailableHost) MouseScroll(int) error                { return ErrCcEngineUnavailable }
 func (unavailableHost) MouseScrollH(int) error               { return ErrCcEngineUnavailable }
 func (unavailableHost) EnsureForeground() error              { return ErrCcEngineUnavailable }

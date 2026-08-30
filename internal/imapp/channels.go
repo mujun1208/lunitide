@@ -31,19 +31,25 @@ var AllKinds = []Kind{KindFeishu, KindWeCom, KindDingTalk, KindWeChat, KindQQ}
 
 // Channel is one persisted IM destination.
 type Channel struct {
-	Kind       Kind   `json:"kind"`
-	Label      string `json:"label"`
-	Enabled    bool   `json:"enabled"`
-	WebhookURL string `json:"webhookUrl"`
-	Mode       string `json:"mode"`
-	DesktopApp string `json:"desktopApp"`
-	UpdatedAt  string `json:"updatedAt"`
+	Kind             Kind   `json:"kind"`
+	Label            string `json:"label"`
+	Enabled          bool   `json:"enabled"`
+	WebhookURL       string `json:"webhookUrl"`
+	Mode             string `json:"mode"`
+	DesktopApp       string `json:"desktopApp"`
+	InboundEnabled   bool   `json:"inboundEnabled"`
+	InboundAllowlist string `json:"inboundAllowlist"`
+	InboundAutoRun   bool   `json:"inboundAutoRun"`
+	InboundAppID     string `json:"inboundAppId"`
+	InboundHasSecret bool   `json:"inboundHasSecret"`
+	InboundAppSecret string `json:"-"`
+	UpdatedAt        string `json:"updatedAt"`
 }
 
 // Store persists the five channel rows.
 type Store interface {
 	ListIMChannels(ctx context.Context) ([]Channel, error)
-	UpsertIMChannel(ctx context.Context, kind Kind, enabled *bool, webhookURL *string) ([]Channel, error)
+	UpsertIMChannel(ctx context.Context, kind Kind, patch ChannelPatch) ([]Channel, error)
 }
 
 // Service is the Settings + im.send surface.
@@ -114,6 +120,19 @@ func Normalize(ch Channel) Channel {
 	if !webhookAllowed(ch.Kind) {
 		ch.WebhookURL = ""
 	}
+	ch.InboundAllowlist = NormalizeAllowlist(ch.InboundAllowlist)
+	ch.InboundAppID = strings.TrimSpace(ch.InboundAppID)
+	if !inboundAllowed(ch.Kind) {
+		ch.InboundEnabled = false
+		ch.InboundAllowlist = ""
+		ch.InboundAutoRun = false
+		ch.InboundAppID = ""
+		ch.InboundAppSecret = ""
+		ch.InboundHasSecret = false
+	}
+	if !ch.InboundEnabled {
+		ch.InboundAutoRun = false
+	}
 	ch.Mode = "off"
 	if ch.Enabled && ch.WebhookURL != "" {
 		ch.Mode = "webhook"
@@ -138,23 +157,23 @@ func (s *Service) List(ctx context.Context) ([]Channel, error) {
 	}
 	for _, kind := range AllKinds {
 		if ch, ok := byKind[kind]; ok {
-			out = append(out, ch)
+			out = append(out, ch.Public())
 			continue
 		}
-		out = append(out, Normalize(Channel{Kind: kind}))
+		out = append(out, Normalize(Channel{Kind: kind}).Public())
 	}
 	return out, nil
 }
 
-func (s *Service) Set(ctx context.Context, kind Kind, enabled *bool, webhookURL *string) ([]Channel, error) {
+func (s *Service) Set(ctx context.Context, kind Kind, patch ChannelPatch) ([]Channel, error) {
 	if s == nil || s.store == nil {
 		return nil, errors.New("imapp: store unavailable")
 	}
 	if _, err := ParseKind(string(kind)); err != nil {
 		return nil, err
 	}
-	if webhookURL != nil {
-		url := strings.TrimSpace(*webhookURL)
+	if patch.WebhookURL != nil {
+		url := strings.TrimSpace(*patch.WebhookURL)
 		if url != "" {
 			if !webhookAllowed(kind) {
 				return nil, fmt.Errorf("imapp: %s uses the desktop client, not a webhook", Label(kind))
@@ -166,9 +185,70 @@ func (s *Service) Set(ctx context.Context, kind Kind, enabled *bool, webhookURL 
 				return nil, err
 			}
 		}
-		webhookURL = &url
+		patch.WebhookURL = &url
 	}
-	return s.store.UpsertIMChannel(ctx, kind, enabled, webhookURL)
+	if patch.InboundAllowlist != nil {
+		joined := NormalizeAllowlist(*patch.InboundAllowlist)
+		patch.InboundAllowlist = &joined
+	}
+	if patch.InboundAppID != nil {
+		id := strings.TrimSpace(*patch.InboundAppID)
+		patch.InboundAppID = &id
+	}
+	if patch.InboundAppSecret != nil {
+		secret := strings.TrimSpace(*patch.InboundAppSecret)
+		patch.InboundAppSecret = &secret
+	}
+	cur, err := s.Lookup(ctx, kind)
+	if err != nil && !errors.Is(err, ErrKind) {
+		return nil, err
+	}
+	enabled := cur.InboundEnabled
+	if patch.InboundEnabled != nil {
+		enabled = *patch.InboundEnabled
+	}
+	allow := cur.InboundAllowlist
+	if patch.InboundAllowlist != nil {
+		allow = *patch.InboundAllowlist
+	}
+	appID := cur.InboundAppID
+	if patch.InboundAppID != nil {
+		appID = *patch.InboundAppID
+	}
+	secret := ""
+	if patch.InboundAppSecret != nil {
+		secret = *patch.InboundAppSecret
+	}
+	if err := validateInboundFields(kind, enabled, allow, appID, secret); err != nil {
+		return nil, err
+	}
+	items, err := s.store.UpsertIMChannel(ctx, kind, patch)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Channel, 0, len(items))
+	for _, ch := range items {
+		out = append(out, ch.Public())
+	}
+	return out, nil
+}
+
+// LookupSecret returns the row including inbound_app_secret for the Feishu
+// long-connection worker. Bridge List/Set never expose the secret.
+func (s *Service) LookupSecret(ctx context.Context, kind Kind) (Channel, error) {
+	if s == nil || s.store == nil {
+		return Channel{}, errors.New("imapp: store unavailable")
+	}
+	items, err := s.store.ListIMChannels(ctx)
+	if err != nil {
+		return Channel{}, err
+	}
+	for _, ch := range items {
+		if ch.Kind == kind {
+			return Normalize(ch), nil
+		}
+	}
+	return Channel{}, ErrKind
 }
 
 func (s *Service) Lookup(ctx context.Context, kind Kind) (Channel, error) {

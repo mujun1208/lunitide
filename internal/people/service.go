@@ -37,19 +37,20 @@ var (
 	ErrUnreachable  = errors.New("people peer unreachable")
 	ErrCanceled     = errors.New("people picker canceled")
 	ErrUnsupported  = errors.New("people picker unsupported")
+	ErrOpenFailed   = errors.New("people file open failed")
 	ErrLocked       = identity.ErrLocked
 )
 
 const (
-	maxText      = 16384
-	maxFileBytes = 32 << 20
-	maxMembers   = 32
-	maxList      = 200
+	maxText         = 16384
+	maxFileBytes    = 32 << 20
+	maxMembers      = 32
+	maxList         = 200
 	maxMessages     = 200
 	maxPreviewBytes = 4 << 20
-	chunkSize    = 48 << 10
-	defaultTCP   = 36422
-	typingTTL    = 4 * time.Second
+	chunkSize       = 48 << 10
+	defaultTCP      = 36422
+	typingTTL       = 4 * time.Second
 )
 
 type Contact struct {
@@ -65,60 +66,60 @@ type Contact struct {
 	PairingHash string `json:"pairingHash,omitempty"`
 	TrustState  string `json:"trustState"`
 	HostAddr    string `json:"hostAddr"`
-	LastSeenAt string `json:"lastSeenAt"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
-	Remark     string `json:"remark,omitempty"`
-	Blocked    bool   `json:"blocked"`
-	LastReadAt string `json:"lastReadAt,omitempty"`
-	Self       bool   `json:"self"`
+	LastSeenAt  string `json:"lastSeenAt"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+	Remark      string `json:"remark,omitempty"`
+	Blocked     bool   `json:"blocked"`
+	LastReadAt  string `json:"lastReadAt,omitempty"`
+	Self        bool   `json:"self"`
 }
 
 type Thread struct {
-	ThreadID    string    `json:"threadId"`
-	Kind        string    `json:"kind"`
-	Title       string    `json:"title"`
-	OwnerID     string    `json:"ownerSubjectId"`
-	Members     []Contact `json:"members"`
-	LastMessage      *Message `json:"lastMessage,omitempty"`
-	UnreadCount      int      `json:"unreadCount"`
-	TypingSubjectIDs []string `json:"typingSubjectIds,omitempty"`
-	UpdatedAt        string   `json:"updatedAt"`
-	CreatedAt        string   `json:"createdAt"`
+	ThreadID         string    `json:"threadId"`
+	Kind             string    `json:"kind"`
+	Title            string    `json:"title"`
+	OwnerID          string    `json:"ownerSubjectId"`
+	Members          []Contact `json:"members"`
+	LastMessage      *Message  `json:"lastMessage,omitempty"`
+	UnreadCount      int       `json:"unreadCount"`
+	TypingSubjectIDs []string  `json:"typingSubjectIds,omitempty"`
+	UpdatedAt        string    `json:"updatedAt"`
+	CreatedAt        string    `json:"createdAt"`
 }
 
 type Message struct {
-	MessageID  string `json:"messageId"`
-	ThreadID   string `json:"threadId"`
-	SenderID   string `json:"senderSubjectId"`
-	Kind       string `json:"kind"`
-	Body       string `json:"body"`
-	FileName   string `json:"fileName"`
-	FileMIME   string `json:"fileMime"`
-	FileSize   int64  `json:"fileSize"`
-	FileSHA256 string `json:"fileSha256"`
-	OfferID    string `json:"offerId,omitempty"`
-	OfferStatus string `json:"offerStatus,omitempty"`
+	MessageID       string `json:"messageId"`
+	ThreadID        string `json:"threadId"`
+	SenderID        string `json:"senderSubjectId"`
+	Kind            string `json:"kind"`
+	Body            string `json:"body"`
+	FileName        string `json:"fileName"`
+	FileMIME        string `json:"fileMime"`
+	FileSize        int64  `json:"fileSize"`
+	FileSHA256      string `json:"fileSha256"`
+	OfferID         string `json:"offerId,omitempty"`
+	OfferStatus     string `json:"offerStatus,omitempty"`
 	DestPath        string `json:"destPath,omitempty"`
 	TransferPercent int    `json:"transferPercent,omitempty"`
 	CreatedAt       string `json:"createdAt"`
 }
 
 type FileOffer struct {
-	OfferID    string `json:"offerId"`
-	MessageID  string `json:"messageId"`
-	ThreadID   string `json:"threadId"`
-	FromID     string `json:"fromSubjectId"`
-	ToID       string `json:"toSubjectId"`
-	Status     string `json:"status"`
-	FileName   string `json:"fileName"`
-	FileMIME   string `json:"fileMime"`
-	FileSize   int64  `json:"fileSize"`
-	FileSHA256 string `json:"fileSha256"`
+	OfferID     string `json:"offerId"`
+	MessageID   string `json:"messageId"`
+	ThreadID    string `json:"threadId"`
+	FromID      string `json:"fromSubjectId"`
+	ToID        string `json:"toSubjectId"`
+	Status      string `json:"status"`
+	FileName    string `json:"fileName"`
+	FileMIME    string `json:"fileMime"`
+	FileSize    int64  `json:"fileSize"`
+	FileSHA256  string `json:"fileSha256"`
 	StagingPath string `json:"-"`
-	DestPath   string `json:"destPath"`
-	CreatedAt  string `json:"createdAt"`
-	DecidedAt  string `json:"decidedAt"`
+	DestPath    string `json:"destPath"`
+	CreatedAt   string `json:"createdAt"`
+	DecidedAt   string `json:"decidedAt"`
 }
 
 type Beacon struct {
@@ -662,18 +663,18 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, *FileOffer, 
 		}
 	}
 	offer := FileOffer{
-		OfferID:    ulid.Make().String(),
-		MessageID:  msg.MessageID,
-		ThreadID:   t.ThreadID,
-		FromID:     self,
-		ToID:       peerOf(t, self),
-		Status:     "pending",
-		FileName:   msg.FileName,
-		FileMIME:   msg.FileMIME,
-		FileSize:   msg.FileSize,
-		FileSHA256: msg.FileSHA256,
+		OfferID:     ulid.Make().String(),
+		MessageID:   msg.MessageID,
+		ThreadID:    t.ThreadID,
+		FromID:      self,
+		ToID:        peerOf(t, self),
+		Status:      "pending",
+		FileName:    msg.FileName,
+		FileMIME:    msg.FileMIME,
+		FileSize:    msg.FileSize,
+		FileSHA256:  msg.FileSHA256,
 		StagingPath: stagePath,
-		CreatedAt:  now,
+		CreatedAt:   now,
 	}
 	if err := s.store.InsertMessage(ctx, msg, &offer); err != nil {
 		return Message{}, nil, err
@@ -973,6 +974,61 @@ func (s *Service) PickFile(folder bool) (PickResult, error) {
 		return PickResult{}, err
 	}
 	return PickResult{Path: path, FileName: info.Name(), Size: info.Size(), Directory: info.IsDir()}, nil
+}
+
+func (s *Service) OpenFile(destPath string) (string, error) {
+	if err := s.readyUnlocked(); err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(destPath))
+	if err != nil || abs == "" {
+		return "", ErrInvalid
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", ErrNotFound
+		}
+		return "", ErrInvalid
+	}
+	if info.IsDir() {
+		return "", ErrInvalid
+	}
+	if !pathUnderRoot(s.receiveDir, abs) && !pathUnderRoot(s.stagingDir, abs) {
+		return "", ErrInvalid
+	}
+	if err := openPathFn(abs); err != nil {
+		return "", ErrOpenFailed
+	}
+	return abs, nil
+}
+
+func ReplaceOpenPathForTest(fn func(string) error) func() {
+	prev := openPathFn
+	openPathFn = fn
+	return func() { openPathFn = prev }
+}
+
+func pathUnderRoot(root, target string) bool {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return false
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, target)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return false
+	}
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return false
+	}
+	return true
 }
 
 func (s *Service) materializeFile(in SendInput) (string, int64, string, error) {

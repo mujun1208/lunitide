@@ -45,6 +45,33 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueTurn("请确认是否继续安装", true, 0, false) {
 		t.Fatal("explicit ask after tools should still nudge")
 	}
+	if !shouldContinueDesktopTurn("好，我来操作电脑。", 0) {
+		t.Fatal("lead-in after desktop tools must continue")
+	}
+	if !shouldContinueDesktopTurn("", 0) {
+		t.Fatal("silent stop after desktop tools must continue")
+	}
+	if shouldContinueDesktopTurn("Word 里已经写上号码了。", 0) {
+		t.Fatal("result sentence must settle")
+	}
+	if shouldContinueDesktopTurn("请你在保存对话框点保存。", 0) {
+		t.Fatal("file-dialog handoff must settle")
+	}
+	if !shouldContinueDesktopTurn("已经打开记事本。", 0) {
+		t.Fatal("opened an app is not the user goal")
+	}
+	if !shouldContinueDesktopTurn("点完了。", 0) {
+		t.Fatal("clicked is process, not done")
+	}
+	if !shouldContinueDesktopTurn("点了一下。", 3) {
+		t.Fatal("desktop nudge budget is 5")
+	}
+	if shouldContinueDesktopTurn("点了一下。", 5) {
+		t.Fatal("nudge budget exhausted")
+	}
+	if !companionWantsDesktopControl("帮我点保存") || companionWantsDesktopControl("今晚月色如何") {
+		t.Fatal("desktop-control intent")
+	}
 }
 
 type continueAdapter struct {

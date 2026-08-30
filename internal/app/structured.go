@@ -56,10 +56,39 @@ func structuredTemplateInstruction(template string) string {
 	}
 }
 
+// inferStructuredTemplate picks event/form/kv from the user turn.
+// A settings lock (event|form|kv) wins; "off"/empty falls through to intent
+// so structured.output is a contract, not a hidden switch.
+func inferStructuredTemplate(turnText, setting string) string {
+	switch strings.TrimSpace(setting) {
+	case "event", "form", "kv":
+		return strings.TrimSpace(setting)
+	}
+	t := strings.ToLower(strings.TrimSpace(turnText))
+	if t == "" {
+		return ""
+	}
+	if strings.Contains(t, "日程") || strings.Contains(t, "calendar") ||
+		(strings.Contains(t, "json") && (strings.Contains(t, "会议") || strings.Contains(t, "事件") || strings.Contains(t, "抽成日程"))) {
+		return "event"
+	}
+	if strings.Contains(t, "表单") || strings.Contains(t, "form field") {
+		return "form"
+	}
+	if strings.Contains(t, "键值") || (strings.Contains(t, "json") && (strings.Contains(t, "摘要") || strings.Contains(t, "总结") || strings.Contains(t, "抽成"))) {
+		return "kv"
+	}
+	return ""
+}
+
 func identityAndFewShotInstruction() string {
-	return "\n\n[身份与边界] 你是月汐，用户这台电脑上的私人助理。能做：对话、工作区文件、网页搜索/抓取、browser.act 浏览器自动化、本机 cc.* 电脑控制（仅当该工具出现在本轮列表）、定时任务。禁止：操作远程电脑或局域网设备、自动确认 UAC/提权/打开保存文件对话框、把失败的工具说成成功。\n" +
+	return "\n\n[身份与边界] 你是月汐，用户这台电脑上的私人助理。能做：对话、工作区文件、网页搜索/抓取、browser.act 浏览器自动化、本机 computer.act 电脑控制（仅当该工具出现在本轮列表）、定时任务。禁止：操作远程电脑或局域网设备、自动确认 UAC/提权、把失败的工具说成成功。打开/保存文件对话框交给用户去点。\n" +
 		"示例：用户「帮我搜北京明天天气」→ 调用 web.search，query=\"北京明天天气\"，max 默认 5，再用一两句汇报来源。不要空口编气温。\n" +
 		"示例：用户「把下面文字抽成日程 JSON」→ 调用 structured.output template=event，把 title/start 填进 data。\n"
+}
+
+func identityAnchorReminder() string {
+	return "\n[身份提醒] 上面的工作流不替换身份：你仍是月汐。工具失败不要说成成功。\n"
 }
 
 func emitStructuredOutput(args json.RawMessage) (toolruntime.Result, error) {

@@ -171,7 +171,7 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 		return failureFor(request, "BRIDGE_SCHEMA_INVALID", "请求格式无效", false), true
 	}
 	if err := validateEnvelope(request, time.Now().UTC()); err != nil {
-		return failureFor(request, "BRIDGE_SCHEMA_INVALID", "请求协议无效", false), true
+		return failureFor(request, "BRIDGE_SCHEMA_INVALID", envelopeErrorMessage(err), false), true
 	}
 	select {
 	case g.admission <- struct{}{}:
@@ -509,25 +509,51 @@ func isEngineForwardable(metadata bridge.MethodMetadata) bool {
 	return metadata.Enabled && metadata.Owner == "engine"
 }
 
+var (
+	errInvalidDeadline  = errors.New("invalid deadline or idempotency key")
+	errInvalidVersion   = errors.New("invalid Bridge version or kind")
+	errInvalidRequestID = errors.New("invalid request ID")
+	errInvalidTraceID   = errors.New("invalid trace ID")
+	errInvalidSentAt    = errors.New("invalid request time")
+	errInvalidPayload   = errors.New("payload must be a JSON object")
+)
+
+func envelopeErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, errInvalidDeadline):
+		return "请求超时参数无效"
+	case errors.Is(err, errInvalidVersion):
+		return "应用与引擎版本不一致，请重启月汐"
+	case errors.Is(err, errInvalidRequestID), errors.Is(err, errInvalidTraceID):
+		return "请求标识无效，请重试"
+	case errors.Is(err, errInvalidSentAt):
+		return "本机时间偏差过大，请校对系统时间后重试"
+	case errors.Is(err, errInvalidPayload):
+		return "请求内容不完整，请重试"
+	default:
+		return "请求无法处理，请重试"
+	}
+}
+
 func validateEnvelope(request bridge.Request, now time.Time) error {
 	if request.Version != bridge.Version || request.Kind != "request" {
-		return errors.New("invalid Bridge version or kind")
+		return errInvalidVersion
 	}
 	if _, err := ulid.ParseStrict(request.ID); err != nil {
-		return errors.New("invalid request ID")
+		return errInvalidRequestID
 	}
 	if _, err := ulid.ParseStrict(request.TraceID); err != nil {
-		return errors.New("invalid trace ID")
+		return errInvalidTraceID
 	}
 	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) || len(request.IdempotencyKey) > 128 {
-		return errors.New("invalid deadline or idempotency key")
+		return errInvalidDeadline
 	}
 	if request.SentAt.IsZero() || request.SentAt.Before(now.Add(-5*time.Minute)) || request.SentAt.After(now.Add(5*time.Minute)) {
-		return errors.New("invalid request time")
+		return errInvalidSentAt
 	}
 	var payload map[string]json.RawMessage
 	if err := decodeStrict(request.Payload, &payload); err != nil || payload == nil {
-		return errors.New("payload must be a JSON object")
+		return errInvalidPayload
 	}
 	return nil
 }

@@ -54,8 +54,22 @@ func loadPNG(path string) (*image.RGBA, error) {
 		return nil, err
 	}
 	rgba := image.NewRGBA(img.Bounds())
-	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+	switch src := img.(type) {
+	case *image.NRGBA:
+		copyStraight(rgba, src.Pix, src.Stride, src.Bounds())
+	case *image.RGBA:
+		copy(rgba.Pix, src.Pix)
+	default:
+		draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+	}
 	return rgba, nil
+}
+
+func copyStraight(dst *image.RGBA, pix []uint8, stride int, b image.Rectangle) {
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		so := (y - b.Min.Y) * stride
+		copy(dst.Pix[dst.PixOffset(b.Min.X, y):dst.PixOffset(b.Max.X, y)], pix[so:so+b.Dx()*4])
+	}
 }
 
 func knockOutBlack(src *image.RGBA) *image.RGBA {
@@ -66,7 +80,7 @@ func knockOutBlack(src *image.RGBA) *image.RGBA {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			i := out.PixOffset(x, y)
 			r, g, bl := out.Pix[i], out.Pix[i+1], out.Pix[i+2]
-			if r < 14 && g < 14 && bl < 18 {
+			if int(r)+int(g)+int(bl) < 90 {
 				out.Pix[i+3] = 0
 			}
 		}
@@ -102,7 +116,9 @@ func knockOutMoonHalo(src *image.RGBA) *image.RGBA {
 
 func writePNG(path string, img *image.RGBA) error {
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	// PNG stores straight alpha. Encoding *image.RGBA treats pixels as
+	// premultiplied and crushes the pale cloud into a dark navy stroke.
+	if err := png.Encode(&buf, rgbaToNRGBA(img)); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -114,9 +130,8 @@ func writePNG(path string, img *image.RGBA) error {
 func writeICO(path string, src *image.RGBA, sizes []int) error {
 	frames := make([][]byte, 0, len(sizes))
 	for _, size := range sizes {
-		scaled := scaleRGBA(src, size)
 		var buf bytes.Buffer
-		if err := png.Encode(&buf, scaled); err != nil {
+		if err := png.Encode(&buf, rgbaToNRGBA(scaleRGBA(src, size))); err != nil {
 			return err
 		}
 		frames = append(frames, buf.Bytes())
@@ -145,6 +160,13 @@ func writeICO(path string, src *image.RGBA, sizes []int) error {
 		ico = append(ico, frame...)
 	}
 	return os.WriteFile(path, ico, 0644)
+}
+
+func rgbaToNRGBA(src *image.RGBA) *image.NRGBA {
+	b := src.Bounds()
+	dst := image.NewNRGBA(b)
+	copy(dst.Pix, src.Pix)
+	return dst
 }
 
 func scaleRGBA(src *image.RGBA, size int) *image.RGBA {
