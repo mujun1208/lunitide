@@ -2,7 +2,7 @@ import React,{useCallback,useEffect,useMemo,useState}from'react'
 import{pluginBridge,type PluginBridge}from'../bridge/client'
 import type{PluginListResult}from'../generated/bridge'
 import{Dialog}from'../ui/Dialog'
-import{FILLER_PLUGIN,PLUGIN_MARKET,pluginLogo,pluginTitle,type PluginCategory}from'./pluginMarket'
+import{FILLER_PLUGIN,PLUGIN_MARKET,pluginHonestyLabel,pluginLogo,pluginOriginLabel,pluginTitle,type PluginCategory}from'./pluginMarket'
 
 type Plugin=PluginListResult['plugins'][number]
 type View='installed'|'market'
@@ -41,7 +41,7 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
   setBusy(pluginId);setError('');setNotice('')
   try{
    await bridge.toggle({installId:hit.installId,enabled:hit.state!=='enabled'})
-   setNotice(hit.state==='enabled'?`已停用「${pluginTitle(pluginId)}」`:`已安装并启用「${pluginTitle(pluginId)}」`)
+   setNotice(hit.state==='enabled'?`已停用「${pluginTitle(pluginId)}」`:`已启用「${pluginTitle(pluginId)}」`)
    await load();if(hit.state!=='enabled')setView('installed')
   }catch(e){setError(e instanceof Error?e.message:'安装失败')}finally{setBusy('')}
  }
@@ -66,7 +66,7 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
 
  return <main className="skill-center plugin-page">
   <header className="skill-center-header">
-   <div><h1>插件</h1><p>已安装 {enabled} 个可用 · 失败 {failed} 个 · 市场 {PLUGIN_MARKET.length} 个</p><small>这里启用的是内置能力开关（搜索、浏览器、定时、语音等），不会执行 Cordis / TypeScript 插件包。对话里的 plugin.create 只登记卡片。要可调用技能用技能中心；要 MCP 用设置里的现役预置。GitHub Marketplace / Claude 插件不能直接安装。</small></div>
+   <div><h1>插件</h1><p>已启用 {enabled} 个开关 · 失败 {failed} 个 · 名单 {PLUGIN_MARKET.length} 个</p><small>加号是启用开关，不是从市场下载包。点开不会新装 Git / Python。不会执行 Cordis / TypeScript 插件包。对话里的 plugin.create 只登记卡片。要可调用技能用技能中心；要 MCP 用设置里的现役预置。GitHub Marketplace / Claude 插件不能直接安装。</small></div>
    <div className="view-actions"><button type="button" className="ui-btn" onClick={()=>setManualOpen(true)}>手动填写</button>{onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建插件</button>}</div>
   </header>
   <section className="skill-center-toolbar">
@@ -84,7 +84,7 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
     <button type="button" aria-pressed={!category} onClick={()=>setCategory('')}>全部<small>{PLUGIN_MARKET.length}</small></button>
     {categories.map(([id,count])=><button type="button" key={id} aria-pressed={category===id} onClick={()=>setCategory(id)}>{id}<small>{count}</small></button>)}
    </nav>
-   <section className="skill-market-shelf" aria-label="可安装插件">
+   <section className="skill-market-shelf" aria-label="内置能力开关">
     {visibleMarket.length?<div className="skill-market">{visibleMarket.map(entry=>{
      const hit=byId.get(entry.id);const on=hit?.state==='enabled';const failedInstall=hit?.state==='quarantined'
      const logo=pluginLogo(entry.id)
@@ -92,7 +92,7 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
       <header>
        <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
        <div><b>{entry.name}</b><small>{entry.category} · {KIND_LABEL[entry.kind]}{failedInstall?' · 安装失败':''}</small></div>
-       {on?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${entry.name}`} disabled={Boolean(busy)} onClick={()=>void enable(entry.id)}>{busy===entry.id?'…':'＋'}</button>}
+       {on?<span className="skill-market-installed">{pluginHonestyLabel(entry.id)}</span>:<button type="button" className="skill-market-add" aria-label={`启用 ${entry.name}`} disabled={Boolean(busy)} onClick={()=>void enable(entry.id)}>{busy===entry.id?'…':'＋'}</button>}
       </header>
       <p>{entry.description}</p>
       <footer><small>v{entry.semver} · {entry.publisher}</small></footer>
@@ -111,13 +111,13 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
      </header>
      <p>{market?.description??`插件标识 ${item.pluginId}`}</p>
      <footer>
-      <small>v{item.semver} · {item.origin==='dev'?'对话创建':item.origin==='market'?'市场':'本机'}</small>
+      <small>v{item.semver} · {pluginOriginLabel(item.origin)}</small>
       <div className="expert-card-actions">
        {(item.state==='enabled'||item.state==='disabled'||item.state==='installed')&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(item.pluginId)}>{item.state==='enabled'?'停用':'启用'}</button>}
        <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>
       </div>
      </footer>
-    </article>})}</div>:<div className="empty"><b>还没有安装插件</b><span>去「插件市场」点加号，或通过对话创建。</span></div>}
+    </article>})}</div>:<div className="empty"><b>还没有启用的开关</b><span>去「插件市场」点加号启用内置能力，或通过对话登记卡片。</span></div>}
   </section>}
   <Dialog open={manualOpen} wide title="手动创建插件" description="填写 Harness 兼容的插件清单 JSON。保存后出现在已安装清单；校验失败会标成安装失败。" onClose={()=>{if(!busy)setManualOpen(false)}}>
    <form className="editor-dialog" onSubmit={e=>{e.preventDefault();void createManual()}}>

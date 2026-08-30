@@ -13,6 +13,8 @@ describe('embedded 50-life catalogue', () => {
     expect(VOICE_PATHS.map(p => p.value)).toEqual(['cloud', 'volc', 'local'])
     expect(VOICE_PATHS[0]).toMatchObject({ label: '云端', badge: '默认', meta: expect.stringContaining('晓晓') })
     expect(VOICE_PATHS[1]).toMatchObject({ label: '火山', meta: expect.stringContaining('晓晓') })
+    expect(VOICE_PATHS[1].desc).toMatch(/豆包/)
+    expect(VOICE_PATHS[1].desc).toMatch(/不是 seed-asr/)
     expect(VOICE_PATHS[2]).toMatchObject({ label: '本地', meta: expect.stringContaining('sherpa') })
     expect(VOICE_PATHS[2].meta).toMatch(/GPT-SoVITS/)
     expect(VOICE_PATHS.some(p => /MiniCPM|omni/i.test(`${p.label}${p.badge}${p.kicker}${p.meta}${p.desc}`))).toBe(false)

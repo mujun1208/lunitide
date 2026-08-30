@@ -33,6 +33,15 @@ func TestRenderEscapesTitleAndRejectsUnknown(t *testing.T) {
 	}
 	if _, err := Render("snake", "x"); err == nil {
 		t.Fatal("unknown template accepted")
+	} else if !strings.Contains(err.Error(), "checklist") {
+		t.Fatalf("unknown template must list checklist: %v", err)
+	}
+	html, err = Render("checklist", `<script>x</script>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "lunitide-checklist-") || !strings.Contains(html, "id=\"list\"") || strings.Contains(html, "<script>x</script>") {
+		t.Fatal("checklist template missing or title not escaped")
 	}
 	html, err = Render("timer", `<script>x</script>`)
 	if err != nil {

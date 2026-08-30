@@ -6,17 +6,15 @@ import { prefersCompanionStillVisual } from './visual/webglSupport'
 const APPEAR_MS = 1200
 const ROTATE_MS = 4000
 
-export function shouldShowCompanionPrompts(input: {
+export function shouldShowCompanionPrompts(_input: {
   state: CompanionState
   hasUserRound: boolean
   hasInterim: boolean
   voiceHeard: boolean
 }): boolean {
-  if (input.hasUserRound || input.hasInterim) return false
-  if (input.state === 'thinking' || input.state === 'speaking') return false
-  if (input.state === 'idle') return true
-  // Stage auto-starts the mic, so a strict idle-only rule never shows chips.
-  return input.state === 'listening' && !input.voiceHeard
+  // Live stage used to rotate sample chips («今天天气怎么样？») after 1.2s
+  // of quiet listening. That looked like the user had already spoken.
+  return false
 }
 
 export interface CompanionPromptsProps {

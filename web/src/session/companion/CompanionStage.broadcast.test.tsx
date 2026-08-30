@@ -50,6 +50,19 @@ vi.mock('../../bridge/client', async importOriginal => {
         }),
       synthesize: vi.fn(),
       cancel: vi.fn(),
+      ensureRefEngine: vi.fn().mockResolvedValue({ state: 'online' }),
+    }),
+    getProviderBridge: () => ({
+      list: () => Promise.resolve({
+        items: [{
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+          name: 'Chat',
+          protocol: 'openai_compatible',
+          status: 'enabled',
+          credentialState: 'configured',
+          models: [{ modelId: 'chat', displayName: 'Chat', isDefault: true, kind: 'llm', kindDefault: true }],
+        }],
+      }),
     }),
     automationBridge: {
       listRuns: () => Promise.resolve({ runs: [...automation.runs] }),

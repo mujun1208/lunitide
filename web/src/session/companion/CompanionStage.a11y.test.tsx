@@ -56,6 +56,19 @@ vi.mock('../../bridge/client', async importOriginal => {
         }),
       synthesize: vi.fn(),
       cancel: vi.fn(),
+      ensureRefEngine: vi.fn().mockResolvedValue({ state: 'online' }),
+    }),
+    getProviderBridge: () => ({
+      list: () => Promise.resolve({
+        items: [{
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+          name: 'Chat',
+          protocol: 'openai_compatible',
+          status: 'enabled',
+          credentialState: 'configured',
+          models: [{ modelId: 'chat', displayName: 'Chat', isDefault: true, kind: 'llm', kindDefault: true }],
+        }],
+      }),
     }),
     automationBridge: {
       listRuns: () => Promise.resolve({ runs: [] }),
@@ -309,7 +322,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
     expect(liveLog(container).textContent).not.toContain('嗯')
-    expect(tts.enqueueCalls.map(call => call.segments.join(''))).toEqual([COMPANION_PAD_SPEECH])
+    expect(tts.enqueueCalls.map(call => call.segments.join(''))).toEqual([])
     // Thinking stays interruptible: moon click can cancel a slow reply.
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在回应')
@@ -493,11 +506,12 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(liveLog(container).textContent).toContain('最近怎么样')
   })
 
-  test('allows microphone when chat config is still loading', async () => {
+  test('does not open the microphone before the chat model is ready', async () => {
     speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage({ chatReady: false })
-    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
-    expect(container.querySelector('.companion-banner.error')).toBeNull()
+    await waitFor(() => expect(stateOf(container)).toBe('idle'), { timeout: 3000 })
+    expect(speech.start).not.toHaveBeenCalled()
+    expect(container.textContent).toMatch(/不会空听/)
   })
 })
 

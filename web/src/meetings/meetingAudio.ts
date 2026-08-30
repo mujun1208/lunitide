@@ -5,7 +5,7 @@ import { startPcmCapture, type PcmCaptureHandle } from '../session/companion/pcm
 export const MEETING_AUDIO_BATCH_FRAMES = 12
 /** Bridge schema maxLength for meetings.audio.append pcm (base64 characters). */
 export const MEETING_AUDIO_MAX_B64 = 65536
-export const ASR_INTERRUPTED_NOTICE = '录制中，实时转写中断可补，停止后会补转写'
+export const ASR_INTERRUPTED_NOTICE = '录制中，实时转写中断可补。停止后的补转写只用本机识别。'
 export const LIVE_CAPTION_MAX_LINES = 80
 
 export function trimLiveSegments<T>(items: T[], max = LIVE_CAPTION_MAX_LINES): T[] {

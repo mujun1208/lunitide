@@ -40,7 +40,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     description: '每天早上汇总 AI 行业热点新闻与趋势。',
     cron: '0 7 * * *',
     prompt:
-      '搜索今日 AI 行业的热点新闻，覆盖以下方面：\n1. 重要产品发布或功能更新\n2. 融资事件与行业并购\n3. 技术突破或重要论文发布\n4. 行业标准与规范动态\n输出要求：按重要性排序，列出 5-8 条新闻。',
+      '用 web.search 检索今日 AI 行业公开新闻（至少给出可打开的 URL，例如 https://www.reuters.com 或厂商博客）。覆盖：产品发布、融资并购、论文/技术突破、标准动态。每条附来源。没有搜到就说没搜到，不要编造。structured.output 后再 docx.gen。',
   },
   {
     id: 'brand-sentiment',

@@ -102,7 +102,6 @@ vi.mock('./ttsPlayer', () => ({
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
 import { LOCAL_ASR_DECISION_MS } from './localAsr'
-import { VOLC_ASR_DECISION_MS } from './volc/volcAsr'
 import { applyVoicePath, defaultCompanionSettings, saveCompanionSettings } from './companionSettings'
 
 const baseProps: CompanionStageProps = {
@@ -126,7 +125,7 @@ beforeEach(() => {
   recognizers.volc.mockReset()
   recognizers.volc.mockResolvedValue(recognizers.handle())
   recognizers.listHang = false
-  recognizers.providers = []
+  recognizers.providers = [chatProvider]
   recognizers.probe = new Promise(resolve => {
     recognizers.settleProbe = (ready: boolean) => resolve({ supported: true, ready })
   })
@@ -202,6 +201,15 @@ test('sends the wake remainder as the first user turn', async () => {
   utils.unmount()
 })
 
+const chatProvider = {
+  id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+  name: 'Chat',
+  protocol: 'openai_compatible',
+  status: 'enabled',
+  credentialState: 'configured',
+  models: [{ modelId: 'chat', displayName: 'Chat', isDefault: true, kind: 'llm', kindDefault: true }],
+}
+
 const volcProvider = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
   name: 'Volc',
@@ -213,7 +221,7 @@ const volcProvider = {
 
 test('opens volc seed-asr when the 火山 path is saved', async () => {
   saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'volc'))
-  recognizers.providers = [volcProvider]
+  recognizers.providers = [chatProvider, volcProvider]
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(50)
 
@@ -225,41 +233,66 @@ test('opens volc seed-asr when the 火山 path is saved', async () => {
   utils.unmount()
 })
 
-test('falls back to system recognition when volc handshake fails', async () => {
+test('does not fall back to system recognition when volc handshake fails', async () => {
   saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'volc'))
-  recognizers.providers = [volcProvider]
+  recognizers.providers = [chatProvider, volcProvider]
   recognizers.volc.mockRejectedValueOnce(new Error('handshake'))
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(LOCAL_ASR_DECISION_MS + 50)
 
   expect(recognizers.volc).toHaveBeenCalled()
-  expect(recognizers.cloud).toHaveBeenCalled()
-  expect(utils.container.querySelector('[data-asr-route="cloud"]')).toBeTruthy()
-  expect(utils.container.textContent).toMatch(/火山听写连不上，已改用系统识别/)
+  expect(recognizers.cloud).not.toHaveBeenCalled()
+  expect(utils.container.querySelector('[data-asr-route="cloud"]')).toBeNull()
+  expect(utils.container.textContent).toMatch(/VOICE-004/)
   utils.unmount()
 })
 
-test('falls back to system recognition when the volc provider list hangs', async () => {
+test('does not fall back to system recognition when the volc provider list hangs', async () => {
   saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'volc'))
   recognizers.listHang = true
   const utils = render(<CompanionStage {...baseProps} />)
-  await flush(VOLC_ASR_DECISION_MS + LOCAL_ASR_DECISION_MS + 50)
+  await flush(850)
 
   expect(recognizers.volc).not.toHaveBeenCalled()
-  expect(recognizers.cloud).toHaveBeenCalled()
-  expect(utils.container.querySelector('[data-asr-route="cloud"]')).toBeTruthy()
-  expect(utils.container.textContent).toMatch(/火山听写连不上，已改用系统识别/)
+  expect(recognizers.cloud).not.toHaveBeenCalled()
+  expect(utils.container.querySelector('[data-asr-route="cloud"]')).toBeNull()
+  expect(utils.container.textContent).toMatch(/VOICE-004/)
   utils.unmount()
 })
 
-test('opens local sherpa when the 本地 path is saved even if the probe hangs', async () => {
+test('blocks 本地 entry when the sherpa probe hangs', async () => {
   saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'local'))
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(850)
+
+  expect(recognizers.local).not.toHaveBeenCalled()
+  expect(recognizers.cloud).not.toHaveBeenCalled()
+  expect(recognizers.volc).not.toHaveBeenCalled()
+  expect(utils.container.querySelector('[data-asr-route="local"]')).toBeNull()
+  expect(utils.container.textContent).toMatch(/sherpa/)
+  expect(utils.container.querySelector('[data-light="listen"]')?.className).toMatch(/off/)
+  utils.unmount()
+})
+
+test('shows 听 说 想 lights after a cloud entry', async () => {
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(LOCAL_ASR_DECISION_MS + 50)
 
-  expect(recognizers.local).toHaveBeenCalled()
+  expect(utils.container.querySelectorAll('[data-light]')).toHaveLength(3)
+  expect(utils.container.querySelector('[data-light="listen"]')?.textContent).toMatch(/系统识别/)
+  expect(utils.container.querySelector('[data-light="speak"]')?.textContent).toMatch(/晓晓/)
+  expect(utils.container.querySelector('[data-light="think"]')?.textContent).toMatch(/chat/)
+  utils.unmount()
+})
+
+test('does not open speech when 本地 sherpa is not ready', async () => {
+  saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'local'))
+  recognizers.probe = Promise.resolve({ supported: true, ready: false })
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(50)
+
+  expect(recognizers.local).not.toHaveBeenCalled()
   expect(recognizers.cloud).not.toHaveBeenCalled()
-  expect(recognizers.volc).not.toHaveBeenCalled()
-  expect(utils.container.querySelector('[data-asr-route="local"]')).toBeTruthy()
+  expect(utils.container.textContent).toMatch(/sherpa/)
   utils.unmount()
 })

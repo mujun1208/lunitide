@@ -48,6 +48,19 @@ vi.mock('../../bridge/client', async importOriginal => {
         }),
       synthesize: vi.fn(),
       cancel: vi.fn(),
+      ensureRefEngine: vi.fn().mockResolvedValue({ state: 'online' }),
+    }),
+    getProviderBridge: () => ({
+      list: () => Promise.resolve({
+        items: [{
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+          name: 'Chat',
+          protocol: 'openai_compatible',
+          status: 'enabled',
+          credentialState: 'configured',
+          models: [{ modelId: 'chat', displayName: 'Chat', isDefault: true, kind: 'llm', kindDefault: true }],
+        }],
+      }),
     }),
     automationBridge: { listRuns: () => Promise.resolve({ runs: [] }) },
   }
@@ -86,6 +99,7 @@ vi.mock('./ttsPlayer', () => ({
 }))
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
+import { defaultCompanionSettings, saveCompanionSettings } from './companionSettings'
 import { COMPANION_PAD_SPEECH } from './companionText'
 
 const baseProps: CompanionStageProps = {
@@ -131,7 +145,7 @@ test('speaks the first finished sentence while the model is still writing', asyn
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('thinking')
-  expect(tts.enqueueCalls.map(call => call.segments.join(''))).toEqual([COMPANION_PAD_SPEECH])
+  expect(tts.enqueueCalls.map(call => call.segments.join(''))).toEqual([])
 
   // First sentence lands mid-stream: it must reach the engine now, not
   // after the whole reply has been generated.
@@ -321,6 +335,7 @@ test('hands the speech layer what is currently being spoken, for echo rejection'
 })
 
 test('the pad finishing does not end her turn while the model is still writing', async () => {
+  saveCompanionSettings({ ...defaultCompanionSettings(), instantAck: true })
   const onSend = vi.fn()
   const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
   await flush(600)

@@ -284,7 +284,7 @@ func fictionContinuityManifest() map[string]any {
 var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "skill-creator", Name: "skill-creator", DisplayName: "skill-creator",
-		Description: "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill.",
+		Description: "Create and improve Lunitide skills stored with skill.create. Use when users want a new skill, an edit of an existing SKILL.md, or clearer triggers. Skills are prompt plus triggers; there is no built-in performance runner.",
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionFileSystem, skill.PermissionShell},
 		EntryPoint:  "builtin://skill-creator",

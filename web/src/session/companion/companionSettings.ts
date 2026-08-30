@@ -54,7 +54,9 @@ export interface CompanionSettings {
   /**
    * Speak a one-syllable pad («嗯») as soon as the user turn is sent, so
    * the first sound is not waiting on the model's first token. The real
-   * reply interrupts the pad. Off = wait for the first speakable chunk.
+   * reply interrupts the pad. Default off: the pad echoes back through
+   * the recognizer and becomes another 嗯. Off = wait for the first
+   * speakable chunk.
    */
   instantAck: boolean
   /**
@@ -81,7 +83,25 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 10
+const SETTINGS_REV = 11
+
+/** True only when the user (or a previous save) wrote an explicit voicePath. */
+export function hasExplicitCompanionVoicePath(): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { voicePath?: unknown }
+    return (
+      parsed.voicePath === 'cloud' ||
+      parsed.voicePath === 'local' ||
+      parsed.voicePath === 'volc' ||
+      parsed.voicePath === 'omni' ||
+      parsed.voicePath === 'flm'
+    )
+  } catch {
+    return false
+  }
+}
 
 /** Reliable probe order when the primary engine fails.
  *
@@ -127,7 +147,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   wakeWord: true,
   wakeVad: true,
   fullDuplex: true,
-  instantAck: true,
+  instantAck: false,
   voiceBargeIn: false,
   interruptHotkey: { ...DEFAULT_INTERRUPT_HOTKEY },
   speechEnvironment: 'normal',
@@ -161,6 +181,13 @@ export function loadCompanionSettings(): CompanionSettings {
       wakeWord = true
     }
     let persist = rev < SETTINGS_REV
+    // rev < 11 shipped instantAck on. The pad echoed through the mic and
+    // looped 嗯嗯嗯; force the product default off once, then honour later
+    // explicit on/off choices at the current rev.
+    let instantAck = typeof parsed.instantAck === 'boolean' ? parsed.instantAck : fallback.instantAck
+    if (rev < 11) {
+      instantAck = false
+    }
     const voicePath = readVoicePath(parsed.voicePath, engine)
     if (parsed.voicePath === 'omni' || parsed.voicePath === 'flm') persist = true
     if (voicePath === 'local') {
@@ -185,7 +212,7 @@ export function loadCompanionSettings(): CompanionSettings {
       wakeWord,
       wakeVad: typeof parsed.wakeVad === 'boolean' ? parsed.wakeVad : fallback.wakeVad,
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
-      instantAck: typeof parsed.instantAck === 'boolean' ? parsed.instantAck : fallback.instantAck,
+      instantAck,
       voiceBargeIn: typeof parsed.voiceBargeIn === 'boolean'
         ? parsed.voiceBargeIn
         : voicePath === 'volc' || voicePath === 'local'

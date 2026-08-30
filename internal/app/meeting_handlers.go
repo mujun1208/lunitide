@@ -184,6 +184,7 @@ func handleMeetingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.
 func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		MeetingID string `json:"meetingId"`
+		ModelID   string `json:"modelId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.summarize 参数无效", false)
@@ -191,6 +192,8 @@ func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) b
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
+	e.meetingNotesModel.Store(strings.TrimSpace(p.ModelID))
+	defer e.meetingNotesModel.Store("")
 	m, err := e.meetings.Summarize(ctx, p.MeetingID)
 	if err != nil {
 		return meetingsFailure(r, err)
@@ -345,6 +348,32 @@ func meetingSummarySlow(modelID string) bool {
 	return strings.Contains(id, "r1") || strings.Contains(id, "reasoner") || strings.Contains(id, "thinking")
 }
 
+func (e *Engine) preferredMeetingNotesModel() string {
+	if e == nil {
+		return ""
+	}
+	id, _ := e.meetingNotesModel.Load().(string)
+	return strings.TrimSpace(id)
+}
+
+func preferMeetingSummaryModel(candidates []provider.CatalogEntry, modelID string) []provider.CatalogEntry {
+	if strings.TrimSpace(modelID) == "" {
+		return candidates
+	}
+	var first, rest []provider.CatalogEntry
+	for _, entry := range candidates {
+		if entry.Model.ModelID == modelID {
+			first = append(first, entry)
+		} else {
+			rest = append(rest, entry)
+		}
+	}
+	if len(first) == 0 {
+		return candidates
+	}
+	return append(first, rest...)
+}
+
 func meetingSummaryCandidates(items []provider.Provider) []provider.CatalogEntry {
 	catalog := provider.CatalogForKind(items, provider.KindLLM)
 	preferred := make([]provider.CatalogEntry, 0, len(catalog))
@@ -371,7 +400,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 	if err != nil {
 		return meetings.Notes{}, err
 	}
-	candidates := meetingSummaryCandidates(items)
+	candidates := preferMeetingSummaryModel(meetingSummaryCandidates(items), e.preferredMeetingNotesModel())
 	if len(candidates) == 0 {
 		return meetings.Notes{}, errors.New("没有已启用的模型")
 	}

@@ -86,6 +86,22 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 	}
 }
 
+func TestExpertComposeHintNeverListsArchivedMCP(t *testing.T) {
+	for _, name := range []string{"数据库设计专家", "开发专家"} {
+		hint := expertComposeHint([]string{name}, nil, nil)
+		if strings.Contains(hint, "sqlite") || strings.Contains(hint, "git") {
+			t.Fatalf("%s compose still lists archived MCP:\n%s", name, hint)
+		}
+	}
+	leaked := expertComposeHint([]string{"数据库设计专家"}, nil, []string{"sqlite", "git", "playwright"})
+	if strings.Contains(leaked, "sqlite") || strings.Contains(leaked, "git") {
+		t.Fatalf("connected leftover still listed:\n%s", leaked)
+	}
+	if !strings.Contains(leaked, "playwright") {
+		t.Fatalf("live MCP dropped:\n%s", leaked)
+	}
+}
+
 func TestExtractExpertRefNames(t *testing.T) {
 	got := extractExpertRefNames("[引用专家 PPT专家|01ARZ3NDEKTSV4RRFFQ69G5FAV] 请做一份介绍")
 	if len(got) != 1 || got[0] != "PPT专家" {

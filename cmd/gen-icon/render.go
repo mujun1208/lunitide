@@ -18,7 +18,13 @@ func renderMoonMark(size int) *image.RGBA {
 	r := float64(size) * 0.22
 	drawMoon(dst, cx, cy, r)
 	cloudY := float64(size) * 0.78
-	drawCloudLine(dst, float64(size)*0.22, float64(size)*0.78, cloudY, float64(size)*0.007)
+	// Desktop shortcuts pick 32px. size*0.007 is sub-pixel there, so the
+	// "faint cloud line" vanished and Explorer kept showing the old 3-cloud cache.
+	thick := float64(size) * 0.011
+	if thick < 1.25 {
+		thick = 1.25
+	}
+	drawCloudLine(dst, float64(size)*0.20, float64(size)*0.80, cloudY, thick)
 	return dst
 }
 

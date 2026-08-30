@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CompanionPrompts, shouldShowCompanionPrompts } from './CompanionPrompts'
 import { MoonSphere } from './MoonSphere'
 import type { CompanionState } from './useCompanionMachine'
 import { Aurora } from './visual/Aurora'
 import { AURORA_STOPS, auroraForEnter } from './visual/moonVisual'
 import { useCompanionEnter } from './visual/useCompanionEnter'
 import { canUseCompanionWebgl } from './visual/webglSupport'
+import { CompanionEntryLights } from './CompanionEntryLights'
+import type { CompanionEntryReport } from './companionLights'
 
 const STATES: CompanionState[] = ['idle', 'listening', 'thinking', 'speaking']
 
@@ -22,11 +23,15 @@ export function CompanionVisualPreview(): React.JSX.Element {
   const [state, setState] = useState<CompanionState>('idle')
   const [gain, setGain] = useState(0.45)
   const [level, setLevel] = useState(0.35)
-  const [voiceHeard, setVoiceHeard] = useState(false)
   const [cycle, setCycle] = useState(false)
   const webgl = canUseCompanionWebgl()
   const levels = useMemo(() => Array.from({ length: 12 }, (_, i) => Math.max(0, level * (0.55 + ((i * 17) % 10) / 18))), [level])
   const aurora = auroraForEnter(state, gain, enter)
+  const previewLights: CompanionEntryReport['lights'] = [
+    { key: 'listen', title: '听', label: '系统识别', state: 'on' },
+    { key: 'speak', title: '说', label: '晓晓', state: state === 'speaking' ? 'on' : 'warn' },
+    { key: 'think', title: '想', label: state === 'thinking' ? '对话模型' : 'qwen-plus', state: state === 'idle' ? 'warn' : 'on' },
+  ]
 
   useEffect(() => {
     if (!cycle) return
@@ -62,16 +67,7 @@ export function CompanionVisualPreview(): React.JSX.Element {
         )}
       </div>
       <MoonSphere state={state} gain={state === 'speaking' ? gain : 0} levels={levels} enter={enter} interruptible={state !== 'listening'} />
-      <CompanionPrompts
-        visible={shouldShowCompanionPrompts({
-          state,
-          hasUserRound: false,
-          hasInterim: false,
-          voiceHeard,
-        })}
-        language="zh"
-        onPick={() => setState('thinking')}
-      />
+      <CompanionEntryLights lights={previewLights} />
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${state}`} aria-hidden="true" />
         {STATE_LABEL[state]}
@@ -87,15 +83,11 @@ export function CompanionVisualPreview(): React.JSX.Element {
         <button type="button" className={cycle ? 'is-on' : ''} onClick={() => setCycle(on => !on)}>
           {cycle ? '轮播中' : '自动轮播'}
         </button>
-        <button type="button" className={voiceHeard ? 'is-on' : ''} onClick={() => setVoiceHeard(on => !on)}>
-          {voiceHeard ? '已听到声音' : '尚未出声'}
-        </button>
         <button
           type="button"
           onClick={() => {
             setCycle(false)
             setState('idle')
-            setVoiceHeard(false)
             setReplay(value => value + 1)
           }}
         >

@@ -59,3 +59,19 @@ func TestInvokeBrowserActNavigateNeedsURL(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestInvokeBrowserActNewOpsGuidePlaywright(t *testing.T) {
+	e := NewEngine(nil, "test")
+	for _, raw := range []string{`{"op":"scroll","direction":"down"}`, `{"op":"back"}`, `{"op":"tabs","tab":"list"}`} {
+		out, err := e.invokeBrowserAct(context.Background(), executionModeApproval, "sess", []byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Output == "" || strings.Contains(out.Output, "evaluate") {
+			t.Fatalf("op %s output = %q", raw, out.Output)
+		}
+		if !strings.Contains(out.Output, "Playwright") {
+			t.Fatalf("op %s must not return empty success: %q", raw, out.Output)
+		}
+	}
+}

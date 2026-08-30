@@ -16,7 +16,7 @@ A Lunitide skill is:
 - `entryPoint`: `SKILL.md` or `builtin://…`
 - `manifestJson`: JSON with `triggers` (keywords) and `prompt` (working agreement the model sees on invoke)
 
-The skill is **prompt + triggers**, executed by `skill.invoke`. There is no `eval-viewer`, no `claude-with-access-to-the-skill`, and no background benchmark runner.
+The skill is **prompt + triggers**, executed by `skill.invoke`. There is no Claude evaluation harness and no background benchmark runner.
 
 ## Flow
 
@@ -43,7 +43,7 @@ Use `skill.view` to read it. Propose a patched prompt. Call `skill.create` only 
 
 ## What you must never do
 
-- Do not run `eval-viewer/generate_review.py` or any Claude evaluation harness.
+- Do not run any Claude evaluation harness or review scripts.
 - Do not tell the user the skill was benchmarked.
 - Do not use `plugin.create` for a skill.
 - Do not finish after only listing a directory of SKILL.md files.
