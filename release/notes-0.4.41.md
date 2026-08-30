@@ -21,6 +21,6 @@
 ## 安装包
 
 - `release/out/Lunitide-Setup-0.4.41-x64.exe`（Authenticode `Valid`：`CN=Yy.MJ`，DigiCert RFC3161 时间戳。仅当前 Windows 账户信任该证书；其他电脑仍可能提示未知发布者）
-- SHA-256：见打包完成后的 `release/out/SHA256SUMS.txt`
+- SHA-256：`7e145d40dbee140e2f93eefba16154a22d21d4662274257fd880ff29a244929d`
 - `release/out/SHA256SUMS.txt`
 - `release/out` 只保留 0.4.41 安装包与 stage
