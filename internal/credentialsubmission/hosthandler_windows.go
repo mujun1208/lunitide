@@ -170,7 +170,7 @@ func (h *HostHandler) updateTarget(ctx context.Context, providerID string, reque
 	if p.Protocol != nil {
 		protocol = *p.Protocol
 	}
-	if protocol != provider.ProtocolOpenAICompatible && protocol != provider.ProtocolAnthropic {
+	if !provider.ValidProtocol(protocol) {
 		return "", "", errors.New("invalid target protocol")
 	}
 	baseURL := current.BaseURL

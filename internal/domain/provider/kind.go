@@ -13,6 +13,7 @@ const (
 	KindVision Kind = "vision"
 	KindImage  Kind = "image"
 	KindVideo  Kind = "video"
+	KindVoice  Kind = "voice"
 )
 
 // NormalizeKind maps empty/unknown values to llm so pre-0096 rows stay chat models.
@@ -24,18 +25,20 @@ func NormalizeKind(raw string) Kind {
 		return KindImage
 	case KindVideo:
 		return KindVideo
+	case KindVoice:
+		return KindVoice
 	default:
 		return KindLLM
 	}
 }
 
-// ValidKind reports whether raw is empty (legacy llm) or one of the four catalogs.
+// ValidKind reports whether raw is empty (legacy llm) or one of the catalogs.
 func ValidKind(raw string) bool {
 	if strings.TrimSpace(raw) == "" {
 		return true
 	}
 	switch Kind(raw) {
-	case KindLLM, KindVision, KindImage, KindVideo:
+	case KindLLM, KindVision, KindImage, KindVideo, KindVoice:
 		return true
 	default:
 		return false

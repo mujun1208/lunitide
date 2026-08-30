@@ -154,3 +154,56 @@ it('uses the home-page model when opening companion talk', async () => {
   await waitFor(() => expect(start).toHaveBeenCalled())
   expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: provider.id, modelId: 'm-two' })
 })
+
+type FakeEvent = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
+
+class FakeRecognition {
+  static instances: FakeRecognition[] = []
+  lang = ''
+  continuous = false
+  interimResults = false
+  onresult: ((event: FakeEvent) => void) | null = null
+  onerror: ((event?: { error?: string }) => void) | null = null
+  onend: (() => void) | null = null
+  start = vi.fn()
+  stop = vi.fn()
+  constructor() {
+    FakeRecognition.instances.push(this)
+  }
+}
+
+it('opens companion talk from the home wake phrase', async () => {
+  FakeRecognition.instances = []
+  Object.defineProperty(window, 'SpeechRecognition', { value: FakeRecognition, configurable: true })
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) },
+    configurable: true,
+  })
+  const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
+  const projects: ProjectBridge = {
+    list: vi.fn().mockResolvedValue({ items: [personal] }),
+    create: vi.fn(),
+    update: vi.fn(),
+    publish: vi.fn(),
+    close: vi.fn(),
+    reopen: vi.fn(),
+    advanceStatus: vi.fn(),
+    delete: vi.fn(),
+  }
+  const sessions: SessionBridge = { list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn().mockResolvedValue(session), update: vi.fn(), delete: vi.fn() }
+  const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
+  render(<App projects={projects} sessions={sessions} providers={providers} messages={messages} chat={chat} />)
+  await waitFor(() => expect(FakeRecognition.instances.length).toBeGreaterThan(0))
+  await waitFor(() => expect(document.querySelector('.launch-wake')?.textContent).toMatch(/你好月汐/))
+  await act(async () => {
+    for (const instance of FakeRecognition.instances) {
+      instance.onresult?.({ results: [{ 0: { transcript: '你好月汐帮我查天气' }, isFinal: true }] })
+    }
+  })
+  await waitFor(() => expect(document.querySelector('.companion-stage')).toBeTruthy())
+  expect(sessions.create).toHaveBeenCalled()
+  delete (window as { SpeechRecognition?: unknown }).SpeechRecognition
+  delete (navigator as { mediaDevices?: unknown }).mediaDevices
+})

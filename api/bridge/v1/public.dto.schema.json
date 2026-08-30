@@ -20,7 +20,8 @@
     "ProviderProtocol": {
       "enum": [
         "openai_compatible",
-        "anthropic"
+        "anthropic",
+        "volc_speech"
       ]
     },
     "ProviderStatus": {
@@ -65,7 +66,8 @@
             "llm",
             "vision",
             "image",
-            "video"
+            "video",
+            "voice"
           ]
         },
         "supportsVision": {

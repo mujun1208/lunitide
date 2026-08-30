@@ -15,7 +15,7 @@ export function VoicePathPicker({
   return (
     <div className="voice-path-section">
       <p className="voice-path-lead">
-        月伴听写与朗读走哪条通道。云端默认晓晓，免密钥即用；本机用 sherpa 听写、GPT-SoVITS 克隆音色。
+        月伴听写与朗读走哪条通道。云端默认晓晓；火山听写走 seed-asr，朗读仍是晓晓；本机用 sherpa 听写、GPT-SoVITS 克隆音色。
       </p>
       <div
         className="voice-path-picker"
@@ -24,7 +24,10 @@ export function VoicePathPicker({
         onKeyDown={event => {
           if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
           event.preventDefault()
-          const next: ShownVoicePath = shown === 'cloud' ? 'local' : 'cloud'
+          const order = VOICE_PATHS.map(option => option.value)
+          const at = order.indexOf(shown)
+          const dir = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1
+          const next = order[(at + dir + order.length) % order.length]!
           select(next)
           const node = event.currentTarget.querySelector(`[data-voice-path="${next}"]`)
           if (node instanceof HTMLElement) node.focus()

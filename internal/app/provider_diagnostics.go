@@ -11,6 +11,7 @@ import (
 	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/voice/volcsauc"
 )
 
 type providerModelSyncPayload struct {
@@ -64,6 +65,24 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 		return bridge.Failure(request.ID, request.TraceID, "MODEL_NOT_FOUND", "模型不存在", false)
 	}
 	started, testedAt := time.Now(), time.Now().UTC()
+	if p.Protocol == provider.ProtocolVolcSpeech {
+		err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
+			return volcsauc.Probe(opCtx, volcsauc.ConfigFromSecret(p.BaseURL, modelID, string(secret)))
+		})
+		dto := diagnosticResult(err, time.Since(started), testedAt)
+		if err != nil {
+			dto.SanitizedMessage = volcsauc.SanitizeProbeError(err)
+			dto.Stage = "connect"
+			var he *volcsauc.HandshakeError
+			if errors.As(err, &he) && he.Status != 0 {
+				dto.HTTPStatus = he.Status
+				if he.Status == 401 || he.Status == 403 {
+					dto.Stage = "authenticate"
+				}
+			}
+		}
+		return bridge.Success(request.ID, dto)
+	}
 	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
 		adapter, adapterErr := e.adapter(opCtx, p)
 		if adapterErr != nil {
@@ -101,7 +120,7 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 		if p.CredentialState != provider.CredentialConfigured || p.CredentialRef == "" {
 			return nil, "", errProviderCredentialUnavailable
 		}
-		if p.Protocol == provider.ProtocolAnthropic {
+		if p.Protocol == provider.ProtocolAnthropic || p.Protocol == provider.ProtocolVolcSpeech {
 			return append([]provider.Model(nil), p.Models...), "MODEL_DISCOVERY_UNSUPPORTED", nil
 		}
 		var discovery gateway.Discovery

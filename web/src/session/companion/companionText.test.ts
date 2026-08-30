@@ -13,6 +13,10 @@ import {
   cleanForSpeech,
   cleanUserTranscript,
   companionInstantAck,
+  companionPadSpeech,
+  COMPANION_PAD_SPEECH,
+  isCompanionPadSpeech,
+  looksLikeBargeInSpeech,
   companionReplyStallMs,
   looksLikePlaybackEcho,
   looksIncompleteUtterance,
@@ -226,6 +230,7 @@ describe('cleanUserTranscript', () => {
     expect(cleanUserTranscript('把开了我把它桌面上的')).toBe('打开桌面上的')
     expect(cleanUserTranscript('把开了')).toBe('打开')
     expect(cleanUserTranscript('打开桌面上的协议文档')).toBe('打开桌面上的协议文档')
+    expect(cleanUserTranscript('用 gpt so vits 克隆')).toBe('用 GPT-SoVITS 克隆')
   })
 })
 
@@ -267,6 +272,32 @@ describe('companionInstantAck', () => {
     expect(companionInstantAck('今晚月色如何？')).toBe('嗯，')
     expect(companionInstantAck('一场大雨淋湿了眼睛。')).toBe('嗯，我听到了。')
     expect(companionInstantAck('嗯')).toBe('嗯，')
+  })
+})
+
+describe('companion pad speech', () => {
+  test('the spoken pad is the warmed-up 嗯, not a greeting that would double the model', () => {
+    expect(companionPadSpeech()).toBe('嗯')
+    expect(isCompanionPadSpeech('嗯')).toBe(true)
+    expect(isCompanionPadSpeech('嗯，')).toBe(true)
+    expect(isCompanionPadSpeech('嗨，我在呢。')).toBe(false)
+    expect(COMPANION_PAD_SPEECH).toBe('嗯')
+  })
+})
+
+describe('looksLikeBargeInSpeech', () => {
+  test('rejects echo of what she is currently saying', () => {
+    expect(looksLikeBargeInSpeech('很久很久以前', '很久很久以前有一座山')).toBe(false)
+    expect(looksLikeBargeInSpeech('嗯', '嗯')).toBe(false)
+  })
+
+  test('rejects a single character', () => {
+    expect(looksLikeBargeInSpeech('啊', '今天多云。')).toBe(false)
+  })
+
+  test('accepts a non-echo cut-in', () => {
+    expect(looksLikeBargeInSpeech('不是这个', '很久很久以前有一座山')).toBe(true)
+    expect(looksLikeBargeInSpeech('等一下换个话题', '今天多云。')).toBe(true)
   })
 })
 

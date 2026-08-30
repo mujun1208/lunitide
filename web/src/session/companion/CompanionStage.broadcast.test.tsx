@@ -111,7 +111,7 @@ vi.mock('./ttsPlayer', () => ({
     isBusy() {
       return tts.playing
     }
-    interrupt(): void {
+    interrupt(_options?: { cancelEngine?: boolean }): void {
       tts.playing = false
     }
     dispose(): void {}
@@ -119,6 +119,7 @@ vi.mock('./ttsPlayer', () => ({
 }))
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
+import { COMPANION_PAD_SPEECH } from './companionText'
 
 const baseProps: CompanionStageProps = {
   chatStatus: 'idle',
@@ -211,7 +212,7 @@ test('drops the broadcast when the stage is busy speaking a reply', async () => 
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('speaking')
-  expect(tts.enqueueCalls.length).toBe(1) // streamed reply only; no instant backchannel
+    expect(tts.enqueueCalls.filter(call => call.segments.join('') !== COMPANION_PAD_SPEECH).length).toBe(1)
 
   automation.runs = [run({ id: '01ARZ3NDEKTSV4RRFFQ69G5F98', jobName: '并发任务' }), ...automation.runs]
   await flush(30_000)

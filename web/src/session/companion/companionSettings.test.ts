@@ -36,8 +36,8 @@ describe('companionSettings voice default', () => {
     }))
     const loaded = loadCompanionSettings()
     expect(loaded.engine).toBe('edge')
-    expect(loaded.wakeWord).toBe(false)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(9)
+    expect(loaded.wakeWord).toBe(true)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(10)
   })
 
   test('an install left on OneCore is moved off it, voice id and all', () => {
@@ -76,7 +76,7 @@ describe('companionSettings voice default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.fullDuplex).toBe(true)
     expect(loaded.interruptHotkey).toEqual({ key: 'Tab', ctrl: false, alt: false, shift: false })
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(9)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(10)
   })
 
   test('even a deliberate OneCore choice is moved, because it cannot work', () => {
@@ -86,8 +86,48 @@ describe('companionSettings voice default', () => {
     expect(loaded.voiceId).toBe('')
   })
 
-  test('new installs default wake word off', () => {
-    expect(defaultCompanionSettings().wakeWord).toBe(false)
+  test('new installs default wake word on', () => {
+    expect(defaultCompanionSettings().wakeWord).toBe(true)
+    expect(defaultCompanionSettings().wakeVad).toBe(true)
+    expect(defaultCompanionSettings().instantAck).toBe(true)
+    expect(defaultCompanionSettings().voiceBargeIn).toBe(false)
+    expect(loadCompanionSettings().wakeWord).toBe(true)
+    expect(loadCompanionSettings().wakeVad).toBe(true)
+    expect(loadCompanionSettings().instantAck).toBe(true)
+    expect(loadCompanionSettings().voiceBargeIn).toBe(false)
+  })
+
+  test('older saves without instantAck or voiceBargeIn keep the product defaults', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...defaultCompanionSettings(),
+      instantAck: undefined,
+      voiceBargeIn: undefined,
+      rev: 10,
+    }))
+    expect(loadCompanionSettings().instantAck).toBe(true)
+    expect(loadCompanionSettings().voiceBargeIn).toBe(false)
+  })
+
+  test('older saves without wakeVad keep the live-voice gate on', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...defaultCompanionSettings(),
+      wakeVad: undefined,
+      rev: 10,
+    }))
+    expect(loadCompanionSettings().wakeVad).toBe(true)
+  })
+
+  test('rev-9 saves that had wake forced off are restored once the listener is wired', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...defaultCompanionSettings(),
+      wakeWord: false,
+      rev: 9,
+    }))
+    expect(loadCompanionSettings().wakeWord).toBe(true)
+  })
+
+  test('a current-rev off choice stays off', () => {
+    saveCompanionSettings({ ...defaultCompanionSettings(), wakeWord: false })
     expect(loadCompanionSettings().wakeWord).toBe(false)
   })
 })
@@ -101,6 +141,10 @@ describe('companion engine fallback helpers', () => {
     expect(companionEngineProbeOrder('ref')).not.toContain('sapi')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('cloud')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').engine).toBe('edge')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc').voicePath).toBe('volc')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc').engine).toBe('edge')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceBargeIn).toBe(true)
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('refpack:优质台湾腔.wav')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'cloud').voiceId).toBe('')
@@ -118,6 +162,19 @@ describe('companion engine fallback helpers', () => {
     expect(loaded.voicePath).toBe('local')
     expect(loaded.engine).toBe('ref')
     expect(loaded.voiceId).toBe('refpack:甜心少女.wav')
+  })
+
+  test('keeps a saved volc listen path on Edge TTS', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      voicePath: 'volc',
+      engine: 'edge',
+      voiceBargeIn: true,
+    }))
+    const loaded = loadCompanionSettings()
+    expect(loaded.voicePath).toBe('volc')
+    expect(loaded.engine).toBe('edge')
+    expect(loaded.voiceBargeIn).toBe(true)
   })
 
   test('migrates leftover classic SAPI onto Edge', () => {

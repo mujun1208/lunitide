@@ -75,6 +75,19 @@ func TestValidateRejectsUnknownProtocol(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsVolcSpeechVoiceModels(t *testing.T) {
+	p := Provider{ID: "01K00000000000000000000000", Name: "Volc", Protocol: ProtocolVolcSpeech, BaseURL: "https://openspeech.bytedance.com", Models: []Model{
+		{ModelID: "seed-asr-2.0", DisplayName: "seed-asr 2.0", IsDefault: true, Kind: KindVoice},
+	}}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("volc voice: %v", err)
+	}
+	p.Models[0].Kind = KindLLM
+	if err := p.Validate(); err == nil {
+		t.Fatal("volc speech must not carry an llm model")
+	}
+}
+
 func TestNormalizeBaseURLIPv6AndEscapedPath(t *testing.T) {
 	for raw, want := range map[string]string{
 		"HTTPS://[2001:DB8::1]:443/a/../v1":   "https://[2001:db8::1]/v1",

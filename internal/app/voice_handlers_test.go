@@ -197,6 +197,16 @@ func TestVoiceServiceCloseIsSafeToRepeat(t *testing.T) {
 	svc.Close()
 }
 
+func TestVoiceStartVolcWithoutProviderIsInvalid(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetVoiceService(NewVoiceService(t.TempDir(), ""))
+
+	resp := e.Handle(context.Background(), validRequest("voice.start", `{"backend":"volc","language":"zh-CN"}`))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("voice.start volc = %+v; want BRIDGE_SCHEMA_INVALID", resp)
+	}
+}
+
 func TestVoiceErrorMessagesAreBounded(t *testing.T) {
 	// Error strings reach a bridge payload with a declared maximum, and a
 	// recognizer that fails with a wall of ONNX diagnostics would otherwise
