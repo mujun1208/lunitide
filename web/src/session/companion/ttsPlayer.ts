@@ -779,9 +779,14 @@ export class TtsPlayer {
     }
   }
 
-  /** Immediate interruption: silence now, cancel the engine, drop the rest. */
-  interrupt(): void {
+  /**
+   * Immediate interruption: silence now, drop the rest.
+   * `cancelEngine: false` only stops local audio so a pad can yield to the
+   * real reply without aborting the synthesize that is about to start.
+   */
+  interrupt(options?: { cancelEngine?: boolean }): void {
     this.interruptLocal()
+    if (options?.cancelEngine === false) return
     // Fire-and-forget per the design: no retry, no error surface when
     // the receipt times out — the renderer is already muted.
     getTtsBridge().cancel().catch(() => {})

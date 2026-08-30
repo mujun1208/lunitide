@@ -1553,7 +1553,7 @@ func handleProviderList(e *Engine, ctx context.Context, request bridge.Request) 
 	if err := decodePayload(request.Payload, &payload); err != nil {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.list 参数无效", false)
 	}
-	if payload.Protocol != "" && payload.Protocol != provider.ProtocolOpenAICompatible && payload.Protocol != provider.ProtocolAnthropic {
+	if payload.Protocol != "" && !provider.ValidProtocol(payload.Protocol) {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "供应商协议无效", false)
 	}
 	items, err := e.providers.List(ctx, provider.Filter{Protocol: payload.Protocol})

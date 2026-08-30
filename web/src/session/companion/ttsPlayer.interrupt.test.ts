@@ -84,6 +84,17 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
     expect(bridge.synthesize).toHaveBeenCalledTimes(2)
   })
 
+  test('interrupt({ cancelEngine: false }) silences locally without aborting the next synth', async () => {
+    const player = new TtsPlayer()
+    const speaking = player.speak(['垫音'], defaultCompanionSettings(), {})
+    await vi.waitFor(() => expect(playEvents.length).toBeGreaterThanOrEqual(1))
+    bridge.cancel.mockClear()
+    player.interrupt({ cancelEngine: false })
+    expect(pauseEvents.length).toBeGreaterThanOrEqual(1)
+    expect(bridge.cancel).not.toHaveBeenCalled()
+    await speaking
+  })
+
   test('interrupt during synthesis drops the in-flight segment without playback', async () => {
     let releaseSynthesis: (value: TtsSynthesizeResult) => void = () => {}
     bridge.synthesize.mockReturnValue(

@@ -101,7 +101,7 @@ export function LocalAsrRow({ companion, save }: Props): React.JSX.Element | nul
         : '正在准备下载…'
       : failed
         ? `下载失败：${progress?.lastError || '未知原因'}。可重试，已下载的部分会保留。`
-        : `本机识别模型未安装（约 ${megabytes(status.downloadBytes)}，含引擎与模型）。未安装时自动使用系统识别。`
+        : `本机识别模型未安装（约 ${megabytes(status.downloadBytes)}，含引擎与模型）。未安装时实际走系统识别（WebView 语音服务，音频会离开本机），不是本机识别。`
 
   return (
     <>

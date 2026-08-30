@@ -1,1 +1,60 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/voice.start.schema.json","title":"voice.start payload","x-method":"voice.start","x-owner":"engine","x-enabled":true,"type":"object","additionalProperties":false,"properties":{"language":{"type":"string","maxLength":32}},"x-result":{"type":"object","additionalProperties":false,"properties":{"sessionId":{"type":"string","minLength":1,"maxLength":64}},"required":["sessionId"]},"x-examples":{"positive":[{},{"language":"zh-CN"}],"negative":[{"language":123},{"unexpected":1}]}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/voice.start.schema.json",
+  "title": "voice.start payload",
+  "x-method": "voice.start",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "language": {
+      "type": "string",
+      "maxLength": 32
+    },
+    "backend": {
+      "enum": ["sherpa", "volc"]
+    },
+    "providerId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "backend": { "const": "volc" } },
+        "required": ["backend"]
+      },
+      "then": { "properties": { "providerId": true }, "required": ["providerId"] }
+    }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": ["sessionId"]
+  },
+  "x-examples": {
+    "positive": [
+      {},
+      { "language": "zh-CN" },
+      {
+        "backend": "volc",
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "language": "zh-CN"
+      }
+    ],
+    "negative": [
+      { "language": 123 },
+      { "unexpected": 1 },
+      { "backend": "omni" },
+      { "backend": "volc" }
+    ]
+  }
+}

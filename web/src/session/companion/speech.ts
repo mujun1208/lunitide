@@ -84,6 +84,13 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
    * microphone or stop the WAV writer when the recognizer recycles.
    */
   externalPcm?: boolean
+  /**
+   * Local sherpa only. Read live so a settings toggle takes effect on the
+   * current session. Web Speech ignores this — it cannot mute the speaker.
+   */
+  bargeIn?: () => boolean
+  /** Non-echo transcript while she is talking. Local sherpa only. */
+  onBargeIn?: (transcript: string) => void
 }
 
 export interface CompanionSpeechHandle {

@@ -5,6 +5,7 @@
 // TTS does not pause at every period. Only replies over 1200 chars
 // split, with a comma re-split for over-long sentences, at most 20
 // segments per reply.
+import { correctAsrText } from './asrCorrections'
 export const MAX_SEGMENT_CHARS = 1200
 export const MAX_SEGMENTS = 20
 /** First unpunctuated flush: greetings may speak immediately; other first clips wait for a phrase. */
@@ -28,6 +29,26 @@ export function companionInstantAck(userText: string): string {
   if (/[？?]$/.test(text)) return '嗯，'
   if (/[。！!…]$/.test(text) && text.length >= 4) return '嗯，我听到了。'
   return '嗯，'
+}
+
+/** Spoken pad while the model thinks. One syllable; matches the silent TTS warmup. */
+export const COMPANION_PAD_SPEECH = '嗯'
+
+export function companionPadSpeech(): string {
+  return COMPANION_PAD_SPEECH
+}
+
+export function isCompanionPadSpeech(text: string): boolean {
+  return compactSpeech(text) === compactSpeech(COMPANION_PAD_SPEECH)
+}
+
+/**
+ * Local ASR heard the user cutting in — not a one-character crumb, and not
+ * the sentence currently coming out of the speaker.
+ */
+export function looksLikeBargeInSpeech(heard: string, spoken: string): boolean {
+  if (compactSpeech(heard).length < 2) return false
+  return !looksLikePlaybackEcho(heard, spoken)
 }
 
 export function companionReplyStallMs(chatStreaming: boolean, hasAssistantText: boolean): number {
@@ -408,6 +429,7 @@ export function cleanUserTranscript(raw: string): string {
   for (const [pattern, replacement] of SPEECH_CORRECTIONS) {
     text = text.replace(pattern, replacement)
   }
+  text = correctAsrText(text)
   text = repairOpenCommandTranscript(text)
   for (let pass = 0; pass < 3; pass++) {
     const next = text.replace(LEADING_FILLERS, '').replace(MID_FILLERS, '$1').replace(TRAILING_FILLERS, '').trim()

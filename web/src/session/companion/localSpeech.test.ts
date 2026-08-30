@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BridgeClientError } from '../../bridge/client'
-import { ENDPOINT_BACKSTOP_MS } from './localSpeech'
+import { BARGE_IN_ARM_MS, ENDPOINT_BACKSTOP_MS } from './localSpeech'
 import { INCOMPLETE_HARD_MS, MEETING_TURN_END_SILENCE_MS, TURN_END_INCOMPLETE_SILENCE_MS, TURN_END_SILENCE_MS } from './speech'
 
 const asr = {
@@ -240,6 +240,65 @@ describe('startLocalCompanionSpeech', () => {
     handle.setAssistantPlayback(false, 400)
     await vi.advanceTimersByTimeAsync(400)
     expect(asr.setMuted).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps the sherpa session across TTS instead of recycling it', async () => {
+    const stage = harness()
+    const handle = await startLocalCompanionSpeech(stage.options)
+    asr.commit.mockClear()
+    handle.setAssistantPlayback(true)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(asr.commit).not.toHaveBeenCalled()
+    expect(asr.setMuted).toHaveBeenLastCalledWith(true)
+    handle.stop()
+  })
+
+  it('with barge-in, a non-echo transcript cuts in and echo does not', async () => {
+    const onBargeIn = vi.fn()
+    const stage = harness()
+    stage.say('很久很久以前有一座山')
+    const handle = await startLocalCompanionSpeech({
+      ...stage.options,
+      bargeIn: () => true,
+      onBargeIn,
+    })
+
+    handle.setAssistantPlayback(true)
+    expect(asr.setMuted).toHaveBeenLastCalledWith(false)
+    asr.commit.mockClear()
+    expect(asr.commit).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(BARGE_IN_ARM_MS + 20)
+    onTranscript('很久很久以前有一座山', false)
+    expect(onBargeIn).not.toHaveBeenCalled()
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    onTranscript('不是这个', false)
+    expect(onBargeIn).toHaveBeenCalledTimes(1)
+    expect(onBargeIn).toHaveBeenCalledWith('不是这个')
+    expect(stage.onFinal).not.toHaveBeenCalled()
+
+    onTranscript('换一个话题', true)
+    expect(onBargeIn).toHaveBeenCalledTimes(1)
+    handle.stop()
+  })
+
+  it('does not barge-in before the arm window, even with the setting on', async () => {
+    const onBargeIn = vi.fn()
+    const stage = harness()
+    stage.say('今天多云。')
+    const handle = await startLocalCompanionSpeech({
+      ...stage.options,
+      bargeIn: () => true,
+      onBargeIn,
+    })
+    handle.setAssistantPlayback(true)
+    onTranscript('等一下', false)
+    expect(onBargeIn).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(BARGE_IN_ARM_MS + 20)
+    onTranscript('等一下', false)
+    expect(onBargeIn).toHaveBeenCalledWith('等一下')
+    handle.stop()
   })
 
   it('gives the turn back for nothing it hears while she is thinking', async () => {

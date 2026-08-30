@@ -78,7 +78,7 @@ vi.mock('./ttsPlayer', () => ({
     isBusy() {
       return tts.playing
     }
-    interrupt(): void {
+    interrupt(_options?: { cancelEngine?: boolean }): void {
       tts.playing = false
     }
     dispose(): void {}
@@ -86,6 +86,7 @@ vi.mock('./ttsPlayer', () => ({
 }))
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
+import { COMPANION_PAD_SPEECH } from './companionText'
 
 const baseProps: CompanionStageProps = {
   chatStatus: 'idle',
@@ -101,7 +102,10 @@ const flush = async (ms: number) => {
     await vi.advanceTimersByTimeAsync(ms)
   })
 }
-const spokenText = () => tts.enqueueCalls.map(call => call.segments.join('')).join('')
+const spokenReply = () =>
+  tts.enqueueCalls.map(call => call.segments.join('')).filter(text => text !== COMPANION_PAD_SPEECH).join('')
+const lastReplyCall = () =>
+  [...tts.enqueueCalls].reverse().find(call => call.segments.join('') !== COMPANION_PAD_SPEECH)
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -127,6 +131,7 @@ test('speaks the first finished sentence while the model is still writing', asyn
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('thinking')
+  expect(tts.enqueueCalls.map(call => call.segments.join(''))).toEqual([COMPANION_PAD_SPEECH])
 
   // First sentence lands mid-stream: it must reach the engine now, not
   // after the whole reply has been generated.
@@ -134,8 +139,7 @@ test('speaks the first finished sentence while the model is still writing', asyn
     utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText="今天多云。" />)
   })
   await flush(0)
-  expect(tts.enqueueCalls.length).toBe(1)
-  expect(tts.enqueueCalls[0].segments.join('')).toBe('今天多云。')
+  expect(spokenReply()).toBe('今天多云。')
   expect(stateOf(utils.container)).toBe('speaking')
 
   // The rest of the stream follows without re-speaking the opening.
@@ -143,13 +147,13 @@ test('speaks the first finished sentence while the model is still writing', asyn
     utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText="今天多云。气温二十六度。" />)
   })
   await flush(0)
-  expect(spokenText()).toBe('今天多云。气温二十六度。')
+  expect(spokenReply()).toBe('今天多云。气温二十六度。')
 
   await act(async () => {
     utils.rerender(<CompanionStage {...baseProps} chatStatus="done" assistantText="今天多云。气温二十六度。" />)
   })
   await flush(0)
-  expect(spokenText()).toBe('今天多云。气温二十六度。')
+  expect(spokenReply()).toBe('今天多云。气温二十六度。')
 })
 
 test('an unpunctuated tail still waits for the stream to stall', async () => {
@@ -164,10 +168,10 @@ test('an unpunctuated tail still waits for the stream to stall', async () => {
     utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText="嗨我在呢" />)
   })
   await flush(0)
-  expect(tts.enqueueCalls.length).toBe(0)
+  expect(spokenReply()).toBe('')
 
   await flush(900)
-  expect(spokenText()).toBe('嗨我在呢')
+  expect(spokenReply()).toBe('嗨我在呢')
 })
 
 test('nothing she hears mid-reply takes the turn back', async () => {
@@ -228,7 +232,7 @@ test('keeps the microphone shut across the gap between her sentences', async () 
   // The engine runs dry with the stream still open.
   await act(async () => {
     tts.playing = false
-    tts.enqueueCalls[0].callbacks.onFinished?.('completed')
+    lastReplyCall()!.callbacks.onFinished?.('completed')
   })
   await flush(400)
   const reopened = speech.setAssistantPlayback.mock.calls.slice(shutAt).filter(call => call[0] === false)
@@ -314,4 +318,59 @@ test('hands the speech layer what is currently being spoken, for echo rejection'
   })
   await flush(0)
   expect(speech.callbacks!.spokenText?.()).toContain('嗨，我在呢。')
+})
+
+test('the pad finishing does not end her turn while the model is still writing', async () => {
+  const onSend = vi.fn()
+  const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('今天天气怎么样')
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('thinking')
+  expect(tts.enqueueCalls[0]?.segments.join('')).toBe(COMPANION_PAD_SPEECH)
+
+  await act(async () => {
+    tts.playing = false
+    tts.enqueueCalls[0].callbacks.onFinished?.('completed')
+  })
+  await flush(400)
+  expect(stateOf(utils.container)).toBe('thinking')
+  expect(onSend).toHaveBeenCalledTimes(1)
+
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} onSend={onSend} chatStatus="streaming" assistantText="今天多云。" />)
+  })
+  await flush(0)
+  expect(spokenReply()).toBe('今天多云。')
+  expect(stateOf(utils.container)).toBe('speaking')
+})
+
+test('a barge-in from local ASR cuts the reply and starts the next user turn', async () => {
+  const onSend = vi.fn()
+  const onCancel = vi.fn()
+  const props = { ...baseProps, onSend, onCancel }
+  const utils = render(<CompanionStage {...props} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('讲个长故事')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="很久很久以前。" />)
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('speaking')
+  expect(onSend).toHaveBeenCalledTimes(1)
+
+  await act(async () => {
+    speech.callbacks!.onBargeIn?.('不是这个')
+  })
+  await flush(0)
+
+  expect(onCancel).toHaveBeenCalled()
+  expect(onSend).toHaveBeenCalledTimes(2)
+  expect(onSend).toHaveBeenLastCalledWith('不是这个')
+  expect(stateOf(utils.container)).toBe('thinking')
 })

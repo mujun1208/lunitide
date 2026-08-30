@@ -13,7 +13,8 @@ export interface PreparedCompanionEntry {
 }
 
 export async function resolveCompanionVoicePath(settings: CompanionSettings): Promise<VoicePath> {
-  return settings.voicePath === 'local' ? 'local' : 'cloud'
+  if (settings.voicePath === 'local' || settings.voicePath === 'volc') return settings.voicePath
+  return 'cloud'
 }
 
 /** Inspect once on 对话模式 enter: Windows-default mic + keep an explicit ready path. */

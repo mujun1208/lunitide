@@ -33,6 +33,15 @@ describe('prepareCompanionEntry', () => {
     expect(prepared.voicePath).toBe('local')
   })
 
+  test('keeps an explicit 火山 card without collapsing it to 云端', async () => {
+    const stored = applyVoicePath(defaultCompanionSettings(), 'volc')
+    saveCompanionSettings(stored)
+    const prepared = await prepareCompanionEntry(stored)
+    expect(prepared.voicePath).toBe('volc')
+    expect(prepared.settings.engine).toBe('edge')
+    expect(prepared.settings.voiceBargeIn).toBe(true)
+  })
+
   test('defaults an unset path to 云端', async () => {
     const resolved = await resolveCompanionVoicePath(defaultCompanionSettings())
     expect(resolved).toBe('cloud')

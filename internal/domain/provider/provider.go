@@ -29,7 +29,13 @@ type Protocol string
 const (
 	ProtocolOpenAICompatible Protocol = "openai_compatible"
 	ProtocolAnthropic        Protocol = "anthropic"
+	ProtocolVolcSpeech       Protocol = "volc_speech"
 )
+
+// ValidProtocol is the stored-provider enum, including speech-only Volc.
+func ValidProtocol(p Protocol) bool {
+	return p == ProtocolOpenAICompatible || p == ProtocolAnthropic || p == ProtocolVolcSpeech
+}
 
 type CredentialState string
 
@@ -210,7 +216,7 @@ func (p Provider) Validate() error {
 	if p.ID == "" || strings.TrimSpace(p.Name) == "" || len(p.Name) > 500 {
 		return errors.New("provider identity or name is invalid")
 	}
-	if p.Protocol != ProtocolOpenAICompatible && p.Protocol != ProtocolAnthropic {
+	if !ValidProtocol(p.Protocol) {
 		return errors.New("provider protocol is invalid")
 	}
 	origin, err := NormalizeBaseURL(p.BaseURL)
@@ -263,6 +269,13 @@ func (p Provider) Validate() error {
 	}
 	if defaults != 1 {
 		return errors.New("provider must contain exactly one default model")
+	}
+	if p.Protocol == ProtocolVolcSpeech {
+		for _, model := range p.Models {
+			if model.EffectiveKind() != KindVoice {
+				return errors.New("volc speech providers may only contain voice models")
+			}
+		}
 	}
 	return nil
 }

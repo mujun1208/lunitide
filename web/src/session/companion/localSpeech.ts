@@ -21,7 +21,7 @@ import {
   type CompanionSpeechHandle,
   type CompanionSpeechOptions,
 } from './speech'
-import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
+import { looksIncompleteUtterance, looksLikeBargeInSpeech, looksLikePlaybackEcho } from './companionText'
 import { absorbHeldTranscript, pickMeetingFinalText } from '../../meetings/meetingText'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
@@ -35,6 +35,13 @@ export const ENDPOINT_BACKSTOP_MS = 2300
 
 /** Peak that paints a full ring. Chosen so normal speech sits mid-scale. */
 const FULL_SCALE_PEAK = 0.35
+
+/**
+ * Wait this long after she starts talking before a non-echo transcript is
+ * treated as barge-in. Covers the pad syllable coming back through the mic
+ * without waiting the full echo-guard used when unmuting after she stops.
+ */
+export const BARGE_IN_ARM_MS = 160
 
 const silentBars = () => Array.from({ length: MOON_RING_BINS }, () => 0)
 
@@ -64,6 +71,9 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   let speechActive = false
   let announcedSpeech = false
   let playback = false
+  let listeningThrough = false
+  let bargedThisPlayback = false
+  let playbackStartedAt = 0
   let guardUntil = 0
   let unmuteTimer = 0
   let commitPaused = false
@@ -180,6 +190,16 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     void recycle('final')
   }
 
+  const considerBargeIn = (heard: string) => {
+    if (!options.bargeIn?.() || !options.onBargeIn) return
+    if (bargedThisPlayback) return
+    if (Date.now() < playbackStartedAt + BARGE_IN_ARM_MS) return
+    const trimmed = heard.trim()
+    if (!looksLikeBargeInSpeech(trimmed, options.spokenText?.() ?? '')) return
+    bargedThisPlayback = true
+    options.onBargeIn(trimmed)
+  }
+
   asr = await startLocalAsr({
     extraStreams: options.externalPcm ? undefined : options.extraStreams,
     externalPcm: options.externalPcm,
@@ -203,8 +223,12 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     onTranscript: (next, final) => {
       if (closed) return
       const now = Date.now()
-      // Audio captured during her reply is the speaker, not the user.
+      // Audio captured during her reply is the speaker, not the user —
+      // unless barge-in is on, in which case a non-echo transcript is the
+      // user cutting in. Never commit() here: that would take the turn as a
+      // normal final and skip the echo filter the stage already applies.
       if (playback || commitPaused) {
+        if (playback) considerBargeIn(next)
         return
       }
       const trimmed = next.trim()
@@ -259,34 +283,32 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       commitPaused = paused
     },
     setAssistantPlayback: (active, echoGuardMs = ECHO_GUARD_MS) => {
-      if (closed || active === playback) return
+      if (closed) return
+      const listenThrough = active && options.bargeIn?.() === true
+      if (active === playback && listenThrough === listeningThrough) return
+      const starting = active && !playback
       playback = active
+      listeningThrough = listenThrough
       guardUntil = Date.now() + echoGuardMs
-      // Muted for the whole reply, not just the ramp.
-      //
-      // Leaving it open was how the user could cut in by talking, and the
-      // cost of that was a decision no transcript can make reliably: two
-      // characters that did not match the sentence currently playing ended
-      // her turn, so a television, someone else in the room, or her own voice
-      // recognized a beat late truncated the answer mid-word. Interrupting is
-      // the 打断 button's job — it is unambiguous, it is what the setting
-      // describing this behaviour already tells the user to reach for, and it
-      // works while she is thinking too, where the microphone still does.
-      //
-      // Muting also removes echo as a category rather than guessing at it.
+      if (starting) {
+        playbackStartedAt = Date.now()
+        bargedThisPlayback = false
+      }
+      if (!active) bargedThisPlayback = false
+      // Keep the sherpa session. Recycle used to commit/reopen on every TTS
+      // boundary, which is the cold start after she speaks. Mute still drops
+      // frames (or barge-in leaves them flowing). The utterance buffer is
+      // cleared so her last words cannot become the next turn.
       window.clearTimeout(unmuteTimer)
-      asr?.setMuted(true)
-      if (!active) {
+      if (active) {
+        asr?.setMuted(!listenThrough)
+      } else {
+        asr?.setMuted(true)
         unmuteTimer = window.setTimeout(() => {
           if (!closed) asr?.setMuted(false)
         }, echoGuardMs)
       }
-      // Whatever landed either side of the boundary belongs to the turn that
-      // just ended. Cleared here and now rather than when the commit below
-      // comes back, so there is no window where the next turn can start on
-      // top of the last one's words.
       resetUtterance()
-      void recycle(false)
     },
     forceCommit: () => {
       const trimmed = text.trim()
@@ -316,7 +338,12 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       void asr?.restart()
     },
     resumeCapture: () => {
-      if (closed || playback || commitPaused || Date.now() < guardUntil) return
+      if (closed) return
+      if (options.bargeIn?.() === true) {
+        asr?.setMuted(false)
+        return
+      }
+      if (playback || commitPaused || Date.now() < guardUntil) return
       asr?.setMuted(false)
     },
     pushPcm: frame => {

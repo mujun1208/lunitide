@@ -21,7 +21,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'appearance', icon: '◐', label: '外观', labelEn: 'Appearance', keywords: '主题 星光 月光 密度 动效 动画 theme' },
   { id: 'profile', icon: '☺', label: '个人资料', labelEn: 'Profile', keywords: '昵称 头像 状态 部门 职位 组织 局域网 发现 配对 密码 名片 nickname' },
   { id: 'providers', icon: '◈', label: '模型与供应商', labelEn: 'Models & providers', keywords: '模型 API Key 供应商 BYOK endpoint 视觉 生图 生视频 OCR LLM models providers' },
-  { id: 'voice', icon: '◉', label: '语音与麦克风', labelEn: 'Voice & microphone', keywords: '月伴 TTS ASR 朗读 麦克风 全双工 音色 云端 本地 晓晓 sherpa GPT-SoVITS 克隆 人生 voice' },
+  { id: 'voice', icon: '◉', label: '语音与麦克风', labelEn: 'Voice & microphone', keywords: '月伴 TTS ASR 朗读 麦克风 全双工 音色 云端 本地 晓晓 sherpa GPT-SoVITS 克隆 人生 唤醒 纠错 VAD 先应一声 语音插话 voice' },
   { id: 'personal', icon: '✧', label: '个人智能', labelEn: 'Personal intelligence', keywords: '记忆 偏好 专家 画像 memory' },
   { id: 'security', icon: '⛨', label: '安全与治理', labelEn: 'Security', keywords: '命令白名单 编码 技能 MCP 权限 审批 hooks 全盘' },
   { id: 'browser', icon: '⬟', label: '浏览器', labelEn: 'Browser', keywords: 'Playwright Chrome 探测 snapshot 浏览' },

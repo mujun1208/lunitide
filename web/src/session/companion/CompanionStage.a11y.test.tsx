@@ -115,7 +115,7 @@ vi.mock('./ttsPlayer', () => ({
     isBusy() {
       return tts.playing
     }
-    interrupt() {
+    interrupt(_options?: { cancelEngine?: boolean }) {
       tts.interrupts++
       tts.playing = false
     }
@@ -124,6 +124,7 @@ vi.mock('./ttsPlayer', () => ({
 }))
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
+import { COMPANION_PAD_SPEECH } from './companionText'
 
 const baseProps: CompanionStageProps = {
   chatStatus: 'idle',
@@ -306,8 +307,8 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(statusRegion(container).textContent).toContain('对答中')
     expect(onSend).toHaveBeenCalledWith('今晚月色如何')
     expect(liveLog(container).textContent).toContain('今晚月色如何')
-    expect(liveLog(container).textContent).not.toContain('嗯，')
-    expect(tts.enqueueCalls).toHaveLength(0)
+    expect(liveLog(container).textContent).not.toContain('嗯')
+    expect(tts.enqueueCalls.map(call => call.segments.join(''))).toEqual([COMPANION_PAD_SPEECH])
     // Thinking stays interruptible: moon click can cancel a slow reply.
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在回应')
@@ -338,13 +339,13 @@ describe('MC-06 state distinguishability + live announcements', () => {
     )
     await waitFor(() => expect(stateOf(container)).toBe('speaking'))
     expect(statusRegion(container).textContent).toContain('说话中')
-    expect(tts.enqueueCalls.length).toBe(1) // streamed reply only; no instant backchannel
+    expect(tts.enqueueCalls.filter(call => call.segments.join('') !== COMPANION_PAD_SPEECH).length).toBe(1)
     expect(tts.configuredWith).toContain('zh-female')
     expect(moonBody(container).disabled).toBe(false)
     expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在说话，点击打断朗读')
     // 5. Moon click during speaking interrupts playback — it must NOT exit.
     fireEvent.click(moonBody(container))
-    await waitFor(() => expect(tts.interrupts).toBe(1))
+    await waitFor(() => expect(tts.interrupts).toBeGreaterThanOrEqual(1))
     expect(onExit).not.toHaveBeenCalled()
     // 6. Hands-free loop re-opens the mic by itself…
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
@@ -376,7 +377,7 @@ describe('MC-06 state distinguishability + live announcements', () => {
     const interruptBtn = container.querySelector('.companion-interrupt') as HTMLButtonElement
     expect(interruptBtn.disabled).toBe(false)
     fireEvent.click(interruptBtn)
-    await waitFor(() => expect(tts.interrupts).toBe(1))
+    await waitFor(() => expect(tts.interrupts).toBeGreaterThanOrEqual(1))
     expect(onExit).not.toHaveBeenCalled()
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
     expect(statusRegion(container).textContent).toContain('聆听中')

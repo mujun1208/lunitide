@@ -670,7 +670,7 @@ func validateEntry(e journalEntry, now time.Time) error {
 	return nil
 }
 func validProtocol(p provider.Protocol) bool {
-	return p == provider.ProtocolOpenAICompatible || p == provider.ProtocolAnthropic
+	return provider.ValidProtocol(p)
 }
 func validDigest(v string) bool {
 	b, e := hex.DecodeString(v)

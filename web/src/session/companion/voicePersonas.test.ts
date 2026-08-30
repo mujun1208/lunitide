@@ -9,14 +9,16 @@ describe('embedded 50-life catalogue', () => {
   })
 
   test('groups the picker without mixing voice paths', () => {
-    expect(VOICE_PATHS).toHaveLength(2)
-    expect(VOICE_PATHS.map(p => p.value)).toEqual(['cloud', 'local'])
+    expect(VOICE_PATHS).toHaveLength(3)
+    expect(VOICE_PATHS.map(p => p.value)).toEqual(['cloud', 'volc', 'local'])
     expect(VOICE_PATHS[0]).toMatchObject({ label: '云端', badge: '默认', meta: expect.stringContaining('晓晓') })
-    expect(VOICE_PATHS[1]).toMatchObject({ label: '本地', meta: expect.stringContaining('sherpa') })
-    expect(VOICE_PATHS[1].meta).toMatch(/GPT-SoVITS/)
+    expect(VOICE_PATHS[1]).toMatchObject({ label: '火山', meta: expect.stringContaining('晓晓') })
+    expect(VOICE_PATHS[2]).toMatchObject({ label: '本地', meta: expect.stringContaining('sherpa') })
+    expect(VOICE_PATHS[2].meta).toMatch(/GPT-SoVITS/)
     expect(VOICE_PATHS.some(p => /MiniCPM|omni/i.test(`${p.label}${p.badge}${p.kicker}${p.meta}${p.desc}`))).toBe(false)
     expect(shownVoicePath('omni')).toBe('cloud')
     expect(shownVoicePath('cloud')).toBe('cloud')
+    expect(shownVoicePath('volc')).toBe('volc')
     expect(shownVoicePath('local')).toBe('local')
     expect(voicePersonaGroups().length).toBeGreaterThan(5)
   })
@@ -29,6 +31,7 @@ describe('embedded 50-life catalogue', () => {
   test('maps leftover MiniCPM-o onto 云端', () => {
     expect(shownVoicePath('omni')).toBe('cloud')
     expect(shownVoicePath('cloud')).toBe('cloud')
+    expect(shownVoicePath('volc')).toBe('volc')
     expect(shownVoicePath('local')).toBe('local')
   })
 })

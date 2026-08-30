@@ -1,4 +1,6 @@
-export type VoicePath = 'cloud' | 'local' | 'omni'
+export type VoicePath = 'cloud' | 'local' | 'omni' | 'volc'
+
+export type ShownVoicePath = Exclude<VoicePath, 'omni'>
 
 export type VoicePersona = {
   id: string
@@ -61,8 +63,6 @@ export const VOICE_PERSONAS: VoicePersona[] = [
   { id: 'refpack:老年人旁白（男）.wav', name: '老年旁白', group: '权威旁白', gender: 'male' },
 ]
 
-export type ShownVoicePath = Exclude<VoicePath, 'omni'>
-
 export type VoicePathOption = {
   value: ShownVoicePath
   label: string
@@ -74,7 +74,8 @@ export type VoicePathOption = {
 
 /** Leftover MiniCPM-o saves still type as omni; the picker shows 云端. */
 export function shownVoicePath(path: VoicePath): ShownVoicePath {
-  return path === 'local' ? 'local' : 'cloud'
+  if (path === 'local' || path === 'volc') return path
+  return 'cloud'
 }
 
 /** Product picker for 月伴. MiniCPM-o stays in the type for leftover saves but is not offered. */
@@ -86,6 +87,14 @@ export const VOICE_PATHS: VoicePathOption[] = [
     kicker: '即开即用',
     meta: '晓晓 · 微软 Neural',
     desc: '免密钥。听写与朗读走现有云端通道，适合大多数对话。',
+  },
+  {
+    value: 'volc',
+    label: '火山',
+    badge: '听写',
+    kicker: 'seed-asr',
+    meta: '火山听 · 晓晓读',
+    desc: '听写走火山 seed-asr 2.0；朗读仍是晓晓。密钥配在供应商「语音模型」。',
   },
   {
     value: 'local',

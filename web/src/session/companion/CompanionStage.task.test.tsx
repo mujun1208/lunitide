@@ -101,7 +101,7 @@ vi.mock('./ttsPlayer', () => ({
     isBusy() {
       return tts.playing
     }
-    interrupt() {
+    interrupt(_options?: { cancelEngine?: boolean }) {
       tts.interrupts++
       tts.playing = false
     }

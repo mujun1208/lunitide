@@ -20,7 +20,10 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/voice"
+	"github.com/lunitide/lunitide/internal/voice/volcsauc"
 )
 
 // VoiceService owns the recognizer and the sessions in flight.
@@ -357,10 +360,15 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		return bridge.Failure(r.ID, r.TraceID, "VOICE-002", "本地识别不可用", true)
 	}
 	var p struct {
-		Language string `json:"language"`
+		Language   string `json:"language"`
+		Backend    string `json:"backend"`
+		ProviderID string `json:"providerId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
+	}
+	if p.Backend == "volc" {
+		return startVolcVoice(e, ctx, r, p.Language, p.ProviderID)
 	}
 
 	session, err := e.voice.backend.Start(ctx, voice.SessionOptions{Language: p.Language})
@@ -376,6 +384,54 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	// not ready by the time they stop simply does not refine that turn.
 	e.voice.warmEngines()
 
+	id := fmt.Sprintf("v%d", e.voice.counter.Add(1))
+	e.voice.mu.Lock()
+	e.voice.sessions[id] = session
+	e.voice.mu.Unlock()
+	return bridge.Success(r.ID, map[string]any{"sessionId": id})
+}
+
+func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, providerID string) bridge.Response {
+	if providerID == "" || e.providers == nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
+	}
+	p, err := e.providers.Get(ctx, providerID)
+	if err != nil {
+		return providerFailure(r, err)
+	}
+	if failure := providerReadyFailure(r, p); failure != nil {
+		return *failure
+	}
+	if p.Protocol != provider.ProtocolVolcSpeech {
+		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", "所选供应商不是火山语音", false)
+	}
+	modelID := ""
+	for _, m := range p.Models {
+		if m.IsDefault {
+			modelID = m.ModelID
+			break
+		}
+	}
+	if modelID == "" && len(p.Models) > 0 {
+		modelID = p.Models[0].ModelID
+	}
+	var session voice.Session
+	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
+		backend := volcsauc.New(volcsauc.ConfigFromSecret(p.BaseURL, modelID, string(secret)))
+		opened, startErr := backend.Start(opCtx, voice.SessionOptions{Language: language})
+		if startErr != nil {
+			return startErr
+		}
+		session = opened
+		return nil
+	})
+	if err != nil {
+		msg := volcsauc.SanitizeProbeError(err)
+		if msg == "" {
+			msg = "火山语音启动失败"
+		}
+		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", msg, true)
+	}
 	id := fmt.Sprintf("v%d", e.voice.counter.Add(1))
 	e.voice.mu.Lock()
 	e.voice.sessions[id] = session

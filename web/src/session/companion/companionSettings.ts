@@ -42,9 +42,28 @@ export interface InterruptHotkey {
 export interface CompanionSettings {
   enabled: boolean
   autoSpeak: boolean
+  /** Home-page “你好月汐” listener. Off = enter companion only by tapping the button. */
   wakeWord: boolean
+  /**
+   * On the home wake mic, reject matches that look like speaker playback.
+   * Off = any transcript hit enters (old behaviour).
+   */
+  wakeVad: boolean
   /** Keep mic open between turns; mute while assistant TTS plays. */
   fullDuplex: boolean
+  /**
+   * Speak a one-syllable pad («嗯») as soon as the user turn is sent, so
+   * the first sound is not waiting on the model's first token. The real
+   * reply interrupts the pad. Off = wait for the first speakable chunk.
+   */
+  instantAck: boolean
+  /**
+   * Local sherpa only: keep listening while she talks and treat a non-echo
+   * transcript as an interrupt. System speech recognition stays muted —
+   * it captures the speaker independently. Default off: TVs and other
+   * voices can false-trigger.
+   */
+  voiceBargeIn: boolean
   /** Manual interrupt shortcut while she is thinking or speaking. */
   interruptHotkey: InterruptHotkey
   /** Tighter voice gate + longer silence before commit in loud environments. */
@@ -62,7 +81,7 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 9
+const SETTINGS_REV = 10
 
 /** Reliable probe order when the primary engine fails.
  *
@@ -105,8 +124,11 @@ export const DEFAULT_INTERRUPT_HOTKEY: InterruptHotkey = {
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
   autoSpeak: true,
-  wakeWord: false,
+  wakeWord: true,
+  wakeVad: true,
   fullDuplex: true,
+  instantAck: true,
+  voiceBargeIn: false,
   interruptHotkey: { ...DEFAULT_INTERRUPT_HOTKEY },
   speechEnvironment: 'normal',
   recognizer: 'auto',
@@ -132,15 +154,20 @@ export function loadCompanionSettings(): CompanionSettings {
     let engine: CompanionEngine = isEngine(parsed.engine) ? parsed.engine : fallback.engine
     let voiceId = typeof parsed.voiceId === 'string' ? parsed.voiceId : ''
     const rev = typeof parsed.rev === 'number' ? parsed.rev : 0
+    // rev < 10 force-cleared wakeWord every load because the home listener
+    // was not wired. Now that it is, restore the product default once.
     let wakeWord = typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord
-    if (rev < SETTINGS_REV) {
-      wakeWord = false
+    if (rev < 10) {
+      wakeWord = true
     }
     let persist = rev < SETTINGS_REV
     const voicePath = readVoicePath(parsed.voicePath, engine)
     if (parsed.voicePath === 'omni' || parsed.voicePath === 'flm') persist = true
     if (voicePath === 'local') {
       engine = 'ref'
+    } else if (voicePath === 'volc') {
+      engine = 'edge'
+      if (voiceId.startsWith('refpack:')) voiceId = ''
     } else if (engine === 'natural' || engine === 'sapi') {
       // Classic SAPI / OneCore are no longer offered — they were the
       // tinny 本机语音 option. Move onto Edge rather than keep speaking it.
@@ -156,7 +183,10 @@ export function loadCompanionSettings(): CompanionSettings {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
       autoSpeak: typeof parsed.autoSpeak === 'boolean' ? parsed.autoSpeak : fallback.autoSpeak,
       wakeWord,
+      wakeVad: typeof parsed.wakeVad === 'boolean' ? parsed.wakeVad : fallback.wakeVad,
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
+      instantAck: typeof parsed.instantAck === 'boolean' ? parsed.instantAck : fallback.instantAck,
+      voiceBargeIn: typeof parsed.voiceBargeIn === 'boolean' ? parsed.voiceBargeIn : fallback.voiceBargeIn,
       interruptHotkey,
       speechEnvironment: parsed.speechEnvironment === 'noisy' ? 'noisy' : fallback.speechEnvironment,
       // Absent for anyone who saved settings before the local recognizer
@@ -203,7 +233,7 @@ function isEngine(value: unknown): value is CompanionEngine {
 }
 
 function isVoicePath(value: unknown): value is VoicePath {
-  return value === 'cloud' || value === 'local' || value === 'omni'
+  return value === 'cloud' || value === 'local' || value === 'omni' || value === 'volc'
 }
 
 function readVoicePath(value: unknown, engine: CompanionEngine): VoicePath {
@@ -227,6 +257,9 @@ export function applyVoicePath(settings: CompanionSettings, path: VoicePath): Co
     return { ...settings, voicePath: 'local', engine: 'ref', voiceId }
   }
   const voiceId = settings.voiceId.startsWith('refpack:') ? '' : settings.voiceId
+  if (path === 'volc') {
+    return { ...settings, voicePath: 'volc', engine: 'edge', voiceId, voiceBargeIn: true }
+  }
   return { ...settings, voicePath: 'cloud', engine: 'edge', voiceId }
 }
 
