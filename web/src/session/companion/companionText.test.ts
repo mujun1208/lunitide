@@ -67,6 +67,13 @@ describe('cleanForSpeech', () => {
     const out = cleanForSpeech('完成了 🎉✅，继续 🚀。')
     expect(out).toBe('完成了，继续。')
   })
+
+  test('strips leading oral fillers so a reply does not start with 嗯', () => {
+    expect(cleanForSpeech('嗯嗯嗯，今天多云。')).toBe('今天多云。')
+    expect(cleanForSpeech('嗯嗯嗯')).toBe('')
+    expect(cleanForSpeech('嗯。')).toBe('')
+    expect(cleanForSpeech('嗯，我在呢。')).toBe('我在呢。')
+  })
 })
 
 describe('segmentForSpeech', () => {
@@ -327,6 +334,7 @@ describe('companion task speech', () => {
     expect(companionToolsExecuting('streaming', '已打开协议.docx')).toBe(false)
     expect(companionToolsExecuting('done', '打开桌面文件中…')).toBe(false)
     expect(companionExecutingSpeech()).toBe('正在执行。')
+    expect(companionExecutingSpeech('打开桌面文件中…')).toBe('打开桌面文件。')
     expect(companionCannotExecuteSpeech('找不到证件号码')).toBe('无法执行。找不到证件号码')
     expect(companionCannotExecuteSpeech('无法执行。权限不足')).toBe('无法执行。权限不足')
     expect(companionTaskCompleteSpeech('已在证件号码后写入')).toBe('已在证件号码后写入。')

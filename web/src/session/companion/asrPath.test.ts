@@ -37,7 +37,7 @@ describe('companionListenKind', () => {
 describe('companionListenFailover', () => {
   test('volc that hears but never transcribes moves to local then cloud', () => {
     expect(companionListenFailover('volc', 'volc', true)).toBe('local')
-    expect(companionListenFailover('volc', 'volc', false)).toBe('cloud')
+    expect(companionListenFailover('volc', 'volc', false)).toBe('volc')
   })
 
   test('deaf system recognition uses sherpa when it is installed', () => {

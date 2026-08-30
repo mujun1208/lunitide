@@ -18,6 +18,7 @@ import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
 import{ProfilePanel}from'./ProfilePanel'
 import{useZh}from'../i18n/language'
+import{leftoverArchivedMcp}from'./leftoverMcp'
 
 
 interface GeneralSettings {
@@ -75,7 +76,7 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'general', providers }: { onNavigateExpert?: () => void; onBack?: () => void; initialCategory?: SettingsCategory; providers?: ProviderBridge }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, initialCategory = 'general', providers }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; initialCategory?: SettingsCategory; providers?: ProviderBridge }): React.JSX.Element {
   const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
@@ -159,6 +160,7 @@ export function SettingsPage({ onNavigateExpert, onBack, initialCategory = 'gene
               </div>
             </div>
             <CommandPolicyPanel />
+            <McpPresetsSection onOpenMcp={onNavigateMcp} />
             <HooksPanel />
             <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} embedded /> }, { id: 'plans', label: '计划', render: pid => <PlanPage projectId={pid} /> }]} />
           </div>}
@@ -556,7 +558,7 @@ export function CompanionSection():React.JSX.Element{
  // (zh-CN splits by gender, other zh-* are dialects, rest is foreign).
  const voiceGroups=(()=>{const g=new Map<string,typeof visibleVoices>();for(const v of visibleVoices){const lang=v.lang||'';const grp=v.group||(lang==='zh-CN'?(v.gender==='male'?'男声 · 阳光少年 / 沉稳大叔':'女声 · 温柔 / 活泼 / 甜美'):lang.startsWith('zh-')?'方言 · 东北 / 陕西 / 粤语 / 台湾':'外语 · 英语 / 日语');const arr=g.get(grp)||[];arr.push(v);g.set(grp,arr)}return[...g.entries()]})()
  const shownPath=shownVoicePath(companion.voicePath)
- return <><div className="voice-path-heading">语音通道</div><VoicePathPicker value={companion.voicePath} onChange={next=>save(applyVoicePath(companion,next))}/><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="首页语音唤醒" desc="在首页听「你好月汐」（含近音）。听到后进入月伴，后面的话会一并带上。关闭后只能点「月伴对话」进入。开启期间首页麦克风保持打开。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="挡扬声器误唤醒" desc="首页唤醒时用麦克风能量判断是不是当面说话。电视、外放里出现「月汐」时尽量不进月伴；关掉则听到字就进。" on={companion.wakeVad} onChange={v=>save({...companion,wakeVad:v})}/><HotkeyRow label="打断快捷键" desc="月汐说话或思考时，按此快捷键立刻停止；舞台上也有「打断」按钮。Esc 仍用于退出月伴。" hotkey={companion.interruptHotkey} onChange={hotkey=>save({...companion,interruptHotkey:hotkey})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="先应一声" desc="你说完后立刻垫一句「嗯」，模型还在写时先开口；真正回答到了会接上。不想垫音可关。" on={companion.instantAck} onChange={v=>save({...companion,instantAck:v})}/><Toggle label="全双工对话" desc="她说完后立刻接着听下一句，不必重新点麦克风。她思考和说话的整个回合里麦克风都静音，所以外放回声、电视声或旁人说话都不会把她的回答截断；想插话请点舞台上的「打断」或使用快捷键。本机识别可另开「语音插话」。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v})}/><Toggle label="语音插话" desc="本机 sherpa 或火山听写有效：她说话时仍听你。听到不像外放回声的字就停朗读并接你的话。系统听写仍须点打断。电视和旁人声可能误停，默认关闭。" on={companion.voiceBargeIn} onChange={v=>save({...companion,voiceBargeIn:v})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><LocalAsrRow companion={companion} save={save}/><AsrCorrectionRow/>{shownPath==='local'&&<><VoicePersonaGrid caption="50 种人生已内置。音色走本机克隆引擎，点选即用。" value={companion.voiceId||companion.omniPersonaId} onChange={id=>save({...companion,voiceId:id,omniPersonaId:id})}/><div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div><div className="setting-row"><div><div className="setting-label">{engineDesc}</div></div><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></>}{(shownPath==='cloud'||shownPath==='volc')&&<><Toggle label="显示外语音色" desc="默认只列出中文；开启后可浏览全部云端 Neural 音色。" on={showForeignEdgeVoices} onChange={setShowForeignEdgeVoices}/><div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div><div className="setting-row"><div><div className="setting-label">语速</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div></>}{status&&<p role="status" className="notice">{status}</p>}</>
+ return <><div className="voice-path-heading">语音通道</div><VoicePathPicker value={companion.voicePath} onChange={next=>save(applyVoicePath(companion,next))}/><Toggle label="启用月伴对话" desc="在普通聊天输入框显示月亮按钮，进入全屏语音对话舞台；关闭即回滚入口。" on={companion.enabled} onChange={v=>save({...companion,enabled:v})}/><Toggle label="首页语音唤醒" desc="在首页听「你好月汐」（含近音）。听到后进入月伴，后面的话会一并带上。关闭后只能点「月伴对话」进入。开启期间首页麦克风保持打开。" on={companion.wakeWord} onChange={v=>save({...companion,wakeWord:v})}/><Toggle label="挡扬声器误唤醒" desc="首页唤醒时用麦克风能量判断是不是当面说话。电视、外放里出现「月汐」时尽量不进月伴；关掉则听到字就进。" on={companion.wakeVad} onChange={v=>save({...companion,wakeVad:v})}/><HotkeyRow label="打断快捷键" desc="月汐说话或思考时，按此快捷键立刻停止；舞台上也有「打断」按钮。Esc 仍用于退出月伴。" hotkey={companion.interruptHotkey} onChange={hotkey=>save({...companion,interruptHotkey:hotkey})}/><Toggle label="回复自动朗读" desc="边生成边朗读（流式字幕同步更新）；关闭后仅显示字幕。" on={companion.autoSpeak} onChange={v=>save({...companion,autoSpeak:v})}/><Toggle label="先应一声" desc="默认关闭。打开后你说完立刻垫一句「嗯」；真正回答到了会接上。垫音容易被听写当成你的下一句，形成嗯嗯循环。" on={companion.instantAck} onChange={v=>save({...companion,instantAck:v})}/><Toggle label="全双工对话" desc="她说完后立刻接着听下一句，不必重新点麦克风。她思考和说话的整个回合里麦克风都静音，所以外放回声、电视声或旁人说话都不会把她的回答截断；想插话请点舞台上的「打断」或使用快捷键。本机识别可另开「语音插话」。" on={companion.fullDuplex} onChange={v=>save({...companion,fullDuplex:v})}/><Toggle label="语音插话" desc="本机 sherpa 或火山听写有效：她说话时仍听你。听到不像外放回声的字就停朗读并接你的话。系统听写仍须点打断。电视和旁人声可能误停，默认关闭。" on={companion.voiceBargeIn} onChange={v=>save({...companion,voiceBargeIn:v})}/><Toggle label="嘈杂环境模式" desc="提高麦克风能量门限、延长静音判定，减少旁人说话和背景声误触发。" on={companion.speechEnvironment==='noisy'} onChange={v=>save({...companion,speechEnvironment:v?'noisy':'normal'})}/><LocalAsrRow companion={companion} save={save}/><AsrCorrectionRow/>{shownPath==='local'&&<><VoicePersonaGrid caption="50 种人生已内置。音色走本机克隆引擎，点选即用。" value={companion.voiceId||companion.omniPersonaId} onChange={id=>save({...companion,voiceId:id,omniPersonaId:id})}/><div className="setting-row"><div><div className="setting-label">GPT-SoVITS 服务地址</div><div className="setting-desc">默认 http://127.0.0.1:9880。留空使用默认。</div></div><input className="setting-input" style={{flex:1,fontFamily:'var(--mono)',fontSize:12}} placeholder="http://127.0.0.1:9880" value={companion.refEndpoint} onChange={e=>save({...companion,refEndpoint:e.target.value.trim()})} aria-label="GPT-SoVITS 服务地址"/></div><div className="setting-row"><div><div className="setting-label">{engineDesc}</div></div><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></>}{(shownPath==='cloud'||shownPath==='volc')&&<><Toggle label="显示外语音色" desc="默认只列出中文；开启后可浏览全部云端 Neural 音色。" on={showForeignEdgeVoices} onChange={setShowForeignEdgeVoices}/><div className="setting-row"><div><div className="setting-label">朗读音色</div><div className="setting-desc">{engineDesc}</div></div><div style={{display:'flex',gap:8,alignItems:'center'}}><select className="setting-select" aria-label="朗读音色" disabled={voiceDisabled} value={companion.voiceId} onChange={e=>save({...companion,voiceId:e.target.value})}><option value="">默认音色</option>{voiceGroups.map(([grp,items])=><optgroup key={grp} label={grp}>{items.map(voice=><option key={voice.voice_id} value={voice.voice_id}>{voice.display_name}</option>)}</optgroup>)}</select><button disabled={busy||engineState!=='available'} onClick={()=>void preview()}>{busy?'合成中…':'试听'}</button></div></div><div className="setting-row"><div><div className="setting-label">语速</div><div className="setting-desc">当前 {companion.rate}</div></div><input type="range" min={-10} max={10} step={1} value={companion.rate} aria-label="朗读语速" onChange={e=>save({...companion,rate:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div><div className="setting-row"><div><div className="setting-label">音量</div><div className="setting-desc">当前 {companion.volume}</div></div><input type="range" min={0} max={100} step={1} value={companion.volume} aria-label="朗读音量" onChange={e=>save({...companion,volume:Number(e.target.value)})} style={{accentColor:'var(--tide1)'}}/></div></>}{status&&<p role="status" className="notice">{status}</p>}</>
 }
 
 function AboutPanel(): React.JSX.Element {
@@ -592,16 +594,28 @@ function AboutPanel(): React.JSX.Element {
 // needsArgs 条目先把占位符替换为用户输入再注册；不放宽任何 stdio 白名单。
 export type McpPresetItem = Mcp6PresetsListResult['items'][number]
 
-export function McpPresetsSection({ bridge = getMcpBridge() }: { bridge?: McpBridge }): React.JSX.Element {
+export function McpPresetsSection({ bridge = getMcpBridge(), onOpenMcp }: { bridge?: McpBridge; onOpenMcp?: () => void }): React.JSX.Element {
   const [items, setItems] = useState<McpPresetItem[]>([])
+  const [leftover, setLeftover] = useState<string[]>([])
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [argDraft, setArgDraft] = useState<{ id: string; value: string } | null>(null)
 
   useEffect(() => {
     setBusy(true)
-    bridge.presets()
-      .then(r => { setItems(r.items); setStatus('') })
+    Promise.all([
+      bridge.presets(),
+      bridge.list().catch(() => ({ endpoints: [] })),
+    ])
+      .then(([r, listed]) => {
+        setItems(r.items)
+        const names = new Set<string>()
+        for (const ep of listed?.endpoints ?? []) {
+          leftoverArchivedMcp(ep.args).forEach(name => names.add(name))
+        }
+        setLeftover([...names])
+        setStatus('')
+      })
       .catch(e => setStatus(e instanceof Error ? e.message : '预置目录加载失败'))
       .finally(() => setBusy(false))
   }, [bridge])
@@ -638,6 +652,12 @@ export function McpPresetsSection({ bridge = getMcpBridge() }: { bridge?: McpBri
     <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
       <div className="setting-group-title" style={{ marginTop: 8 }}>预置服务器（免费直连）</div>
       <div className="setting-desc">仅列出仍在维护的 MCP（官方参考服 + Playwright + Context7）。Git 用对话里的 command.run；公开网页用 web.search。已下架 2025 归档包（GitHub / Puppeteer / SQLite / Git）。注册后会自动启用并进入对话工具表。</div>
+      {leftover.length > 0 && (
+        <p role="status" className="notice" style={{ color: 'var(--err)' }}>
+          检测到已下架 MCP（{leftover.join('、')}）。请到 MCP 页卸载，设置里不再做第二套卸载。
+          {onOpenMcp ? <button type="button" onClick={onOpenMcp} style={{ marginLeft: 8 }}>去 MCP 页</button> : null}
+        </p>
+      )}
       <div style={{ margin: '8px 0' }}>
         <button disabled={busy || items.length === 0} onClick={() => void enableKit()}>一键启用推荐套件</button>
       </div>

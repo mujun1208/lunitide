@@ -12,7 +12,7 @@ const catalog = [
 
 function api(overrides: Partial<McpBridge> = {}): McpBridge {
   return {
-    list: vi.fn(),
+    list: vi.fn().mockResolvedValue({ endpoints: [] }),
     add: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', state: 'probe' }),
     toggle: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', enabled: true, state: 'probe' }),
     health: vi.fn(),
@@ -67,6 +67,26 @@ it('collects the placeholder value, normalizes windows separators and then regis
   const payload = vi.mocked(bridge.add).mock.calls[0][0]
   // 反斜杠归一为正斜杠：stdio 白名单拒绝元字符 \
   expect(payload.args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', 'E:/proj/demo repo'])
+})
+
+it('marks leftover archived endpoints and links to the MCP page', async () => {
+  const onOpenMcp = vi.fn()
+  const bridge = api({
+    list: vi.fn().mockResolvedValue({
+      endpoints: [{
+        endpointId: 'mcp-old',
+        transport: 'stdio' as const,
+        state: 'ready' as const,
+        enabled: true,
+        args: ['-y', '@modelcontextprotocol/server-github'],
+      }],
+    }),
+  })
+  render(<McpPresetsSection bridge={bridge} onOpenMcp={onOpenMcp} />)
+  expect(await screen.findByRole('status')).toHaveTextContent(/已下架 MCP/)
+  expect(screen.getByRole('status')).toHaveTextContent(/GitHub/)
+  fireEvent.click(screen.getByRole('button', { name: '去 MCP 页' }))
+  expect(onOpenMcp).toHaveBeenCalledOnce()
 })
 
 it('surfaces registration failures without losing the section', async () => {

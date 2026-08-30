@@ -5,6 +5,7 @@ import {
   defaultCompanionSettings,
   formatInterruptHotkey,
   interruptHotkeyFromEvent,
+  hasExplicitCompanionVoicePath,
   loadCompanionSettings,
   matchesInterruptHotkey,
   saveCompanionSettings,
@@ -21,6 +22,9 @@ describe('companionSettings voice default', () => {
   test('new installs default to cloud Edge for reliable speech', () => {
     expect(defaultCompanionSettings().engine).toBe('edge')
     expect(loadCompanionSettings().engine).toBe('edge')
+    expect(hasExplicitCompanionVoicePath()).toBe(false)
+    saveCompanionSettings(defaultCompanionSettings())
+    expect(hasExplicitCompanionVoicePath()).toBe(true)
   })
 
   test('rev-1 OneCore installs migrate to edge when no voice was chosen', () => {
@@ -37,7 +41,7 @@ describe('companionSettings voice default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.engine).toBe('edge')
     expect(loaded.wakeWord).toBe(true)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(10)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(11)
   })
 
   test('an install left on OneCore is moved off it, voice id and all', () => {
@@ -76,7 +80,7 @@ describe('companionSettings voice default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.fullDuplex).toBe(true)
     expect(loaded.interruptHotkey).toEqual({ key: 'Tab', ctrl: false, alt: false, shift: false })
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(10)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(11)
   })
 
   test('even a deliberate OneCore choice is moved, because it cannot work', () => {
@@ -89,11 +93,11 @@ describe('companionSettings voice default', () => {
   test('new installs default wake word on', () => {
     expect(defaultCompanionSettings().wakeWord).toBe(true)
     expect(defaultCompanionSettings().wakeVad).toBe(true)
-    expect(defaultCompanionSettings().instantAck).toBe(true)
+    expect(defaultCompanionSettings().instantAck).toBe(false)
     expect(defaultCompanionSettings().voiceBargeIn).toBe(false)
     expect(loadCompanionSettings().wakeWord).toBe(true)
     expect(loadCompanionSettings().wakeVad).toBe(true)
-    expect(loadCompanionSettings().instantAck).toBe(true)
+    expect(loadCompanionSettings().instantAck).toBe(false)
     expect(loadCompanionSettings().voiceBargeIn).toBe(false)
   })
 
@@ -104,8 +108,23 @@ describe('companionSettings voice default', () => {
       voiceBargeIn: undefined,
       rev: 10,
     }))
-    expect(loadCompanionSettings().instantAck).toBe(true)
+    expect(loadCompanionSettings().instantAck).toBe(false)
     expect(loadCompanionSettings().voiceBargeIn).toBe(false)
+  })
+
+  test('rev-10 saves that had the 嗯 pad on are migrated off once', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...defaultCompanionSettings(),
+      instantAck: true,
+      rev: 10,
+    }))
+    expect(loadCompanionSettings().instantAck).toBe(false)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(11)
+  })
+
+  test('a current-rev on choice for the pad stays on', () => {
+    saveCompanionSettings({ ...defaultCompanionSettings(), instantAck: true })
+    expect(loadCompanionSettings().instantAck).toBe(true)
   })
 
   test('older saves without wakeVad keep the live-voice gate on', () => {

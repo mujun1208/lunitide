@@ -32,6 +32,29 @@ const speech = vi.hoisted(() => ({
   }),
 }))
 
+vi.mock('../bridge/client', async importOriginal => {
+  const actual = await importOriginal<typeof import('../bridge/client')>()
+  return {
+    ...actual,
+    getProviderBridge: () => ({
+      list: () => Promise.resolve({
+        items: [{
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+          name: 'Chat',
+          protocol: 'openai_compatible',
+          baseUrl: 'https://example.com',
+          status: 'enabled',
+          credentialState: 'configured',
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+          models: [{ modelId: 'qwen-plus', displayName: 'Qwen', isDefault: true, kind: 'llm', kindDefault: true }],
+        }],
+      }),
+    }),
+  }
+})
+
 vi.mock('./meetingAsr', async importOriginal => {
   const actual = await importOriginal<typeof import('./meetingAsr')>()
   return {
@@ -83,6 +106,7 @@ function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
 describe('MeetingPage', () => {
   afterEach(() => {
     cleanup()
+    localStorage.clear()
     vi.useRealTimers()
     speech.start.mockReset()
     speech.prepare.mockReset().mockResolvedValue({ extraStreams: [], audioSource: 'microphone', notice: '' })
@@ -98,8 +122,28 @@ describe('MeetingPage', () => {
     expect(screen.getByText('评审会')).toBeInTheDocument()
     expect(screen.getByText(/已完成/)).toBeInTheDocument()
     expect(screen.getByText(/一点「开始录制」即收录麦克风与系统声音/)).toBeInTheDocument()
+    expect(screen.getByText(/不区分说话人/)).toBeInTheDocument()
+    expect(screen.getByLabelText('纪要模型')).toBeInTheDocument()
+    expect(screen.getByText(/听写管实时字幕/)).toBeInTheDocument()
+    expect(screen.getAllByText(/补转写只用本机识别/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('heading', { name: '今天想聊什么？' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '同时收录本机系统声音' })).not.toBeInTheDocument()
+  })
+
+  test('ready empty actions stay honest and the four boxes scroll inside the page', async () => {
+    const past = { ...base, title: '空待办会', status: 'ready' as const, summary: '只对齐了方向', actions: '', transcript: '大家好\n'.repeat(40) }
+    const meetings = bridge({
+      list: vi.fn().mockResolvedValue({ items: [past] }),
+      get: vi.fn().mockResolvedValue(past),
+    })
+    const user = userEvent.setup()
+    const { container } = render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByText('空待办会'))
+    expect(await screen.findByRole('heading', { name: '决议/待办' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '决议/待办' })).toHaveAttribute('placeholder', '这场没有抽出可执行待办。')
+    expect(container.querySelector('.meeting-main')).toBeTruthy()
+    expect(container.querySelector('.meeting-transcript')).toBeTruthy()
+    expect(container.querySelector('.meeting-doc')).toBeTruthy()
   })
 
   test('start records live captions then stop generates notes and export', async () => {
@@ -124,19 +168,32 @@ describe('MeetingPage', () => {
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
     expect(meetings.start).toHaveBeenCalledWith({ audioSource: 'microphone_and_system' })
+    expect(speech.start).toHaveBeenCalledWith(expect.objectContaining({ listen: 'cloud' }))
     expect(speech.prepare).toHaveBeenCalledWith({ interactive: false })
     speech.onFinal?.('先对齐范围')
     expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
     expect(meetings.append).toHaveBeenCalledWith(expect.objectContaining({ meetingId, text: '先对齐范围' }))
     await user.click(screen.getByRole('button', { name: '停止' }))
     expect(meetings.catchup).toHaveBeenCalledWith({ meetingId })
-    expect(meetings.summarize).toHaveBeenCalledWith({ meetingId })
+    expect(meetings.summarize).toHaveBeenCalledWith(expect.objectContaining({ meetingId }))
     expect(await screen.findByRole('heading', { name: '会议摘要' })).toBeInTheDocument()
     expect(screen.getByDisplayValue('已对齐范围。')).toBeInTheDocument()
     expect(screen.getByDisplayValue('- 写纪要')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '导出 Markdown' }))
     expect(meetings.exportMeeting).toHaveBeenCalledWith({ meetingId, format: 'markdown' })
     expect(await screen.findByText(/C:\/notes.md/)).toBeInTheDocument()
+  })
+
+  test('local listen failure stays on sherpa and shows the error', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
+    speech.start.mockRejectedValue(new Error('会议听写选了本机，但 sherpa 未就绪。请改选系统或火山，或先装本机识别。'))
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(screen.getByRole('radio', { name: '本机' }))
+    await user.click(screen.getByRole('button', { name: '开始录制' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/sherpa 未就绪/)
+    expect(speech.start).toHaveBeenCalledWith(expect.objectContaining({ listen: 'local' }))
   })
 
   test('honest needs_summary state offers retry without inventing notes', async () => {
@@ -386,7 +443,7 @@ describe('MeetingPage', () => {
     await user.click(await screen.findByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
     expect(meetings.stop).not.toHaveBeenCalled()
-    expect(screen.getByRole('status')).toHaveTextContent(/实时转写中断/)
+    expect(screen.getByRole('status')).toHaveTextContent(/本地语音识别中断/)
   })
 
   test('ASR end does not call meetings.stop; only 停止 does', async () => {

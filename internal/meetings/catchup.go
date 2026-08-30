@@ -173,7 +173,7 @@ func (s *Service) catchupUnavailable(m Meeting, hasText bool) (Meeting, error) {
 	if hasText {
 		return m, nil
 	}
-	return s.finishNeedsSummary(m, "实时转写不完整，且本机识别不可用。音频已保存，配置识别模型后可重试补转写。")
+	return s.finishNeedsSummary(m, "实时转写不完整，且补转写只用本机识别。本机识别不可用。音频已保存，装好本机识别后再重试。")
 }
 
 func (s *Service) appendCatchup(ctx context.Context, meetingID, text string, startedMS int64) (Segment, error) {

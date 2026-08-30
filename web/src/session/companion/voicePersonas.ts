@@ -94,7 +94,7 @@ export const VOICE_PATHS: VoicePathOption[] = [
     badge: '听写',
     kicker: 'seed-asr',
     meta: '火山听 · 晓晓读',
-    desc: '听写走火山 seed-asr 2.0；朗读仍是晓晓。密钥配在供应商「语音模型」。',
+    desc: '听写走火山 seed-asr 2.0，不是对话模型。朗读仍是晓晓。豆包里的温柔桃子等角色是火山 TTS，不是 seed-asr，这里选不了。密钥配在供应商「语音模型」。',
   },
   {
     value: 'local',

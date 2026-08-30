@@ -52,9 +52,19 @@ it('renders the plugin market and enables a catalog card', async () => {
   render(<PluginPage bridge={bridge} />)
   expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument()
   expect(await screen.findByText('网页搜索')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '安装 网页搜索' }))
+  expect(screen.getByText(/加号是启用开关/)).toBeInTheDocument()
+  expect(screen.getByText(/不会安装 Git 插件/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '启用 网页搜索' }))
   await waitFor(() => expect(bridge.toggle).toHaveBeenCalledWith({ installId: webSearch.installId, enabled: true }))
-  expect(await screen.findByRole('status')).toHaveTextContent('已安装并启用「网页搜索」')
+  expect(await screen.findByRole('status')).toHaveTextContent('已启用「网页搜索」')
+})
+
+it('marks enabled roster cards as built-in tools', async () => {
+  const bridge = api({
+    list: vi.fn().mockResolvedValue({ plugins: [{ ...webSearch, state: 'enabled' }, filler, failed] }),
+  })
+  render(<PluginPage bridge={bridge} />)
+  expect(await screen.findByText('已是内置工具')).toBeInTheDocument()
 })
 
 it('lists installed plugins with status and hides filler roster rows', async () => {
@@ -65,6 +75,7 @@ it('lists installed plugins with status and hides filler roster rows', async () 
   expect(screen.getByText('未启用')).toBeInTheDocument()
   expect(screen.getByText('Git')).toBeInTheDocument()
   expect(screen.getByText('安装失败')).toBeInTheDocument()
+  expect(screen.getAllByText(/内置开关/).length).toBeGreaterThan(0)
   expect(screen.queryByText('tool-1')).not.toBeInTheDocument()
 })
 

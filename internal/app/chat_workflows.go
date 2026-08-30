@@ -14,7 +14,7 @@ const workflowCodeClause = "- 改代码：workspace.search 定位 → workspace.
 
 const workflowReviewClause = "- 审查：读改动与周边代码，按 严重/建议 分级，引用 path:line。\n"
 
-const workflowBrowserClause = "- 浏览：公开页用 browser.act，始终在同一托管浏览器里操作。操作前先 snapshot 再按 ref 点击/填写，不要猜 CSS。click/type/navigate 会带回新 snapshot；ref 失效只再 snapshot 一次后重试该步。登录墙、验证码、2FA、文件选择框交给用户，不要猜。navigate 优先 Playwright；read 抽正文。click/type/snapshot 已内置 Playwright MCP，首次使用自动安装。多步填表可 skill.invoke browser-automation。\n"
+const workflowBrowserClause = "- 浏览：公开页用 browser.act，始终在同一托管浏览器里操作。操作前先 snapshot 再按 ref 点击/填写，不要猜 CSS。click/type/navigate/scroll/back/hover/select/press 以及 tabs 的 new/close/select 会带回新 snapshot；ref 失效只再 snapshot 一次后重试该步。登录墙、验证码、2FA、文件选择框交给用户，不要猜，也不要 evaluate / 上传文件。navigate 优先 Playwright；read 抽正文。首次使用自动安装 Playwright MCP。多步填表可 skill.invoke browser-automation。\n"
 
 const workflowCrossAppClause = "- 跨应用：网页数据用 browser.act 再 structured.output，然后 excel.gen/docx.gen 写入工作区。桌面软件先 computer.act action=focus，再用 set_value 或 clipboard，不要截图盲点。定时结果用自动化出站 webhook（飞书/企微/钉钉）。禁止远程电脑、局域网控制、入站公网 webhook。\n"
 
@@ -28,7 +28,7 @@ const workflowSkillInstallClause = "- 安装技能：用户给出含 SKILL.md �
 
 const workflowWindowsPathClause = "- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n"
 
-const workflowHtmlClause = "- 桌面 HTML 小游戏或计时器：必须用 html.gen（template=penalty-shootout 或 timer；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n"
+const workflowHtmlClause = "- 桌面 HTML 小游戏、计时器或清单：必须用 html.gen（template=penalty-shootout、timer 或 checklist；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n"
 
 const workflowDesktopHandClause = "- 桌面手（按意图选一把，不要四套里轮流赌）：未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」。\n"
 
@@ -105,7 +105,7 @@ func selectWorkflowClauses(text string) []string {
 	if includeOfficeGenWorkflow(text) {
 		out = append(out, officeGenWorkflowClause)
 	}
-	if has("小游戏", "html.gen", "点球") {
+	if has("小游戏", "html.gen", "点球", "清单", "checklist", "待办页") {
 		out = append(out, workflowHtmlClause)
 	}
 	if has("打开桌面", "desktop.open", "协议文档", "网易云", "汽水音乐") || (has("打开") && has("文件")) {

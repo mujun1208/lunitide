@@ -9,10 +9,10 @@ afterEach(() => {
 })
 
 describe('shouldShowCompanionPrompts', () => {
-  test('shows on idle or quiet listening, hides after voice or a user round', () => {
+  test('never shows sample chips on the live stage', () => {
     const quiet = { hasUserRound: false, hasInterim: false, voiceHeard: false }
-    expect(shouldShowCompanionPrompts({ state: 'idle', ...quiet })).toBe(true)
-    expect(shouldShowCompanionPrompts({ state: 'listening', ...quiet })).toBe(true)
+    expect(shouldShowCompanionPrompts({ state: 'idle', ...quiet })).toBe(false)
+    expect(shouldShowCompanionPrompts({ state: 'listening', ...quiet })).toBe(false)
     expect(shouldShowCompanionPrompts({ state: 'listening', ...quiet, voiceHeard: true })).toBe(false)
     expect(shouldShowCompanionPrompts({ state: 'idle', ...quiet, hasUserRound: true })).toBe(false)
     expect(shouldShowCompanionPrompts({ state: 'thinking', ...quiet })).toBe(false)

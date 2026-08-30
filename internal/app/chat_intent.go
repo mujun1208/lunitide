@@ -130,7 +130,9 @@ func looksLikeHtmlGenTask(text string) bool {
 	if t == "" || looksLikeStatusFollowUp(text) || looksLikeResume(text) {
 		return false
 	}
-	return strings.Contains(t, "html") || strings.Contains(t, "小游戏") || strings.Contains(t, "点球")
+	return strings.Contains(t, "html") || strings.Contains(t, "小游戏") || strings.Contains(t, "点球") ||
+		strings.Contains(t, "checklist") || strings.Contains(t, "待办页") || strings.Contains(t, "计时器") ||
+		(strings.Contains(t, "清单") && !strings.Contains(t, "硬件"))
 }
 
 func wantsOfficeGen(text string) bool {
@@ -319,7 +321,7 @@ func isCompanionLeadInOnly(text string) bool {
 		return true
 	}
 	for _, p := range []string{
-		"等一下", "稍等", "稍等我一下", "嗯，我在呢，稍等我一下",
+		"等一下", "稍等", "稍等我一下", "嗯，我在呢，稍等我一下", "我在呢，稍等我一下",
 		"好，我帮你查一下", "好，我来执行", "好，我来打开", "好，我来播放",
 		"好，我来输入", "好，我马上处理", "好，我来操作电脑", "嗯，", "嗯",
 	} {
