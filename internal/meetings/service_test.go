@@ -752,3 +752,53 @@ func TestSummarizeAfterStopWritesNotesOrNeedsSummary(t *testing.T) {
 		}
 	})
 }
+
+func TestSummarizeSurfacesCompleterError(t *testing.T) {
+	svc := testMeetings(t)
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		return meetings.Notes{}, errors.New("upstream 400: stream required")
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "周会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "对齐范围后发布", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Summarize(ctx, started.MeetingID)
+	if err != nil || got.Status != meetings.StatusNeedsSummary {
+		t.Fatalf("summarize = %#v %v", got, err)
+	}
+	if !strings.Contains(got.SummaryError, "stream required") {
+		t.Fatalf("summaryError = %q", got.SummaryError)
+	}
+}
+
+func TestSummarizePersistsAfterSlowCompleter(t *testing.T) {
+	restore := meetings.SetPersistTimeoutForTest(40 * time.Millisecond)
+	t.Cleanup(restore)
+	svc := testMeetings(t)
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		time.Sleep(80 * time.Millisecond)
+		return meetings.Notes{Summary: "背景：对齐。\n结论：继续。", Actions: "- 写纪要"}, nil
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "周会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "先对齐范围", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Summarize(ctx, started.MeetingID)
+	if err != nil || got.Status != meetings.StatusReady || got.Summary == "" {
+		t.Fatalf("slow summarize must still persist: %#v %v", got, err)
+	}
+}

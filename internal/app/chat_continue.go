@@ -52,6 +52,62 @@ func shouldContinueTurn(text string, usedTools bool, nudges int, disableReasonin
 	return assistantPausedMidTask(text)
 }
 
+const incompleteContinueNudgeText = "上一步工具结果未闭环（画面过期、控件引用失效、或播放未确认正在播放）。立刻根据最新结果继续调用工具，不要停下来询问。"
+
+func incompleteContinueNudgeMessage() gateway.Message {
+	return gateway.Message{Role: gateway.RoleSystem, Content: incompleteContinueNudgeText}
+}
+
+func lastToolOutput(messages []gateway.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == gateway.RoleTool {
+			return messages[i].Content
+		}
+	}
+	return ""
+}
+
+func lastToolName(tools []string) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	return tools[len(tools)-1]
+}
+
+func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, usedTools bool, nudges int) bool {
+	if !usedTools || nudges >= maxContinueNudges {
+		return false
+	}
+	blob := strings.ToUpper(text + "\n" + lastToolOut)
+	if strings.Contains(blob, "STALE_FRAME") || strings.Contains(blob, "COMPUTER_STALE_FRAME") {
+		return true
+	}
+	lower := strings.ToLower(text + "\n" + lastToolOut)
+	if looksLikeStaleBrowserRef(lower) {
+		return true
+	}
+	return unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text)
+}
+
+func looksLikeStaleBrowserRef(lower string) bool {
+	if !strings.Contains(lower, "stale") && !strings.Contains(lower, "失效") {
+		return false
+	}
+	return strings.Contains(lower, "ref") || strings.Contains(lower, "snapshot") || strings.Contains(lower, "控件")
+}
+
+func unverifiedMediaPlay(lastTool, out, assistant string) bool {
+	if lastTool != "media.play" {
+		return false
+	}
+	combined := strings.ToLower(out + "\n" + assistant)
+	if strings.Contains(combined, "正在播") || strings.Contains(combined, "now playing") || strings.Contains(combined, "already playing") {
+		return false
+	}
+	t := strings.ToLower(out)
+	return strings.Contains(t, "started") || strings.Contains(t, "已启动") || strings.Contains(t, "opened")
+}
+
 func continueNudgeMessage() gateway.Message {
 	return gateway.Message{Role: gateway.RoleSystem, Content: continueNudgeText}
 }
@@ -63,7 +119,7 @@ func desktopContinueNudgeMessage() gateway.Message {
 }
 
 func isDesktopControlTool(name string) bool {
-	return strings.HasPrefix(name, "cc.") || name == "computer.act" || name == "desktop.type"
+	return strings.HasPrefix(name, "cc.") || name == "computer.act" || name == "desktop.type" || name == "desktop.open" || name == "media.play" || name == "browser.act"
 }
 
 func shouldContinueDesktopTurn(text string, nudges int) bool {
@@ -86,6 +142,7 @@ func companionWantsDesktopControl(text string) bool {
 		"截图", "屏幕", "对话框", "点击", "鼠标", "电脑", "填写", "输入", "证件",
 		"填表", "再点", "帮我点", "打字", "点一下", "点按钮", "记事本",
 		"word", "notepad",
+		"打开", "播放", "播一首", "播歌", "听歌", "放一首", "网易云", "汽水", "网页", "浏览器",
 	} {
 		if strings.Contains(t, needle) || strings.Contains(lower, needle) {
 			return true

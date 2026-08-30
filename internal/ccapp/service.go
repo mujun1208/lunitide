@@ -248,6 +248,7 @@ type Settings struct {
 	ConfirmTimeoutSecond int      `json:"confirmTimeoutSeconds"`
 	EmergencyStopped     bool     `json:"emergencyStopped"`
 	EmergencyStoppedAt   string   `json:"emergencyStoppedAt,omitempty"`
+	ArmedUntil           string   `json:"armedUntil,omitempty"`
 	UpdatedAt            string   `json:"updatedAt"`
 }
 
@@ -272,6 +273,7 @@ type SettingsPatch struct {
 	ProcessBlocklist     *[]string
 	MaxActionsPerMinute  *int
 	ConfirmTimeoutSecond *int
+	ArmMinutes           *int
 	Actor                string
 }
 
@@ -541,12 +543,28 @@ func actorOr(actor string) string {
 
 // ── settings ────────────────────────────────────────────────────────────────
 
+func (s *Service) expireArm(tx Tx, cur Settings) (Settings, error) {
+	if !cur.Enabled || !armExpired(s.clock.Now(), cur.ArmedUntil) {
+		return cur, nil
+	}
+	cur.Enabled = false
+	cur.ArmedUntil = ""
+	cur.UpdatedAt = s.clock.Now().UTC().Format(time.RFC3339)
+	if err := tx.PutCcSettings(cur); err != nil {
+		return cur, err
+	}
+	return cur, nil
+}
+
 // GetConfig answers the singleton, seeding the default row on first read.
 func (s *Service) GetConfig(ctx context.Context) (Settings, error) {
 	var out Settings
 	err := s.uow.TransactCc(ctx, func(tx Tx) error {
-		var e error
-		out, e = tx.GetCcSettings()
+		cur, e := tx.GetCcSettings()
+		if e != nil {
+			return e
+		}
+		out, e = s.expireArm(tx, cur)
 		return e
 	})
 	return out, err
@@ -619,6 +637,10 @@ func (s *Service) UpdateConfig(ctx context.Context, patch SettingsPatch) (Settin
 		if patch.ConfirmTimeoutSecond != nil {
 			next.ConfirmTimeoutSecond = *patch.ConfirmTimeoutSecond
 		}
+		if patch.ArmMinutes != nil && (*patch.ArmMinutes < 0 || *patch.ArmMinutes > CcMaxArmMinutes) {
+			return fmt.Errorf("%w: armMinutes", ErrCcSchema)
+		}
+		next.ArmedUntil = nextArmedUntil(s.clock.Now(), patch, cur)
 		if err := ValidateSettings(next); err != nil {
 			return err
 		}
@@ -697,6 +719,7 @@ func (s *Service) EmergencyStop(ctx context.Context, actor, reason string) (Sett
 		ts := now.Format(time.RFC3339)
 		cur.EmergencyStopped = true
 		cur.EmergencyStoppedAt = ts
+		cur.ArmedUntil = ""
 		cur.UpdatedAt = ts
 		if err := tx.PutCcSettings(cur); err != nil {
 			return err
@@ -927,6 +950,10 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	if err := s.uow.TransactCc(ctx, func(tx Tx) error {
 		var e error
 		settings, e = tx.GetCcSettings()
+		if e != nil {
+			return e
+		}
+		settings, e = s.expireArm(tx, settings)
 		return e
 	}); err != nil {
 		return Outcome{}, err

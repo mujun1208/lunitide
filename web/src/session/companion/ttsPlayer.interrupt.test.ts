@@ -137,6 +137,20 @@ describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)'
     player.interrupt()
   })
 
+  test('lockEngine does not fall through to Edge for a selected ref voice', async () => {
+    bridge.synthesize.mockRejectedValue(Object.assign(new Error('ref offline'), { code: 'M95-002' }))
+    const engines: string[] = []
+    const player = new TtsPlayer()
+    player.enqueue(['嗯'], { ...defaultCompanionSettings(), engine: 'ref', voiceId: 'refpack:优质台湾腔.wav', lockEngine: true }, {
+      onEngineFallback: engine => engines.push(engine),
+    })
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalled())
+    expect(bridge.synthesize.mock.calls.map(call => call[0].engine)).toEqual(['ref'])
+    expect(engines).toEqual([])
+    bridge.cancel.mockResolvedValue({ notice: 'TTS_CANCELLED' } as never)
+    player.interrupt()
+  })
+
   test('an M95-001 synthesize error resolves through onEngineUnavailable without throwing', async () => {
     bridge.synthesize.mockRejectedValue(
       Object.assign(new Error('本机无可用语音合成引擎'), { code: 'M95-001' }),

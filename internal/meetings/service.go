@@ -385,7 +385,18 @@ func (s *Service) AppendAudio(ctx context.Context, meetingID string, pcm []byte)
 }
 
 func persistCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 20*time.Second)
+	return context.WithTimeout(context.Background(), persistTimeout)
+}
+
+var persistTimeout = 20 * time.Second
+
+// SetPersistTimeoutForTest shortens the per-write store budget. Restore via the returned func.
+func SetPersistTimeoutForTest(d time.Duration) func() {
+	prev := persistTimeout
+	if d > 0 {
+		persistTimeout = d
+	}
+	return func() { persistTimeout = prev }
 }
 
 func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, error) {
@@ -420,20 +431,18 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 		delete(s.summarizing, meetingID)
 		s.mu.Unlock()
 	}()
-	persist, persistCancel := persistCtx()
-	defer persistCancel()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	m.Status = StatusSummarizing
 	m.UpdatedAt = now
-	if err := s.store.UpdateMeeting(persist, m); err != nil {
+	if err := s.persistMeeting(m); err != nil {
 		return Meeting{}, err
 	}
 	if strings.TrimSpace(m.Transcript) == "" {
 		m.Status = StatusNeedsSummary
 		m.SummaryError = "没有可用的逐字稿，无法生成摘要"
 		m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		_ = s.store.UpdateMeeting(persist, m)
-		return s.Get(persist, meetingID)
+		_ = s.persistMeeting(m)
+		return s.readMeeting(m.MeetingID)
 	}
 	if s.complete == nil {
 		return s.finishNeedsSummary(m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
@@ -445,7 +454,7 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	defer workCancel()
 	notes, err := SummarizeLong(workCtx, s.complete, m.Title, CleanTranscript(m.Transcript))
 	if err != nil {
-		return s.finishNeedsSummary(m, "尚未生成摘要，逐字稿已保存。可重试生成摘要。")
+		return s.finishNeedsSummary(m, summarizeErrMessage(err))
 	}
 	title := strings.TrimSpace(notes.Title)
 	if title != "" && utf8.RuneCountInString(title) <= maxTitle {
@@ -459,13 +468,42 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	m.SummaryError = ""
 	m.Status = StatusReady
 	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(persist, m); err != nil {
+	if err := s.persistMeeting(m); err != nil {
 		return Meeting{}, err
 	}
+	persist, persistCancel := persistCtx()
+	defer persistCancel()
 	if err := s.persistDocs(persist, m); err != nil {
 		return Meeting{}, err
 	}
 	return s.Get(persist, meetingID)
+}
+
+func (s *Service) persistMeeting(m Meeting) error {
+	persist, cancel := persistCtx()
+	defer cancel()
+	return s.store.UpdateMeeting(persist, m)
+}
+
+func (s *Service) readMeeting(id string) (Meeting, error) {
+	persist, cancel := persistCtx()
+	defer cancel()
+	return s.Get(persist, id)
+}
+
+func summarizeErrMessage(err error) string {
+	if err == nil {
+		return "尚未生成摘要，逐字稿已保存。可重试生成摘要。"
+	}
+	msg := strings.TrimSpace(err.Error())
+	msg = strings.ReplaceAll(msg, "\n", " ")
+	if utf8.RuneCountInString(msg) > 160 {
+		msg = string([]rune(msg)[:160]) + "…"
+	}
+	if msg == "" {
+		return "尚未生成摘要，逐字稿已保存。可重试生成摘要。"
+	}
+	return "尚未生成摘要：" + msg + "。逐字稿已保存，可重试。"
 }
 
 func (s *Service) maybeReclaimSummarizing(m Meeting) (Meeting, bool, error) {

@@ -39,12 +39,8 @@ func hp(id, kind, title string, disabled ...bool) HarnessPluginSpec {
 // the named tools only).
 func HarnessPlugins() []HarnessPluginSpec {
 	return []HarnessPluginSpec{
-		hp("hmr", m8core.KindTool, "HMR", true),
-		hp("include", m8core.KindTool, "Include"),
-		hp("timer", m8core.KindTool, "Timer"),
 		hp("llm", m8core.KindTool, "LLM"),
 		hp("session", m8core.KindTool, "Session"),
-		hp("typert-registry", m8core.KindTool, "Typert Registry"),
 		hp("jobs-local", m8core.KindWorkflow, "Local Jobs"),
 		hp("web-search-deepseek", m8core.KindTool, "DeepSeek 网页搜索"),
 		hp("tool-bash", m8core.KindTool, "Bash"),
@@ -62,9 +58,6 @@ func HarnessPlugins() []HarnessPluginSpec {
 		hp("memory", m8core.KindTool, "记忆"),
 		hp("skills", m8core.KindSkill, "技能"),
 		hp("cron", m8core.KindWorkflow, "定时任务"),
-		hp("logger", m8core.KindTool, "日志"),
-		hp("i18n", m8core.KindTool, "国际化"),
-		hp("inspector", m8core.KindTool, "检查器"),
 		hp("clipboard", m8core.KindTool, "剪贴板"),
 		hp("notification", m8core.KindTool, "通知"),
 		hp("tts", m8core.KindTool, "语音合成"),
@@ -89,6 +82,14 @@ func isPaddedHarnessPluginID(id string) bool {
 				return false
 			}
 		}
+		return true
+	}
+	return false
+}
+
+func isHollowHarnessPluginID(id string) bool {
+	switch strings.TrimSpace(id) {
+	case "hmr", "include", "typert-registry", "inspector", "i18n", "logger", "timer":
 		return true
 	}
 	return false
@@ -129,17 +130,20 @@ func EnsureBuiltinPlugins(ctx context.Context, svc *PluginService) error {
 			return err
 		}
 	}
-	return svc.prunePaddedHarnessInstalls(ctx)
+	return svc.pruneStaleHarnessInstalls(ctx)
 }
 
-func (s *PluginService) prunePaddedHarnessInstalls(ctx context.Context) error {
+func (s *PluginService) pruneStaleHarnessInstalls(ctx context.Context) error {
 	listed, err := s.List(ctx, "", "")
 	if err != nil {
 		return err
 	}
 	token := strings.Repeat("a", 64)
 	for _, item := range listed.Plugins {
-		if item.State == m8core.InstallUninstalled || !isPaddedHarnessPluginID(item.PluginID) {
+		if item.State == m8core.InstallUninstalled {
+			continue
+		}
+		if !isPaddedHarnessPluginID(item.PluginID) && !isHollowHarnessPluginID(item.PluginID) {
 			continue
 		}
 		if _, err := s.Uninstall(ctx, UninstallInput{InstallID: item.InstallID, ConfirmToken: token, Actor: "harness-prune"}); err != nil {

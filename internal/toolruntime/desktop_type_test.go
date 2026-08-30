@@ -251,8 +251,8 @@ func TestDesktopTypeFailsLoudlyWithoutCC(t *testing.T) {
 	}
 	_, err = executeDesktopType(context.Background(), func(context.Context, string, string, json.RawMessage, bool) (Result, error) {
 		return result("ok"), nil
-	}, "s1", payload, true, false)
+	}, "s1", payload, false, true)
 	if err == nil || !strings.Contains(err.Error(), "无法执行") {
-		t.Fatalf("confined %v", err)
+		t.Fatalf("unapproved %v", err)
 	}
 }

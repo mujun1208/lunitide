@@ -30,23 +30,24 @@ func (r *AgentRuntimeRepository) TransactCc(ctx context.Context, fn func(ccapp.T
 // ── settings singleton ──────────────────────────────────────────────────────
 
 const ccSettingsColumns = `enabled,security_level,allow_critical,process_blocklist_json,
-	max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,updated_at`
+	max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,armed_until,updated_at`
 
 // getCcSettings decodes one singleton row (scan + flag decode).
 func getCcSettings(s interface{ Scan(...any) error }) (ccapp.Settings, error) {
 	var out ccapp.Settings
 	var blocklist string
 	var enabled, allowCritical, emergency int
-	var stoppedAt sql.NullString
+	var stoppedAt, armedUntil sql.NullString
 	if err := s.Scan(&enabled, &out.SecurityLevel, &allowCritical, &blocklist,
 		&out.MaxActionsPerMinute, &out.ConfirmTimeoutSecond, &emergency,
-		&stoppedAt, &out.UpdatedAt); err != nil {
+		&stoppedAt, &armedUntil, &out.UpdatedAt); err != nil {
 		return out, err
 	}
 	out.Enabled = enabled == 1
 	out.AllowCritical = allowCritical == 1
 	out.EmergencyStopped = emergency == 1
 	out.EmergencyStoppedAt = stoppedAt.String
+	out.ArmedUntil = armedUntil.String
 	out.ProcessBlocklist = []string{}
 	_ = json.Unmarshal([]byte(blocklist), &out.ProcessBlocklist)
 	if out.ProcessBlocklist == nil {
@@ -92,23 +93,27 @@ func (t *agentRuntimeTx) PutCcSettings(v ccapp.Settings) error {
 	if v.EmergencyStopped {
 		emergency = 1
 	}
-	var stoppedAt any
+	var stoppedAt, armedUntil any
 	if v.EmergencyStoppedAt != "" {
 		stoppedAt = v.EmergencyStoppedAt
 	}
+	if v.ArmedUntil != "" {
+		armedUntil = v.ArmedUntil
+	}
 	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO cc_security_config
 		(id,enabled,security_level,allow_critical,process_blocklist_json,
-		 max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,updated_at)
-		VALUES(1,?,?,?,?,?,?,?,?,?)
+		 max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,armed_until,updated_at)
+		VALUES(1,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			enabled=excluded.enabled, security_level=excluded.security_level,
 			allow_critical=excluded.allow_critical, process_blocklist_json=excluded.process_blocklist_json,
 			max_actions_per_minute=excluded.max_actions_per_minute,
 			confirm_timeout_seconds=excluded.confirm_timeout_seconds,
 			emergency_stopped=excluded.emergency_stopped,
-			emergency_stopped_at=excluded.emergency_stopped_at, updated_at=excluded.updated_at`,
+			emergency_stopped_at=excluded.emergency_stopped_at,
+			armed_until=excluded.armed_until, updated_at=excluded.updated_at`,
 		enabled, v.SecurityLevel, allowCritical, string(blocklist),
-		v.MaxActionsPerMinute, v.ConfirmTimeoutSecond, emergency, stoppedAt, v.UpdatedAt)
+		v.MaxActionsPerMinute, v.ConfirmTimeoutSecond, emergency, stoppedAt, armedUntil, v.UpdatedAt)
 	return t.fail(err)
 }
 

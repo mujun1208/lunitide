@@ -70,7 +70,7 @@ type Gateway struct {
 	trustedOrigin     string
 	caller            Caller
 	hostHandlers      map[bridge.Method]Handler
-	admission         chan struct{}
+	admit             *bridge.SlotGate
 	streamsMu         sync.Mutex
 	streams           map[string]*streamOwner
 	startsInFlight    int
@@ -107,7 +107,7 @@ func New(trustedOrigin string, caller Caller, handlers ...map[bridge.Method]Hand
 		local = handlers[0]
 	}
 	genCtx, genCancel := context.WithCancel(context.Background())
-	g := &Gateway{trustedOrigin: origin, caller: caller, hostHandlers: local, admission: make(chan struct{}, 32), streams: make(map[string]*streamOwner), generationCtx: genCtx, generationCancel: genCancel, events: make(chan RoutedEvent), consumerDone: make(chan struct{}), dispatchDone: make(chan struct{})}
+	g := &Gateway{trustedOrigin: origin, caller: caller, hostHandlers: local, admit: bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait), streams: make(map[string]*streamOwner), generationCtx: genCtx, generationCancel: genCancel, events: make(chan RoutedEvent), consumerDone: make(chan struct{}), dispatchDone: make(chan struct{})}
 	g.streamChanged = sync.NewCond(&g.streamsMu)
 	g.eventChanged = sync.NewCond(&g.streamsMu)
 	go g.dispatchEvents()
@@ -173,12 +173,10 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 	if err := validateEnvelope(request, time.Now().UTC()); err != nil {
 		return failureFor(request, "BRIDGE_SCHEMA_INVALID", envelopeErrorMessage(err), false), true
 	}
-	select {
-	case g.admission <- struct{}{}:
-		defer func() { <-g.admission }()
-	default:
+	if !g.admit.Acquire(ctx, request.Method) {
 		return failureFor(request, "HOST_BUSY", "桌面主机正忙，请稍后重试", true), true
 	}
+	defer g.admit.Release(request.Method)
 	metadata, known := bridge.MethodMetadataByMethod[bridge.Method(request.Method)]
 	if !known || !metadata.Enabled {
 		return failureFor(request, "BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false), true

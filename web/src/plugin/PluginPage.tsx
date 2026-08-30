@@ -66,7 +66,7 @@ export function PluginPage({bridge=pluginBridge,onCreateInChat}:{bridge?:PluginB
 
  return <main className="skill-center plugin-page">
   <header className="skill-center-header">
-   <div><h1>插件</h1><p>已安装 {enabled} 个可用 · 失败 {failed} 个 · 市场 {PLUGIN_MARKET.length} 个</p><small>点加号启用内置 Harness 插件；也可以对话创建，或粘贴清单手动接入。GitHub Marketplace / Claude 插件市场的包格式与月汐插件契约不同，不能直接安装。</small></div>
+   <div><h1>插件</h1><p>已安装 {enabled} 个可用 · 失败 {failed} 个 · 市场 {PLUGIN_MARKET.length} 个</p><small>这里启用的是内置能力开关（搜索、浏览器、定时、语音等），不会执行 Cordis / TypeScript 插件包。对话里的 plugin.create 只登记卡片。要可调用技能用技能中心；要 MCP 用设置里的现役预置。GitHub Marketplace / Claude 插件不能直接安装。</small></div>
    <div className="view-actions"><button type="button" className="ui-btn" onClick={()=>setManualOpen(true)}>手动填写</button>{onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建插件</button>}</div>
   </header>
   <section className="skill-center-toolbar">

@@ -121,6 +121,41 @@ func TestWorkspaceEditAnchoredReplace(t *testing.T) {
 	}
 }
 
+func TestWorkspaceEditMultiFileAtomic(t *testing.T) {
+	r := openHooksRuntime(t)
+	ctx := context.Background()
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	root := filepath.Join(r.WorkspaceRoot(), session)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Execute(ctx, FullAccess, session, "workspace.edit", json.RawMessage(`{"files":[{"path":"a.txt","oldText":"one","newText":"ONE"},{"path":"b.txt","oldText":"two","newText":"TWO"}]}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "2 files") {
+		t.Fatalf("multi-file summary = %s", out.Output)
+	}
+	a, _ := os.ReadFile(filepath.Join(root, "a.txt"))
+	b, _ := os.ReadFile(filepath.Join(root, "b.txt"))
+	if string(a) != "ONE\n" || string(b) != "TWO\n" {
+		t.Fatalf("wrote a=%q b=%q", a, b)
+	}
+	if _, err = r.Execute(ctx, FullAccess, session, "workspace.edit", json.RawMessage(`{"files":[{"path":"a.txt","oldText":"ONE","newText":"ok"},{"path":"b.txt","oldText":"missing","newText":"x"}]}`), true); err == nil {
+		t.Fatal("fail-closed multi-file accepted")
+	}
+	a, _ = os.ReadFile(filepath.Join(root, "a.txt"))
+	if string(a) != "ONE\n" {
+		t.Fatalf("failed multi-file must not write earlier files: %q", a)
+	}
+}
+
 // C2-3: todo.write validates, persists outside the workspace digest and
 // answers the rendered checklist; a single in_progress is enforced.
 func TestTodoWritePersistsAndValidates(t *testing.T) {

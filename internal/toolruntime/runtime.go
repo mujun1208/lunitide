@@ -947,70 +947,53 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		return result(strings.Join(hits, "\n")), nil
 	case "workspace.edit":
-		var a struct {
-			Path       string `json:"path"`
-			OldText    string `json:"oldText"`
-			NewText    string `json:"newText"`
-			ReplaceAll bool   `json:"replaceAll"`
-			Edits      []struct {
-				OldText    string `json:"oldText"`
-				NewText    string `json:"newText"`
-				ReplaceAll bool   `json:"replaceAll"`
-			} `json:"edits"`
+		files, e := parseWorkspaceEditArgs(args)
+		if e != nil {
+			return Result{}, e
 		}
-		if strict(args, &a) != nil || a.Path == "" {
-			return Result{}, errors.New("invalid arguments")
+		type pendingEdit struct {
+			rel     string
+			abs     string
+			updated string
+			count   int
 		}
-		hunks := make([]editHunk, 0, len(a.Edits)+1)
-		if len(a.Edits) > 0 {
-			if len(a.Edits) > 20 {
-				return Result{}, errors.New("invalid arguments")
+		pending := make([]pendingEdit, 0, len(files))
+		total := 0
+		for _, f := range files {
+			p, pe := r.path(mode, session, f.Path, false, unconfined)
+			if pe != nil {
+				return Result{}, pe
 			}
-			for _, h := range a.Edits {
-				hunks = append(hunks, editHunk{OldText: h.OldText, NewText: h.NewText, ReplaceAll: h.ReplaceAll})
+			b, re := os.ReadFile(p)
+			if re != nil || len(b) > maxFile {
+				return Result{}, errors.New("file missing or exceeds limit")
 			}
-		} else {
-			hunks = append(hunks, editHunk{OldText: a.OldText, NewText: a.NewText, ReplaceAll: a.ReplaceAll})
+			updated, count, ae := applyWorkspaceHunks(string(b), f.Hunks)
+			if ae != nil {
+				if len(files) > 1 {
+					return Result{}, fmt.Errorf("%s: %v", f.Path, ae)
+				}
+				return Result{}, ae
+			}
+			if len(updated) > maxFile {
+				return Result{}, errors.New("edited file exceeds limit")
+			}
+			pending = append(pending, pendingEdit{rel: f.Path, abs: p, updated: updated, count: count})
+			total += count
 		}
-		p, e := r.path(mode, session, a.Path, false, unconfined)
-		if e != nil {
-			return Result{}, e
+		for _, item := range pending {
+			if we := writeFileReplace(item.abs, item.updated); we != nil {
+				return Result{}, we
+			}
 		}
-		b, e := os.ReadFile(p)
-		if e != nil || len(b) > maxFile {
-			return Result{}, errors.New("file missing or exceeds limit")
+		if len(pending) == 1 {
+			return result(fmt.Sprintf("edited %s (%d replacement(s))", pending[0].rel, pending[0].count)), nil
 		}
-		updated, count, e := applyWorkspaceHunks(string(b), hunks)
-		if e != nil {
-			return Result{}, e
+		names := make([]string, 0, len(pending))
+		for _, item := range pending {
+			names = append(names, item.rel)
 		}
-		if len(updated) > maxFile {
-			return Result{}, errors.New("edited file exceeds limit")
-		}
-		tmp, e := os.CreateTemp(filepath.Dir(p), ".edit-*")
-		if e != nil {
-			return Result{}, e
-		}
-		tn := tmp.Name()
-		defer os.Remove(tn)
-		if e = tmp.Chmod(0600); e == nil {
-			_, e = tmp.WriteString(updated)
-		}
-		if e == nil {
-			e = tmp.Sync()
-		}
-		ce := tmp.Close()
-		if e == nil {
-			e = ce
-		}
-		if e == nil {
-			_ = os.Remove(p)
-			e = os.Rename(tn, p)
-		}
-		if e != nil {
-			return Result{}, e
-		}
-		return result(fmt.Sprintf("edited %s (%d replacement(s))", a.Path, count)), nil
+		return result(fmt.Sprintf("edited %d files (%d replacement(s)): %s", len(pending), total, strings.Join(names, ", "))), nil
 	case "todo.write":
 		var a struct {
 			Todos []struct {
@@ -1350,9 +1333,17 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		if !a.Desktop && strings.TrimSpace(a.Path) == "" {
-			a.Path = "penalty-shootout.html"
+			if a.Template == "timer" {
+				a.Path = "timer.html"
+			} else {
+				a.Path = "penalty-shootout.html"
+			}
 		}
-		outPath, de := r.desktopWritePath(a.Path, "世界杯点球大战.html", ".html", a.Desktop, unconfined)
+		fallbackHTML := "世界杯点球大战.html"
+		if a.Template == "timer" {
+			fallbackHTML = "计时器.html"
+		}
+		outPath, de := r.desktopWritePath(a.Path, fallbackHTML, ".html", a.Desktop, unconfined)
 		if de != nil {
 			return Result{}, de
 		}
@@ -1372,8 +1363,8 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || strings.TrimSpace(a.Name) == "" {
 			return Result{}, errors.New("invalid arguments")
 		}
-		if !unconfined || !r.FullDiskEnabled() {
-			return Result{}, errors.New("desktop.open requires full-disk full-access")
+		if err := requireDesktopAction(approved); err != nil {
+			return Result{}, err
 		}
 		path, others, e := pickLaunchTarget(a.Name)
 		if e != nil {
@@ -1852,6 +1843,112 @@ type editHunk struct {
 	OldText    string
 	NewText    string
 	ReplaceAll bool
+}
+
+type workspaceEditFile struct {
+	Path  string
+	Hunks []editHunk
+}
+
+type workspaceEditHunkJSON struct {
+	OldText    string `json:"oldText"`
+	NewText    string `json:"newText"`
+	ReplaceAll bool   `json:"replaceAll"`
+}
+
+func requireDesktopAction(approved bool) error {
+	if approved {
+		return nil
+	}
+	return errors.New("desktop action requires full-access or user approval")
+}
+
+func hunksFromJSON(oldText, newText string, replaceAll bool, edits []workspaceEditHunkJSON) ([]editHunk, error) {
+	if len(edits) > 0 {
+		if len(edits) > 20 {
+			return nil, errors.New("invalid arguments")
+		}
+		hunks := make([]editHunk, 0, len(edits))
+		for _, h := range edits {
+			hunks = append(hunks, editHunk{OldText: h.OldText, NewText: h.NewText, ReplaceAll: h.ReplaceAll})
+		}
+		return hunks, nil
+	}
+	return []editHunk{{OldText: oldText, NewText: newText, ReplaceAll: replaceAll}}, nil
+}
+
+func parseWorkspaceEditArgs(args json.RawMessage) ([]workspaceEditFile, error) {
+	var a struct {
+		Path       string                  `json:"path"`
+		OldText    string                  `json:"oldText"`
+		NewText    string                  `json:"newText"`
+		ReplaceAll bool                    `json:"replaceAll"`
+		Edits      []workspaceEditHunkJSON `json:"edits"`
+		Files      []struct {
+			Path       string                  `json:"path"`
+			OldText    string                  `json:"oldText"`
+			NewText    string                  `json:"newText"`
+			ReplaceAll bool                    `json:"replaceAll"`
+			Edits      []workspaceEditHunkJSON `json:"edits"`
+		} `json:"files"`
+	}
+	if strict(args, &a) != nil {
+		return nil, errors.New("invalid arguments")
+	}
+	if len(a.Files) > 0 {
+		if len(a.Files) > 8 {
+			return nil, errors.New("invalid arguments")
+		}
+		out := make([]workspaceEditFile, 0, len(a.Files))
+		seen := map[string]bool{}
+		for _, f := range a.Files {
+			if strings.TrimSpace(f.Path) == "" {
+				return nil, errors.New("invalid arguments")
+			}
+			if seen[f.Path] {
+				return nil, errors.New("invalid arguments")
+			}
+			seen[f.Path] = true
+			hunks, err := hunksFromJSON(f.OldText, f.NewText, f.ReplaceAll, f.Edits)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, workspaceEditFile{Path: f.Path, Hunks: hunks})
+		}
+		return out, nil
+	}
+	if strings.TrimSpace(a.Path) == "" {
+		return nil, errors.New("invalid arguments")
+	}
+	hunks, err := hunksFromJSON(a.OldText, a.NewText, a.ReplaceAll, a.Edits)
+	if err != nil {
+		return nil, err
+	}
+	return []workspaceEditFile{{Path: a.Path, Hunks: hunks}}, nil
+}
+
+func writeFileReplace(path, content string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".edit-*")
+	if err != nil {
+		return err
+	}
+	tn := tmp.Name()
+	defer os.Remove(tn)
+	if err = tmp.Chmod(0600); err == nil {
+		_, err = tmp.WriteString(content)
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	ce := tmp.Close()
+	if err == nil {
+		err = ce
+	}
+	if err == nil {
+		_ = os.Remove(path)
+		err = os.Rename(tn, path)
+	}
+	return err
 }
 
 func applyWorkspaceHunks(content string, hunks []editHunk) (string, int, error) {

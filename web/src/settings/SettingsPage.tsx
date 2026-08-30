@@ -637,7 +637,7 @@ export function McpPresetsSection({ bridge = getMcpBridge() }: { bridge?: McpBri
   return (
     <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
       <div className="setting-group-title" style={{ marginTop: 8 }}>预置服务器（免费直连）</div>
-      <div className="setting-desc">官方 / 微软开源 MCP，npx 一键拉起，无需 API Key。注册后会自动启用并进入对话工具表。推荐套件不含要登录的 GitHub。</div>
+      <div className="setting-desc">仅列出仍在维护的 MCP（官方参考服 + Playwright + Context7）。Git 用对话里的 command.run；公开网页用 web.search。已下架 2025 归档包（GitHub / Puppeteer / SQLite / Git）。注册后会自动启用并进入对话工具表。</div>
       <div style={{ margin: '8px 0' }}>
         <button disabled={busy || items.length === 0} onClick={() => void enableKit()}>一键启用推荐套件</button>
       </div>
@@ -1043,19 +1043,19 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
           )}
           {inboundKind(ch.kind) ? (
             <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-              <div className="setting-desc">入站默认关闭。白名单为空则无法开启。飞书填写 App ID/Secret 后由本机向外长连接；企微通过本机桥接投递。都不监听公网端口。</div>
+              <div className="setting-desc">入站默认关闭。白名单为空则无法开启。飞书填写 App ID/Secret、企微填写 Bot ID/Secret 后由本机向外长连接。都不监听公网端口。投递 RPC 仅作兜底。</div>
               <textarea className="setting-input" style={{ minHeight: 64, fontFamily: 'var(--mono)', fontSize: 12 }}
                 value={allowDrafts[ch.kind] ?? ''} placeholder="发送者 open_id / 邮箱，一行一个"
                 aria-label={`${ch.label} 入站白名单`}
                 onChange={ev => setAllowDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <input className="setting-input" style={{ flex: 1, minWidth: 160, fontFamily: 'var(--mono)', fontSize: 12 }}
-                  value={appIdDrafts[ch.kind] ?? ''} placeholder="应用 App ID（可选）"
-                  aria-label={`${ch.label} 入站 App ID`}
+                  value={appIdDrafts[ch.kind] ?? ''} placeholder={ch.kind === 'wecom' ? '智能机器人 Bot ID' : '应用 App ID（可选）'}
+                  aria-label={ch.kind === 'wecom' ? `${ch.label} 入站 Bot ID` : `${ch.label} 入站 App ID`}
                   onChange={ev => setAppIdDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
                 <input className="setting-input" style={{ flex: 1, minWidth: 160, fontFamily: 'var(--mono)', fontSize: 12 }} type="password"
-                  value={secretDrafts[ch.kind] ?? ''} placeholder={ch.inboundHasSecret ? '已保存，留空不改' : '应用 App Secret'}
-                  aria-label={`${ch.label} 入站 App Secret`}
+                  value={secretDrafts[ch.kind] ?? ''} placeholder={ch.inboundHasSecret ? '已保存，留空不改' : (ch.kind === 'wecom' ? 'Bot Secret' : '应用 App Secret')}
+                  aria-label={ch.kind === 'wecom' ? `${ch.label} 入站 Bot Secret` : `${ch.label} 入站 App Secret`}
                   onChange={ev => setSecretDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
               </div>
               <label className="setting-desc" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1095,7 +1095,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   // 三步启用向导：1 风险告知 → 2 安全级别 → 3 确认启用。
-  const [wizard, setWizard] = useState<{ step: 1 | 2; agreed: boolean; level: 'standard' | 'strict'; allowCritical: boolean } | null>(null)
+  const [wizard, setWizard] = useState<{ step: 1 | 2; agreed: boolean; level: 'standard' | 'strict'; allowCritical: boolean; timedArm: boolean } | null>(null)
   const [blockDraft, setBlockDraft] = useState('')
   const [rateDraft, setRateDraft] = useState('')
   const [timeoutDraft, setTimeoutDraft] = useState('')
@@ -1131,7 +1131,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     if (!wizard) return
     setBusy(true); setStatus('')
     try {
-      const cfg = await bridge.updateConfig({ enabled: true, securityLevel: wizard.level, allowCritical: wizard.allowCritical })
+      const cfg = await bridge.updateConfig({ enabled: true, securityLevel: wizard.level, allowCritical: wizard.allowCritical, armMinutes: wizard.timedArm ? 30 : 0 })
       setSettings(cfg)
       setWizard(null)
       setStatus('电脑控制已启用')
@@ -1190,13 +1190,16 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
             <span style={{ color: settings.emergencyStopped ? 'var(--red)' : settings.enabled ? 'var(--ok)' : 'var(--muted)', fontWeight: 600 }}>
               {settings.emergencyStopped ? '紧急停止' : settings.enabled ? '已启用' : '已停用'}
             </span>
+            {settings.enabled && settings.armedUntil && (
+              <span className="setting-desc">将于 {new Date(settings.armedUntil).toLocaleString()} 自动关闭</span>
+            )}
           </div>
         )}
         {settings?.emergencyStopped && (
           <p role="alert" className="notice" style={{ color: 'var(--red)' }}>紧急停止已激活（{settings.emergencyStoppedAt ? new Date(settings.emergencyStoppedAt).toLocaleString() : ''}）：所有电脑控制操作一律拒绝，需重新走启用流程。</p>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {settings && !settings.enabled && !wizard && <button disabled={busy} onClick={() => setWizard({ step: 1, agreed: false, level: 'standard', allowCritical: false })}>三步启用…</button>}
+          {settings && !settings.enabled && !wizard && <button disabled={busy} onClick={() => setWizard({ step: 1, agreed: false, level: 'standard', allowCritical: false, timedArm: true })}>三步启用…</button>}
           {settings?.enabled && <button disabled={busy} onClick={() => void patch({ enabled: false }, '电脑控制已停用')}>停用</button>}
           {settings?.enabled && !settings.emergencyStopped && <button disabled={busy} onClick={() => void emergencyStop()} style={{ color: 'var(--red)' }}>紧急停止</button>}
         </div>
@@ -1238,6 +1241,10 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
                 <input type="checkbox" checked={wizard.allowCritical} onChange={ev => setWizard({ ...wizard, allowCritical: ev.target.checked })} aria-label="允许极高风险操作" />
                 允许极高风险操作（Alt+F4 / Win+R 等，仍需逐次人工确认；不建议开启）
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                <input type="checkbox" checked={wizard.timedArm} onChange={ev => setWizard({ ...wizard, timedArm: ev.target.checked })} aria-label="30 分钟后自动关闭" />
+                30 分钟后自动关闭（可取消，改为一直开到手动停用）
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button disabled={busy} onClick={() => void confirmEnable()}>确认启用</button>

@@ -12,6 +12,7 @@
 import { getTtsBridge } from '../../bridge/client'
 import type { CompanionEngine, CompanionSettings } from './companionSettings'
 import { companionEngineProbeOrder } from './companionSettings'
+import { errorLooksInfraBusy } from './companionBusy'
 
 export interface TtsPlayerCallbacks {
   onSegmentStart?: (index: number, total: number) => void
@@ -73,7 +74,10 @@ export function splitForEngine(text: string): string[] {
 
 /** Engine routing extras carried alongside voiceId/rate/volume so the
  *  prefetch synthesizer replays the exact same engine payload. */
-export type SynthExtras = Pick<CompanionSettings, 'engine' | 'refEndpoint'>
+export type SynthExtras = Pick<CompanionSettings, 'engine' | 'refEndpoint'> & {
+  /** Pad/warmup: never fall through to Edge/SAPI — that is how 嗯 became 系统音色. */
+  lockEngine?: boolean
+}
 
 function buildSynthPayload(
   text: string,
@@ -250,8 +254,11 @@ export class TtsPlayer {
 
   private async requestSegment(text: string, callbacks: TtsPlayerCallbacks): Promise<ReadySegment | null> {
     const bridge = getTtsBridge()
-    const engines = companionEngineProbeOrder(this.currentExtras.engine)
+    const engines = this.currentExtras.lockEngine
+      ? [this.currentExtras.engine === 'sapi' || this.currentExtras.engine === 'natural' ? 'edge' : this.currentExtras.engine]
+      : companionEngineProbeOrder(this.currentExtras.engine)
     let lastError: unknown
+    let busyTries = 0
     for (let attempt = 0; attempt < engines.length; attempt++) {
       const engine = engines[attempt]!
       const voiceId = attempt === 0 ? this.currentVoiceId : ''
@@ -275,6 +282,11 @@ export class TtsPlayer {
       } catch (error) {
         if (isRefEngineStarting(error)) throw error
         lastError = error
+        if (errorLooksInfraBusy(error) && busyTries < 4) {
+          busyTries++
+          await sleep(180 * busyTries)
+          attempt--
+        }
       }
     }
     if (lastError) throw lastError
@@ -614,7 +626,7 @@ export class TtsPlayer {
   /** P0-1: Enqueue segments for streaming playback. New segments are
    *  appended to the pending queue and played in order without interrupting
    *  the currently active segment. Call `flush()` after the stream ends. */
-  enqueue(segments: string[], settings: CompanionSettings, callbacks: TtsPlayerCallbacks): void {
+  enqueue(segments: string[], settings: CompanionSettings & { lockEngine?: boolean }, callbacks: TtsPlayerCallbacks): void {
     const text = segments.filter(s => s.trim()).join('')
     if (!text) return
     unlockTtsAudio()

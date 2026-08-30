@@ -216,7 +216,7 @@ describe('PeoplePage', () => {
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
   })
 
-  test('camera icon and Alt+A start a WeChat-style region snip', async () => {
+  test('region snip and Alt+A start a WeChat-style capture', async () => {
     const bytes = Uint8Array.from([1, 2, 3])
     const shot = new File([bytes as BlobPart], 'screenshot.jpg', { type: 'image/jpeg' })
     Object.defineProperty(shot, 'arrayBuffer', { value: async () => bytes.buffer.slice(0) })
@@ -233,11 +233,12 @@ describe('PeoplePage', () => {
     render(<PeoplePage identity={identity} people={people} />)
     await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
     expect(screen.getByRole('button', { name: '表情' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '截图' })).toHaveAttribute('title', expect.stringContaining('Alt+A'))
+    expect(screen.getByRole('button', { name: '框选截图' })).toHaveAttribute('title', expect.stringContaining('Alt+A'))
     expect(screen.getByRole('button', { name: '发送图片' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '发送本机文件' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '发送文件夹' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '截图' }))
+    expect(screen.queryByRole('button', { name: '截图' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '框选截图' }))
     expect(captureThisPcFrame).toHaveBeenCalled()
     await invokeLastNativeCapture()
     expect(people.screenCapture).toHaveBeenCalledWith({ region: true })

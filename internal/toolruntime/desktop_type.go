@@ -211,8 +211,8 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 	if invoke == nil {
 		return Result{}, errors.New("无法执行：电脑控制未开启")
 	}
-	if !unconfined {
-		return Result{}, errors.New("无法执行：需要完整磁盘访问才能在文档里输入")
+	if err := requireDesktopAction(approved); err != nil {
+		return Result{}, errors.New("无法执行：需要完整权限或用户批准才能在文档里输入")
 	}
 
 	window := strings.TrimSpace(a.Window)

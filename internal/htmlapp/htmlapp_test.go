@@ -34,4 +34,11 @@ func TestRenderEscapesTitleAndRejectsUnknown(t *testing.T) {
 	if _, err := Render("snake", "x"); err == nil {
 		t.Fatal("unknown template accepted")
 	}
+	html, err = Render("timer", `<script>x</script>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "id=\"clock\"") || strings.Contains(html, "<script>x</script>") {
+		t.Fatal("timer template missing or title not escaped")
+	}
 }

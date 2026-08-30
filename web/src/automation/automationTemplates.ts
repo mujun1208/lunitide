@@ -24,7 +24,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     description: '从本机软件读数，写入表格或文档，可选推送到飞书/企微。',
     cron: '30 17 * * 1-5',
     prompt:
-      '在这台 PC 上打通软件数据，不要远程控制：\n1. cc.window_list 找到源应用，cc.window_focus 后再 cc.observe_ui\n2. 读数优先 cc.set_value 的目标框或 cc.clipboard，不要截图盲点\n3. 用 excel.gen 或 docx.gen 写入工作区；需要 JSON 时 structured.output\n4. 若任务配置了出站 webhook，在摘要末尾说明即可（引擎会推送）\n禁止 UAC 与局域网。遇到打开/保存文件对话框请用户去点，不要代点。',
+      '在这台 PC 上打通软件数据，不要远程控制：\n1. computer.act action=list 找到源应用，action=focus 后再 action=observe\n2. 读数优先 action=set_value 的目标框或 clipboard，不要截图盲点\n3. 用 excel.gen 或 docx.gen 写入工作区；需要 JSON 时 structured.output\n4. 若任务配置了出站 webhook，在摘要末尾说明即可（引擎会推送）\n禁止 UAC 与局域网。遇到打开/保存文件对话框请用户去点，不要代点。不要调用 cc.* 工具名。',
   },
   {
     id: 'multi-step-orchestration',
@@ -44,52 +44,59 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   },
   {
     id: 'brand-sentiment',
-    title: '品牌舆情监控回馈',
-    description: '爬取社交媒体品牌提及并生成周报摘要。',
+    title: '品牌公开新闻摘要',
+    description: '用 web.search 汇总公开网页上的品牌报道，不是社交媒体爬虫。',
     cron: '0 9 * * 1',
-    prompt: '监控指定品牌在社交媒体上的提及与情绪变化，输出本周舆情摘要与风险提醒。',
+    prompt:
+      '用 web.search 检索用户指定品牌本周的公开新闻与报道（不要假装爬了微博/抖音接口）。\n1. 至少 5 条带来源 URL\n2. 分正面/中性/风险，无法核实的标「未核实」\n3. structured.output template=kv 后 docx.gen 或 excel.gen\n禁止入站 webhook，禁止说已监控全网舆情。',
   },
   {
     id: 'competitor-track',
-    title: '每周竞品动态追踪',
-    description: '追踪竞品更新、反馈与新闻。',
+    title: '每周竞品公开动态',
+    description: '检索竞品官网与公开新闻，形成周报。',
     cron: '0 10 * * 1',
-    prompt: '汇总本周主要竞品的版本更新、定价变化、用户反馈与公开新闻，形成竞品周报。',
+    prompt:
+      '对用户给出的竞品名单：web.search 版本发布、定价页、公开新闻。每条附 URL。无法打开的页面不要编造。最后 excel.gen 一张对照表。',
   },
   {
     id: 'stock-monitor',
-    title: '股价监控与预警',
-    description: '跟踪指定股票涨跌幅并推送报告。',
+    title: '股价公开报道摘要',
+    description: '检索公开财经报道与大致涨跌描述，不是行情源。',
     cron: '30 15 * * 1-5',
-    prompt: '检查我关注的股票列表，汇总当日涨跌幅、异常波动与相关新闻，给出简要风险提示。',
+    prompt:
+      '用 web.search 查用户关注标的的当日公开报道。写清：这不是交易所行情，数字以报道为准并附链接。没有搜到就说没搜到。docx.gen 一页摘要。',
   },
   {
     id: 'security-scan',
-    title: '安全漏洞扫描',
-    description: '定期扫描代码仓库中的安全漏洞。',
+    title: '依赖与提交只读快审',
+    description: '用白名单 git/go 与 workspace 只读检查，不是漏洞扫描器。',
     cron: '0 2 * * 0',
-    prompt: '扫描项目依赖与最近提交，列出高风险安全漏洞与修复建议。',
+    prompt:
+      '在工作区做只读安全快审：command.run 仅白名单 git status/diff/log 与 go vet/test；workspace.search 密钥形态。列出严重/建议，引用 path:line。禁止声称已扫完全部 CVE，禁止改生产配置。',
   },
   {
     id: 'commit-bug-scan',
-    title: '扫描提交发现 Bug',
-    description: '分析最近代码提交中的高风险缺陷。',
+    title: '只读审查近况提交',
+    description: '用 git log/diff 看最近提交风险，不是缺陷扫描产品。',
     cron: '0 18 * * 1-5',
-    prompt: '审查最近 24 小时的代码提交，找出可能引入回归或逻辑错误的高风险变更。',
+    prompt:
+      'command.run 白名单 git --no-pager log / diff，归纳最近提交的回归风险。没有仓库或命令失败时据实说明。不要假装跑了静态分析平台。',
   },
   {
     id: 'test-coverage',
-    title: '补充测试覆盖',
-    description: '识别缺少测试的高风险代码并建议补测。',
+    title: '建议补测清单',
+    description: '读现有测试风格，列出应补的用例，能跑再 command.run。',
     cron: '0 20 * * 3',
-    prompt: '找出最近改动但测试覆盖不足的高风险模块，给出应补充的测试用例清单。',
+    prompt:
+      'workspace.search 最近改动与测试文件。列出应补的回归用例。若用户已给测试命令且在白名单内，command.run 验证；否则只出清单，不要假装覆盖率数字。',
   },
   {
     id: 'daily-changelog',
     title: '每日变更摘要',
-    description: '汇总代码仓库更新为团队可读日报。',
+    description: '汇总本机仓库只读 git 记录为团队日报。',
     cron: '30 17 * * 1-5',
-    prompt: '汇总今日代码仓库的合并请求、重要提交与发布说明，生成团队可读的每日变更摘要。',
+    prompt:
+      'command.run 白名单 git log/diff。没有提交就写「今日无提交」。docx.gen 日报。不要编造合并请求。',
   },
 ]
 

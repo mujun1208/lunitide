@@ -18,8 +18,10 @@ func Render(templateName, title string) (string, error) {
 	switch strings.TrimSpace(templateName) {
 	case "penalty-shootout", "":
 		return renderPenalty(title), nil
+	case "timer":
+		return renderTimer(title), nil
 	default:
-		return "", fmt.Errorf("unknown html.gen template %q (supported: penalty-shootout)", templateName)
+		return "", fmt.Errorf("unknown html.gen template %q (supported: penalty-shootout, timer)", templateName)
 	}
 }
 

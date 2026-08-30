@@ -215,3 +215,36 @@ it('interrupt then a new spoken line starts a fresh companion chat.start', async
   await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
   expect(start.mock.calls[1][0]).toMatchObject({ companion: true, messages: [{ role: 'user', content: '有没有打开协议' }] })
 })
+
+it('retries companion chat.start after HOST_BUSY without speaking 无法执行', async () => {
+  const busy = new BridgeClientError('桌面主机正忙，请稍后重试', 'HOST_BUSY', true, 'host')
+  const start = vi.fn()
+    .mockRejectedValueOnce(busy)
+    .mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAZ', cancel: vi.fn(), dispose: vi.fn() })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={messages}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('你告诉我你刚才怎么处事了')
+  })
+  await waitFor(() => expect(start.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4000 })
+  expect(document.body.textContent).not.toMatch(/无法执行/)
+})

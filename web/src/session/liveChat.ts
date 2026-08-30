@@ -16,6 +16,7 @@ export interface LiveChatState {
   toolActivities: LiveToolActivity[]
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
   error?: { message: string; code: string; retryable: boolean }
+  guidance?: { labels: string[]; digest: string }
 }
 
 export interface LiveChatEntry {
@@ -169,6 +170,9 @@ export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): vo
         state.chatStatus = 'failed'
         state.error = { message: event.error?.message ?? 'stream failed', code: event.error?.code ?? 'STREAM_FAILED', retryable: event.error?.retryable ?? false }
         entry.terminal = true
+        break
+      case 'guidance':
+        if (event.guidance) state.guidance = { labels: event.guidance.labels, digest: event.guidance.digest }
         break
     }
     if (entry.terminal) {

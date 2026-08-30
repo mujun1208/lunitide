@@ -64,4 +64,12 @@ describe('ChannelsPanel', () => {
       inboundAppId: '',
     })
   })
+
+  test('shows WeCom Bot ID and Secret for inbound long-connect', async () => {
+    render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(seeded), set: vi.fn(), deliver: vi.fn() }} />)
+    expect(await screen.findByText('企业微信')).toBeInTheDocument()
+    expect(screen.getByLabelText('企业微信 入站 Bot ID')).toBeInTheDocument()
+    expect(screen.getByLabelText('企业微信 入站 Bot Secret')).toBeInTheDocument()
+    expect(screen.queryByText(/只走本机桥接投递/)).toBeNull()
+  })
 })

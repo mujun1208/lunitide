@@ -357,8 +357,8 @@ func meetingSummaryCandidates(items []provider.Provider) []provider.CatalogEntry
 		preferred = append(preferred, entry)
 	}
 	out := append(preferred, rest...)
-	if len(out) > 3 {
-		out = out[:3]
+	if len(out) > 8 {
+		out = out[:8]
 	}
 	return out
 }
@@ -384,7 +384,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 			if adapterErr != nil {
 				return adapterErr
 			}
-			resp, completeErr := adapter.Complete(ctx, secret, gateway.Request{
+			req := gateway.Request{
 				Model: entry.Model.ModelID,
 				Messages: []gateway.Message{
 					{Role: gateway.RoleSystem, Content: meetingNotesSystem},
@@ -393,11 +393,25 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 				MaxTokens:        4096,
 				MaxAttempts:      2,
 				DisableReasoning: true,
-			})
-			if completeErr != nil {
-				return completeErr
 			}
-			content = strings.TrimSpace(resp.Message.Content)
+			resp, completeErr := adapter.Complete(ctx, secret, req)
+			if completeErr == nil {
+				content = strings.TrimSpace(resp.Message.Content)
+			}
+			if completeErr != nil || content == "" {
+				var streamed strings.Builder
+				resp, completeErr = adapter.Stream(ctx, secret, req, func(d gateway.Delta) error {
+					streamed.WriteString(d.Text)
+					return nil
+				})
+				if completeErr != nil {
+					return completeErr
+				}
+				content = strings.TrimSpace(resp.Message.Content)
+				if content == "" {
+					content = strings.TrimSpace(streamed.String())
+				}
+			}
 			return nil
 		})
 		if err == nil {

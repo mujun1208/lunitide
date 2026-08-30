@@ -419,23 +419,25 @@ func TestMcp6PresetsList(t *testing.T) {
 		Items []mcp6.Preset `json:"items"`
 	}
 	m6Payload(t, resp, &out)
-	if len(out.Items) < 9 {
-		t.Fatalf("want at least 9 presets, got %d", len(out.Items))
+	if len(out.Items) != 8 {
+		t.Fatalf("want 8 live presets, got %d", len(out.Items))
 	}
 	byID := make(map[string]mcp6.Preset, len(out.Items))
 	for _, it := range out.Items {
 		byID[it.ID] = it
 	}
-	for _, id := range []string{"everything", "filesystem", "fetch", "memory", "sequentialthinking", "git", "github", "puppeteer", "sqlite"} {
+	for _, id := range []string{"everything", "filesystem", "fetch", "memory", "sequentialthinking", "playwright", "time", "context7"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("preset %s missing from bridge answer", id)
 		}
 	}
+	for _, archived := range []string{"git", "github", "puppeteer", "sqlite"} {
+		if _, ok := byID[archived]; ok {
+			t.Fatalf("archived preset %s must not appear in bridge catalog", archived)
+		}
+	}
 	if fs := byID["filesystem"]; !fs.NeedsArgs || fs.ArgPlaceholder != "{{dir}}" || fs.ArgHint == "" || fs.ArgDefault == "" || strings.Contains(fs.ArgDefault, `\`) {
 		t.Fatalf("filesystem preset placeholder contract broken: %+v", fs)
-	}
-	if sqlite := byID["sqlite"]; sqlite.ArgDefault == "" || !strings.HasSuffix(sqlite.ArgDefault, "lunitide.db") {
-		t.Fatalf("sqlite sandbox default missing: %+v", sqlite)
 	}
 
 	// End-to-end: each catalog row (placeholder resolved to a benign path)

@@ -30,6 +30,7 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
@@ -635,6 +636,7 @@ func companionPersonaInstruction() string {
 		"- 发飞书/企微/钉钉/微信/QQ：设置里启用消息通道后用 im.send（channel=feishu|wecom|dingtalk|wechat|qq，text=内容，to=联系人可选）。飞书/企微/钉钉有 Webhook 就走机器人；微信/QQ 打开本机已登录客户端再输入。未启用就提示去设置 → 消息通道\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
+		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
 		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。command.run 仅在需要跑命令时用\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 }
@@ -684,6 +686,8 @@ func companionToolLeadIn(toolName string) string {
 		return "好，我来生成视频。"
 	case "skill.invoke":
 		return "好，我用技能处理一下。"
+	case "skill.view":
+		return "好，我先看一下技能约定。"
 	case "desktop.type":
 		return "好，我来输入。"
 	case "im.send":
@@ -1046,7 +1050,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "workspace.read", Description: "Read a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "workspace.write", Description: "Atomically write a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`)},
 		{Name: "workspace.search", Description: "Search session workspace files for a literal substring or regex; answers path:line: text matches (binary and oversized files skipped)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"literal substring, or regex when regex=true"},"path":{"type":"string","description":"workspace-relative directory to search (default .)"},"regex":{"type":"boolean"},"max":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}`)},
-		{Name: "workspace.edit", Description: "Anchored edit of a controlled session workspace file. oldText must match exactly once (or pass replaceAll=true) and is replaced by newText. For several independent replacements in one file, pass edits[{oldText,newText,replaceAll?}]; if any hunk's oldText is missing the whole call fails and the file is left untouched.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"},"edits":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"properties":{"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["oldText","newText"]}}},"required":["path"],"additionalProperties":false}`)},
+		{Name: "workspace.edit", Description: "Anchored edit of controlled session workspace file(s). oldText must match exactly once (or pass replaceAll=true) and is replaced by newText. Several replacements in one file: edits[{oldText,newText,replaceAll?}]. Several files in one call: files[{path,oldText,newText,replaceAll?,edits?}]. If any hunk's oldText is missing the whole call fails and no file is written.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"},"edits":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"properties":{"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["oldText","newText"]}},"files":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"},"edits":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"properties":{"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["oldText","newText"]}}},"required":["path"]}}},"additionalProperties":false}`)},
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
 		{Name: "user.ask", Description: "Ask the user to decide with numbered options (Claude/Cursor-style). One pack of 1–8 questions, each with 2–5 options. The UI shows one question at a time plus 其他. 拍板必须用选项，不要用长文代替决策。Always wait — never assume an answer.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200,"description":"Short heading for the decision pack"},"questions":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"prompt":{"type":"string","minLength":1,"maxLength":500},"options":{"type":"array","minItems":2,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"label":{"type":"string","minLength":1,"maxLength":200}},"required":["label"]}}},"required":["prompt","options"]}}},"required":["questions"],"additionalProperties":false}`)},
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
@@ -1056,10 +1060,10 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "docx.gen", Description: "Generate a print-ready .docx (Chinese 宋体/黑体, Heading 1/2, body, optional quote/caption, 1.5 line spacing). Empty or unstyled single-style bodies are rejected. Reports: kind=report (cover + sections). Novels: kind=novel (title+author, chapter Heading 1, substantial prose — not an outline dump). Call only after the report/novel pipeline. Set desktop=true to write onto the real Desktop. Never build DOCX via Word COM or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .docx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"subtitle":{"type":"string"},"author":{"type":"string"},"kind":{"type":"string","enum":["report","novel","document"]},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","heading2","paragraph","bullet","quote","caption"]},"text":{"type":"string"},"level":{"type":"integer","minimum":1,"maximum":2}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Every slide needs a visible title; dark backgrounds must use light text. Empty or fill-only slides are rejected. Call this only after the PPT pipeline (outline, copy, two web research passes). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","minLength":1},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
-		{Name: "html.gen", Description: "Generate a built-in playable single-file HTML app (World Cup penalty shootout). Use this for desktop mini-games. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
+		{Name: "html.gen", Description: "Generate a built-in single-file HTML app (World Cup penalty shootout, or a countdown timer). Use this for desktop mini-games and timers. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout","timer"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
 		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 身份证号码 or 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 身份证号码, 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
-		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Never click 我喜欢的音乐 / 收藏. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Requires full-disk full-access.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
+		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Never click 我喜欢的音乐 / 收藏. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Full-access mode is enough; the full-disk switch is not required.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "im.send", Description: "Send a message on a configured IM channel (设置 → 消息通道). channel=feishu|wecom|dingtalk uses the pasted https webhook; channel=wechat|qq opens the logged-in desktop client. Pass to= for a contact name when using the desktop client. If the channel is off, tell the user to enable it in Settings.", Schema: []byte(`{"type":"object","properties":{"channel":{"type":"string","enum":["feishu","wecom","dingtalk","wechat","qq"]},"to":{"type":"string","maxLength":80,"description":"optional contact or group name"},"text":{"type":"string","minLength":1,"maxLength":4000}},"required":["channel","text"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
 		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
@@ -1086,7 +1090,7 @@ func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
 		return nil
 	}
 	return []gateway.ToolDefinition{
-		{Name: "plugin.create", Description: "Create one Harness-compatible plugin and mount it into the plugin list (pluginId, name, kind, description, entrypoint, manifest). After it succeeds, write a short Chinese confirmation naming the plugin and telling the user to open Plugin Center, then STOP.", Schema: []byte(`{"type":"object","properties":{"pluginId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","enum":["mcp","skill","workflow","template","tool","agent-pack"]},"description":{"type":"string","maxLength":2000},"entrypoint":{"type":"string","maxLength":512},"semver":{"type":"string","maxLength":32},"publisher":{"type":"string","maxLength":128},"manifest":{"type":"object"}},"required":["pluginId","name","kind"],"additionalProperties":false}`)},
+		{Name: "plugin.create", Description: "Register one capability card in Plugin Center. This does not execute Cordis/TypeScript and does not add new tools. kind=mcp or agent-pack is refused — use mcp.install or skill.create instead. After success, tell the user in Chinese that this is a catalog card only.", Schema: []byte(`{"type":"object","properties":{"pluginId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","enum":["skill","workflow","template","tool"]},"description":{"type":"string","maxLength":2000},"entrypoint":{"type":"string","maxLength":512},"semver":{"type":"string","maxLength":32},"publisher":{"type":"string","maxLength":128},"manifest":{"type":"object"}},"required":["pluginId","name","kind"],"additionalProperties":false}`)},
 	}
 }
 
@@ -1136,7 +1140,8 @@ func (e *Engine) skillToolDefinitions() []gateway.ToolDefinition {
 	}
 	return []gateway.ToolDefinition{
 		{Name: "skill.invoke", Description: "Invoke one published skill by its skillId (see the [可用技能目录] section for IDs and trigger scenarios); input is the user's request text for the skill", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"skill ULID from the catalog"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"the user request passed to the skill"}},"required":["skillId","input"],"additionalProperties":false}`)},
-		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill. After it succeeds, write a short Chinese confirmation naming the skill and telling the user to install/publish it in Skill Center, then STOP — do not resume unfinished work.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
+		{Name: "skill.view", Description: "Read one skill's working agreement (SKILL.md / prompt) by skillId or market template id. Use when the catalog summary is not enough and you need the body before or instead of skill.invoke.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","minLength":1,"maxLength":128,"description":"installed skill ULID or catalog template id such as skill-creator"}},"required":["skillId"],"additionalProperties":false}`)},
+		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill. After it succeeds, write a short Chinese confirmation naming the skill and telling the user to install/publish it in Skill Center. Then continue any remaining user work.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
 	}
 }
 
@@ -1225,6 +1230,76 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 	return toolruntime.Result{Output: "技能「" + label + "」已创建（id=" + id + "，status=" + string(created.Status) + "）。"}, nil
 }
 
+const skillViewMaxRunes = 8000
+
+func (e *Engine) invokeSkillViewTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+	if !skillServiceAvailable(e.skills) {
+		return toolruntime.Result{}, errors.New("skill service unavailable")
+	}
+	var a struct {
+		SkillID string `json:"skillId"`
+	}
+	if json.Unmarshal(jsonutil.Repair(args), &a) != nil || strings.TrimSpace(a.SkillID) == "" {
+		return toolruntime.Result{}, errors.New("invalid skill.view arguments")
+	}
+	id := strings.TrimSpace(a.SkillID)
+	label, body, err := e.skillViewBody(ctx, id)
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	runes := []rune(body)
+	truncated := false
+	if len(runes) > skillViewMaxRunes {
+		body = string(runes[:skillViewMaxRunes]) + "\n…(truncated)"
+		truncated = true
+	}
+	out := "技能「" + label + "」正文：\n" + body
+	if truncated {
+		out += "\n需要执行时用 skill.invoke。"
+	}
+	return toolruntime.Result{Output: out}, nil
+}
+
+func (e *Engine) skillViewBody(ctx context.Context, id string) (label, body string, err error) {
+	if validCanonicalULID(id) {
+		sk, getErr := e.skills.Get(ctx, id)
+		if getErr == nil && sk != nil {
+			return skillViewLabel(*sk), skillPromptFromManifest(sk.ManifestJSON), nil
+		}
+	}
+	for _, tpl := range skillapp.Catalog() {
+		if tpl.ID == id || tpl.Name == id {
+			prompt, _ := tpl.Manifest["prompt"].(string)
+			name := tpl.DisplayName
+			if name == "" {
+				name = tpl.Name
+			}
+			return name, strings.TrimSpace(prompt), nil
+		}
+	}
+	return "", "", errors.New("skill not found")
+}
+
+func skillViewLabel(sk skill.Skill) string {
+	if strings.TrimSpace(sk.DisplayName) != "" {
+		return sk.DisplayName
+	}
+	if strings.TrimSpace(sk.Name) != "" {
+		return sk.Name
+	}
+	return sk.ID
+}
+
+func skillPromptFromManifest(raw string) string {
+	var m struct {
+		Prompt string `json:"prompt"`
+	}
+	if json.Unmarshal([]byte(raw), &m) == nil && strings.TrimSpace(m.Prompt) != "" {
+		return strings.TrimSpace(m.Prompt)
+	}
+	return strings.TrimSpace(raw)
+}
+
 // invokeExpertCreateTool routes a model-initiated expert.create call through
 // the M8 expert service. The expert is immediately available for mounting.
 func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
@@ -1294,6 +1369,12 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 	if !m8core.ValidPluginKind(a.Kind) {
 		return toolruntime.Result{}, errors.New("invalid plugin kind")
 	}
+	switch strings.ToLower(strings.TrimSpace(a.Kind)) {
+	case "mcp":
+		return toolruntime.Result{}, errors.New("plugin.create 不能安装 MCP。请用 mcp.presets 查看现役预置，再 mcp.install")
+	case "agent-pack":
+		return toolruntime.Result{}, errors.New("plugin.create 不能加载可执行 Agent 包。请用 skill.create 或 expert.create")
+	}
 	manifest := a.Manifest
 	if manifest == nil {
 		manifest = map[string]any{}
@@ -1344,7 +1425,7 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 	if label == "" {
 		label = pluginID
 	}
-	return toolruntime.Result{Output: "插件「" + label + "」已创建（id=" + pluginID + "，state=" + res.State + "）。请到插件页查看安装状态。"}, nil
+	return toolruntime.Result{Output: "已在插件页登记能力卡片「" + label + "」（id=" + pluginID + "，state=" + res.State + "）。这不会执行 TypeScript，也不会增加新工具。若要可调用的工作约定请 skill.create；若要 MCP 请 mcp.install。"}, nil
 }
 
 // mcpToolPrefix namespaces merged MCP endpoint tools inside the model tool
@@ -1845,6 +1926,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		startPptWorkflow(&req, &turn, send)
 		startDocxWorkflow(&req, &turn, send)
 		logInjectedGuidance(sessionID, state.companion, req)
+		emitInjectedGuidance(send, req)
 		seen := map[string]bool{}
 		completedDigests := map[string]string{}
 		var result gateway.Response
@@ -1973,8 +2055,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			noteDocxChars(&turn, stepText)
 			if len(result.Message.ToolCalls) == 0 {
 				continueKind := ""
+				toolOut := lastToolOutput(req.Messages)
 				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) {
 					continueKind = "ask"
+				} else if shouldContinueIncompleteWork(stepText, toolOut, turn.LastTools, usedTools, nudges) {
+					continueKind = "incomplete"
 				} else if state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) && nudges < maxContinueNudges {
 					continueKind = "leadin"
 				} else if state.companion && usedDesktopTools && shouldContinueDesktopTurn(stepText, nudges) {
@@ -2005,6 +2090,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						nudge = gateway.Message{Role: gateway.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
 					} else if continueKind == "desktop" {
 						nudge = desktopContinueNudgeMessage()
+					} else if continueKind == "incomplete" {
+						nudge = incompleteContinueNudgeMessage()
 					}
 					req.Messages = append(req.Messages, msg, nudge)
 					continue
@@ -2256,6 +2343,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// skillapp pipeline (never the raw toolruntime switch).
 					if call.Name == "skill.invoke" {
 						return e.invokeSkillTool(op, mode, sessionID, call.Arguments)
+					}
+					if call.Name == "skill.view" {
+						return e.invokeSkillViewTool(op, call.Arguments)
 					}
 					// Model-initiated expert creation routes through the
 					// M8 expert service (never the raw toolruntime switch).
@@ -2998,6 +3088,13 @@ func toolStartedSummary(name string, args json.RawMessage) string {
 				return in
 			}
 			return id
+		}
+	case "skill.view":
+		var a struct {
+			SkillID string `json:"skillId"`
+		}
+		if json.Unmarshal(args, &a) == nil {
+			return strings.TrimSpace(a.SkillID)
 		}
 	}
 	return ""

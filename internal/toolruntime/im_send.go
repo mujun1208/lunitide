@@ -32,8 +32,8 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 	if desktopApp == "" {
 		return result(output), nil
 	}
-	if !unconfined || !r.FullDiskEnabled() {
-		return Result{}, errors.New("无法执行：本机客户端发送需要完整磁盘访问")
+	if err := requireDesktopAction(approved); err != nil {
+		return Result{}, errors.New("无法执行：本机客户端发送需要完整权限或用户批准")
 	}
 	path, others, err := pickLaunchTarget(desktopApp)
 	if err != nil {

@@ -342,8 +342,8 @@ func ensureMusicAppForeground(app string) (string, error) {
 }
 
 func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, query, appHint string, approved, unconfined bool) (Result, error) {
-	if !unconfined {
-		return Result{}, errors.New("media.play foreground requires full-disk full-access")
+	if err := requireDesktopAction(approved); err != nil {
+		return Result{}, err
 	}
 	if invoke == nil {
 		return Result{}, errors.New("media.play foreground requires computer control (cc.*)")
