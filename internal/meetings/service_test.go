@@ -753,6 +753,34 @@ func TestSummarizeAfterStopWritesNotesOrNeedsSummary(t *testing.T) {
 	})
 }
 
+func TestSummarizeMapsBillingErrorToChinese(t *testing.T) {
+	svc := testMeetings(t)
+	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+		return meetings.Notes{}, errors.New("Payment Required: Insufficient Balance")
+	})
+	ctx := context.Background()
+	started, err := svc.Start(ctx, "周会", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Append(ctx, started.MeetingID, "对齐范围后发布", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Stop(ctx, started.MeetingID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Summarize(ctx, started.MeetingID)
+	if err != nil || got.Status != meetings.StatusNeedsSummary {
+		t.Fatalf("summarize = %#v %v", got, err)
+	}
+	if strings.Contains(got.SummaryError, "Payment Required") || strings.Contains(got.SummaryError, "Insufficient") {
+		t.Fatalf("leaked English billing: %q", got.SummaryError)
+	}
+	if !strings.Contains(got.SummaryError, "余额不足") {
+		t.Fatalf("summaryError = %q", got.SummaryError)
+	}
+}
+
 func TestSummarizeSurfacesCompleterError(t *testing.T) {
 	svc := testMeetings(t)
 	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {

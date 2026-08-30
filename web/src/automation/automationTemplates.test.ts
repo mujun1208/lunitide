@@ -14,6 +14,13 @@ describe('automation templates OpenClaw alignment', () => {
     expect(flow?.prompt).not.toMatch(/cc\.window_/)
   })
 
+  test('daily AI news stays honest about search misses', () => {
+    const news = AUTOMATION_TEMPLATES.find(t => t.id === 'daily-ai-news')
+    expect(news?.prompt).toMatch(/https:\/\//)
+    expect(news?.prompt).toMatch(/没搜到/)
+    expect(news?.prompt).toMatch(/不要编造/)
+  })
+
   test('renders at: stamps as one-shot times', () => {
     expect(cronToHuman('at:2026-08-27T12:00:00Z')).toMatch(/一次/)
   })

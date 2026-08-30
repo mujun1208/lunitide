@@ -19,7 +19,7 @@ func TestCompanionSpeakFallbackUsesGenericVoiceLine(t *testing.T) {
 		Message:   gateway.Message{Content: ""},
 		Reasoning: "嗯，你好呀！我在呢。后面还有很长的内心独白…",
 	})
-	if out != "嗯，我在呢，稍等我一下。" {
+	if out != "我在呢，稍等我一下。" {
 		t.Fatalf("got %q", out)
 	}
 	if companionSpeakFallback(gateway.Response{Message: gateway.Message{Content: "直接回答。"}}) != "直接回答。" {

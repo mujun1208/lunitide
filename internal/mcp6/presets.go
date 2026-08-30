@@ -75,7 +75,7 @@ var presets = []Preset{
 	{
 		ID:          "memory",
 		Name:        "Memory",
-		Description: "基于知识图谱的跨会话记忆：实体、关系与观察的增删查",
+		Description: "MCP Memory 是该服务器自己的知识图谱，不是月汐记忆中心。产品记忆需用户确认后才写入。",
 		Transport:   "stdio",
 		Command:     "npx",
 		Args:        []string{"-y", "@modelcontextprotocol/server-memory"},

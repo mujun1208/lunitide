@@ -135,9 +135,16 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 		})
 		return raw
 	case "html.gen":
+		template, title, path := "penalty-shootout", "小游戏", "小游戏.html"
+		g := strings.ToLower(goal)
+		if strings.Contains(goal, "清单") || strings.Contains(g, "checklist") || strings.Contains(goal, "待办页") {
+			template, title, path = "checklist", "清单", "清单.html"
+		} else if strings.Contains(goal, "计时") || strings.Contains(g, "timer") {
+			template, title, path = "timer", "计时器", "计时器.html"
+		}
 		raw, _ := json.Marshal(map[string]any{
-			"path": "小游戏.html", "desktop": desktop, "template": "penalty-shootout",
-			"title": clipOfficeTitle(goal, "小游戏"),
+			"path": path, "desktop": desktop, "template": template,
+			"title": clipOfficeTitle(goal, title),
 		})
 		return raw
 	default:

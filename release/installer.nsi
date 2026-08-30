@@ -35,6 +35,15 @@ VIAddVersionKey "LegalCopyright" "${PUBLISHER}"
 !define MUI_ABORTWARNING
 !define MUI_ICON "${STAGE}\lunitide-icon.ico"
 !define MUI_UNICON "${STAGE}\lunitide-icon.ico"
+; Recreate .lnk files so Explorer drops the previous icon cache entry. Same
+; path + replaced ICO kept showing the 0.4.33 three-cloud mark on the desktop.
+!macro WriteAppShortcuts
+  Delete "$SMPROGRAMS\Lunitide\Lunitide.lnk"
+  Delete "$DESKTOP\Lunitide.lnk"
+  CreateDirectory "$SMPROGRAMS\Lunitide"
+  CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
+  CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
+!macroend
 !macro WriteUninstallRegistration Ver
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "Publisher" "${PUBLISHER}"
@@ -286,14 +295,9 @@ activate_stage:
 	Rename "$InstallStage" "$INSTDIR"
 	IfErrors activate_failed
   ClearErrors
-  CreateDirectory "$SMPROGRAMS\Lunitide"
+  !insertmacro WriteAppShortcuts
   IfErrors commit_failed
-  ClearErrors
-  CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
-  IfErrors commit_failed
-  ClearErrors
-  CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
-  IfErrors commit_failed
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
   ClearErrors
   !insertmacro WriteUninstallRegistration "${VERSION}"
   IfErrors commit_failed
@@ -343,12 +347,9 @@ restore_previous:
   StrCmp $0 "$PreviousVersion" restored restore_metadata_failed
 restored:
 	ClearErrors
-	CreateDirectory "$SMPROGRAMS\Lunitide"
+	!insertmacro WriteAppShortcuts
 	IfErrors restore_metadata_failed
-	CreateShortcut "$SMPROGRAMS\Lunitide\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
-	IfErrors restore_metadata_failed
-	CreateShortcut "$DESKTOP\Lunitide.lnk" "$INSTDIR\Lunitide.exe" "" "$INSTDIR\lunitide-icon.ico" 0
-	IfErrors restore_metadata_failed
+	System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 	IfFileExists "$SMPROGRAMS\Lunitide\Lunitide.lnk" restored_start_menu restore_metadata_failed
 restored_start_menu:
 	IfFileExists "$DESKTOP\Lunitide.lnk" restored_complete restore_metadata_failed

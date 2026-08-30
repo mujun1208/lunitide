@@ -9,6 +9,12 @@ import (
 	"unicode/utf8"
 )
 
+var (
+	imPickLaunch   = pickLaunchTarget
+	imOpenApp      = openWithDefaultApp
+	imTypeIntoChat = executeDesktopType
+)
+
 func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.RawMessage, approved, unconfined bool) (Result, error) {
 	var a struct {
 		Channel string `json:"channel"`
@@ -35,14 +41,14 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 	if err := requireDesktopAction(approved); err != nil {
 		return Result{}, errors.New("无法执行：本机客户端发送需要完整权限或用户批准")
 	}
-	path, others, err := pickLaunchTarget(desktopApp)
+	path, others, err := imPickLaunch(desktopApp)
 	if err != nil {
 		return Result{}, fmt.Errorf("无法执行：打不开%s（%v）", desktopApp, err)
 	}
 	if path == "" {
 		return Result{}, fmt.Errorf("无法执行：多个程序匹配%s：%s", desktopApp, strings.Join(others, ", "))
 	}
-	if err = openWithDefaultApp(path); err != nil {
+	if err = imOpenApp(path); err != nil {
 		return Result{}, fmt.Errorf("无法执行：打不开%s（%v）", desktopApp, err)
 	}
 	invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
@@ -54,9 +60,9 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 		"submit": true,
 		"after":  strings.TrimSpace(a.To),
 	})
-	typed, typeErr := executeDesktopType(ctx, invoke, session, typeArgs, approved, unconfined)
+	typed, typeErr := imTypeIntoChat(ctx, invoke, session, typeArgs, approved, unconfined)
 	if typeErr != nil {
-		return result(fmt.Sprintf("opened %s; type into the chat: %v", desktopApp, typeErr)), nil
+		return Result{}, fmt.Errorf("无法执行：已打开客户端但没打进会话：%v", typeErr)
 	}
 	return result(fmt.Sprintf("opened %s; %s", desktopApp, typed.Output)), nil
 }

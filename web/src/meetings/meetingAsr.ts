@@ -2,6 +2,8 @@ import { localAsrStatus } from '../session/companion/localAsr'
 import { int16ToBase64 } from '../session/companion/pcmFrames'
 import { startLocalCompanionSpeech } from '../session/companion/localSpeech'
 import { startCompanionSpeech, type CompanionSpeechHandle, type CompanionSpeechOptions } from '../session/companion/speech'
+import { startVolcCompanionSpeech } from '../session/companion/volc/volcSpeech'
+import type { MeetingListen } from './meetingSettings'
 import {
   captureThisPcSystemAudio,
   hasLiveAudioTrack,
@@ -81,24 +83,47 @@ export function captureStateNotice(plan: MeetingCapturePlan | undefined): string
   return plan.notice
 }
 
+export type MeetingSpeechOptions = CompanionSpeechOptions & {
+  listen?: MeetingListen | 'auto'
+  volcProviderId?: string
+}
+
+/** Stop-time catch-up always decodes the WAV with this-PC sherpa. Live listen can be 系统/火山/本机. */
+export const MEETING_CATCHUP_HINT = '补转写只用本机识别。选了系统或火山时，停止后的缺口仍走 sherpa；本机未就绪则保留实时字幕。'
+
+function resolveMeetingListen(listen: MeetingSpeechOptions['listen']): MeetingListen {
+  if (listen === 'local' || listen === 'volc' || listen === 'cloud') return listen
+  return 'cloud'
+}
+
 /** Meeting capture reuses companion ASR. Mic-only unless this-PC system audio is mixed into local ASR. Never treats TTS as user speech. */
-export async function startMeetingSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
-  const probe = await localAsrStatus()
-  const preferLocal = probe?.supported === true && probe.ready === true
+export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise<CompanionSpeechHandle> {
+  const listen = resolveMeetingListen(options.listen)
+  const probe = listen === 'local' ? await localAsrStatus() : undefined
+  const localReady = probe?.supported === true && probe.ready === true
+  if (listen === 'local' && !localReady) {
+    throw new Error('会议听写选了本机，但 sherpa 未就绪。请改选系统或火山，或先装本机识别。')
+  }
+  if (listen === 'volc' && !options.volcProviderId) {
+    throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
+  }
+  const preferLocal = listen === 'local'
   const extraStreams = preferLocal && !options.externalPcm ? options.extraStreams : undefined
-  const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
   const buffer = createMeetingLineBuffer(line => options.onFinal(line))
-  const handle = await open({
+  const speechOptions: CompanionSpeechOptions = {
     ...options,
     extraStreams,
     externalPcm: preferLocal ? options.externalPcm : undefined,
-    meterless: !preferLocal,
+    meterless: !preferLocal && listen !== 'volc',
     duplex: true,
     holdUtterance: true,
     spokenText: () => '',
     onFinal: text => buffer.push(text),
     onInterim: text => options.onInterim?.(text),
-  })
+  }
+  const handle = listen === 'volc'
+    ? await startVolcCompanionSpeech(speechOptions, options.volcProviderId!)
+    : await (preferLocal ? startLocalCompanionSpeech : startCompanionSpeech)(speechOptions)
   const origStop = handle.stop.bind(handle)
   return {
     ...handle,

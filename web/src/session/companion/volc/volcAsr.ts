@@ -23,7 +23,7 @@ const MAX_APPEND_SAMPLES = TARGET_SAMPLE_RATE
 const DRAIN_ROUNDS = 40
 
 /** Match the Go handshake budget so a hung provider.list falls back. */
-export const VOLC_ASR_DECISION_MS = 1500
+export const VOLC_ASR_DECISION_MS = 3000
 
 /** Silence after a turn so Volc VAD can emit definite without closing the WS. */
 const SILENCE_FLUSH_SAMPLES = Math.round(TARGET_SAMPLE_RATE * 0.4)

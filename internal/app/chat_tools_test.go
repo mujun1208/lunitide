@@ -244,6 +244,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "html.gen" {
 			found = true
+			if !strings.Contains(string(d.Schema), "checklist") {
+				t.Fatal("html.gen schema must include checklist")
+			}
 			break
 		}
 	}
@@ -271,9 +274,12 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 			t.Fatal("subagents must not receive html.gen, desktop.open, or media generation tools")
 		}
 	}
-	wf := bundledWorkflowInjection("调研改代码审查浏览网页跨应用编排 git 做PPT报告小说 小游戏 打开桌面文件 填写证件号码 播放音乐 发飞书 截图点按钮对话框")
+	wf := bundledWorkflowInjection("调研改代码审查浏览网页跨应用编排 git 做PPT报告小说 小游戏 清单 打开桌面文件 填写证件号码 播放音乐 发飞书 截图点按钮对话框")
 	if !strings.Contains(wf, "html.gen") || strings.Contains(wf, "桌面 HTML 小游戏：workspace.write") {
 		t.Fatal("desktop game workflow must route through html.gen")
+	}
+	if !strings.Contains(wf, "checklist") {
+		t.Fatal("html.gen workflow must mention checklist")
 	}
 	if !strings.Contains(wf, "media.play") {
 		t.Fatal("media.play workflow missing")
@@ -362,6 +368,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 			if !strings.Contains(string(d.Schema), `"desktop"`) || !strings.Contains(d.Description, "desktop=true") {
 				t.Fatalf("%s must advertise desktop=true", name)
 			}
+			if name == "pdf.gen" && !strings.Contains(d.Description, "docx.gen") {
+				t.Fatal("pdf.gen must send Chinese reports to docx.gen")
+			}
 		}
 		if !found {
 			t.Fatalf("%s missing from engine tools", name)
@@ -377,6 +386,12 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 			foundBrowser = true
 			if !strings.Contains(d.Description, "stale") && !strings.Contains(d.Description, "fresh snapshot") {
 				t.Fatal("browser.act description must teach resnapshot / stale refs")
+			}
+			schema := string(d.Schema)
+			for _, op := range []string{"scroll", "back", "hover", "select", "press", "tabs", "wait", "dialog"} {
+				if !strings.Contains(schema, `"`+op+`"`) {
+					t.Fatalf("browser.act schema missing %s", op)
+				}
 			}
 		}
 		if d.Name == "media.play" {

@@ -159,6 +159,38 @@ func (e *Engine) connectedComposeMcpIDs() []string {
 	return out
 }
 
+var liveComposeMCP = map[string]bool{
+	"playwright": true, "fetch": true, "filesystem": true,
+	"memory": true, "sequentialthinking": true,
+}
+
+func uniqueStrings(ids []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func filterLiveComposeMCP(ids []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if !liveComposeMCP[id] || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
 func expertComposeHint(names []string, published []skill.Skill, connectedMcp []string) string {
 	skills, tools, mcp, fallbacks := m8app.ComposeForExpertNames(names)
 	if len(skills) == 0 && len(tools) == 0 {
@@ -166,7 +198,7 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 	}
 	connected := map[string]bool{}
 	for _, id := range connectedMcp {
-		connected[id] = true
+		connected[strings.ToLower(strings.TrimSpace(id))] = true
 	}
 	var b strings.Builder
 	b.WriteString("\n\n[专家自动挂载]\n")
@@ -197,12 +229,17 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 		b.WriteString(strings.Join(tools, "、"))
 		b.WriteByte('\n')
 	}
-	if len(mcp) > 0 {
+	liveIDs := uniqueStrings(append(filterLiveComposeMCP(mcp), filterLiveComposeMCP(connectedMcp)...))
+	if len(liveIDs) > 0 {
 		var ready, missing []string
-		for _, id := range mcp {
+		preferred := map[string]bool{}
+		for _, id := range filterLiveComposeMCP(mcp) {
+			preferred[id] = true
+		}
+		for _, id := range liveIDs {
 			if connected[id] {
 				ready = append(ready, id)
-			} else {
+			} else if preferred[id] {
 				missing = append(missing, id)
 			}
 		}
@@ -213,7 +250,7 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 		}
 		if len(missing) > 0 {
 			b.WriteString("未连接 MCP（设置里可选）：")
-			b.WriteString(strings.Join(missing, "、"))
+			b.WriteString(strings.Join(filterLiveComposeMCP(missing), "、"))
 			b.WriteString("。\n")
 		}
 	}

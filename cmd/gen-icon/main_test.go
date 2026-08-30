@@ -2,9 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
-	"image/png"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -40,6 +40,23 @@ func TestRenderMoonMarkHasGapAndCloudLine(t *testing.T) {
 		t.Fatalf("cloud line missing around y=%d", cloudY)
 	}
 	assertNoBlueCloudOnMoon(t, img)
+}
+
+func TestCloudLineVisibleAtDesktopSize(t *testing.T) {
+	img := renderMoonMark(32)
+	found := false
+	for y := 32 * 72 / 100; y <= 32*86/100; y++ {
+		for x := 32 * 20 / 100; x <= 32*80/100; x++ {
+			c := img.RGBAAt(x, y)
+			if c.A > 60 && c.R >= 180 {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("32px desktop frame must keep a visible cloud line")
+	}
 }
 
 func assertNoBlueCloudOnMoon(t *testing.T, img *image.RGBA) {
@@ -107,24 +124,33 @@ func TestKnockOutMoonHaloRemovesBlueRing(t *testing.T) {
 	}
 }
 
-func TestWriteICOUsesPNGFrames(t *testing.T) {
+func TestWriteICOUsesBMP32(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 32, 32))
 	src.Set(16, 16, color.RGBA{255, 255, 255, 255})
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mark.ico")
-	if err := writeICO(path, src, []int{16, 32}); err != nil {
+	if err := writeICO(path, src, []int{16, 32}, false); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte{0x89, 'P', 'N', 'G'}) {
-		t.Fatal("ICO should embed PNG frames so Windows keeps alpha")
+	if bytes.Contains(raw, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatal("ICO must use 32bpp BMP frames so NSIS Setup/Uninstall keep alpha")
 	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, src); err != nil {
-		t.Fatal(err)
+	if len(raw) < 22 {
+		t.Fatal("ico too short")
+	}
+	off := binary.LittleEndian.Uint32(raw[18:22])
+	if int(off)+16 > len(raw) {
+		t.Fatal("frame offset")
+	}
+	if got := binary.LittleEndian.Uint32(raw[off : off+4]); got != 40 {
+		t.Fatalf("BITMAPINFOHEADER size %d", got)
+	}
+	if got := binary.LittleEndian.Uint16(raw[off+14 : off+16]); got != 32 {
+		t.Fatalf("bit count %d", got)
 	}
 }
 
@@ -175,8 +201,18 @@ func TestRepoIconHasTransparentFill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte{0x89, 'P', 'N', 'G'}) {
-		t.Fatal("shipped ICO should embed PNG frames so Explorer keeps alpha")
+	if bytes.Contains(raw, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatal("shipped ICO must use 32bpp BMP frames so NSIS Setup/Uninstall keep alpha")
+	}
+	if len(raw) < 22 {
+		t.Fatal("ico too short")
+	}
+	off := binary.LittleEndian.Uint32(raw[18:22])
+	if int(off)+16 > len(raw) {
+		t.Fatal("frame offset")
+	}
+	if got := binary.LittleEndian.Uint32(raw[off : off+4]); got != 40 {
+		t.Fatalf("shipped ICO BITMAPINFOHEADER size %d", got)
 	}
 	x := img.Bounds().Min.X + img.Bounds().Dx()/2
 	yHalo := img.Bounds().Min.Y + img.Bounds().Dy()*8/100

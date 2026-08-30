@@ -99,7 +99,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
  const projectNameOf=(id:string)=>projectItems.find(project=>project.id===id)?.name??id.slice(0,8)
 
  return <main className="skill-center expert-center-page">
-  <header className="skill-center-header"><div><h1 className="view-title">专家中心</h1><p>{items.length} 名已安装{showMarket?` · 市场 ${catalog.length} 个可点选安装`:''}</p><small>{showMarket?'专家市场按分类浏览，点「＋」即可安装。':''}专家库管理已安装岗位，同一专家可挂到多个项目步骤。</small></div><button className="primary skill-chat-create" aria-label="添加专家" onClick={()=>setAddOpen(true)}>+ 添加专家</button></header>
+  <header className="skill-center-header"><div><h1 className="view-title">专家中心</h1><p>{items.length} 名已安装{showMarket?` · 市场 ${catalog.length} 个，内嵌改编，不是上游全量`:''}</p><small>{showMarket?'缺的用 expert.create。专家市场按分类浏览，点「＋」即可安装。':''}专家库管理已安装岗位，同一专家可挂到多个项目步骤。</small></div><button className="primary skill-chat-create" aria-label="添加专家" onClick={()=>setAddOpen(true)}>+ 添加专家</button></header>
   <Dialog open={addOpen} title="添加专家" description="选择创建专家的方式" onClose={()=>setAddOpen(false)}><div className="skill-add-options"><button type="button" className="skill-add-option" onClick={()=>{setAddOpen(false);onCreateInChat?.()}}><span className="skill-add-option-icon">💬</span><span className="skill-add-option-title">通过对话创建</span><small>在对话中描述岗位，AI 引导你完成六段说明书，确认后生成专家</small></button><button type="button" className="skill-add-option" onClick={beginCreate}><span className="skill-add-option-icon">✎</span><span className="skill-add-option-title">手动填写</span><small>填写名称、条线和六段岗位说明书后直接创建</small></button></div></Dialog>
   <section className="skill-center-toolbar">
    <div className="skill-status-tabs" role="tablist" aria-label="专家视图">

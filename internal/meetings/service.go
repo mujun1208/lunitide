@@ -503,7 +503,18 @@ func summarizeErrMessage(err error) string {
 	if msg == "" {
 		return "尚未生成摘要，逐字稿已保存。可重试生成摘要。"
 	}
+	if looksLikeBillingFailure(msg) {
+		return "尚未生成摘要：这个对话模型余额不足。逐字稿已保存。请换一个已启用的模型再重试。"
+	}
 	return "尚未生成摘要：" + msg + "。逐字稿已保存，可重试。"
+}
+
+func looksLikeBillingFailure(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "payment required") ||
+		strings.Contains(lower, "insufficient") ||
+		strings.Contains(lower, "402") ||
+		strings.Contains(msg, "余额不足")
 }
 
 func (s *Service) maybeReclaimSummarizing(m Meeting) (Meeting, bool, error) {

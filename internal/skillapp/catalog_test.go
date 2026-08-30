@@ -172,6 +172,14 @@ func TestSkillCreatorCatalogManifest(t *testing.T) {
 		if len(raw) > 65536 {
 			t.Fatalf("manifest too long: %d", len(raw))
 		}
+		if !strings.Contains(tpl.Description, "skill.create") {
+			t.Fatalf("skill-creator Description must mention skill.create: %q", tpl.Description)
+		}
+		for _, banned := range []string{"eval-viewer", "generate_review", "measure skill performance"} {
+			if strings.Contains(strings.ToLower(tpl.Description), banned) || strings.Contains(strings.ToLower(raw), banned) {
+				t.Fatalf("skill-creator still mentions %q", banned)
+			}
+		}
 		return
 	}
 	t.Fatal("skill-creator template missing from catalog")

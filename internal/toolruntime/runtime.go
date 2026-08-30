@@ -1333,15 +1333,20 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		if !a.Desktop && strings.TrimSpace(a.Path) == "" {
-			if a.Template == "timer" {
+			switch a.Template {
+			case "timer":
 				a.Path = "timer.html"
-			} else {
+			case "checklist":
+				a.Path = "checklist.html"
+			default:
 				a.Path = "penalty-shootout.html"
 			}
 		}
 		fallbackHTML := "世界杯点球大战.html"
 		if a.Template == "timer" {
 			fallbackHTML = "计时器.html"
+		} else if a.Template == "checklist" {
+			fallbackHTML = "清单.html"
 		}
 		outPath, de := r.desktopWritePath(a.Path, fallbackHTML, ".html", a.Desktop, unconfined)
 		if de != nil {

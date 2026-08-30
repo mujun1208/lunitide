@@ -66,17 +66,17 @@ describe('CompanionSection voice path', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').wakeVad).toBe(false)
   })
 
-  test('instant pad is on by default and barge-in is off', async () => {
+  test('instant pad is off by default and barge-in is off', async () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     const pad = await screen.findByRole('switch', { name: '先应一声' })
-    expect(pad).toHaveAttribute('aria-checked', 'true')
+    expect(pad).toHaveAttribute('aria-checked', 'false')
     const barge = screen.getByRole('switch', { name: '语音插话' })
     expect(barge).toHaveAttribute('aria-checked', 'false')
     await user.click(barge)
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').voiceBargeIn).toBe(true)
     await user.click(pad)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').instantAck).toBe(false)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').instantAck).toBe(true)
   })
 
   test('offers a correction table for ASR OOV', async () => {

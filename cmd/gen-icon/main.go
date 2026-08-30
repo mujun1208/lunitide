@@ -2,6 +2,9 @@
 // with a true alpha channel. Explorer treats a black-backed PNG as an opaque
 // square; this keys that fill out so the desktop and ARP icons sit on glass.
 //
+// ICO frames are 32bpp BMP (plus AND mask), not PNG-in-ICO. NSIS copies those
+// frames into Setup.exe / Uninstall.exe; PNG-in-ICO made both paint a black tile.
+//
 //	go run ./cmd/gen-icon -png resources/lunitide-icon.png -ico resources/lunitide-icon.ico
 package main
 
@@ -38,7 +41,8 @@ func main() {
 	if err := writePNG(*pngPath, keyed); err != nil {
 		fatal("write png: %v", err)
 	}
-	if err := writeICO(*icoPath, keyed, []int{16, 24, 32, 48, 64, 128, 256}); err != nil {
+	native := strings.TrimSpace(*srcPath) == ""
+	if err := writeICO(*icoPath, keyed, []int{16, 24, 32, 48, 64, 128, 256}, native); err != nil {
 		fatal("write ico: %v", err)
 	}
 	fmt.Printf("wrote %s and %s (%dx%d, alpha)\n", *pngPath, *icoPath, keyed.Bounds().Dx(), keyed.Bounds().Dy())
@@ -127,14 +131,16 @@ func writePNG(path string, img *image.RGBA) error {
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
 
-func writeICO(path string, src *image.RGBA, sizes []int) error {
+func writeICO(path string, src *image.RGBA, sizes []int, nativeMark bool) error {
 	frames := make([][]byte, 0, len(sizes))
 	for _, size := range sizes {
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, rgbaToNRGBA(scaleRGBA(src, size))); err != nil {
-			return err
+		var img *image.RGBA
+		if nativeMark {
+			img = knockOutMoonHalo(knockOutBlack(renderMoonMark(size)))
+		} else {
+			img = scaleRGBA(src, size)
 		}
-		frames = append(frames, buf.Bytes())
+		frames = append(frames, encodeBMP32Icon(img))
 	}
 	count := len(frames)
 	header := 6 + count*16
@@ -159,7 +165,50 @@ func writeICO(path string, src *image.RGBA, sizes []int) error {
 	for _, frame := range frames {
 		ico = append(ico, frame...)
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
 	return os.WriteFile(path, ico, 0644)
+}
+
+func encodeBMP32Icon(img *image.RGBA) []byte {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	xorStride := w * 4
+	xorSize := xorStride * h
+	andStride := (w + 31) / 32 * 4
+	andSize := andStride * h
+	const header = 40
+	dib := make([]byte, header+xorSize+andSize)
+	binary.LittleEndian.PutUint32(dib[0:4], header)
+	binary.LittleEndian.PutUint32(dib[4:8], uint32(w))
+	binary.LittleEndian.PutUint32(dib[8:12], uint32(h*2))
+	binary.LittleEndian.PutUint16(dib[12:14], 1)
+	binary.LittleEndian.PutUint16(dib[14:16], 32)
+	binary.LittleEndian.PutUint32(dib[20:24], uint32(xorSize))
+	for y := 0; y < h; y++ {
+		srcY := b.Min.Y + (h - 1 - y)
+		row := header + y*xorStride
+		for x := 0; x < w; x++ {
+			i := img.PixOffset(b.Min.X+x, srcY)
+			o := row + x*4
+			dib[o+0] = img.Pix[i+2]
+			dib[o+1] = img.Pix[i+1]
+			dib[o+2] = img.Pix[i+0]
+			dib[o+3] = img.Pix[i+3]
+		}
+	}
+	andOff := header + xorSize
+	for y := 0; y < h; y++ {
+		srcY := b.Min.Y + (h - 1 - y)
+		for x := 0; x < w; x++ {
+			if img.Pix[img.PixOffset(b.Min.X+x, srcY)+3] != 0 {
+				continue
+			}
+			dib[andOff+y*andStride+x/8] |= 0x80 >> (x % 8)
+		}
+	}
+	return dib
 }
 
 func rgbaToNRGBA(src *image.RGBA) *image.NRGBA {

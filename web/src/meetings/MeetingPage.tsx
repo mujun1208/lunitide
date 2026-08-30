@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, type MeetingsBridge } from '../bridge/client'
-import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
+import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, getProviderBridge, type MeetingsBridge } from '../bridge/client'
+import type { MeetingDTO, MeetingSegmentDTO, ModelDTO, ProviderDTO } from '../generated/bridge'
+import { llmReadyProviders, pickDefaultLLM, pickDefaultVoice } from '../provider/modelKind'
+import { loadMeetingSettings, saveMeetingSettings, type MeetingListen, type MeetingSettings } from './meetingSettings'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, mixMeetingPcmS16le, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
@@ -14,6 +16,10 @@ const LOOPBACK_POLL_MS = 80
 /** Web Speech and sherpa both go quiet after a long un-endpointed clip. Restart ASR, keep the WAV. */
 export const MEETING_CAPTION_STALL_MS = 25_000
 export const MEETING_CAPTION_STALL_POLL_MS = 2_000
+
+function speechNotice(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : ASR_INTERRUPTED_NOTICE
+}
 
 async function capturePlanForStarted(meeting: MeetingDTO): Promise<MeetingCapturePlan> {
   if (meeting.audioSource === 'microphone_and_system') return engineLoopbackPlan()
@@ -87,6 +93,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const [draftActions, setDraftActions] = useState('')
   const [draftTranscript, setDraftTranscript] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<MeetingDTO>()
+  const [prefs, setPrefs] = useState<MeetingSettings>(() => loadMeetingSettings())
+  const [llmChoices, setLlmChoices] = useState<Array<{ provider: ProviderDTO; model: ModelDTO }>>([])
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
   const [listWidth, startListResize] = usePanelResize({
     storageKey: 'lunitide:meeting-list-width',
     initial: 280,
@@ -109,6 +119,24 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const userStopRef = useRef(false)
   const appendChain = useRef(Promise.resolve())
   const currentIdRef = useRef('')
+
+  useEffect(() => {
+    void getProviderBridge().list().then(listed => {
+      const ready = llmReadyProviders(listed.items)
+      const choices = ready.flatMap(provider => provider.models.map(model => ({ provider, model })))
+      setLlmChoices(choices)
+      setPrefs(current => {
+        if (current.modelId && choices.some(item => item.model.modelId === current.modelId)) return current
+        const picked = pickDefaultLLM(listed.items)
+        if (!picked) return current
+        return saveMeetingSettings({ ...current, modelId: picked.modelId })
+      })
+    }).catch(() => undefined)
+  }, [])
+
+  const updatePrefs = (patch: Partial<MeetingSettings>) => {
+    setPrefs(current => saveMeetingSettings({ ...current, ...patch }))
+  }
 
   const refresh = useCallback(async () => {
     const listed = await meetings.list()
@@ -162,7 +190,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       else setNotice(prev => /系统声音|共享音频|立体声混音/.test(prev) ? '' : prev)
       speechRef.current?.stop()
       speechRef.current = null
-      await listen()
+      await listen().catch(error => {
+        if (!userStopRef.current && speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
+          setNotice(speechNotice(error))
+        }
+      })
     }
     const listen = async () => {
       if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
@@ -177,7 +209,16 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         captureRef.current = livePlan
       }
       bindSystemWatch(livePlan)
+      let volcProviderId = ''
+      const listenKind = prefsRef.current.listen
+      if (listenKind === 'volc') {
+        const listed = await getProviderBridge().list().catch(() => ({ items: [] as ProviderDTO[] }))
+        volcProviderId = pickDefaultVoice(listed.items)?.provider.id ?? ''
+        if (!volcProviderId) throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
+      }
       const handle = await startMeetingSpeech({
+        listen: listenKind,
+        volcProviderId: volcProviderId || undefined,
         extraStreams: livePlan.engineOwned ? undefined : livePlan.extraStreams,
         externalPcm: !!audioRef.current,
         duplex: true,
@@ -213,9 +254,9 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           pcmTapRef.current = undefined
           window.setTimeout(() => {
             if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
-            void listen().catch(() => {
+            void listen().catch(error => {
               if (!userStopRef.current && speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
-                setNotice(ASR_INTERRUPTED_NOTICE)
+                setNotice(speechNotice(error))
               }
             })
           }, 900)
@@ -239,8 +280,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       speechRef.current?.stop()
       speechRef.current = null
       pcmTapRef.current = undefined
-      void listen().catch(() => {
-        if (!userStopRef.current && speechGen.current === gen) setNotice(ASR_INTERRUPTED_NOTICE)
+      void listen().catch(error => {
+        if (!userStopRef.current && speechGen.current === gen) setNotice(speechNotice(error))
       }).finally(() => { stallRestarting = false })
     }, MEETING_CAPTION_STALL_POLL_MS)
     await listen()
@@ -282,8 +323,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         }
         try {
           await attachSpeech(detail, plan)
-        } catch {
-          if (alive) setNotice(ASR_INTERRUPTED_NOTICE)
+        } catch (error) {
+          if (alive) setNotice(speechNotice(error))
         }
       } catch (error) {
         if (alive) setNotice(error instanceof Error ? error.message : '无法继续上一场录制')
@@ -446,8 +487,8 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       }
       try {
         await attachSpeech(started, plan)
-      } catch {
-        setNotice(ASR_INTERRUPTED_NOTICE)
+      } catch (error) {
+        setNotice(speechNotice(error))
       }
     } catch (error) {
       speechGen.current += 1
@@ -479,7 +520,10 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     adopt({ ...caught, status: 'summarizing' })
     setNotice('正在生成会议纪要…')
     try {
-      const notes = honestNotes(await meetings.summarize({ meetingId }))
+      const notes = honestNotes(await meetings.summarize({
+        meetingId,
+        ...(prefsRef.current.modelId ? { modelId: prefsRef.current.modelId } : {}),
+      }))
       adopt(notes)
       setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要，逐字稿已保存。')
     } catch (error) {
@@ -631,7 +675,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       <aside className="meeting-list" aria-label="历史会议">
         <header>
           <h2>会议记录</h2>
-          <p>一点「开始录制」即收录麦克风与系统声音，一直录到你点停止。长会以本机录音为准，停止后再补转写。不会共享给其他电脑。</p>
+          <p>一点「开始录制」即收录麦克风与系统声音，一直录到你点停止。长会以本机录音为准。补转写只用本机识别，不跟听写里的系统/火山走。不区分说话人；逐字稿是一条时间流，多人时可能张冠李戴。不会共享给其他电脑。</p>
         </header>
         {items.length === 0 ? <p className="meeting-empty">还没有会议。点开始录制这一场。</p> : items.map(item => (
           <div className="meeting-row" key={item.meetingId}>
@@ -654,7 +698,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
         <header className="meeting-hero">
           <div>
             <h2>{current?.title || '新的会议'}</h2>
-            <p>开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束；如有中断会补转写，再生成摘要、待办和逐字稿。</p>
+            <p>开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束。{MEETING_CATCHUP_HINT} 再生成摘要、待办和逐字稿。</p>
           </div>
           <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording || stopping ? elapsed : current?.durationMs ?? 0)}</div>
         </header>
@@ -663,6 +707,28 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
             ? <button type="button" className="meeting-stop" disabled={busy} onClick={() => void stop()}>停止</button>
             : <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>}
           <span>{recording ? audioSourceLabel(current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
+        </div>
+        <div className="meeting-prefs">
+          <fieldset disabled={recording || stopping || busy}>
+            <legend>听写</legend>
+            {(['cloud', 'volc', 'local'] as MeetingListen[]).map(value => (
+              <label key={value}>
+                <input type="radio" name="meeting-listen" checked={prefs.listen === value} onChange={() => updatePrefs({ listen: value })} />
+                {value === 'cloud' ? '系统' : value === 'volc' ? '火山' : '本机'}
+              </label>
+            ))}
+          </fieldset>
+          <label className="meeting-prefs-model">纪要模型
+            <select aria-label="纪要模型" value={prefs.modelId} onChange={e => updatePrefs({ modelId: e.target.value })} disabled={recording || stopping || busy}>
+              <option value="">自动（已启用的对话模型）</option>
+              {llmChoices.map(item => (
+                <option key={`${item.provider.id}:${item.model.modelId}`} value={item.model.modelId}>
+                  {item.model.displayName || item.model.modelId}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>听写管实时字幕。纪要只管整理已经转写出的字。停止后的补转写只用本机，换纪要模型不会让乱码变准。</p>
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">
@@ -674,11 +740,11 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
           <article className="meeting-doc">
             <section>
               <h3>会议摘要</h3>
-              <textarea aria-label="会议摘要" value={draftSummary} onChange={e => setDraftSummary(e.target.value)} placeholder={current.summaryError || '尚未生成摘要。'} />
+              <textarea aria-label="会议摘要" value={draftSummary} onChange={e => setDraftSummary(e.target.value)} placeholder="尚未生成摘要。" />
             </section>
             <section>
               <h3>决议/待办</h3>
-              <textarea aria-label="决议/待办" value={draftActions} onChange={e => setDraftActions(e.target.value)} placeholder="尚未生成待办。" />
+              <textarea aria-label="决议/待办" value={draftActions} onChange={e => setDraftActions(e.target.value)} placeholder={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'} />
             </section>
             <section>
               <h3>全文逐字稿</h3>
