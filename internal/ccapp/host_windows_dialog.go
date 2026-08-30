@@ -139,7 +139,7 @@ func enumTopLevelProc(hwnd uintptr, lParam uintptr) uintptr {
 	if !looksDialog {
 		return 1
 	}
-	if d.snap.Refused == "" {
+	if d.snap.Refused == "" || d.snap.Refused == "file open/save dialog" {
 		attachDialogNodes(&d)
 	}
 	st.dialogs = append(st.dialogs, d)
@@ -293,6 +293,9 @@ func (h *windowsHost) ConfirmDialog(button string) (DialogSnapshot, error) {
 	if chosen == nil {
 		for _, d := range live {
 			if d.snap.Refused != "" {
+				if d.snap.Refused == "file open/save dialog" {
+					return d.snap, fmt.Errorf("%w: %s — %s", ErrCcRiskBlocked, d.snap.Refused, FilePickerUserPrompt)
+				}
 				return d.snap, fmt.Errorf("%w: %s", ErrCcRiskBlocked, d.snap.Refused)
 			}
 		}

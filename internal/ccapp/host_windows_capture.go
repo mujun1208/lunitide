@@ -8,16 +8,17 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"sort"
 	"sync"
 	"syscall"
 	"unsafe"
 )
 
 var (
-	procGetDesktopWindow     = user32.NewProc("GetDesktopWindow")
-	procGetWindowDC          = user32.NewProc("GetWindowDC")
-	procEnumDisplayMonitors  = user32.NewProc("EnumDisplayMonitors")
-	procGetMonitorInfoW      = user32.NewProc("GetMonitorInfoW")
+	procGetDesktopWindow    = user32.NewProc("GetDesktopWindow")
+	procGetWindowDC         = user32.NewProc("GetWindowDC")
+	procEnumDisplayMonitors = user32.NewProc("EnumDisplayMonitors")
+	procGetMonitorInfoW     = user32.NewProc("GetMonitorInfoW")
 )
 
 type winRect struct{ Left, Top, Right, Bottom int32 }
@@ -392,6 +393,28 @@ func listMonitorRects() []winRect {
 	}()
 	_, _, _ = procEnumDisplayMonitors.Call(0, 0, enumMonitorCallback(), token)
 	return st.rects
+}
+
+func sortedMonitorRects() []winRect {
+	rects := listMonitorRects()
+	sort.Slice(rects, func(i, j int) bool {
+		if rects[i].Left != rects[j].Left {
+			return rects[i].Left < rects[j].Left
+		}
+		return rects[i].Top < rects[j].Top
+	})
+	return rects
+}
+
+// ScreenIndexAt returns the 1-based monitor index containing (x,y) in
+// virtual-desktop pixels, or 0 if the point is off every monitor.
+func (h *windowsHost) ScreenIndexAt(x, y int) int {
+	for i, r := range sortedMonitorRects() {
+		if x >= int(r.Left) && x < int(r.Right) && y >= int(r.Top) && y < int(r.Bottom) {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 func captureMonitorsStitched(originX, originY, vw, vh int) ([]byte, error) {

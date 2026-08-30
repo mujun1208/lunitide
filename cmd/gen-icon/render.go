@@ -18,7 +18,7 @@ func renderMoonMark(size int) *image.RGBA {
 	r := float64(size) * 0.22
 	drawMoon(dst, cx, cy, r)
 	cloudY := float64(size) * 0.78
-	drawCloudLine(dst, float64(size)*0.18, float64(size)*0.82, cloudY, float64(size)*0.012)
+	drawCloudLine(dst, float64(size)*0.22, float64(size)*0.78, cloudY, float64(size)*0.007)
 	return dst
 }
 
@@ -92,8 +92,8 @@ func drawCloudLine(dst *image.RGBA, x0, x1, yMid, thickness float64) {
 				continue
 			}
 			cover := 1 - d/(thickness*2.2)
-			a := 168 * cover * cover * endFade
-			blend(dst, x, y, 198, 218, 242, a)
+			a := 96 * cover * cover * endFade
+			blend(dst, x, y, 232, 240, 250, a)
 		}
 	}
 }

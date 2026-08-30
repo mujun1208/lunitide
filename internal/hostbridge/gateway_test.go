@@ -77,8 +77,23 @@ func TestGatewayRejectsIncompleteEnvelopeBeforeRPC(t *testing.T) {
 	if !handled || response.OK || response.Error == nil || response.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("unexpected response: %#v", response)
 	}
+	if strings.Contains(response.Error.Message, "请求协议无效") {
+		t.Fatalf("envelope copy still uses protocol jargon: %q", response.Error.Message)
+	}
 	if caller.calls != 0 {
 		t.Fatal("incomplete envelope reached RPC")
+	}
+}
+
+func TestEnvelopeErrorMessageIsHuman(t *testing.T) {
+	if got := envelopeErrorMessage(errInvalidDeadline); got != "请求超时参数无效" {
+		t.Fatalf("deadline = %q", got)
+	}
+	if got := envelopeErrorMessage(errInvalidSentAt); !strings.Contains(got, "时间") {
+		t.Fatalf("clock = %q", got)
+	}
+	if strings.Contains(envelopeErrorMessage(errors.New("nope")), "请求协议无效") {
+		t.Fatal("fallback must not say 请求协议无效")
 	}
 }
 
@@ -225,6 +240,27 @@ func TestGatewayAcceptsLongMeetingDeadline(t *testing.T) {
 	denied, handledHealth := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: healthRaw})
 	if !handledHealth || denied.OK || denied.Error == nil || denied.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("health must keep the 30s cap: %+v", denied)
+	}
+	if denied.Error.Message != "请求超时参数无效" {
+		t.Fatalf("deadline mismatch message = %q", denied.Error.Message)
+	}
+}
+
+func TestGatewayAcceptsPeopleScreenCaptureDeadline(t *testing.T) {
+	caller := &callerStub{}
+	gateway, _ := New("https://app.lunitide.local", caller)
+	request := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "people.screen.capture", SentAt: time.Now().UTC(),
+		Payload: json.RawMessage(`{"region":true}`), DeadlineMS: bridge.PeopleCaptureDeadlineMS,
+	}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: raw})
+	if !handled || !response.OK || caller.calls != 1 {
+		t.Fatalf("people screen capture deadline rejected: handled=%v resp=%#v calls=%d", handled, response, caller.calls)
 	}
 }
 

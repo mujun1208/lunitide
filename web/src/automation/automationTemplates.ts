@@ -24,7 +24,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     description: '从本机软件读数，写入表格或文档，可选推送到飞书/企微。',
     cron: '30 17 * * 1-5',
     prompt:
-      '在这台 PC 上打通软件数据，不要远程控制：\n1. cc.window_list 找到源应用，cc.window_focus 后再 cc.observe_ui\n2. 读数优先 cc.set_value 的目标框或 cc.clipboard，不要截图盲点\n3. 用 excel.gen 或 docx.gen 写入工作区；需要 JSON 时 structured.output\n4. 若任务配置了出站 webhook，在摘要末尾说明即可（引擎会推送）\n禁止 UAC、打开/保存对话框、局域网。',
+      '在这台 PC 上打通软件数据，不要远程控制：\n1. cc.window_list 找到源应用，cc.window_focus 后再 cc.observe_ui\n2. 读数优先 cc.set_value 的目标框或 cc.clipboard，不要截图盲点\n3. 用 excel.gen 或 docx.gen 写入工作区；需要 JSON 时 structured.output\n4. 若任务配置了出站 webhook，在摘要末尾说明即可（引擎会推送）\n禁止 UAC 与局域网。遇到打开/保存文件对话框请用户去点，不要代点。',
   },
   {
     id: 'multi-step-orchestration',

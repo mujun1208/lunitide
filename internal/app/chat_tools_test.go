@@ -271,47 +271,57 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 			t.Fatal("subagents must not receive html.gen, desktop.open, or media generation tools")
 		}
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "html.gen") || strings.Contains(bundledWorkflowInjection(), "桌面 HTML 小游戏：workspace.write") {
+	wf := bundledWorkflowInjection("调研改代码审查浏览网页跨应用编排 git 做PPT报告小说 小游戏 打开桌面文件 填写证件号码 播放音乐 发飞书 截图点按钮对话框")
+	if !strings.Contains(wf, "html.gen") || strings.Contains(wf, "桌面 HTML 小游戏：workspace.write") {
 		t.Fatal("desktop game workflow must route through html.gen")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "media.play") {
+	if !strings.Contains(wf, "media.play") {
 		t.Fatal("media.play workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "desktop.open") || !strings.Contains(bundledWorkflowInjection(), "闭环") {
+	if !strings.Contains(wf, "desktop.open") || !strings.Contains(wf, "闭环") {
 		t.Fatal("desktop open and closed-loop workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "desktop.type") || !strings.Contains(bundledWorkflowInjection(), "证件号码") {
+	if !strings.Contains(wf, "desktop.type") || !strings.Contains(wf, "证件号码") {
 		t.Fatal("desktop type-after-label workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "cc.observe_dialog") || !strings.Contains(bundledWorkflowInjection(), "cc.confirm_dialog") {
+	if !strings.Contains(wf, "cc.observe_dialog") || !strings.Contains(wf, "cc.confirm_dialog") {
 		t.Fatal("dialog confirm workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "cc.observe_ui") || !strings.Contains(bundledWorkflowInjection(), "cc.window_focus") || !strings.Contains(bundledWorkflowInjection(), "cc.mouse_drag") {
+	if !strings.Contains(wf, "cc.observe_ui") || !strings.Contains(wf, "cc.window_focus") || !strings.Contains(wf, "cc.mouse_drag") {
 		t.Fatal("OpenClaw-parity cc workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "输入前先") {
+	if !strings.Contains(wf, "输入前先") {
 		t.Fatal("window focus-before-type workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "cc.window_action") || !strings.Contains(bundledWorkflowInjection(), "cc.app_quit") || !strings.Contains(bundledWorkflowInjection(), "cc.paste") {
+	if !strings.Contains(wf, "cc.window_action") || !strings.Contains(wf, "cc.app_quit") || !strings.Contains(wf, "cc.paste") {
 		t.Fatal("desktop-ops cc workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "cc.screen_capture") {
+	if !strings.Contains(wf, "cc.screen_capture") {
 		t.Fatal("whole-desktop capture workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "structured.output") {
+	if !strings.Contains(wf, "structured.output") {
 		t.Fatal("structured.output workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "操作前先 snapshot") {
+	if !strings.Contains(wf, "操作前先 snapshot") {
 		t.Fatal("browser snapshot-before-act workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "跨应用") || !strings.Contains(bundledWorkflowInjection(), "browser-automation") {
+	if !strings.Contains(wf, "跨应用") || !strings.Contains(wf, "browser-automation") {
 		t.Fatal("OpenClaw cross-app / browser-automation workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "编排") {
+	if !strings.Contains(wf, "编排") {
 		t.Fatal("orchestration workflow missing")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "该图像素") {
+	if !strings.Contains(wf, "该图像素") {
 		t.Fatal("capture workflow must require image-pixel mouse coords")
+	}
+	if !strings.Contains(wf, "computer.act") || !strings.Contains(wf, "frameId") {
+		t.Fatal("desktop workflow must mention computer.act and frameId")
+	}
+	if !strings.Contains(wf, "screenIndex") || !strings.Contains(wf, "STALE_FRAME") {
+		t.Fatal("desktop workflow must bind screenIndex and fail closed on display change")
+	}
+	if !strings.Contains(wf, "请你点") && !strings.Contains(wf, "请用户去点") {
+		t.Fatal("desktop workflow must hand file dialogs to the user")
 	}
 	if !strings.Contains(chatRichMarkdownInstruction(), "mermaid") || !strings.Contains(chatRichMarkdownInstruction(), "powershell") {
 		t.Fatal("rich markdown instruction missing")
@@ -322,13 +332,13 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(chatRichMarkdownInstruction(), `A["封面<br/>副标题"]`) || !strings.Contains(chatRichMarkdownInstruction(), "禁止裸写") {
 		t.Fatal("mermaid instruction must require quoted labels with <br/>")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "desktop=true") || !strings.Contains(bundledWorkflowInjection(), "半年财报.xlsx") {
+	if !strings.Contains(wf, "desktop=true") || !strings.Contains(wf, "半年财报.xlsx") {
 		t.Fatal("office desktop workflow must use *.gen desktop=true")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "九步流水线") || !strings.Contains(bundledWorkflowInjection(), "web.search") {
+	if !strings.Contains(wf, "九步流水线") || !strings.Contains(wf, "web.search") {
 		t.Fatal("PPT workflow must require the staged research pipeline")
 	}
-	if !strings.Contains(bundledWorkflowInjection(), "报告必须走流水线") || !strings.Contains(bundledWorkflowInjection(), "小说必须走流水线") {
+	if !strings.Contains(wf, "报告必须走流水线") || !strings.Contains(wf, "小说必须走流水线") {
 		t.Fatal("report/novel docx pipelines missing from document workflow")
 	}
 	for _, d := range engineToolDefinitions() {
@@ -452,12 +462,14 @@ func TestMcpToolDefinitionsSwitchToSearchWhenCatalogIsLarge(t *testing.T) {
 	}
 }
 
-func TestAppendCaptureVisionKeepsLastTwo(t *testing.T) {
+func TestAppendCaptureVisionKeepsLastFour(t *testing.T) {
 	var images []gateway.Image
 	images = appendCaptureVision(images, "image/png", []byte("one"))
 	images = appendCaptureVision(images, "image/jpeg", []byte("two"))
 	images = appendCaptureVision(images, "image/png", []byte("three"))
-	if len(images) != 2 || string(images[0].Data) != "two" || string(images[1].Data) != "three" {
+	images = appendCaptureVision(images, "image/png", []byte("four"))
+	images = appendCaptureVision(images, "image/png", []byte("five"))
+	if len(images) != 4 || string(images[0].Data) != "two" || string(images[3].Data) != "five" {
 		t.Fatalf("images=%#v", images)
 	}
 }

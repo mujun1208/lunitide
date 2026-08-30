@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/people.file.open.schema.json",
+  "title": "people.file.open payload",
+  "x-method": "people.file.open",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "destPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*$"
+    }
+  },
+  "required": ["destPath"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "opened": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "required": ["opened"]
+  },
+  "x-examples": {
+    "positive": [{ "destPath": "C:/Users/mu/AppData/Roaming/lunitide/people-inbox/file.txt" }],
+    "negative": [{}, { "destPath": "../secret" }]
+  }
+}

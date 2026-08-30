@@ -130,7 +130,7 @@ func TestCcNewToolsRouteThroughExecutor(t *testing.T) {
 		seen[tool] = true
 		return ccapp.Outcome{Tool: tool, Summary: tool + " ok"}, nil
 	})
-	for _, tool := range []string{"cc.mouse_drag", "cc.window_list", "cc.window_focus", "cc.observe_ui", "cc.wait", "cc.clipboard", "cc.window_action", "cc.app_list", "cc.app_quit", "cc.paste", "cc.press", "cc.menu_click", "cc.set_value"} {
+	for _, tool := range []string{"cc.mouse_drag", "cc.window_list", "cc.window_focus", "cc.observe_ui", "cc.wait", "cc.clipboard", "cc.window_action", "cc.app_list", "cc.app_quit", "cc.paste", "cc.press", "cc.menu_click", "cc.set_value", "computer.act"} {
 		args := json.RawMessage(`{}`)
 		switch tool {
 		case "cc.mouse_drag":
@@ -153,12 +153,14 @@ func TestCcNewToolsRouteThroughExecutor(t *testing.T) {
 			args = json.RawMessage(`{"path":"File > Save"}`)
 		case "cc.set_value":
 			args = json.RawMessage(`{"target":"Name","value":"Ada"}`)
+		case "computer.act":
+			args = json.RawMessage(`{"action":"list"}`)
 		}
 		if _, err := r.Execute(context.Background(), FullAccess, "s01", tool, args, true); err != nil {
 			t.Fatalf("%s: %v", tool, err)
 		}
 	}
-	if len(seen) != 13 {
+	if len(seen) != 14 {
 		t.Fatalf("routed %v", seen)
 	}
 }

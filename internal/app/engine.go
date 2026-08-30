@@ -84,6 +84,9 @@ type MessageService interface {
 type messageRewindService interface {
 	Rewind(context.Context, string, string, string, string) (messageapp.RewindResult, error)
 }
+type messageSearchService interface {
+	Search(context.Context, messageapp.SearchRequest) (messageapp.SearchResult, error)
+}
 type StageService interface {
 	Create(context.Context, string, string, any, stage.Stage) (stage.Stage, error)
 	Update(context.Context, string, string, any, stageapp.UpdateInput) (stage.Stage, error)
@@ -349,6 +352,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodCcEmergencyStop:               handleCcEmergencyStop,
 	bridge.MethodImChannelsGet:                 handleImChannelsGet,
 	bridge.MethodImChannelsSet:                 handleImChannelsSet,
+	bridge.MethodImInboundDeliver:              handleImInboundDeliver,
 	bridge.MethodWorkspaceConvert:              handleWorkspaceConvert,
 	bridge.MethodExtensionSearch:               handleExtensionSearch,
 	bridge.MethodExtensionInstall:              handleExtensionInstall,
@@ -440,6 +444,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodMessageAppend:                 handleMessageAppend,
 	bridge.MethodMessageList:                   handleMessageList,
 	bridge.MethodMessageRewind:                 handleMessageRewind,
+	bridge.MethodMessageSearch:                 handleMessageSearch,
 	bridge.MethodStageCreate:                   handleStageCreate,
 	bridge.MethodStageList:                     handleStageList,
 	bridge.MethodStageUpdate:                   handleStageUpdate,
@@ -636,6 +641,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodPeopleThreadTyping:            handlePeopleThreadTyping,
 	bridge.MethodPeopleGroupCreate:             handlePeopleGroupCreate,
 	bridge.MethodPeopleFileDecide:              handlePeopleFileDecide,
+	bridge.MethodPeopleFileOpen:                handlePeopleFileOpen,
 	bridge.MethodPeopleFileStage:               handlePeopleFileStage,
 	bridge.MethodPeopleFilePick:                handlePeopleFilePick,
 	bridge.MethodPeopleScreenCapture:           handlePeopleScreenCapture,
@@ -1500,8 +1506,14 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 	if _, err := ulid.ParseStrict(request.TraceID); err != nil {
 		return bridge.Failure(request.ID, ulid.Make().String(), "BRIDGE_SCHEMA_INVALID", "追踪标识无效", false)
 	}
-	if request.Version != bridge.Version || request.Kind != "request" || len(request.IdempotencyKey) > 128 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求协议无效", false)
+	if request.Version != bridge.Version {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "应用与引擎版本不一致，请重启月汐", false)
+	}
+	if request.Kind != "request" {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求类型无效，请重试", false)
+	}
+	if len(request.IdempotencyKey) > 128 {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求标识过长，请重试", false)
 	}
 	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) {
 		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求超时参数无效", false)

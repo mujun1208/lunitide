@@ -28,7 +28,7 @@ type CompanionAction = CompanionEvent | { type: 'GUARD_REJECT'; from: CompanionS
 const transitionTable: Record<CompanionState, Partial<Record<CompanionEvent['type'], CompanionState>>> = {
   idle: { MIC_ACTIVATE: 'listening' },
   listening: { MIC_CANCEL: 'idle', RECOGNIZED_FINAL: 'thinking', MIC_ACTIVATE: 'listening' },
-  thinking: { REPLY_COMPLETED: 'speaking', REPLY_TERMINAL: 'idle', INTERRUPT: 'idle' },
+  thinking: { REPLY_COMPLETED: 'speaking', REPLY_TERMINAL: 'idle', INTERRUPT: 'idle', MIC_CLICK_WHILE_SPEAKING: 'listening' },
   // Her turn ends by the 打断 button (INTERRUPT / MIC_CLICK_WHILE_SPEAKING) or
   // by her finishing (PLAYBACK_ENDED). There is deliberately no event here for
   // the microphone: what it hears mid-reply is her own voice more often than

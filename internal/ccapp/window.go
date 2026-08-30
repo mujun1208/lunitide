@@ -21,7 +21,7 @@ type WindowInfo struct {
 // UINode is one actionable accessibility node, with bounds converted into
 // the latest screenshot's image pixel space (same coordinates as
 // cc.mouse_click). Huge trees are never dumped: the host already filtered
-// to named controls with a hard cap.
+// to actionable controls with a hard cap. Unnamed nodes keep a role label.
 type UINode struct {
 	ID   string `json:"id"`
 	Role string `json:"role"`

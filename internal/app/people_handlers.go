@@ -279,6 +279,23 @@ func handlePeopleFileDecide(e *Engine, ctx context.Context, r bridge.Request) br
 	return bridge.Success(r.ID, publicOffer(offer))
 }
 
+func handlePeopleFileOpen(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		DestPath string `json:"destPath"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.file.open 参数无效", false)
+	}
+	if e.people == nil {
+		return peopleUnavailable(r)
+	}
+	opened, err := e.people.OpenFile(p.DestPath)
+	if err != nil {
+		return peopleFailure(r, err)
+	}
+	return bridge.Success(r.ID, map[string]any{"opened": opened})
+}
+
 func handlePeoplePeerAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		HostAddr string `json:"hostAddr"`
@@ -444,6 +461,8 @@ func peopleFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CANCELED", "已取消选择", false)
 	case errors.Is(err, people.ErrUnsupported):
 		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_PICKER_UNSUPPORTED", "当前系统没有可用的原生文件选择器，请改用拖入或发送文件", false)
+	case errors.Is(err, people.ErrOpenFailed):
+		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_OPEN_FAILED", "无法打开该文件", false)
 	case errors.Is(err, identity.ErrUnavailable), errors.Is(err, people.ErrUnavailable):
 		return peopleUnavailable(r)
 	default:

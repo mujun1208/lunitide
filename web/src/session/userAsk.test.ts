@@ -1,6 +1,9 @@
 import {describe, expect, it} from 'vitest'
 import {
+  FILE_PICKER_ASK,
+  filePickerHandoffKey,
   formatUserAskFollowUp,
+  looksLikeFilePickerHandoff,
   parseUserAskSummary,
   USER_ASK_OTHER_ID,
   userAskActivitySummary,
@@ -62,5 +65,13 @@ describe('user.ask pack', () => {
   it('hides wizard JSON from the activity line', () => {
     expect(userAskActivitySummary(JSON.stringify(sample))).toBe('需求边界')
     expect(userAskActivitySummary('approval required')).toBe('需要你决策')
+  })
+
+  it('detects file-picker handoff and parks as a decision pack', () => {
+    expect(looksLikeFilePickerHandoff('{"needs_user":"x","handoff":"file_dialog"}')).toBe(true)
+    expect(looksLikeFilePickerHandoff('needs_user: 请你点「保存」「打开」或「取消」，我不能代你选文件')).toBe(true)
+    expect(looksLikeFilePickerHandoff('captured desktop 1920x1080')).toBe(false)
+    expect(FILE_PICKER_ASK.questions[0].options.length).toBeGreaterThanOrEqual(2)
+    expect(filePickerHandoffKey([{callId: 'a', summary: 'captured'}, {callId: 'b', summary: 'needs_user file_dialog'}])).toBe('b')
   })
 })

@@ -422,6 +422,11 @@ export function PeoplePage({
                             <button type="button" onClick={() => void decide(item.offerId!, false)}>拒绝</button>
                           </div>
                         )}
+                        {item.destPath && (item.offerStatus === 'accepted' || mine) && (
+                          <div className="people-file-actions">
+                            <button type="button" onClick={() => void people.fileOpen({ destPath: item.destPath! }).catch(err => showNotice(err instanceof Error ? err.message : '无法打开文件', true))}>打开</button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </article>

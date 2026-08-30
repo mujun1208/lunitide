@@ -114,6 +114,8 @@ const (
 	CcMaxTextRunes = 4096
 	// CcMaxShortcutKeys bounds keyboard_shortcut combos.
 	CcMaxShortcutKeys = 4
+	// CcMaxClickModifiers bounds ctrl/shift/alt/win held around a click.
+	CcMaxClickModifiers = 3
 	// CcMaxClipboardRunes bounds clipboard get/set text.
 	CcMaxClipboardRunes = 8192
 	// CcMaxListedWindows bounds cc.window_list.
@@ -122,6 +124,16 @@ const (
 	CcMaxObserveDialogs = 16
 	// CcMaxDialogNodes bounds clickable nodes on one observed dialog.
 	CcMaxDialogNodes = 24
+	// CcMaxObserveUINodes is the hard cap for cc.observe_ui (default 80).
+	CcMaxObserveUINodes = 120
+	// CcDefaultObserveUINodes is used when maxNodes is omitted.
+	CcDefaultObserveUINodes = 80
+	// CcDefaultMaxActionsPerMinute is the seeded rate cap. 30 was too
+	// tight for see→act→verify (screenshot + click + verify).
+	CcDefaultMaxActionsPerMinute = 60
+	// CcLegacyDefaultMaxActionsPerMinute is the pre-alignment seed.
+	// Companion bumps existing rows that are still sitting on it.
+	CcLegacyDefaultMaxActionsPerMinute = 30
 	// CcMaxBlocklistEntries / CcMaxBlocklistEntryLen bound the process
 	// blocklist.
 	CcMaxBlocklistEntries  = 128
@@ -138,6 +150,7 @@ var ccTools = map[string]bool{
 	ToolWait: true, ToolClipboard: true,
 	ToolWindowAction: true, ToolAppList: true, ToolAppQuit: true,
 	ToolPaste: true, ToolPress: true, ToolMenuClick: true, ToolSetValue: true,
+	ToolComputerAct: true,
 }
 
 // IsCcTool reports whether name belongs to the frozen cc tool set.
@@ -276,6 +289,10 @@ type Host interface {
 	MouseDrag(x1, y1, x2, y2 int) error
 	KeyboardType(text string) error
 	KeyboardShortcut(keys []string) error
+	// HoldKey presses (down=true) or releases one portable key without
+	// pairing the other edge. Click modifiers and hold_key use this;
+	// callers must release, and the service auto-releases sticky holds.
+	HoldKey(key string, down bool) error
 	MouseScroll(notches int) error
 	MouseScrollH(notches int) error
 	EnsureForeground() error
@@ -360,11 +377,18 @@ type Service struct {
 	capMu                                sync.Mutex
 	capVisW, capVisH, capDeskW, capDeskH int
 	capOriginX, capOriginY               int
+	capGeom                              DisplayGeometry
 	capHash                              [32]byte
+	capFrameID                           string
 	obsHits                              map[string]uiHit
 	lastMu                               sync.Mutex
 	lastTitle, lastProc                  string
+	holdMu                               sync.Mutex
+	heldKeys                             []string
+	holdTimer                            *time.Timer
 }
+
+const holdKeyAutoRelease = 8 * time.Second
 
 // New returns a Service over the given unit of work with the platform
 // host (unavailable on non-Windows builds).
@@ -378,8 +402,9 @@ func (s *Service) SetClock(c Clock) { s.clock = c }
 // SetHost substitutes the control host (tests).
 func (s *Service) SetHost(h Host) { s.host = h }
 
-func (s *Service) rememberCapture(png []byte, originX, originY int) {
+func (s *Service) rememberCapture(png []byte, originX, originY int, wide bool) {
 	imgW, imgH, visW, visH := visionDimensions(png)
+	geom := geometryForCapture(s.host, originX, originY, imgW, imgH, wide)
 	s.capMu.Lock()
 	deskW, deskH := imgW, imgH
 	if originX == s.capOriginX && originY == s.capOriginY &&
@@ -393,8 +418,10 @@ func (s *Service) rememberCapture(png []byte, originX, originY int) {
 	}
 	s.capDeskW, s.capDeskH, s.capVisW, s.capVisH = deskW, deskH, visW, visH
 	s.capOriginX, s.capOriginY = originX, originY
+	s.capGeom = geom
 	if len(png) > 0 {
 		s.capHash = sha256.Sum256(png)
+		s.capFrameID = FrameIDFromCapture(s.capHash, geom)
 	}
 	s.capMu.Unlock()
 }
@@ -444,7 +471,7 @@ func (s *Service) captureDesktop() ([]byte, error) {
 		return nil, err
 	}
 	ox, oy := s.host.ScreenOrigin()
-	s.rememberCapture(png, ox, oy)
+	s.rememberCapture(png, ox, oy, true)
 	return png, nil
 }
 
@@ -474,7 +501,9 @@ func (s *Service) CaptureRegionPNG() ([]byte, error) {
 
 // verifyAfter takes a fresh desktop screenshot so the model can see the
 // result of an input action (OpenClaw observe→act→verify). Unchanged pixels
-// stay out of the vision payload.
+// still attach the current frame and keep the same frameId — the previous
+// screenshot remains valid; do not drop the image or the model will click
+// the pre-action frame.
 func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	png, err := s.host.ScreenCapture()
 	if err != nil {
@@ -484,17 +513,19 @@ func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	s.capMu.Lock()
 	prev := s.capHash
 	s.capMu.Unlock()
-	if prev != [32]byte{} && prev == sum {
-		return summary + "; screen unchanged since previous frame", nil, nil
-	}
+	unchanged := prev != [32]byte{} && prev == sum
 	ox, oy := s.host.ScreenOrigin()
-	s.rememberCapture(png, ox, oy)
+	s.rememberCapture(png, ox, oy, true)
+	id := s.CurrentFrameID()
 	deskW, deskH, visW, visH := visionDimensions(png)
 	if deskW == 0 {
 		deskW, deskH = s.host.ScreenSize()
 		visW, visH = deskW, deskH
 	}
-	return fmt.Sprintf("%s; screen updated %dx%d (use image %dx%d)", summary, deskW, deskH, visW, visH), png, nil
+	if unchanged {
+		return appendFrameID(fmt.Sprintf("%s; screen unchanged since previous frame (still current; use this image, not the pre-action frame)", summary), id), png, nil
+	}
+	return appendFrameID(fmt.Sprintf("%s; screen updated %dx%d (use image %dx%d)", summary, deskW, deskH, visW, visH), id), png, nil
 }
 
 type systemClock struct{}
@@ -527,7 +558,7 @@ func defaultSettings(now string) Settings {
 		SecurityLevel:        LevelStandard,
 		AllowCritical:        false,
 		ProcessBlocklist:     append([]string(nil), DefaultProcessBlocklist...),
-		MaxActionsPerMinute:  30,
+		MaxActionsPerMinute:  CcDefaultMaxActionsPerMinute,
 		ConfirmTimeoutSecond: 60,
 		UpdatedAt:            now,
 	}
@@ -681,6 +712,7 @@ func (s *Service) EmergencyStop(ctx context.Context, actor, reason string) (Sett
 		out = cur
 		return nil
 	})
+	s.releaseHeldKeys()
 	return out, err
 }
 
@@ -689,6 +721,106 @@ func clampReason(reason string) string {
 		reason = reason[:512]
 	}
 	return reason
+}
+
+func isHoldModifier(key string) bool {
+	return key == "ctrl" || key == "shift" || key == "alt" || key == "win"
+}
+
+func normalizeModifiers(mods []string) ([]string, error) {
+	if len(mods) == 0 {
+		return nil, nil
+	}
+	if len(mods) > CcMaxClickModifiers {
+		return nil, fmt.Errorf("%w: modifiers", ErrCcInputFiltered)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(mods))
+	for _, raw := range mods {
+		key := strings.ToLower(strings.TrimSpace(raw))
+		if key == "control" {
+			key = "ctrl"
+		}
+		if !isHoldModifier(key) {
+			return nil, fmt.Errorf("%w: modifier %q", ErrCcInputFiltered, raw)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out, nil
+}
+
+func (s *Service) withModifiers(mods []string, fn func() error) error {
+	var held []string
+	defer func() {
+		for i := len(held) - 1; i >= 0; i-- {
+			_ = s.host.HoldKey(held[i], false)
+		}
+	}()
+	for _, m := range mods {
+		if err := s.host.HoldKey(m, true); err != nil {
+			return err
+		}
+		held = append(held, m)
+	}
+	return fn()
+}
+
+func (s *Service) noteHeld(key string) {
+	s.holdMu.Lock()
+	defer s.holdMu.Unlock()
+	for _, k := range s.heldKeys {
+		if k == key {
+			s.armHoldReleaseLocked()
+			return
+		}
+	}
+	s.heldKeys = append(s.heldKeys, key)
+	s.armHoldReleaseLocked()
+}
+
+func (s *Service) clearHeld(key string) {
+	s.holdMu.Lock()
+	defer s.holdMu.Unlock()
+	kept := s.heldKeys[:0]
+	for _, k := range s.heldKeys {
+		if k != key {
+			kept = append(kept, k)
+		}
+	}
+	s.heldKeys = kept
+	if len(s.heldKeys) == 0 && s.holdTimer != nil {
+		s.holdTimer.Stop()
+		s.holdTimer = nil
+	}
+}
+
+func (s *Service) armHoldReleaseLocked() {
+	if s.holdTimer != nil {
+		s.holdTimer.Stop()
+	}
+	s.holdTimer = time.AfterFunc(holdKeyAutoRelease, s.releaseHeldKeys)
+}
+
+func (s *Service) releaseHeldKeys() {
+	s.holdMu.Lock()
+	keys := append([]string(nil), s.heldKeys...)
+	s.heldKeys = nil
+	if s.holdTimer != nil {
+		s.holdTimer.Stop()
+		s.holdTimer = nil
+	}
+	host := s.host
+	s.holdMu.Unlock()
+	if host == nil {
+		return
+	}
+	for i := len(keys) - 1; i >= 0; i-- {
+		_ = host.HoldKey(keys[i], false)
+	}
 }
 
 // ── tool execution pipeline ─────────────────────────────────────────────────
@@ -804,86 +936,104 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	now := s.clock.Now().UTC()
 	ts := now.Format(time.RFC3339)
 
+	// Expand computer.act onto a cc.* name for risk/input/host. The
+	// ledger records the inbound tool name (computer.act stays
+	// computer.act; inner cc.* is in detail.mapped).
+	execTool, execArgs := tool, args
+	if tool == ToolComputerAct {
+		mappedTool, mappedArgs, mapErr := MapComputerAct(args)
+		if mapErr != nil {
+			return Outcome{}, mapErr
+		}
+		execTool, execArgs = mappedTool, mappedArgs
+	}
+	auditTool := tool
+
 	// Gate 0: enabled / emergency latch.
 	if !settings.Enabled {
-		s.recordAudit(ctx, session, tool, classifyRisk(tool, nil), StatusDenied, "", map[string]any{"reason": "disabled"}, ts)
+		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusDenied, "", map[string]any{"reason": "disabled"}, ts)
 		return Outcome{}, ErrCcDisabled
 	}
 	if emergency {
-		s.recordAudit(ctx, session, tool, classifyRisk(tool, nil), StatusStopped, "", map[string]any{"reason": "emergency-stop"}, ts)
+		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusStopped, "", map[string]any{"reason": "emergency-stop"}, ts)
 		return Outcome{}, ErrCcEmergency
 	}
 	// Rate limit: every attempted action consumes one slot.
 	if !s.limit.allow(now, settings.MaxActionsPerMinute) {
-		s.recordAudit(ctx, session, tool, classifyRisk(tool, nil), StatusDenied, "", map[string]any{"reason": "rate-limited", "cap": settings.MaxActionsPerMinute}, ts)
+		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusDenied, "", map[string]any{"reason": "rate-limited", "cap": settings.MaxActionsPerMinute}, ts)
 		return Outcome{}, ErrCcRateLimited
 	}
 	if s.host == nil || !s.host.Available() {
-		s.recordAudit(ctx, session, tool, RiskMedium, StatusFailed, "", map[string]any{"reason": "engine-unavailable"}, ts)
+		s.recordAudit(ctx, session, auditTool, RiskMedium, StatusFailed, "", map[string]any{"reason": "engine-unavailable"}, ts)
 		return Outcome{}, ErrCcEngineUnavailable
 	}
 
 	// Layer 2: input filtering (also parses the tool arguments).
-	shortcut, err := s.filterInput(tool, args)
+	shortcut, err := s.filterInput(execTool, execArgs)
 	if err != nil {
-		s.recordAudit(ctx, session, tool, classifyRisk(tool, nil), StatusBlocked, LayerInput, map[string]any{"reason": err.Error()}, ts)
+		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusBlocked, LayerInput, map[string]any{"reason": err.Error()}, ts)
 		return Outcome{}, err
 	}
 
 	// Layer 1: intent / risk classification and the confirmation gate.
-	risk := classifyRisk(tool, shortcut)
+	risk := classifyRisk(execTool, shortcut)
 	switch risk {
 	case RiskCritical:
 		if !settings.AllowCritical {
-			s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "critical not allowed"}, ts)
+			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "critical not allowed"}, ts)
 			return Outcome{}, ErrCcRiskBlocked
 		}
 		if !approved {
-			s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts)
+			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts)
 			return Outcome{}, ErrCcConfirmRequired
 		}
 	case RiskHigh:
 		if settings.SecurityLevel == LevelStrict {
-			s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "strict level"}, ts)
+			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "strict level"}, ts)
 			return Outcome{}, ErrCcRiskBlocked
 		}
 		if !approved {
-			s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts)
+			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts)
 			return Outcome{}, ErrCcConfirmRequired
 		}
 	}
 
 	// Layer 3: foreground-process monitoring, plus target-process checks
 	// for window close / app quit (the victim may not be in the foreground).
-	if screenAffecting(tool) {
+	if screenAffecting(execTool) {
 		title, process, err := s.host.ActiveWindow()
 		if err == nil {
 			s.noteForeground(title, process)
 			if blocklistHit(settings.ProcessBlocklist, process) {
-				s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerProcess, map[string]any{"process": process}, ts)
+				s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"process": process}, ts)
 				return Outcome{}, ErrCcProcessBlocked
 			}
 		}
 	}
-	if err := s.rejectTargetProcess(settings, tool, args); err != nil {
-		s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerProcess, map[string]any{"reason": err.Error()}, ts)
+	if err := s.rejectTargetProcess(settings, execTool, execArgs); err != nil {
+		s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"reason": err.Error()}, ts)
 		return Outcome{}, err
 	}
 
-	summary, capture, execErr := s.runHost(tool, args, shortcut)
+	summary, capture, execErr := s.runHost(execTool, execArgs, shortcut)
 	if execErr != nil {
 		if errors.Is(execErr, ErrCcRiskBlocked) {
-			s.recordAudit(ctx, session, tool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": execErr.Error()}, ts)
+			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": execErr.Error()}, ts)
 			return Outcome{}, execErr
 		}
-		s.recordAudit(ctx, session, tool, risk, StatusFailed, "", map[string]any{"reason": execErr.Error()}, ts)
+		s.recordAudit(ctx, session, auditTool, risk, StatusFailed, "", map[string]any{"reason": execErr.Error()}, ts)
 		return Outcome{}, fmt.Errorf("%w: %v", ErrCcExecFailed, execErr)
 	}
 	action := "cc.operation.executed"
 	if approved && (risk == RiskHigh || risk == RiskCritical) {
 		action = "cc.operation.confirmed"
 	}
-	s.writeAudit(ctx, session, tool, risk, StatusExecuted, "", action, map[string]any{"summary": clampReason(summary)}, ts)
+	detail := map[string]any{"summary": clampReason(summary)}
+	if tool == ToolComputerAct {
+		detail["via"] = ToolComputerAct
+		detail["mapped"] = execTool
+	}
+	s.writeAudit(ctx, session, auditTool, risk, StatusExecuted, "", action, detail, ts)
 	out := Outcome{Tool: tool, Summary: summary, CapturePNG: capture}
 	return out, nil
 }
@@ -895,8 +1045,9 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 	switch tool {
 	case ToolMouseMove:
 		var a struct {
-			X int `json:"x"`
-			Y int `json:"y"`
+			X       int    `json:"x"`
+			Y       int    `json:"y"`
+			FrameID string `json:"frameId"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
@@ -907,17 +1058,22 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		if err := s.rejectOutOfBounds(a.X, a.Y); err != nil {
 			return nil, err
 		}
+		if err := s.requireFrameID(a.FrameID); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	case ToolMouseClick:
 		var a struct {
-			Button     string `json:"button"`
-			Clicks     int    `json:"clicks"`
-			X          *int   `json:"x"`
-			Y          *int   `json:"y"`
-			Scroll     int    `json:"scroll"`
-			ScrollAxis string `json:"scrollAxis"`
-			Name       string `json:"name"`
-			ID         string `json:"id"`
+			Button     string   `json:"button"`
+			Clicks     int      `json:"clicks"`
+			X          *int     `json:"x"`
+			Y          *int     `json:"y"`
+			Scroll     int      `json:"scroll"`
+			ScrollAxis string   `json:"scrollAxis"`
+			Name       string   `json:"name"`
+			ID         string   `json:"id"`
+			FrameID    string   `json:"frameId"`
+			Modifiers  []string `json:"modifiers"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
@@ -960,13 +1116,22 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 				return nil, err
 			}
 		}
+		if a.X != nil || strings.TrimSpace(a.ID) != "" {
+			if err := s.requireFrameID(a.FrameID); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := normalizeModifiers(a.Modifiers); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	case ToolMouseDrag:
 		var a struct {
-			X1 int `json:"x1"`
-			Y1 int `json:"y1"`
-			X2 int `json:"x2"`
-			Y2 int `json:"y2"`
+			X1      int    `json:"x1"`
+			Y1      int    `json:"y1"`
+			X2      int    `json:"x2"`
+			Y2      int    `json:"y2"`
+			FrameID string `json:"frameId"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
@@ -980,6 +1145,9 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 			return nil, err
 		}
 		if err := s.rejectOutOfBounds(a.X2, a.Y2); err != nil {
+			return nil, err
+		}
+		if err := s.requireFrameID(a.FrameID); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -1085,7 +1253,7 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
 		}
-		if a.MaxNodes < 0 || a.MaxNodes > 80 {
+		if a.MaxNodes < 0 || a.MaxNodes > CcMaxObserveUINodes {
 			return nil, fmt.Errorf("%w: maxNodes", ErrCcInputFiltered)
 		}
 		return nil, nil
@@ -1192,6 +1360,7 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 			Key    string `json:"key"`
 			Count  int    `json:"count"`
 			Window string `json:"window"`
+			Hold   string `json:"hold"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
@@ -1200,10 +1369,21 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		if key == "del" {
 			key = "delete"
 		}
-		if !keyVocabulary[key] || key == "ctrl" || key == "shift" || key == "alt" || key == "win" {
+		hold := strings.ToLower(strings.TrimSpace(a.Hold))
+		if hold != "" && hold != "down" && hold != "up" {
+			return nil, fmt.Errorf("%w: hold", ErrCcInputFiltered)
+		}
+		if hold != "" {
+			if !keyVocabulary[key] {
+				return nil, fmt.Errorf("%w: key", ErrCcInputFiltered)
+			}
+		} else if !keyVocabulary[key] || isHoldModifier(key) {
 			return nil, fmt.Errorf("%w: key", ErrCcInputFiltered)
 		}
 		if a.Count < 0 || a.Count > 8 {
+			return nil, fmt.Errorf("%w: count", ErrCcInputFiltered)
+		}
+		if hold != "" && a.Count > 1 {
 			return nil, fmt.Errorf("%w: count", ErrCcInputFiltered)
 		}
 		if utf8.RuneCountInString(a.Window) > 200 {
@@ -1330,6 +1510,13 @@ func (s *Service) focusIfNamed(window string) error {
 		s.noteForeground(info.Title, info.Process)
 		return nil
 	}
+	return s.restoreNonCompanionForeground()
+}
+
+// restoreNonCompanionForeground keeps input on the last user app. If the
+// companion stole focus, re-asserting the current foreground would type
+// into Lunitide itself.
+func (s *Service) restoreNonCompanionForeground() error {
 	title, process, err := s.host.ActiveWindow()
 	if err == nil {
 		s.noteForeground(title, process)
@@ -1366,7 +1553,7 @@ func (s *Service) focusIfNamed(window string) error {
 			}
 		}
 	}
-	return s.host.EnsureForeground()
+	return nil
 }
 
 func (s *Service) captureSpace() (ox, oy, visW, visH, deskW, deskH int, space string) {
@@ -1435,7 +1622,16 @@ func (s *Service) captureSummary(png []byte, kind string) string {
 		deskW, deskH = s.host.ScreenSize()
 		visW, visH = deskW, deskH
 	}
-	return fmt.Sprintf("captured %s %dx%d; use image coordinates %dx%d for cc.mouse_move/cc.mouse_click/cc.mouse_drag", kind, deskW, deskH, visW, visH)
+	id := s.CurrentFrameID()
+	summary := appendFrameID(fmt.Sprintf("captured %s %dx%d; use image coordinates %dx%d for cc.mouse_move/cc.mouse_click/cc.mouse_drag", kind, deskW, deskH, visW, visH), id)
+	n := hostScreenCount(s.host)
+	if n < 1 {
+		n = 1
+	}
+	s.capMu.Lock()
+	idx := s.capGeom.ScreenIndex
+	s.capMu.Unlock()
+	return summary + fmt.Sprintf("; screens=%d; screenIndex=%d", n, idx)
 }
 
 func (s *Service) rememberHits(nodes []UINode) {
@@ -1494,6 +1690,28 @@ func (s *Service) sensitiveForeground(buttons []string) string {
 		return ""
 	}
 	return SensitiveSurfaceReason(title, process, "", buttons)
+}
+
+func (s *Service) observeHideReason(buttons []string) string {
+	if s.host == nil {
+		return ""
+	}
+	title, process, err := s.host.ActiveWindow()
+	if err != nil {
+		return ""
+	}
+	return SensitiveObserveHide(title, process, "", buttons)
+}
+
+func (s *Service) filePickerHandoff(buttons []string) string {
+	if s.host == nil {
+		return ""
+	}
+	title, process, err := s.host.ActiveWindow()
+	if err != nil {
+		return ""
+	}
+	return FilePickerHandoff(title, process, "", buttons)
 }
 
 func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy int, hit string, err error) {
@@ -1585,14 +1803,15 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		return fmt.Sprintf("moved cursor to screen (%d,%d)", sx, sy), nil, nil
 	case ToolMouseClick:
 		var a struct {
-			Button     string `json:"button"`
-			Clicks     int    `json:"clicks"`
-			X          *int   `json:"x"`
-			Y          *int   `json:"y"`
-			Scroll     int    `json:"scroll"`
-			ScrollAxis string `json:"scrollAxis"`
-			Name       string `json:"name"`
-			ID         string `json:"id"`
+			Button     string   `json:"button"`
+			Clicks     int      `json:"clicks"`
+			X          *int     `json:"x"`
+			Y          *int     `json:"y"`
+			Scroll     int      `json:"scroll"`
+			ScrollAxis string   `json:"scrollAxis"`
+			Name       string   `json:"name"`
+			ID         string   `json:"id"`
+			Modifiers  []string `json:"modifiers"`
 		}
 		_ = json.Unmarshal(args, &a)
 		if a.Button == "" {
@@ -1601,6 +1820,8 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if a.Clicks < 1 {
 			a.Clicks = 1
 		}
+		mods, _ := normalizeModifiers(a.Modifiers)
+		click := func() error { return s.host.MouseClick(a.Button, a.Clicks) }
 		if name := strings.TrimSpace(a.Name); name != "" || strings.TrimSpace(a.ID) != "" {
 			query := strings.TrimSpace(a.ID)
 			if query == "" {
@@ -1617,7 +1838,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 				return "", nil, err
 			}
 			time.Sleep(25 * time.Millisecond)
-			if err := s.host.MouseClick(a.Button, a.Clicks); err != nil {
+			if err := s.withModifiers(mods, click); err != nil {
 				return "", nil, err
 			}
 			return s.verifyAfter(fmt.Sprintf("clicked %s %q at screen (%d,%d)", a.Button, hit, sx, sy))
@@ -1645,7 +1866,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			}
 			return s.verifyAfter(fmt.Sprintf("scrolled %s %d notch(es)", axis, a.Scroll))
 		}
-		if err := s.host.MouseClick(a.Button, a.Clicks); err != nil {
+		if err := s.withModifiers(mods, click); err != nil {
 			return "", nil, err
 		}
 		return s.verifyAfter(fmt.Sprintf("clicked %s mouse %d time(s)", a.Button, a.Clicks))
@@ -1715,7 +1936,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err != nil {
 			return "", nil, err
 		}
-		s.rememberCapture(png, ox, oy)
+		s.rememberCapture(png, ox, oy, false)
 		kind := "window"
 		if target == "foreground" {
 			kind = "foreground window"
@@ -1734,7 +1955,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		s.capMu.Unlock()
 		if hasCap {
 			ix, iy := MapScreenToVision(cx, cy, ox, oy, vw, vh, dw, dh)
-			return fmt.Sprintf("active window: %s (process: %s); cursor screen (%d,%d) image (%d,%d)", title, process, cx, cy, ix, iy), nil, nil
+			return appendFrameID(fmt.Sprintf("active window: %s (process: %s); cursor screen (%d,%d) image (%d,%d)", title, process, cx, cy, ix, iy), s.CurrentFrameID()), nil, nil
 		}
 		return fmt.Sprintf("active window: %s (process: %s); cursor screen (%d,%d)", title, process, cx, cy), nil, nil
 	case ToolWindowList:
@@ -1746,7 +1967,11 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			wins = []WindowInfo{}
 		}
 		mapped, space := s.mapWindows(wins)
-		raw, err := json.Marshal(map[string]any{"count": len(mapped), "space": space, "windows": mapped})
+		payload := map[string]any{"count": len(mapped), "space": space, "windows": mapped}
+		if id := s.CurrentFrameID(); id != "" {
+			payload["frameId"] = id
+		}
+		raw, err := json.Marshal(payload)
 		if err != nil {
 			return "", nil, err
 		}
@@ -1780,7 +2005,18 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		mapped := s.mapDialogs(snaps)
 		_, _, _, _, _, _, space := s.captureSpace()
-		raw, err := json.Marshal(map[string]any{"count": len(mapped), "space": space, "dialogs": mapped})
+		payload := map[string]any{"count": len(mapped), "space": space, "dialogs": mapped}
+		if id := s.CurrentFrameID(); id != "" {
+			payload["frameId"] = id
+		}
+		for _, d := range mapped {
+			if msg := FilePickerHandoff(d.Title, d.Process, d.Class, d.Buttons); msg != "" {
+				payload["needs_user"] = msg
+				payload["handoff"] = "file_dialog"
+				break
+			}
+		}
+		raw, err := json.Marshal(payload)
 		if err != nil {
 			return "", nil, err
 		}
@@ -1792,6 +2028,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		_ = json.Unmarshal(args, &a)
 		snap, err := s.host.ConfirmDialog(strings.TrimSpace(a.Button))
 		if err != nil {
+			if errors.Is(err, ErrCcRiskBlocked) && strings.Contains(err.Error(), "file open/save dialog") {
+				return "", nil, fmt.Errorf("%w: %s", err, FilePickerUserPrompt)
+			}
 			return "", nil, err
 		}
 		caption := ConfirmButtonName(snap.Buttons, a.Button)
@@ -1805,14 +2044,14 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		_ = json.Unmarshal(args, &a)
 		if a.MaxNodes <= 0 {
-			a.MaxNodes = 40
+			a.MaxNodes = CcDefaultObserveUINodes
 		}
 		png, err := s.captureDesktop()
 		if err != nil {
 			return "", nil, err
 		}
-		if reason := s.sensitiveForeground(nil); reason != "" {
-			raw, err := json.Marshal(map[string]any{"count": 0, "nodes": []UINode{}, "refused": reason, "space": "image"})
+		if reason := s.observeHideReason(nil); reason != "" {
+			raw, err := json.Marshal(map[string]any{"count": 0, "nodes": []UINode{}, "refused": reason, "space": "image", "frameId": s.CurrentFrameID()})
 			if err != nil {
 				return "", nil, err
 			}
@@ -1825,8 +2064,8 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if len(nodes) > a.MaxNodes {
 			nodes = nodes[:a.MaxNodes]
 		}
-		if reason := s.sensitiveForeground(nodeNames(nodes)); reason != "" {
-			raw, err := json.Marshal(map[string]any{"count": 0, "nodes": []UINode{}, "refused": reason, "space": "image"})
+		if reason := s.observeHideReason(nodeNames(nodes)); reason != "" {
+			raw, err := json.Marshal(map[string]any{"count": 0, "nodes": []UINode{}, "refused": reason, "space": "image", "frameId": s.CurrentFrameID()})
 			if err != nil {
 				return "", nil, err
 			}
@@ -1841,9 +2080,14 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if annotated, aerr := AnnotateCapture(png, mapped, vw, vh); aerr == nil && len(annotated) > 0 {
 			png = annotated
 			ox, oy := s.host.ScreenOrigin()
-			s.rememberCapture(png, ox, oy)
+			s.rememberCapture(png, ox, oy, true)
 		}
-		raw, err := json.Marshal(map[string]any{"count": len(mapped), "space": "image", "nodes": mapped})
+		payload := map[string]any{"count": len(mapped), "space": "image", "nodes": mapped, "frameId": s.CurrentFrameID()}
+		if handoff := s.filePickerHandoff(nodeNames(mapped)); handoff != "" {
+			payload["needs_user"] = handoff
+			payload["handoff"] = "file_dialog"
+		}
+		raw, err := json.Marshal(payload)
 		if err != nil {
 			return "", nil, err
 		}
@@ -1868,7 +2112,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			for {
 				remain := time.Until(deadline)
 				if remain <= 0 {
-					return fmt.Sprintf("waited %dms; screen unchanged", ms), nil, nil
+					ox, oy := s.host.ScreenOrigin()
+					s.rememberCapture(before, ox, oy, true)
+					return appendFrameID(fmt.Sprintf("waited %dms; screen unchanged", ms), s.CurrentFrameID()), before, nil
 				}
 				slice := 200 * time.Millisecond
 				if remain < slice {
@@ -1881,7 +2127,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 				}
 				if sha256.Sum256(cur) != beforeHash {
 					ox, oy := s.host.ScreenOrigin()
-					s.rememberCapture(cur, ox, oy)
+					s.rememberCapture(cur, ox, oy, true)
 					return s.captureSummary(cur, "desktop after wait"), cur, nil
 				}
 			}
@@ -2008,6 +2254,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			Key    string `json:"key"`
 			Count  int    `json:"count"`
 			Window string `json:"window"`
+			Hold   string `json:"hold"`
 		}
 		_ = json.Unmarshal(args, &a)
 		key := strings.ToLower(strings.TrimSpace(a.Key))
@@ -2019,6 +2266,18 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
+		}
+		hold := strings.ToLower(strings.TrimSpace(a.Hold))
+		if hold == "down" || hold == "up" {
+			if err := s.host.HoldKey(key, hold == "down"); err != nil {
+				return "", nil, err
+			}
+			if hold == "down" {
+				s.noteHeld(key)
+				return s.verifyAfter(fmt.Sprintf("holding %s", key))
+			}
+			s.clearHeld(key)
+			return s.verifyAfter(fmt.Sprintf("released %s", key))
 		}
 		for i := 0; i < a.Count; i++ {
 			if err := s.host.KeyboardShortcut([]string{key}); err != nil {

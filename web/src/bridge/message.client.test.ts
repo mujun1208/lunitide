@@ -130,3 +130,12 @@ it('message text accepts exact 2048-rune and 8192-byte flat Unicode boundaries a
   await expect(h.bridge.append({ sessionId: SESSION, text: 'a'.repeat(2049) })).rejects.toMatchObject({ code: 'INVALID_BRIDGE_REQUEST' })
   await expect(h.bridge.append({ sessionId: SESSION, text: '😀'.repeat(2048) + 'a' })).rejects.toMatchObject({ code: 'INVALID_BRIDGE_REQUEST' })
 })
+
+it('message bridge sends message.search and accepts hits', async () => {
+  const h = controlled()
+  const pending = h.bridge.search!({ query: '月汐', projectId: SESSION, limit: 16 })
+  expect(h.sent[0]).toMatchObject({ method: 'message.search', payload: { query: '月汐', projectId: SESSION, limit: 16 } })
+  expect(h.sent[0]).not.toHaveProperty('idempotencyKey')
+  h.reply(h.sent[0], { items: [{ sessionId: SESSION, messageId: MESSAGE, role: 'user', sequence: 1, snippet: '谈到了月汐', sessionTitle: '代码讨论' }] })
+  await expect(pending).resolves.toMatchObject({ items: [{ sessionId: SESSION, snippet: '谈到了月汐' }] })
+})

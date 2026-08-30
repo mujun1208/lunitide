@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	repoGuidanceMaxBytes     = 4096
-	agentsMarkdownMaxBytes   = 2048
+	repoGuidanceMaxBytes     = 12288
+	agentsMarkdownMaxBytes   = 4096
 	repoSkillCatalogMaxItems = 12
 )
 
@@ -32,18 +32,18 @@ func repoGuidanceInjection(root string) string {
 	if root == "" || root == "." {
 		return ""
 	}
-	agentsRoot, skillsRoot := walkRepoGuidanceRoots(root)
+	header := "\n\n[仓库约定] 以下来自工作区文件，叠在月汐身份之上，不替换身份，也不引入外部 Codex/云端线程。近处的 AGENTS.md 覆盖远处的同名约定。\n"
 	var b strings.Builder
-	b.WriteString("\n\n[仓库约定] 以下来自工作区文件，叠在月汐身份之上，不替换身份，也不引入外部 Codex/云端线程。\n")
+	b.WriteString(header)
 	budget := repoGuidanceMaxBytes - b.Len()
-	if body := readBoundedAgentsMarkdown(agentsRoot); body != "" {
-		line := "AGENTS.md：\n" + body + "\n"
-		if len(line) > budget {
-			line = truncateUTF8Bytes(line, budget)
+	if chain := readAgentsMarkdownChain(root); chain != "" {
+		if len(chain) > budget {
+			chain = truncateUTF8Bytes(chain, budget)
 		}
-		b.WriteString(line)
+		b.WriteString(chain)
 		budget = repoGuidanceMaxBytes - b.Len()
 	}
+	_, skillsRoot := walkRepoGuidanceRoots(root)
 	if names := listLocalAgentSkills(skillsRoot); len(names) > 0 {
 		var skillBlock strings.Builder
 		skillBlock.WriteString("本仓库 .agents/skills：")
@@ -57,16 +57,91 @@ func repoGuidanceInjection(root string) string {
 			b.WriteString(line)
 		}
 	}
-	if b.Len() <= len("\n\n[仓库约定] 以下来自工作区文件，叠在月汐身份之上，不替换身份，也不引入外部 Codex/云端线程。\n") {
+	if b.Len() <= len(header) {
 		return ""
 	}
 	return b.String()
 }
 
+// readAgentsMarkdownChain walks git root → cwd and concatenates every
+// AGENTS.md (nearer last). Over budget, distant files drop first.
+// No git root means only the start directory — never ~ or the user home.
+func readAgentsMarkdownChain(start string) string {
+	dirs := agentsChainDirs(start)
+	if len(dirs) == 0 {
+		return ""
+	}
+	gitRoot := dirs[0]
+	var sections []string
+	for _, dir := range dirs {
+		body := readBoundedAgentsMarkdown(dir)
+		if body == "" {
+			continue
+		}
+		label := agentsChainLabel(gitRoot, dir)
+		sections = append(sections, "AGENTS.md（"+label+"）：\n"+body+"\n")
+	}
+	for len(sections) > 0 {
+		joined := strings.Join(sections, "")
+		if len(joined) <= repoGuidanceMaxBytes {
+			return joined
+		}
+		if len(sections) == 1 {
+			return truncateUTF8Bytes(sections[0], repoGuidanceMaxBytes)
+		}
+		sections = sections[1:]
+	}
+	return ""
+}
+
+func agentsChainLabel(root, dir string) string {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." || rel == "" {
+		return "仓库根"
+	}
+	if strings.HasPrefix(rel, "..") {
+		return filepath.Base(dir)
+	}
+	return filepath.ToSlash(rel)
+}
+
+func agentsChainDirs(start string) []string {
+	start = filepath.Clean(start)
+	root := gitRootOrStart(start)
+	rel, err := filepath.Rel(root, start)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return []string{start}
+	}
+	dirs := []string{root}
+	acc := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		acc = filepath.Join(acc, part)
+		dirs = append(dirs, acc)
+	}
+	return dirs
+}
+
+func gitRootOrStart(start string) string {
+	dir := filepath.Clean(start)
+	for i := 0; i < 8; i++ {
+		if isGitRoot(dir) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return start
+		}
+		dir = parent
+	}
+	return start
+}
+
 // walkRepoGuidanceRoots looks from the workspace directory up to the
 // enclosing git root (max 8 parents) so a nested worktree still finds
-// AGENTS.md and .agents/skills. No git root means only the start
-// directory is searched — never the user home. It never follows symlinks.
+// .agents/skills. No git root means only the start directory is searched.
 func walkRepoGuidanceRoots(start string) (agentsRoot, skillsRoot string) {
 	dir := filepath.Clean(start)
 	limit := gitWalkLimit(dir)

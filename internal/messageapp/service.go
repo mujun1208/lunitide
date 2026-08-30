@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/message"
@@ -31,6 +32,40 @@ var (
 	ErrMessageNotFound            = errors.New("message not found")
 	ErrRewindRequiresUserMessage  = errors.New("rewind requires user message")
 )
+
+type Searcher interface {
+	SearchMessages(context.Context, SearchQuery) ([]SearchHit, error)
+}
+
+const (
+	DefaultSearchLimit    = 16
+	MaxSearchLimit        = 32
+	MaxSearchQueryRunes   = 200
+	MaxSearchSnippetRunes = 180
+)
+
+type SearchQuery struct {
+	Query, ProjectID, SessionID string
+	Limit                       int
+}
+
+type SearchHit struct {
+	SessionID    string `json:"sessionId"`
+	MessageID    string `json:"messageId"`
+	Role         string `json:"role"`
+	Sequence     int64  `json:"sequence"`
+	Snippet      string `json:"snippet"`
+	SessionTitle string `json:"sessionTitle"`
+}
+
+type SearchRequest struct {
+	Query, ProjectID, SessionID string
+	Limit                       int
+}
+
+type SearchResult struct {
+	Items []SearchHit `json:"items"`
+}
 
 type Tx interface {
 	AppendMessage(context.Context, message.Message) (message.Message, error)
@@ -252,6 +287,35 @@ func (s *Service) List(ctx context.Context, r PageRequest) (Page, error) {
 		return Page{}, ErrPageBudgetTooSmall
 	}
 	return p, nil
+}
+
+func (s *Service) Search(ctx context.Context, q SearchRequest) (SearchResult, error) {
+	if s == nil || !available(s.read) {
+		return SearchResult{}, errors.New("message reader unavailable")
+	}
+	searcher, ok := s.read.(Searcher)
+	if !ok {
+		return SearchResult{Items: []SearchHit{}}, nil
+	}
+	query := strings.TrimSpace(q.Query)
+	if query == "" {
+		return SearchResult{Items: []SearchHit{}}, nil
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = DefaultSearchLimit
+	}
+	if limit > MaxSearchLimit {
+		limit = MaxSearchLimit
+	}
+	hits, err := searcher.SearchMessages(ctx, SearchQuery{Query: query, ProjectID: q.ProjectID, SessionID: q.SessionID, Limit: limit})
+	if err != nil {
+		return SearchResult{}, err
+	}
+	if hits == nil {
+		hits = []SearchHit{}
+	}
+	return SearchResult{Items: hits}, nil
 }
 func (s *Service) Append(ctx context.Context, key, actor string, request any, value message.Message) (message.Message, error) {
 	if !providerapp.ValidIdempotencyKey(key) {

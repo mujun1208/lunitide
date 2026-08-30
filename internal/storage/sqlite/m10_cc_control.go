@@ -64,7 +64,7 @@ func (t *agentRuntimeTx) GetCcSettings() (ccapp.Settings, error) {
 			SecurityLevel:        ccapp.LevelStandard,
 			AllowCritical:        false,
 			ProcessBlocklist:     append([]string(nil), ccapp.DefaultProcessBlocklist...),
-			MaxActionsPerMinute:  30,
+			MaxActionsPerMinute:  ccapp.CcDefaultMaxActionsPerMinute,
 			ConfirmTimeoutSecond: 60,
 			UpdatedAt:            time.Now().UTC().Format(time.RFC3339),
 		}

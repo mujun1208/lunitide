@@ -2,6 +2,7 @@ package volcsauc
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 )
 
@@ -106,11 +107,19 @@ func TestResourceIDFromModel(t *testing.T) {
 
 func TestStreamURL(t *testing.T) {
 	got := StreamURL("https://openspeech.bytedance.com", true)
-	if got != "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async" {
+	if got != "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async" {
 		t.Fatal(got)
 	}
 	got = StreamURL("", false)
-	if got != "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel" {
+	if got != "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel" {
+		t.Fatal(got)
+	}
+	got = StreamURL("https://ark.cn-beijing.volces.com/api/plan/v3", true)
+	if got != "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async" {
+		t.Fatal(got)
+	}
+	got = StreamURL("https://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", true)
+	if got != "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async" {
 		t.Fatal(got)
 	}
 }
@@ -118,6 +127,10 @@ func TestStreamURL(t *testing.T) {
 func TestSanitizeProbeError(t *testing.T) {
 	msg := SanitizeProbeError(&HandshakeError{Status: 403, Message: "volc.bigasr.sauc.duration"})
 	if !bytes.Contains([]byte(msg), []byte("seedasr")) {
+		t.Fatal(msg)
+	}
+	msg = SanitizeProbeError(fmt.Errorf(`acquire failed AuthenticationError`))
+	if !bytes.Contains([]byte(msg), []byte("Agent Plan 专属")) {
 		t.Fatal(msg)
 	}
 }

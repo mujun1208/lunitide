@@ -147,6 +147,45 @@ func TestSkipExpertCouncilOnSimpleComputerUse(t *testing.T) {
 	}
 }
 
+func TestBundledWorkflowInjectionTrimsByIntent(t *testing.T) {
+	idle := bundledWorkflowInjection("")
+	if !strings.Contains(idle, "[内置工作流]") {
+		t.Fatalf("idle turn should keep a one-line workflow header: %q", idle)
+	}
+	if strings.Contains(idle, "html.gen") || strings.Contains(idle, "九步流水线") || strings.Contains(idle, "cc.screen_capture") {
+		t.Fatalf("idle turn must not dump the full blob: %q", idle)
+	}
+	if got := bundledWorkflowInjection("你好"); strings.Contains(got, "cc.screen_capture") || strings.Contains(got, "九步流水线") {
+		t.Fatalf("idle chat leaked desktop/office blob: %q", got)
+	}
+	play := bundledWorkflowInjection("随便播一首歌")
+	if !strings.Contains(play, "media.play") {
+		t.Fatalf("play turn missing media.play: %q", play)
+	}
+	if strings.Contains(play, "cc.screen_capture") || strings.Contains(play, "九步流水线") {
+		t.Fatalf("play turn leaked desktop/office blob: %q", play)
+	}
+	weather := bundledWorkflowInjection("查北京明天天气")
+	if !strings.Contains(weather, "web.search") {
+		t.Fatalf("weather turn missing search: %q", weather)
+	}
+	if strings.Contains(weather, "computer.act") || strings.Contains(weather, "九步流水线") || strings.Contains(weather, "cc.screen_capture") {
+		t.Fatalf("weather turn leaked desktop/office workflow: %q", weather)
+	}
+}
+
+func TestShouldOfferSkillDraft(t *testing.T) {
+	if shouldOfferSkillDraft([]string{"web.search"}) {
+		t.Fatal("single lookup must not offer a skill draft")
+	}
+	if !shouldOfferSkillDraft([]string{"workspace.edit", "command.run", "workspace.write"}) {
+		t.Fatal("multi-step mutating turn should offer a skill draft")
+	}
+	if shouldOfferSkillDraft([]string{"workspace.edit", "command.run", "workspace.write", "skill.create"}) {
+		t.Fatal("already created a skill — do not offer again")
+	}
+}
+
 func TestCollectExpertIDsPrefersMountedPack(t *testing.T) {
 	const mounted = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	const extra = "01ARZ3NDEKTSV4RRFFQ69G5FAW"

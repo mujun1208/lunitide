@@ -25,6 +25,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -143,9 +144,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += companionPersonaInstruction()
 	}
 	instruction += replyStyleInstruction(p.ReplyStyle, p.Companion)
-	if !p.Companion {
-		instruction += structuredTemplateInstruction(p.StructuredTemplate)
-	}
+	instruction += structuredTemplateInstruction(inferStructuredTemplate(turnText, p.StructuredTemplate))
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
 	// so path answers match reality instead of a stale sandbox assumption.
@@ -225,7 +224,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
 		instruction += identityAndFewShotInstruction()
-		instruction += bundledWorkflowInjection(turnText)
+		if wf := bundledWorkflowInjection(turnText); wf != "" {
+			instruction += wf
+			instruction += identityAnchorReminder()
+		}
 		instruction += e.workspaceRepoGuidance()
 		instruction += chatRichMarkdownInstruction()
 	}
@@ -633,7 +635,7 @@ func companionPersonaInstruction() string {
 		"- 发飞书/企微/钉钉/微信/QQ：设置里启用消息通道后用 im.send（channel=feishu|wecom|dingtalk|wechat|qq，text=内容，to=联系人可选）。飞书/企微/钉钉有 Webhook 就走机器人；微信/QQ 打开本机已登录客户端再输入。未启用就提示去设置 → 消息通道\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
-		"- 操作电脑：电脑控制开启时用 cc.*。先 cc.screen_capture（或 cc.observe_ui）看清界面，再动手；鼠标坐标必须用你看到的那张图的像素。点按钮优先 cc.observe_ui 后 cc.mouse_click id=B1 或 name=控件名，或 cc.observe_dialog 后再 cc.confirm_dialog，不要盲点像素。普通对话框确认是 Yes/OK/确认/是/确定 后再点；禁止对 UAC、提权、打开/保存文件对话框点确认，禁止自动接受未知文件。用户没说关闭时禁止 cc.window_action op=close、cc.app_quit、点「关闭」。拖拽用 cc.mouse_drag；切窗口用 cc.window_list 再 cc.window_focus（已在运行的应用），对指定应用先 cc.window_focus 再 keyboard_type。启动未打开的应用用 desktop.open。关/最小化/移动窗口用 cc.window_action；退出应用用 cc.app_quit（禁止关资源管理器）。滚动用 cc.mouse_click scroll=±1。按回车用 cc.press key=enter。粘贴用 cc.paste。菜单用 cc.menu_click。填输入框优先 cc.set_value。UI 未就绪用 cc.wait until=change。剪贴板用 cc.clipboard（纯文本）。command.run 仅在需要跑命令时用\n" +
+		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。command.run 仅在需要跑命令时用\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
 }
 
@@ -687,7 +689,7 @@ func companionToolLeadIn(toolName string) string {
 	case "im.send":
 		return "好，我来发消息。"
 	default:
-		if strings.HasPrefix(toolName, "cc.") {
+		if strings.HasPrefix(toolName, "cc.") || toolName == "computer.act" {
 			return "好，我来操作电脑。"
 		}
 		return "好，我马上处理。"
@@ -711,6 +713,7 @@ func companionWantsTools(text string) bool {
 		"桌面", "文件", "文件夹", "启动", "运行", "软件", "汽水", "网易云", "周杰伦", "协议",
 		"截图", "屏幕", "对话框", "确认", "点击", "鼠标", "电脑",
 		"填写", "输入", "证件", "身份证", "号码", "后面", "之后", "发送", "写入", "文档", "word", "打字", "随机播放",
+		"继续", "填表", "下一步", "再点", "接着", "帮我点",
 		"生图", "画一张", "画图", "生成图片", "生成视频", "生视频", "做个视频",
 		"search", "open http", "play song", "install", "generate image", "generate video",
 	} {
@@ -1043,7 +1046,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "workspace.read", Description: "Read a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "workspace.write", Description: "Atomically write a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`)},
 		{Name: "workspace.search", Description: "Search session workspace files for a literal substring or regex; answers path:line: text matches (binary and oversized files skipped)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"literal substring, or regex when regex=true"},"path":{"type":"string","description":"workspace-relative directory to search (default .)"},"regex":{"type":"boolean"},"max":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}`)},
-		{Name: "workspace.edit", Description: "Anchored edit of a controlled session workspace file: oldText must match exactly once (or pass replaceAll=true) and is replaced by newText; everything else stays untouched", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["path","oldText","newText"],"additionalProperties":false}`)},
+		{Name: "workspace.edit", Description: "Anchored edit of a controlled session workspace file. oldText must match exactly once (or pass replaceAll=true) and is replaced by newText. For several independent replacements in one file, pass edits[{oldText,newText,replaceAll?}]; if any hunk's oldText is missing the whole call fails and the file is left untouched.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"},"edits":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"properties":{"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["oldText","newText"]}}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
 		{Name: "user.ask", Description: "Ask the user to decide with numbered options (Claude/Cursor-style). One pack of 1–8 questions, each with 2–5 options. The UI shows one question at a time plus 其他. 拍板必须用选项，不要用长文代替决策。Always wait — never assume an answer.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200,"description":"Short heading for the decision pack"},"questions":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"prompt":{"type":"string","minLength":1,"maxLength":500},"options":{"type":"array","minItems":2,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"label":{"type":"string","minLength":1,"maxLength":200}},"required":["label"]}}},"required":["prompt","options"]}}},"required":["questions"],"additionalProperties":false}`)},
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
@@ -1102,31 +1105,11 @@ func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
 		return nil
 	}
 	return []gateway.ToolDefinition{
-		{Name: "cc.mouse_move", Description: "Move the mouse to pixel coordinates of the latest cc.screen_capture image (origin top-left of that image). If you have not captured yet, use virtual-desktop pixels.", Schema: []byte(`{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},"required":["x","y"],"additionalProperties":false}`)},
-		{Name: "cc.mouse_click", Description: "Click or scroll. Always screenshot first (cc.screen_capture) and click in THAT image's pixels — never guess screen resolution. Prefer name= or id= (B1) from the latest cc.observe_ui node. scroll is wheel notches (-12..12); scrollAxis=horizontal uses the horizontal wheel. After a click the tool returns a fresh screenshot so you can verify the hit. Never click UAC / elevation / file Open-Save dialogs.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","enum":["left","right","middle"],"description":"default left"},"clicks":{"type":"integer","minimum":1,"maximum":3,"description":"default 1"},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"scroll":{"type":"integer","minimum":-12,"maximum":12,"description":"wheel notches; when set, no click"},"scrollAxis":{"type":"string","enum":["vertical","horizontal"],"description":"default vertical"},"name":{"type":"string","maxLength":80,"description":"accessibility node name from cc.observe_ui; preferred over x,y"},"id":{"type":"string","maxLength":8,"description":"node id like B1 from cc.observe_ui"}},"additionalProperties":false}`)},
-		{Name: "cc.mouse_drag", Description: "Left-button drag from (x1,y1) to (x2,y2) in the latest screenshot image pixels. Use for sliders, selecting text, or drag-and-drop. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"x1":{"type":"integer","minimum":0,"maximum":65535},"y1":{"type":"integer","minimum":0,"maximum":65535},"x2":{"type":"integer","minimum":0,"maximum":65535},"y2":{"type":"integer","minimum":0,"maximum":65535}},"required":["x1","y1","x2","y2"],"additionalProperties":false}`)},
-		{Name: "cc.keyboard_type", Description: "Type literal text (including Chinese) into the focused window. When targeting a specific app, call cc.window_focus first (or pass window=title/process fragment); otherwise input may hit the companion. Restores the last user app if the companion stole focus. No control characters. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096},"window":{"type":"string","maxLength":200,"description":"optional title or process fragment to focus first"}},"required":["text"],"additionalProperties":false}`)},
-		{Name: "cc.keyboard_shortcut", Description: "Press one key combination (modifier plus key, e.g. ctrl+s or media_play); system-reserved combos are refused. Optional window focuses a match first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"keys":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string"}},"window":{"type":"string","maxLength":200}},"required":["keys"],"additionalProperties":false}`)},
-		{Name: "cc.screen_capture", Description: "REQUIRED before any pixel click/drag: capture the screen as an image. target=desktop (default) is the entire virtual desktop (all monitors, DPI-aware). target=foreground captures the active window. target=window plus title= captures a named window. You receive a downscaled image; ALL later mouse x,y MUST use that image's pixel coordinates (top-left of the image is 0,0). Do not screenshot-click music apps; use media.play. Prefer cc.observe_ui or cc.observe_dialog for buttons when possible. Never confirm UAC.", Schema: []byte(`{"type":"object","properties":{"target":{"type":"string","enum":["desktop","foreground","window"],"description":"default desktop"},"title":{"type":"string","maxLength":200,"description":"window title/process when target=window"}},"additionalProperties":false}`)},
-		{Name: "cc.get_active_window", Description: "Answer the foreground window title, process name, and cursor position (screen + image pixels if a screenshot is in context)", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-		{Name: "cc.window_list", Description: "List visible top-level windows (title, process, id, bounds), capped at 64. After a screenshot, bounds are in that image's pixels (space=image); otherwise desktop pixels (space=screen). Call cc.window_focus before typing into an app; use desktop.open to launch an app that is not running.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-		{Name: "cc.window_focus", Description: "Bring a running window to the foreground by title substring, process name (notepad.exe), or id (0xHWND). Restores minimized windows via SetForegroundWindow. Call this before cc.keyboard_type when targeting a specific app. Does not launch new apps — use desktop.open for that.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200,"description":"title substring (preferred)"},"process":{"type":"string","maxLength":200,"description":"process name fragment"}},"additionalProperties":false}`)},
-		{Name: "cc.observe_dialog", Description: "List visible standard dialogs and clickable buttons (name, role, bounds) via accessibility. Bounds are in the latest screenshot image pixels when a capture exists. Prefer this over screenshot-click for Yes/OK/确认. UAC / elevation / file Open-Save are listed as refused, never confirmable. Optional waitMs (0-5000) waits for a dialog to appear.", Schema: []byte(`{"type":"object","properties":{"waitMs":{"type":"integer","minimum":0,"maximum":5000}},"additionalProperties":false}`)},
-		{Name: "cc.confirm_dialog", Description: "Click a standard confirm button (Yes/OK/确认/是/确定) found by accessibility. Refuses UAC, elevation, and file Open/Save dialogs. Never auto-accept unknown files.", Schema: []byte(`{"type":"object","properties":{"button":{"type":"string","description":"ok|yes|confirm or a caption; default auto"}},"additionalProperties":false}`)},
-		{Name: "cc.observe_ui", Description: "Summarize actionable accessibility nodes (buttons, links, edits, tabs, lists) on the foreground window, with Peekaboo-style id badges (B1, E1) on the screenshot. Bounds are in the latest screenshot image pixels. Prefer clicking id= or name= over guessing pixels. Caps at 40 nodes (maxNodes up to 80). Refuses UAC / elevation / file Open-Save (no clickable nodes).", Schema: []byte(`{"type":"object","properties":{"maxNodes":{"type":"integer","minimum":0,"maximum":80}},"additionalProperties":false}`)},
-		{Name: "cc.wait", Description: "Pause so the UI can settle. until=timeout (default) sleeps ms (0-8000). until=change polls screenshots until pixels change or ms elapses, then returns the new image if it changed.", Schema: []byte(`{"type":"object","properties":{"ms":{"type":"integer","minimum":0,"maximum":8000},"until":{"type":"string","enum":["timeout","change"]}},"additionalProperties":false}`)},
-		{Name: "cc.clipboard", Description: "Read or write the local clipboard as Unicode text only (this PC; no files). op=get returns text truncated to 8192 characters; op=set writes text (max 8192).", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["get","set"]},"text":{"type":"string","maxLength":8192}},"required":["op"],"additionalProperties":false}`)},
-		{Name: "cc.window_action", Description: "Arrange a running window: op=minimize|maximize|restore|move|resize|hide|close. title is a title/process fragment or 0xHWND; empty title means the foreground window. Do not close Word/WPS/Excel/Notepad after typing unless the user asked to close. move uses screen x,y (from cc.window_list); resize uses w,h. close/hide of explorer/UAC/Lunitide is refused. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["close","minimize","maximize","restore","move","resize","hide"]},"title":{"type":"string","maxLength":200},"x":{"type":"integer","minimum":-32768,"maximum":65535},"y":{"type":"integer","minimum":-32768,"maximum":65535},"w":{"type":"integer","minimum":1,"maximum":65535},"h":{"type":"integer","minimum":1,"maximum":65535}},"required":["op"],"additionalProperties":false}`)},
-		{Name: "cc.app_list", Description: "List unique processes that currently have visible windows. Use cc.window_focus to switch; desktop.open to launch something that is not running; cc.app_quit to close.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-		{Name: "cc.app_quit", Description: "Close matching visible windows with WM_CLOSE (not TerminateProcess). title or name is a title/process fragment. Refuses explorer, UAC, and other protected processes.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200},"name":{"type":"string","maxLength":200}},"additionalProperties":false}`)},
-		{Name: "cc.paste", Description: "Paste into the focused window (Ctrl+V). If text is set, write it to the clipboard first. Optional window focuses a match first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","maxLength":8192},"window":{"type":"string","maxLength":200}},"additionalProperties":false}`)},
-		{Name: "cc.press", Description: "Press one non-modifier key (enter, tab, esc, backspace, arrows, a–z, f1–f12, …) count times (1–8). Combos stay on cc.keyboard_shortcut. Optional window focuses first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"key":{"type":"string","minLength":1,"maxLength":24},"count":{"type":"integer","minimum":1,"maximum":8},"window":{"type":"string","maxLength":200}},"required":["key"],"additionalProperties":false}`)},
-		{Name: "cc.menu_click", Description: "Click a menu path on the focused window via accessibility (e.g. File > Save or 文件/保存). Optional window focuses first. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":240},"window":{"type":"string","maxLength":200}},"required":["path"],"additionalProperties":false}`)},
-		{Name: "cc.set_value", Description: "Set an edit/combobox value by accessibility name or the latest cc.observe_ui id (E1). Optional window focuses first. Prefer this over click+type for named fields. Returns a verify screenshot.", Schema: []byte(`{"type":"object","properties":{"target":{"type":"string","minLength":1,"maxLength":80},"value":{"type":"string","maxLength":4096},"window":{"type":"string","maxLength":200}},"required":["target","value"],"additionalProperties":false}`)},
+		{Name: "computer.act", Description: "Unified desktop action (OpenClaw-shaped). action=screenshot|click|double_click|right_click|move|drag|type|key|press|hold_key|key_up|scroll|wait|observe|observe_dialog|confirm|focus|list|paste|menu|set_value|clipboard|window_action. Click may pass modifiers=[ctrl|shift|alt|win] (held only around that click). hold_key holds a key; key_up releases it (auto-release after 8s). Default screenshot is the foreground window (target=foreground); target=desktop captures the virtual desktop. Pixel actions must echo frameId from the latest screenshot (id binds screenIndex + display topology; reconnect/DPI fails closed). Expands onto governed cc.* (audit, rate limit, emergency stop) — do not call cc.* yourself. Prefer name=/id= over raw x,y. Never click UAC or file Open/Save — the runtime will ask the user.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","minLength":1,"maxLength":40},"frameId":{"type":"string","maxLength":40},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"x1":{"type":"integer","minimum":0,"maximum":65535},"y1":{"type":"integer","minimum":0,"maximum":65535},"x2":{"type":"integer","minimum":0,"maximum":65535},"y2":{"type":"integer","minimum":0,"maximum":65535},"button":{"type":"string"},"clicks":{"type":"integer","minimum":1,"maximum":3},"modifiers":{"type":"array","maxItems":3,"items":{"type":"string","enum":["ctrl","shift","alt","win"]}},"scroll":{"type":"integer","minimum":-12,"maximum":12},"scrollAxis":{"type":"string","enum":["vertical","horizontal"]},"name":{"type":"string","maxLength":80},"id":{"type":"string","maxLength":8},"text":{"type":"string","maxLength":8192},"keys":{"type":"array","maxItems":4,"items":{"type":"string"}},"key":{"type":"string","maxLength":24},"count":{"type":"integer","minimum":1,"maximum":8},"window":{"type":"string","maxLength":200},"title":{"type":"string","maxLength":200},"process":{"type":"string","maxLength":200},"target":{"type":"string"},"ms":{"type":"integer","minimum":0,"maximum":8000},"until":{"type":"string","enum":["timeout","change"]},"maxNodes":{"type":"integer","minimum":0,"maximum":120},"path":{"type":"string","maxLength":240},"op":{"type":"string"},"value":{"type":"string","maxLength":4096},"w":{"type":"integer","minimum":1,"maximum":65535},"h":{"type":"integer","minimum":1,"maximum":65535}},"required":["action"],"additionalProperties":false}`)},
 	}
 }
 
-const maxCaptureVisionImages = 2
+const maxCaptureVisionImages = 4
 
 func appendCaptureVision(images []gateway.Image, mime string, data []byte) []gateway.Image {
 	if len(data) == 0 {
@@ -1203,8 +1186,8 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 		EntryPoint   string   `json:"entryPoint"`
 		ManifestJSON string   `json:"manifestJson"`
 	}
-	if json.Unmarshal(args, &a) != nil {
-		return toolruntime.Result{}, errors.New("invalid skill.create arguments")
+	if json.Unmarshal(jsonutil.Repair(args), &a) != nil {
+		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("skill.create", "arguments are not valid JSON"))
 	}
 	name := strings.TrimSpace(a.Name)
 	display := strings.TrimSpace(a.DisplayName)
@@ -1229,7 +1212,7 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 		ManifestJSON: a.ManifestJSON,
 	})
 	if err != nil {
-		return toolruntime.Result{}, err
+		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("skill.create", err.Error()))
 	}
 	label := created.DisplayName
 	if label == "" {
@@ -1245,9 +1228,6 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 // invokeExpertCreateTool routes a model-initiated expert.create call through
 // the M8 expert service. The expert is immediately available for mounting.
 func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
-	if e.m8expert == nil {
-		return toolruntime.Result{}, errors.New("expert service unavailable")
-	}
 	var a struct {
 		Name                string `json:"name"`
 		Division            string `json:"division"`
@@ -1260,8 +1240,11 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 		DeliverableTemplate string `json:"deliverableTemplate"`
 		SuccessMetrics      string `json:"successMetrics"`
 	}
-	if json.Unmarshal(args, &a) != nil {
-		return toolruntime.Result{}, errors.New("invalid expert.create arguments")
+	if json.Unmarshal(jsonutil.Repair(args), &a) != nil {
+		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("expert.create", "arguments are not valid JSON"))
+	}
+	if e.m8expert == nil {
+		return toolruntime.Result{}, errors.New("expert service unavailable")
 	}
 	if strings.TrimSpace(a.Name) == "" || len(a.Name) > 128 {
 		return toolruntime.Result{}, errors.New("expert name must be 1-128 characters")
@@ -1281,7 +1264,7 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 		RequestID: ulid.Make().String(),
 	})
 	if err != nil {
-		return toolruntime.Result{}, err
+		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("expert.create", err.Error()))
 	}
 	b, _ := json.Marshal(res)
 	return toolruntime.Result{Output: "专家「" + a.Name + "」已创建成功。\n" + string(b)}, nil
@@ -1301,8 +1284,8 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 		Publisher   string         `json:"publisher"`
 		Manifest    map[string]any `json:"manifest"`
 	}
-	if json.Unmarshal(args, &a) != nil {
-		return toolruntime.Result{}, errors.New("invalid plugin.create arguments")
+	if json.Unmarshal(jsonutil.Repair(args), &a) != nil {
+		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("plugin.create", "arguments are not valid JSON"))
 	}
 	pluginID := strings.TrimSpace(a.PluginID)
 	if pluginID == "" || len(pluginID) > 128 {
@@ -1355,7 +1338,7 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 		WorkspaceID: workspace, Manifest: manifest, Entrypoint: entry,
 	})
 	if err != nil {
-		return toolruntime.Result{}, err
+		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("plugin.create", err.Error()))
 	}
 	label := strings.TrimSpace(a.Name)
 	if label == "" {
@@ -1861,6 +1844,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		state.council = nil
 		startPptWorkflow(&req, &turn, send)
 		startDocxWorkflow(&req, &turn, send)
+		logInjectedGuidance(sessionID, state.companion, req)
 		seen := map[string]bool{}
 		completedDigests := map[string]string{}
 		var result gateway.Response
@@ -1868,16 +1852,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		toolsFallbackUsed := false
 		imagesFallbackUsed := false
 		usedTools := false
+		usedDesktopTools := false
 		autoMediaPlayDone := false
 		autoDesktopTypeDone := false
 		nudges := 0
+		skillDraftOffered := false
 		if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
 			turn.Goal = prev.Goal
 			turn.Injected = append(turn.Injected, prev.Injected...)
 		}
 		e.saveTurnCheckpoint(sessionID, turn)
 		toolLoopLimit := maxToolLoopSteps
-		if state.companion {
+		if state.companion && !companionDesktopToolLoop(e, sessionID, turn.Goal) {
 			toolLoopLimit = companionMaxToolLoopSteps
 		}
 		for step := 0; step < toolLoopLimit; step++ {
@@ -1986,8 +1972,28 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 			noteDocxChars(&turn, stepText)
 			if len(result.Message.ToolCalls) == 0 {
-				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) ||
-					(state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) && nudges < maxContinueNudges) {
+				continueKind := ""
+				if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) {
+					continueKind = "ask"
+				} else if state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) && nudges < maxContinueNudges {
+					continueKind = "leadin"
+				} else if state.companion && usedDesktopTools && shouldContinueDesktopTurn(stepText, nudges) {
+					continueKind = "desktop"
+				}
+				if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
+					skillDraftOffered = true
+					msg := result.Message
+					if strings.TrimSpace(msg.Content) == "" {
+						msg.Role = gateway.RoleAssistant
+						msg.Content = stepText
+					}
+					if msg.Role != "" {
+						req.Messages = append(req.Messages, msg)
+					}
+					req.Messages = append(req.Messages, skillDraftOfferMessage())
+					continue
+				}
+				if continueKind != "" {
 					nudges++
 					msg := result.Message
 					if strings.TrimSpace(msg.Content) == "" {
@@ -1995,8 +2001,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						msg.Content = stepText
 					}
 					nudge := continueNudgeMessage()
-					if state.companion && isCompanionLeadInOnly(assistantText.String()) {
+					if continueKind == "leadin" {
 						nudge = gateway.Message{Role: gateway.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
+					} else if continueKind == "desktop" {
+						nudge = desktopContinueNudgeMessage()
 					}
 					req.Messages = append(req.Messages, msg, nudge)
 					continue
@@ -2029,6 +2037,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				break
 			}
 			usedTools = true
+			for _, call := range result.Message.ToolCalls {
+				if isDesktopControlTool(call.Name) {
+					usedDesktopTools = true
+					if toolLoopLimit < maxToolLoopSteps {
+						toolLoopLimit = maxToolLoopSteps
+					}
+					break
+				}
+			}
 			if state.companion && assistantText.Len() == stepTextStart && len(result.Message.ToolCalls) > 0 {
 				lead := companionToolLeadIn(result.Message.ToolCalls[0].Name)
 				assistantText.WriteString(lead)
@@ -2061,6 +2078,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				drainParallelToolFutures(op, parallelFutures)
 			}()
+			parkedFilePicker := false
 			for _, call := range result.Message.ToolCalls {
 				if seen[call.ID] {
 					return errors.New("duplicate tool call id")
@@ -2338,6 +2356,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if toolErr == nil && len(r.VisionData) > 0 {
 					req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
 				}
+				if looksLikeFilePickerToolResult(summary) {
+					parkedFilePicker = true
+				}
+			}
+			if parkedFilePicker {
+				if err := e.parkFilePickerAsk(op, id, sessionID, mode, send); err != nil {
+					return err
+				}
+				return nil
 			}
 			if companionTurnWantsMusicPlay(turn.Goal) {
 				hasMediaPlay := autoMediaPlayDone
@@ -2588,7 +2615,7 @@ func createTurnFailureNotice(tools []string, assistantText string) string {
 		case "media.play":
 			triedMedia = true
 		default:
-			if strings.HasPrefix(name, "cc.") {
+			if strings.HasPrefix(name, "cc.") || name == "computer.act" {
 				usedVision = true
 			}
 		}
@@ -2621,7 +2648,7 @@ func hasActingComputerTool(tools []string) bool {
 			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "desktop.type", "media.play", "im.send", "image.generate", "video.generate":
 			return true
 		}
-		if strings.HasPrefix(name, "cc.") {
+		if strings.HasPrefix(name, "cc.") || name == "computer.act" {
 			return true
 		}
 	}

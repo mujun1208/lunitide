@@ -103,6 +103,22 @@ func TestWorkspaceEditAnchoredReplace(t *testing.T) {
 	if _, err = r.Execute(ctx, FullAccess, session, "workspace.edit", json.RawMessage(`{"path":"a.txt","oldText":"nope","newText":"x"}`), true); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing anchor error = %v", err)
 	}
+	seedWorkspace(t, r, map[string]string{"c.txt": "alpha\nbeta\ngamma\n"})
+	out, err = r.Execute(ctx, FullAccess, session, "workspace.edit", json.RawMessage(`{"path":"c.txt","edits":[{"oldText":"alpha","newText":"ALPHA"},{"oldText":"gamma","newText":"GAMMA"}]}`), true)
+	if err != nil || !strings.Contains(out.Output, "2 replacement") {
+		t.Fatalf("multi-hunk edit: %v %q", err, out.Output)
+	}
+	b, _ = os.ReadFile(filepath.Join(r.WorkspaceRoot(), session, "c.txt"))
+	if string(b) != "ALPHA\nbeta\nGAMMA\n" {
+		t.Fatalf("multi-hunk file = %q", b)
+	}
+	if _, err = r.Execute(ctx, FullAccess, session, "workspace.edit", json.RawMessage(`{"path":"c.txt","edits":[{"oldText":"ALPHA","newText":"ok"},{"oldText":"missing","newText":"x"}]}`), true); err == nil || !strings.Contains(err.Error(), "hunk 2") {
+		t.Fatalf("fail-closed multi-hunk error = %v", err)
+	}
+	b, _ = os.ReadFile(filepath.Join(r.WorkspaceRoot(), session, "c.txt"))
+	if string(b) != "ALPHA\nbeta\nGAMMA\n" {
+		t.Fatalf("failed multi-hunk must not write: %q", b)
+	}
 }
 
 // C2-3: todo.write validates, persists outside the workspace digest and

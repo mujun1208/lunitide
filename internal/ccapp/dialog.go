@@ -86,6 +86,29 @@ func SensitiveSurfaceReason(title, process, class string, buttons []string) stri
 	return ""
 }
 
+// SensitiveObserveHide is the observe-tree gate: UAC / elevation stay
+// invisible. File pickers are listed so the model can hand off to the user.
+func SensitiveObserveHide(title, process, class string, buttons []string) string {
+	_, reason := ClassifyDialog(title, process, class, buttons)
+	switch reason {
+	case "uac dialog", "elevation dialog":
+		return reason
+	}
+	return ""
+}
+
+// FilePickerUserPrompt is spoken/tool text when a file Open/Save dialog is up.
+const FilePickerUserPrompt = "needs_user: 请你点「保存」「打开」或「取消」，我不能代你选文件"
+
+// FilePickerHandoff returns a human-handoff line for file Open/Save dialogs.
+func FilePickerHandoff(title, process, class string, buttons []string) string {
+	_, reason := ClassifyDialog(title, process, class, buttons)
+	if reason == "file open/save dialog" {
+		return FilePickerUserPrompt
+	}
+	return ""
+}
+
 func looksLikeFilePicker(title string, buttons []string) bool {
 	folded := strings.ToLower(strings.TrimSpace(title))
 	titleHit := false

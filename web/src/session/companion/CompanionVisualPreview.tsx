@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CompanionAsk } from './CompanionAsk'
 import { CompanionPrompts, shouldShowCompanionPrompts } from './CompanionPrompts'
 import { MoonSphere } from './MoonSphere'
 import type { CompanionState } from './useCompanionMachine'
@@ -78,7 +77,6 @@ export function CompanionVisualPreview(): React.JSX.Element {
         {STATE_LABEL[state]}
         <span className="companion-status-sub">{webgl ? 'WebGL' : 'CSS 降级'}</span>
       </div>
-      <CompanionAsk language="zh" onSend={() => setState('thinking')} />
       <div className="companion-preview-dock" role="toolbar" aria-label="预览控制">
         <strong>月伴视觉预览</strong>
         {STATES.map(item => (

@@ -23,7 +23,7 @@ import (
 const (
 	subagentDefaultBudgetTokens = 8192
 	subagentDeadlineMS          = 5 * 60 * 1000
-	subagentMaxSteps            = 4
+	subagentMaxSteps            = 8
 	subagentMaxSummaryChars     = 2000
 	maxParallelSubagentSpawns   = 3
 )

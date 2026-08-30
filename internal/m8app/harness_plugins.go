@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -33,9 +33,12 @@ func hp(id, kind, title string, disabled ...bool) HarnessPluginSpec {
 	return spec
 }
 
-// HarnessPlugins is the shipped dsh-base + dsh-web-app style roster.
+// HarnessPlugins is the shipped roster of capabilities that actually change
+// behavior. Cordis/TS plugins are not executed; padded tool-N / mcp-N
+// placeholders are not seeded (DeepSeek Harness counted 193 names — we keep
+// the named tools only).
 func HarnessPlugins() []HarnessPluginSpec {
-	named := []HarnessPluginSpec{
+	return []HarnessPluginSpec{
 		hp("hmr", m8core.KindTool, "HMR", true),
 		hp("include", m8core.KindTool, "Include"),
 		hp("timer", m8core.KindTool, "Timer"),
@@ -67,31 +70,28 @@ func HarnessPlugins() []HarnessPluginSpec {
 		hp("tts", m8core.KindTool, "语音合成"),
 		hp("stt", m8core.KindTool, "语音识别"),
 	}
-	seen := map[string]bool{}
-	out := make([]HarnessPluginSpec, 0, 200)
-	for _, spec := range named {
-		seen[spec.ID] = true
-		out = append(out, spec)
-	}
-	families := []struct{ prefix, kind, title string }{
-		{"tool", m8core.KindTool, "工具"},
-		{"mcp", m8core.KindMCP, "MCP"},
-		{"skill", m8core.KindSkill, "技能包"},
-		{"workflow", m8core.KindWorkflow, "工作流"},
-		{"template", m8core.KindTemplate, "模板"},
-		{"pack", m8core.KindAgentPack, "AgentPack"},
-	}
-	n := 1
-	for len(out) < 193 {
-		fam := families[(n-1)%len(families)]
-		id := fam.prefix + "-" + strconv.Itoa(n)
-		if !seen[id] {
-			out = append(out, hp(id, fam.kind, fam.title+" "+strconv.Itoa(n)))
-			seen[id] = true
+}
+
+// isPaddedHarnessPluginID reports the old DeepSeek-style filler ids
+// (tool-1, mcp-12, pack-3). Real tools such as tool-bash stay.
+func isPaddedHarnessPluginID(id string) bool {
+	id = strings.TrimSpace(id)
+	for _, prefix := range []string{"tool-", "mcp-", "skill-", "workflow-", "template-", "pack-"} {
+		if !strings.HasPrefix(id, prefix) {
+			continue
 		}
-		n++
+		rest := id[len(prefix):]
+		if rest == "" {
+			return false
+		}
+		for _, r := range rest {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+		return true
 	}
-	return out
+	return false
 }
 
 func (spec HarnessPluginSpec) packageSource() PackageSource {
@@ -118,14 +118,31 @@ func (spec HarnessPluginSpec) enabledOn(goos string) bool {
 	return true
 }
 
-// EnsureBuiltinPlugins seeds the Harness roster. Existing installs are left
-// untouched so user toggles survive restart.
+// EnsureBuiltinPlugins seeds the Harness roster and uninstalls leftover
+// padded tool-N / mcp-N placeholders from older seeds.
 func EnsureBuiltinPlugins(ctx context.Context, svc *PluginService) error {
 	if svc == nil {
 		return nil
 	}
 	for _, spec := range HarnessPlugins() {
 		if err := svc.seedHarnessPlugin(ctx, spec); err != nil {
+			return err
+		}
+	}
+	return svc.prunePaddedHarnessInstalls(ctx)
+}
+
+func (s *PluginService) prunePaddedHarnessInstalls(ctx context.Context) error {
+	listed, err := s.List(ctx, "", "")
+	if err != nil {
+		return err
+	}
+	token := strings.Repeat("a", 64)
+	for _, item := range listed.Plugins {
+		if item.State == m8core.InstallUninstalled || !isPaddedHarnessPluginID(item.PluginID) {
+			continue
+		}
+		if _, err := s.Uninstall(ctx, UninstallInput{InstallID: item.InstallID, ConfirmToken: token, Actor: "harness-prune"}); err != nil {
 			return err
 		}
 	}

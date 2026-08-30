@@ -254,11 +254,11 @@ func TestMessageBridgeConcurrentSameKeyCreatesExactlyOneMessage(t *testing.T) {
 	}
 	defer db.Close()
 	for query, want := range map[string]int{
-		`SELECT count(*) FROM messages WHERE session_id='` + sessionID + `'`:                                                        1,
-		`SELECT count(*) FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id='` + sessionID + `')`:      1,
-		`SELECT count(*) FROM audit_events WHERE action='message.appended'`:                                                          1,
-		`SELECT count(*) FROM idempotency_records WHERE operation='message.append' AND idempotency_key='concurrent-message-key'`:     1,
-		`SELECT last_sequence FROM message_session_state WHERE session_id='` + sessionID + `'`:                                       1,
+		`SELECT count(*) FROM messages WHERE session_id='` + sessionID + `'`:                                                     1,
+		`SELECT count(*) FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id='` + sessionID + `')`:  1,
+		`SELECT count(*) FROM audit_events WHERE action='message.appended'`:                                                      1,
+		`SELECT count(*) FROM idempotency_records WHERE operation='message.append' AND idempotency_key='concurrent-message-key'`: 1,
+		`SELECT last_sequence FROM message_session_state WHERE session_id='` + sessionID + `'`:                                   1,
 	} {
 		var got int
 		if err = db.QueryRow(query).Scan(&got); err != nil || got != want {
@@ -460,6 +460,35 @@ func TestMessageBridgeEmptySessionList(t *testing.T) {
 	var page messageapp.Page
 	if err := decodeResponsePayload(listResp.Payload, &page); err != nil || len(page.Items) != 0 || page.HasMore {
 		t.Fatalf("empty page: %#v err=%v", page, err)
+	}
+}
+
+func TestMessageBridgeSearch(t *testing.T) {
+	e, projectID, sessionID, _ := messageEngine(t)
+	first := validRequest("message.append", fmt.Sprintf(`{"sessionId":"%s","text":"这里谈到了月汐功能"}`, sessionID))
+	first.IdempotencyKey = "search-a"
+	if resp := e.Handle(context.Background(), first); !resp.OK {
+		t.Fatalf("append: %#v", resp)
+	}
+	second := validRequest("message.append", fmt.Sprintf(`{"sessionId":"%s","text":"也谈到了历史搜索"}`, sessionID))
+	second.IdempotencyKey = "search-b"
+	if resp := e.Handle(context.Background(), second); !resp.OK {
+		t.Fatalf("append 2: %#v", resp)
+	}
+	search := e.Handle(context.Background(), validRequest("message.search", fmt.Sprintf(`{"query":"月汐 搜索","projectId":"%s"}`, projectID)))
+	if !search.OK {
+		t.Fatalf("search: %#v", search)
+	}
+	var result messageapp.SearchResult
+	if err := decodeResponsePayload(search.Payload, &result); err != nil || len(result.Items) != 1 {
+		t.Fatalf("hits: %#v err=%v", result, err)
+	}
+	if result.Items[0].SessionID != sessionID || result.Items[0].Snippet == "" {
+		t.Fatalf("hit %+v", result.Items[0])
+	}
+	unscoped := e.Handle(context.Background(), validRequest("message.search", `{"query":"月汐"}`))
+	if unscoped.OK || unscoped.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("scope required: %#v", unscoped)
 	}
 }
 

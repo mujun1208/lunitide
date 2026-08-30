@@ -68,6 +68,21 @@ func TestResolveSubagentProfileUnknownFallsBack(t *testing.T) {
 	}
 }
 
+func TestBuiltinSubagentProfilesHaveEightSteps(t *testing.T) {
+	if subagentMaxSteps != 8 {
+		t.Fatalf("subagentMaxSteps = %d", subagentMaxSteps)
+	}
+	for _, id := range []string{"explore", "research", "general-purpose", "review", "browser", "test"} {
+		def, _, ok := resolveSubagentProfile(defaultSubagentChatPolicy(), id)
+		if !ok {
+			t.Fatalf("%s missing", id)
+		}
+		if def.MaxSteps != 8 {
+			t.Fatalf("%s MaxSteps = %d, want 8", id, def.MaxSteps)
+		}
+	}
+}
+
 func TestSubagentProfileCatalogInjectionSkipsDisabled(t *testing.T) {
 	disabled := false
 	policy := subagentChatPolicy{

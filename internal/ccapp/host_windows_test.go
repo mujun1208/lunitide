@@ -178,6 +178,26 @@ func TestWindowActionRestoreForeground(t *testing.T) {
 	}
 }
 
+func TestScreenIndexAtPrimaryMonitor(t *testing.T) {
+	h := PlatformHost().(*windowsHost)
+	if !h.Available() {
+		t.Skip("computer-control host unavailable")
+	}
+	ox, oy := h.ScreenOrigin()
+	w, ht := h.ScreenSize()
+	if w <= 0 || ht <= 0 {
+		t.Fatal("invalid screen size")
+	}
+	idx := h.ScreenIndexAt(ox+w/4, oy+ht/2)
+	if idx < 1 {
+		t.Fatalf("primary-side point must land on a monitor, got %d", idx)
+	}
+	n := h.ScreenCount()
+	if idx > n {
+		t.Fatalf("screenIndex %d > count %d", idx, n)
+	}
+}
+
 func abs(n int) int {
 	if n < 0 {
 		return -n

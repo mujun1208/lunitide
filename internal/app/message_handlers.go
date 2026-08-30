@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/message"
@@ -107,6 +109,48 @@ func handleMessageRewind(e *Engine, ctx context.Context, r bridge.Request) bridg
 	result, err := rewinder.Rewind(ctx, r.IdempotencyKey, sessionMutationActor, p.SessionID, p.MessageID)
 	if err != nil {
 		return messageFailure(r, err)
+	}
+	return bridge.Success(r.ID, result)
+}
+func handleMessageSearch(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		Query     string `json:"query"`
+		ProjectID string `json:"projectId"`
+		SessionID string `json:"sessionId"`
+		Limit     int    `json:"limit"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.search 参数无效", false)
+	}
+	query := strings.TrimSpace(p.Query)
+	if query == "" || utf8.RuneCountInString(query) > messageapp.MaxSearchQueryRunes {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.search 参数无效", false)
+	}
+	if p.ProjectID == "" && p.SessionID == "" {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.search 参数无效", false)
+	}
+	if p.ProjectID != "" && !message.CanonicalULID(p.ProjectID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.search 参数无效", false)
+	}
+	if p.SessionID != "" && !message.CanonicalULID(p.SessionID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.search 参数无效", false)
+	}
+	if p.Limit != 0 && (p.Limit < 1 || p.Limit > messageapp.MaxSearchLimit) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "message.search 参数无效", false)
+	}
+	if !messageServiceAvailable(e.messages) {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "消息数据暂时不可用", true)
+	}
+	searcher, ok := e.messages.(messageSearchService)
+	if !ok {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "消息搜索暂时不可用", true)
+	}
+	result, err := searcher.Search(ctx, messageapp.SearchRequest{Query: query, ProjectID: p.ProjectID, SessionID: p.SessionID, Limit: p.Limit})
+	if err != nil {
+		return messageFailure(r, err)
+	}
+	if result.Items == nil {
+		result.Items = []messageapp.SearchHit{}
 	}
 	return bridge.Success(r.ID, result)
 }

@@ -30,6 +30,7 @@ describe('useCompanionMachine transition matrix', () => {
     ['thinking', 'REPLY_COMPLETED', 'speaking'],
     ['thinking', 'REPLY_TERMINAL', 'idle'],
     ['thinking', 'INTERRUPT', 'idle'],
+    ['thinking', 'MIC_CLICK_WHILE_SPEAKING', 'listening'],
     ['speaking', 'PLAYBACK_ENDED', 'idle'],
     ['speaking', 'INTERRUPT', 'idle'],
     ['speaking', 'MIC_CLICK_WHILE_SPEAKING', 'listening'],

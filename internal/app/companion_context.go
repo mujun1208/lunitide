@@ -16,6 +16,8 @@ type companionActionContext struct {
 	ActiveAppName string `json:"activeAppName,omitempty"`
 	ActiveAppPath string `json:"activeAppPath,omitempty"`
 	Kind          string `json:"kind,omitempty"`
+	DesktopActive bool   `json:"desktopActive,omitempty"`
+	LastTool      string `json:"lastTool,omitempty"`
 	UpdatedAt     string `json:"updatedAt,omitempty"`
 }
 
@@ -109,6 +111,8 @@ func (e *Engine) noteCompanionToolSuccess(sessionID, toolName string, args json.
 			ActiveAppName: name,
 			ActiveAppPath: path,
 			Kind:          kind,
+			DesktopActive: true,
+			LastTool:      toolName,
 		})
 	case "media.play":
 		var a struct {
@@ -137,7 +141,15 @@ func (e *Engine) noteCompanionToolSuccess(sessionID, toolName string, args json.
 			ActiveAppName: name,
 			ActiveAppPath: path,
 			Kind:          "music_app",
+			LastTool:      toolName,
 		})
+	default:
+		if isDesktopControlTool(toolName) {
+			ctx := e.loadCompanionContext(sessionID)
+			ctx.DesktopActive = true
+			ctx.LastTool = toolName
+			e.saveCompanionContext(sessionID, ctx)
+		}
 	}
 }
 
@@ -283,10 +295,31 @@ func (e *Engine) companionWantsToolsForTurn(sessionID, text string) bool {
 	if ctx.ActiveAppName == "" {
 		return false
 	}
+	if ctx.DesktopActive && companionDesktopFollowUp(text) {
+		return true
+	}
 	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
 		return companionMusicQueryFollowUp(text)
 	}
 	return companionPlayFollowUp(text)
+}
+
+func companionDesktopFollowUp(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, idle := range []string{"你好", "在吗", "谢谢", "再见", "嗯嗯", "好的", "是啊", "不是"} {
+		if t == idle {
+			return false
+		}
+	}
+	for _, needle := range []string{"继续", "接着", "再点", "下一步", "填", "点一", "帮我点", "还没", "再帮", "点击", "输入", "那个", "这个", "按钮"} {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return companionWantsTools(t)
 }
 
 func (e *Engine) companionSessionInjection(sessionID, turnText string) string {

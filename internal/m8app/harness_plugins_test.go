@@ -3,13 +3,14 @@ package m8app_test
 import (
 	"context"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/m8app"
 )
 
-func TestHarnessPluginsRosterIsUniqueAndLarge(t *testing.T) {
+func TestHarnessPluginsRosterIsUniqueAndNamedOnly(t *testing.T) {
 	seen := map[string]bool{}
 	for _, spec := range m8app.HarnessPlugins() {
 		if spec.ID == "" || spec.Kind == "" || spec.Title == "" {
@@ -23,8 +24,24 @@ func TestHarnessPluginsRosterIsUniqueAndLarge(t *testing.T) {
 		}
 		seen[spec.ID] = true
 	}
-	if len(seen) < 130 {
-		t.Fatalf("roster size = %d, want >= 130", len(seen))
+	if len(seen) < 20 || len(seen) > 40 {
+		t.Fatalf("roster size = %d, want named tools only (20–40)", len(seen))
+	}
+	for id := range seen {
+		rest, ok := strings.CutPrefix(id, "tool-")
+		if !ok {
+			continue
+		}
+		digits := rest != ""
+		for _, r := range rest {
+			if r < '0' || r > '9' {
+				digits = false
+				break
+			}
+		}
+		if digits {
+			t.Fatalf("padded placeholder leaked: %s", id)
+		}
 	}
 }
 
@@ -38,8 +55,8 @@ func TestEnsureBuiltinPluginsSeedsAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Plugins) < 130 {
-		t.Fatalf("seeded %d, want >= 130", len(first.Plugins))
+	if len(first.Plugins) != len(m8app.HarnessPlugins()) {
+		t.Fatalf("seeded %d, want %d named plugins", len(first.Plugins), len(m8app.HarnessPlugins()))
 	}
 	var hmr, bash, pwsh *m8app.PluginListItem
 	for i := range first.Plugins {
@@ -121,4 +138,43 @@ func TestCreateAndMountEnablesChatPlugin(t *testing.T) {
 	if again.InstallID != res.InstallID {
 		t.Fatalf("remount created a second install %s vs %s", again.InstallID, res.InstallID)
 	}
+}
+
+func TestEnsureBuiltinPluginsPrunesPaddedPlaceholders(t *testing.T) {
+	svc, _ := openPluginService(t)
+	ctx := context.Background()
+	created, err := svc.CreateAndMount(ctx, m8app.DevCreateInput{
+		WorkspaceID: "legacy",
+		Entrypoint:  "builtin://legacy/tool-1",
+		Manifest: map[string]any{
+			"id":           "tool-1",
+			"semver":       "1.0.0",
+			"publisher":    "legacy",
+			"kind":         "tool",
+			"capabilities": []string{"chat.created"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.State != m8core.InstallEnabled {
+		t.Fatalf("seed padded plugin = %+v", created)
+	}
+	if err := m8app.EnsureBuiltinPlugins(ctx, svc); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.List(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range listed.Plugins {
+		if item.PluginID != "tool-1" {
+			continue
+		}
+		if item.State != m8core.InstallUninstalled {
+			t.Fatalf("padded leftover must be uninstalled, got %+v", item)
+		}
+		return
+	}
+	t.Fatal("expected uninstalled tool-1 tombstone in list")
 }

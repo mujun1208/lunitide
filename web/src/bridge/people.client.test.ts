@@ -47,6 +47,13 @@ it('requests people.file.stage with the extended deadline', async () => {
   expect(sent[0]?.deadlineMs).toBe(PEOPLE_FILE_DEADLINE_MS)
 })
 
+it('requests people.file.open without stretching the deadline', async () => {
+  const { sent, bridge } = peopleHarness()
+  await bridge.fileOpen({ destPath: 'C:/inbox/secret.txt' })
+  expect(sent[0]?.method).toBe('people.file.open')
+  expect(sent[0]?.deadlineMs).toBe(12_000)
+})
+
 it('requests people.screen.capture with the snip deadline', async () => {
   const { sent, bridge } = peopleHarness()
   await bridge.screenCapture({})

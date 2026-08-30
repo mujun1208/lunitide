@@ -1,1 +1,42 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/im.channels.get.schema.json","title":"im.channels.get payload","x-method":"im.channels.get","x-owner":"engine","x-enabled":true,"type":"object","additionalProperties":false,"properties":{},"x-result":{"type":"object","additionalProperties":false,"properties":{"channels":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"kind":{"type":"string","enum":["feishu","wecom","dingtalk","wechat","qq"]},"label":{"type":"string","minLength":1,"maxLength":32},"enabled":{"type":"boolean"},"webhookUrl":{"type":"string","maxLength":512},"mode":{"type":"string","enum":["webhook","desktop","off"]},"desktopApp":{"type":"string","maxLength":32},"updatedAt":{"type":"string","format":"date-time"}},"required":["kind","label","enabled","webhookUrl","mode","desktopApp","updatedAt"]}}},"required":["channels"]},"x-examples":{"positive":[{}],"negative":[{"kind":"feishu"}]}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/im.channels.get.schema.json",
+  "title": "im.channels.get payload",
+  "x-method": "im.channels.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "channels": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "enum": ["feishu", "wecom", "dingtalk", "wechat", "qq"] },
+            "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "enabled": { "type": "boolean" },
+            "webhookUrl": { "type": "string", "maxLength": 512 },
+            "mode": { "type": "string", "enum": ["webhook", "desktop", "off"] },
+            "desktopApp": { "type": "string", "maxLength": 32 },
+            "inboundEnabled": { "type": "boolean" },
+            "inboundAllowlist": { "type": "string", "maxLength": 2000 },
+            "inboundAutoRun": { "type": "boolean" },
+            "inboundAppId": { "type": "string", "maxLength": 64 },
+            "inboundHasSecret": { "type": "boolean" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+          },
+          "required": ["kind", "label", "enabled", "webhookUrl", "mode", "desktopApp", "inboundEnabled", "inboundAllowlist", "inboundAutoRun", "inboundAppId", "inboundHasSecret", "updatedAt"]
+        }
+      }
+    },
+    "required": ["channels"]
+  },
+  "x-examples": { "positive": [{}], "negative": [{ "kind": "feishu" }] }
+}

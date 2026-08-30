@@ -74,6 +74,21 @@ func TestSensitiveSurfaceReason(t *testing.T) {
 	}
 }
 
+func TestFilePickerHandoffLeavesUACHidden(t *testing.T) {
+	if got := SensitiveObserveHide("用户账户控制", "consent.exe", "#32770", []string{"是", "否"}); got != "uac dialog" {
+		t.Fatalf("UAC observe hide = %q", got)
+	}
+	if got := SensitiveObserveHide("另存为", "winword.exe", "#32770", []string{"保存", "取消"}); got != "" {
+		t.Fatalf("file picker should stay visible to observe, got %q", got)
+	}
+	if got := FilePickerHandoff("另存为", "winword.exe", "#32770", []string{"保存", "取消"}); got != FilePickerUserPrompt {
+		t.Fatalf("handoff = %q", got)
+	}
+	if got := FilePickerHandoff("要保存更改吗？", "notepad.exe", "#32770", []string{"确定", "取消"}); got != "" {
+		t.Fatalf("message box must not hand off, got %q", got)
+	}
+}
+
 func TestIsConfirmButton(t *testing.T) {
 	for _, cap := range []string{"OK", "Yes", "确定", "确认", "是", "&OK"} {
 		if !IsConfirmButton(cap) {

@@ -58,6 +58,32 @@ func TestRepoGuidanceWalksUpToRepoRoot(t *testing.T) {
 	}
 }
 
+func TestRepoGuidanceChainsNestedAgentsMarkdown(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("ROOT-RULE keep tests."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "apps", "web")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "AGENTS.md"), []byte("NEAR-RULE prefer CSS modules."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := repoGuidanceInjection(nested)
+	rootAt := strings.Index(got, "ROOT-RULE")
+	nearAt := strings.Index(got, "NEAR-RULE")
+	if rootAt < 0 || nearAt < 0 || nearAt < rootAt {
+		t.Fatalf("want git-root then nearer last, got %s", got)
+	}
+	if !strings.Contains(got, "apps/web") && !strings.Contains(got, `apps\web`) {
+		t.Fatalf("nested label missing: %s", got)
+	}
+}
+
 func TestRepoGuidanceDoesNotWalkPastMissingGit(t *testing.T) {
 	if got := repoGuidanceInjection(t.TempDir()); got != "" {
 		t.Fatalf("want empty without git/AGENTS, got %q", got)

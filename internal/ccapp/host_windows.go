@@ -70,6 +70,7 @@ const (
 	smYVIRTUALSCREEN  = 77
 	smCXVIRTUALSCREEN = 78
 	smCYVIRTUALSCREEN = 79
+	smCMonitors       = 80
 
 	inputMouse    = 0
 	inputKeyboard = 1
@@ -188,6 +189,15 @@ func (h *windowsHost) ScreenSize() (int, int) {
 		return int(int32(cw)), int(int32(ch))
 	}
 	return w, hgt
+}
+
+func (h *windowsHost) ScreenCount() int {
+	n, _, _ := procGetSystemMetrics.Call(uintptr(smCMonitors))
+	count := int(int32(n))
+	if count < 1 {
+		return 1
+	}
+	return count
 }
 
 func virtualScreenRect() (x, y, w, h int) {
@@ -402,6 +412,9 @@ func (h *windowsHost) EnsureForeground() error {
 	if hwnd == 0 {
 		return nil
 	}
+	if isCompanionProcess(windowProcessName(hwnd)) {
+		return nil
+	}
 	forceForeground(hwnd)
 	return nil
 }
@@ -467,6 +480,48 @@ func (h *windowsHost) KeyboardShortcut(keys []string) error {
 	return sendKeys(events)
 }
 
+func (h *windowsHost) HoldKey(key string, down bool) error {
+	vk, ok := virtualKeyCodes[key]
+	if !ok {
+		return fmt.Errorf("unknown key %q", key)
+	}
+	ev := keyEvent{Type: inputKeyboard, WVk: vk}
+	if !down {
+		ev.Flag = keyEventfKeyUp
+	}
+	return sendKeys([]keyEvent{ev})
+}
+
+func windowProcessName(hwnd uintptr) string {
+	if hwnd == 0 {
+		return ""
+	}
+	var pid uint32
+	_, _, _ = procGetWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	if pid == 0 {
+		return ""
+	}
+	handle, _, _ := procOpenProcess.Call(processQueryLimitedInformation, 0, uintptr(pid))
+	if handle == 0 {
+		return ""
+	}
+	defer procCloseHandle.Call(handle)
+	pbuf := make([]uint16, 1024)
+	pn := uint32(len(pbuf))
+	if ok, _, _ := procQueryFullProcessImg.Call(handle, 0,
+		uintptr(unsafe.Pointer(&pbuf[0])), uintptr(unsafe.Pointer(&pn))); ok == 0 {
+		return ""
+	}
+	full := windows.UTF16ToString(pbuf[:pn])
+	for i := len(full) - 1; i >= 0; i-- {
+		if full[i] == '\\' || full[i] == '/' {
+			full = full[i+1:]
+			break
+		}
+	}
+	return full
+}
+
 func (h *windowsHost) ActiveWindow() (string, string, error) {
 	hwnd, _, _ := procGetForegroundWindow.Call()
 	if hwnd == 0 {
@@ -475,29 +530,7 @@ func (h *windowsHost) ActiveWindow() (string, string, error) {
 	buf := make([]uint16, 512)
 	n, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	title := windows.UTF16ToString(buf[:n])
-	process := ""
-	var pid uint32
-	_, _, _ = procGetWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-	if pid != 0 {
-		if handle, _, _ := procOpenProcess.Call(processQueryLimitedInformation,
-			0, uintptr(pid)); handle != 0 {
-			defer procCloseHandle.Call(handle)
-			pbuf := make([]uint16, 1024)
-			pn := uint32(len(pbuf))
-			if ok, _, _ := procQueryFullProcessImg.Call(handle, 0,
-				uintptr(unsafe.Pointer(&pbuf[0])), uintptr(unsafe.Pointer(&pn))); ok != 0 {
-				full := windows.UTF16ToString(pbuf[:pn])
-				for i := len(full) - 1; i >= 0; i-- {
-					if full[i] == '\\' || full[i] == '/' {
-						full = full[i+1:]
-						break
-					}
-				}
-				process = full
-			}
-		}
-	}
-	return title, process, nil
+	return title, windowProcessName(hwnd), nil
 }
 
 func forceForeground(hwnd uintptr) {

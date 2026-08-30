@@ -54,6 +54,7 @@ function bridges(decide = vi.fn()) {
     threadTyping: vi.fn(),
     groupCreate: vi.fn(),
     fileDecide: decide,
+    fileOpen: vi.fn(),
     fileStage: vi.fn(),
     filePick: vi.fn(),
     screenCapture: vi.fn(),
@@ -163,6 +164,22 @@ describe('PeoplePage', () => {
     expect(within(sheet).getByText('secret.txt')).toBeInTheDocument()
     await user.click(within(sheet).getByRole('button', { name: '确认保存到本机' }))
     expect(decide).toHaveBeenCalledWith({ offerId: fileMsg.offerId, accept: true })
+  })
+
+  test('accepted file can be opened via people.file.open', async () => {
+    const accepted = {
+      ...fileMsg, offerStatus: 'accepted' as const, destPath: 'C:/inbox/secret.txt',
+    }
+    const fileOpen = vi.fn().mockResolvedValue({ opened: accepted.destPath })
+    const { identity, people } = bridges()
+    people.fileOpen = fileOpen
+    people.threadOpen = vi.fn().mockResolvedValue({ thread, messages: [accepted] })
+    people.threadList = vi.fn().mockResolvedValue({ items: [{ ...thread, lastMessage: accepted, unreadCount: 0 }] })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    await user.click(await screen.findByRole('button', { name: '打开' }))
+    expect(fileOpen).toHaveBeenCalledWith({ destPath: 'C:/inbox/secret.txt' })
   })
 
   test('contacts search filters the org tree', async () => {

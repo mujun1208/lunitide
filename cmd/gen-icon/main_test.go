@@ -27,15 +27,51 @@ func TestRenderMoonMarkHasGapAndCloudLine(t *testing.T) {
 	}
 	cloudY := 256 * 78 / 100
 	foundCloud := false
-	for dx := -50; dx <= 50; dx++ {
-		c := img.RGBAAt(128+dx, cloudY)
-		if c.A > 40 && c.B >= c.R {
-			foundCloud = true
-			break
+	for y := 256 * 74 / 100; y <= 256*84/100; y++ {
+		for dx := -50; dx <= 50; dx++ {
+			c := img.RGBAAt(128+dx, y)
+			if c.A > 40 && c.R >= 200 {
+				foundCloud = true
+				break
+			}
 		}
 	}
 	if !foundCloud {
 		t.Fatalf("cloud line missing around y=%d", cloudY)
+	}
+	assertNoBlueCloudOnMoon(t, img)
+}
+
+func assertNoBlueCloudOnMoon(t *testing.T, img *image.RGBA) {
+	t.Helper()
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	moonBottom := b.Min.Y + h*58/100
+	for y := b.Min.Y; y < moonBottom; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			c := img.RGBAAt(x, y)
+			if c.A < 80 {
+				continue
+			}
+			if int(c.B) > int(c.R)+40 && int(c.B) > int(c.G)+20 {
+				t.Fatalf("saturated blue cloud covers moon at (%d,%d) rgba=%d,%d,%d,%d", x, y, c.R, c.G, c.B, c.A)
+			}
+		}
+	}
+	x := b.Min.X + w/2
+	y0 := b.Min.Y + h*74/100
+	y1 := b.Min.Y + h*84/100
+	foundPale := false
+	for y := y0; y <= y1; y++ {
+		for dx := -w / 5; dx <= w/5; dx++ {
+			c := img.RGBAAt(x+dx, y)
+			if c.A > 40 && c.R >= 200 && c.G >= 210 {
+				foundPale = true
+			}
+		}
+	}
+	if !foundPale {
+		t.Fatalf("pale cloud line missing around y=%d-%d", y0, y1)
 	}
 }
 
@@ -92,6 +128,35 @@ func TestWriteICOUsesPNGFrames(t *testing.T) {
 	}
 }
 
+func TestPNGRoundtripKeepsPaleCloud(t *testing.T) {
+	src := knockOutMoonHalo(knockOutBlack(renderMoonMark(256)))
+	path := filepath.Join(t.TempDir(), "mark.png")
+	if err := writePNG(path, src); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadPNG(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var srcPeak, gotPeak color.RGBA
+	for y := 256 * 74 / 100; y <= 256*84/100; y++ {
+		for x := 256 * 30 / 100; x <= 256*70/100; x++ {
+			c := src.RGBAAt(x, y)
+			if c.A >= srcPeak.A && c.R >= 200 {
+				srcPeak = c
+			}
+			d := got.RGBAAt(x, y)
+			if d.A >= gotPeak.A {
+				gotPeak = d
+			}
+		}
+	}
+	t.Logf("src peak=%v got peak=%v", srcPeak, gotPeak)
+	if gotPeak.A < 40 || gotPeak.R < 180 {
+		t.Fatalf("png roundtrip lost pale cloud: src=%v got=%v", srcPeak, gotPeak)
+	}
+}
+
 func TestRepoIconHasTransparentFill(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -131,14 +196,19 @@ func TestRepoIconHasTransparentFill(t *testing.T) {
 	}
 	yCloud := img.Bounds().Min.Y + img.Bounds().Dy()*78/100
 	foundCloud := false
-	for dx := -img.Bounds().Dx() / 5; dx <= img.Bounds().Dx()/5; dx++ {
-		c := img.RGBAAt(x+dx, yCloud)
-		if c.A > 40 && c.B >= c.R {
-			foundCloud = true
-			break
+	y0 := img.Bounds().Min.Y + img.Bounds().Dy()*74/100
+	y1 := img.Bounds().Min.Y + img.Bounds().Dy()*84/100
+	for y := y0; y <= y1; y++ {
+		for dx := -img.Bounds().Dx() / 5; dx <= img.Bounds().Dx()/5; dx++ {
+			c := img.RGBAAt(x+dx, y)
+			if c.A > 40 && c.R >= 200 {
+				foundCloud = true
+				break
+			}
 		}
 	}
 	if !foundCloud {
 		t.Fatalf("faint cloud line missing around y=%d", yCloud)
 	}
+	assertNoBlueCloudOnMoon(t, img)
 }

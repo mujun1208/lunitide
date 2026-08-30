@@ -58,20 +58,26 @@ func TestFullDiskChatWritesAbsolutePaths(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetToolRuntime(tools)
 
-	// By default (no policy file), full-access mode allows absolute paths.
 	desktop := filepath.Join(t.TempDir(), "Desktop", "note.txt")
 	args, _ := json.Marshal(map[string]any{"path": filepath.ToSlash(desktop), "content": "hi"})
+	if _, err = e.executeUserTool(context.Background(), executionModeFullAccess, "s01", "workspace.write", args); err == nil {
+		t.Fatal("missing command-policy.json must not allow absolute writes")
+	}
+
+	resp := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":true}`))
+	if !resp.OK {
+		t.Fatalf("set fullAccess=true rejected: %+v", resp.Error)
+	}
 	if _, err = e.executeUserTool(context.Background(), executionModeFullAccess, "s01", "workspace.write", args); err != nil {
-		t.Fatalf("full-access default absolute write: %v", err)
+		t.Fatalf("explicit fullAccess absolute write: %v", err)
 	}
 	if b, rerr := os.ReadFile(desktop); rerr != nil || string(b) != "hi" {
 		t.Fatalf("desktop write content = %q err=%v", string(b), rerr)
 	}
 
-	// Explicitly opting out of full-disk should confine again.
-	resp := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":false}`))
-	if !resp.OK {
-		t.Fatalf("set fullAccess=false rejected: %+v", resp.Error)
+	off := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":false}`))
+	if !off.OK {
+		t.Fatalf("set fullAccess=false rejected: %+v", off.Error)
 	}
 	desktop2 := filepath.Join(t.TempDir(), "Desktop", "note2.txt")
 	args2, _ := json.Marshal(map[string]any{"path": filepath.ToSlash(desktop2), "content": "hi"})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -203,6 +204,22 @@ func TestPeopleHandlersUnavailableWithoutServices(t *testing.T) {
 	if resp.OK || resp.Error == nil || resp.Error.Code != "STORAGE_UNAVAILABLE" {
 		t.Fatalf("unwired list = %+v", resp)
 	}
+	open := peopleCall(t, e, "people.file.open", map[string]any{"destPath": "C:/inbox/note.txt"})
+	if open.OK || open.Error == nil || open.Error.Code != "STORAGE_UNAVAILABLE" {
+		t.Fatalf("unwired open = %+v", open)
+	}
+}
+
+func TestPeopleFileOpenRejectsPathOutsideInbox(t *testing.T) {
+	e, _, _ := newPeopleEngine(t)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("no"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resp := peopleCall(t, e, "people.file.open", map[string]any{"destPath": outside})
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("outside open = %+v", resp)
+	}
 }
 
 func TestPeopleGroupRejectsDiscoveredPeer(t *testing.T) {
@@ -303,6 +320,7 @@ func (h peopleCaptureHost) MouseDrag(int, int, int, int) error {
 }
 func (h peopleCaptureHost) KeyboardType(string) error       { return nil }
 func (h peopleCaptureHost) KeyboardShortcut([]string) error { return nil }
+func (h peopleCaptureHost) HoldKey(string, bool) error      { return nil }
 func (h peopleCaptureHost) MouseScroll(int) error           { return nil }
 func (h peopleCaptureHost) MouseScrollH(int) error          { return nil }
 func (h peopleCaptureHost) EnsureForeground() error         { return nil }

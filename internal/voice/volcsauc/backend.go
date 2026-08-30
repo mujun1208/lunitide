@@ -114,7 +114,7 @@ func dial(ctx context.Context, cfg Config, optimized bool) (*websocket.Conn, err
 	}
 	fn := cfg.Dial
 	if fn == nil {
-		if !AllowedSpeechHost(hostOf(cfg.BaseURL)) {
+		if !AllowedSpeechHost(speechHost(cfg.BaseURL)) {
 			return nil, fmt.Errorf("%w: unsupported volc speech host", voice.ErrBackendUnavailable)
 		}
 		fn = defaultDial

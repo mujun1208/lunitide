@@ -174,3 +174,44 @@ it('starts companion turns with the model selected on the home page', async () =
   await waitFor(() => expect(start).toHaveBeenCalledOnce())
   expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'm-two' })
 })
+
+it('interrupt then a new spoken line starts a fresh companion chat.start', async () => {
+  const start = vi.fn().mockImplementation(async (_payload: unknown, onEvent: (event: { type: string }) => void) => ({
+    streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAZ',
+    cancel: async () => { onEvent({ type: 'cancelled' }) },
+    dispose: vi.fn(),
+  }))
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={messages}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('打开桌面协议')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  await waitFor(() => expect(stage.querySelector('.companion-interrupt')).not.toBeDisabled())
+  fireEvent.click(stage.querySelector('.companion-interrupt') as HTMLButtonElement)
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('有没有打开协议')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
+  expect(start.mock.calls[1][0]).toMatchObject({ companion: true, messages: [{ role: 'user', content: '有没有打开协议' }] })
+})
