@@ -29,7 +29,7 @@ func (e *Engine) settingsPlaneToolDefinitions() []gateway.ToolDefinition {
 	if e.m8plugin != nil {
 		defs = append(defs,
 			gateway.ToolDefinition{Name: "plugin.search", Description: "Search locally known plugins (market source degrades to the installed catalogue)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200},"kind":{"type":"string"}},"required":["query"],"additionalProperties":false}`)},
-			gateway.ToolDefinition{Name: "plugin.install", Description: "Install a plugin: origin is market, local, or dev; source is the market item id or a local package path", Schema: []byte(`{"type":"object","properties":{"origin":{"type":"string","enum":["market","local","dev"]},"source":{"type":"string","minLength":1,"maxLength":512}},"required":["origin","source"],"additionalProperties":false}`)},
+			gateway.ToolDefinition{Name: "plugin.install", Description: "Toggle a named harness roster card (web-search, git, clipboard, …). This does not download Cordis/TypeScript packages and does not add Git or Python. origin is market, local, or dev; source is the roster id.", Schema: []byte(`{"type":"object","properties":{"origin":{"type":"string","enum":["market","local","dev"]},"source":{"type":"string","minLength":1,"maxLength":512}},"required":["origin","source"],"additionalProperties":false}`)},
 		)
 	}
 	return defs

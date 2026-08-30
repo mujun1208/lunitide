@@ -31,7 +31,6 @@ import { startLocalCompanionSpeech } from './localSpeech'
 import { startVolcCompanionSpeech } from './volc/volcSpeech'
 import { VOLC_ASR_DECISION_MS } from './volc/volcAsr'
 import { pickDefaultVoice } from '../../provider/modelKind'
-import { CompanionPrompts, shouldShowCompanionPrompts } from './CompanionPrompts'
 import { UserAskWizard } from '../UserAskWizard'
 import type { UserAskPack } from '../userAsk'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
@@ -49,7 +48,9 @@ import {
   type CompanionSpeechOptions,
 } from './speech'
 import { getTtsAudioState, TtsPlayer, unlockTtsAudio } from './ttsPlayer'
-import { prepareCompanionEntry } from './prepareCompanionEntry'
+import { prepareCompanionEntry, pendingCompanionLights } from './prepareCompanionEntry'
+import { CompanionEntryLights } from './CompanionEntryLights'
+import type { CompanionEntryReport } from './companionLights'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, companionSurfaceState, companionStatusLabel } from './useCompanionMachine'
@@ -101,6 +102,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   const machine = useCompanionMachine()
   const [settings, setSettings] = useState<CompanionSettings>(defaultCompanionSettings())
   const [ttsAvailable, setTtsAvailable] = useState<boolean | undefined>(undefined)
+  const [entryLights, setEntryLights] = useState<CompanionEntryReport['lights']>(pendingCompanionLights)
+  const [entryBlock, setEntryBlock] = useState('')
+  const allowListenRef = useRef(false)
+  const entryBlockRef = useRef('')
   const [voices, setVoices] = useState<TtsVoice[]>([])
   const [degraded, setDegraded] = useState(false)
   const [circuitBroken, setCircuitBroken] = useState(false)
@@ -190,9 +195,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     player.configure(stored.voiceId || '', stored.rate, stored.volume, {
       engine: stored.engine,
       refEndpoint: stored.refEndpoint,
-      lockEngine: true,
     })
-    player.enqueue([line], { ...stored, voiceId: stored.voiceId || '', lockEngine: true }, {
+    player.enqueue([line], { ...stored, voiceId: stored.voiceId || '' }, {
       onFinished: () => {
         if (gen !== padGenRef.current) return
         padActiveRef.current = false
@@ -674,6 +678,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       // instead of reading 「桌面主机正忙」 as if the model refused the turn.
       if (infraBusy && chatStatus === 'failed') {
         handledReplyRef.current = true
+        const busyLine = '桌面正忙，我稍后再试。'
+        setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: busyLine }))
         if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
         else if (stateRef.current === 'speaking') {
           playerRef.current?.interrupt()
@@ -681,6 +687,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           setAssistantAloud(false)
           setGain(0)
           machine.dispatch({ type: 'INTERRUPT' })
+        }
+        if (ttsAvailable !== false && settings.autoSpeak && !userInterruptedRef.current) {
+          speak(busyLine)
         }
         return
       }
@@ -775,7 +784,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     // used to poison accumulateSpeakableCaption and replay the whole reply.
     if (assistantText.trim()) return
     setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: line }))
-    const spoken = companionExecutingSpeech()
+    const spoken = companionExecutingSpeech(line)
     if (spoken === lastActivitySpokenRef.current) return
     lastActivitySpokenRef.current = spoken
     if (stateRef.current === 'speaking') machine.dispatch({ type: 'AWAIT_MORE' })
@@ -1155,6 +1164,14 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
 
   const startListening = useCallback((auto: boolean) => {
     if (exitedRef.current) return
+    if (!chatReadyRef.current) {
+      setEngineHint('对话模型还没就绪。配好模型后再进入月伴，不会空听。')
+      return
+    }
+    if (!allowListenRef.current) {
+      setEngineHint(entryBlockRef.current || '听、说、想还没齐，不会空听。')
+      return
+    }
     setLocalError(undefined)
     setEngineHint('')
     unlockTtsAudio()
@@ -1231,10 +1248,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             void startLocalCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
             return
           }
-          activeRecognizerRef.current = 'cloud'
-          setAsrRoute('cloud')
-          setEngineHint('火山听写连不上，已改用系统识别')
-          void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
+          setEngineHint('火山听写连不上。已选火山卡，不会改用系统识别。请检查语音模型密钥。VOICE-004')
+          if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
           return
         }
         if (activeRecognizerRef.current === 'local' && companionListenKind(settingsRef.current.voicePath, settingsRef.current.recognizer) === 'auto') {
@@ -1319,11 +1334,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
             await openLocal()
             return
           } catch {
-            /* keep going to system recognition */
+            /* explicit 火山 must not fall through to Web Speech */
           }
         }
-        setEngineHint('火山听写连不上，已改用系统识别')
-        void openCloud().catch(abandon)
+        setEngineHint('火山听写连不上。已选火山卡，不会改用系统识别。请检查语音模型密钥。VOICE-004')
+        openingListenRef.current = false
       }
 
       if (listenKind === 'volc') {
@@ -1587,18 +1602,23 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   startListeningRef.current = startListening
 
   useEffect(() => {
-    if (autoStartTriedRef.current) return
+    if (!chatReady || autoStartTriedRef.current) return
     autoStartTriedRef.current = true
-    const timer = window.setTimeout(() => {
-      if (!exitedRef.current && stateRef.current === 'idle') startListeningRef.current(true)
-    }, 0)
     void prepareCompanionEntry(settingsRef.current).then(prepared => {
       if (exitedRef.current) return
       setSettings(prepared.settings)
       settingsRef.current = prepared.settings
+      setEntryLights(prepared.lights)
+      setEntryBlock(prepared.blockReason)
+      entryBlockRef.current = prepared.blockReason
+      allowListenRef.current = prepared.allowListen
+      if (!prepared.allowListen) {
+        setLocalError(new BridgeClientError(prepared.blockReason || '听、说、想还没齐，不会空听。', 'CHAT_CONFIG_MISSING', false, 'engine'))
+        return
+      }
+      if (stateRef.current === 'idle') startListeningRef.current(true)
     })
-    return () => window.clearTimeout(timer)
-  }, [])
+  }, [chatReady])
 
   const stopAssistantAndListen = useCallback(() => {
     const state = stateRef.current
@@ -1778,6 +1798,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           </button>
         </div>
       )}
+      {(localError ?? error) && (localError ?? error)!.code === 'CHAT_CONFIG_MISSING' && (
+        <div className="companion-banner warn" role="status">
+          {(localError ?? error)!.message}
+        </div>
+      )}
       {(localError ?? error) &&
         (localError ?? error)!.code !== 'CHAT_CONFIG_MISSING' && (
         <div className="companion-banner error" role="alert">
@@ -1785,11 +1810,17 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           <span>代码 {(localError ?? error)!.code}</span>
         </div>
       )}
-      {!chatReady && machine.state === 'listening' && (
+      {!chatReady && (
         <div className="companion-banner warn" role="status">
-          正在连接模型…请稍候，说完后会自动发送
+          对话模型还没就绪。配好模型后再进入月伴，不会空听。
         </div>
       )}
+      {ttsAvailable === false && (
+        <div className="companion-banner warn" role="status">
+          朗读挂了，听写还在。可以看字幕。
+        </div>
+      )}
+      <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       <MoonSphere
         state={surfaceState}
         gain={gain}
@@ -1797,16 +1828,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         enter={enter}
         interruptible={surfaceState !== 'listening'}
         onInterrupt={surfaceState === 'speaking' || surfaceState === 'thinking' || machine.state === 'speaking' || machine.state === 'thinking' ? interruptAssistant : toggleMic}
-      />
-      <CompanionPrompts
-        visible={shouldShowCompanionPrompts({
-          state: surfaceState,
-          hasUserRound: rounds.some(round => round.role === 'user'),
-          hasInterim: !!interimText.trim(),
-          voiceHeard,
-        })}
-        language={zh ? 'zh' : 'en'}
-        onPick={beginUserTurn}
       />
       {userAsk && onUserAsk && (
         <UserAskWizard pack={userAsk} busy={chatStatus === 'streaming'} onSubmit={onUserAsk} />
@@ -1874,7 +1895,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
               进入后即可说话；你说的话和月汐的回答都会在这里显示。
             </p>
           )}
-          {machine.state === 'listening' && engineHint && (
+          {engineHint && (
             <p className="companion-subtitle-hint warn">{engineHint}</p>
           )}
           {deafRecognizer && (

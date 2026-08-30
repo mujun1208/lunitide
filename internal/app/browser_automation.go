@@ -14,6 +14,19 @@ import (
 
 const playwrightPackage = "@playwright/mcp"
 
+type browserActCall struct {
+	Op        string `json:"op"`
+	URL       string `json:"url"`
+	Selector  string `json:"selector"`
+	Text      string `json:"text"`
+	Key       string `json:"key"`
+	Direction string `json:"direction"`
+	MS        int    `json:"ms"`
+	Accept    *bool  `json:"accept"`
+	Tab       string `json:"tab"`
+	Index     *int   `json:"index"`
+}
+
 func (e *Engine) playwrightEndpoint() (endpointID string, ok bool) {
 	if e == nil || e.mcp6Registry == nil {
 		return "", false
@@ -26,18 +39,43 @@ func (e *Engine) playwrightEndpoint() (endpointID string, ok bool) {
 	return "", false
 }
 
+func playwrightToolNames(op string) []string {
+	switch op {
+	case "click":
+		return []string{"browser_click", "click"}
+	case "type":
+		return []string{"browser_type", "type"}
+	case "snapshot":
+		return []string{"browser_snapshot", "snapshot"}
+	case "navigate":
+		return []string{"browser_navigate", "browser_goto", "navigate"}
+	case "scroll":
+		return []string{"browser_scroll", "scroll"}
+	case "back":
+		return []string{"browser_navigate_back", "browser_back", "navigate_back"}
+	case "hover":
+		return []string{"browser_hover", "hover"}
+	case "select":
+		return []string{"browser_select_option", "select_option"}
+	case "press":
+		return []string{"browser_press_key", "browser_press", "press_key", "press"}
+	case "tabs":
+		return []string{"browser_tabs", "tabs"}
+	case "wait":
+		return []string{"browser_wait_for", "browser_wait", "wait_for"}
+	case "dialog":
+		return []string{"browser_handle_dialog", "handle_dialog"}
+	default:
+		return nil
+	}
+}
+
 func (e *Engine) findPlaywrightTool(op string) (endpointID, tool string, ok bool) {
 	if e == nil || e.mcp6Registry == nil {
 		return "", "", false
 	}
-	want := map[string][]string{
-		"click":    {"browser_click", "click"},
-		"type":     {"browser_type", "type"},
-		"snapshot": {"browser_snapshot", "snapshot"},
-		"navigate": {"browser_navigate", "browser_goto", "navigate"},
-	}
-	candidates, ok := want[op]
-	if !ok {
+	candidates := playwrightToolNames(op)
+	if len(candidates) == 0 {
 		return "", "", false
 	}
 	endpoint, ready := e.playwrightEndpoint()
@@ -78,7 +116,17 @@ func (e *Engine) ensurePlaywrightMCP(ctx context.Context) bool {
 	return false
 }
 
-func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector, text, pageURL string) (toolruntime.Result, error) {
+func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browserActCall) (toolruntime.Result, error) {
+	op := strings.TrimSpace(call.Op)
+	if op == "scroll" {
+		if _, _, ok := e.findPlaywrightTool("scroll"); !ok {
+			key := "PageDown"
+			if strings.EqualFold(call.Direction, "up") {
+				key = "PageUp"
+			}
+			return e.invokeBrowserActViaPlaywright(ctx, browserActCall{Op: "press", Key: key})
+		}
+	}
 	endpointID, tool, ok := e.findPlaywrightTool(op)
 	if !ok {
 		if !e.ensurePlaywrightMCP(ctx) {
@@ -89,31 +137,8 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector
 			return toolruntime.Result{}, nil
 		}
 	}
-	args := map[string]any{}
-	switch op {
-	case "click":
-		if strings.TrimSpace(selector) == "" {
-			return toolruntime.Result{}, nil
-		}
-		args["element"] = selector
-		args["selector"] = selector
-	case "type":
-		if strings.TrimSpace(text) == "" {
-			return toolruntime.Result{}, nil
-		}
-		args["text"] = text
-		if strings.TrimSpace(selector) != "" {
-			args["element"] = selector
-			args["selector"] = selector
-		}
-	case "navigate":
-		if strings.TrimSpace(pageURL) == "" {
-			return toolruntime.Result{}, nil
-		}
-		args["url"] = strings.TrimSpace(pageURL)
-	case "snapshot":
-		// pass-through
-	default:
+	args, skip := playwrightArgs(call)
+	if skip {
 		return toolruntime.Result{}, nil
 	}
 	raw, _ := json.Marshal(args)
@@ -121,11 +146,103 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, op, selector
 	if err != nil {
 		return toolruntime.Result{}, err
 	}
-	snap := ""
-	if op != "snapshot" {
-		snap = e.playwrightSnapshotFollowup(ctx)
+	if browserActNeedsSnapshot(call) {
+		snap := e.playwrightSnapshotFollowup(ctx)
+		return toolruntime.Result{Output: appendPostActSnapshot(op, out, snap)}, nil
 	}
-	return toolruntime.Result{Output: appendPostActSnapshot(op, out, snap)}, nil
+	return toolruntime.Result{Output: strings.TrimSpace(out)}, nil
+}
+
+func playwrightArgs(call browserActCall) (map[string]any, bool) {
+	args := map[string]any{}
+	selector := strings.TrimSpace(call.Selector)
+	text := strings.TrimSpace(call.Text)
+	switch strings.TrimSpace(call.Op) {
+	case "click", "hover":
+		if selector == "" {
+			return nil, true
+		}
+		args["element"] = selector
+		args["selector"] = selector
+	case "type":
+		if text == "" {
+			return nil, true
+		}
+		args["text"] = text
+		if selector != "" {
+			args["element"] = selector
+			args["selector"] = selector
+		}
+	case "select":
+		if selector == "" || text == "" {
+			return nil, true
+		}
+		args["element"] = selector
+		args["selector"] = selector
+		args["values"] = []string{text}
+	case "navigate":
+		if strings.TrimSpace(call.URL) == "" {
+			return nil, true
+		}
+		args["url"] = strings.TrimSpace(call.URL)
+	case "scroll":
+		dir := strings.ToLower(strings.TrimSpace(call.Direction))
+		if dir != "up" {
+			dir = "down"
+		}
+		args["direction"] = dir
+		if selector != "" {
+			args["selector"] = selector
+		}
+	case "press":
+		key := strings.TrimSpace(call.Key)
+		if key == "" {
+			key = text
+		}
+		if key == "" {
+			return nil, true
+		}
+		args["key"] = key
+	case "tabs":
+		action := strings.TrimSpace(call.Tab)
+		if action == "" {
+			action = "list"
+		}
+		args["action"] = action
+		if call.Index != nil {
+			args["index"] = *call.Index
+		}
+	case "wait":
+		if call.MS > 0 {
+			args["time"] = call.MS
+		}
+		if selector != "" {
+			args["selector"] = selector
+			args["text"] = selector
+		}
+	case "dialog":
+		accept := true
+		if call.Accept != nil {
+			accept = *call.Accept
+		}
+		args["accept"] = accept
+	case "snapshot", "back":
+		// pass-through
+	default:
+		return nil, true
+	}
+	return args, false
+}
+
+func browserActNeedsSnapshot(call browserActCall) bool {
+	switch strings.TrimSpace(call.Op) {
+	case "snapshot", "read", "wait", "dialog":
+		return false
+	case "tabs":
+		return strings.TrimSpace(call.Tab) != "" && strings.TrimSpace(call.Tab) != "list"
+	default:
+		return true
+	}
 }
 
 func (e *Engine) playwrightSnapshotFollowup(ctx context.Context) string {

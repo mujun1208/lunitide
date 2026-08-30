@@ -20,8 +20,10 @@ func Render(templateName, title string) (string, error) {
 		return renderPenalty(title), nil
 	case "timer":
 		return renderTimer(title), nil
+	case "checklist":
+		return renderChecklist(title), nil
 	default:
-		return "", fmt.Errorf("unknown html.gen template %q (supported: penalty-shootout, timer)", templateName)
+		return "", fmt.Errorf("unknown html.gen template %q (supported: penalty-shootout, timer, checklist)", templateName)
 	}
 }
 

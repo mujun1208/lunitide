@@ -45,6 +45,19 @@ vi.mock('../../bridge/client', async importOriginal => {
         }),
       synthesize: vi.fn(),
       cancel: vi.fn(),
+      ensureRefEngine: vi.fn().mockResolvedValue({ state: 'online' }),
+    }),
+    getProviderBridge: () => ({
+      list: () => Promise.resolve({
+        items: [{
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+          name: 'Chat',
+          protocol: 'openai_compatible',
+          status: 'enabled',
+          credentialState: 'configured',
+          models: [{ modelId: 'chat', displayName: 'Chat', isDefault: true, kind: 'llm', kindDefault: true }],
+        }],
+      }),
     }),
     automationBridge: { listRuns: () => Promise.resolve({ runs: [] }) },
   }
@@ -167,7 +180,7 @@ test('tools show 执行中 and speak 正在执行 instead of idle chat', async (
   await waitFor(() => expect(statusRegion(container).textContent).toContain('执行中'))
   expect(stateOf(container)).not.toBe('speaking')
   expect(liveLog(container).textContent).toContain('打开桌面文件中')
-  await waitFor(() => expect(tts.enqueueCalls.some(call => call.segments.join('').includes('正在执行'))).toBe(true))
+  await waitFor(() => expect(tts.enqueueCalls.some(call => call.segments.join('').includes('打开桌面文件'))).toBe(true))
 })
 
 test('failed desktop work speaks 无法执行 and shows the reason', async () => {
@@ -210,6 +223,7 @@ test('HOST_BUSY is not spoken as 无法执行', async () => {
   })
   expect(liveLog(container).textContent ?? '').not.toContain('无法执行')
   expect(tts.speakCalls.some(call => call.segments.join('').includes('无法执行'))).toBe(false)
+  await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('桌面正忙'))).toBe(true))
 })
 
 test('playback end clears 说话中 and resumes listen for the rest of the reply', async () => {

@@ -176,6 +176,10 @@ func TestMeetingSummaryCandidatesPreferFastLLMs(t *testing.T) {
 	if got[0].Model.ModelID != "qwen-plus" || got[1].Model.ModelID != "deepseek-r1" {
 		t.Fatalf("order = %s %s", got[0].Model.ModelID, got[1].Model.ModelID)
 	}
+	preferred := preferMeetingSummaryModel(got, "deepseek-r1")
+	if preferred[0].Model.ModelID != "deepseek-r1" {
+		t.Fatalf("preferred first = %s", preferred[0].Model.ModelID)
+	}
 }
 
 func TestMeetingsHandlersSummarizeWithCompleter(t *testing.T) {

@@ -4,6 +4,7 @@ import type { CompanionSpeechHandle } from '../session/companion/speech'
 const asr = vi.hoisted(() => ({
   local: vi.fn(),
   web: vi.fn(),
+  volc: vi.fn(),
   probe: vi.fn(),
   capture: vi.fn(),
   handle: (): CompanionSpeechHandle => ({
@@ -22,13 +23,16 @@ vi.mock('../session/companion/speech', async importOriginal => {
   const actual = await importOriginal<typeof import('../session/companion/speech')>()
   return { ...actual, startCompanionSpeech: asr.web }
 })
+vi.mock('../session/companion/volc/volcSpeech', () => ({
+  startVolcCompanionSpeech: (...args: unknown[]) => asr.volc(...args),
+}))
 vi.mock('./meetingCapture', async importOriginal => {
   const actual = await importOriginal<typeof import('./meetingCapture')>()
   return { ...actual, captureThisPcSystemAudio: asr.capture }
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, mixMeetingPcmS16le, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -37,18 +41,42 @@ describe('startMeetingSpeech', () => {
   beforeEach(() => {
     asr.local.mockReset().mockResolvedValue(asr.handle())
     asr.web.mockReset().mockResolvedValue(asr.handle())
+    asr.volc.mockReset().mockResolvedValue(asr.handle())
     asr.probe.mockReset().mockResolvedValue(undefined)
     asr.capture.mockReset()
   })
 
-  test('uses Web Speech when local sherpa is not ready', async () => {
+  test('explicit cloud listen skips sherpa even when it is ready', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'cloud' })
+    expect(asr.web).toHaveBeenCalledOnce()
+    expect(asr.local).not.toHaveBeenCalled()
+  })
+
+  test('explicit volc listen requires a voice provider', async () => {
+    await expect(startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'volc' })).rejects.toThrow(/火山/)
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'volc', volcProviderId: 'p1' })
+    expect(asr.volc).toHaveBeenCalledOnce()
+    expect(asr.web).not.toHaveBeenCalled()
+  })
+
+  test('omitted listen uses system Web Speech even when sherpa is ready', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
     const onFinal = vi.fn()
     await startMeetingSpeech({ onFinal, onError: vi.fn() })
     expect(asr.web).toHaveBeenCalledOnce()
     expect(asr.local).not.toHaveBeenCalled()
+    expect(asr.probe).not.toHaveBeenCalled()
     expect(asr.web.mock.calls[0][0].duplex).toBe(true)
     expect(asr.web.mock.calls[0][0].holdUtterance).toBe(true)
     expect(asr.web.mock.calls[0][0].spokenText()).toBe('')
+  })
+
+  test('explicit local listen refuses Web Speech when sherpa is not ready', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: false })
+    await expect(startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'local' })).rejects.toThrow(/sherpa 未就绪/)
+    expect(asr.web).not.toHaveBeenCalled()
+    expect(asr.local).not.toHaveBeenCalled()
   })
 
   test('never treats companion TTS as meeting speech', async () => {
@@ -56,18 +84,19 @@ describe('startMeetingSpeech', () => {
     expect(asr.web.mock.calls[0][0].spokenText()).toBe('')
   })
 
-  test('prefers companion local ASR when the model is ready', async () => {
+  test('explicit local listen uses sherpa and never falls back to Web Speech', async () => {
     asr.probe.mockResolvedValue({ supported: true, ready: true })
-    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn() })
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'local' })
     expect(asr.local).toHaveBeenCalledOnce()
     expect(asr.web).not.toHaveBeenCalled()
     expect(asr.local.mock.calls[0][0].holdUtterance).toBe(true)
+    expect(MEETING_CATCHUP_HINT).toMatch(/补转写只用本机/)
   })
 
   test('cleans fillers and domain terms on committed meeting lines', async () => {
     asr.probe.mockResolvedValue({ supported: true, ready: true })
     const onFinal = vi.fn()
-    const handle = await startMeetingSpeech({ onFinal, onError: vi.fn() })
+    const handle = await startMeetingSpeech({ onFinal, onError: vi.fn(), listen: 'local' })
     asr.local.mock.calls[0][0].onFinal('呃第一步应该先写 b r d')
     handle.stop()
     expect(onFinal).toHaveBeenCalledOnce()
@@ -77,7 +106,7 @@ describe('startMeetingSpeech', () => {
 
   test('mixes this-PC loopback into local ASR only', async () => {
     asr.probe.mockResolvedValue({ supported: true, ready: true })
-    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), extraStreams: [extra] })
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'local', extraStreams: [extra] })
     expect(asr.local.mock.calls[0][0].extraStreams).toEqual([extra])
     asr.local.mockClear()
     asr.probe.mockResolvedValue(undefined)
@@ -87,7 +116,7 @@ describe('startMeetingSpeech', () => {
 
   test('keeps loopback on the meeting recorder when local ASR is fed external PCM', async () => {
     asr.probe.mockResolvedValue({ supported: true, ready: true })
-    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), extraStreams: [extra], externalPcm: true })
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'local', extraStreams: [extra], externalPcm: true })
     expect(asr.local.mock.calls[0][0].externalPcm).toBe(true)
     expect(asr.local.mock.calls[0][0].extraStreams).toBeUndefined()
   })

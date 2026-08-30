@@ -15,7 +15,7 @@ export function VoicePathPicker({
   return (
     <div className="voice-path-section">
       <p className="voice-path-lead">
-        月伴听写与朗读走哪条通道。云端默认晓晓；火山听写走 seed-asr，朗读仍是晓晓；本机用 sherpa 听写、GPT-SoVITS 克隆音色。
+        月伴听写与朗读走哪条通道，和对话模型不是一回事。云端默认晓晓；火山只要 ASR（seed-asr），朗读仍是晓晓；本机用 sherpa 听写、GPT-SoVITS 克隆音色。豆包 App 里的温柔桃子等是火山 TTS 角色库，和 seed-asr 不是同一份能力，火山通道用不上。
       </p>
       <div
         className="voice-path-picker"

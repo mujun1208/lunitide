@@ -27,9 +27,10 @@ export function companionListenKind(voicePath: VoicePath, recognizer: SpeechReco
  */
 export function companionListenFailover(failed: AsrRoute, preferred: AsrRoute | 'auto', localReady: boolean): AsrRoute {
   if (preferred === 'local') return 'local'
+  if (failed === 'volc' && preferred === 'volc') return localReady ? 'local' : 'volc'
   if (failed === 'volc') return localReady ? 'local' : 'cloud'
   if (failed === 'cloud') return localReady ? 'local' : preferred === 'volc' ? 'volc' : 'cloud'
-  if (failed === 'local') return preferred === 'volc' ? 'cloud' : 'cloud'
+  if (failed === 'local') return preferred === 'volc' ? 'volc' : 'cloud'
   return failed
 }
 

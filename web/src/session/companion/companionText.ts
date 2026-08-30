@@ -81,7 +81,7 @@ export function cleanForSpeech(raw: string): string {
   // Collapse the whitespace left behind.
   text = text.replace(/[ \t]+/g, ' ')
   text = text.replace(/\n{2,}/g, '\n')
-  return text.trim()
+  return stripOralFillers(text.trim())
 }
 
 export function segmentForSpeech(cleaned: string): string[] {
@@ -156,6 +156,21 @@ export function compactSpeech(text: string): string {
 const LEADING_FILLERS = /^(?:嗯+|啊+|呃+|那个+|就是说+|就是+|然后+|所以说+|你知道+|怎么说呢)+[，,、\s]*/u
 const MID_FILLERS = /([，,。！？；;])\s*(?:嗯+|啊+|呃+)(?=\s|[，,。！？；;]|$)/gu
 const TRAILING_FILLERS = /[，,、\s]+(?:嗯+|啊+|呃+)\s*$/u
+const FILLER_ONLY = /^(?:嗯+|啊+|呃+)[。.!！？?，,、\s]*$/u
+
+/** Drop oral 嗯/啊/呃 pads. A clip that is only fillers is not spoken. */
+function stripOralFillers(text: string): string {
+  let next = text.trim()
+  if (!next) return ''
+  for (let pass = 0; pass < 3; pass++) {
+    const stripped = next.replace(LEADING_FILLERS, '').replace(MID_FILLERS, '$1').replace(TRAILING_FILLERS, '').trim()
+    if (stripped === next) break
+    next = stripped
+  }
+  next = next.replace(/^[，,、]+|[，,、]+$/g, '').trim()
+  if (FILLER_ONLY.test(next) || /^[。.!！？?，,、\s]*$/u.test(next)) return ''
+  return next
+}
 
 /** Shannon-style local cleanup: drop oral fillers while keeping the user's meaning. */
 /**
@@ -303,8 +318,9 @@ export function companionToolsExecuting(chatStatus: string, activityStatus?: str
   return /中[….…]+$/.test(line)
 }
 
-export function companionExecutingSpeech(): string {
-  return '正在执行。'
+export function companionExecutingSpeech(activity?: string): string {
+  const cleaned = (activity ?? '').replace(/中[….…]+$/u, '').trim()
+  return cleaned ? `${cleaned}。` : '正在执行。'
 }
 
 export function companionCannotExecuteSpeech(reason?: string): string {
@@ -431,12 +447,7 @@ export function cleanUserTranscript(raw: string): string {
   }
   text = correctAsrText(text)
   text = repairOpenCommandTranscript(text)
-  for (let pass = 0; pass < 3; pass++) {
-    const next = text.replace(LEADING_FILLERS, '').replace(MID_FILLERS, '$1').replace(TRAILING_FILLERS, '').trim()
-    if (next === text) break
-    text = next
-  }
-  return text.replace(/^[，,、]+|[，,、]+$/g, '').trim()
+  return stripOralFillers(text)
 }
 
 /** Levenshtein distance for short zh crumbs — bounded so echo checks stay cheap. */

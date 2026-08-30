@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/agentorchestration"
@@ -141,6 +142,7 @@ type Engine struct {
 	adapterCacheMu     sync.Mutex
 	adapterCache       map[string]gateway.Adapter
 	browserLastURL     sync.Map
+	meetingNotesModel  atomic.Value
 	streamsMu          sync.Mutex
 	streams            map[string]*streamState
 	maxStreams         int

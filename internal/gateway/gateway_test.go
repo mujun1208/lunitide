@@ -65,9 +65,18 @@ func response(status int, body string) *http.Response {
 }
 
 func TestVersionPath(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{{"https://x.test", "v1"}, {"https://x.test/root", "v1"}, {"https://x.test/v1", ""}, {"https://x.test/root/v1/", ""}} {
+	for _, tc := range []struct{ in, want string }{
+		{"https://x.test", "v1"},
+		{"https://x.test/root", "v1"},
+		{"https://x.test/v1", ""},
+		{"https://x.test/root/v1/", ""},
+		{"https://ark.cn-beijing.volces.com/api/plan/v3", ""},
+		{"https://ark.cn-beijing.volces.com/api/v3", ""},
+		{"https://ark.cn-beijing.volces.com/api/coding/v3", ""},
+		{"https://ark.cn-beijing.volces.com/api/plan", "v1"},
+	} {
 		if got := versionPath(tc.in); got != tc.want {
-			t.Errorf("versionPath(%q)=%q", tc.in, got)
+			t.Errorf("versionPath(%q)=%q want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -647,7 +647,7 @@ func companionSpeakFallback(result gateway.Response) string {
 	if t := strings.TrimSpace(result.Message.Content); t != "" {
 		return t
 	}
-	return "嗯，我在呢，稍等我一下。"
+	return "我在呢，稍等我一下。"
 }
 
 // companionOpeningAck is spoken immediately when a voice turn starts so the
@@ -1060,13 +1060,13 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "docx.gen", Description: "Generate a print-ready .docx (Chinese 宋体/黑体, Heading 1/2, body, optional quote/caption, 1.5 line spacing). Empty or unstyled single-style bodies are rejected. Reports: kind=report (cover + sections). Novels: kind=novel (title+author, chapter Heading 1, substantial prose — not an outline dump). Call only after the report/novel pipeline. Set desktop=true to write onto the real Desktop. Never build DOCX via Word COM or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .docx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"subtitle":{"type":"string"},"author":{"type":"string"},"kind":{"type":"string","enum":["report","novel","document"]},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","heading2","paragraph","bullet","quote","caption"]},"text":{"type":"string"},"level":{"type":"integer","minimum":1,"maximum":2}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
 		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Every slide needs a visible title; dark backgrounds must use light text. Empty or fill-only slides are rejected. Call this only after the PPT pipeline (outline, copy, two web research passes). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","minLength":1},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
-		{Name: "html.gen", Description: "Generate a built-in single-file HTML app (World Cup penalty shootout, or a countdown timer). Use this for desktop mini-games and timers. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout","timer"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
+		{Name: "html.gen", Description: "Generate a built-in single-file HTML app (World Cup penalty shootout, countdown timer, or a local checklist). Use this for desktop mini-games, timers, and to-do pages. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout","timer","checklist"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
 		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 身份证号码 or 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 身份证号码, 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Never click 我喜欢的音乐 / 收藏. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Full-access mode is enough; the full-disk switch is not required.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "im.send", Description: "Send a message on a configured IM channel (设置 → 消息通道). channel=feishu|wecom|dingtalk uses the pasted https webhook; channel=wechat|qq opens the logged-in desktop client. Pass to= for a contact name when using the desktop client. If the channel is off, tell the user to enable it in Settings.", Schema: []byte(`{"type":"object","properties":{"channel":{"type":"string","enum":["feishu","wecom","dingtalk","wechat","qq"]},"to":{"type":"string","maxLength":80,"description":"optional contact or group name"},"text":{"type":"string","minLength":1,"maxLength":4000}},"required":["channel","text"],"additionalProperties":false}`)},
-		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace; Latin text renders best. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
-		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). click/type/navigate return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read"],"description":"navigate opens url in the managed browser and returns a snapshot; snapshot first if you have no refs; click/type with those refs; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type. Example: user@example.com"}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace. Latin text renders best; Chinese reports should use docx.gen. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
+		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). Most mutating ops return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. Do not use evaluate, file upload, or install. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. After navigate to a music page, click with empty selector falls back to media.play. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read","scroll","back","hover","select","press","tabs","wait","dialog"],"description":"navigate opens url; snapshot first if you have no refs; click/type/hover/select/press use those refs; scroll/back/tabs/wait/dialog are Playwright extras; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type/hover/select. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type, or option value for select"},"key":{"type":"string","description":"Key name for press (e.g. Enter, Escape)"},"direction":{"type":"string","enum":["up","down"],"description":"scroll direction"},"ms":{"type":"integer","minimum":0,"maximum":30000,"description":"wait milliseconds"},"accept":{"type":"boolean","description":"dialog accept=true or dismiss=false"},"tab":{"type":"string","enum":["list","new","close","select"],"description":"tabs action"},"index":{"type":"integer","minimum":0,"description":"tab index for tabs select/close"}},"required":["op"],"additionalProperties":false}`)},
 		{Name: "image.generate", Description: "Generate an image with the configured 生图模型 catalog (default, then backups). Use when the user asks to draw, illustrate, or generate a picture. Prompt is the image description.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Image description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
 		{Name: "video.generate", Description: "Generate a video with the configured 生视频模型 catalog (default, then backups). Use when the user asks to make or generate a video.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Video description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
 		structuredOutputDefinition(),
@@ -1346,9 +1346,6 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 }
 
 func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
-	if e.m8plugin == nil {
-		return toolruntime.Result{}, errors.New("plugin service unavailable")
-	}
 	var a struct {
 		PluginID    string         `json:"pluginId"`
 		Name        string         `json:"name"`
@@ -1366,14 +1363,17 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 	if pluginID == "" || len(pluginID) > 128 {
 		return toolruntime.Result{}, errors.New("pluginId must be 1-128 characters")
 	}
-	if !m8core.ValidPluginKind(a.Kind) {
-		return toolruntime.Result{}, errors.New("invalid plugin kind")
-	}
 	switch strings.ToLower(strings.TrimSpace(a.Kind)) {
 	case "mcp":
 		return toolruntime.Result{}, errors.New("plugin.create 不能安装 MCP。请用 mcp.presets 查看现役预置，再 mcp.install")
 	case "agent-pack":
 		return toolruntime.Result{}, errors.New("plugin.create 不能加载可执行 Agent 包。请用 skill.create 或 expert.create")
+	}
+	if !m8core.ValidPluginKind(a.Kind) {
+		return toolruntime.Result{}, errors.New("invalid plugin kind")
+	}
+	if e.m8plugin == nil {
+		return toolruntime.Result{}, errors.New("plugin service unavailable")
 	}
 	manifest := a.Manifest
 	if manifest == nil {
@@ -1534,18 +1534,14 @@ func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, raw
 }
 
 func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, session string, raw json.RawMessage) (toolruntime.Result, error) {
-	var a struct {
-		Op       string `json:"op"`
-		URL      string `json:"url"`
-		Selector string `json:"selector"`
-		Text     string `json:"text"`
-	}
+	var a browserActCall
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
 		return toolruntime.Result{}, errors.New("browser.act needs op")
 	}
+	playwrightHint := toolruntime.Result{Output: "交互式浏览器自动化正在初始化 Playwright MCP（首次会下载 Chromium，约 1–2 分钟）。若仍失败，请用 media.play 播放音乐，或在设置 → 插件/MCP 检查 Playwright 状态。"}
 	switch a.Op {
-	case "click", "type", "snapshot":
-		if out, err := e.invokeBrowserActViaPlaywright(ctx, a.Op, a.Selector, a.Text, a.URL); err != nil {
+	case "click", "type", "snapshot", "scroll", "back", "hover", "select", "press", "tabs", "wait", "dialog":
+		if out, err := e.invokeBrowserActViaPlaywright(ctx, a); err != nil {
 			return toolruntime.Result{}, err
 		} else if out.Output != "" {
 			return out, nil
@@ -1556,13 +1552,13 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 				return res, nil
 			}
 		}
-		return toolruntime.Result{Output: "交互式浏览器自动化正在初始化 Playwright MCP（首次会下载 Chromium，约 1–2 分钟）。若仍失败，请用 media.play 播放音乐，或在设置 → 插件/MCP 检查 Playwright 状态。"}, nil
+		return playwrightHint, nil
 	case "navigate":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {
 			return toolruntime.Result{}, errors.New("browser.act navigate/read needs url")
 		}
-		if out, err := e.invokeBrowserActViaPlaywright(ctx, "navigate", "", "", u); err != nil {
+		if out, err := e.invokeBrowserActViaPlaywright(ctx, a); err != nil {
 			return toolruntime.Result{}, err
 		} else if out.Output != "" {
 			e.browserLastURL.Store(session, u)
@@ -1591,7 +1587,7 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 		}
 		return out, err
 	default:
-		return toolruntime.Result{}, errors.New("browser.act op must be navigate, read, click, type or snapshot")
+		return toolruntime.Result{}, errors.New("browser.act op must be navigate, read, click, type, snapshot, scroll, back, hover, select, press, tabs, wait or dialog")
 	}
 }
 
