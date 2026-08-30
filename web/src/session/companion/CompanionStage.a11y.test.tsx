@@ -1,5 +1,5 @@
 // CompanionStage.a11y.test.tsx pins the MC-06 acceptance (T-9.5.3.4
-// automatable slice) for the pure-moon voice stage: the full companion
+// automatable slice) for the voice stage: the full companion
 // conversation is operable with zero mouse (stage Space/Enter mic
 // shortcut, moon click, moon-click interrupt vs unconditional Esc exit),
 // every dynamic region
@@ -173,8 +173,8 @@ describe('MC-06 a11y skeleton', () => {
     expect(root.getAttribute('role')).toBe('dialog')
     expect(root.getAttribute('aria-modal')).toBe('true')
     expect(root.getAttribute('aria-label')).toBe('月伴对话舞台')
-    // Decorative starfield is hidden from the accessibility tree.
-    expect(container.querySelector('.companion-stars')?.getAttribute('aria-hidden')).toBe('true')
+    // Decorative aurora is hidden from the accessibility tree.
+    expect(container.querySelector('.companion-aurora')?.getAttribute('aria-hidden')).toBe('true')
     // Status pill + hidden log both announce politely.
     expect(statusRegion(container).getAttribute('aria-live')).toBe('polite')
     expect(liveLog(container).getAttribute('aria-live')).toBe('polite')
@@ -185,12 +185,15 @@ describe('MC-06 a11y skeleton', () => {
     // sr-only hiding was the "conversation never shows" bug.
     expect(subtitles.className).not.toContain('sr-only')
     expect(subtitles.textContent).toContain('进入后即可说话')
-    // The pure-moon stage has no visible chat bar or control toolbar.
+    // The voice stage has no legacy toolbar or typing chrome; Phase 2 adds a glass ask bar.
     expect(container.querySelector('.companion-controls')).toBeNull()
     expect(container.querySelector('.companion-mic')).toBeNull()
     expect(container.querySelector('.companion-typing')).toBeNull()
     expect(container.querySelector('.companion-tts-toggle')).toBeNull()
     expect(container.querySelector('.companion-type-toggle')).toBeNull()
+    const ask = container.querySelector('.companion-ask') as HTMLElement
+    expect(ask).toBeTruthy()
+    expect(ask.querySelector('input')?.getAttribute('aria-label')).toBe('输入想对月汐说的话')
     // Ghost exit stays reachable for assistive tech.
     const exit = container.querySelector('.companion-exit') as HTMLButtonElement
     expect(exit.getAttribute('aria-label')).toBe('退出月伴对话（Esc）')
@@ -230,6 +233,20 @@ describe('MC-06 zero-mouse operation', () => {
     fireEvent.keyDown(container.querySelector('.companion-exit')!, { key: ' ' })
     expect(stateOf(container)).toBe('idle')
     expect(speech.start).not.toHaveBeenCalled()
+  })
+
+  test('Space inside the glass ask bar does not toggle the mic; Enter sends the line', async () => {
+    const onSend = vi.fn()
+    const { container } = await renderStage({ onSend })
+    await waitFor(() => expect(speech.start).toHaveBeenCalled())
+    speech.start.mockClear()
+    const input = container.querySelector('.companion-ask input') as HTMLInputElement
+    fireEvent.keyDown(input, { key: ' ' })
+    expect(stateOf(container)).toBe('idle')
+    expect(speech.start).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: '帮我看一下屏幕上在干什么' } })
+    fireEvent.submit(container.querySelector('.companion-ask') as HTMLFormElement)
+    expect(onSend).toHaveBeenCalledWith('帮我看一下屏幕上在干什么')
   })
 
   test('clicking the moon in idle opens the microphone', async () => {

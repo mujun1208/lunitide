@@ -55,7 +55,10 @@ export function PeoplePage({
   const scroller = useRef<HTMLDivElement>(null)
   const threadIdRef = useRef<string | undefined>(undefined)
   const sending = useRef(false)
+  const cropOpenRef = useRef(false)
+  const grabScreenRef = useRef<() => Promise<void>>(async () => {})
   threadIdRef.current = thread?.threadId
+  cropOpenRef.current = Boolean(cropFile)
 
   const showNotice = (message: string, error = false) => {
     setNotice(message)
@@ -218,37 +221,6 @@ export function PeoplePage({
     }
   }
 
-  const grabDesktop = async () => {
-    if (!threadIdRef.current) {
-      showNotice('请先打开会话', true)
-      return
-    }
-    if (sending.current) {
-      showNotice('正在发送上一条消息，请稍候', true)
-      return
-    }
-    showNotice('正在截取当前桌面…')
-    try {
-      const shot = await captureThisPcFrame({
-        maxBytes: 512 * 1024,
-        nativeCapture: () => people.screenCapture({}),
-      })
-      await send('image', '', shot.file)
-    } catch (e) {
-      const name = e instanceof DOMException ? e.name : ''
-      if (name === 'AbortError' || name === 'NotAllowedError') {
-        showNotice('')
-        return
-      }
-      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code ?? '') : ''
-      if (code === 'PEOPLE_CANCELED' || (e instanceof Error && /取消/.test(e.message))) {
-        showNotice('')
-        return
-      }
-      showNotice(e instanceof Error ? e.message : '无法截取本机画面', true)
-    }
-  }
-
   const grabScreen = async () => {
     if (!threadIdRef.current) {
       showNotice('请先打开会话', true)
@@ -258,6 +230,7 @@ export function PeoplePage({
       showNotice('正在发送上一条消息，请稍候', true)
       return
     }
+    if (cropOpenRef.current) return
     showNotice('拖动鼠标框选要发送的区域…')
     try {
       const shot = await captureThisPcFrame({
@@ -284,6 +257,19 @@ export function PeoplePage({
       showNotice(e instanceof Error ? e.message : '无法截取本机画面', true)
     }
   }
+  grabScreenRef.current = grabScreen
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.ctrlKey || event.metaKey || event.shiftKey || !event.altKey) return
+      if (event.code !== 'KeyA' && event.key.toLowerCase() !== 'a') return
+      if (rail === 'me' || !threadIdRef.current) return
+      event.preventDefault()
+      void grabScreenRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [rail])
 
   const pairPerson = async (peer: PeopleContactDTO) => {
     try {
@@ -455,8 +441,8 @@ export function PeoplePage({
               <input ref={imageRef} hidden type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void send('image', '', file) }} />
               <div className="people-composer-tools">
                 <button type="button" onClick={() => setEmojiOpen(v => !v)} aria-label="表情">☺</button>
-                <button type="button" onClick={() => void grabDesktop()} aria-label="截取桌面" title="截取当前整屏桌面并发送为图片">📷</button>
-                <button type="button" className="people-snip-btn" onClick={() => void grabScreen()} aria-label="框选截图" title="像微信一样框选屏幕区域后发送。右键或 Esc 取消。">
+                <button type="button" onClick={() => void grabScreen()} aria-label="截图" title="框选截图（Alt+A），像微信一样拖选区域后发送。Esc / 右键取消。">📷</button>
+                <button type="button" className="people-snip-btn" onClick={() => void grabScreen()} aria-label="框选截图" title="框选截图（Alt+A）。Esc / 右键取消。">
                   <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                     <rect x="3.5" y="3.5" width="17" height="17" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="3.5 2.5" />
                   </svg>
