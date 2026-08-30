@@ -751,6 +751,10 @@ html,#root{min-height:100%;height:100%;overflow:hidden;overflow-anchor:none;back
 body{background:#03060c;overflow:hidden;overflow-anchor:none;height:100%;min-height:100%}
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 .atmosphere{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;isolation:isolate;contain:paint}
+.atmosphere-aurora{position:absolute;inset:0;z-index:1}
+.atmosphere[data-aurora="webgl"] .nebula,.atmosphere[data-aurora="webgl"] .moon-glow,.atmosphere[data-aurora="webgl"] .ambient-moon,.atmosphere[data-aurora="webgl"] .stars,
+html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .nebula,html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .moon-glow,html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .ambient-moon,html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .stars{display:none}
+.atmosphere[data-aurora="webgl"] .vignette,html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .vignette{opacity:.22}
 .atmosphere .sky{position:absolute;inset:0;z-index:0;background:radial-gradient(ellipse 68% 58% at 70% 18%,rgba(56,104,150,.12),transparent 62%),radial-gradient(ellipse 48% 42% at 30% 85%,rgba(37,70,96,.07),transparent 72%),linear-gradient(180deg,#020609 0%,#040b10 52%,#050d10 100%)}
 .atmosphere .nebula{position:absolute;inset:-20%;z-index:1;opacity:.42;filter:blur(28px);background:radial-gradient(ellipse 22% 55% at 68% 28%,rgba(48,90,128,.09),transparent 70%),radial-gradient(ellipse 40% 12% at 56% 62%,rgba(37,70,96,.07),transparent 72%);transform:rotate(-9deg)}
 .atmosphere .stars{position:absolute;inset:0;z-index:2;opacity:.78}
@@ -795,6 +799,10 @@ html[data-theme="light"] .atmosphere .ambient-moon::before{background:radial-gra
 html[data-theme="light"] .atmosphere .ambient-moon::after{display:none}
 html[data-theme="light"] .atmosphere .ambient-moon i,html[data-theme="light"] .atmosphere .ambient-moon b,html[data-theme="light"] .atmosphere .ambient-moon span,html[data-theme="light"] .atmosphere .stars,html[data-theme="light"] .atmosphere .nebula,html[data-theme="light"] .atmosphere .moon-glow{display:none}
 html[data-theme="light"] .atmosphere .vignette{background:linear-gradient(180deg,transparent 55%,rgba(255,255,255,.28))}
+html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .sky{background:#000}
+html[data-theme="light"] .atmosphere[data-aurora="webgl"] .sky{background:#f7f8fc}
+html[data-theme="light"] .atmosphere[data-aurora="webgl"] .sky::before,html[data-theme="light"] .atmosphere[data-aurora="webgl"] .sky::after{content:none;display:none}
+html[data-theme="light"] .atmosphere[data-aurora="webgl"] .vignette{display:none}
 
 /* ==========================================================================
    M11: White Theme Override (Using Native CSS Variables Instead of Hardcoded Colors)
@@ -803,6 +811,10 @@ html[data-theme="light"] .atmosphere .vignette{background:linear-gradient(180deg
    ========================================================================== */
 html[data-theme="light"] .launch-sidebar{border-color:var(--rule);background:var(--bg2);box-shadow:8px 0 30px rgba(42,100,144,.04)}
 html[data-theme="light"] .launch-content{border-color:var(--rule);background:var(--bg)}
+.launch-content:has(.launch-main),.launch-shell:has(.launch-main){background:transparent}
+html[data-theme="light"] .launch-content:has(.launch-main){background:transparent}
+html[data-theme="light"] .launch-shell:has(.launch-main){background:#f7f8fc}
+.launch-shell:has([data-aurora="webgl"]) .launch-main::before{display:none}
 html[data-theme="light"] .launch-brand b,html[data-theme="light"] .launch-brand em,html[data-theme="light"] .launch-center h1,html[data-theme="light"] .launch-actions b{color:var(--ink)}
 html[data-theme="light"] .primary-actions>button,html[data-theme="light"] .launch-nav button,html[data-theme="light"] .launch-bottom button{color:var(--muted)}
 html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active,html[data-theme="light"] .launch-bottom button.active{background:rgba(0,138,197,.08);color:var(--tide1)}
@@ -1212,6 +1224,52 @@ html.companion-active .drawer-toggle{display:none}
 .companion-stars{position:absolute;inset:0;pointer-events:none}
 .companion-stars i{position:absolute;border-radius:50%;background:#f4fbff;box-shadow:0 0 4px rgba(160,240,255,.95),0 0 10px rgba(0,210,255,.4);animation:companionTwinkle ease-in-out infinite}
 .companion-stars i.bright{background:#fff;box-shadow:0 0 5px 1px rgba(200,250,255,1),0 0 16px 4px rgba(0,220,255,.45),10px 0 2px -1px rgba(180,245,255,.6),-10px 0 2px -1px rgba(180,245,255,.6),0 10px 2px -1px rgba(180,245,255,.55),0 -10px 2px -1px rgba(180,245,255,.55)}
+.companion-aurora{position:absolute;inset:0;pointer-events:none;z-index:0}
+.companion-aurora-canvas,.companion-aurora-fallback{position:absolute;inset:0;width:100%;height:100%;display:block}
+.companion-aurora-fallback{background:radial-gradient(ellipse 80% 50% at 50% 108%,rgba(91,44,255,.32),transparent 58%),radial-gradient(ellipse 70% 42% at 18% 92%,rgba(27,58,122,.5),transparent 52%),radial-gradient(ellipse 58% 34% at 82% 88%,rgba(63,214,255,.2),transparent 52%)}
+.companion-orb-canvas,.companion-strands-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;image-rendering:auto}
+.companion-moon-orb,.companion-moon-strands{position:absolute;inset:-8%;pointer-events:none;z-index:3;opacity:0;transition:opacity .28s ease,transform .2s ease}
+.companion-moon-orb.is-on,.companion-moon-strands.is-on{opacity:1}
+.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:scaleX(1.22)}
+.companion-moon[data-visual="webgl"] .companion-moon-disc{opacity:0}
+.companion-moon[data-visual="webgl"] .companion-moon-body{filter:none}
+.companion-moon[data-visual="webgl"] .companion-moon-halo{
+  z-index:4;
+  inset:-18%;
+  filter:blur(9px);
+  box-shadow:0 0 28px 4px rgba(255,255,255,.28);
+  background:radial-gradient(circle,transparent 70%,rgba(255,255,255,0) 73%,rgba(255,255,255,.92) 78%,rgba(230,244,255,.45) 84%,transparent 91%);
+  animation:companionHaloBreathe 6.4s ease-in-out infinite;
+}
+.companion-moon[data-visual="webgl"] .companion-moon-halo-wave{display:none}
+.companion-moon[data-visual="webgl"].state-listening .companion-moon-halo,
+.companion-moon[data-visual="webgl"].state-thinking .companion-moon-halo,
+.companion-moon[data-visual="webgl"].state-speaking .companion-moon-halo{
+  animation:companionHaloBreathe 6.4s ease-in-out infinite;
+}
+.companion-prompts{position:absolute;top:calc(50% + 20vmin);left:50%;transform:translateX(-50%);z-index:3;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:min(720px,86vw)}
+.companion-prompt{padding:8px 14px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:rgba(10,17,30,.55);color:#d7e6ff;font-size:13px;cursor:pointer}
+.companion-prompt:hover{border-color:rgba(127,180,255,.55);box-shadow:0 0 12px rgba(63,214,255,.2)}
+.companion-prompt:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
+.companion-prompt-fade{animation:companionPromptIn .4s ease}
+@keyframes companionPromptIn{from{opacity:0}to{opacity:1}}
+.reduce-motion .companion-prompt-fade{animation:none}
+.companion-ask{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:8px;width:min(560px,84vw);padding:8px 8px 8px 18px;border:1px solid rgba(180,210,255,.22);border-radius:999px;background:rgba(8,14,26,.42);backdrop-filter:blur(16px) saturate(1.2);box-shadow:0 8px 32px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08)}
+.companion-ask input{flex:1;min-width:0;padding:8px 0;border:0;background:transparent;color:#e8f1ff;font-size:14px}
+.companion-ask input::placeholder{color:rgba(186,208,240,.55)}
+.companion-ask button{flex:none;padding:8px 14px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:rgba(14,24,40,.72);color:#e8f1ff;font-size:13px;cursor:pointer}
+.companion-ask button:hover:not(:disabled){border-color:var(--glow);box-shadow:0 0 12px rgba(63,214,255,.22)}
+.companion-ask button:disabled{opacity:.4;cursor:default}
+.companion-ask button:focus-visible,.companion-ask input:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
+.companion-preview-dock{position:absolute;top:22px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;max-width:min(720px,92vw);padding:8px 12px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:rgba(8,14,26,.72);color:#d7e6ff;font-size:12px}
+.companion-preview-dock strong{padding:0 6px 0 4px}
+.companion-preview-dock button{padding:6px 10px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:transparent;color:#d7e6ff;font-size:12px;cursor:pointer}
+.companion-preview-dock button.is-on{border-color:rgba(63,214,255,.7);background:rgba(63,214,255,.16)}
+.companion-preview-hint{width:100%;padding:2px 8px 0;color:rgba(186,208,240,.62);font-size:11px;text-align:center}
+.launch-shell>.companion-preview-dock{position:fixed;z-index:80;top:14px}
+html[data-theme="light"] .companion-preview-dock{background:rgba(255,255,255,.86);color:#14243b;border-color:var(--rule)}
+html[data-theme="light"] .companion-preview-dock button{color:#14243b;border-color:var(--rule)}
+html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 @keyframes companionTwinkle{0%,100%{opacity:.22;transform:scale(.8)}40%{opacity:1;transform:scale(1.18)}52%{opacity:.62;transform:scale(.98)}64%{opacity:1;transform:scale(1.22)}}
 .companion-banner{position:absolute;top:22px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;z-index:3;padding:9px 14px;border:1px solid rgba(143,170,216,.3);border-radius:12px;background:rgba(10,17,30,.92);color:var(--ink);font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
 .companion-banner span{color:var(--muted);font:10px var(--mono)}
@@ -1234,14 +1292,14 @@ html.companion-active .drawer-toggle{display:none}
 .companion-status-dot.state-listening{background:var(--tide1);box-shadow:0 0 8px var(--tide1)}
 .companion-status-dot.state-thinking{background:var(--tide2);box-shadow:0 0 8px var(--tide2)}
 .companion-status-dot.state-speaking{background:var(--tide3);box-shadow:0 0 8px var(--tide3)}
-.companion-moon{position:relative;width:34vmin;height:34vmin;flex:none;overflow:visible;animation:companionMoonEnter 1s cubic-bezier(.2,.85,.3,1.08) both}
+.companion-moon{position:relative;z-index:1;width:34vmin;height:34vmin;flex:none;overflow:visible;animation:companionMoonEnter 1s cubic-bezier(.2,.85,.3,1.08) both}
 /* 进入月伴：月亮由小缓缓放大就位 */
 @keyframes companionMoonEnter{from{transform:scale(.78);opacity:0}to{transform:scale(1);opacity:1}}
 /* 光环：月缘一圈柔光，再向外沉入暗蓝气晕。禁止 hollow 描边环。 */
-.companion-moon-halo{position:absolute;inset:-78%;border-radius:50%;pointer-events:none;box-shadow:none;opacity:.92;
+.companion-moon-halo{position:absolute;inset:-78%;z-index:2;border-radius:50%;pointer-events:none;box-shadow:none;opacity:.92;
   background:radial-gradient(circle,transparent 29%,rgba(255,252,248,.38) 33.5%,rgba(214,228,248,.2) 39%,rgba(28,42,68,.5) 52%,rgba(6,10,18,.62) 66%,transparent 80%);
   filter:blur(16px)}
-.companion-moon-halo-wave{position:absolute;inset:-92%;border-radius:50%;pointer-events:none;opacity:0;
+.companion-moon-halo-wave{position:absolute;inset:-92%;z-index:1;border-radius:50%;pointer-events:none;opacity:0;
   background:radial-gradient(circle,transparent 30%,rgba(255,250,246,.22) 36%,rgba(170,200,240,.1) 48%,transparent 70%);
   filter:blur(22px)}
 /* 待机时隐约忽闪的白光：不规则明暗步进模拟月光闪烁 */
@@ -1254,11 +1312,14 @@ html.companion-active .drawer-toggle{display:none}
 .companion-moon.state-speaking .companion-moon-halo-wave{animation:companionHaloWave .88s ease-out infinite;opacity:calc(.22 + var(--moon-gain) * .62)}
 @keyframes companionHaloPulse{0%,100%{transform:scale(calc(1 + var(--moon-gain,0) * .04))}50%{transform:scale(calc(1.08 + var(--moon-gain,0) * .14))}}
 @keyframes companionHaloWave{0%{transform:scale(.88);opacity:calc(.24 + var(--moon-gain,0) * .55)}100%{transform:scale(1.28);opacity:0}}
+@keyframes companionHaloBreathe{0%,100%{transform:scale(.975);opacity:.55}50%{transform:scale(1.07);opacity:1}}
+@keyframes companionHaloFlicker{0%,100%{filter:blur(8px) brightness(.9)}16%{filter:blur(7px) brightness(1.22)}31%{filter:blur(9px) brightness(.82)}49%{filter:blur(8px) brightness(1.18)}66%{filter:blur(10px) brightness(.86)}83%{filter:blur(7px) brightness(1.1)}}
+@keyframes companionHaloWaveIdle{0%,100%{transform:scale(.95);opacity:.16}50%{transform:scale(1.08);opacity:.4}}
 /* 聆听时月面轻微忽闪 */
 .companion-moon.state-listening .companion-moon-body{animation:companionGlowFlicker 3.7s linear infinite}
 @keyframes companionGlowFlicker{0%,100%{filter:brightness(1)}14%{filter:brightness(1.04)}33%{filter:brightness(.99)}52%{filter:brightness(1.05)}71%{filter:brightness(.99)}88%{filter:brightness(1.03)}}
 @keyframes companionFlicker{0%,100%{opacity:.72}6%{opacity:.9}11%{opacity:.76}17%{opacity:.94}24%{opacity:.78}31%{opacity:.9}38%{opacity:.74}46%{opacity:.96}54%{opacity:.8}61%{opacity:.9}69%{opacity:.76}77%{opacity:.88}85%{opacity:.78}92%{opacity:.86}}
-.companion-moon-body{position:absolute;inset:0;padding:0;border:0;border-radius:50%;background:transparent;cursor:default;overflow:visible;transition:filter .25s;filter:brightness(1.02)}
+.companion-moon-body{position:absolute;inset:0;z-index:2;padding:0;border:0;border-radius:50%;background:transparent;cursor:default;overflow:visible;transition:filter .25s;filter:brightness(1.02)}
 .companion-moon-body:disabled{cursor:default}
 .companion-moon-body:not(:disabled){cursor:pointer}
 .companion-moon-disc{display:block;position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;isolation:isolate;
@@ -1273,9 +1334,10 @@ html.companion-active .drawer-toggle{display:none}
 .reduce-motion .companion-moon.state-speaking .companion-moon-halo,.reduce-motion .companion-moon.state-speaking .companion-moon-halo-wave{animation:none}
 .reduce-motion .companion-moon.state-speaking .companion-moon-halo-wave{opacity:.22}
 .reduce-motion .companion-moon.state-idle .companion-moon-halo,.reduce-motion .companion-moon.state-listening .companion-moon-halo,.reduce-motion .companion-moon .companion-moon-halo{animation:none;opacity:.78}
+.reduce-motion .companion-moon[data-visual="webgl"] .companion-moon-halo-wave{animation:none;opacity:.2}
 .reduce-motion .companion-moon.state-listening .companion-moon-halo{opacity:.86}
 .reduce-motion .companion-moon.state-thinking .companion-moon-halo{opacity:.5}
-.reduce-motion .companion-stage .companion-stars i{animation:none;opacity:.6}
+.reduce-motion .companion-stage .companion-stars i,.reduce-motion .companion-stage .companion-aurora-fallback{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
 /* 当前一轮对话的字幕条：圆角卡片，完整显示正在说的话 */
 .companion-subtitles{position:absolute;bottom:132px;left:50%;transform:translateX(-50%);width:min(720px,86vw);max-height:min(42vh,320px);padding:10px 18px;border:1px solid rgba(143,170,216,.22);border-radius:18px;background:rgba(6,11,20,.72);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;z-index:4;transition:opacity .8s ease,transform .8s ease}

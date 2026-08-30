@@ -11,6 +11,13 @@ vi.mock('./peopleCapture', async importOriginal => {
   return { ...actual, captureThisPcFrame: vi.fn() }
 })
 
+async function invokeLastNativeCapture() {
+  const call = vi.mocked(captureThisPcFrame).mock.calls.at(-1)
+  const native = call?.[0]?.nativeCapture
+  if (!native) throw new Error('nativeCapture missing')
+  await native()
+}
+
 const now = '2026-08-27T00:00:00.000Z'
 const me: IdentityDTO = {
   subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', nickname: 'mu', avatar: '', status: 'online',
@@ -187,24 +194,55 @@ describe('PeoplePage', () => {
     expect(await screen.findByText(/一对一 · 局域网投递，文件需对方确认/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '框选截图' }))
     expect(captureThisPcFrame).toHaveBeenCalled()
+    await invokeLastNativeCapture()
+    expect(people.screenCapture).toHaveBeenCalledWith({ region: true })
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
   })
 
-  test('desktop camera sends the full frame without opening a crop overlay', async () => {
+  test('camera icon and Alt+A start a WeChat-style region snip', async () => {
     const bytes = Uint8Array.from([1, 2, 3])
     const shot = new File([bytes as BlobPart], 'screenshot.jpg', { type: 'image/jpeg' })
-    vi.mocked(captureThisPcFrame).mockResolvedValue({ file: shot, source: 'display' })
+    Object.defineProperty(shot, 'arrayBuffer', { value: async () => bytes.buffer.slice(0) })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ file: shot, source: 'native' })
     const { identity, people } = bridges()
-    people.threadSend = vi.fn().mockResolvedValue({
-      message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB2', kind: 'image', fileName: 'screenshot.jpg', offerId: undefined, offerStatus: undefined },
-    })
+    people.threadSend = vi.fn()
+      .mockResolvedValueOnce({
+        message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB2', kind: 'image', fileName: 'screenshot.jpg', offerId: undefined, offerStatus: undefined },
+      })
+      .mockResolvedValueOnce({
+        message: { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB5', kind: 'image', fileName: 'screenshot.jpg', offerId: undefined, offerStatus: undefined },
+      })
     const user = userEvent.setup()
     render(<PeoplePage identity={identity} people={people} />)
     await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
-    await user.click(screen.getByRole('button', { name: '截取桌面' }))
+    expect(screen.getByRole('button', { name: '表情' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '截图' })).toHaveAttribute('title', expect.stringContaining('Alt+A'))
+    expect(screen.getByRole('button', { name: '发送图片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送本机文件' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送文件夹' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '截图' }))
     expect(captureThisPcFrame).toHaveBeenCalled()
+    await invokeLastNativeCapture()
+    expect(people.screenCapture).toHaveBeenCalledWith({ region: true })
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
     expect(screen.queryByRole('dialog', { name: '框选截图' })).not.toBeInTheDocument()
+
+    vi.mocked(captureThisPcFrame).mockClear()
+    vi.mocked(people.screenCapture).mockClear()
+    await user.keyboard('{Alt>}a{/Alt}')
+    expect(captureThisPcFrame).toHaveBeenCalled()
+    await invokeLastNativeCapture()
+    expect(people.screenCapture).toHaveBeenCalledWith({ region: true })
+  })
+
+  test('emoji picker inserts into the composer draft', async () => {
+    const { identity, people } = bridges()
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    await user.click(await screen.findByRole('button', { name: '表情' }))
+    await user.click(screen.getByRole('button', { name: '👍' }))
+    expect(await screen.findByPlaceholderText(/粘贴图片/)).toHaveValue('👍')
   })
 
   test('region snip cancel does not send a screenshot', async () => {

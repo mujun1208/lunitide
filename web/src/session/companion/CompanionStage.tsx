@@ -30,7 +30,13 @@ import { startLocalCompanionSpeech } from './localSpeech'
 import { startVolcCompanionSpeech } from './volc/volcSpeech'
 import { VOLC_ASR_DECISION_MS } from './volc/volcAsr'
 import { pickDefaultVoice } from '../../provider/modelKind'
+import { CompanionAsk } from './CompanionAsk'
+import { CompanionPrompts, shouldShowCompanionPrompts } from './CompanionPrompts'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
+import { Aurora } from './visual/Aurora'
+import { AURORA_STOPS, auroraForEnter } from './visual/moonVisual'
+import { useCompanionEnter } from './visual/useCompanionEnter'
+import { canUseCompanionWebgl } from './visual/webglSupport'
 import {
   ECHO_GUARD_MS,
   FORCE_COMMIT_MS,
@@ -87,6 +93,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
 
 export function CompanionStage({ chatStatus, assistantText, activityStatus, error, chatReady, seedPrompt, onSend, onCancel, onExit }: CompanionStageProps): React.JSX.Element {
   const zh = useZh()
+  const enter = useCompanionEnter()
   const machine = useCompanionMachine()
   const [settings, setSettings] = useState<CompanionSettings>(defaultCompanionSettings())
   const [ttsAvailable, setTtsAvailable] = useState<boolean | undefined>(undefined)
@@ -1625,11 +1632,15 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       onKeyDown={onKeyDown}
       style={{ '--moon-gain': gain } as React.CSSProperties}
     >
-      {/* 移除背景水印，星空由 CSS 处理 */}
-      <div className="companion-stars" aria-hidden="true">
-        {COMPANION_STARS.map((star, index) => (
-          <i key={index} style={{ left: star.x, top: star.y, width: star.s, height: star.s, animationDelay: star.d, animationDuration: star.t }} className={star.bright ? 'bright' : undefined} />
-        ))}
+      <div className="companion-aurora" aria-hidden="true">
+        {canUseCompanionWebgl() ? (
+          <Aurora
+            colorStops={AURORA_STOPS}
+            {...auroraForEnter(surfaceState, gain, enter)}
+          />
+        ) : (
+          <div className="companion-aurora-fallback" />
+        )}
       </div>
       {audioLocked && settings.autoSpeak && ttsAvailable !== false && (
         <div className="companion-banner warn" role="status">
@@ -1674,8 +1685,31 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
         state={surfaceState}
         gain={gain}
         levels={levels}
+        enter={enter}
         interruptible={surfaceState !== 'listening'}
         onInterrupt={surfaceState === 'speaking' || surfaceState === 'thinking' || machine.state === 'speaking' || machine.state === 'thinking' ? interruptAssistant : toggleMic}
+      />
+      <CompanionPrompts
+        visible={shouldShowCompanionPrompts({
+          state: surfaceState,
+          hasUserRound: rounds.some(round => round.role === 'user'),
+          hasInterim: !!interimText.trim(),
+          voiceHeard,
+        })}
+        language={zh ? 'zh' : 'en'}
+        onPick={beginUserTurn}
+      />
+      <CompanionAsk
+        language={zh ? 'zh' : 'en'}
+        onSend={text => {
+          if (stateRef.current === 'thinking' || stateRef.current === 'speaking') {
+            staleReplyRef.current = assistantTextRef.current
+            userInterruptedRef.current = true
+            handledReplyRef.current = true
+            cancelReply()
+          }
+          beginUserTurn(text)
+        }}
       />
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${surfaceState}`} aria-hidden="true" />
@@ -1803,10 +1837,3 @@ function SubtitleRow({ round, live }: { round: SubtitleRound; live?: boolean }):
   )
 }
 
-const COMPANION_STARS = Array.from({ length: 140 }, (_, index) => {
-  const seed = (index * 2654435761) % 1000
-  const x = `${(seed % 100).toFixed(1)}%`
-  const y = `${((seed / 7) % 100).toFixed(1)}%`
-  const s = `${1 + (seed % 3) * 0.6}px`
-  return { x, y, s, d: `${(seed % 40) / 10}s`, t: `${2.4 + (seed % 30) / 10}s`, bright: seed % 5 === 0 }
-})

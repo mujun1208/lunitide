@@ -7,6 +7,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      input: 'index.html',
+    },
     // Assets under the inline limit become data: URLs, which is a saving for
     // an icon and a defect for an AudioWorklet: the renderer's CSP allows
     // scripts from 'self' only, and addModule() on a data: URL is refused at
