@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -18,6 +19,11 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/imapp"
 	"github.com/oklog/ulid/v2"
+)
+
+const (
+	inboundAutoRunTimeout    = 2 * time.Minute
+	inboundAutoRunDeadlineMS = 120_000
 )
 
 func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -179,7 +185,7 @@ func (e *Engine) kickInboundChat(sessionID, text string) bool {
 		return false
 	}
 	go func() {
-		runCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		runCtx, cancel := context.WithTimeout(context.Background(), inboundAutoRunTimeout)
 		defer cancel()
 		runCtx = context.WithValue(runCtx, streamParentKey{}, runCtx)
 		runCtx = context.WithValue(runCtx, eventEmitterKey{}, EventEmitter(func(bridge.Event) error { return nil }))
@@ -187,7 +193,7 @@ func (e *Engine) kickInboundChat(sessionID, text string) bool {
 			Version: bridge.Version, Kind: "request",
 			ID: ulid.Make().String(), TraceID: ulid.Make().String(),
 			Method: "chat.start", SentAt: time.Now().UTC(),
-			Payload: payload, DeadlineMS: 30000,
+			Payload: payload, DeadlineMS: inboundAutoRunDeadlineMS,
 		}
 		resp := handleChatStart(e, runCtx, req)
 		if !resp.OK {
@@ -204,6 +210,7 @@ func (e *Engine) StartIMInbound(ctx context.Context) {
 		return
 	}
 	go e.loopFeishuInbound(ctx)
+	go e.loopWeComInbound(ctx)
 }
 
 func (e *Engine) loopFeishuInbound(ctx context.Context) {
@@ -270,6 +277,97 @@ func runFeishuWebsocket(ctx context.Context, wsURL string, onMessage func(imapp.
 			return err
 		}
 		msg, ok := imapp.ParseFeishuMessageEvent(data)
+		if !ok {
+			continue
+		}
+		onMessage(msg)
+	}
+}
+
+func (e *Engine) loopWeComInbound(ctx context.Context) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		e.tickWeComInbound(ctx)
+		timer := time.NewTimer(20 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (e *Engine) tickWeComInbound(ctx context.Context) {
+	ch, err := e.imChannels.LookupSecret(ctx, imapp.KindWeCom)
+	if err != nil || !ch.InboundEnabled || ch.InboundAppID == "" || ch.Secret() == "" {
+		return
+	}
+	if err := runWeComWebsocket(ctx, imapp.WeComOpenWS, ch.InboundAppID, ch.Secret(), func(msg imapp.WeComInboundMessage) {
+		if err := imapp.AdmitInbound(ch, msg.Sender, msg.Text); err != nil {
+			return
+		}
+		key := "im-inbound-" + msg.MessageID
+		if strings.TrimSpace(msg.MessageID) == "" {
+			key = ulid.Make().String()
+		}
+		sessionID, err := e.parkInboundMessage(context.Background(), key, ch, msg.Sender, msg.Text)
+		if err != nil {
+			log.Printf("wecom inbound park: %v", err)
+			return
+		}
+		if ch.InboundAutoRun {
+			e.kickInboundChat(sessionID, msg.Text)
+		}
+	}); err != nil && ctx.Err() == nil {
+		log.Printf("wecom inbound websocket: %v", err)
+	}
+}
+
+func runWeComWebsocket(ctx context.Context, wsURL, botID, secret string, onMessage func(imapp.WeComInboundMessage)) error {
+	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	wsCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	var writeMu sync.Mutex
+	writeJSON := func(payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteMessage(websocket.TextMessage, payload)
+	}
+	if err := writeJSON(imapp.WeComSubscribePayload(botID, secret)); err != nil {
+		return err
+	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-wsCtx.Done():
+				return
+			case <-ticker.C:
+				if err := writeJSON(imapp.WeComPingPayload()); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+		msg, ok := imapp.ParseWeComMessageEvent(data)
 		if !ok {
 			continue
 		}

@@ -45,4 +45,7 @@ func TestMaxDeadlineMSAllowsLongMeetings(t *testing.T) {
 	if MaxDeadlineMS("template.create") != TemplateFileDeadlineMS {
 		t.Fatalf("template.create cap = %d", MaxDeadlineMS("template.create"))
 	}
+	if MaxDeadlineMS("chat.start") != ChatStartDeadlineMS {
+		t.Fatalf("chat.start cap = %d", MaxDeadlineMS("chat.start"))
+	}
 }

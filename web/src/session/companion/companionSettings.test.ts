@@ -147,6 +147,8 @@ describe('companion engine fallback helpers', () => {
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('refpack:优质台湾腔.wav')
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceBargeIn).toBe(true)
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').recognizer).toBe('local')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'cloud').voiceId).toBe('')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'omni').voicePath).toBe('cloud')
   })
@@ -162,6 +164,7 @@ describe('companion engine fallback helpers', () => {
     expect(loaded.voicePath).toBe('local')
     expect(loaded.engine).toBe('ref')
     expect(loaded.voiceId).toBe('refpack:甜心少女.wav')
+    expect(loaded.voiceBargeIn).toBe(true)
   })
 
   test('keeps a saved volc listen path on Edge TTS', () => {

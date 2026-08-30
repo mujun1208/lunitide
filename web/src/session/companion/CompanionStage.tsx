@@ -24,7 +24,8 @@ import {
   voiceIdForEngineSwitch,
 } from './companionSettings'
 import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
-import { companionAsrPathLabel, type AsrRoute } from './asrPath'
+import { companionAsrPathLabel, companionListenFailover, companionListenKind, withDeadline, type AsrRoute } from './asrPath'
+import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
 import { startLocalCompanionSpeech } from './localSpeech'
 import { startVolcCompanionSpeech } from './volc/volcSpeech'
@@ -134,6 +135,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   /** The probe itself, so a turn starting before it answers can wait. */
   const localAsrProbeRef = useRef<Promise<boolean> | undefined>(undefined)
   const activeRecognizerRef = useRef<'cloud' | 'local' | 'volc'>('cloud')
+  const listenOverrideRef = useRef<AsrRoute | undefined>(undefined)
   const playerRef = useRef<TtsPlayer | undefined>(undefined)
   const streamCaptionRef = useRef('')
   const [assistantAloud, setAssistantAloud] = useState(false)
@@ -185,12 +187,20 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
     lastSpokenRef.current = `${lastSpokenRef.current}${line}`.slice(-1200)
     const player = playerRef.current ?? new TtsPlayer()
     playerRef.current = player
-    player.configure(stored.voiceId || '', stored.rate, stored.volume, stored)
-    player.enqueue([line], { ...stored, voiceId: stored.voiceId || '' }, {
+    player.configure(stored.voiceId || '', stored.rate, stored.volume, {
+      engine: stored.engine,
+      refEndpoint: stored.refEndpoint,
+      lockEngine: true,
+    })
+    player.enqueue([line], { ...stored, voiceId: stored.voiceId || '', lockEngine: true }, {
       onFinished: () => {
         if (gen !== padGenRef.current) return
         padActiveRef.current = false
         syncSpeechModesRef.current()
+      },
+      onEngineUnavailable: () => {
+        if (gen !== padGenRef.current) return
+        padActiveRef.current = false
       },
     })
   }
@@ -658,13 +668,29 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       return
     }
     if (chatStatus === 'failed' || chatStatus === 'cancelled') {
+      const issue = error ?? localError
+      const infraBusy = isCompanionInfraBusy(issue?.code ?? '')
+      // Admission/retry noise is not a task failure. Drop back to listening
+      // instead of reading 「桌面主机正忙」 as if the model refused the turn.
+      if (infraBusy && chatStatus === 'failed') {
+        handledReplyRef.current = true
+        if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_TERMINAL' })
+        else if (stateRef.current === 'speaking') {
+          playerRef.current?.interrupt()
+          speakingRef.current = false
+          setAssistantAloud(false)
+          setGain(0)
+          machine.dispatch({ type: 'INTERRUPT' })
+        }
+        return
+      }
       // Read, not heard. A failure is already on screen as a banner and a
       // caption; saying it out loud spends a second and a half of the user's
       // time telling them something they can see, in a voice meant for
       // conversation.
       if (!handledReplyRef.current && chatStatus === 'failed') {
         handledReplyRef.current = true
-        const spoken = companionCannotExecuteSpeech((error ?? localError)?.message || assistantText.trim())
+        const spoken = companionCannotExecuteSpeech(issue?.message || assistantText.trim())
         setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: spoken }))
         if (ttsAvailable !== false && settings.autoSpeak && !userInterruptedRef.current) {
           if (stateRef.current === 'thinking') machine.dispatch({ type: 'REPLY_COMPLETED', speakable: true })
@@ -1182,6 +1208,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       onEngineHint: message => setEngineHint(message),
       onFinal: transcript => {
         setHeardThisVisit(true)
+        listenOverrideRef.current = undefined
         beginUserTurn(transcript)
       },
       bargeIn: () =>
@@ -1192,17 +1219,25 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       onError: issue => {
         speechHandleRef.current = undefined
         // A local recognizer that dies mid-session under 'auto' is a fallback,
-        // not something to make the user read and act on. An explicit choice
+        // not something to make the user read and act on. An explicit 本地 card
         // is never overridden: quietly switching to the system recognizer
         // would ship audio off the machine for someone who asked it not to be.
         if (activeRecognizerRef.current === 'volc') {
+          const installed = localAsrReadyRef.current
+          if (installed) {
+            setEngineHint('火山听写连不上，已改用本机识别')
+            activeRecognizerRef.current = 'local'
+            setAsrRoute('local')
+            void startLocalCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
+            return
+          }
           activeRecognizerRef.current = 'cloud'
           setAsrRoute('cloud')
           setEngineHint('火山听写连不上，已改用系统识别')
           void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
           return
         }
-        if (activeRecognizerRef.current === 'local' && settingsRef.current.recognizer === 'auto') {
+        if (activeRecognizerRef.current === 'local' && companionListenKind(settingsRef.current.voicePath, settingsRef.current.recognizer) === 'auto') {
           localAsrReadyRef.current = false
           activeRecognizerRef.current = 'cloud'
           setAsrRoute('cloud')
@@ -1216,7 +1251,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           return
         }
         setListenLoop(true)
-        setLocalError(issue)
+        if (!isCompanionInfraBusy(issue.code)) setLocalError(issue)
         if (stateRef.current === 'listening') machine.dispatch({ type: 'MIC_CANCEL' })
       },
       onLevels: next => {
@@ -1249,19 +1284,51 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
       setListenLoop(true)
       if (auto) setHintVisible(true)
-      else setLocalError(issue)
+      else if (!isCompanionInfraBusy(issue.code)) setLocalError(issue)
     }
 
     const begin = async () => {
-      if (settingsRef.current.voicePath === 'volc') {
+      const override = listenOverrideRef.current
+      listenOverrideRef.current = undefined
+      const listenKind = override ?? companionListenKind(settingsRef.current.voicePath, settingsRef.current.recognizer)
+      const openCloud = () => {
+        activeRecognizerRef.current = 'cloud'
+        setAsrRoute('cloud')
+        return startCompanionSpeech(speechOptions).then(adoptHandle)
+      }
+      const openLocal = async () => {
+        activeRecognizerRef.current = 'local'
+        setAsrRoute('local')
+        const opening = Promise.resolve(startLocalCompanionSpeech(speechOptions))
+        try {
+          adoptHandle(await withDeadline(opening, 2500))
+        } catch (issue) {
+          void opening.then(handle => handle.stop(), () => {})
+          throw issue
+        }
+      }
+      const fallbackVolcToWorkingListen = async () => {
+        const installed = await readyWithin(localAsrProbeRef.current, LOCAL_ASR_DECISION_MS)
+        if (exitedRef.current) {
+          openingListenRef.current = false
+          return
+        }
+        if (installed) {
+          setEngineHint('火山听写连不上，已改用本机识别')
+          try {
+            await openLocal()
+            return
+          } catch {
+            /* keep going to system recognition */
+          }
+        }
+        setEngineHint('火山听写连不上，已改用系统识别')
+        void openCloud().catch(abandon)
+      }
+
+      if (listenKind === 'volc') {
         activeRecognizerRef.current = 'volc'
         setAsrRoute('volc')
-        const fallbackToSystem = () => {
-          setEngineHint('火山听写连不上，已改用系统识别')
-          activeRecognizerRef.current = 'cloud'
-          setAsrRoute('cloud')
-          void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
-        }
         try {
           const listed = await Promise.race([
             getProviderBridge().list().catch(() => undefined),
@@ -1275,50 +1342,76 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           }
           const picked = listed ? pickDefaultVoice(listed.items) : undefined
           if (!picked) {
-            fallbackToSystem()
+            await fallbackVolcToWorkingListen()
             return
           }
-          const handle = await startVolcCompanionSpeech(speechOptions, picked.provider.id)
-          if (exitedRef.current || !openingListenRef.current) {
-            handle.stop()
-            openingListenRef.current = false
-            return
+          const opening = Promise.resolve(startVolcCompanionSpeech(speechOptions, picked.provider.id))
+          try {
+            const handle = await withDeadline(opening, VOLC_ASR_DECISION_MS)
+            if (exitedRef.current || !openingListenRef.current) {
+              handle.stop()
+              openingListenRef.current = false
+              return
+            }
+            adoptHandle(handle)
+          } catch {
+            void opening.then(handle => handle.stop(), () => {})
+            throw new Error('LISTEN_DEADLINE')
           }
-          adoptHandle(handle)
         } catch {
           if (exitedRef.current) {
             openingListenRef.current = false
             return
           }
-          fallbackToSystem()
+          await fallbackVolcToWorkingListen()
         }
         return
       }
-      // 'auto' prefers local when it is there, but a hung voice.status
-      // used to stall this forever — the moon said 聆听中 and ASR never
-      // opened. Bound the wait so the system recognizer starts talking.
+
+      if (listenKind === 'local') {
+        try {
+          await openLocal()
+        } catch (issue) {
+          try {
+            await new Promise<void>(resolve => {
+              window.setTimeout(resolve, 400)
+            })
+            if (exitedRef.current) {
+              openingListenRef.current = false
+              return
+            }
+            await openLocal()
+          } catch {
+            abandon(issue as BridgeClientError)
+          }
+        }
+        return
+      }
+
+      // Cloud card, or leftover 'auto' on 云端: prefer sherpa when it is already
+      // installed so talking still works if Web Speech is dead in WebView2.
       const installed =
-        settingsRef.current.recognizer === 'auto'
+        listenKind === 'auto'
           ? await readyWithin(localAsrProbeRef.current, LOCAL_ASR_DECISION_MS)
           : false
       if (exitedRef.current) {
         openingListenRef.current = false
         return
       }
-      const preferLocal =
-        settingsRef.current.recognizer === 'local' ||
-        (settingsRef.current.recognizer === 'auto' && installed)
-      activeRecognizerRef.current = preferLocal ? 'local' : 'cloud'
-      setAsrRoute(activeRecognizerRef.current)
-      const open = preferLocal ? startLocalCompanionSpeech : startCompanionSpeech
+      const preferLocal = listenKind === 'auto' && installed
       try {
-        adoptHandle(await open(speechOptions))
+        if (preferLocal) await openLocal()
+        else await openCloud()
       } catch (issue) {
-        if (preferLocal && settingsRef.current.recognizer === 'auto') {
+        if (preferLocal) {
           localAsrReadyRef.current = false
-          activeRecognizerRef.current = 'cloud'
-          setAsrRoute('cloud')
-          void startCompanionSpeech(speechOptions).then(adoptHandle).catch(abandon)
+          void openCloud().catch(abandon)
+          return
+        }
+        const localReady = await readyWithin(localAsrProbeRef.current, LOCAL_ASR_DECISION_MS)
+        if (localReady && !exitedRef.current) {
+          setEngineHint('系统识别不可用，已改用本机识别')
+          void openLocal().catch(abandon)
           return
         }
         abandon(issue as BridgeClientError)
@@ -1393,6 +1486,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
       if (deafRecoveriesRef.current < 10) return
       deafRecoveriesRef.current = 0
+      listenOverrideRef.current = companionListenFailover(
+        activeRecognizerRef.current,
+        companionListenKind(settingsRef.current.voicePath, settingsRef.current.recognizer),
+        localAsrReadyRef.current,
+      )
       speechHandleRef.current?.stop()
       speechHandleRef.current = undefined
       captionHandleRef.current?.stop()

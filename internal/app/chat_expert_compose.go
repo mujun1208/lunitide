@@ -151,7 +151,7 @@ func (e *Engine) connectedComposeMcpIDs() []string {
 		}
 	}
 	var out []string
-	for _, id := range []string{"playwright", "fetch", "filesystem", "git", "sqlite", "memory", "sequentialthinking"} {
+	for _, id := range []string{"playwright", "fetch", "filesystem", "memory", "sequentialthinking"} {
 		if have[id] {
 			out = append(out, id)
 		}

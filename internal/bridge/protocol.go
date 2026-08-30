@@ -57,6 +57,7 @@ const (
 	EventFailed           EventType = "failed"
 	EventTerminalOutput   EventType = "terminal_output"
 	EventTerminalExit     EventType = "terminal_exit"
+	EventGuidance         EventType = "guidance"
 )
 
 type Event struct {
@@ -73,10 +74,15 @@ type Event struct {
 	Error     *StreamError    `json:"error,omitempty"`
 	Tool      *ToolEvent      `json:"tool,omitempty"`
 	Terminal  *TerminalEvent  `json:"terminal,omitempty"`
+	Guidance  *GuidanceEvent  `json:"guidance,omitempty"`
 }
 type TerminalEvent struct {
 	Data     string `json:"data,omitempty"`
 	ExitCode uint32 `json:"exitCode,omitempty"`
+}
+type GuidanceEvent struct {
+	Labels []string `json:"labels"`
+	Digest string   `json:"digest"`
 }
 type DeltaEvent struct {
 	Text string `json:"text"`

@@ -186,7 +186,11 @@ export function loadCompanionSettings(): CompanionSettings {
       wakeVad: typeof parsed.wakeVad === 'boolean' ? parsed.wakeVad : fallback.wakeVad,
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
       instantAck: typeof parsed.instantAck === 'boolean' ? parsed.instantAck : fallback.instantAck,
-      voiceBargeIn: typeof parsed.voiceBargeIn === 'boolean' ? parsed.voiceBargeIn : fallback.voiceBargeIn,
+      voiceBargeIn: typeof parsed.voiceBargeIn === 'boolean'
+        ? parsed.voiceBargeIn
+        : voicePath === 'volc' || voicePath === 'local'
+          ? true
+          : fallback.voiceBargeIn,
       interruptHotkey,
       speechEnvironment: parsed.speechEnvironment === 'noisy' ? 'noisy' : fallback.speechEnvironment,
       // Absent for anyone who saved settings before the local recognizer
@@ -254,7 +258,7 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
 export function applyVoicePath(settings: CompanionSettings, path: VoicePath): CompanionSettings {
   if (path === 'local') {
     const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
-    return { ...settings, voicePath: 'local', engine: 'ref', voiceId }
+    return { ...settings, voicePath: 'local', engine: 'ref', voiceId, voiceBargeIn: true, recognizer: 'local' }
   }
   const voiceId = settings.voiceId.startsWith('refpack:') ? '' : settings.voiceId
   if (path === 'volc') {

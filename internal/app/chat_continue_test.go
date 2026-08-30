@@ -45,6 +45,21 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueTurn("请确认是否继续安装", true, 0, false) {
 		t.Fatal("explicit ask after tools should still nudge")
 	}
+	if !shouldContinueIncompleteWork("", "COMPUTER_STALE_FRAME: display layout changed", []string{"computer.act"}, true, 0) {
+		t.Fatal("stale frame must continue")
+	}
+	if !shouldContinueIncompleteWork("", "stale ref e12; snapshot again", []string{"browser.act"}, true, 0) {
+		t.Fatal("stale browser ref must continue")
+	}
+	if !shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 0) {
+		t.Fatal("unverified media.play must continue")
+	}
+	if shouldContinueIncompleteWork("正在播放周杰伦", "media.play started player", []string{"media.play"}, true, 0) {
+		t.Fatal("verified play must not extra-loop")
+	}
+	if shouldContinueIncompleteWork("文件写好了，下一步打开网页。", "ok:true\nwritten", []string{"workspace.write"}, true, 0) {
+		t.Fatal("successful write plus 下一步 must not extra-loop")
+	}
 	if !shouldContinueDesktopTurn("好，我来操作电脑。", 0) {
 		t.Fatal("lead-in after desktop tools must continue")
 	}
@@ -71,6 +86,12 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	}
 	if !companionWantsDesktopControl("帮我点保存") || companionWantsDesktopControl("今晚月色如何") {
 		t.Fatal("desktop-control intent")
+	}
+	if !companionWantsDesktopControl("打开网易云") || !companionWantsDesktopControl("播放周杰伦") {
+		t.Fatal("open/play must use the 24-step desktop loop")
+	}
+	if !isDesktopControlTool("desktop.open") || !isDesktopControlTool("media.play") || !isDesktopControlTool("browser.act") {
+		t.Fatal("open/play/browser must raise the companion tool budget")
 	}
 }
 

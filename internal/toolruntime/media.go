@@ -71,7 +71,7 @@ func buildMediaSearchURL(target, query string) (string, error) {
 }
 
 func executeMediaPlay(args json.RawMessage, unconfined bool) (Result, error) {
-	return executeMediaPlayWithCC(context.Background(), nil, "", args, unconfined, false)
+	return executeMediaPlayWithCC(context.Background(), nil, "", args, unconfined, unconfined)
 }
 
 func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session string, args json.RawMessage, unconfined, approved bool) (Result, error) {
@@ -85,8 +85,8 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 	if strict(args, &a) != nil {
 		return Result{}, errors.New("invalid arguments")
 	}
-	if !unconfined {
-		return Result{}, errors.New("media.play requires full-disk full-access")
+	if err := requireDesktopAction(approved); err != nil {
+		return Result{}, err
 	}
 	action := strings.ToLower(strings.TrimSpace(a.Action))
 	if action == "" {

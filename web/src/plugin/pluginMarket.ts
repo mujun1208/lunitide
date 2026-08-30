@@ -38,14 +38,7 @@ export const PLUGIN_MARKET:PluginMarketEntry[]=[
  entry('cron','定时任务','按日程触发自动化。','workflow','效率提升','时','#d08cff'),
  entry('jobs-local','本地任务','在本机排队执行后台任务。','workflow','开发工具','任','#6bc5ff'),
  entry('session','会话','会话元数据与历史衔接。','tool','系统能力','话','#5ee0ff'),
- entry('logger','日志','把运行轨迹写入诊断日志。','tool','开发工具','志','#7c9cff'),
- entry('inspector','检查器','检查工具调用与绑定状态。','tool','开发工具','检','#ff8a6b'),
- entry('hmr','HMR','开发时热替换插件能力。','tool','开发工具','H','#3fd6ff'),
- entry('include','Include','在对话上下文中引入片段。','tool','开发工具','In','#5ee0b5'),
- entry('timer','Timer','计时与延迟触发。','tool','效率提升','T','#f0c14a'),
  entry('llm','LLM','模型调用相关能力。','tool','系统能力','L','#d08cff'),
- entry('typert-registry','Typert Registry','类型注册与校验。','tool','开发工具','Ty','#6bc5ff'),
- entry('i18n','国际化','界面与回复的多语言处理。','tool','语音与界面','语','#5ee0ff'),
 ]
 
 const LOGO_TINTS=['#5ee0ff','#7c9cff','#5ee0b5','#f0c14a','#ff8a6b','#d08cff','#6bc5ff','#3fd6ff']

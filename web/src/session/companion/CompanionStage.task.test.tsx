@@ -190,6 +190,28 @@ test('failed desktop work speaks 无法执行 and shows the reason', async () =>
   await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('无法执行'))).toBe(true))
 })
 
+test('HOST_BUSY is not spoken as 无法执行', async () => {
+  const onSend = vi.fn()
+  const { container, rerender } = await renderStage({ onSend })
+  await act(async () => {
+    speech.callbacks!.onFinal('你告诉我你刚才怎么处事了')
+  })
+  rerender(
+    <CompanionStage
+      {...baseProps}
+      onSend={onSend}
+      chatStatus="failed"
+      assistantText=""
+      error={new BridgeClientError('桌面主机正忙，请稍后重试', 'HOST_BUSY', true, 'host')}
+    />,
+  )
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 50))
+  })
+  expect(liveLog(container).textContent ?? '').not.toContain('无法执行')
+  expect(tts.speakCalls.some(call => call.segments.join('').includes('无法执行'))).toBe(false)
+})
+
 test('playback end clears 说话中 and resumes listen for the rest of the reply', async () => {
   const onSend = vi.fn()
   const { container, rerender } = await renderStage({ onSend })

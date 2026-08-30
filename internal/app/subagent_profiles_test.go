@@ -68,17 +68,21 @@ func TestResolveSubagentProfileUnknownFallsBack(t *testing.T) {
 	}
 }
 
-func TestBuiltinSubagentProfilesHaveEightSteps(t *testing.T) {
-	if subagentMaxSteps != 8 {
+func TestBuiltinSubagentProfileSteps(t *testing.T) {
+	if subagentMaxSteps != 16 {
 		t.Fatalf("subagentMaxSteps = %d", subagentMaxSteps)
 	}
-	for _, id := range []string{"explore", "research", "general-purpose", "review", "browser", "test"} {
+	want := map[string]int{
+		"explore": 8, "research": 16, "general-purpose": 16,
+		"review": 8, "browser": 8, "test": 8, "shell": 3, "writer": 3,
+	}
+	for id, steps := range want {
 		def, _, ok := resolveSubagentProfile(defaultSubagentChatPolicy(), id)
 		if !ok {
 			t.Fatalf("%s missing", id)
 		}
-		if def.MaxSteps != 8 {
-			t.Fatalf("%s MaxSteps = %d, want 8", id, def.MaxSteps)
+		if def.MaxSteps != steps {
+			t.Fatalf("%s MaxSteps = %d, want %d", id, def.MaxSteps, steps)
 		}
 	}
 }

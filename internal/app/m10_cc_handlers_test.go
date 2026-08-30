@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -214,5 +215,47 @@ func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
 	}
 	if strings.Contains(defs[0].Description, "do not call cc.*") == false {
 		t.Fatalf("computer.act must tell the model not to call cc.*: %q", defs[0].Description)
+	}
+}
+
+func TestCcArmMinutesSetsArmedUntil(t *testing.T) {
+	e, _ := newCcEngine(t)
+	ctx := context.Background()
+	enabled := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true,"armMinutes":30}`))
+	if !enabled.OK {
+		t.Fatalf("enable failed: %+v", enabled.Error)
+	}
+	type cfgPayload struct {
+		Enabled    bool   `json:"enabled"`
+		ArmedUntil string `json:"armedUntil"`
+	}
+	var cfg cfgPayload
+	if err := json.Unmarshal(mustJSON(enabled.Payload), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Enabled || cfg.ArmedUntil == "" {
+		t.Fatalf("armedUntil missing: %+v", cfg)
+	}
+	until, err := time.Parse(time.RFC3339, cfg.ArmedUntil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delta := until.Sub(time.Now().UTC())
+	if delta < 29*time.Minute || delta > 31*time.Minute {
+		t.Fatalf("armedUntil delta %s", delta)
+	}
+	permanent := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true,"armMinutes":0}`))
+	if !permanent.OK {
+		t.Fatalf("permanent enable failed: %+v", permanent.Error)
+	}
+	cfg = cfgPayload{}
+	if err := json.Unmarshal(mustJSON(permanent.Payload), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Enabled {
+		t.Fatal("permanent enable must stay on")
+	}
+	if cfg.ArmedUntil != "" {
+		t.Fatalf("armMinutes 0 must be permanent, got %q", cfg.ArmedUntil)
 	}
 }

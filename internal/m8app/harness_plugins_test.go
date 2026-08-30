@@ -58,20 +58,17 @@ func TestEnsureBuiltinPluginsSeedsAndIsIdempotent(t *testing.T) {
 	if len(first.Plugins) != len(m8app.HarnessPlugins()) {
 		t.Fatalf("seeded %d, want %d named plugins", len(first.Plugins), len(m8app.HarnessPlugins()))
 	}
-	var hmr, bash, pwsh *m8app.PluginListItem
+	var bash, pwsh *m8app.PluginListItem
 	for i := range first.Plugins {
 		p := &first.Plugins[i]
 		switch p.PluginID {
-		case "hmr":
-			hmr = p
+		case "hmr", "include", "typert-registry", "inspector", "i18n", "logger", "timer":
+			t.Fatalf("hollow plugin still seeded: %s", p.PluginID)
 		case "tool-bash":
 			bash = p
 		case "tool-pwsh":
 			pwsh = p
 		}
-	}
-	if hmr == nil || hmr.State != m8core.InstallDisabled {
-		t.Fatalf("hmr = %+v, want disabled", hmr)
 	}
 	if runtime.GOOS == "windows" {
 		if bash == nil || bash.State != m8core.InstallDisabled {
@@ -177,4 +174,43 @@ func TestEnsureBuiltinPluginsPrunesPaddedPlaceholders(t *testing.T) {
 		return
 	}
 	t.Fatal("expected uninstalled tool-1 tombstone in list")
+}
+
+func TestEnsureBuiltinPluginsPrunesHollowPlugins(t *testing.T) {
+	svc, _ := openPluginService(t)
+	ctx := context.Background()
+	created, err := svc.CreateAndMount(ctx, m8app.DevCreateInput{
+		WorkspaceID: "legacy",
+		Entrypoint:  "builtin://legacy/hmr",
+		Manifest: map[string]any{
+			"id":           "hmr",
+			"semver":       "1.0.0",
+			"publisher":    "legacy",
+			"kind":         "tool",
+			"capabilities": []string{"chat.created"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.State != m8core.InstallEnabled {
+		t.Fatalf("seed hollow plugin = %+v", created)
+	}
+	if err := m8app.EnsureBuiltinPlugins(ctx, svc); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.List(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range listed.Plugins {
+		if item.PluginID != "hmr" {
+			continue
+		}
+		if item.State != m8core.InstallUninstalled {
+			t.Fatalf("hollow leftover must be uninstalled, got %+v", item)
+		}
+		return
+	}
+	t.Fatal("expected uninstalled hmr tombstone in list")
 }

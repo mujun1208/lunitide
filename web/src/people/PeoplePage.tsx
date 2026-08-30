@@ -446,8 +446,7 @@ export function PeoplePage({
               <input ref={imageRef} hidden type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void send('image', '', file) }} />
               <div className="people-composer-tools">
                 <button type="button" onClick={() => setEmojiOpen(v => !v)} aria-label="表情">☺</button>
-                <button type="button" onClick={() => void grabScreen()} aria-label="截图" title="框选截图（Alt+A），像微信一样拖选区域后发送。Esc / 右键取消。">📷</button>
-                <button type="button" className="people-snip-btn" onClick={() => void grabScreen()} aria-label="框选截图" title="框选截图（Alt+A）。Esc / 右键取消。">
+                <button type="button" className="people-snip-btn" onClick={() => void grabScreen()} aria-label="框选截图" title="框选截图（Alt+A），像微信一样拖选区域后发送。Esc / 右键取消。">
                   <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                     <rect x="3.5" y="3.5" width="17" height="17" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="3.5 2.5" />
                   </svg>

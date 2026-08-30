@@ -35,8 +35,12 @@ type Preset struct {
 	Category       string   `json:"category"`
 }
 
-// presets is the frozen catalog (task c3-mcp): free official reference
-// servers only. Order is the display order.
+// presets is the curated catalog. Only currently maintained npx packages
+// (official MCP reference servers that still live on
+// modelcontextprotocol/servers, plus Playwright and Context7). Archived
+// 2025 packages (GitHub / Puppeteer / SQLite / Git) are not listed —
+// git goes through command.run; browsers through Playwright; GitHub
+// public data through web.search. Order is the display order.
 var presets = []Preset{
 	{
 		ID:          "everything",
@@ -87,36 +91,6 @@ var presets = []Preset{
 		Category:    "推理",
 	},
 	{
-		ID:             "git",
-		Name:           "Git",
-		Description:    "查看月汐为本机准备的 Git 仓库状态、diff 与日志（自动安装）",
-		Transport:      "stdio",
-		Command:        "npx",
-		Args:           []string{"-y", "@modelcontextprotocol/server-git", "--repository", "{{repo}}"},
-		NeedsArgs:      true,
-		ArgPlaceholder: "{{repo}}",
-		ArgHint:        "月汐会使用本机数据目录，无需手动填写",
-		Category:       "版本控制",
-	},
-	{
-		ID:          "github",
-		Name:        "GitHub",
-		Description: "公共仓库的 issue、PR、文件与搜索；无 Token 也可试用公共数据",
-		Transport:   "stdio",
-		Command:     "npx",
-		Args:        []string{"-y", "@modelcontextprotocol/server-github"},
-		Category:    "开发",
-	},
-	{
-		ID:          "puppeteer",
-		Name:        "Puppeteer",
-		Description: "驱动无头浏览器：导航、截图、点击与表单自动化",
-		Transport:   "stdio",
-		Command:     "npx",
-		Args:        []string{"-y", "@modelcontextprotocol/server-puppeteer"},
-		Category:    "浏览器",
-	},
-	{
 		ID:          "playwright",
 		Name:        "Playwright",
 		Description: "微软开源浏览器自动化（免费直连，首次会拉取 Chromium）",
@@ -124,18 +98,6 @@ var presets = []Preset{
 		Command:     "npx",
 		Args:        []string{"-y", "@playwright/mcp"},
 		Category:    "浏览器",
-	},
-	{
-		ID:             "sqlite",
-		Name:           "SQLite",
-		Description:    "查询与建表月汐本机 SQLite 数据库（自动安装到数据目录）",
-		Transport:      "stdio",
-		Command:        "npx",
-		Args:           []string{"-y", "@modelcontextprotocol/server-sqlite", "--db-path", "{{db}}"},
-		NeedsArgs:      true,
-		ArgPlaceholder: "{{db}}",
-		ArgHint:        "月汐会使用本机数据目录，无需手动填写",
-		Category:       "数据库",
 	},
 	{
 		ID:          "time",

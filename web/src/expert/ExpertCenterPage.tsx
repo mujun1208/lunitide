@@ -38,7 +38,7 @@ const sha256Hex=async(value:string)=>{const digest=await globalThis.crypto.subtl
 
 export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onCreateInChat}:{bridge?:ExpertBridge;projects?:ProjectBridge;onCreateInChat?:()=>void}):React.JSX.Element{
  const[items,setItems]=useState<ExpertItem[]>([]),[selectedId,setSelectedId]=useState(''),[stateFilter,setStateFilter]=useState<ExpertState|''>(''),[divisionFilter,setDivisionFilter]=useState<Division|''>(''),[query,setQuery]=useState('')
- const[view,setView]=useState<'library'|'market'>('library'),[catalog,setCatalog]=useState<CatalogEntry[]>([]),[marketQuery,setMarketQuery]=useState(''),[marketCategory,setMarketCategory]=useState(''),[marketBusy,setMarketBusy]=useState('')
+ const[view,setView]=useState<'library'|'market'>('library'),[catalog,setCatalog]=useState<CatalogEntry[]>([]),[marketQuery,setMarketQuery]=useState(''),[marketCategory,setMarketCategory]=useState(''),[marketBusy,setMarketBusy]=useState(''),[marketError,setMarketError]=useState(''),[marketLoading,setMarketLoading]=useState(false)
  const[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
  const[addOpen,setAddOpen]=useState(false),[editing,setEditing]=useState<'create'|'edit'|null>(null),[archiving,setArchiving]=useState<ExpertItem|null>(null)
  const[form,setForm]=useState(EMPTY_FORM)
@@ -48,11 +48,14 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
  const[detailWidth,startDetailResize]=usePanelResize({storageKey:'lunitide:expert-detail-width',initial:380,min:280,max:()=>Math.min(560,Math.max(320,window.innerWidth-360)),reverse:true})
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??''))}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge])
- const loadCatalog=useCallback(async()=>{if(!bridge.catalogList)return;try{const result=await bridge.catalogList({});setCatalog(result.items)}catch{/* 市场暂不可用时不阻塞专家库 */}},[bridge])
+ const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供专家目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setCatalog([]);setMarketError(e instanceof Error?e.message:'专家市场加载失败')}finally{setMarketLoading(false)}},[bridge])
  const refresh=async()=>{await load();setDetailEpoch(value=>value+1)}
  useEffect(()=>{void load()},[load])
  useEffect(()=>{void loadCatalog()},[loadCatalog])
  useEffect(()=>{try{projects.list().then(result=>{const visible=result.items.filter(item=>!item.name.startsWith('⁣'));setProjectItems(visible);setMountProjectId(current=>current||visible[0]?.id||'')}).catch(()=>{})}catch{/* bridge unavailable outside WebView2 */}},[projects])
+
+ const showMarket=marketLoading||!!marketError||catalog.length>0
+ useEffect(()=>{if(!showMarket&&view==='market')setView('library')},[showMarket,view])
 
  const counts=useMemo(()=>Object.fromEntries(FILTERS.map(tab=>[tab.id,tab.id?items.filter(item=>item.state===tab.id).length:items.length])),[items])as Record<ExpertState|'',number>
  const visible=useMemo(()=>items.filter(item=>(!stateFilter||item.state===stateFilter)&&(!divisionFilter||item.division===divisionFilter)&&(!query.trim()||displayName(item).toLowerCase().includes(query.trim().toLowerCase()))),[divisionFilter,items,query,stateFilter])
@@ -96,12 +99,12 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
  const projectNameOf=(id:string)=>projectItems.find(project=>project.id===id)?.name??id.slice(0,8)
 
  return <main className="skill-center expert-center-page">
-  <header className="skill-center-header"><div><h1 className="view-title">专家中心</h1><p>{items.length} 名已安装 · 市场 {catalog.length} 个可点选安装</p><small>专家市场按分类浏览，点「＋」即可安装。专家库管理已安装岗位，同一专家可挂到多个项目步骤。</small></div><button className="primary skill-chat-create" aria-label="添加专家" onClick={()=>setAddOpen(true)}>+ 添加专家</button></header>
+  <header className="skill-center-header"><div><h1 className="view-title">专家中心</h1><p>{items.length} 名已安装{showMarket?` · 市场 ${catalog.length} 个可点选安装`:''}</p><small>{showMarket?'专家市场按分类浏览，点「＋」即可安装。':''}专家库管理已安装岗位，同一专家可挂到多个项目步骤。</small></div><button className="primary skill-chat-create" aria-label="添加专家" onClick={()=>setAddOpen(true)}>+ 添加专家</button></header>
   <Dialog open={addOpen} title="添加专家" description="选择创建专家的方式" onClose={()=>setAddOpen(false)}><div className="skill-add-options"><button type="button" className="skill-add-option" onClick={()=>{setAddOpen(false);onCreateInChat?.()}}><span className="skill-add-option-icon">💬</span><span className="skill-add-option-title">通过对话创建</span><small>在对话中描述岗位，AI 引导你完成六段说明书，确认后生成专家</small></button><button type="button" className="skill-add-option" onClick={beginCreate}><span className="skill-add-option-icon">✎</span><span className="skill-add-option-title">手动填写</span><small>填写名称、条线和六段岗位说明书后直接创建</small></button></div></Dialog>
   <section className="skill-center-toolbar">
    <div className="skill-status-tabs" role="tablist" aria-label="专家视图">
     <button type="button" role="tab" aria-selected={view==='library'} onClick={()=>setView('library')}>专家库</button>
-    <button type="button" role="tab" aria-selected={view==='market'} onClick={()=>setView('market')}>专家市场</button>
+    {showMarket&&<button type="button" role="tab" aria-selected={view==='market'} onClick={()=>setView('market')}>专家市场</button>}
    </div>
    {view==='library'&&<>
     <div className="skill-status-tabs" role="tablist" aria-label="专家状态">{FILTERS.map(tab=><button type="button" role="tab" aria-selected={stateFilter===tab.id} key={tab.id||'all'} onClick={()=>setStateFilter(tab.id)}>{tab.label}<small>{counts[tab.id]}</small></button>)}</div>
@@ -116,12 +119,12 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,onC
   </section>
   {error&&!editing&&!mounting&&<p className="skill-center-error" role="alert">{error}</p>}
   {notice&&<p className="skill-center-notice" role="status">{notice}</p>}
-  {view==='market'?<div className="skill-market-page" aria-label="专家市场">{!catalog.length?<div className="empty"><b>市场暂不可用</b><span>当前版本未提供专家目录。</span></div>:<>
+  {view==='market'?<div className="skill-market-page" aria-label="专家市场">{marketLoading?<p role="status">正在载入专家市场…</p>:marketError?<div className="empty"><b>市场加载失败</b><span>{marketError}</span></div>:!catalog.length?<div className="empty"><b>目录为空</b><span>引擎没有返回可安装的专家目录。</span></div>:<>
     <nav className="skill-market-cats" aria-label="市场分类"><button type="button" aria-pressed={!marketCategory} onClick={()=>setMarketCategory('')}>全部<small>{catalog.length}</small></button>{marketCategories.map(([id,count])=><button type="button" key={id} aria-pressed={marketCategory===id} onClick={()=>setMarketCategory(id)}>{id}<small>{count}</small></button>)}</nav>
     <section className="skill-market-shelf" aria-label="可安装专家"><header><b>{marketCategory||'全部角色'}</b><small>{visibleCatalog.length} 个</small></header>{visibleCatalog.length?<div className="skill-market">{visibleCatalog.map(entry=><article className={`skill-market-card ${entry.installed?'is-installed':''}`} key={entry.id}><header><span className="skill-market-glyph" aria-hidden="true">{entry.emoji||entry.displayName.slice(0,1)}</span><div><b>{entry.displayName}</b><small>{USAGE[entry.usage]} · {entry.category}</small></div>{entry.installed?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${entry.displayName}`} disabled={Boolean(marketBusy)} onClick={()=>void installCatalog(entry)}>{marketBusy===entry.id?'…':'＋'}</button>}</header><p>{entry.description}</p><footer><small>v{entry.version}</small></footer></article>)}</div>:<div className="empty"><b>没有匹配的专家</b><span>换个分类或关键字再试。</span></div>}</section>
    </>}</div>
   :<div className="skill-center-layout" style={{'--detail-width':`${detailWidth}px`} as React.CSSProperties}>
-   <section className="skill-table expert-list" aria-label="已安装专家"><div className="skill-table-inner"><div className="skill-table-head"><span>专家</span><span>版本</span><span>状态</span><span>条线</span></div>{loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=><button type="button" className={`skill-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setEditing(null)}}><span><b>{displayName(item)}</b><small>已挂载 {item.mountedPhaseCount} 处 · {SOURCE[item.source]??item.source}</small></span><code>v{item.semver||'—'}</code><i className={`skill-status ${STATUS_CLASS[item.state]}`}>{STATES[item.state]??item.state}</i><code>{displayDivision(item)}</code></button>):<div className="empty"><b>暂无专家</b><span>{query||stateFilter||divisionFilter?'没有匹配的专家。':'去「专家市场」安装，或点击「添加专家」用对话生成。'}</span></div>}</div></section>
+   <section className="skill-table expert-list" aria-label="已安装专家"><div className="skill-table-inner"><div className="skill-table-head"><span>专家</span><span>版本</span><span>状态</span><span>条线</span></div>{loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=><button type="button" className={`skill-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setEditing(null)}}><span><b>{displayName(item)}</b><small>已挂载 {item.mountedPhaseCount} 处 · {SOURCE[item.source]??item.source}</small></span><code>v{item.semver||'—'}</code><i className={`skill-status ${STATUS_CLASS[item.state]}`}>{STATES[item.state]??item.state}</i><code>{displayDivision(item)}</code></button>):<div className="empty"><b>暂无专家</b><span>{query||stateFilter||divisionFilter?'没有匹配的专家。':showMarket?'去「专家市场」安装，或点击「添加专家」用对话生成。':'点击「添加专家」用对话生成。'}</span></div>}</div></section>
    <div className="panel-resizer split-resizer" role="separator" aria-label="调整详情栏宽度" aria-orientation="vertical" onPointerDown={startDetailResize}/>
    <aside className="skill-detail expert-detail" aria-label="专家详情">{selected?<>
     <div className="skill-detail-title"><div><h2>{displayName(selected)}</h2><code>{SOURCE[selected.source]??selected.source} · v{selected.semver||'—'} · {selected.versionCount} 个版本</code></div><span className={`skill-status ${STATUS_CLASS[selected.state]}`}>{STATES[selected.state]??selected.state}</span></div>

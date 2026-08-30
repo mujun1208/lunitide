@@ -141,7 +141,22 @@ func TestSkillInvokeToolDefinitionsWithAndWithoutService(t *testing.T) {
 	}
 	e.skills = &skillInvokeRecordingStub{}
 	defs := e.skillToolDefinitions()
-	if len(defs) != 2 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.create" {
-		t.Fatalf("definitions = %#v, want skill.invoke and skill.create", defs)
+	if len(defs) != 3 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.view" || defs[2].Name != "skill.create" {
+		t.Fatalf("definitions = %#v, want skill.invoke, skill.view, skill.create", defs)
+	}
+}
+
+func TestSkillViewReadsCatalogTemplate(t *testing.T) {
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.skills = &skillInvokeRecordingStub{}
+	out, err := e.invokeSkillViewTool(context.Background(), []byte(`{"skillId":"computer-control"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "computer.act") {
+		t.Fatalf("skill.view body missing computer.act: %s", out.Output)
+	}
+	if strings.Contains(out.Output, "cc.window_list") {
+		t.Fatal("skill.view must not tell the model to call cc.* tool names")
 	}
 }

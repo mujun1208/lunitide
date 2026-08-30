@@ -10,7 +10,7 @@ const officeGenWorkflowClause = "- 文档：必须用 pptx.gen / docx.gen / exce
 
 const workflowResearchClause = "- 调研：必须用 web.search（不要 web.fetch Bing/Google 首页）；后台检索供你引用，只有用户明确要看/打开网页时才需要工作区浏览器。完成后只给简短来源列表并结束，不要写任务过程长文。\n"
 
-const workflowCodeClause = "- 改代码：workspace.search 定位 → workspace.read → workspace.edit 精确替换（多处用 edits[]）→ command.run 验证。\n"
+const workflowCodeClause = "- 改代码：workspace.search 定位 → workspace.read → workspace.edit 精确替换（多处用 edits[]，多文件用 files[]）→ command.run 验证。\n"
 
 const workflowReviewClause = "- 审查：读改动与周边代码，按 严重/建议 分级，引用 path:line。\n"
 
@@ -28,7 +28,9 @@ const workflowSkillInstallClause = "- 安装技能：用户给出含 SKILL.md �
 
 const workflowWindowsPathClause = "- Windows 中文路径：command.run 以 UTF-8 执行；建文件夹走 Unicode API。工具结果若为 ok:false，绝不可对用户报成功。\n"
 
-const workflowHtmlClause = "- 桌面 HTML 小游戏：必须用 html.gen（template=penalty-shootout；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n"
+const workflowHtmlClause = "- 桌面 HTML 小游戏或计时器：必须用 html.gen（template=penalty-shootout 或 timer；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n"
+
+const workflowDesktopHandClause = "- 桌面手（按意图选一把，不要四套里轮流赌）：未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」。\n"
 
 const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个（协议/协议文档 → 桌面上的那个文件）。语音把「打开」听成「把开」时同样执行。禁止把桌面上其它无关文件一起打开。网易云音乐走 cloudmusic.exe，汽水音乐走 sodamusic.exe / Soda Music，都从开始菜单或本机安装路径解析，不要打开网页版。\n"
 
@@ -77,6 +79,7 @@ func selectWorkflowClauses(text string) []string {
 		return false
 	}
 	var out []string
+	needDesktopHand := false
 	if has("调研", "搜", "查", "天气", "search", "火车", "航班") {
 		out = append(out, workflowResearchClause)
 	}
@@ -87,6 +90,7 @@ func selectWorkflowClauses(text string) []string {
 		out = append(out, workflowReviewClause)
 	}
 	if has("浏览", "网页", "browser", "snapshot", "填表") {
+		needDesktopHand = true
 		out = append(out, workflowBrowserClause)
 	}
 	if has("跨应用", "browser-automation", "出站") {
@@ -105,22 +109,29 @@ func selectWorkflowClauses(text string) []string {
 		out = append(out, workflowHtmlClause)
 	}
 	if has("打开桌面", "desktop.open", "协议文档", "网易云", "汽水音乐") || (has("打开") && has("文件")) {
+		needDesktopHand = true
 		out = append(out, workflowDesktopOpenClause)
 	}
 	if has("填写", "证件", "desktop.type", "身份证") {
+		needDesktopHand = true
 		out = append(out, workflowDesktopTypeClause)
 	}
 	if has("播放", "播歌", "media.play", "暂停", "下一首", "播一", "一首歌", "随便放", "放一首") {
+		needDesktopHand = true
 		out = append(out, workflowMediaClause)
 	}
 	if has("飞书", "企微", "钉钉", "微信", "qq", "im.send") {
 		out = append(out, workflowIMClause)
 	}
 	if has("截图", "点击", "对话框", "窗口", "computer.act", "点按钮", "屏幕", "cc.", "帮我点") {
+		needDesktopHand = true
 		out = append(out, workflowComputerClause)
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	if needDesktopHand {
+		out = append([]string{workflowDesktopHandClause}, out...)
 	}
 	out = append(out, workflowStructuredClause, workflowSkillInstallClause, workflowWindowsPathClause)
 	return out

@@ -52,6 +52,7 @@ it('lists installed experts in a skill-center table with a resizable detail pane
   expect(screen.getByRole('separator', { name: '调整详情栏宽度' })).toBeInTheDocument()
   expect(screen.queryByText('九阶段挂载矩阵')).toBeNull()
   expect(await screen.findByText('安全岗位')).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByRole('tab', { name: '专家市场' })).toBeNull())
 })
 
 it('opens a mount dialog with the eight project steps', async () => {

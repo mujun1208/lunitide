@@ -42,6 +42,7 @@ vi.mock('../../bridge/client', async importOriginal => {
       voices: () => Promise.resolve({ voices: [] }),
       synthesize: vi.fn(),
       cancel: vi.fn(),
+      ensureRefEngine: vi.fn().mockResolvedValue({ state: 'online' }),
     }),
     getProviderBridge: () => ({
       list: () =>
@@ -229,7 +230,7 @@ test('falls back to system recognition when volc handshake fails', async () => {
   recognizers.providers = [volcProvider]
   recognizers.volc.mockRejectedValueOnce(new Error('handshake'))
   const utils = render(<CompanionStage {...baseProps} />)
-  await flush(50)
+  await flush(LOCAL_ASR_DECISION_MS + 50)
 
   expect(recognizers.volc).toHaveBeenCalled()
   expect(recognizers.cloud).toHaveBeenCalled()
@@ -242,11 +243,23 @@ test('falls back to system recognition when the volc provider list hangs', async
   saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'volc'))
   recognizers.listHang = true
   const utils = render(<CompanionStage {...baseProps} />)
-  await flush(VOLC_ASR_DECISION_MS + 50)
+  await flush(VOLC_ASR_DECISION_MS + LOCAL_ASR_DECISION_MS + 50)
 
   expect(recognizers.volc).not.toHaveBeenCalled()
   expect(recognizers.cloud).toHaveBeenCalled()
   expect(utils.container.querySelector('[data-asr-route="cloud"]')).toBeTruthy()
   expect(utils.container.textContent).toMatch(/火山听写连不上，已改用系统识别/)
+  utils.unmount()
+})
+
+test('opens local sherpa when the 本地 path is saved even if the probe hangs', async () => {
+  saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'local'))
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(LOCAL_ASR_DECISION_MS + 50)
+
+  expect(recognizers.local).toHaveBeenCalled()
+  expect(recognizers.cloud).not.toHaveBeenCalled()
+  expect(recognizers.volc).not.toHaveBeenCalled()
+  expect(utils.container.querySelector('[data-asr-route="local"]')).toBeTruthy()
   utils.unmount()
 })

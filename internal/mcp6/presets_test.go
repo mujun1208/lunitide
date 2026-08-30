@@ -29,8 +29,8 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		t.Fatalf("preset catalog invalid: %v", err)
 	}
 	all := Presets()
-	if len(all) < 9 {
-		t.Fatalf("expected at least 9 presets, got %d", len(all))
+	if len(all) != 8 {
+		t.Fatalf("expected 8 live presets, got %d", len(all))
 	}
 	for _, p := range all {
 		if p.Transport != "stdio" {
@@ -110,14 +110,12 @@ func TestPresetHostilePlaceholderStillRefused(t *testing.T) {
 	}
 }
 
-// The needsArgs contract: exactly the three documented presets carry a
-// placeholder, substitution only touches placeholder elements, and Presets()
-// hands out defensive copies.
+// The needsArgs contract: only filesystem still needs a sandbox path.
+// Archived git/sqlite presets were removed. Presets() hands out copies.
 func TestPresetNeedsArgsContract(t *testing.T) {
 	wantNeedsArgs := map[string]bool{
 		"everything": false, "filesystem": true, "fetch": false, "memory": false,
-		"sequentialthinking": false, "git": true, "github": false,
-		"puppeteer": false, "playwright": false, "sqlite": true,
+		"sequentialthinking": false, "playwright": false, "time": false, "context7": false,
 	}
 	for id, want := range wantNeedsArgs {
 		p, ok := PresetByID(id)
@@ -128,10 +126,15 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 			t.Fatalf("preset %s needsArgs = %v, want %v", id, p.NeedsArgs, want)
 		}
 	}
-	git, _ := PresetByID("git")
-	resolved := git.ResolveArgs("E:/repos/lunitide")
-	if resolved[len(resolved)-1] != "E:/repos/lunitide" || resolved[2] != "--repository" {
-		t.Fatalf("git resolve produced %v", resolved)
+	fs, _ := PresetByID("filesystem")
+	resolved := fs.ResolveArgs("E:/repos/lunitide")
+	if resolved[len(resolved)-1] != "E:/repos/lunitide" {
+		t.Fatalf("filesystem resolve produced %v", resolved)
+	}
+	for _, archived := range []string{"git", "github", "puppeteer", "sqlite"} {
+		if _, ok := PresetByID(archived); ok {
+			t.Fatalf("archived preset %s must not ship", archived)
+		}
 	}
 	// defensive copies: mutating the returned rows must not corrupt the catalog
 	got := Presets()

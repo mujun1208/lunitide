@@ -272,3 +272,50 @@ func validRequest(t *testing.T, method string) []byte {
 	}
 	return raw
 }
+
+type holdCaller struct {
+	entered chan struct{}
+	hold    chan struct{}
+}
+
+func (c *holdCaller) Call(ctx context.Context, request bridge.Request) (bridge.Response, error) {
+	select {
+	case <-c.entered:
+	default:
+		close(c.entered)
+	}
+	select {
+	case <-c.hold:
+	case <-ctx.Done():
+	}
+	return bridge.Success(request.ID, map[string]string{"status": "ok"}), nil
+}
+
+func TestGatewayControlLaneWhenGeneralIsFull(t *testing.T) {
+	caller := &holdCaller{entered: make(chan struct{}), hold: make(chan struct{})}
+	gateway, err := New("https://app.lunitide.local", caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.admit = bridge.NewSlotGate(1, 1, 30*time.Millisecond)
+
+	go func() {
+		gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "system.health")})
+	}()
+	select {
+	case <-caller.entered:
+	case <-time.After(time.Second):
+		t.Fatal("general slot never acquired")
+	}
+
+	busy, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "tts.synthesize")})
+	if !handled || busy.OK || busy.Error == nil || busy.Error.Code != "HOST_BUSY" {
+		t.Fatalf("full general lane should be HOST_BUSY: %#v", busy)
+	}
+
+	cancel, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, string(bridge.MethodStreamCancel))})
+	if !handled || (cancel.Error != nil && cancel.Error.Code == "HOST_BUSY") {
+		t.Fatalf("interrupt must not be HOST_BUSY when general is full: %#v", cancel)
+	}
+	close(caller.hold)
+}

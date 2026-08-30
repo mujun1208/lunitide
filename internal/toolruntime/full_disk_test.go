@@ -31,6 +31,30 @@ func TestOpenWithoutPolicyFileKeepsFullDiskOff(t *testing.T) {
 	}
 }
 
+func TestDesktopSurfaceDoesNotNeedFullDisk(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.FullDiskEnabled() {
+		t.Fatal("full-disk must stay off")
+	}
+	ctx := context.Background()
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err = r.Execute(ctx, FullAccess, session, "desktop.open", json.RawMessage(`{"name":"no-such-desktop-app-zzz"}`), true)
+	if err == nil {
+		t.Fatal("missing app must fail")
+	}
+	if strings.Contains(err.Error(), "full-disk") || strings.Contains(err.Error(), "完整磁盘") {
+		t.Fatalf("desktop.open still gated on full-disk: %v", err)
+	}
+	_, err = r.Execute(ctx, FullAccess, session, "media.play", json.RawMessage(`{"query":"周杰伦","target":"foreground"}`), true)
+	if err != nil && (strings.Contains(err.Error(), "full-disk") || strings.Contains(err.Error(), "完整磁盘")) {
+		t.Fatalf("media.play still gated on full-disk: %v", err)
+	}
+}
+
 func TestFullDiskPolicyLoadAndHotApply(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "command-policy.json"), []byte(`{"commands":[],"fullAccess":true}`), 0600); err != nil {

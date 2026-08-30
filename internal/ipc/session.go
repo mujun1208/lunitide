@@ -209,7 +209,7 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		return writeFrame(conn, raw)
 	}
 	var requests sync.WaitGroup
-	admission := make(chan struct{}, 32)
+	slots := bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait)
 	defer func() {
 		cancelSession()
 		drained := make(chan struct{})
@@ -234,9 +234,7 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		if err := decodeStrict(frame, &request); err != nil {
 			return errors.New("invalid bridge request")
 		}
-		select {
-		case admission <- struct{}{}:
-		default:
+		if !slots.Acquire(sessionCtx, request.Method) {
 			if err := write(bridge.Failure(request.ID, request.TraceID, "ENGINE_BUSY", "核心引擎正忙，请稍后重试", true)); err != nil {
 				return err
 			}
@@ -245,7 +243,7 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		requests.Add(1)
 		go func(request bridge.Request) {
 			defer requests.Done()
-			defer func() { <-admission }()
+			defer slots.Release(request.Method)
 			const preResponseEventLimit = 64
 			var eventMu sync.Mutex
 			responseWritten := false

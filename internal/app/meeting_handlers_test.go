@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/gateway"
 	"github.com/lunitide/lunitide/internal/meetings"
 	sqlitestore "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
@@ -299,4 +301,66 @@ func TestMeetingsHandlersRollingAudioDoesNotStop(t *testing.T) {
 		t.Fatalf("heartbeat after rotate = %#v", beat)
 	}
 	meetingsOK[map[string]any](t, e, "meetings.stop", map[string]any{"meetingId": id})
+}
+
+type meetingNotesProvider struct{ chatAttachmentProvider }
+
+func (meetingNotesProvider) List(context.Context, provider.Filter) ([]provider.Provider, error) {
+	p, err := chatAttachmentProvider{}.Get(context.Background(), chatAttachmentProviderID)
+	if err != nil {
+		return nil, err
+	}
+	return []provider.Provider{p}, nil
+}
+
+type notesStreamAdapter struct {
+	completeErr error
+	streamed    string
+}
+
+func (a notesStreamAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	if a.completeErr != nil {
+		return gateway.Response{}, a.completeErr
+	}
+	return gateway.Response{}, nil
+}
+func (a notesStreamAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+	if emit != nil {
+		_ = emit(gateway.Delta{Text: a.streamed})
+	}
+	return gateway.Response{Message: gateway.Message{Content: a.streamed}}, nil
+}
+func (notesStreamAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, nil
+}
+
+func TestCompleteMeetingFallsBackToStream(t *testing.T) {
+	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return notesStreamAdapter{
+			completeErr: errors.New("stream required"),
+			streamed:    `{"title":"评审","summary":"对齐范围","actions":["写纪要"]}`,
+		}, nil
+	})
+	notes, err := e.completeMeeting(context.Background(), "周会", "先对齐范围下周发布")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(notes.Summary, "对齐") || notes.Actions == "" {
+		t.Fatalf("stream fallback notes = %#v", notes)
+	}
+}
+
+func TestCompleteMeetingStreamsWhenCompleteIsEmpty(t *testing.T) {
+	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return notesStreamAdapter{streamed: `{"title":"评审","summary":"结论","actions":["跟进"]}`}, nil
+	})
+	notes, err := e.completeMeeting(context.Background(), "周会", "先对齐范围")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notes.Summary != "结论" {
+		t.Fatalf("empty complete should stream: %#v", notes)
+	}
 }

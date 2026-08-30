@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/imapp"
@@ -150,6 +151,15 @@ func TestImInboundDeliverAllowlist(t *testing.T) {
 	}
 	if len(page.Items) != 1 || !strings.Contains(page.Items[0].Text, "打开网易云") {
 		t.Fatalf("messages %#v", page.Items)
+	}
+}
+
+func TestInboundAutoRunBudget(t *testing.T) {
+	if inboundAutoRunTimeout != 2*time.Minute {
+		t.Fatalf("timeout = %s", inboundAutoRunTimeout)
+	}
+	if inboundAutoRunDeadlineMS != 120_000 {
+		t.Fatalf("deadlineMs = %d", inboundAutoRunDeadlineMS)
 	}
 }
 

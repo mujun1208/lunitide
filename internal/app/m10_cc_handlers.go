@@ -35,6 +35,7 @@ func handleCcUpdateConfig(e *Engine, ctx context.Context, r bridge.Request) brid
 		ProcessBlocklist     *[]string `json:"processBlocklist"`
 		MaxActionsPerMinute  *int      `json:"maxActionsPerMinute"`
 		ConfirmTimeoutSecond *int      `json:"confirmTimeoutSeconds"`
+		ArmMinutes           *int      `json:"armMinutes"`
 		Actor                string    `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
@@ -46,7 +47,7 @@ func handleCcUpdateConfig(e *Engine, ctx context.Context, r bridge.Request) brid
 	settings, err := e.ccctrl.UpdateConfig(ctx, ccapp.SettingsPatch{
 		Enabled: p.Enabled, SecurityLevel: p.SecurityLevel, AllowCritical: p.AllowCritical,
 		ProcessBlocklist: p.ProcessBlocklist, MaxActionsPerMinute: p.MaxActionsPerMinute,
-		ConfirmTimeoutSecond: p.ConfirmTimeoutSecond, Actor: p.Actor,
+		ConfirmTimeoutSecond: p.ConfirmTimeoutSecond, ArmMinutes: p.ArmMinutes, Actor: p.Actor,
 	})
 	if err != nil {
 		return ccFailure(r, err)

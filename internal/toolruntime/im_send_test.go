@@ -22,9 +22,9 @@ func TestExecuteIMSendWebhookAndDesktopGuard(t *testing.T) {
 	}
 
 	desk, _ := json.Marshal(map[string]any{"channel": "wechat", "text": "hi", "to": "张三"})
-	_, err = r.executeIMSend(context.Background(), "s1", desk, true, false)
-	if err == nil || !strings.Contains(err.Error(), "完整磁盘访问") {
-		t.Fatalf("desktop confined %v", err)
+	_, err = r.executeIMSend(context.Background(), "s1", desk, false, true)
+	if err == nil || !strings.Contains(err.Error(), "完整权限") {
+		t.Fatalf("desktop unapproved %v", err)
 	}
 
 	empty, _ := json.Marshal(map[string]any{"channel": "feishu", "text": "  "})

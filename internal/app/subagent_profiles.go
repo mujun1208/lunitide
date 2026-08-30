@@ -209,14 +209,14 @@ func builtinSubagentProfiles() map[string]subagentProfileDef {
 			Description:  "Web search and page fetch for market or documentation research.",
 			SystemPrompt: "You are the Research subagent: use web.search and web.fetch only. Summarize sources with URLs in one report (max 2000 characters). Do not invent sources.",
 			ReadCaps:     []string{"web.search", "web.fetch"},
-			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     16, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"general-purpose": {
 			ID: "general-purpose", DisplayName: "General purpose", Builtin: true,
 			Description:  "General-purpose agent for multi-step read-only investigation.",
 			SystemPrompt: "You are a general-purpose read-only subagent. Investigate using workspace reads, allowlisted commands, and web tools as needed. Return one concise report (max 2000 characters).",
 			ReadCaps:     defaultSubagentProfileCaps(),
-			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
+			MaxSteps:     16, BudgetTokens: subagentDefaultBudgetTokens,
 		},
 		"review": {
 			ID: "review", DisplayName: "Review", Builtin: true,

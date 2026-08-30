@@ -112,7 +112,7 @@ func skillCreatorManifest() map[string]any {
 	lunitide := "\n\n--- Lunitide 集成 ---\n" +
 		"完成技能设计后，使用 skill.create 写入技能中心（name、displayName、description、permissions、entryPoint=SKILL.md、manifestJson 含 triggers 与 prompt）。\n" +
 		"可先用 workspace.read/write 在工作区起草 SKILL.md 与 scripts/；用户给出现成目录时直接读取并 skill.create。\n" +
-		"skill.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到技能中心安装并发布。然后停止本轮，不要继续未完成工作，不要再调用无关工具。\n" +
+		"skill.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到技能中心安装并发布。然后继续用户还没做完的工作。\n" +
 		"失败时用中文说明原因（重名、权限、清单无效等），不要沉默结束。"
 	prompt := strings.TrimSpace(body) + lunitide
 	if len(prompt) > 60000 {
@@ -128,7 +128,7 @@ func expertManagerManifest() map[string]any {
 	body := stripYAMLFrontmatter(string(expertManagerSkillMD))
 	lunitide := "\n\n--- Lunitide 集成 ---\n" +
 		"完成六段式岗位说明书后，调用 expert.create（source=local，frontmatter + sixSection，requestId=新 UUID）。\n" +
-		"不要用 skill.create。expert.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到专家中心挂载到项目步骤。然后停止本轮，不要继续未完成工作。\n" +
+		"不要用 skill.create。expert.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到专家中心挂载到项目步骤。然后继续用户还没做完的工作。\n" +
 		"失败时用中文说明原因，不要沉默结束。"
 	prompt := strings.TrimSpace(body) + lunitide
 	if len(prompt) > 60000 {
@@ -141,10 +141,12 @@ func expertManagerManifest() map[string]any {
 }
 
 func pluginCreatorManifest() map[string]any {
-	prompt := "你是插件创建助手，按 DeepSeek Harness 方式把用户需求写成一份可安装插件。\n" +
-		"先确认：插件名称（英文 pluginId 短横线）、显示名、要增强的能力、kind（tool/skill/workflow/mcp）、需要的权限。\n" +
-		"然后调用 plugin.create（pluginId、name、kind、description、entrypoint、manifest）。manifest 至少含 pluginId、semver、publisher、kind、permissions。\n" +
-		"不要用 skill.create。plugin.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到插件页查看安装状态。然后停止本轮，不要继续未完成工作。\n" +
+	prompt := "你是插件登记助手。月汐不执行 Cordis / TypeScript 插件包，也不会加载 plugin/main.ts。\n" +
+		"先判断用户真正要的能力：\n" +
+		"- 可调用的工作约定 → 用 skill.create，不要 plugin.create。\n" +
+		"- 现役 MCP 服务器 → 用 mcp.presets + mcp.install（Playwright / Filesystem / Fetch 等），不要 plugin.create kind=mcp。\n" +
+		"- 只要在插件页留一张能力卡片（kind=tool|skill|workflow|template）→ 才调用 plugin.create。\n" +
+		"plugin.create 成功后必须用中文说清：这是目录卡片，不会出现新的可执行代码；若要真正调用请 skill.create 或 mcp.install。然后继续没做完的工作。\n" +
 		"失败时用中文说明原因，不要沉默结束。"
 	return map[string]any{
 		"triggers": []string{"创建插件", "新建插件", "写插件", "plugin-creator", "create plugin", "harness 插件"},
@@ -210,7 +212,7 @@ func computerControlManifest() map[string]any {
 	return bundledManifest(computerControlSkillMD, []string{
 		"操作电脑", "电脑控制", "computer control", "computer-control", "点一下", "帮我点",
 		"截个屏", "切窗口", "按回车", "粘贴", "桌面操作", "peekaboo",
-	}, "\n\n--- Lunitide 集成 ---\n只用已启用的 cc.* 工具，禁止 command.run 模拟键鼠。启动未运行应用用 desktop.open；播歌用 media.play；网页用 browser.act。禁止确认 UAC/提权/打开保存对话框。用中文短报进度。")
+	}, "\n\n--- Lunitide 集成 ---\n模型只能调用 computer.act（以及 desktop.open / desktop.type / media.play / browser.act）。不要调用 cc.* 工具名——它们不在工具列表里。启动未运行应用用 desktop.open；播歌用 media.play；网页用 browser.act。禁止确认 UAC/提权/打开保存对话框。用中文短报进度。")
 }
 
 func browserAutomationManifest() map[string]any {
@@ -296,7 +298,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
 		EntryPoint:  "builtin://find-skills",
 		Manifest:    findSkillsManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "brainstorming", Name: "brainstorming", DisplayName: "brainstorming",
@@ -305,7 +307,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://brainstorming",
 		Manifest:    brainstormingManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "pm-skill", Name: "pm-skill", DisplayName: "pm-skill",
@@ -314,7 +316,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
 		EntryPoint:  "builtin://pm-skill",
 		Manifest:    pmSkillManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "super-coders", Name: "super-coders", DisplayName: "super-coders",
@@ -323,7 +325,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionShell},
 		EntryPoint:  "builtin://super-coders",
 		Manifest:    superCodersManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "frontend-design", Name: "frontend-design", DisplayName: "frontend-design",
@@ -332,7 +334,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://frontend-design",
 		Manifest:    frontendDesignManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "ui-components", Name: "ui-components", DisplayName: "ui-components",
@@ -341,7 +343,7 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://ui-components",
 		Manifest:    uiComponentsManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "design-system", Name: "design-system", DisplayName: "design-system",
@@ -350,11 +352,11 @@ var catalogTemplates = []CatalogTemplate{
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://design-system",
 		Manifest:    designSystemManifest(),
-		Featured:    true, Bundled: true, Source: "Codex 推荐",
+		Featured:    true, Bundled: true, Source: "Agent Skills 模板",
 	},
 	{
 		ID: "computer-control", Name: "computer-control", DisplayName: "computer-control",
-		Description: "Operate this Windows PC with cc.* tools: screenshot, named click, type, paste, press, windows, menus. This PC only.",
+		Description: "Operate this Windows PC with computer.act: screenshot, named click, type, paste, press, windows, menus. This PC only.",
 		Category:    "办公协作", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://computer-control",
@@ -381,7 +383,7 @@ var catalogTemplates = []CatalogTemplate{
 	},
 	{
 		ID: "plugin-creator", Name: "plugin-creator", DisplayName: "plugin-creator",
-		Description: "Create a Harness-compatible plugin from a conversation and mount it into the plugin list.",
+		Description: "Register a Plugin Center capability card. Does not execute Cordis. Prefer skill.create or mcp.install for real capabilities.",
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://plugin-creator",
@@ -738,7 +740,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://mermaid-diagrams", Featured: true, Compose: true, Source: "Mermaid / C4 skill",
-		Manifest:    mermaidDiagramsManifest(),
+		Manifest: mermaidDiagramsManifest(),
 	},
 	{
 		ID: "anti-ai-prose", Name: "tpl-anti-ai-prose", DisplayName: "去AI味",
@@ -746,7 +748,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "写作辅助", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://anti-ai-prose", Compose: true, Source: "anti-vibe-writing / humanizer",
-		Manifest:    antiAIProseManifest(),
+		Manifest: antiAIProseManifest(),
 	},
 	{
 		ID: "e2e-browser", Name: "tpl-e2e-browser", DisplayName: "E2E 意图场景",
@@ -754,7 +756,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
 		EntryPoint:  "builtin://e2e-browser", Compose: true, Source: "e2e-test-agent / Playwright MCP",
-		Manifest:    e2eBrowserManifest(),
+		Manifest: e2eBrowserManifest(),
 	},
 	{
 		ID: "csv-workbook", Name: "tpl-csv-workbook", DisplayName: "CSV/表格工作簿",
@@ -762,7 +764,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "数据分析", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://csv-workbook", Compose: true, Source: "月汐 office 工具",
-		Manifest:    csvWorkbookManifest(),
+		Manifest: csvWorkbookManifest(),
 	},
 	{
 		ID: "hardware-bom", Name: "tpl-hardware-bom", DisplayName: "硬件 BOM",
@@ -770,7 +772,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
 		EntryPoint:  "builtin://hardware-bom", Compose: true, Source: "capacity-planner skills",
-		Manifest:    hardwareBOMManifest(),
+		Manifest: hardwareBOMManifest(),
 	},
 	{
 		ID: "fiction-continuity", Name: "tpl-fiction-continuity", DisplayName: "小说连续性",
@@ -778,7 +780,7 @@ var catalogTemplates = []CatalogTemplate{
 		Category:    "内容创作", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://fiction-continuity", Compose: true, Source: "ArcVellum / fiction-forge",
-		Manifest:    fictionContinuityManifest(),
+		Manifest: fictionContinuityManifest(),
 	},
 }
 

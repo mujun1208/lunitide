@@ -9,8 +9,9 @@ describe('automation templates OpenClaw alignment', () => {
     expect(scrape?.prompt).toMatch(/browser\.act/)
     expect(scrape?.prompt).toMatch(/snapshot/)
     const flow = AUTOMATION_TEMPLATES.find(t => t.id === 'desktop-data-flow')
-    expect(flow?.prompt).toMatch(/cc\.window_focus/)
+    expect(flow?.prompt).toMatch(/computer\.act/)
     expect(flow?.prompt).toMatch(/不要远程/)
+    expect(flow?.prompt).not.toMatch(/cc\.window_/)
   })
 
   test('renders at: stamps as one-shot times', () => {

@@ -930,6 +930,7 @@ export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'completed';completed?:{messageId:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'cancelled'}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'failed';error:{code:string;message:string;retryable:boolean}}
+ | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'guidance';guidance:{labels:string[];digest:string}}
 export interface ChatStream { readonly streamId:string; cancel():Promise<boolean>; dispose():void }
 export interface ChatBridge { start(payload:ChatStartPayload,onEvent:(event:StreamEvent)=>void):Promise<ChatStream>; approve?(payload:ChatToolApprovePayload):Promise<ChatToolApproveResult>; dispose():void }
 const nonnegativeInt=(v:unknown)=>Number.isInteger(v)&&Number(v)>=0
@@ -957,6 +958,7 @@ const isStreamEvent=(v:unknown):v is StreamEvent=>{
   case'completed':return exact(v,'completed'in v?[...base,'completed']:base)&&(!('completed'in v)||isObj(v.completed)&&exact(v.completed,['messageId'])&&isULID(v.completed.messageId))
   case'cancelled':return exact(v,base)
   case'failed':return exact(v,[...base,'error'])&&isObj(v.error)&&exact(v.error,['code','message','retryable'])&&typeof v.error.code==='string'&&v.error.code.length>0&&typeof v.error.message==='string'&&v.error.message.length>0&&typeof v.error.retryable==='boolean'
+  case'guidance':return exact(v,[...base,'guidance'])&&isObj(v.guidance)&&exact(v.guidance,['labels','digest'])&&Array.isArray(v.guidance.labels)&&v.guidance.labels.length>=1&&v.guidance.labels.length<=8&&v.guidance.labels.every(label=>typeof label==='string'&&label.length>0&&label.length<=32)&&typeof v.guidance.digest==='string'&&/^[0-9a-f]{16}$/.test(v.guidance.digest)
   default:return false
  }
 }
