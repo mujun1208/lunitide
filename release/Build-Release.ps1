@@ -41,6 +41,7 @@ try {
   $desktopLd="-H=windowsgui $ld"
   & go build -trimpath -buildvcs=false -ldflags $desktopLd -o (Join-Path $stage 'Lunitide.exe') ./cmd/desktop
   if ($LASTEXITCODE) { throw 'desktop build failed' }
+  # Tray mode is the same PE: Lunitide.exe --tray. cmd/tray is a local launcher only.
   & go build -trimpath -buildvcs=false -ldflags $ld -o (Join-Path $stage 'lunitide-engine.exe') ./cmd/engine
   if ($LASTEXITCODE) { throw 'engine build failed' }
   & go build -trimpath -buildvcs=false -ldflags '-s -w' -o (Join-Path $stage 'purge-user-data.exe') ./cmd/purge-user-data

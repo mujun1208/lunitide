@@ -8,7 +8,7 @@ import { rememberAttachmentPreview } from './attachments'
 import { resetLiveChatForTests } from './liveChat'
 import { RootErrorBoundary } from '../RootErrorBoundary'
 
-afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
+afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:persist-failed:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
 const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}
@@ -187,6 +187,98 @@ it('keeps multiple mounted experts on the conversation after send',async()=>{
  expect(sent).not.toContain('小说编写专家')
 })
 
+it('does not show 继续上次 just because the last durable message is the user',async()=>{
+ const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'帮我写个文件',createdAt:NOW}
+ const start=vi.fn()
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),dispose:vi.fn()}}/>)
+ expect(await screen.findByText('帮我写个文件')).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'继续上次'})).toBeNull()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).not.toHaveBeenCalled()
+})
+
+it('shows 继续上次 after remount when the server turn is interrupted',async()=>{
+ const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'帮我写个文件',createdAt:NOW}
+ const start=vi.fn()
+ const inspectTurn=vi.fn().mockResolvedValue({status:'interrupted',persistFailed:false,persistDraft:''})
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ expect(await screen.findByRole('button',{name:'继续上次'})).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'只重试写入'})).toBeNull()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).not.toHaveBeenCalled()
+ expect(inspectTurn).toHaveBeenCalledWith({sessionId:S})
+})
+
+it('restores a running server draft into the bubble without persist-failed',async()=>{
+ const inspectTurn=vi.fn().mockResolvedValue({status:'running',persistFailed:false,persistDraft:'流到一半还没写完'})
+ const start=vi.fn()
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ expect(await screen.findByRole('button',{name:'继续上次'})).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'只重试写入'})).toBeNull()
+ expect(await screen.findByText('流到一半还没写完')).toBeInTheDocument()
+ expect(await screen.findByText(/上次没写完/)).toBeInTheDocument()
+ expect(screen.queryByText(/^已完成$/)).toBeNull()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).not.toHaveBeenCalled()
+})
+
+it('keeps mounted experts on 继续上次',async()=>{
+ const ppt={expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',name:'PPT专家',division:'design' as const,source:'local' as const,semver:'1.0.0',state:'enabled' as const,versionCount:1,mountedPhaseCount:0}
+ const inspectTurn=vi.fn().mockResolvedValue({status:'running',persistFailed:false,persistDraft:'流到一半还没写完'})
+ const append=vi.fn().mockResolvedValue({})
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ const experts={list:vi.fn().mockResolvedValue({experts:[ppt]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[ppt.expertId]}),sessionMountSet:vi.fn(),detail:vi.fn(),create:vi.fn(),update:vi.fn(),toggle:vi.fn(),archive:vi.fn(),mount:vi.fn(),mountingGet:vi.fn(),scenarioCreate:vi.fn(),scenarioList:vi.fn(),scenarioDelete:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} experts={experts} messages={{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ expect(await screen.findByRole('button',{name:'继续上次'})).toBeInTheDocument()
+ await userEvent.setup().click(screen.getByRole('button',{name:'继续上次'}))
+ await waitFor(()=>expect(append).toHaveBeenCalled())
+ expect(JSON.stringify(append.mock.calls)).toContain(`[引用专家 PPT专家|${ppt.expertId}]`)
+ await waitFor(()=>expect(start).toHaveBeenCalled())
+ expect(start.mock.calls[0][0].sessionId).toBe(S)
+ expect(start.mock.calls[0][0].messages).toBeUndefined()
+})
+
+it('opens memory from the inject summary',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const onOpenMemory=vi.fn()
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'记住晚上用深色',status:'completed',sequence:1,createdAt:NOW}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
+ const user=userEvent.setup()
+ render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} chat={{start,dispose:vi.fn()}} messages={{list:vi.fn().mockResolvedValue(page([question])),append:vi.fn().mockResolvedValue({})} as MessageBridge} onBack={vi.fn()} onOpenMemory={onOpenMemory}/>)
+ await screen.findByText('记住晚上用深色')
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'继续')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ act(()=>{onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'delta',delta:{text:'好'}});onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'completed',completed:{memorySummary:'本轮用了偏好 1'}})})
+ await user.click(await screen.findByRole('button',{name:'本轮用了偏好 1'}))
+ expect(onOpenMemory).toHaveBeenCalledOnce()
+})
+
+it('shows 只重试写入 after remount from the server persist draft',async()=>{
+ const inspectTurn=vi.fn().mockResolvedValue({status:'completed',persistFailed:true,persistDraft:'已经生成但没落库'})
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ expect(await screen.findByRole('button',{name:'只重试写入'})).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'继续上次'})).toBeNull()
+ expect(await screen.findByText('已经生成但没落库')).toBeInTheDocument()
+ await waitFor(()=>expect(screen.getByRole('button',{name:'已配置模型'})).toBeInTheDocument())
+ await userEvent.setup().click(screen.getByRole('button',{name:'只重试写入'}))
+ await waitFor(()=>expect(start).toHaveBeenCalled())
+ expect(start.mock.calls[0][0].messages?.[0]?.content).toBe('\u2063persist-retry')
+})
+
+it('restores persist-failed draft without auto-sending resume',async()=>{
+ localStorage.setItem(`lunitide:persist-failed:${S}`,JSON.stringify({draft:'已经生成但没落库'}))
+ const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'帮我写个文件',createdAt:NOW}
+ const start=vi.fn()
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),dispose:vi.fn()}}/>)
+ expect(await screen.findByText('帮我写个文件')).toBeInTheDocument()
+ expect(await screen.findByRole('button',{name:'只重试写入'})).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'继续上次'})).toBeNull()
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
+ expect(start).not.toHaveBeenCalled()
+})
+
 it('does not auto-send TURN_RESUME_PROMPT on retryable failed or unfinished turn',async()=>{
  localStorage.setItem(`lunitide:active-turn:${S}`,JSON.stringify({status:'interrupted',resumeCount:0}))
  const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'帮我写个文件',createdAt:NOW}
@@ -241,7 +333,7 @@ it('surfaces stream failure only as 无法执行 without the UPSTREAM_FAILED car
 it('reloads persisted assistant history after a failed stream',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'写十二星座小说',createdAt:NOW}
- const assistantMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sessionId:S,role:'assistant',status:'completed',sequence:2,text:'【思考过程】\n先规划结构。\n\n已写好白羊座。\n无法执行。模型结果不完整，请重试。',createdAt:NOW}
+ const assistantMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sessionId:S,role:'assistant',status:'completed',sequence:2,text:'已写好白羊座。\n无法执行。模型结果不完整，请重试。',createdAt:NOW}
  const list=vi.fn()
   .mockResolvedValueOnce(page([userMessage]))
   .mockResolvedValueOnce(page([userMessage]))
@@ -261,6 +353,19 @@ it('reloads persisted assistant history after a failed stream',async()=>{
  expect(screen.getAllByText(/已写好白羊座/).length).toBeGreaterThan(0)
  expect(screen.getAllByText(/无法执行/).length).toBeGreaterThan(0)
  expect(screen.queryByText('AGENT · 失败')).toBeNull()
+})
+
+it('folds persisted thinking-only history into one closed row',async()=>{
+ const assistantMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sessionId:S,role:'assistant',status:'completed',sequence:2,text:'【思考过程】\n先规划结构再写大纲。\n\n无法执行。模型结果不完整，请重试。',createdAt:NOW}
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} messages={{list:vi.fn().mockResolvedValue(page([assistantMessage])),append:vi.fn()} as MessageBridge}/>)
+ expect(await screen.findByText(/无法执行/)).toBeInTheDocument()
+ const details=screen.getByText('任务过程').closest('details')!
+ expect(details).not.toHaveAttribute('open')
+ expect(screen.queryByText('【思考过程】')).toBeNull()
+ expect(document.querySelector('.thinking-reasoning')).toBeNull()
+ await userEvent.click(screen.getByText('任务过程'))
+ expect(details).toHaveAttribute('open')
+ expect(screen.getByText(/先规划结构再写大纲/)).toBeInTheDocument()
 })
 
 it('closes composer popovers when clicking outside',async()=>{
@@ -661,4 +766,16 @@ it('shows a compact chip when context usage is high and commits the preview',asy
  await waitFor(()=>expect(compactPreview).toHaveBeenCalledWith({sessionId:S}))
  await user.click(screen.getByRole('button',{name:'应用压缩'}))
  await waitFor(()=>expect(compactCommit).toHaveBeenCalledWith({checkpointId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',baseVersion:1}))
+})
+
+it('asks before saving a finished personal chat as a skill', async () => {
+  const onSaveAsSkill = vi.fn()
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  const userMsg: MessageDTO = {id:'01ARZ3NDEKTSV4RRFFQ69G5FA1',sessionId:S,role:'user',status:'completed',sequence:1,text:'整理成周报技能',createdAt:NOW}
+  const agentMsg: MessageDTO = {...userMsg,id:'01ARZ3NDEKTSV4RRFFQ69G5FA2',role:'assistant',sequence:2,text:'可以按这个结构沉淀。'}
+  render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page([userMsg,agentMsg])),append:vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session} onSaveAsSkill={onSaveAsSkill}/>)
+  fireEvent.click(await screen.findByRole('button',{name:'存为技能'}))
+  expect(confirm).toHaveBeenCalled()
+  expect(onSaveAsSkill).toHaveBeenCalledWith(expect.stringContaining('整理成周报技能'))
+  confirm.mockRestore()
 })

@@ -273,7 +273,7 @@ func handleMcp6PresetsList(e *Engine, ctx context.Context, r bridge.Request) bri
 	}
 	items := mcp6.Presets()
 	for i := range items {
-		if !items[i].NeedsArgs {
+		if !items[i].NeedsArgs || items[i].ArgPlaceholder != "{{dir}}" {
 			continue
 		}
 		items[i].ArgDefault = mcp6.PrepareSandbox(items[i].ID)

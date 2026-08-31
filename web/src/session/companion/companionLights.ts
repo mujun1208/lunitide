@@ -103,11 +103,12 @@ export async function inspectCompanionEntry(
   }
 
   const thinkLabel = llm?.modelId || (llmReady ? '对话模型' : '未配置')
-  const allowListen = llmReady && listenReady && speakReady
+  // Listen is independent of SoVITS: a down TTS engine must not leave the
+  // stage deaf. Speak-light still reflects the engine; captions stay live.
+  const allowListen = llmReady && listenReady
   let blockReason = ''
   if (!llmReady) blockReason = '请先在「模型与供应商」中启用一个对话模型，再开始听。'
   else if (path === 'local' && !listenReady) blockReason = '本机听写未就绪（sherpa）。请先安装本机识别，或改选系统 / 火山。'
-  else if (path === 'local' && !speakReady) blockReason = '本机朗读未就绪（GPT-SoVITS）。垫音可改晓晓，进门仍要引擎在线。请先在设置里启动，或改选云端 / 火山。'
   else if (path === 'volc' && !listenReady) {
     blockReason = listed.timedOut
       ? '火山听写还没确认可用。已选火山卡，不会改用系统识别。VOICE-004'

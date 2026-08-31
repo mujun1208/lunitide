@@ -46,19 +46,130 @@ export function conversationExpertKind(idOrName: string): ExpertKind {
   return conversationExpertByNameOrID(idOrName) ? 'agent' : 'prompt_skill'
 }
 
-export function preferredSkillsForExperts(experts: ReadonlyArray<{name?: string; id?: string}>): string[] {
+export const MCP_BIND_PREFIX = 'mcp:'
+export const BRAIN_BIND_PREFIX = 'brain:'
+export type ExpertBrain = 'lunitide' | 'codex' | 'claude'
+
+export function brainBindKey(kind: ExpertBrain): string {
+  return `${BRAIN_BIND_PREFIX}${kind}`
+}
+
+export function boundBrainFromKeys(keys: readonly string[]): ExpertBrain {
+  for (const raw of keys) {
+    if (!raw.startsWith(BRAIN_BIND_PREFIX)) continue
+    const id = raw.slice(BRAIN_BIND_PREFIX.length).trim().toLowerCase()
+    if (id === 'codex' || id === 'claude') return id
+  }
+  return 'lunitide'
+}
+
+export const CONVERSATION_EXPERT_REQUIRED_TOOLS: Record<ConversationExpertID, readonly string[]> = {
+  'ppt-expert': ['web.search', 'web.fetch', 'pptx.gen', 'skill.invoke', 'image.generate', 'todo.write'],
+  'report-writer': ['web.search', 'web.fetch', 'docx.gen', 'skill.invoke', 'todo.write'],
+  'novel-writer': ['docx.gen', 'skill.invoke', 'web.search', 'todo.write'],
+  'excel-maker': ['excel.gen', 'excel.parse', 'skill.invoke', 'todo.write'],
+  'ui-designer': ['workspace.write', 'skill.invoke', 'todo.write'],
+  'pm-expert': ['web.search', 'skill.invoke', 'docx.gen', 'todo.write'],
+  'architect-expert': ['skill.invoke', 'workspace.read', 'workspace.search', 'todo.write'],
+  'db-expert': ['skill.invoke', 'workspace.read', 'todo.write', 'workspace.write'],
+  'repo-expert': ['workspace.list', 'workspace.read', 'skill.invoke', 'todo.write'],
+  'standards-expert': ['skill.invoke', 'workspace.read', 'todo.write'],
+  'test-expert': ['skill.invoke', 'browser.act', 'todo.write'],
+  'hardware-expert': ['web.search', 'excel.gen', 'skill.invoke', 'todo.write'],
+  'dev-expert': ['workspace.read', 'workspace.edit', 'command.run', 'skill.invoke', 'todo.write'],
+}
+
+export const CONVERSATION_EXPERT_PREFERRED_MCP: Record<ConversationExpertID, readonly string[]> = {
+  'ppt-expert': ['playwright'],
+  'report-writer': ['fetch'],
+  'novel-writer': [],
+  'excel-maker': [],
+  'ui-designer': [],
+  'pm-expert': [],
+  'architect-expert': [],
+  'db-expert': [],
+  'repo-expert': ['filesystem'],
+  'standards-expert': [],
+  'test-expert': ['playwright'],
+  'hardware-expert': [],
+  'dev-expert': ['filesystem'],
+}
+
+export const CONVERSATION_EXPERT_MCP_FALLBACK: Record<ConversationExpertID, string> = {
+  'ppt-expert': '未连接 Playwright MCP 时用 browser.act；素材用 web.search / web.fetch。',
+  'report-writer': '未连接 Fetch MCP 时用 web.fetch；检索用 web.search。',
+  'novel-writer': '时代/设定核对用 web.search / web.fetch。',
+  'excel-maker': 'CSV 与表格走 excel.parse / excel.gen。',
+  'ui-designer': '不另开 UI 专家卡，不装 shadcn MCP。',
+  'pm-expert': '市场调研用 web.search。',
+  'architect-expert': 'C4 用对话内 mermaid。证据缺口标 MISSING。',
+  'db-expert': '没有 SQLite MCP。用 mermaid erDiagram + workspace.write 写 DDL 草稿。',
+  'repo-expert': '未连接 Filesystem MCP 时用 workspace.list/read。',
+  'standards-expert': 'format/lint/test 走白名单 command.run。',
+  'test-expert': '未连接 Playwright MCP 时用 browser.act。',
+  'hardware-expert': '价格/SKU 必须 web.search，标待确认。',
+  'dev-expert': '未连接 Filesystem MCP 时用 workspace.*。Git 走 command.run 白名单。',
+}
+
+export function shouldOpenExpertAsColleague(idOrName: string): boolean {
+  return conversationExpertKind(idOrName) === 'agent'
+}
+
+export function splitBoundKeys(keys: readonly string[]): {skills: string[]; mcp: string[]; brain: ExpertBrain} {
+  const skills: string[] = []
+  const mcp: string[] = []
+  for (const raw of keys) {
+    const key = raw.trim()
+    if (!key) continue
+    if (key.startsWith(MCP_BIND_PREFIX)) {
+      const id = key.slice(MCP_BIND_PREFIX.length).trim()
+      if (id) mcp.push(id)
+      continue
+    }
+    if (key.startsWith(BRAIN_BIND_PREFIX)) continue
+    skills.push(key)
+  }
+  return {skills, mcp, brain: boundBrainFromKeys(keys)}
+}
+
+export function mcpBindKey(id: string): string {
+  return `${MCP_BIND_PREFIX}${id.trim()}`
+}
+
+export function preferredMcpForExperts(experts: ReadonlyArray<{name?: string; id?: string}>): string[] {
+  return collectPreferred(experts, hit => CONVERSATION_EXPERT_PREFERRED_MCP[hit.id])
+}
+
+export function requiredToolsForExperts(experts: ReadonlyArray<{name?: string; id?: string}>): string[] {
+  return collectPreferred(experts, hit => CONVERSATION_EXPERT_REQUIRED_TOOLS[hit.id])
+}
+
+export function mcpFallbackForExpert(idOrName: string): string {
+  const hit = conversationExpertByNameOrID(idOrName)
+  return hit ? CONVERSATION_EXPERT_MCP_FALLBACK[hit.id] : ''
+}
+
+function collectPreferred(experts: ReadonlyArray<{name?: string; id?: string}>, pick: (hit: (typeof CONVERSATION_EXPERTS)[number]) => readonly string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const expert of experts) {
     const hit = conversationExpertByNameOrID(expert.name ?? '') ?? conversationExpertByNameOrID(expert.id ?? '')
     if (!hit) continue
-    for (const id of CONVERSATION_EXPERT_PREFERRED_SKILLS[hit.id]) {
+    for (const id of pick(hit)) {
       if (seen.has(id)) continue
       seen.add(id)
       out.push(id)
     }
   }
   return out
+}
+
+export function preferredSkillsForExperts(experts: ReadonlyArray<{name?: string; id?: string}>): string[] {
+  return collectPreferred(experts, hit => CONVERSATION_EXPERT_PREFERRED_SKILLS[hit.id])
+}
+
+export function missingPreferredSkills(preferred: readonly string[], published: ReadonlyArray<{name: string; entryPoint?: string}>): string[] {
+  return preferred.filter(key => !published.some(item => skillMatchesPreferred(item, [key])))
 }
 
 export function skillMatchesPreferred(skill: {name: string; entryPoint?: string}, preferred: readonly string[]): boolean {

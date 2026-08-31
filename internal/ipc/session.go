@@ -48,8 +48,10 @@ type StreamingHandler interface {
 	HandleStreaming(context.Context, bridge.Request, func(bridge.Event) error) bridge.Response
 }
 
-// SessionAuthenticator owns a single-use verifier. The bootstrap secret itself
-// is hashed and erased at construction time.
+// SessionAuthenticator proves the client received the host bootstrap secret.
+// The secret is hashed and erased at construction. After a successful ACK the
+// same owner may open another session (engine stay-alive). An ACK failure
+// poisons the verifier so the nonce cannot be retried.
 type SessionAuthenticator struct {
 	mu       sync.Mutex
 	verifier [sha256.Size]byte
@@ -59,9 +61,8 @@ type SessionAuthenticator struct {
 type credentialState uint8
 
 const (
-	credentialUnused credentialState = iota
-	credentialReserved
-	credentialCommitted
+	credentialOpen credentialState = iota
+	credentialPoisoned
 )
 
 type CredentialReservation struct {
@@ -82,9 +83,8 @@ func (authenticator *SessionAuthenticator) Consume(encodedNonce string) bool {
 	return ok
 }
 
-// Reserve atomically changes a matching credential from unused to reserved.
-// A reservation is deliberately irreversible: if the handshake ACK cannot be
-// delivered, the listener must shut down rather than make the nonce reusable.
+// Reserve accepts the bootstrap nonce for any number of owner sessions.
+// ACK failure poisons the verifier so the nonce cannot be retried.
 func (authenticator *SessionAuthenticator) Reserve(encodedNonce string) (*CredentialReservation, bool) {
 	candidate, err := hex.DecodeString(encodedNonce)
 	if err != nil || len(candidate) != sessionSecretSize {
@@ -95,11 +95,9 @@ func (authenticator *SessionAuthenticator) Reserve(encodedNonce string) (*Creden
 	zero(candidate)
 	authenticator.mu.Lock()
 	defer authenticator.mu.Unlock()
-	matched := authenticator.state == credentialUnused && subtle.ConstantTimeCompare(digest[:], authenticator.verifier[:]) == 1
+	open := authenticator.state != credentialPoisoned
+	matched := open && subtle.ConstantTimeCompare(digest[:], authenticator.verifier[:]) == 1
 	zero(digest[:])
-	if matched {
-		authenticator.state = credentialReserved
-	}
 	if !matched {
 		return nil, false
 	}
@@ -107,16 +105,21 @@ func (authenticator *SessionAuthenticator) Reserve(encodedNonce string) (*Creden
 }
 
 func (reservation *CredentialReservation) Commit() {
+	if reservation == nil {
+		return
+	}
+	reservation.authenticator = nil
+}
+
+func (reservation *CredentialReservation) Poison() {
 	if reservation == nil || reservation.authenticator == nil {
 		return
 	}
 	authenticator := reservation.authenticator
 	authenticator.mu.Lock()
 	defer authenticator.mu.Unlock()
-	if authenticator.state == credentialReserved {
-		authenticator.state = credentialCommitted
-		zero(authenticator.verifier[:])
-	}
+	authenticator.state = credentialPoisoned
+	zero(authenticator.verifier[:])
 	reservation.authenticator = nil
 }
 
@@ -154,7 +157,10 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 	if err != nil {
 		return errors.New("cannot authenticate RPC client process")
 	}
-	if hello.RPCMajor != RPCMajor || hello.RPCMinor < 0 || hello.RPCMinor > RPCMinor || hello.ClientPID != expectedPID || uint32(expectedPID) != peerPID {
+	if hello.RPCMajor != RPCMajor || hello.RPCMinor < 0 || hello.RPCMinor > RPCMinor || hello.ClientPID < 1 || uint32(hello.ClientPID) != peerPID {
+		return errors.New("RPC handshake rejected")
+	}
+	if expectedPID > 0 && hello.ClientPID != expectedPID && !sameUserPairedPID(expectedPID, hello.ClientPID) {
 		return errors.New("RPC handshake rejected")
 	}
 	reservation, ok := authenticator.Reserve(hello.SessionNonce)
@@ -163,6 +169,7 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 	}
 	ack, _ := json.Marshal(map[string]any{"accepted": true, "rpcMajor": RPCMajor, "rpcMinor": min(hello.RPCMinor, RPCMinor)})
 	if err := writeFrame(conn, ack); err != nil {
+		reservation.Poison()
 		return fmt.Errorf("%w: %v", ErrHandshakeACK, err)
 	}
 	reservation.Commit()

@@ -195,6 +195,39 @@ func NewClient(pipe string, hostPID int, key []byte) (*Client, error) {
 	return &Client{pipe: pipe, hostPID: hostPID, key: append([]byte(nil), key...)}, nil
 }
 func (c *Client) Close() { secret.Zero(c.key) }
+
+// LocalClient leases secrets in-process so the engine owns the broker
+// after the workbench window closes.
+type LocalClient struct {
+	service secret.Service
+}
+
+func NewLocalClient(service secret.Service) (*LocalClient, error) {
+	if service == nil {
+		return nil, errors.New("invalid local secret broker")
+	}
+	return &LocalClient{service: service}, nil
+}
+
+func (c *LocalClient) Close() {}
+
+func (c *LocalClient) WithLease(ctx context.Context, request Request, callback func([]byte) error) error {
+	if c == nil || c.service == nil || callback == nil {
+		return errors.New("lease callback required")
+	}
+	if !request.Operation.valid() {
+		return errors.New("invalid lease operation")
+	}
+	maxTTL := request.Operation.maxTTL()
+	if request.Deadline.IsZero() {
+		request.Deadline = time.Now().Add(maxTTL)
+	}
+	if request.Deadline.After(time.Now().Add(maxTTL)) {
+		return errors.New("lease TTL exceeds maximum")
+	}
+	ref := secret.Ref{CredentialRef: request.CredentialRef, ProviderID: request.ProviderID, Origin: request.Origin, Protocol: request.Protocol}
+	return c.service.WithSecret(ctx, ref, callback)
+}
 func (c *Client) WithLease(ctx context.Context, request Request, callback func([]byte) error) error {
 	if callback == nil {
 		return errors.New("lease callback required")

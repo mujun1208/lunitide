@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { ProviderDTO } from '../generated/bridge'
-import { llmReadyProviders, modelKind, pickDefaultLLM, pickDefaultVoice, voiceReadyProviders } from './modelKind'
+import { llmReadyProviders, modelKind, pickDefaultLLM, pickDefaultVoice, preferredLLMOf, voiceReadyProviders } from './modelKind'
 
 const now = '2026-01-01T00:00:00Z'
 const base = (over: Partial<ProviderDTO> & Pick<ProviderDTO, 'id' | 'name' | 'models'>): ProviderDTO => ({
@@ -54,6 +54,8 @@ describe('modelKind helpers', () => {
       models: [{ modelId: 'main', displayName: 'Main', isDefault: true, kind: 'llm', kindDefault: true }],
     })
     expect(pickDefaultLLM([first, second])).toEqual({ provider: second, modelId: 'main' })
+    expect(preferredLLMOf(second)).toEqual({ providerId: second.id, modelId: 'main' })
+    expect(preferredLLMOf({ ...second, status: 'disabled' })).toBeUndefined()
   })
 
   test('voice pickers only see volc speech providers', () => {

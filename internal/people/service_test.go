@@ -2,6 +2,7 @@ package people_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -100,5 +101,80 @@ func TestThreadUnreadClearsOnOpen(t *testing.T) {
 	}
 	if ident.Public().SubjectID == peerID {
 		t.Fatal("peer collided with self")
+	}
+}
+
+func TestOpenDirectRejectsSelf(t *testing.T) {
+	roster, ident, _ := testRoster(t)
+	ctx := context.Background()
+	if _, _, err := roster.OpenDirect(ctx, ident.SubjectID()); !errors.Is(err, people.ErrSelfChat) {
+		t.Fatalf("self chat = %v", err)
+	}
+	if _, _, err := roster.OpenDirect(ctx, "  "); !errors.Is(err, people.ErrSelfChat) {
+		t.Fatalf("empty peer = %v", err)
+	}
+}
+
+func TestListThreadsMarksSelfAndCollapsesDuplicates(t *testing.T) {
+	roster, ident, store := testRoster(t)
+	ctx := context.Background()
+	peerID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if err := roster.IngestBeacon(ctx, people.Beacon{
+		V: 1, Kind: "lunitide-people", SubjectID: peerID,
+		Nickname: "同事甲", Status: "online", OrgName: "月汐", Department: "研发",
+		PairingHash: identity.PairingHash("654321", peerID),
+	}, "10.0.0.8"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := roster.Pair(ctx, people.PairInput{PairingCode: "654321", SubjectID: peerID, Nickname: "同事甲"}); err != nil {
+		t.Fatal(err)
+	}
+	opened, _, err := roster.OpenDirect(ctx, peerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfID := ident.SubjectID()
+	var sawSelf, sawPeer bool
+	for _, member := range opened.Members {
+		if member.SubjectID == selfID {
+			sawSelf = true
+			if !member.Self {
+				t.Fatal("open must mark the local member as self")
+			}
+		}
+		if member.SubjectID == peerID {
+			sawPeer = true
+			if member.Self {
+				t.Fatal("peer must not be marked self")
+			}
+		}
+	}
+	if !sawSelf || !sawPeer {
+		t.Fatalf("members = %#v", opened.Members)
+	}
+	now := time.Now().UTC().Add(time.Second).Format(time.RFC3339Nano)
+	dup := people.Thread{ThreadID: ulid.Make().String(), Kind: "direct", OwnerID: selfID, CreatedAt: now, UpdatedAt: now}
+	if err := store.InsertThread(ctx, dup, []string{selfID, peerID}, selfID); err != nil {
+		t.Fatal(err)
+	}
+	note := people.Thread{ThreadID: ulid.Make().String(), Kind: "direct", OwnerID: selfID, CreatedAt: now, UpdatedAt: now}
+	if err := store.InsertThread(ctx, note, []string{selfID}, selfID); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := roster.ListThreads(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Kind != "direct" {
+		t.Fatalf("collapsed list = %#v", listed)
+	}
+	var peerName string
+	for _, member := range listed[0].Members {
+		if !member.Self {
+			peerName = member.Nickname
+		}
+	}
+	if peerName != "同事甲" {
+		t.Fatalf("listed peer = %q members=%#v", peerName, listed[0].Members)
 	}
 }

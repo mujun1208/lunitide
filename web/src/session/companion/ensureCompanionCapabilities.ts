@@ -8,7 +8,7 @@ export type CompanionCapabilityStatus = {
 const LEGACY_RATE_CAP = 30
 const DEFAULT_RATE_CAP = 60
 
-/** Enable computer control for 月伴. Never silently turn on full-disk command policy. */
+/** Read computer-control state for 月伴. Never turn CC or full-disk policy on. */
 export async function ensureCompanionCapabilities(): Promise<CompanionCapabilityStatus> {
   let fullAccess = false
   let ccEnabled = false
@@ -23,23 +23,13 @@ export async function ensureCompanionCapabilities(): Promise<CompanionCapability
     if (cfg.emergencyStopped) {
       return { fullAccess, ccEnabled: false }
     }
-    const patch: { enabled?: boolean; securityLevel?: 'standard'; maxActionsPerMinute?: number; actor: 'companion' } = {
-      actor: 'companion',
+    ccEnabled = Boolean(cfg.enabled)
+    if (ccEnabled && cfg.maxActionsPerMinute === LEGACY_RATE_CAP) {
+      await ccBridge.updateConfig({
+        maxActionsPerMinute: DEFAULT_RATE_CAP,
+        actor: 'companion',
+      })
     }
-    let dirty = false
-    if (!cfg.enabled) {
-      patch.enabled = true
-      patch.securityLevel = 'standard'
-      dirty = true
-    }
-    if (cfg.maxActionsPerMinute === LEGACY_RATE_CAP) {
-      patch.maxActionsPerMinute = DEFAULT_RATE_CAP
-      dirty = true
-    }
-    if (dirty) {
-      await ccBridge.updateConfig(patch)
-    }
-    ccEnabled = true
   } catch {
     /* CC may be unavailable in tests */
   }

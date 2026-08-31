@@ -117,6 +117,69 @@ func uiaReadNode(el *win32.IUIAutomationElement) (UINode, bool) {
 	}, true
 }
 
+func invokeUIAutomation(hwnd uintptr, want string) error {
+	want = strings.TrimSpace(want)
+	if hwnd == 0 || want == "" {
+		return fmt.Errorf("empty UI target")
+	}
+	var auto *win32.IUIAutomation
+	hr := win32.CoCreateInstance(&clsidCUIAutomation, nil, win32.CLSCTX_INPROC_SERVER,
+		&win32.IID_IUIAutomation, unsafe.Pointer(&auto))
+	if win32.FAILED(hr) || auto == nil {
+		return fmt.Errorf("UI Automation unavailable hr=0x%X", uint32(hr))
+	}
+	defer auto.Release()
+	var cond *win32.IUIAutomationCondition
+	if hr = auto.CreateTrueCondition(&cond); win32.FAILED(hr) || cond == nil {
+		return fmt.Errorf("CreateTrueCondition hr=0x%X", uint32(hr))
+	}
+	defer cond.Release()
+	var root *win32.IUIAutomationElement
+	if hr = auto.ElementFromHandle(win32.HWND(hwnd), &root); win32.FAILED(hr) || root == nil {
+		return fmt.Errorf("ElementFromHandle hr=0x%X", uint32(hr))
+	}
+	defer root.Release()
+	var arr *win32.IUIAutomationElementArray
+	if hr = root.FindAll(win32.TreeScope_Descendants, cond, &arr); win32.FAILED(hr) || arr == nil {
+		return fmt.Errorf("FindAll hr=0x%X", uint32(hr))
+	}
+	defer arr.Release()
+	var n int32
+	if hr = arr.Get_Length(&n); win32.FAILED(hr) || n <= 0 {
+		return fmt.Errorf("no UI node matching %q", want)
+	}
+	if n > 400 {
+		n = 400
+	}
+	for i := int32(0); i < n; i++ {
+		var el *win32.IUIAutomationElement
+		if hr = arr.GetElement(i, &el); win32.FAILED(hr) || el == nil {
+			continue
+		}
+		name := strings.TrimSpace(uiaName(el))
+		if name == "" {
+			name = strings.TrimSpace(uiaAutomationID(el))
+		}
+		if !namesEquivalent(want, name) {
+			el.Release()
+			continue
+		}
+		var pat *win32.IUIAutomationInvokePattern
+		hr = el.GetCurrentPatternAs(win32.UIA_InvokePatternId, &win32.IID_IUIAutomationInvokePattern, unsafe.Pointer(&pat))
+		el.Release()
+		if win32.FAILED(hr) || pat == nil {
+			continue
+		}
+		invHR := pat.Invoke()
+		pat.Release()
+		if win32.FAILED(invHR) {
+			return fmt.Errorf("invoke %q hr=0x%X", want, uint32(invHR))
+		}
+		return nil
+	}
+	return fmt.Errorf("no UI node matching %q", want)
+}
+
 func uiaValue(el *win32.IUIAutomationElement) string {
 	if el == nil {
 		return ""

@@ -77,6 +77,28 @@ export function MarkdownMessage({ text, onCopy, onMermaidLayout }: { text: strin
   >{text}</ReactMarkdown>
 }
 
+export const PERSISTED_THINKING_MARK = '【思考过程】'
+
+/** Split a durable assistant message that still prefixes a thinking block. */
+export function splitPersistedThinking(text: string): { thinking: string; body: string } {
+  const trimmed = text.replace(/^\uFEFF/, '').replace(/^\s+/, '')
+  if (!trimmed.startsWith(PERSISTED_THINKING_MARK)) return { thinking: '', body: text }
+  const rest = trimmed.slice(PERSISTED_THINKING_MARK.length).replace(/^\r?\n/, '')
+  const split = rest.search(/\r?\n\r?\n/)
+  if (split < 0) return { thinking: rest.replace(/\s+$/, ''), body: '' }
+  const gap = rest.slice(split).match(/^\r?\n\r?\n/)?.[0].length ?? 2
+  return { thinking: rest.slice(0, split).replace(/\s+$/, ''), body: rest.slice(split + gap) }
+}
+
+export function AssistantMessageBody({ text, onCopy, onMermaidLayout }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void }) {
+  const { thinking, body } = splitPersistedThinking(text)
+  const [open, setOpen] = useState(false)
+  return <>
+    {thinking ? <ThinkingPanel text={thinking} open={open} onToggle={setOpen} onCopy={onCopy} /> : null}
+    {body ? <MarkdownMessage text={body} onCopy={onCopy} onMermaidLayout={onMermaidLayout} /> : null}
+  </>
+}
+
 /** Last sentence (or tail) so the live thinking row does not type the full chain. */
 export function compressThinking(text: string, maxRunes = 36): string {
   const t = text.replace(/\s+/g, ' ').trim()
@@ -123,7 +145,6 @@ export function ThinkingPanel({
   children?: React.ReactNode
   onCopy?: (value: string) => void | Promise<void>
 }) {
-  const [reasonOpen, setReasonOpen] = useState(false)
   if (!text && !children) return null
   const preview = compressThinking(text)
   return <details className="thinking-panel" open={open} onToggle={event => onToggle(event.currentTarget.open)}>
@@ -132,15 +153,13 @@ export function ThinkingPanel({
       <TaskElapsedChip elapsed={elapsed} startedAt={startedAt} streaming={streaming} />
       {!!skillCount && <span className="thinking-summary-chip">已调用 {skillCount} 次技能</span>}
       {!!searchCount && <span className="thinking-summary-chip">已搜索 {searchCount} 次网页</span>}
+      {!open && preview && <em className="thinking-summary-preview">{preview}</em>}
       {status && <span className="thinking-summary-status">{status}</span>}
     </summary>
     <div className="thinking-content">
-      {text && <details className="thinking-reasoning-fold" open={reasonOpen} onToggle={event => setReasonOpen(event.currentTarget.open)}>
-        <summary>思考{preview && <em>{streaming ? preview : compressThinking(text, 48)}</em>}</summary>
-        <div className={`thinking-reasoning${streaming ? ' is-live' : ''}`}>
-          {reasonOpen ? (streaming ? <pre className="thinking-live-text">{text}</pre> : <MarkdownMessage text={text} onCopy={onCopy} />) : null}
-        </div>
-      </details>}
+      {text && open && <div className={`thinking-reasoning${streaming ? ' is-live' : ''}`}>
+        {streaming ? <pre className="thinking-live-text">{text}</pre> : <MarkdownMessage text={text} onCopy={onCopy} />}
+      </div>}
       {children}
     </div>
   </details>

@@ -795,7 +795,8 @@ var catalogTemplates = []CatalogTemplate{
 }
 
 // InstallFromCatalog materializes one catalog template as a local draft
-// skill. Install is idempotent per template version: an existing
+// skill. Market install (skill.install) then publishes it so chat can
+// skill.invoke. Install is idempotent per template version: an existing
 // name+version answers ErrTemplateInstalled instead of a duplicate.
 func (s *Service) InstallFromCatalog(ctx context.Context, templateID string) (skill.Skill, error) {
 	if s == nil || s.write == nil {

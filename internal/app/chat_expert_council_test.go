@@ -98,8 +98,8 @@ func (s stubSessionExperts) ReplaceSessionExpertIDs(context.Context, string, []s
 func TestSelectedTurnExpertIDsUsesMountedSubsetOnly(t *testing.T) {
 	ai, arch := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 	got := selectedTurnExpertIDs([]string{ai, arch}, "重新思考，给出一个新的方案。")
-	if len(got) != 2 || got[0] != ai || got[1] != arch {
-		t.Fatalf("got %#v", got)
+	if len(got) != 0 {
+		t.Fatalf("two mounts and no @/chip must not start council: %#v", got)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestCollectCouncilExpertIDsIgnoresProjectPhaseMatrix(t *testing.T) {
 		PhaseLabel: "需求架构规范",
 		TurnText:   "重新思考，给出一个新的方案。",
 	})
-	if len(got) != 2 || got[0] != ai || got[1] != arch {
-		t.Fatalf("PM council must stay on session chips, not the 13-specialist catalog: %#v", got)
+	if len(got) != 0 {
+		t.Fatalf("mount-only rethink must not open council: %#v", got)
 	}
 }

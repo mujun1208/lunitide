@@ -81,6 +81,14 @@ describe('ChannelsPanel', () => {
     expect(screen.getByLabelText('企业微信 入站自动执行')).toBeDisabled()
   })
 
+  test('shows DingTalk inbound pairing next to Feishu', async () => {
+    render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(seeded), set: vi.fn(), deliver: vi.fn() }} />)
+    expect(await screen.findByText('钉钉')).toBeInTheDocument()
+    expect(screen.getByLabelText('钉钉 入站 App ID')).toBeInTheDocument()
+    expect(screen.getAllByText(/本机已登录客户端代发，不能收消息/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/关窗口 ≠ 退出助手/).length).toBeGreaterThan(0)
+  })
+
   test('shows WeCom Bot ID and Secret for inbound long-connect', async () => {
     render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(seeded), set: vi.fn(), deliver: vi.fn() }} />)
     expect(await screen.findByText('企业微信')).toBeInTheDocument()

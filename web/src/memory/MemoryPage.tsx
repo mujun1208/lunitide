@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { feedbackBridge, memoryBridge, nominationBridge, type FeedbackBridge, type MemoryBridge, type NominationBridge } from '../bridge/client'
+import { feedbackBridge, getIdentityBridge, memoryBridge, nominationBridge, type FeedbackBridge, type MemoryBridge, type NominationBridge } from '../bridge/client'
 import type { MemoryDTO, MemoryLayer, MemoryScope, MemoryNominationListResult } from '../generated/bridge'
 import { MemoryOpsPanel } from './MemoryOpsPanel'
 
@@ -24,8 +24,8 @@ const LAYERS: Array<{ key: MemoryLayer; icon: string; name: string; tag: string;
 const layerMeta = (key: MemoryLayer) => LAYERS.find(l => l.key === key)!
 const LAYER_ORDER: MemoryLayer[] = LAYERS.map(l => l.key)
 
-const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: '#0a0e1a', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', boxSizing: 'border-box' }
-const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: '#1e293b', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer' }
+const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', boxSizing: 'border-box' }
+const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 const ttlText = (m: MemoryDTO) => m.expiresAt ? `TTL: ${new Date(m.expiresAt).toLocaleDateString()}` : 'TTL: 长期'
 
@@ -44,6 +44,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
   const [inbox, setInbox] = useState<NominationItem[]>([])
   const [history, setHistory] = useState<NominationItem[]>([])
   const [nomBusy, setNomBusy] = useState('')
+  const [opsSubject, setOpsSubject] = useState('')
 
   const [showCreate, setShowCreate] = useState(false)
   const [newLayer, setNewLayer] = useState<MemoryLayer>('working')
@@ -62,6 +63,11 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
   }, [projectId, bridge])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    let alive = true
+    getIdentityBridge().get().then(value => { if (alive && value.subjectId) setOpsSubject(value.subjectId) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   const doSearch = async () => {
     if (!projectId || !searchQuery.trim()) return
@@ -155,7 +161,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     return <div className="shell"><div className="empty"><b>请先选择项目</b><span>在项目总览中选择一个项目后即可管理记忆。</span></div></div>
   }
 
-  const panelStyle: React.CSSProperties = { border: '1px solid #1f2937', borderRadius: '16px', background: '#0e1c30', padding: '20px' }
+  const panelStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: '16px', background: 'var(--bg2)', padding: '20px' }
 
   const grouped = memories.reduce<Record<string, MemoryDTO[]>>((acc, m) => {
     (acc[m.layer] ??= []).push(m); return acc
@@ -275,10 +281,10 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
         <section aria-label="偏好与提名" style={panelStyle}>
           {pending.length > 0 && (<>
             <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>偏好确认（{pending.length}）</h2>
-            <p style={{ margin: '0 0 10px', color: '#8fa3bf', fontSize: '12px' }}>来自会话反馈的偏好候选。仅在你显式确认后才会沉淀为长期偏好并注入后续对话。</p>
+            <p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: '12px' }}>来自会话反馈的偏好候选。仅在你显式确认后才会沉淀为长期偏好并注入后续对话。</p>
             <div style={{ display: 'grid', gap: '8px', marginBottom: '18px' }}>
               {pending.map(item => (
-                <div key={item.candidateId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827' }}>
+                <div key={item.candidateId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)' }}>
                   <span style={{ flex: 1, fontSize: '13px', overflowWrap: 'anywhere' }}>{item.content}</span>
                   <span style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                     <button style={primaryBtnStyle} disabled={pendingBusy === item.candidateId} onClick={() => void decideCandidate(item, 'confirm')}>{pendingBusy === item.candidateId ? '处理中…' : '确认沉淀'}</button>
@@ -289,13 +295,13 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
             </div>
           </>)}
           <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>提名收件箱</h2>
-          <p style={{ margin: '0 0 14px', color: '#8fa3bf', fontSize: '12px' }}>助手从会话中提名的记忆候选。确认后沉淀为长期记忆，处理与撤回都会记入历史。</p>
+          <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px' }}>助手从会话中提名的记忆候选。确认后沉淀为长期记忆，处理与撤回都会记入历史。</p>
           {inbox.length === 0 ? <div className="empty"><b>暂无待处理提名</b><span>新的提名会出现在这里等待你的确认。</span></div> : (
             <div style={{ display: 'grid', gap: '10px' }}>
               {inbox.map(item => (
-                <div key={item.nominationId} style={{ padding: '14px', border: '1px solid #1f2937', borderRadius: '10px', background: '#111827' }}>
+                <div key={item.nominationId} style={{ padding: '14px', border: '1px solid var(--rule)', borderRadius: '10px', background: 'var(--bg3)' }}>
                   <div style={{ fontSize: '14px', overflowWrap: 'anywhere', marginBottom: '8px' }}>{item.content}</div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px', color: '#8fa3bf', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px', color: 'var(--muted)', marginBottom: '10px' }}>
                     <span>提名理由：{item.reason}</span>
                     <span>· {item.nominator}</span>
                     <span>· {new Date(item.createdAt).toLocaleString()}</span>
@@ -314,13 +320,13 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
       {tab === 'history' && (
         <section aria-label="处理历史" style={panelStyle}>
           <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>处理历史</h2>
-          <p style={{ margin: '0 0 14px', color: '#8fa3bf', fontSize: '12px' }}>已处理与已撤回的提名记录（最近 50 条）。</p>
+          <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px' }}>已处理与已撤回的提名记录（最近 50 条）。</p>
           {history.length === 0 ? <div className="empty"><b>暂无历史记录</b><span>处理过的提名会归档在这里。</span></div> : (
             <div style={{ display: 'grid', gap: '8px' }}>
               {history.map(item => (
-                <div key={item.nominationId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827' }}>
+                <div key={item.nominationId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)' }}>
                   <span style={{ flex: 1, fontSize: '13px', overflowWrap: 'anywhere' }}>{item.content}</span>
-                  <span style={{ fontSize: '12px', color: item.state === 'decided' ? '#34d399' : '#8fa3bf', flexShrink: 0 }}>
+                  <span style={{ fontSize: '12px', color: item.state === 'decided' ? '#34d399' : 'var(--muted)', flexShrink: 0 }}>
                     {NOM_STATE_LABELS[item.state] ?? item.state} · {new Date(item.decidedAt || item.createdAt).toLocaleString()}
                   </span>
                 </div>
@@ -329,7 +335,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
           )}
         </section>
       )}
-      {tab === 'ops' && <MemoryOpsPanel />}
+      {tab === 'ops' && <MemoryOpsPanel subjectId={opsSubject || undefined} />}
     </div>
   )
 }

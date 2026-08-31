@@ -77,7 +77,7 @@ func handleFeedbackCandidates(e *Engine, ctx context.Context, r bridge.Request) 
 	if e.m8memory == nil {
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "学习闭环服务暂时不可用", true)
 	}
-	items, err := e.m8memory.ListPendingCandidates(ctx, p.Limit)
+	items, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), p.Limit)
 	if err != nil {
 		return m8MemoryFailure(r, err)
 	}

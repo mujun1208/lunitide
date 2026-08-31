@@ -1,8 +1,11 @@
 # ADR-002: Host/Engine process and IPC boundary
 
-- Status: Accepted, implementation in progress
+- Status: Accepted
 - Date: 2026-08-09
+- Updated: 2026-08-31
 
-The Host and Engine are separate Go processes connected by a per-launch, cryptographically random Windows Named Pipe. The Engine has no predictable default pipe name; `--pipe` is required, while the Desktop's explicit override is development-only and its default remains random. The Pipe DACL grants only the current user. Both ends verify the peer process ID through Windows named-pipe APIs: the Host accepts only the Engine PID it spawned, and the Engine checks the expected Host PID immediately after `Accept` (before the session gate) and again in the handshake. RPC uses a 4-byte length prefix and bounded frames.
+The Host and Engine are separate Go processes connected by a Windows Named Pipe. The production pipe name is stable per user (`\\.\pipe\lunitide-gateway-<user>`) so a second client can reconnect; `--pipe` remains required on the engine and may still be overridden for development. The Pipe DACL grants only the current user. Non-loopback and `0.0.0.0` binds stay forbidden.
 
-The one-use nonce is delivered through an anonymous pipe whose read end is deliberately inherited as Engine standard input. Controlled inheritance prevents accidental handle leakage; it does **not** isolate the nonce from an attacker capable of reading another same-user process's memory. The authenticator has explicit unused, reserved, and committed states. Reservation is atomic and irreversible; after a correct nonce is reserved, ACK failure shuts down the Engine listener rather than reopening the nonce or leaving an alive-but-unauthenticatable Engine. No privileged Bridge method is exposed by this mechanism.
+The engine checks the peer process ID after `Accept` and in the handshake. The first host PID is the tray/owner. After a successful handshake the same persisted bootstrap secret may open another session from that owner (stay-alive) or from another current-user process (auto-pair: pipe DACL already excludes other users). Handshake ACK failure still poisons the secret and shuts down the engine. A second desktop instance still prefers activating the existing window; if it attaches, it reconnects to the stable pipe with the persisted nonce and does not spawn a second engine.
+
+The nonce is delivered through an anonymous inherited stdin pipe on first launch and persisted under the data root as `gateway-session.nonce`. It does **not** isolate the nonce from an attacker who can read another same-user process's memory. Secret leases run in-process on the engine. RPC uses a 4-byte length prefix and bounded frames. No privileged Bridge method is exposed by this mechanism. Public bind / `0.0.0.0` stay forbidden.

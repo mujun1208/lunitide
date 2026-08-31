@@ -39,3 +39,16 @@ func TestWeComSubscribePayloadShape(t *testing.T) {
 		t.Fatal("ping payload")
 	}
 }
+
+func TestWeComSendMsgPayloadShape(t *testing.T) {
+	dm := string(WeComSendMsgPayload("zhangsan", false, "回了"))
+	for _, part := range []string{`"cmd":"aibot_send_msg"`, `"chatid":"zhangsan"`, `"chat_type":1`, `"msgtype":"markdown"`, `"content":"回了"`} {
+		if !strings.Contains(dm, part) {
+			t.Fatalf("dm payload missing %s: %s", part, dm)
+		}
+	}
+	group := string(WeComSendMsgPayload("wr_chat", true, "群回"))
+	if !strings.Contains(group, `"chat_type":2`) || !strings.Contains(group, `"chatid":"wr_chat"`) {
+		t.Fatalf("group payload = %s", group)
+	}
+}

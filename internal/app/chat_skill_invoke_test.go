@@ -141,8 +141,8 @@ func TestSkillInvokeToolDefinitionsWithAndWithoutService(t *testing.T) {
 	}
 	e.skills = &skillInvokeRecordingStub{}
 	defs := e.skillToolDefinitions()
-	if len(defs) != 3 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.view" || defs[2].Name != "skill.create" {
-		t.Fatalf("definitions = %#v, want skill.invoke, skill.view, skill.create", defs)
+	if len(defs) != 4 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.view" || defs[2].Name != "skill.create" || defs[3].Name != "skill.manage" {
+		t.Fatalf("definitions = %#v, want skill.invoke, skill.view, skill.create, skill.manage", defs)
 	}
 }
 
@@ -158,5 +158,12 @@ func TestSkillViewReadsCatalogTemplate(t *testing.T) {
 	}
 	if strings.Contains(out.Output, "cc.window_list") {
 		t.Fatal("skill.view must not tell the model to call cc.* tool names")
+	}
+}
+
+func TestSkillReferencesFromManifest(t *testing.T) {
+	got := skillReferencesFromManifest(`{"prompt":"body","references":["docs/api.md","  "]}`)
+	if len(got) != 1 || got[0] != "docs/api.md" {
+		t.Fatalf("refs = %#v", got)
 	}
 }

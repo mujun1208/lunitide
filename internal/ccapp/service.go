@@ -382,6 +382,7 @@ type Service struct {
 	capGeom                              DisplayGeometry
 	capHash                              [32]byte
 	capFrameID                           string
+	capWide                              bool
 	obsHits                              map[string]uiHit
 	lastMu                               sync.Mutex
 	lastTitle, lastProc                  string
@@ -409,18 +410,21 @@ func (s *Service) rememberCapture(png []byte, originX, originY int, wide bool) {
 	geom := geometryForCapture(s.host, originX, originY, imgW, imgH, wide)
 	s.capMu.Lock()
 	deskW, deskH := imgW, imgH
-	if originX == s.capOriginX && originY == s.capOriginY &&
-		s.capDeskW > 0 && s.capDeskH > 0 &&
-		imgW == s.capVisW && imgH == s.capVisH &&
-		(s.capDeskW != imgW || s.capDeskH != imgH) {
-		// Annotated / downscaled vision frame of the current desktop capture:
-		// keep the original desktop size so later clicks still map correctly.
+	if wide && s.capDeskW > imgW && s.capDeskH > imgH {
+		// Annotated / downscaled vision frame: keep the last full desktop
+		// size so layer-4 clicks do not map through a 1280 thumbnail.
 		deskW, deskH = s.capDeskW, s.capDeskH
+		visW, visH = imgW, imgH
+	} else if visW <= 0 || visH <= 0 {
+		visW, visH = imgW, imgH
+	}
+	if imgW > 0 && imgH > 0 && (imgW < deskW || imgH < deskH) {
 		visW, visH = imgW, imgH
 	}
 	s.capDeskW, s.capDeskH, s.capVisW, s.capVisH = deskW, deskH, visW, visH
 	s.capOriginX, s.capOriginY = originX, originY
 	s.capGeom = geom
+	s.capWide = wide
 	if len(png) > 0 {
 		s.capHash = sha256.Sum256(png)
 		s.capFrameID = FrameIDFromCapture(s.capHash, geom)
@@ -506,10 +510,26 @@ func (s *Service) CaptureRegionPNG() ([]byte, error) {
 // still attach the current frame and keep the same frameId — the previous
 // screenshot remains valid; do not drop the image or the model will click
 // the pre-action frame.
+func (s *Service) verifyCapture() ([]byte, error) {
+	if s == nil || s.host == nil {
+		return nil, ErrCcEngineUnavailable
+	}
+	s.capMu.Lock()
+	wide := s.capWide
+	s.capMu.Unlock()
+	if !wide {
+		png, _, _, err := s.host.WindowCapture("foreground")
+		if err == nil && len(png) > 0 {
+			return png, nil
+		}
+	}
+	return s.host.ScreenCapture()
+}
+
 func (s *Service) verifyAfter(summary string) (string, []byte, error) {
-	png, err := s.host.ScreenCapture()
+	png, err := s.verifyCapture()
 	if err != nil {
-		return summary + " (verify capture failed)", nil, nil
+		return summary, nil, fmt.Errorf("%w: verify capture failed: %v", ErrCcExecFailed, err)
 	}
 	sum := sha256.Sum256(png)
 	s.capMu.Lock()
@@ -1143,7 +1163,11 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 				return nil, err
 			}
 		}
-		if a.X != nil || strings.TrimSpace(a.ID) != "" {
+		needsFrame := a.X != nil || strings.TrimSpace(a.ID) != "" || strings.TrimSpace(a.Name) != ""
+		if !needsFrame && s.CurrentFrameID() != "" {
+			needsFrame = true
+		}
+		if needsFrame {
 			if err := s.requireFrameID(a.FrameID); err != nil {
 				return nil, err
 			}
@@ -1747,6 +1771,9 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		return "", 0, 0, "", fmt.Errorf("%w: empty UI target", ErrCcInputFiltered)
 	}
 	if reason := s.sensitiveForeground([]string{query}); reason != "" {
+		if reason == "uac dialog" || reason == "elevation dialog" {
+			return "", 0, 0, "", fmt.Errorf("%w: %s — %s", ErrCcRiskBlocked, reason, UACUserPrompt)
+		}
 		return "", 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
 	}
 	if validNodeID(query) {
@@ -1766,6 +1793,9 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		return "", 0, 0, "", err
 	}
 	if reason := s.sensitiveForeground(nodeNames(nodes)); reason != "" {
+		if reason == "uac dialog" || reason == "elevation dialog" {
+			return "", 0, 0, "", fmt.Errorf("%w: %s — %s", ErrCcRiskBlocked, reason, UACUserPrompt)
+		}
 		return "", 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
 	}
 	want := strings.ToLower(query)
@@ -1781,7 +1811,7 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		switch {
 		case strings.EqualFold(n.ID, query):
 			score = 120
-		case got == want:
+		case got == want || namesEquivalent(query, n.Name):
 			score = 100
 		case strings.Contains(got, want) || strings.Contains(want, got):
 			score = 50
@@ -1802,6 +1832,69 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
 	}
 	return name, best.X + best.W/2, best.Y + best.H/2, name, nil
+}
+
+type clickHitter interface {
+	HitTest(sx, sy int) (string, error)
+}
+
+type win32Clicker interface {
+	Win32Click(target string) error
+}
+
+func clickNameMatch(want, got string) bool {
+	return namesEquivalent(want, got)
+}
+
+func (s *Service) verifyClickHit(want string, sx, sy int) error {
+	hitter, ok := s.host.(clickHitter)
+	if !ok {
+		return nil
+	}
+	got, err := hitter.HitTest(sx, sy)
+	if err != nil {
+		return fmt.Errorf("%w: click hit-test failed: %v", ErrCcExecFailed, err)
+	}
+	if !clickNameMatch(want, got) {
+		return fmt.Errorf("%w: click landed on %q, wanted %q", ErrCcExecFailed, got, want)
+	}
+	return nil
+}
+
+func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) error {
+	if err := s.host.InvokeUI(invokeName); err == nil {
+		return s.verifyClickHit(hit, sx, sy)
+	}
+	if win, ok := s.host.(win32Clicker); ok {
+		if err := win.Win32Click(invokeName); err == nil {
+			return s.verifyClickHit(hit, sx, sy)
+		}
+	}
+	// Layer 4: native desktop pixels (sx/sy are SetCursorPos space, not the
+	// 1280 vision thumbnail) + hit-test. Missing hit-test host = fail closed.
+	if sx > 0 && sy > 0 {
+		if _, ok := s.host.(clickHitter); ok {
+			if err := s.host.MouseMove(sx, sy); err != nil {
+				return err
+			}
+			if err := s.host.MouseClick("left", 1); err != nil {
+				return err
+			}
+			return s.verifyClickHit(hit, sx, sy)
+		}
+	}
+	return fmt.Errorf("%w: control %q is not invokable via accessibility", ErrCcExecFailed, hit)
+}
+
+func (s *Service) verifyPixelClick(sx, sy int) error {
+	hitter, ok := s.host.(clickHitter)
+	if !ok {
+		return nil
+	}
+	if _, err := hitter.HitTest(sx, sy); err != nil {
+		return fmt.Errorf("%w: click hit-test failed: %v", ErrCcExecFailed, err)
+	}
+	return nil
 }
 
 func (s *Service) mapUINodes(nodes []UINode) []UINode {
@@ -1858,17 +1951,10 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			if err != nil {
 				return "", nil, err
 			}
-			if err := s.host.InvokeUI(invokeName); err == nil {
-				return s.verifyAfter(fmt.Sprintf("invoked %q via accessibility", hit))
-			}
-			if err := s.host.MouseMove(sx, sy); err != nil {
+			if err := s.clickNamedLadder(invokeName, sx, sy, hit); err != nil {
 				return "", nil, err
 			}
-			time.Sleep(25 * time.Millisecond)
-			if err := s.withModifiers(mods, click); err != nil {
-				return "", nil, err
-			}
-			return s.verifyAfter(fmt.Sprintf("clicked %s %q at screen (%d,%d)", a.Button, hit, sx, sy))
+			return s.verifyAfter(fmt.Sprintf("invoked %q via accessibility", hit))
 		}
 		if a.X != nil && a.Y != nil {
 			sx, sy := s.toScreen(*a.X, *a.Y)
@@ -1895,6 +1981,11 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		if err := s.withModifiers(mods, click); err != nil {
 			return "", nil, err
+		}
+		if a.X != nil && a.Y != nil {
+			if err := s.verifyPixelClick(s.toScreen(*a.X, *a.Y)); err != nil {
+				return "", nil, err
+			}
 		}
 		return s.verifyAfter(fmt.Sprintf("clicked %s mouse %d time(s)", a.Button, a.Clicks))
 	case ToolMouseDrag:
@@ -2057,6 +2148,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err != nil {
 			if errors.Is(err, ErrCcRiskBlocked) && strings.Contains(err.Error(), "file open/save dialog") {
 				return "", nil, fmt.Errorf("%w: %s", err, FilePickerUserPrompt)
+			}
+			if errors.Is(err, ErrCcRiskBlocked) && (strings.Contains(err.Error(), "uac dialog") || strings.Contains(err.Error(), "elevation dialog")) {
+				return "", nil, fmt.Errorf("%w: %s", err, UACUserPrompt)
 			}
 			return "", nil, err
 		}

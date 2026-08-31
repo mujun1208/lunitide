@@ -136,9 +136,10 @@ type Host struct {
 	generation  uint64
 	postMessage func(win32.HWND, uint32, win32.WPARAM, win32.LPARAM) (win32.BOOL, win32.WIN32_ERROR)
 
-	appIcon   win32.HICON
-	trayAdded bool
-	forceQuit bool
+	appIcon     win32.HICON
+	trayAdded   bool
+	forceQuit   bool
+	startHidden bool
 
 	surfaceHidden        bool
 	reloadIfRendererDead bool
@@ -292,7 +293,11 @@ func (h *Host) Run(ctx context.Context) error {
 		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_SMALL), win32.LPARAM(hIcon))
 	}
 	hosts.Store(h.hwnd, h)
-	win32.ShowWindow(h.hwnd, win32.SW_SHOW)
+	if h.startHidden {
+		win32.ShowWindow(h.hwnd, win32.SW_HIDE)
+	} else {
+		win32.ShowWindow(h.hwnd, win32.SW_SHOW)
+	}
 	win32.UpdateWindow(h.hwnd)
 	h.addTrayIcon()
 	if err := h.createWebView(); err != nil {

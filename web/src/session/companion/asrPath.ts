@@ -61,3 +61,10 @@ export function companionAsrPathLabel(route: AsrRoute, preference: SpeechRecogni
   if (preference === 'cloud') return '系统识别'
   return '系统识别 · 本机模型未就绪，语音会离开本机'
 }
+
+/** Short 听-light copy for the live route, not the card the user saved. */
+export function companionListenLightLabel(route: AsrRoute): string {
+  if (route === 'local') return '本机 sherpa'
+  if (route === 'volc') return '火山 seed-asr'
+  return '系统识别'
+}

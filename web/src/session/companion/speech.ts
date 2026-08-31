@@ -102,8 +102,8 @@ export interface CompanionSpeechHandle {
   setCommitPaused: (paused: boolean) => void
   /** Restart the recognizer if it stalled (listening with no transcript). */
   pulseRecognition: () => void
-  /** Force-send the current assembled transcript (fallback when endpointing stalls). */
-  forceCommit: () => void
+  /** Force-send the assembled transcript, or `fallback` when the buffer was cleared. */
+  forceCommit: (fallback?: string) => boolean
   /** After a user gesture: resume Web Audio and (re)start recognition if it is dead. */
   resumeCapture: () => void
   /** Commit whatever is in the buffer, including unfinished clauses. Meeting notes awaits this before stop. */
@@ -1114,24 +1114,28 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         lastRecognitionPulseAt = performance.now()
         restartRecognition(false)
       },
-      forceCommit: () => {
-        if (assistantPlayback || commitPaused) return
-        const text = assembled().trim()
-        if (!text) return
-        const now = performance.now()
-        if (
-          !shouldForceCommitUtterance({
-            speechActive: meterless ? false : speechActive,
-            silentForMs: meterless ? undefined : lastVoiceAt ? now - lastVoiceAt : undefined,
-            textStableForMs: now - lastTextChangeAt,
-            incomplete: looksIncompleteUtterance(text),
-            silenceMs: windows.silenceMs,
-            incompleteSilenceMs: windows.incompleteSilenceMs,
-          })
-        ) {
-          return
+      forceCommit: (fallback?: string) => {
+        if (assistantPlayback || commitPaused) return false
+        const fromBuffer = assembled().trim()
+        const text = fromBuffer || (fallback ?? '').trim()
+        if (!text) return false
+        if (fromBuffer) {
+          const now = performance.now()
+          if (
+            !shouldForceCommitUtterance({
+              speechActive: meterless ? false : speechActive,
+              silentForMs: meterless ? undefined : lastVoiceAt ? now - lastVoiceAt : undefined,
+              textStableForMs: now - lastTextChangeAt,
+              incomplete: looksIncompleteUtterance(fromBuffer),
+              silenceMs: windows.silenceMs,
+              incompleteSilenceMs: windows.incompleteSilenceMs,
+            })
+          ) {
+            return false
+          }
         }
         commit(text)
+        return true
       },
       flush: () => {
         const text = assembled().trim()

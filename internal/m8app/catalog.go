@@ -92,18 +92,14 @@ func (item CatalogItem) SkillName() string {
 // NeedsChat answers whether install should publish a chat skill.
 // Independent agents keep skills on the expert (bindings), never as aa-* chips.
 func (item CatalogItem) NeedsChat() bool {
-	if item.ResolvedKind() == ExpertKindAgent {
-		return false
-	}
-	return item.Usage == CatalogUsageChat || item.Usage == CatalogUsageBoth
+	// Skills hang on the expert. Market cards (agents and agency persona
+	// packs) must not publish aa-* composer chips.
+	return false
 }
 
 // NeedsProject answers whether install should create a project expert.
 func (item CatalogItem) NeedsProject() bool {
-	if item.ResolvedKind() == ExpertKindAgent {
-		return true
-	}
-	return item.Usage == CatalogUsageProject || item.Usage == CatalogUsageBoth
+	return true
 }
 
 // Summary projects the market card, clipping the description for the list.

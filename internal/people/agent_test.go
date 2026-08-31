@@ -40,4 +40,11 @@ func TestUpsertAgentContactJoinsGroupWithoutPairing(t *testing.T) {
 	if msg.SenderID != agentID || msg.Body != "我来做演示稿。" {
 		t.Fatalf("send-as = %+v", msg)
 	}
+	sys, err := roster.SendSystem(ctx, group.ThreadID, "上一句还在处理，这句没排上。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sys.Kind != "system" || sys.SenderID != ident.SubjectID() || sys.Body != "上一句还在处理，这句没排上。" {
+		t.Fatalf("send-system = %+v", sys)
+	}
 }

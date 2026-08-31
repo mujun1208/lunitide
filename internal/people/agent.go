@@ -88,6 +88,33 @@ func (s *Service) SendAs(ctx context.Context, senderID, threadID, body string) (
 	return msg, nil
 }
 
+func (s *Service) SendSystem(ctx context.Context, threadID, body string) (Message, error) {
+	if err := s.readyUnlocked(); err != nil {
+		return Message{}, err
+	}
+	threadID = strings.TrimSpace(threadID)
+	body = strings.TrimSpace(body)
+	if threadID == "" || body == "" || utf8.RuneCountInString(body) > maxText {
+		return Message{}, ErrInvalid
+	}
+	t, err := s.store.GetThread(ctx, threadID)
+	if err != nil {
+		return Message{}, ErrNotFound
+	}
+	msg := Message{
+		MessageID: ulid.Make().String(),
+		ThreadID:  t.ThreadID,
+		SenderID:  s.identity.SubjectID(),
+		Kind:      "system",
+		Body:      body,
+		CreatedAt: nowRFC3339(),
+	}
+	if err := s.store.InsertMessage(ctx, msg, nil); err != nil {
+		return Message{}, err
+	}
+	return msg, nil
+}
+
 func threadHasMember(t Thread, subjectID string) bool {
 	for _, member := range t.Members {
 		if member.SubjectID == subjectID {

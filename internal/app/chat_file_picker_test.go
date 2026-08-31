@@ -23,6 +23,49 @@ func TestLooksLikeFilePickerToolResult(t *testing.T) {
 	}
 }
 
+func TestLooksLikeUACToolResult(t *testing.T) {
+	if !looksLikeUACToolResult(ccappUACPrompt()) {
+		t.Fatal("spoken UAC needs_user")
+	}
+	if !looksLikeUACToolResult("ccapp: operation blocked by risk policy: uac dialog") {
+		t.Fatal("uac dialog")
+	}
+	if looksLikeUACToolResult("captured desktop 1920x1080") {
+		t.Fatal("screenshot is not UAC")
+	}
+}
+
+func ccappUACPrompt() string {
+	return "needs_user: 这是系统提权对话框，我不能代点「是」。请你自己确认或取消。"
+}
+
+func TestParkUACAskEmitsUserAsk(t *testing.T) {
+	runtime, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	e := NewEngine(nil, "test")
+	e.SetToolRuntime(runtime)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	var events []bridge.Event
+	if err := e.parkUACAsk(context.Background(), session, session, executionModeApproval, func(ev bridge.Event) error {
+		events = append(events, ev)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != bridge.EventApprovalRequired || events[0].Tool == nil {
+		t.Fatalf("events = %#v", events)
+	}
+	if events[0].Tool.Name != "user.ask" {
+		t.Fatalf("name = %s", events[0].Tool.Name)
+	}
+	if !strings.Contains(events[0].Tool.Summary, "系统提权") {
+		t.Fatalf("summary = %q", events[0].Tool.Summary)
+	}
+}
+
 func TestParkFilePickerAskEmitsUserAsk(t *testing.T) {
 	runtime, err := toolruntime.Open(t.TempDir())
 	if err != nil {

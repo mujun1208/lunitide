@@ -141,16 +141,53 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 	if skip {
 		return toolruntime.Result{}, nil
 	}
+	if browserActUsesRef(call) && e.consumeBrowserMutation() {
+		if pre := e.playwrightSnapshotFollowup(ctx); pre != "" {
+			e.storeBrowserSnapshot(pre)
+		}
+	}
 	raw, _ := json.Marshal(args)
 	out, err := e.invokeMcpTool(ctx, endpointID, tool, raw)
 	if err != nil {
 		return toolruntime.Result{}, err
 	}
 	if browserActNeedsSnapshot(call) {
+		e.markBrowserMutated()
 		snap := e.playwrightSnapshotFollowup(ctx)
+		e.storeBrowserSnapshot(snap)
 		return toolruntime.Result{Output: appendPostActSnapshot(op, out, snap)}, nil
 	}
 	return toolruntime.Result{Output: strings.TrimSpace(out)}, nil
+}
+
+func browserActUsesRef(call browserActCall) bool {
+	switch strings.TrimSpace(call.Op) {
+	case "click", "type", "hover", "select", "press":
+		return strings.TrimSpace(call.Selector) != ""
+	default:
+		return false
+	}
+}
+
+func (e *Engine) storeBrowserSnapshot(snap string) {
+	if e == nil {
+		return
+	}
+	e.lastBrowserSnap.Store(strings.TrimSpace(snap))
+}
+
+func (e *Engine) markBrowserMutated() {
+	if e == nil {
+		return
+	}
+	e.browserMutated.Store(true)
+}
+
+func (e *Engine) consumeBrowserMutation() bool {
+	if e == nil {
+		return false
+	}
+	return e.browserMutated.Swap(false)
 }
 
 func playwrightArgs(call browserActCall) (map[string]any, bool) {
@@ -236,7 +273,7 @@ func playwrightArgs(call browserActCall) (map[string]any, bool) {
 
 func browserActNeedsSnapshot(call browserActCall) bool {
 	switch strings.TrimSpace(call.Op) {
-	case "snapshot", "read", "wait", "dialog":
+	case "snapshot":
 		return false
 	case "tabs":
 		return strings.TrimSpace(call.Tab) != "" && strings.TrimSpace(call.Tab) != "list"
@@ -262,7 +299,7 @@ func (e *Engine) playwrightSnapshotFollowup(ctx context.Context) string {
 func appendPostActSnapshot(op, primary, snapshot string) string {
 	primary = strings.TrimSpace(primary)
 	snapshot = strings.TrimSpace(snapshot)
-	if snapshot == "" || op == "snapshot" || op == "read" {
+	if snapshot == "" || op == "snapshot" {
 		return primary
 	}
 	if primary == "" {

@@ -481,9 +481,12 @@ func (e *Engine) companionAutoDesktopTypeArgs(sessionID, goal string) (json.RawM
 	return args, true
 }
 
-func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string), companion bool) (toolruntime.Result, error) {
 	if name == "media.play" {
 		args = e.resolveMediaPlayArgs(session, args)
+	}
+	if companion && (approvalProfileDangerous(name) || (companionFullDiskWrite(name) && e.fullDiskChat(mode))) {
+		mode = executionModeApproval
 	}
 	if progress != nil {
 		return e.executeUserToolStreaming(ctx, mode, session, name, args, progress)

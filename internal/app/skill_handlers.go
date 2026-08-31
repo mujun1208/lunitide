@@ -476,9 +476,10 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 	case err == nil:
 		status := string(s.Status)
 		if s.Status == skill.SkillStatusDraft {
-			if perr := e.skills.Publish(ctx, s.ID); perr == nil {
-				status = string(skill.SkillStatusPublished)
+			if perr := e.skills.Publish(ctx, s.ID); perr != nil {
+				return bridge.Failure(r.ID, r.TraceID, "SKILL_PUBLISH_FAILED", "已安装但发布失败："+perr.Error(), true)
 			}
+			status = string(skill.SkillStatusPublished)
 		}
 		return bridge.Success(r.ID, map[string]any{"skillId": s.ID, "name": s.Name, "status": status})
 	case errors.Is(err, skillapp.ErrTemplateUnknown):

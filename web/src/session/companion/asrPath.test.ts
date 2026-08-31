@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { companionAsrPathLabel, companionListenFailover, companionListenKind, withDeadline } from './asrPath'
+import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, withDeadline } from './asrPath'
 
 describe('companionAsrPathLabel', () => {
   test('says local when the sidecar is actually decoding', () => {
@@ -19,6 +19,14 @@ describe('companionAsrPathLabel', () => {
   test('volc is seed-asr, not 系统识别', () => {
     expect(companionAsrPathLabel('volc', 'auto')).toBe('火山听写 · seed-asr')
     expect(companionAsrPathLabel('volc', 'cloud')).not.toMatch(/离开本机/)
+  })
+})
+
+describe('companionListenLightLabel', () => {
+  test('follows the live route, not the saved card', () => {
+    expect(companionListenLightLabel('local')).toBe('本机 sherpa')
+    expect(companionListenLightLabel('volc')).toBe('火山 seed-asr')
+    expect(companionListenLightLabel('cloud')).toBe('系统识别')
   })
 })
 

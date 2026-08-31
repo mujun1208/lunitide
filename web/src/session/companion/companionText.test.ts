@@ -12,6 +12,8 @@ import {
   MAX_SEGMENTS,
   cleanForSpeech,
   cleanUserTranscript,
+  clipCompanionPrompt,
+  COMPANION_PROMPT_MAX_CHARS,
   companionInstantAck,
   companionPadSpeech,
   COMPANION_PAD_SPEECH,
@@ -24,6 +26,7 @@ import {
   prepareSpeech,
   segmentForSpeech,
   shouldAcceptUserTranscript,
+  shouldQueueBusyUserTranscript,
   shouldKeepHandsFreeLoop,
   looksLikeOmniPersonaCaption,
   looksLikeOmniUnavailable,
@@ -432,6 +435,34 @@ describe('shouldAcceptUserTranscript', () => {
     expect(shouldAcceptUserTranscript({ ...base, text: notice })).toBe(false)
     expect(stripTaskDonePhrases(notice)).toBe('')
     expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
+  })
+})
+
+describe('shouldQueueBusyUserTranscript', () => {
+  const base = {
+    state: 'speaking' as const,
+    text: '帮我打开桌面',
+    lastSpoken: '今晚是满月，适合抬头。',
+    lastAssistant: '今晚是满月，适合抬头。',
+  }
+
+  test('queues a real cut-in while she is still talking', () => {
+    expect(shouldQueueBusyUserTranscript(base)).toBe(true)
+    expect(shouldQueueBusyUserTranscript({ ...base, state: 'thinking', assistantBusy: true })).toBe(true)
+  })
+
+  test('does not queue her own playback or clone labels', () => {
+    expect(shouldQueueBusyUserTranscript({ ...base, text: '今晚是满月适合抬头' })).toBe(false)
+    expect(shouldQueueBusyUserTranscript({ ...base, text: '人生：优质台湾腔' })).toBe(false)
+    expect(shouldQueueBusyUserTranscript({ ...base, state: 'listening', assistantBusy: false })).toBe(false)
+  })
+})
+
+describe('clipCompanionPrompt', () => {
+  test('drops NUL and caps at 2048 Unicode characters', () => {
+    expect(clipCompanionPrompt('你好\0月汐')).toBe('你好月汐')
+    const long = '风'.repeat(COMPANION_PROMPT_MAX_CHARS + 8)
+    expect(Array.from(clipCompanionPrompt(long))).toHaveLength(COMPANION_PROMPT_MAX_CHARS)
   })
 })
 

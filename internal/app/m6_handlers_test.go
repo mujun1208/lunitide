@@ -419,8 +419,8 @@ func TestMcp6PresetsList(t *testing.T) {
 		Items []mcp6.Preset `json:"items"`
 	}
 	m6Payload(t, resp, &out)
-	if len(out.Items) != 8 {
-		t.Fatalf("want 8 live presets, got %d", len(out.Items))
+	if len(out.Items) < 30 || len(out.Items) > 48 {
+		t.Fatalf("want curated ~40 live presets, got %d", len(out.Items))
 	}
 	byID := make(map[string]mcp6.Preset, len(out.Items))
 	for _, it := range out.Items {
@@ -438,6 +438,15 @@ func TestMcp6PresetsList(t *testing.T) {
 	}
 	if fs := byID["filesystem"]; !fs.NeedsArgs || fs.ArgPlaceholder != "{{dir}}" || fs.ArgHint == "" || fs.ArgDefault == "" || strings.Contains(fs.ArgDefault, `\`) {
 		t.Fatalf("filesystem preset placeholder contract broken: %+v", fs)
+	}
+	if pg := byID["postgres"]; !pg.NeedsArgs || pg.ArgDefault != "" {
+		t.Fatalf("secret/url presets must not receive a sandbox path default: %+v", pg)
+	}
+	if maps := byID["google-maps"]; !maps.NeedsArgs || maps.ArgPlaceholder != "{{key}}" || maps.ArgDefault != "" {
+		t.Fatalf("API-key presets must not receive a sandbox path default: %+v", maps)
+	}
+	if drive := byID["gdrive"]; !drive.NeedsArgs || drive.ArgPlaceholder != "{{dir}}" || drive.ArgDefault == "" {
+		t.Fatalf("gdrive credential dir should use the local sandbox default: %+v", drive)
 	}
 
 	// End-to-end: each catalog row (placeholder resolved to a benign path)

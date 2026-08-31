@@ -28,9 +28,10 @@ type feishuEndpointResp struct {
 }
 
 type FeishuInboundMessage struct {
-	Sender    string
-	Text      string
-	MessageID string
+	Sender         string
+	Text           string
+	MessageID      string
+	ConversationID string
 }
 
 func FetchFeishuEndpoint(ctx context.Context, client *http.Client, domain, appID, appSecret string) (FeishuEndpoint, error) {
@@ -106,6 +107,7 @@ func ParseFeishuMessageEvent(raw []byte) (FeishuInboundMessage, bool) {
 			} `json:"sender"`
 			Message struct {
 				MessageID   string `json:"message_id"`
+				ChatID      string `json:"chat_id"`
 				MessageType string `json:"message_type"`
 				Content     string `json:"content"`
 			} `json:"message"`
@@ -142,7 +144,12 @@ func ParseFeishuMessageEvent(raw []byte) (FeishuInboundMessage, bool) {
 	if sender == "" {
 		return FeishuInboundMessage{}, false
 	}
-	return FeishuInboundMessage{Sender: sender, Text: text, MessageID: strings.TrimSpace(env.Event.Message.MessageID)}, true
+	return FeishuInboundMessage{
+		Sender:         sender,
+		Text:           text,
+		MessageID:      strings.TrimSpace(env.Event.Message.MessageID),
+		ConversationID: strings.TrimSpace(env.Event.Message.ChatID),
+	}, true
 }
 
 func extractJSONObject(raw []byte) []byte {

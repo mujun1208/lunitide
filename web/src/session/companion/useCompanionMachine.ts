@@ -57,10 +57,15 @@ function reducer(snapshot: CompanionSnapshot, action: CompanionAction): Companio
   return { state: next, rejected: snapshot.rejected }
 }
 
+export function companionNextState(from: CompanionState, type: CompanionEvent['type']): CompanionState | undefined {
+  return transitionTable[from][type]
+}
+
 export interface CompanionMachine {
   state: CompanionState
   rejected: number
-  dispatch: (event: CompanionEvent) => void
+  /** Next state when accepted; `null` when the guard rejects. Updates the live snapshot immediately so a same-tick follow-up sees the new state. */
+  dispatch: (event: CompanionEvent) => CompanionState | null
   /** True when event would be a guard rejection — used by tests. */
   wouldReject: (event: CompanionEvent) => boolean
 }
@@ -70,12 +75,19 @@ export function useCompanionMachine(): CompanionMachine {
   const snapshotRef = useRef(snapshot)
   snapshotRef.current = snapshot
 
-  const dispatch = useCallback((event: CompanionEvent) => {
+  const dispatch = useCallback((event: CompanionEvent): CompanionState | null => {
+    const next = companionNextState(snapshotRef.current.state, event.type)
+    if (!next) {
+      rawDispatch(event)
+      return null
+    }
+    snapshotRef.current = { state: next, rejected: snapshotRef.current.rejected }
     rawDispatch(event)
+    return next
   }, [])
 
   const wouldReject = useCallback((event: CompanionEvent) => {
-    return transitionTable[snapshotRef.current.state][event.type] === undefined
+    return companionNextState(snapshotRef.current.state, event.type) === undefined
   }, [])
 
   return useMemo(

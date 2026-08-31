@@ -91,8 +91,8 @@ func TestImChannelsGetSeedsAndSetWebhook(t *testing.T) {
 		t.Fatalf("inbound pairing with App ID %+v", pair.Error)
 	}
 	dingInbound := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"dingtalk","inboundEnabled":true,"inboundAllowlist":"x"}`))
-	if dingInbound.OK {
-		t.Fatal("dingtalk inbound must fail")
+	if !dingInbound.OK {
+		t.Fatalf("dingtalk inbound %+v", dingInbound.Error)
 	}
 	in := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAllowlist":"ou_ok"}`))
 	if !in.OK {

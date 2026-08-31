@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { MarkdownMessage, ThinkingPanel, compressThinking, formatTaskElapsed, safeMarkdownUrl } from './MarkdownMessage'
+import { AssistantMessageBody, MarkdownMessage, ThinkingPanel, compressThinking, formatTaskElapsed, safeMarkdownUrl, splitPersistedThinking } from './MarkdownMessage'
 
 afterEach(cleanup)
 
@@ -76,9 +76,34 @@ it('compresses thinking to the last short sentence instead of the full chain', (
   expect(formatTaskElapsed(9_000)).toBe('9s')
 })
 
-it('does not parse markdown while thinking is streaming and the reasoning fold is closed', () => {
-  render(<ThinkingPanel text={'**内部推理** 然后给出结论。'} open streaming onToggle={() => {}} />)
+it('does not parse markdown while thinking is streaming and the panel is closed', () => {
+  render(<ThinkingPanel text={'**内部推理** 然后给出结论。'} open={false} streaming onToggle={() => {}} />)
   expect(document.querySelector('.thinking-live-text')).toBeNull()
   expect(document.querySelector('.thinking-reasoning strong')).toBeNull()
   expect(document.querySelector('.message-body')).toBeNull()
+  expect(document.querySelector('.thinking-summary-preview')?.textContent).toBe('**内部推理** 然后给出结论。')
+})
+
+it('shows live pre when the folded thinking row is expanded during stream', () => {
+  render(<ThinkingPanel text={'**内部推理** 然后给出结论。'} open streaming onToggle={() => {}} />)
+  expect(document.querySelector('.thinking-live-text')?.textContent).toContain('**内部推理**')
+  expect(document.querySelector('.thinking-reasoning strong')).toBeNull()
+})
+
+it('splits persisted thinking from the assistant body', () => {
+  expect(splitPersistedThinking('普通回复')).toEqual({ thinking: '', body: '普通回复' })
+  expect(splitPersistedThinking('【思考过程】\n先规划。\n\n已写好白羊座。')).toEqual({ thinking: '先规划。', body: '已写好白羊座。' })
+  expect(splitPersistedThinking('【思考过程】\n只有思考')).toEqual({ thinking: '只有思考', body: '' })
+})
+
+it('renders persisted thinking as one collapsed row until expanded', () => {
+  render(<AssistantMessageBody text={'【思考过程】\n先规划结构再写大纲。\n\n无法执行。模型结果不完整，请重试。'} />)
+  const details = screen.getByText('任务过程').closest('details')!
+  expect(details).not.toHaveAttribute('open')
+  expect(screen.queryByText('【思考过程】')).toBeNull()
+  expect(document.querySelector('.thinking-reasoning')).toBeNull()
+  expect(screen.getByText(/无法执行/)).toBeInTheDocument()
+  fireEvent.click(screen.getByText('任务过程'))
+  expect(details).toHaveAttribute('open')
+  expect(screen.getByText(/先规划结构再写大纲/)).toBeInTheDocument()
 })

@@ -237,7 +237,13 @@ func TestCompanionWantsToolsForDesktopFollowUp(t *testing.T) {
 		t.Fatal("DesktopActive session must start the 24-step desktop loop")
 	}
 	if companionDesktopToolLoop(e, "", "今晚月色如何") {
-		t.Fatal("idle chat must keep the short companion loop")
+		t.Fatal("idle chat must not flip DesktopActive")
+	}
+}
+
+func TestCompanionToolLoopMatchesDesktopBudget(t *testing.T) {
+	if companionMaxToolLoopSteps != maxToolLoopSteps || maxToolLoopSteps != 24 {
+		t.Fatalf("companion loop=%d desktop loop=%d", companionMaxToolLoopSteps, maxToolLoopSteps)
 	}
 }
 

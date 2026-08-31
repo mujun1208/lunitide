@@ -136,12 +136,27 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 // MemoryService implements the slice-1 use cases.
+// MemoryFTSHit is one confirmed-candidate or compaction-summary row from
+// the memory_fact_fts virtual table.
+type MemoryFTSHit struct {
+	SourceID string
+	Kind     string
+	Body     string
+}
+
+// MemoryFTS is the optional SQLite FTS5 index over confirmed facts and
+// summaries. Tests and fakes may leave it nil; inject still works.
+type MemoryFTS interface {
+	SearchMemoryFactFTS(ctx context.Context, query string, limit int) ([]MemoryFTSHit, error)
+}
+
 type MemoryService struct {
 	uow      MemoryUnitOfWork
 	clock    Clock
 	subject  string // local requesting subject (single-user engine)
 	policy   PolicyProbe
 	verifyEv EvidenceVerifier
+	fts      MemoryFTS
 }
 
 // NewMemoryService wires the slice-1 service with fail-closed defaults.
@@ -163,6 +178,13 @@ func (s *MemoryService) SetPolicyProbe(p PolicyProbe) { s.policy = p }
 
 // SetEvidenceVerifier substitutes the leaf evidence verifier.
 func (s *MemoryService) SetEvidenceVerifier(v EvidenceVerifier) { s.verifyEv = v }
+
+// SetFTS wires the optional confirmed-fact FTS5 index.
+func (s *MemoryService) SetFTS(fts MemoryFTS) {
+	if s != nil {
+		s.fts = fts
+	}
+}
 
 // ProposeInput is the internal candidate-proposal command used by the
 // provenance adapter path (chat bodies and ungated drafts may only ever
@@ -462,6 +484,9 @@ type RecallInput struct {
 	Query        string
 	TopK         int
 	IndexVersion string
+	// SubjectID, when set, limits inject/recall hits to that identity.
+	// Empty keeps the historical unscoped scan (tests / recall.query).
+	SubjectID string
 }
 
 // RecallHit is one explained hit.
@@ -813,18 +838,36 @@ type PendingCandidateView struct {
 // ListPendingCandidates answers pending candidates (newest first) for the
 // memory-center confirmation journey.
 func (s *MemoryService) ListPendingCandidates(ctx context.Context, limit int) ([]PendingCandidateView, error) {
+	return s.listPendingCandidates(ctx, "", limit)
+}
+
+// ListPendingCandidatesFor is the chat / inbox path: only this identity
+// subject's pending rows, so auto-nominate and the memory center do not
+// skip or show another subject's gist.
+func (s *MemoryService) ListPendingCandidatesFor(ctx context.Context, subjectID string, limit int) ([]PendingCandidateView, error) {
+	return s.listPendingCandidates(ctx, strings.TrimSpace(subjectID), limit)
+}
+
+func (s *MemoryService) listPendingCandidates(ctx context.Context, subjectID string, limit int) ([]PendingCandidateView, error) {
 	if s == nil || s.uow == nil {
 		return nil, ErrServiceUnavailable
 	}
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	rows, err := s.listCandidates(ctx, m8core.CandPending, limit)
+	fetch := limit
+	if subjectID != "" {
+		fetch = 200
+	}
+	rows, err := s.listCandidates(ctx, m8core.CandPending, fetch)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]PendingCandidateView, 0, len(rows))
+	out := make([]PendingCandidateView, 0, limit)
 	for _, c := range rows {
+		if subjectID != "" && c.SubjectID != subjectID {
+			continue
+		}
 		var doc m8core.PayloadDoc
 		if err := json.Unmarshal([]byte(c.Payload), &doc); err != nil {
 			continue
@@ -837,6 +880,9 @@ func (s *MemoryService) ListPendingCandidates(ctx context.Context, limit int) ([
 			CreatedAt:         c.CreatedAt,
 			ExpiresAt:         c.ExpiresAt,
 		})
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out, nil
 }
@@ -856,6 +902,16 @@ func (s *MemoryService) listCandidates(ctx context.Context, state string, limit 
 // maxItems and maxBytes (injected-tokens budget: preferences must never
 // crowd out the conversation context).
 func (s *MemoryService) ConfirmedSnapshot(ctx context.Context, scopeID string, maxItems, maxBytes int) ([]string, error) {
+	return s.confirmedSnapshot(ctx, "", scopeID, maxItems, maxBytes)
+}
+
+// ConfirmedSnapshotFor is the chat-turn inject path: only the local
+// identity subject’s confirmed prefs, so 文字 / 月伴 / 同事 share one memory.
+func (s *MemoryService) ConfirmedSnapshotFor(ctx context.Context, subjectID, scopeID string, maxItems, maxBytes int) ([]string, error) {
+	return s.confirmedSnapshot(ctx, strings.TrimSpace(subjectID), scopeID, maxItems, maxBytes)
+}
+
+func (s *MemoryService) confirmedSnapshot(ctx context.Context, subjectID, scopeID string, maxItems, maxBytes int) ([]string, error) {
 	if s == nil || s.uow == nil {
 		return nil, ErrServiceUnavailable
 	}
@@ -875,6 +931,9 @@ func (s *MemoryService) ConfirmedSnapshot(ctx context.Context, scopeID string, m
 	out := make([]string, 0, maxItems)
 	used := 0
 	for _, c := range rows {
+		if subjectID != "" && c.SubjectID != subjectID {
+			continue
+		}
 		if len(out) >= maxItems || used >= maxBytes {
 			break
 		}
@@ -895,4 +954,45 @@ func (s *MemoryService) ConfirmedSnapshot(ctx context.Context, scopeID string, m
 		used += len(content)
 	}
 	return out, nil
+}
+
+// ConfirmedByID returns one confirmed payload by candidate id. Pending and
+// rejected candidates are invisible.
+func (s *MemoryService) ConfirmedByID(ctx context.Context, id string) (string, error) {
+	return s.ConfirmedByIDFor(ctx, id, "")
+}
+
+// ConfirmedByIDFor is ConfirmedByID scoped to one identity. Empty subject
+// keeps the historical unscoped lookup (tests / ops).
+func (s *MemoryService) ConfirmedByIDFor(ctx context.Context, id, subjectID string) (string, error) {
+	if s == nil || s.uow == nil {
+		return "", ErrServiceUnavailable
+	}
+	id = strings.TrimSpace(id)
+	subjectID = strings.TrimSpace(subjectID)
+	if id == "" {
+		return "", fmt.Errorf("%w: id invalid", ErrPayloadInvalid)
+	}
+	rows, err := s.listCandidates(ctx, m8core.CandConfirmed, 200)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range rows {
+		if c.CandidateID != id {
+			continue
+		}
+		if subjectID != "" && c.SubjectID != subjectID {
+			continue
+		}
+		var doc m8core.PayloadDoc
+		if json.Unmarshal([]byte(c.Payload), &doc) != nil {
+			continue
+		}
+		content := strings.TrimSpace(doc.Content)
+		if content == "" {
+			continue
+		}
+		return content, nil
+	}
+	return "", fmt.Errorf("%w: confirmed memory", ErrCandidateNotFound)
 }

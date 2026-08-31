@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { MemoryOpsBridge } from '../bridge/client'
+import type { IdentityBridge, MemoryOpsBridge } from '../bridge/client'
+import type { IdentityDTO } from '../generated/bridge'
 import { MemoryOpsPanel } from './MemoryOpsPanel'
 
 afterEach(cleanup)
 
-const F = '01ARZ3NDEKTSV4RRFFQ69G5FAV', now = '2025-01-01T00:00:00Z'
+const F = '01ARZ3NDEKTSV4RRFFQ69G5FAV', SID = '01ARZ3NDEKTSV4RRFFQ69G5FAW', now = '2025-01-01T00:00:00Z'
 
 const opsApi = (o: Partial<MemoryOpsBridge> = {}): MemoryOpsBridge => ({
   stats: vi.fn().mockResolvedValue({
@@ -18,8 +19,8 @@ const opsApi = (o: Partial<MemoryOpsBridge> = {}): MemoryOpsBridge => ({
   listTraces: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
   listGrowth: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
   decideGrowth: vi.fn().mockResolvedValue({ factId: F, decision: 'promoted' }),
-  getSettings: vi.fn().mockResolvedValue({ subjectId: 'local-user', memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now }),
-  updateSettings: vi.fn().mockResolvedValue({ subjectId: 'local-user', memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now }),
+  getSettings: vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now }),
+  updateSettings: vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now }),
   export: vi.fn().mockResolvedValue({ facts: [], leaves: [], candidates: [], traces: [], growth: [], flags: [], settings: [] }),
   purge: vi.fn().mockResolvedValue({ factsTombstoned: 3, candidates: 1, growthRows: 2, flags: 1, traces: 5, memories: 4 }),
   ...o,
@@ -36,7 +37,7 @@ const growth = {
 }
 
 it('renders the statistics strip from memory.stats', async () => {
-  render(<MemoryOpsPanel ops={opsApi()} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi()} />)
   expect(await screen.findByText('3')).toBeInTheDocument()
   expect(screen.getByText('生效事实')).toBeInTheDocument()
   expect(screen.getByText('待确认候选')).toBeInTheDocument()
@@ -51,7 +52,7 @@ it('lists facts and toggles the pinned flag', async () => {
     listFacts: vi.fn().mockResolvedValue({ items: [{ ...fact }], total: 1, limit: 20, offset: 0 }),
     flagFact,
   })
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   expect(await screen.findByTestId('memory-fact-row')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '置顶' }))
   await waitFor(() => expect(flagFact).toHaveBeenCalledOnce())
@@ -64,7 +65,7 @@ it('toggles the hidden flag on a fact', async () => {
     listFacts: vi.fn().mockResolvedValue({ items: [{ ...fact }], total: 1, limit: 20, offset: 0 }),
     flagFact,
   })
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   await screen.findByTestId('memory-fact-row')
   fireEvent.click(screen.getByRole('button', { name: '隐藏' }))
   await waitFor(() => expect(flagFact).toHaveBeenCalledWith(expect.objectContaining({ flag: 'hidden', on: true })))
@@ -72,7 +73,7 @@ it('toggles the hidden flag on a fact', async () => {
 
 it('filters facts by state through the select', async () => {
   const listFacts = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 })
-  render(<MemoryOpsPanel ops={opsApi({ listFacts })} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ listFacts })} />)
   await screen.findByText('暂无事实')
   fireEvent.change(screen.getByLabelText('事实状态筛选'), { target: { value: 'active' } })
   await waitFor(() => expect(listFacts).toHaveBeenCalledWith(expect.objectContaining({ state: 'active' })))
@@ -84,7 +85,7 @@ it('decides an observing growth entry as promoted', async () => {
     listGrowth: vi.fn().mockResolvedValue({ items: [{ ...growth }], total: 1, limit: 20, offset: 0 }),
     decideGrowth,
   })
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   expect(await screen.findByTestId('memory-growth-row')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '转正' }))
   await waitFor(() => expect(decideGrowth).toHaveBeenCalledOnce())
@@ -97,7 +98,7 @@ it('drops an observing growth entry', async () => {
     listGrowth: vi.fn().mockResolvedValue({ items: [{ ...growth }], total: 1, limit: 20, offset: 0 }),
     decideGrowth,
   })
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   await screen.findByTestId('memory-growth-row')
   fireEvent.click(screen.getByRole('button', { name: '放弃' }))
   await waitFor(() => expect(decideGrowth).toHaveBeenCalledWith({ factId: F, decision: 'dropped' }))
@@ -107,7 +108,7 @@ it('hides decide buttons for non-observing growth entries', async () => {
   const ops = opsApi({
     listGrowth: vi.fn().mockResolvedValue({ items: [{ ...growth, status: 'promoted' as const, decidedAt: now }], total: 1, limit: 20, offset: 0 }),
   })
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   expect(await screen.findByText('已转正')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '转正' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '放弃' })).not.toBeInTheDocument()
@@ -120,22 +121,37 @@ it('renders recall traces with hits and reasons', async () => {
       total: 1, limit: 20, offset: 0,
     }),
   })
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   expect(await screen.findByText('sha256:abcd')).toBeInTheDocument()
   expect(screen.getByText(/注入命中 2 条/)).toBeInTheDocument()
 })
 
 it('saves memory settings via memory.settings.update', async () => {
-  const updateSettings = vi.fn().mockResolvedValue({ subjectId: 'local-user', memoryEnabled: false, autoNominate: true, growthDays: 30, updatedAt: now })
-  render(<MemoryOpsPanel ops={opsApi({ updateSettings })} />)
+  const updateSettings = vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: false, autoNominate: true, growthDays: 30, updatedAt: now })
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ updateSettings })} />)
   await waitFor(() => expect(screen.getByLabelText('启用记忆沉淀')).toBeChecked())
   fireEvent.click(screen.getByLabelText('启用记忆沉淀'))
   fireEvent.click(screen.getByLabelText('自动提名候选'))
   fireEvent.change(screen.getByLabelText(/成长观察期/), { target: { value: '30' } })
   fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
   await waitFor(() => expect(updateSettings).toHaveBeenCalledOnce())
-  expect(updateSettings.mock.calls[0][0]).toMatchObject({ subjectId: 'local-user', memoryEnabled: false, autoNominate: true, growthDays: 30 })
+  expect(updateSettings.mock.calls[0][0]).toMatchObject({ subjectId: SID, memoryEnabled: false, autoNominate: true, growthDays: 30 })
   expect(await screen.findByText('记忆设置已保存')).toBeInTheDocument()
+})
+
+it('resolves settings subject from identity.get, not local-user', async () => {
+  const getSettings = vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now })
+  const identity = {
+    get: vi.fn().mockResolvedValue({
+      subjectId: SID, nickname: 'mu', avatar: '', status: 'online', department: '', title: '', orgName: '',
+      bio: '', publicKey: 'pk', pairingCode: '123456', passwordSet: false, locked: false, discoveryEnabled: false,
+      createdAt: now, updatedAt: now,
+    } satisfies IdentityDTO),
+    update: vi.fn(), passwordSet: vi.fn(), unlock: vi.fn(),
+  } as unknown as IdentityBridge
+  render(<MemoryOpsPanel ops={opsApi({ getSettings })} identity={identity} />)
+  await waitFor(() => expect(getSettings).toHaveBeenCalledWith({ subjectId: SID }))
+  expect(getSettings.mock.calls.some(call => call[0]?.subjectId === 'local-user')).toBe(false)
 })
 
 it('exports the memory bundle as a JSON download', async () => {
@@ -144,7 +160,7 @@ it('exports the memory bundle as a JSON download', async () => {
   const createObjectURL = vi.mocked(URL.createObjectURL).mockReturnValue('blob:mock')
   const revokeObjectURL = vi.mocked(URL.revokeObjectURL).mockReturnValue()
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-  render(<MemoryOpsPanel ops={opsApi()} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi()} />)
   await screen.findByText('暂无事实')
   fireEvent.click(screen.getByRole('button', { name: '导出记忆数据' }))
   await waitFor(() => expect(createObjectURL).toHaveBeenCalledOnce())
@@ -156,7 +172,7 @@ it('exports the memory bundle as a JSON download', async () => {
 it('purges all memory data after double confirmation', async () => {
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
   const ops = opsApi()
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   await screen.findByText('暂无事实')
   fireEvent.click(screen.getByRole('button', { name: '一键清除全部记忆' }))
   await waitFor(() => expect(ops.purge).toHaveBeenCalledOnce())
@@ -168,7 +184,7 @@ it('purges all memory data after double confirmation', async () => {
 it('does not purge when the first confirmation is rejected', async () => {
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const ops = opsApi()
-  render(<MemoryOpsPanel ops={ops} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
   await screen.findByText('暂无事实')
   fireEvent.click(screen.getByRole('button', { name: '一键清除全部记忆' }))
   expect(confirm).toHaveBeenCalledOnce()
@@ -178,7 +194,7 @@ it('does not purge when the first confirmation is rejected', async () => {
 
 it('pages the facts list with the pager controls', async () => {
   const listFacts = vi.fn().mockResolvedValue({ items: [], total: 25, limit: 20, offset: 0 })
-  render(<MemoryOpsPanel ops={opsApi({ listFacts })} />)
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ listFacts })} />)
   await screen.findByText(/事实：共 25 条/)
   fireEvent.click(screen.getAllByRole('button', { name: '下一页' })[0]!)
   await waitFor(() => expect(listFacts).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 20 })))

@@ -103,7 +103,7 @@ func TestChatStartInjectsSkillCatalog(t *testing.T) {
 		"[可用技能目录]",
 		"- manual-parser：解析 AMM/IPC/SRM 手册章节并抽取工卡字段。当用户提到“手册解析、工卡抽取”时使用。",
 		"- report-writer：生成合规检查报告。当用户提到“生成报告、检查报告”时使用。",
-		"使用规则：用户请求与某技能名称或触发场景匹配时，必须立刻调用 skill.invoke（skillId 见下行，input 用用户原话）。不要只口头提到技能；完整约定在调用后才会注入，禁止猜测技能正文。",
+		"使用规则：目录只含名称与一行摘要。需要正文或 references 时先 skill.view；匹配用户请求时立刻 skill.invoke（skillId 见下行，input 用用户原话）。禁止猜测技能正文。",
 		"[内置工作流]",
 	} {
 		if !strings.Contains(sys, want) {

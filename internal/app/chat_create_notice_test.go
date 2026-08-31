@@ -31,7 +31,7 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 	if got := createTurnClosingNotice([]string{"workspace.write", "skill.create"}, ""); !strings.Contains(got, "技能中心") {
 		t.Fatalf("skill.create notice = %q", got)
 	}
-	if got := createTurnClosingNotice([]string{"plugin.create"}, ""); !strings.Contains(got, "插件") {
+	if got := createTurnClosingNotice([]string{"plugin.create"}, ""); !strings.Contains(got, "能力包") {
 		t.Fatalf("plugin.create notice = %q", got)
 	}
 	if got := createTurnClosingNotice([]string{"workspace.read"}, ""); got != "" {

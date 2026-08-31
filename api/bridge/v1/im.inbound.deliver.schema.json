@@ -8,10 +8,11 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "kind": { "type": "string", "enum": ["feishu", "wecom"] },
+    "kind": { "type": "string", "enum": ["feishu", "wecom", "dingtalk"] },
     "sender": { "type": "string", "minLength": 1, "maxLength": 128 },
     "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
-    "messageId": { "type": "string", "maxLength": 128 }
+    "messageId": { "type": "string", "maxLength": 128 },
+    "conversationId": { "type": "string", "maxLength": 128 }
   },
   "required": ["kind", "sender", "text"],
   "x-result": {
@@ -28,7 +29,8 @@
   "x-examples": {
     "positive": [
       { "kind": "feishu", "sender": "ou_aaa", "text": "打开网易云" },
-      { "kind": "wecom", "sender": "zhangsan", "text": "今天日程", "messageId": "msg_1" }
+      { "kind": "wecom", "sender": "zhangsan", "text": "今天日程", "messageId": "msg_1" },
+      { "kind": "dingtalk", "sender": "staff_1", "text": "打开网易云", "conversationId": "cid_1" }
     ],
     "negative": [{}, { "kind": "slack", "sender": "x", "text": "hi" }]
   }

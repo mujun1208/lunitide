@@ -223,16 +223,14 @@ describe('MC-06 a11y skeleton', () => {
 })
 
 describe('MC-06 zero-mouse operation', () => {
-  test('Space on the stage toggles the mic; a second Space stops it; Esc exits from idle', async () => {
+  test('Space on the stage while listening does not cancel the mic; Esc exits', async () => {
     speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage()
     await waitFor(() => expect(stateOf(container)).toBe('listening'))
     expect(speech.callbacks).toBeDefined()
-    // Space while listening stops the handle and returns to idle.
     fireEvent.keyDown(stage(container), { key: ' ' })
-    await waitFor(() => expect(stateOf(container)).toBe('idle'))
-    expect(speech.stop).toHaveBeenCalled()
-    // Esc on the root exits without any pointer device.
+    expect(stateOf(container)).toBe('listening')
+    expect(speech.stop).not.toHaveBeenCalled()
     fireEvent.keyDown(stage(container), { key: 'Escape' })
     await waitFor(() => expect(baseProps.onExit).toHaveBeenCalled())
   })
@@ -254,7 +252,7 @@ describe('MC-06 zero-mouse operation', () => {
     speech.start.mockResolvedValueOnce(speech.handle())
     fireEvent.click(moonBody(container))
     await waitFor(() => expect(stateOf(container)).toBe('listening'))
-    expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在聆听，轻点暂停')
+    expect(moonBody(container).getAttribute('aria-label')).toBe('月亮正在聆听')
   })
 })
 
@@ -289,14 +287,14 @@ describe('MC-06 hands-free auto conversation', () => {
     expect(stateOf(container)).toBe('idle')
   })
 
-  test('re-listens automatically after an interrupted reply', async () => {
+  test('explicit pause disarms the loop; Space while listening does not', async () => {
     speech.start.mockResolvedValue(speech.handle())
     const { container } = await renderStage()
     await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
-    // Manual pause disarms the loop…
     fireEvent.keyDown(stage(container), { key: ' ' })
+    expect(stateOf(container)).toBe('listening')
+    fireEvent.click(container.querySelector('.companion-pause') as HTMLButtonElement)
     await waitFor(() => expect(stateOf(container)).toBe('idle'))
-    // …and it stays idle: no ghost restarts.
     await new Promise(resolve => setTimeout(resolve, 1200))
     expect(stateOf(container)).toBe('idle')
   })
@@ -433,6 +431,86 @@ describe('MC-06 state distinguishability + live announcements', () => {
     expect(onSend).toHaveBeenCalledWith('先听我说完')
     expect(stateOf(container)).toBe('speaking')
     expect(onExit).not.toHaveBeenCalled()
+  })
+
+  test('queues a real next sentence while she is speaking and sends it after this turn', async () => {
+    const onSend = vi.fn()
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('先听我说完')
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="done"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await waitFor(() => expect(stateOf(container)).toBe('speaking'))
+    await act(async () => {
+      speech.callbacks!.onFinal('帮我打开桌面')
+    })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(container.textContent).toMatch(/记下/)
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="done"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await act(async () => {
+      tts.playing = false
+    })
+    await waitFor(() => expect(onSend).toHaveBeenLastCalledWith('帮我打开桌面'), { timeout: 3000 })
+  })
+
+  test('keeps a queued sentence when onSend says the previous turn is still busy', async () => {
+    const onSend = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false).mockReturnValue(true)
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('先听我说完')
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="done"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await waitFor(() => expect(stateOf(container)).toBe('speaking'))
+    await act(async () => {
+      speech.callbacks!.onFinal('帮我打开桌面')
+    })
+    await act(async () => {
+      tts.playing = false
+    })
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="done"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await waitFor(() => expect(container.textContent).toMatch(/还在发送/))
+    expect(onSend).toHaveBeenCalledWith('帮我打开桌面')
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="idle"
+        assistantText="好，我先说到这里。"
+      />,
+    )
+    await waitFor(() => expect(onSend.mock.calls.filter(call => call[0] === '帮我打开桌面').length).toBeGreaterThanOrEqual(2))
   })
 
   test('a new utterance clears the previous round and shows only this turn', async () => {

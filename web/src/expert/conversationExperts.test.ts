@@ -6,8 +6,13 @@ import {
   conversationExpertEmoji,
   conversationExpertKind,
   conversationExpertRole,
+  mcpBindKey,
+  missingPreferredSkills,
+  preferredMcpForExperts,
   preferredSkillsForExperts,
+  shouldOpenExpertAsColleague,
   skillMatchesPreferred,
+  splitBoundKeys,
 } from './conversationExperts'
 
 it('registers the conversation specialists for Expert Center and 对话 picker', () => {
@@ -63,8 +68,25 @@ it('keeps a factory kit preferredSkills list for each of the 13 specialists', ()
   }
 })
 
+it('lists preferred factory kits that are not yet published', () => {
+  expect(missingPreferredSkills(['slide-builder', 'web-researcher'], [
+    {name: 'tpl-slide-builder', entryPoint: 'builtin://slide-builder'},
+  ])).toEqual(['web-researcher'])
+})
+
 it('matches published catalog names without treating them as composer chips', () => {
   const published = {id: '01ARZ3NDEKTSV4RRFFQ69G5F01', name: 'tpl-slide-builder', entryPoint: 'builtin://slide-builder'}
   expect(skillMatchesPreferred(published, ['slide-builder'])).toBe(true)
   expect(preferredSkillsForExperts([{name: 'PPT专家'}])).toEqual(['slide-builder', 'web-researcher', 'mermaid-diagrams'])
+})
+
+it('opens conversation specialists as colleagues and stores MCP bindings beside skills', () => {
+  expect(shouldOpenExpertAsColleague('PPT专家')).toBe(true)
+  expect(shouldOpenExpertAsColleague('安全工程师')).toBe(false)
+  expect(preferredMcpForExperts([{name: 'PPT专家'}])).toEqual(['playwright'])
+  expect(splitBoundKeys(['slide-builder', mcpBindKey('playwright'), '  '])).toEqual({
+    skills: ['slide-builder'],
+    mcp: ['playwright'],
+    brain: 'lunitide',
+  })
 })

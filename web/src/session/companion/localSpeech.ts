@@ -310,23 +310,31 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       }
       resetUtterance()
     },
-    forceCommit: () => {
-      const trimmed = text.trim()
-      if (!trimmed || playback || commitPaused) return
-      const now = Date.now()
-      if (
-        !shouldForceCommitUtterance({
-          speechActive,
-          silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
-          textStableForMs: lastTextAt ? now - lastTextAt : 0,
-          incomplete: looksIncompleteUtterance(trimmed),
-          silenceMs: windows.silenceMs,
-          incompleteSilenceMs: windows.incompleteSilenceMs,
-        })
-      ) {
-        return
+    forceCommit: (fallback?: string) => {
+      if (playback || commitPaused) return false
+      const fromBuffer = text.trim()
+      const trimmed = fromBuffer || (fallback ?? '').trim()
+      if (!trimmed) return false
+      if (fromBuffer) {
+        const now = Date.now()
+        if (
+          !shouldForceCommitUtterance({
+            speechActive,
+            silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
+            textStableForMs: lastTextAt ? now - lastTextAt : 0,
+            incomplete: looksIncompleteUtterance(fromBuffer),
+            silenceMs: windows.silenceMs,
+            incompleteSilenceMs: windows.incompleteSilenceMs,
+          })
+        ) {
+          return false
+        }
+      } else {
+        text = trimmed
+        lastTextAt = Date.now()
       }
       void recycle('final')
+      return true
     },
     flush: () => recycle('final'),
     pulseRecognition: () => {

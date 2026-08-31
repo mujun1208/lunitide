@@ -29,6 +29,14 @@ export function llmReadyProviders(items: readonly ProviderDTO[]): ProviderDTO[] 
   return out
 }
 
+export function preferredLLMOf(provider: ProviderDTO): { providerId: string; modelId: string } | undefined {
+  if (provider.status !== 'enabled' || provider.credentialState !== 'configured') return undefined
+  const llms = provider.models.filter(m => modelKind(m) === 'llm')
+  const marked = llms.find(m => m.kindDefault) ?? llms.find(m => m.isDefault) ?? llms[0]
+  if (!marked?.modelId) return undefined
+  return { providerId: provider.id, modelId: marked.modelId }
+}
+
 export function pickDefaultLLM(items: readonly ProviderDTO[]): { provider: ProviderDTO; modelId: string } | undefined {
   const ready = llmReadyProviders(items)
   for (const p of ready) {

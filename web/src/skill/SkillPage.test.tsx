@@ -39,6 +39,13 @@ it('renders skill items from bridge.list', async () => {
   expect((await screen.findAllByText('代码审查')).length).toBeGreaterThanOrEqual(1)
 })
 
+it('opens the library and highlights a newly created skill', async () => {
+  const bridge = api({ list: vi.fn().mockResolvedValue({ items: [skill] }) })
+  render(<SkillPage bridge={bridge} highlightId={skill.id} />)
+  const row = await screen.findByRole('button', { name: /代码审查/ })
+  expect(row.className).toContain('is-highlight')
+})
+
 it('starts skill creation through chat instead of an inline form', async () => {
   const onCreateInChat = vi.fn()
   render(<SkillPage bridge={api()} onCreateInChat={onCreateInChat} />)

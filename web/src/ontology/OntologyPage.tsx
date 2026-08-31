@@ -21,8 +21,8 @@ const typeColor = (t: OntologyNodeType): string => {
   return colors[t]
 }
 
-const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: '#0a0e1a', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', boxSizing: 'border-box' }
-const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: '#1e293b', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer' }
+const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', boxSizing: 'border-box' }
+const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 const dangerBtnStyle: React.CSSProperties = { ...btnStyle, color: '#f87171' }
 
@@ -153,8 +153,8 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
     return <div className="shell"><div className="empty"><b>请先选择项目</b><span>在项目总览中选择一个项目后即可浏览本体。</span></div></div>
   }
 
-  const panelStyle: React.CSSProperties = { border: '1px solid #1f2937', borderRadius: '16px', background: '#0e1c30', padding: '20px' }
-  const cardStyle: React.CSSProperties = { padding: '12px', border: '1px solid #1f2937', borderRadius: '10px', background: '#111827', cursor: 'pointer', transition: '0.15s' }
+  const panelStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: '16px', background: 'var(--bg2)', padding: '20px' }
+  const cardStyle: React.CSSProperties = { padding: '12px', border: '1px solid var(--rule)', borderRadius: '10px', background: 'var(--bg3)', cursor: 'pointer', transition: '0.15s' }
 
   const grouped = nodes.reduce<Record<string, OntologyNodeDTO[]>>((acc, n) => {
     (acc[n.type] ??= []).push(n); return acc
@@ -175,7 +175,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
         <button style={btnStyle} onClick={() => setShowCreateNode(v => !v)}>新建节点</button>
       </div>
       {showCreateNode && (
-        <form onSubmit={e => void doCreateNode(e)} style={{ marginBottom: '18px', padding: '14px', border: '1px solid #334155', borderRadius: '8px', background: '#0a0e1a', display: 'grid', gap: '8px', gridTemplateColumns: '1fr 1fr' }}>
+        <form onSubmit={e => void doCreateNode(e)} style={{ marginBottom: '18px', padding: '14px', border: '1px solid var(--line)', borderRadius: '8px', background: 'var(--bg)', display: 'grid', gap: '8px', gridTemplateColumns: '1fr 1fr' }}>
           <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>节点类型
             <select style={inputStyle} value={newNodeType} onChange={e => setNewNodeType(e.target.value as OntologyNodeType)} aria-label="节点类型">
               {NODE_TYPE_ORDER.map(t => <option key={t} value={t}>{NODE_TYPE_LABELS[t]}</option>)}
@@ -199,7 +199,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,380px) 1fr', gap: '20px' }}>
         <section style={panelStyle}>
           <h2 style={{ margin: '0 0 14px', fontSize: '18px' }}>节点列表</h2>
-          {loading ? <p style={{ color: '#8fa3bf' }}>正在载入…</p> :
+          {loading ? <p style={{ color: 'var(--muted)' }}>正在载入…</p> :
            nodes.length === 0 ? <div className="empty"><b>暂无节点</b></div> :
            NODE_TYPE_ORDER.filter(t => grouped[t]).map(type => (
              <div key={type} style={{ marginBottom: '14px' }}>
@@ -207,7 +207,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
                {grouped[type].map(n => (
                  <div key={n.id} onClick={() => { setSelected(n); setShowEditNode(false); setEditingEdgeId(null) }} style={{ ...cardStyle, marginBottom: '6px', ...(selected?.id === n.id ? { borderColor: '#60a5fa', background: 'rgba(96,165,250,0.08)' } : {}) }}>
                    <strong style={{ fontSize: '13px' }}>{n.name}</strong>
-                   <p style={{ margin: '3px 0 0', color: '#8fa3bf', fontSize: '11px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.fullPath}</p>
+                   <p style={{ margin: '3px 0 0', color: 'var(--muted)', fontSize: '11px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.fullPath}</p>
                    <div style={{ marginTop: '6px', display: 'flex', gap: '6px' }} onClick={e => e.stopPropagation()}>
                      <button style={{ ...btnStyle, padding: '2px 8px', fontSize: '11px' }} onClick={() => { setSelected(n); setShowEditNode(true); setEditNodeDescription(n.description) }}>编辑</button>
                      <button style={{ ...dangerBtnStyle, padding: '2px 8px', fontSize: '11px' }} disabled={busy} onClick={() => void doDeleteNode(n.id)}>删除</button>
@@ -226,7 +226,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
                   <strong style={{ fontSize: '16px' }}>{selected.name}</strong>
                   <span style={{ color: typeColor(selected.type), fontSize: '12px', padding: '2px 8px', border: `1px solid ${typeColor(selected.type)}`, borderRadius: '99px' }}>{NODE_TYPE_LABELS[selected.type]}</span>
                 </div>
-                <p style={{ margin: '6px 0 0', color: '#8fa3bf', fontSize: '12px', fontFamily: 'monospace' }}>{selected.fullPath}</p>
+                <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '12px', fontFamily: 'monospace' }}>{selected.fullPath}</p>
                 {showEditNode ? (
                   <form onSubmit={e => void doUpdateNode(e)} style={{ marginTop: '8px', display: 'grid', gap: '8px' }}>
                     <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>描述
@@ -240,7 +240,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
                 ) : (
                   <>
                     {selected.description && <p style={{ margin: '6px 0 0', fontSize: '13px', lineHeight: '1.5' }}>{selected.description}</p>}
-                    <div style={{ marginTop: '6px', fontSize: '11px', color: '#8fa3bf' }}>版本 {selected.version} · 创建 {new Date(selected.createdAt).toLocaleString()} · 更新 {new Date(selected.updatedAt).toLocaleString()}</div>
+                    <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--muted)' }}>版本 {selected.version} · 创建 {new Date(selected.createdAt).toLocaleString()} · 更新 {new Date(selected.updatedAt).toLocaleString()}</div>
                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
                       <button style={btnStyle} onClick={() => { setShowEditNode(true); setEditNodeDescription(selected.description) }}>编辑节点</button>
                       <button style={dangerBtnStyle} disabled={busy} onClick={() => void doDeleteNode(selected.id)}>删除节点</button>
@@ -258,7 +258,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
                   <button style={{ ...btnStyle, padding: '4px 10px', fontSize: '11px' }} onClick={() => setShowCreateEdge(v => !v)}>新建边</button>
                 </div>
                 {showCreateEdge && (
-                  <form onSubmit={e => void doCreateEdge(e)} style={{ marginBottom: '10px', padding: '10px', border: '1px solid #334155', borderRadius: '8px', background: '#0a0e1a', display: 'grid', gap: '8px' }}>
+                  <form onSubmit={e => void doCreateEdge(e)} style={{ marginBottom: '10px', padding: '10px', border: '1px solid var(--line)', borderRadius: '8px', background: 'var(--bg)', display: 'grid', gap: '8px' }}>
                     <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>目标节点 ID
                       <input style={inputStyle} value={newEdgeTargetNodeId} onChange={e => setNewEdgeTargetNodeId(e.target.value)} aria-label="目标节点 ID" placeholder="输入目标节点 ULID" />
                     </label>
@@ -278,10 +278,10 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
                     </div>
                   </form>
                 )}
-                {edges.length === 0 ? <p style={{ color: '#8fa3bf', fontSize: '12px' }}>暂无{edgeDirection === 'outgoing' ? '出' : '入'}边</p> : (
+                {edges.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '12px' }}>暂无{edgeDirection === 'outgoing' ? '出' : '入'}边</p> : (
                   <div style={{ display: 'grid', gap: '6px' }}>
                     {edges.map(edge => (
-                      <div key={edge.id} style={{ padding: '10px', border: '1px solid #1f2937', borderRadius: '10px', background: '#111827', fontSize: '12px' }}>
+                      <div key={edge.id} style={{ padding: '10px', border: '1px solid var(--rule)', borderRadius: '10px', background: 'var(--bg3)', fontSize: '12px' }}>
                         {editingEdgeId === edge.id ? (
                           <div style={{ display: 'grid', gap: '6px' }}>
                             <label style={{ display: 'grid', gap: '4px', fontSize: '12px' }}>标签
@@ -297,14 +297,14 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'space-between' }}>
                               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                 <span style={{ color: '#60a5fa' }}>{EDGE_TYPE_LABELS[edge.type]}</span>
-                                {edge.label && <span style={{ color: '#e5e7eb' }}>{edge.label}</span>}
+                                {edge.label && <span style={{ color: 'var(--ink)' }}>{edge.label}</span>}
                               </div>
                               <div style={{ display: 'flex', gap: '4px' }}>
                                 <button style={{ ...btnStyle, padding: '2px 8px', fontSize: '10px' }} onClick={() => { setEditingEdgeId(edge.id); setEditEdgeLabel(edge.label) }}>编辑</button>
                                 <button style={{ ...dangerBtnStyle, padding: '2px 8px', fontSize: '10px' }} disabled={busy} onClick={() => void doDeleteEdge(edge.id)}>删除</button>
                               </div>
                             </div>
-                            <div style={{ marginTop: '3px', color: '#8fa3bf', fontSize: '11px', fontFamily: 'monospace' }}>
+                            <div style={{ marginTop: '3px', color: 'var(--muted)', fontSize: '11px', fontFamily: 'monospace' }}>
                               {edgeDirection === 'outgoing' ? '→ ' : '← '}{edge.targetNodeId === selected.id ? edge.sourceNodeId : edge.targetNodeId}
                             </div>
                           </>

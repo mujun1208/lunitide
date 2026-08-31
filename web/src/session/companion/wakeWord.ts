@@ -130,6 +130,7 @@ export function useWakeWord({
       if (!acceptMatch(match)) return
       bag.stopped = true
       bag.handle?.stop()
+      bag.handle = undefined
       unlockTtsAudio()
       onWakeRef.current(cleanUserTranscript(match.prompt))
     }

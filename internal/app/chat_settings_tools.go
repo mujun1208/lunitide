@@ -57,12 +57,13 @@ func (e *Engine) invokeMcpPresets() (string, error) {
 		Description string `json:"description"`
 		NeedsArgs   bool   `json:"needsArgs"`
 		ArgHint     string `json:"argHint,omitempty"`
+		ArgDefault  string `json:"argDefault,omitempty"`
 		Category    string `json:"category"`
 	}
 	presets := mcp6.Presets()
 	items := make([]row, 0, len(presets))
 	for _, p := range presets {
-		items = append(items, row{ID: p.ID, Name: p.Name, Description: p.Description, NeedsArgs: p.NeedsArgs, ArgHint: p.ArgHint, Category: p.Category})
+		items = append(items, row{ID: p.ID, Name: p.Name, Description: p.Description, NeedsArgs: p.NeedsArgs, ArgHint: p.ArgHint, ArgDefault: p.ArgDefault, Category: p.Category})
 	}
 	b, err := json.Marshal(map[string]any{"items": items})
 	if err != nil {
@@ -89,6 +90,9 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 	args := preset.Args
 	if preset.NeedsArgs {
 		arg := strings.TrimSpace(a.Arg)
+		if arg == "" && preset.ArgPlaceholder == "{{dir}}" {
+			arg = mcp6.PrepareSandbox(preset.ID)
+		}
 		if arg == "" {
 			return "", errors.New("this preset needs arg: " + preset.ArgHint)
 		}
@@ -114,6 +118,7 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 		Enabled:    true,
 		State:      res.State,
 	})
+	e.rememberMcpPreset(res.EndpointID, preset.ID)
 	b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": res.State, "presetId": preset.ID})
 	return string(b), nil
 }

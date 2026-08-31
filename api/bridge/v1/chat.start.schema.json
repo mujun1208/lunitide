@@ -34,6 +34,10 @@
       "enum": ["off", "event", "form", "kv"],
       "description": "Force the model to deliver via structured.output (event=calendar, form=labeled fields, kv=pairs). Ignored when companion=true or off."
     },
+    "toolProfile": {
+      "enum": ["minimal", "coding", "colleague"],
+      "description": "Optional tool subset. Omit to keep the current full tool list."
+    },
     "projectPhase": {
       "type": "integer",
       "minimum": 1,

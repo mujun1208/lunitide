@@ -14,6 +14,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -28,13 +29,22 @@ func openAppMemory(t *testing.T) (*m8app.MemoryService, *m8app.MemoryOpsService,
 	t.Cleanup(func() { _ = store.Close() })
 	repo := store.AgentRuntimeRepository()
 	mem := m8app.NewMemoryService(repo, "local-user")
+	mem.SetFTS(store)
 	return mem, m8app.NewMemoryOpsService(store), m8app.NewNominationService(repo, mem)
 }
 
 func confirmPref(t *testing.T, svc *m8app.MemoryService, content string) {
 	t.Helper()
+	confirmPrefOn(t, svc, "local-user", content)
+}
+
+func confirmPrefOn(t *testing.T, svc *m8app.MemoryService, subject, content string) {
+	t.Helper()
+	if strings.TrimSpace(subject) == "" {
+		subject = "local-user"
+	}
 	prop, err := svc.ProposeCandidate(context.Background(), m8app.ProposeInput{
-		SubjectID: "local-user",
+		SubjectID: subject,
 		Doc: m8core.PayloadDoc{
 			Content: content, ScopeID: m8app.LearningScope, Sensitivity: m8core.SensPrivate,
 			Leaves: []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "artifact://run-1/evidence-a", Digest: strings.Repeat("a", 64)}},
@@ -104,11 +114,91 @@ func TestApplyChatMemoryPackFillsEnvelopeSlots(t *testing.T) {
 	}
 }
 
+func TestMemorySubjectIDFallsBackWithoutIdentity(t *testing.T) {
+	e := NewEngine(nil, "test")
+	if e.memorySubjectID() != memoryOpsLegacySubject {
+		t.Fatalf("memory subject = %q", e.memorySubjectID())
+	}
+}
+
+func TestChatMemorySettingsUsesIdentitySubject(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "mem-ident.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ident := identity.New(store)
+	if err := ident.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ops := m8app.NewMemoryOpsService(store)
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
+		SubjectID: ident.SubjectID(), MemoryEnabled: false, AutoNominate: false, GrowthDays: 21,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(nil, "test")
+	e.SetIdentityPeopleServices(ident, nil)
+	e.SetMemoryOpsService(ops)
+	st := e.chatMemorySettings(ctx)
+	if st.SubjectID != ident.SubjectID() || st.MemoryEnabled || st.GrowthDays != 21 {
+		t.Fatalf("settings = %+v want subject %s", st, ident.SubjectID())
+	}
+}
+
+func TestFormatChatMemorySummaryCountsSlots(t *testing.T) {
+	if formatChatMemorySummary(chatMemoryPack{}) != "" {
+		t.Fatal("empty pack must stay silent")
+	}
+	got := formatChatMemorySummary(chatMemoryPack{
+		Prefs:     []string{"a", "b"},
+		Pinned:    []contextapp.ContextSource{{Content: "p1"}, {Content: "p2"}, {Content: "p3"}},
+		TaskState: []contextapp.ContextSource{{Content: "t"}},
+		Evidence:  []contextapp.ContextSource{{Content: "e1"}, {Content: "e2"}, {Content: "e3"}, {Content: "e4"}},
+	})
+	if got != "注入记忆：偏好「a」「b」 · 置顶 3 · 任务 1 · 证据 4" {
+		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestPeopleCompanionMemoryHintInjectsPrefs(t *testing.T) {
+	mem, ops, _ := openAppMemory(t)
+	confirmPref(t, mem, "回答默认使用中文")
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	e.SetMemoryOpsService(ops)
+	got := e.peopleCompanionMemoryHint(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAW", "写注释")
+	if !strings.Contains(got, "回答默认使用中文") {
+		t.Fatalf("hint = %q", got)
+	}
+}
+
+func TestLocalBrainHintAndCompanionShareMemorySubject(t *testing.T) {
+	mem, ops, _ := openAppMemory(t)
+	confirmPref(t, mem, "回答默认使用中文")
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	e.SetMemoryOpsService(ops)
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	companion := e.peopleLocalBrainMemoryHint(context.Background(), sessionID, "写注释")
+	peopleHint := e.peopleCompanionMemoryHint(context.Background(), sessionID, "继续刚才的")
+	if !strings.Contains(companion, "回答默认使用中文") {
+		t.Fatalf("local-brain hint = %q", companion)
+	}
+	if !strings.Contains(peopleHint, "回答默认使用中文") {
+		t.Fatalf("people hint = %q", peopleHint)
+	}
+	if e.chatMemorySettings(context.Background()).SubjectID != e.ensureChatMemorySubject(context.Background()) {
+		t.Fatal("companion and colleague memory must share the identity subject")
+	}
+}
+
 func TestPrepareChatMemoryKeepsPrefsWhenRecallDisabled(t *testing.T) {
 	mem, ops, _ := openAppMemory(t)
 	confirmPref(t, mem, "回答默认使用中文")
 	if err := ops.SettingsUpdate(context.Background(), m8core.MemorySettings{
-		SubjectID: memoryOpsSubject, MemoryEnabled: false, AutoNominate: false, GrowthDays: 14,
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: false, AutoNominate: false, GrowthDays: 14,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +229,24 @@ func TestPreferExpertOwnedMemories(t *testing.T) {
 	}
 }
 
+func TestIsolateExpertMemoriesDropsForeignBuckets(t *testing.T) {
+	mine := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	other := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	items := []memory.Memory{
+		{Key: "任务", Content: "共享"},
+		{Key: "expert:" + mine + ":语气", Content: "我的"},
+		{Key: "expert:" + other + ":语气", Content: "别人的"},
+	}
+	got := isolateExpertMemories(items, []string{mine})
+	if len(got) != 2 || got[0].Content != "我的" || got[1].Content != "共享" {
+		t.Fatalf("isolated = %#v", got)
+	}
+	plain := isolateExpertMemories(items, nil)
+	if len(plain) != 1 || plain[0].Content != "共享" {
+		t.Fatalf("no-expert turn leaked buckets: %#v", plain)
+	}
+}
+
 func TestMaybeWriteExpertTurnMemories(t *testing.T) {
 	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAY"
@@ -166,6 +274,26 @@ func TestMaybeWriteExpertTurnMemories(t *testing.T) {
 	}
 	if !strings.Contains(store.items[0].Content, "更新") {
 		t.Fatalf("update missed: %q", store.items[0].Content)
+	}
+}
+
+func TestWriteExpertLastMemoryFromPeoplePath(t *testing.T) {
+	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	store := &layerMemoryStub{}
+	e := NewEngine(nil, "test")
+	e.sessions = sessionGetStub{projectID: projectID}
+	e.memories = store
+	user := "请按上次语气继续写封面要点和结构"
+	asst := strings.Repeat("这页讲结论，下一页讲证据。", 8)
+	e.writeExpertLastMemory(context.Background(), sessionID, expertID, user, asst)
+	if len(store.items) != 1 || store.items[0].Key != "expert:"+expertID+":last" {
+		t.Fatalf("people write = %#v", store.items)
+	}
+	got := e.peopleCompanionMemoryHint(context.Background(), sessionID, "继续封面", expertID)
+	if !strings.Contains(got, "工作记忆") || !strings.Contains(got, "封面") {
+		t.Fatalf("people hint must inject working last: %q", got)
 	}
 }
 
@@ -219,6 +347,30 @@ func TestCompanionSkipsEvidenceChannel(t *testing.T) {
 	}
 }
 
+func TestPeopleMemoryHintUsesFullSessionPack(t *testing.T) {
+	e := NewEngine(nil, "test")
+	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+	expert := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	other := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+	e.sessions = sessionGetStub{projectID: projectID}
+	e.memories = &layerMemoryStub{items: []memory.Memory{
+		{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAC", ProjectID: projectID, Layer: memory.LayerEpisodic, Scope: memory.ScopeSession, Key: "上次", Content: "讨论过中文注释风格"},
+		{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAD", ProjectID: projectID, Layer: memory.LayerEpisodic, Scope: memory.ScopeSession, Key: "expert:" + other + ":上次", Content: "别人专家的中文证据"},
+		{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", ProjectID: projectID, Layer: memory.LayerProcedural, Scope: memory.ScopeProject, Key: "expert:" + expert + ":语气", Content: "中文封面用深色"},
+	}}
+	got := e.peopleCompanionMemoryHint(context.Background(), sessionID, "中文", expert)
+	if !strings.Contains(got, "讨论过中文注释风格") {
+		t.Fatalf("people must inject evidence, not companion-tight pack: %q", got)
+	}
+	if !strings.Contains(got, "中文封面用深色") {
+		t.Fatalf("expert owned pinned missing: %q", got)
+	}
+	if strings.Contains(got, "别人专家") {
+		t.Fatalf("foreign expert leaked: %q", got)
+	}
+}
+
 func TestMaybeAutoNominateRespectsSwitchAndConfirmationInbox(t *testing.T) {
 	mem, ops, nom := openAppMemory(t)
 	e := NewEngine(nil, "test")
@@ -227,11 +379,11 @@ func TestMaybeAutoNominateRespectsSwitchAndConfirmationInbox(t *testing.T) {
 	e.SetMemoryOpsService(ops)
 	ctx := context.Background()
 	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
-		SubjectID: memoryOpsSubject, MemoryEnabled: true, AutoNominate: true, GrowthDays: 14,
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: true, GrowthDays: 14,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	st, err := ops.SettingsGet(ctx, memoryOpsSubject)
+	st, err := ops.SettingsGet(ctx, memoryOpsLegacySubject)
 	if err != nil || !st.AutoNominate || !st.MemoryEnabled {
 		t.Fatalf("settings after update = %+v err=%v", st, err)
 	}
@@ -259,7 +411,7 @@ func TestMaybeAutoNominateRespectsSwitchAndConfirmationInbox(t *testing.T) {
 	}
 
 	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
-		SubjectID: memoryOpsSubject, MemoryEnabled: true, AutoNominate: false, GrowthDays: 14,
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: false, GrowthDays: 14,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -374,4 +526,77 @@ func (s *layerMemoryStub) UpdateContent(_ context.Context, id, content string) e
 	}
 	return memoryapp.ErrMemoryNotFound
 }
-func (s *layerMemoryStub) Delete(context.Context, string) error                { return nil }
+func (s *layerMemoryStub) Delete(context.Context, string) error { return nil }
+
+func TestMemorySearchAndGetUseConfirmedFactsOnly(t *testing.T) {
+	mem, _, _ := openAppMemory(t)
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	confirmPref(t, mem, "用户喜欢中文注释")
+	ctx := context.Background()
+	search, err := e.invokeMemorySearch(ctx, []byte(`{"query":"中文注释"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(search.Output, "中文注释") {
+		t.Fatalf("search = %q", search.Output)
+	}
+	if strings.Contains(search.Output, "用户刚才说") || strings.Contains(search.Output, "raw transcript") {
+		t.Fatalf("search leaked transcript: %q", search.Output)
+	}
+	id, _, ok := strings.Cut(search.Output, "\t")
+	if !ok || id == "" {
+		t.Fatalf("search missing id: %q", search.Output)
+	}
+	got, err := e.invokeMemoryGet(ctx, []byte(`{"id":"`+id+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Output, "中文注释") {
+		t.Fatalf("get = %q", got.Output)
+	}
+	missing, err := e.invokeMemoryGet(ctx, []byte(`{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`))
+	if err != nil || missing.Output != "confirmed memory not found" {
+		t.Fatalf("missing get = %q err=%v", missing.Output, err)
+	}
+}
+
+func TestMemoryGetIsolatesIdentitySubject(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "mem-get.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ident := identity.New(store)
+	if err := ident.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mem := m8app.NewMemoryService(store.AgentRuntimeRepository(), memoryOpsLegacySubject)
+	e := NewEngine(nil, "test")
+	e.SetIdentityPeopleServices(ident, nil)
+	e.SetM8MemoryServices(mem)
+	mine := ident.SubjectID()
+	other := "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	prop, err := mem.ProposeCandidate(ctx, m8app.ProposeInput{
+		SubjectID: other,
+		Doc: m8core.PayloadDoc{
+			Content: "别人的确认记忆", ScopeID: m8app.LearningScope, Sensitivity: m8core.SensPrivate,
+			Leaves: []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "artifact://run-1/evidence-a", Digest: strings.Repeat("a", 64)}},
+		},
+		Trust: m8core.TrustUntrusted, Actor: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mem.ConfirmCandidate(ctx, m8app.ConfirmInput{
+		CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken, Action: "confirm", RequestID: "get-other",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	confirmPrefOn(t, mem, mine, "我的确认记忆")
+	hidden, err := e.invokeMemoryGet(ctx, []byte(`{"id":"`+prop.Candidate.CandidateID+`"}`))
+	if err != nil || hidden.Output != "confirmed memory not found" {
+		t.Fatalf("foreign get = %q err=%v", hidden.Output, err)
+	}
+}

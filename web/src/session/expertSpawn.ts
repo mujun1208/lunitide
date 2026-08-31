@@ -31,13 +31,14 @@ function uniqueCap(ids: readonly string[], cap = COUNCIL_MAX): string[] {
   return out
 }
 
-/** Same spawn filter as the engine: turn chips win; otherwise session mounts only. */
+/** Same spawn filter as the engine: turn chips win; one mount stays; two+ mounts need chips. */
 export function selectedTurnExpertIDs(mounted: readonly string[], ...turnTexts: string[]): string[] {
   for (const text of turnTexts) {
     const refs = extractExpertRefIDs(text)
     if (refs.length) return uniqueCap(refs)
   }
-  return uniqueCap(mounted)
+  if (mounted.length === 1) return uniqueCap(mounted)
+  return []
 }
 
 export function spawnedExpertsMatchSelection(selectedIds: readonly string[], spawnedIds: readonly string[]): boolean {

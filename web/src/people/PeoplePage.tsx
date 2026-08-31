@@ -8,7 +8,10 @@ import { usePanelResize } from '../ui/usePanelResize'
 import { captureThisPcFrame } from './peopleCapture'
 import { ScreenCropOverlay } from './ScreenCropOverlay'
 import { stageBrowserFile } from './peopleStage'
-import { PEOPLE_EMOJI, contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, lastPreview, relativeTime, statusLabel, threadTitle, trustLabel } from './peopleRoster'
+import { filterMentionMembers, insertMention, mentionQuery, parseClaimedTasks, pendingClaimTask } from './peopleMentions'
+import { PEOPLE_EMOJI, contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, isAgentContact, lastPreview, orgGroupCollapsed, relativeTime, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadPeer, threadTitle, trustLabel, visiblePeopleThreads } from './peopleRoster'
+
+const STICK_PX = 48
 
 const MAX_FILE = 32 * 1024 * 1024
 const INLINE_MAX = 80 * 1024
@@ -18,10 +21,16 @@ export function PeoplePage({
   identity = getIdentityBridge(),
   people = getPeopleBridge(),
   initialRail = 'chats',
+  initialPeerSubjectId,
+  initialPeerName,
+  onOpenExpertCenter,
 }: {
   identity?: IdentityBridge
   people?: PeopleBridge
   initialRail?: Rail
+  initialPeerSubjectId?: string
+  initialPeerName?: string
+  onOpenExpertCenter?: (expertId: string) => void
 }): React.JSX.Element {
   const [rail, setRail] = useState<Rail>(initialRail)
   const [me, setMe] = useState<IdentityDTO>()
@@ -45,6 +54,11 @@ export function PeoplePage({
   const [notice, setNotice] = useState('')
   const [noticeError, setNoticeError] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [membersOpen, setMembersOpen] = useState(false)
+  const [memberQuery, setMemberQuery] = useState('')
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [mentionHi, setMentionHi] = useState(0)
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [midWidth, startMidResize] = usePanelResize({
     storageKey: 'lunitide:people-mid-width',
     initial: 300,
@@ -65,8 +79,13 @@ export function PeoplePage({
   const sending = useRef(false)
   const cropOpenRef = useRef(false)
   const grabScreenRef = useRef<() => Promise<void>>(async () => {})
+  const stickToBottomRef = useRef(true)
+  const lastStickIdRef = useRef('')
+  const messagesRef = useRef<PeopleMessageDTO[]>([])
+  const openedPeerRef = useRef('')
   threadIdRef.current = thread?.threadId
   cropOpenRef.current = Boolean(cropFile)
+  messagesRef.current = messages
 
   const showNotice = (message: string, error = false) => {
     setNotice(message)
@@ -82,25 +101,78 @@ export function PeoplePage({
 
   useEffect(() => { setRail(initialRail) }, [initialRail])
   useEffect(() => { void refresh().catch(e => showNotice(e instanceof Error ? e.message : '通讯录加载失败', true)) }, [identity, people])
-  useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [messages])
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      void (async () => {
-        try {
-          const listed = await people.threadList()
-          setThreads(listed.items)
-          const id = threadIdRef.current
-          if (id && rail !== 'me') {
-            const opened = await people.threadOpen({ threadId: id })
-            setThread(opened.thread)
-            setMessages(opened.messages)
-          }
-          const list = await people.list()
-          setContacts(list.items)
-        } catch { /* poll is best-effort */ }
-      })()
-    }, 1500)
-    return () => window.clearInterval(timer)
+    const raw = initialPeerSubjectId?.trim()
+    if (!raw || openedPeerRef.current === raw) return
+    let alive = true
+    void (async () => {
+      try {
+        const list = await people.list()
+        if (!alive) return
+        setContacts(list.items)
+        const resolved = resolveColleaguePeerId(list.items, raw, initialPeerName)
+        const peerId = resolved || raw
+        if (list.items.some(item => item.self && item.subjectId === peerId)) {
+          openedPeerRef.current = raw
+          showNotice('不能和自己开会话', true)
+          return
+        }
+        setRail('chats')
+        setBusy(true)
+        showNotice('')
+        const opened = await people.threadOpen({ peerSubjectId: peerId })
+        if (!alive) return
+        openedPeerRef.current = raw
+        stickToBottomRef.current = true
+        setThread(opened.thread)
+        setMessages(opened.messages)
+        setCard(threadPeer(opened.thread.members, me?.subjectId) ?? opened.thread.members.find(m => !m.self))
+        await refresh()
+      } catch (e) {
+        if (alive) showNotice(e instanceof Error ? e.message : '无法打开专家会话', true)
+      } finally {
+        if (alive) setBusy(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [initialPeerSubjectId, initialPeerName, people])
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const nextLastId = messages.at(-1)?.messageId ?? ''
+    if (!shouldPinPeopleLog({ stickToBottom: stickToBottomRef.current, previousLastId: lastStickIdRef.current, nextLastId })) return
+    lastStickIdRef.current = nextLastId
+    el.scrollTop = el.scrollHeight
+  }, [messages])
+  useEffect(() => {
+    const tick = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      const listed = await people.threadList()
+      setThreads(listed.items)
+      const id = threadIdRef.current
+      if (id && rail !== 'me') {
+        const item = listed.items.find(row => row.threadId === id)
+        if (item) setThread(current => current && current.threadId === id ? { ...current, ...item } : current)
+        if (shouldReloadOpenThread({
+          stickToBottom: stickToBottomRef.current,
+          listedLastId: item?.lastMessage?.messageId,
+          localLastId: messagesRef.current.at(-1)?.messageId,
+        })) {
+          const opened = await people.threadOpen({ threadId: id })
+          setThread(opened.thread)
+          setMessages(opened.messages)
+        }
+      }
+      const list = await people.list()
+      setContacts(list.items)
+    }
+    const timer = window.setInterval(() => { void tick().catch(() => {}) }, 1500)
+    const onVis = () => { if (typeof document !== 'undefined' && !document.hidden) void tick().catch(() => {}) }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [people, rail])
   useEffect(() => {
     if (!thread || !draft.trim()) return
@@ -110,19 +182,33 @@ export function PeoplePage({
 
   const visibleContacts = useMemo(() => filterContacts(contacts, rosterQuery), [contacts, rosterQuery])
   const groups = useMemo(() => groupContactsByOrg(visibleContacts), [visibleContacts])
-  const visibleThreads = useMemo(() => filterThreads(threads, rosterQuery), [threads, rosterQuery])
+  const listedThreads = useMemo(() => visiblePeopleThreads(threads, me?.subjectId), [threads, me?.subjectId])
+  const visibleThreads = useMemo(() => filterThreads(listedThreads, rosterQuery), [listedThreads, rosterQuery])
   const visible = useMemo(() => filterMessages(messages, query), [messages, query])
   const trusted = contacts.filter(c => (c.trustState === 'trusted' || c.self) && !c.blocked)
+  const threadAgents = (thread?.members ?? []).filter(member => isAgentContact(member) && !member.self && member.subjectId !== me?.subjectId && !member.blocked)
+  const mentionable = (thread?.members ?? []).filter(member => !member.self && member.subjectId !== me?.subjectId && !member.blocked)
+  const mentionNeedle = mentionQuery(draft)
+  const mentionHits = mentionNeedle === null ? [] : filterMentionMembers(mentionable.map(item => ({ subjectId: item.subjectId, nickname: displayName(item), avatar: item.avatar })), mentionNeedle)
+  const pendingTask = pendingClaimTask([...messages].reverse().find(item => item.senderSubjectId === me?.subjectId && item.kind === 'text')?.body ?? '')
+  const claimedTasks = parseClaimedTasks(messages.map(item => item.body || ''))
   const typingNames = (thread?.typingSubjectIds ?? []).map(id => displayName(thread?.members.find(m => m.subjectId === id) ?? { nickname: '同事' }))
   const readHint = readReceipt(thread, me?.subjectId, messages)
-  const peerMember = thread?.members.find(m => !m.self)
+  const peerMember = threadPeer(thread?.members, me?.subjectId)
+  const searchingRoster = rosterQuery.trim().length > 0
+  const drawerMembers = mentionable.filter(member => {
+    const q = memberQuery.trim().toLowerCase()
+    return !q || displayName(member).toLowerCase().includes(q) || member.nickname.toLowerCase().includes(q)
+  })
 
   const openPeer = async (peer: PeopleContactDTO) => {
     setCard(peer)
+    if (peer.self) return
     setBusy(true)
     showNotice('')
     try {
       const opened = await people.threadOpen({ peerSubjectId: peer.subjectId })
+      stickToBottomRef.current = true
       setThread(opened.thread)
       setMessages(opened.messages)
       await refresh()
@@ -137,9 +223,11 @@ export function PeoplePage({
     setBusy(true)
     try {
       const opened = await people.threadOpen({ threadId: item.threadId })
+      stickToBottomRef.current = true
       setThread(opened.thread)
       setMessages(opened.messages)
-      setCard(opened.thread.members.find(m => !m.self))
+      setCard(threadPeer(opened.thread.members, me?.subjectId))
+      setMembersOpen(false)
       await refresh()
     } catch (e) {
       showNotice(e instanceof Error ? e.message : '无法打开会话', true)
@@ -185,6 +273,7 @@ export function PeoplePage({
         }
       }
       const result = await people.threadSend(payload)
+      stickToBottomRef.current = true
       setMessages(items => [...items, result.message])
       setDraft('')
       setEmojiOpen(false)
@@ -307,7 +396,7 @@ export function PeoplePage({
     }
   }
 
-  const title = threadTitle(thread ?? {}, '同事对话')
+  const title = threadHeading(thread ?? {}, '同事对话', me?.subjectId)
   const showThread = rail !== 'me' && thread
 
   return (
@@ -332,13 +421,13 @@ export function PeoplePage({
               <button type="button" className="people-create-group" onClick={() => { setGroupOpen(true); setGroupOwner(me?.subjectId ?? ''); setGroupMembers([]) }}>＋ 创建群聊</button>
             </header>
             <label className="people-search people-mid-search">搜索会话<input value={rosterQuery} onChange={e => setRosterQuery(e.target.value)} placeholder="昵称或最近一条" aria-label="搜索会话" /></label>
-            {threads.length === 0 ? <p className="people-empty">还没有会话</p> : visibleThreads.length === 0 ? <p className="people-empty">没有匹配的会话</p> : visibleThreads.map(item => {
+            {listedThreads.length === 0 ? <p className="people-empty">还没有会话</p> : visibleThreads.length === 0 ? <p className="people-empty">没有匹配的会话</p> : visibleThreads.map(item => {
               const unread = item.unreadCount ?? 0
               return (
                 <button type="button" key={item.threadId} className={`people-chat-row ${thread?.threadId === item.threadId ? 'on' : ''}`} onClick={() => { setRail('chats'); void openThread(item) }}>
-                  <span className="people-ava">{item.kind === 'group' ? initials(threadTitle(item) || '群') : initials(threadTitle(item))}</span>
+                  <ThreadAvatar thread={item} selfId={me?.subjectId} />
                   <span className="people-chat-copy">
-                    <b>{threadTitle(item)}{unread > 0 ? <em className="people-unread">{unread > 99 ? '99+' : unread}</em> : null}</b>
+                    <b>{threadHeading(item, '同事对话', me?.subjectId)}{unread > 0 ? <em className="people-unread">{unread > 99 ? '99+' : unread}</em> : null}</b>
                     <small>{item.typingSubjectIds?.length ? '正在输入…' : lastPreview(item.lastMessage?.kind, item.lastMessage?.body, item.lastMessage?.fileName) || (item.kind === 'group' ? `${item.members.length} 人` : '一对一')}</small>
                   </span>
                   <time>{relativeTime(item.lastMessage?.createdAt || item.updatedAt)}</time>
@@ -361,14 +450,21 @@ export function PeoplePage({
             <button type="button" disabled={busy} onClick={() => void people.discoverySet({ enabled: !me?.discoveryEnabled }).then(d => setMe(cur => cur ? { ...cur, discoveryEnabled: d.enabled } : cur)).catch(e => setNotice(e instanceof Error ? e.message : '无法切换发现'))}>
               {me?.discoveryEnabled ? '发现开' : '发现关'}
             </button>
-            {groups.length === 0 ? <p className="people-empty">{contacts.length === 0 ? '还没有同事' : '没有匹配的同事'}</p> : groups.map(group => (
-              <section key={group.key}>
-                <h3>{group.label}</h3>
-                {group.people.map(person => (
-                  <ContactRow key={person.subjectId} person={person} active={card?.subjectId === person.subjectId} onOpen={() => void openPeer(person)} />
-                ))}
-              </section>
-            ))}
+            {groups.length === 0 ? <p className="people-empty">{contacts.length === 0 ? '还没有同事' : '没有匹配的同事'}</p> : groups.map(group => {
+              const collapsed = orgGroupCollapsed(collapsedGroups[group.key], group.people.length, searchingRoster)
+              return (
+                <section key={group.key}>
+                  <button type="button" className="people-group-head" aria-expanded={!collapsed} onClick={() => setCollapsedGroups(curr => ({ ...curr, [group.key]: !collapsed }))}>
+                    <span aria-hidden="true">{collapsed ? '▸' : '▾'}</span>
+                    {group.label}
+                    <small>{group.people.length}</small>
+                  </button>
+                  {collapsed ? null : group.people.map(person => (
+                    <ContactRow key={person.subjectId} person={person} active={card?.subjectId === person.subjectId} onOpen={() => void openPeer(person)} />
+                  ))}
+                </section>
+              )
+            })}
           </>
         )}
         {rail === 'me' && (
@@ -390,13 +486,44 @@ export function PeoplePage({
         ) : showThread ? (
           <>
             <header>
-              <div>
-                <h2>{title}</h2>
-                <p>{thread.kind === 'group' ? `群主 ${displayName(thread.members.find(m => m.subjectId === thread.ownerSubjectId) ?? { nickname: '' })} · ${thread.members.map(m => displayName(m)).join('、')}` : `${statusLabel(peerMember?.status || card?.status || 'offline')} · 一对一 · 局域网投递，文件需对方确认`}</p>
+              <div className="people-thread-ident">
+                {thread.kind === 'group' ? (
+                  <button type="button" className="people-title-btn" onClick={() => setMembersOpen(open => !open)} aria-expanded={membersOpen} aria-label="查看群成员">
+                    <ThreadAvatar thread={thread} selfId={me?.subjectId} />
+                    <span>
+                      <h2>{title}</h2>
+                      <p>{`群主 ${displayName(thread.members.find(m => m.subjectId === thread.ownerSubjectId) ?? { nickname: '' })} · ${thread.members.length} 人 · 只有被 @ 的同事会开口`}</p>
+                    </span>
+                  </button>
+                ) : (
+                  <div className="people-title-btn">
+                    <ThreadAvatar thread={thread} selfId={me?.subjectId} />
+                    <span>
+                      <h2>{title}</h2>
+                      <p>{`${statusLabel(peerMember?.status || card?.status || 'offline')} · 一对一 · 局域网投递，文件需对方确认`}</p>
+                    </span>
+                  </div>
+                )}
               </div>
-              <label className="people-search">搜索<input value={query} onChange={e => setQuery(e.target.value)} placeholder="本会话历史" aria-label="搜索本会话" /></label>
+              <div className="people-thread-tools">
+                {card && !card.self ? <button type="button" onClick={() => setMoreOpen(open => !open)}>{moreOpen ? '收起' : '更多'}</button> : null}
+                <label className="people-search">搜索<input value={query} onChange={e => setQuery(e.target.value)} placeholder="本会话历史" aria-label="搜索本会话" /></label>
+              </div>
             </header>
-            {card && !card.self && (
+            {thread.kind === 'group' && membersOpen && (
+              <div className="people-member-drawer">
+                <label className="people-search">搜索群成员<input value={memberQuery} onChange={e => setMemberQuery(e.target.value)} placeholder="昵称或备注" aria-label="搜索群成员" /></label>
+                <div className="people-member-grid">
+                  {drawerMembers.map(member => (
+                    <button type="button" key={member.subjectId} onClick={() => { setDraft(value => `${value}${value && !/\s$/.test(value) ? ' ' : ''}@${displayName(member)} `); setMembersOpen(false) }}>
+                      <PeopleFace person={member} />
+                      <small>{displayName(member)}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {moreOpen && card && !card.self && (
               <form className="people-pair-bar people-remark-bar" onSubmit={e => { e.preventDefault(); void people.contactUpdate({ subjectId: card.subjectId, remark: card.remark ?? '' }).then(updated => { setCard(updated); void refresh() }).catch(err => setNotice(err instanceof Error ? err.message : '无法更新备注')) }}>
                 <label>备注<input value={card.remark ?? ''} maxLength={64} aria-label="备注" onChange={e => setCard(cur => cur ? { ...cur, remark: e.target.value } : cur)} /></label>
                 <button type="submit">保存备注</button>
@@ -410,13 +537,26 @@ export function PeoplePage({
                 <button className="primary" disabled={pairCode.length !== 6}>配对</button>
               </form>
             )}
-            <div ref={scroller} className="people-log">
+            <div ref={scroller} className="people-log" onScroll={() => {
+              const el = scroller.current
+              if (!el) return
+              stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_PX
+            }}>
               {visible.map(item => {
+                if (item.kind === 'system') {
+                  return (
+                    <article key={item.messageId} className="people-bubble-row people-system-row">
+                      <p className="people-system">{item.body}</p>
+                    </article>
+                  )
+                }
                 const mine = item.senderSubjectId === me?.subjectId
                 const sender = thread.members.find(m => m.subjectId === item.senderSubjectId)
                 const acceptedImage = item.kind === 'image' && item.offerStatus === 'accepted' && item.destPath
                 return (
-                  <article key={item.messageId} className={`people-bubble ${mine ? 'mine' : 'peer'}`}>
+                  <article key={item.messageId} className={`people-bubble-row ${mine ? 'mine' : 'peer'}`}>
+                    {mine ? null : <PeopleFace person={sender} />}
+                    <div className={`people-bubble ${mine ? 'mine' : 'peer'}`}>
                     <small>{sender ? displayName(sender) : item.senderSubjectId}</small>
                     {acceptedImage ? <img src={`file://${item.destPath}`} alt={item.fileName} /> : null}
                     {item.kind === 'emoji' || item.kind === 'text' ? <p>{item.body}</p> : null}
@@ -437,6 +577,7 @@ export function PeoplePage({
                         )}
                       </div>
                     )}
+                    </div>
                   </article>
                 )
               })}
@@ -465,12 +606,33 @@ export function PeoplePage({
                 <button type="button" onClick={() => void pickNative(true)} aria-label="发送文件夹" title="选择本机文件夹并打包为 zip 发送">📁</button>
               </div>
               {emojiOpen && <div className="people-emoji">{PEOPLE_EMOJI.map(item => <button type="button" key={item} onClick={() => { setDraft(d => d + item); setEmojiOpen(false) }}>{item}</button>)}</div>}
-              <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="发消息、拖入文件或粘贴图片。文件需对方确认。" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (draft.trim()) void send('text') } }} />
+              {mentionNeedle !== null && (
+                <div className="people-mention-list" role="listbox" aria-label="选择要@的人">
+                  {mentionHits.length === 0 ? <p className="people-mention-empty">这个群还没有可 @ 的人</p> : mentionHits.map((member, index) => (
+                    <button type="button" key={member.subjectId} role="option" aria-selected={index === mentionHi} className={index === mentionHi ? 'on' : ''} onClick={() => setDraft(value => insertMention(value, member.nickname))}>
+                      <PeopleFace person={member} />
+                      {member.nickname}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {(pendingTask || claimedTasks.length > 0) && <div className="people-claim-bar" role="status">
+                {claimedTasks.map(item => <small key={item.task}>已认领 {item.task} → {item.owner}</small>)}
+                {pendingTask && threadAgents[0] ? <button type="button" onClick={() => { setDraft(value => `${value}${value && !value.endsWith(' ') ? ' ' : ''}@${displayName(threadAgents[0])} 认领 ${pendingTask}`); }}>{`认领 ${pendingTask}`}</button> : null}
+              </div>}
+              <textarea value={draft} onChange={e => { setDraft(e.target.value); setMentionHi(0) }} placeholder={thread?.kind === 'group' ? '群里 @同事 才会回复。认领：@报告编写专家 认领 周报' : '发消息、拖入文件或粘贴图片。文件需对方确认。'} onKeyDown={e => {
+                if (mentionNeedle !== null && mentionHits.length > 0) {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setMentionHi(i => (i + 1) % mentionHits.length); return }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setMentionHi(i => (i - 1 + mentionHits.length) % mentionHits.length); return }
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); setDraft(value => insertMention(value, mentionHits[mentionHi]?.nickname ?? mentionHits[0].nickname)); return }
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (draft.trim()) void send('text') }
+              }} />
               <button className="primary" disabled={busy || !draft.trim()}>发送</button>
             </form>
           </>
         ) : rail === 'contacts' && card ? (
-          <ContactCard person={card} me={me} pairCode={pairCode} setPairCode={setPairCode} onOpen={() => void openPeer(card)} onPair={() => void pairPerson(card)} onUpdate={async patch => {
+          <ContactCard person={card} me={me} pairCode={pairCode} setPairCode={setPairCode} recentThreads={threads.filter(item => item.members.some(member => member.subjectId === card.subjectId))} onOpenExpertCenter={isAgentContact(card) ? onOpenExpertCenter : undefined} onOpen={() => void openPeer(card)} onPair={() => void pairPerson(card)} onUpdate={async patch => {
             const updated = await people.contactUpdate({ subjectId: card.subjectId, ...patch })
             setCard(updated)
             await refresh()
@@ -490,7 +652,7 @@ export function PeoplePage({
             <h3>创建群聊</h3>
             <div className="people-group-hero">
               <span className="people-ava lg" aria-hidden="true">{initials(groupTitle || '群')}</span>
-              <label>群名称<input value={groupTitle} maxLength={128} onChange={e => setGroupTitle(e.target.value)} placeholder="给群起个名字" /></label>
+              <label>群名称<input value={groupTitle} maxLength={128} onChange={e => setGroupTitle(e.target.value)} placeholder="例如：项目评审" /></label>
             </div>
             <fieldset>
               <legend>群主（点选一人，默认为我）</legend>
@@ -554,6 +716,31 @@ export function PeoplePage({
   )
 }
 
+function PeopleFace({ person, className = 'people-ava' }: { person?: { nickname: string; avatar?: string; remark?: string; self?: boolean }; className?: string }): React.JSX.Element {
+  const name = person ? displayName(person) : '月'
+  return (
+    <span className={className} aria-hidden="true">
+      {person?.avatar ? (contactAvatarIsImage(person.avatar) ? <img src={person.avatar} alt="" /> : person.avatar) : initials(name)}
+    </span>
+  )
+}
+
+function ThreadAvatar({ thread, selfId }: { thread: PeopleThreadDTO; selfId?: string }): React.JSX.Element {
+  if (thread.kind === 'group') {
+    const faces = (thread.members ?? []).filter(member => !member.self && member.subjectId !== selfId).slice(0, 4)
+    const cells = faces.length ? faces : (thread.members ?? []).slice(0, 1)
+    return (
+      <span className="people-ava people-ava-mosaic" data-count={Math.max(1, cells.length)} aria-hidden="true">
+        {cells.map(member => (
+          <span key={member.subjectId}>{member.avatar && !contactAvatarIsImage(member.avatar) ? member.avatar : initials(displayName(member))}</span>
+        ))}
+        {(thread.members?.length ?? 0) > 0 ? <em className="people-ava-badge">{thread.members.length}</em> : null}
+      </span>
+    )
+  }
+  return <PeopleFace person={threadPeer(thread.members, selfId)} />
+}
+
 function ContactRow({ person, active, onOpen, pick }: { person: PeopleContactDTO; active?: boolean; onOpen?: () => void; pick?: boolean }): React.JSX.Element {
   const body = (
     <>
@@ -573,7 +760,7 @@ function ContactRow({ person, active, onOpen, pick }: { person: PeopleContactDTO
   )
 }
 
-function ContactCard({ person, me, pairCode, setPairCode, onOpen, onPair, onUpdate }: {
+function ContactCard({ person, me, pairCode, setPairCode, onOpen, onPair, onUpdate, recentThreads = [], onOpenExpertCenter }: {
   person: PeopleContactDTO
   me?: IdentityDTO
   pairCode: string
@@ -581,6 +768,8 @@ function ContactCard({ person, me, pairCode, setPairCode, onOpen, onPair, onUpda
   onOpen: () => void
   onPair: () => void
   onUpdate: (patch: { remark?: string; blocked?: boolean }) => Promise<void>
+  recentThreads?: PeopleThreadDTO[]
+  onOpenExpertCenter?: (expertId: string) => void
 }): React.JSX.Element {
   const [remark, setRemark] = useState(person.remark ?? '')
   useEffect(() => { setRemark(person.remark ?? '') }, [person.subjectId, person.remark])
@@ -597,6 +786,13 @@ function ContactCard({ person, me, pairCode, setPairCode, onOpen, onPair, onUpda
           <button type="submit">保存备注</button>
           <button type="button" onClick={() => void onUpdate({ blocked: !person.blocked })}>{person.blocked ? '取消屏蔽' : '屏蔽'}</button>
         </form>
+      )}
+      {isAgentContact(person) && (
+        <div className="people-expert-home">
+          <p>独立智能体主页。技能包装专家不会出现在花名册。</p>
+          {onOpenExpertCenter ? <button type="button" onClick={() => onOpenExpertCenter(person.subjectId)}>打开专家中心</button> : null}
+          {recentThreads.length > 0 ? <ul>{recentThreads.slice(0, 5).map(item => <li key={item.threadId}>{threadTitle(item, displayName(person))}</li>)}</ul> : <small>还没有一起开过的房间</small>}
+        </div>
       )}
       {!person.self && !person.blocked && <button type="button" className="primary" onClick={onOpen}>发消息</button>}
       {person.trustState === 'discovered' && (

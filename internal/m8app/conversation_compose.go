@@ -4,6 +4,63 @@ import (
 	"strings"
 )
 
+// BoundMcpPrefix marks an MCP preset id stored in expert_skill_bindings.
+const BoundMcpPrefix = "mcp:"
+
+// BoundBrainPrefix marks a local CLI brain stored in expert_skill_bindings.
+const BoundBrainPrefix = "brain:"
+
+// SplitBoundKeys separates skill catalog ids from mcp:<preset> bindings.
+// brain:<kind> is ignored here so it never looks like a skill name.
+func SplitBoundKeys(keys []string) (skills, mcp []string) {
+	for _, raw := range keys {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(key, BoundMcpPrefix); ok {
+			rest = strings.TrimSpace(rest)
+			if rest != "" {
+				mcp = append(mcp, rest)
+			}
+			continue
+		}
+		if strings.HasPrefix(key, BoundBrainPrefix) {
+			continue
+		}
+		skills = append(skills, key)
+	}
+	return skills, mcp
+}
+
+// BoundBrainFromKeys reads brain:codex / brain:claude from stored bindings.
+func BoundBrainFromKeys(keys []string) string {
+	for _, raw := range keys {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(raw), BoundBrainPrefix)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(rest)) {
+		case "codex", "claude":
+			return strings.ToLower(strings.TrimSpace(rest))
+		}
+	}
+	return "lunitide"
+}
+
+// BindKeysFromCatalog is the first-install seed: preferred skills plus mcp:<id>.
+func BindKeysFromCatalog(item CatalogItem) []string {
+	out := append([]string{}, item.PreferredSkills...)
+	for _, id := range item.PreferredMcp {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out = append(out, BoundMcpPrefix+id)
+	}
+	return out
+}
+
 // SkillMatchesPreferred answers whether a published skill (name / entryPoint)
 // is one of the conversation-expert preferred catalog template IDs.
 // Template IDs are catalog ids (slide-builder); stored names are often tpl-*.

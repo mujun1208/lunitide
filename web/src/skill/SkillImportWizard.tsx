@@ -1,4 +1,4 @@
-import React,{useState}from'react'
+import React,{useEffect,useState}from'react'
 import{BridgeClientError,createMutationAttempt,skillImportBridge as defaultSkillImportBridge,type SkillImportBridge}from'../bridge/client'
 import type{SkillImportDiscoverResult}from'../generated/bridge'
 import{Dialog}from'../ui/Dialog'
@@ -6,17 +6,18 @@ import{Dialog}from'../ui/Dialog'
 const MOCK_ARCHIVE='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const problem=(e:unknown)=>e instanceof BridgeClientError?e:new BridgeClientError(e instanceof Error?e.message:'请求失败','CLIENT_ERROR',false,'renderer')
 
-type Props={open:boolean;onClose:()=>void;onApproved?:()=>void;bridge?:SkillImportBridge}
+type Props={open:boolean;onClose:()=>void;onApproved?:()=>void;bridge?:SkillImportBridge;initialUrl?:string}
 
-export function SkillImportWizard({open,onClose,onApproved,bridge=defaultSkillImportBridge}:Props):React.JSX.Element{
+export function SkillImportWizard({open,onClose,onApproved,bridge=defaultSkillImportBridge,initialUrl=''}:Props):React.JSX.Element{
  const [step,setStep]=useState<1|2|3|4|5>(1)
- const [sourceUrl,setSourceUrl]=useState('')
+ const [sourceUrl,setSourceUrl]=useState(initialUrl)
  const [commit,setCommit]=useState('')
  const [candidate,setCandidate]=useState<SkillImportDiscoverResult|null>(null)
  const [busy,setBusy]=useState(false)
  const [error,setError]=useState('')
 
- const reset=()=>{setStep(1);setSourceUrl('');setCommit('');setCandidate(null);setBusy(false);setError('')}
+ const reset=()=>{setStep(1);setSourceUrl(initialUrl);setCommit('');setCandidate(null);setBusy(false);setError('')}
+ useEffect(()=>{if(open)setSourceUrl(initialUrl)},[open,initialUrl])
  const close=()=>{if(busy)return;reset();onClose()}
 
  const discover=async()=>{if(!sourceUrl.trim()||!commit.trim())return;setBusy(true);setError('');try{const payload={assetType:'skill' as const,sourceUrl:sourceUrl.trim(),immutableCommit:commit.trim(),archiveHash:MOCK_ARCHIVE,license:'MIT',publisher:'github-import'},attempt=createMutationAttempt('skill.import.discover',payload),result=await bridge.discover(payload,{attempt});setCandidate(result);setStep(2)}catch(e){setError(problem(e).message)}finally{setBusy(false)}}

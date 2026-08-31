@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { memoryOpsBridge, type MemoryOpsBridge } from '../bridge/client'
+import { getIdentityBridge, memoryOpsBridge, type IdentityBridge, type MemoryOpsBridge } from '../bridge/client'
 import type { MemoryFactsListResult, MemoryGrowthListResult, MemoryStatsResult, MemoryTracesListResult } from '../generated/bridge'
 
 // M10 记忆运营面板：统计条 + 事实库（置顶/隐藏标记）+ 召回记录 + 成长箱
 // （转正/放弃）+ 记忆设置 + 导出与一键清除。一键清除是唯一的破坏性
 // 操作，保留在显式二次确认对话框之后。
 
-const SUBJECT_ID = 'local-user'
 const PAGE_SIZE = 20
 
 type FactItem = MemoryFactsListResult['items'][number]
@@ -18,16 +17,16 @@ const STATE_LABELS: Record<string, string> = { active: '生效中', superseded: 
 const SENSITIVITY_LABELS: Record<string, string> = { public: '公开', private: '私有', sensitive: '敏感' }
 const GROWTH_LABELS: Record<string, string> = { observing: '观察中', promoted: '已转正', dropped: '已放弃' }
 
-const panelStyle: React.CSSProperties = { border: '1px solid #1f2937', borderRadius: '16px', background: '#0e1c30', padding: '20px' }
-const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: '#1e293b', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer' }
+const panelStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: '16px', background: 'var(--bg2)', padding: '20px' }
+const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 const dangerBtnStyle: React.CSSProperties = { ...btnStyle, color: '#f87171', borderColor: '#7f1d1d' }
-const chipStyle: React.CSSProperties = { padding: '2px 8px', borderRadius: '999px', fontSize: '11px', border: '1px solid #334155', color: '#8fa3bf' }
+const chipStyle: React.CSSProperties = { padding: '2px 8px', borderRadius: '999px', fontSize: '11px', border: '1px solid var(--line)', color: 'var(--muted)' }
 
 const StatCard = ({ label, value, hint }: { label: string; value: number | string; hint?: string }) => (
-  <div style={{ flex: 1, minWidth: '130px', padding: '12px 14px', border: '1px solid #1f2937', borderRadius: '10px', background: '#111827' }}>
-    <div style={{ fontSize: '22px', fontWeight: 700, color: '#e5e7eb' }}>{value}</div>
-    <div style={{ fontSize: '12px', color: '#8fa3bf', marginTop: '2px' }}>{label}{hint ? ` · ${hint}` : ''}</div>
+  <div style={{ flex: 1, minWidth: '130px', padding: '12px 14px', border: '1px solid var(--rule)', borderRadius: '10px', background: 'var(--bg3)' }}>
+    <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--ink)' }}>{value}</div>
+    <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>{label}{hint ? ` · ${hint}` : ''}</div>
   </div>
 )
 
@@ -47,7 +46,8 @@ function traceItemCount(raw: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
-export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridge }): React.JSX.Element {
+export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBridge(), subjectId }: { ops?: MemoryOpsBridge; identity?: IdentityBridge; subjectId?: string }): React.JSX.Element {
+  const [resolvedSubject, setResolvedSubject] = useState(subjectId ?? '')
   const [stats, setStats] = useState<MemoryStatsResult>()
   const [facts, setFacts] = useState<FactItem[]>([])
   const [factsTotal, setFactsTotal] = useState(0)
@@ -93,12 +93,27 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
     } catch (e) { setError(e instanceof Error ? e.message : '成长箱加载失败') }
   }, [ops, growthStatus, growthPage])
 
+  useEffect(() => {
+    if (subjectId) {
+      setResolvedSubject(subjectId)
+      return
+    }
+    let alive = true
+    void identity.get().then(value => {
+      if (alive && value.subjectId) setResolvedSubject(value.subjectId)
+    }).catch(() => {
+      if (alive) setResolvedSubject('local-user')
+    })
+    return () => { alive = false }
+  }, [identity, subjectId])
+
   const loadSettings = useCallback(async () => {
+    if (!resolvedSubject) return
     try {
-      const r = await ops.getSettings({ subjectId: SUBJECT_ID })
+      const r = await ops.getSettings({ subjectId: resolvedSubject })
       setSettings({ memoryEnabled: r.memoryEnabled, autoNominate: r.autoNominate, growthDays: r.growthDays })
     } catch { /* 缺省即默认档 */ }
-  }, [ops])
+  }, [ops, resolvedSubject])
 
   useEffect(() => { void loadStats() }, [loadStats])
   useEffect(() => { void loadFacts() }, [loadFacts])
@@ -131,7 +146,8 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
     if (busy) return
     setBusy('settings'); setError(undefined); setNotice('')
     try {
-      await ops.updateSettings({ subjectId: SUBJECT_ID, ...settings })
+      if (!resolvedSubject) return
+      await ops.updateSettings({ subjectId: resolvedSubject, ...settings })
       setNotice('记忆设置已保存')
     } catch (e) { setError(e instanceof Error ? e.message : '设置保存失败') }
     finally { setBusy('') }
@@ -173,7 +189,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
   const observing = growthByStatus.observing ?? 0
 
   const Pager = ({ page, total, onPage, label }: { page: number; total: number; onPage: (p: number) => void; label: string }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '12px', color: '#8fa3bf' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '12px', color: 'var(--muted)' }}>
       <span>{label}：共 {total} 条 · 第 {page + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页</span>
       <button style={btnStyle} disabled={page === 0} onClick={() => onPage(page - 1)} aria-label="上一页">上一页</button>
       <button style={btnStyle} disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => onPage(page + 1)} aria-label="下一页">下一页</button>
@@ -209,15 +225,15 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
         {facts.length === 0 ? <div className="empty"><b>暂无事实</b><span>确认沉淀的记忆事实会出现在这里。</span></div> : (
           <div style={{ display: 'grid', gap: '8px' }}>
             {facts.map(f => (
-              <div key={f.factId} data-testid="memory-fact-row" style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827', flexWrap: 'wrap' }}>
+              <div key={f.factId} data-testid="memory-fact-row" style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', fontSize: '12px' }}>
-                  <span style={{ fontFamily: 'monospace', color: '#8fa3bf' }}>{f.factId.slice(0, 10)}…</span>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{f.factId.slice(0, 10)}…</span>
                   <span style={chipStyle}>{STATE_LABELS[f.state] ?? f.state}</span>
                   <span style={chipStyle}>{SENSITIVITY_LABELS[f.sensitivity] ?? f.sensitivity}</span>
-                  <span style={{ color: '#8fa3bf' }}>v{f.version} · {f.scopeId}</span>
+                  <span style={{ color: 'var(--muted)' }}>v{f.version} · {f.scopeId}</span>
                   {f.pinned && <span style={{ ...chipStyle, color: '#fbbf24', borderColor: '#78350f' }}>置顶</span>}
                   {f.hidden && <span style={{ ...chipStyle, color: '#f87171', borderColor: '#7f1d1d' }}>隐藏</span>}
-                  {f.note && <span style={{ color: '#8fa3bf' }}>备注：{f.note}</span>}
+                  {f.note && <span style={{ color: 'var(--muted)' }}>备注：{f.note}</span>}
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                   <button style={f.pinned ? primaryBtnStyle : btnStyle} disabled={busy !== ''} aria-pressed={f.pinned} onClick={() => void flagFact(f, 'pinned')}>{busy === `${f.factId}:pinned` ? '…' : f.pinned ? '取消置顶' : '置顶'}</button>
@@ -240,15 +256,15 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
             <option value="dropped">已放弃</option>
           </select>
         </div>
-        <p style={{ margin: '0 0 10px', color: '#8fa3bf', fontSize: '12px' }}>新沉淀的事实先进入观察期，到期后由你决定转正为长期记忆或放弃。</p>
+        <p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: '12px' }}>新沉淀的事实先进入观察期，到期后由你决定转正为长期记忆或放弃。</p>
         {growth.length === 0 ? <div className="empty"><b>暂无成长箱条目</b><span>观察期内的事实会出现在这里等待复盘。</span></div> : (
           <div style={{ display: 'grid', gap: '8px' }}>
             {growth.map(g => (
-              <div key={g.factId} data-testid="memory-growth-row" style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827', flexWrap: 'wrap' }}>
+              <div key={g.factId} data-testid="memory-growth-row" style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', fontSize: '12px' }}>
-                  <span style={{ fontFamily: 'monospace', color: '#8fa3bf' }}>{g.factId.slice(0, 10)}…</span>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{g.factId.slice(0, 10)}…</span>
                   <span style={chipStyle}>{GROWTH_LABELS[g.status] ?? g.status}</span>
-                  <span style={{ color: '#8fa3bf' }}>引用 {g.referenceCount} 次 · 复查 {new Date(g.reviewAt).toLocaleDateString()} · {g.scopeId}</span>
+                  <span style={{ color: 'var(--muted)' }}>引用 {g.referenceCount} 次 · 复查 {new Date(g.reviewAt).toLocaleDateString()} · {g.scopeId}</span>
                 </div>
                 {g.status === 'observing' && (
                   <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
@@ -265,16 +281,16 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
 
       <section aria-label="召回记录" style={panelStyle}>
         <h2 style={{ margin: '0 0 6px', fontSize: '16px' }}>召回记录</h2>
-        <p style={{ margin: '0 0 10px', color: '#8fa3bf', fontSize: '12px' }}>每次对话开始会按本轮问题自动召回已确认事实；未确认候选不会进入系统指令。命中条数来自审计轨迹。</p>
+        <p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: '12px' }}>每次对话开始会按本轮问题自动召回已确认事实；未确认候选不会进入系统指令。命中条数来自审计轨迹。</p>
         {traces.length === 0 ? <div className="empty"><b>暂无召回记录</b><span>开启「启用记忆沉淀」后，对话中的自动召回会出现在这里。</span></div> : (
           <div style={{ display: 'grid', gap: '8px' }}>
             {traces.map(t => (
-              <div key={t.id} data-testid="memory-trace-row" style={{ padding: '10px 12px', border: '1px solid #1f2937', borderRadius: '8px', background: '#111827', fontSize: '12px' }}>
+              <div key={t.id} data-testid="memory-trace-row" style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)', fontSize: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                  <span style={{ fontFamily: 'monospace', color: '#8fa3bf', overflowWrap: 'anywhere' }}>{t.queryDigest}</span>
-                  <span style={{ color: '#8fa3bf', flexShrink: 0 }}>{new Date(t.createdAt).toLocaleString()}</span>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--muted)', overflowWrap: 'anywhere' }}>{t.queryDigest}</span>
+                  <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{new Date(t.createdAt).toLocaleString()}</span>
                 </div>
-                <div style={{ marginTop: '6px', color: '#8fa3bf', overflowWrap: 'anywhere' }}>
+                <div style={{ marginTop: '6px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
                   注入命中 {traceHitCount(t.hits)} 条 · 理由 {traceItemCount(t.reasons)} · 脱敏 {traceItemCount(t.redactions)}
                 </div>
               </div>
@@ -297,10 +313,10 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge }: { ops?: MemoryOpsBridg
           </label>
           <label style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '13px' }}>
             成长观察期（天）
-            <input type="number" min={1} max={90} value={settings.growthDays} onChange={e => setSettings(s => ({ ...s, growthDays: Math.min(90, Math.max(1, Number(e.target.value) || 1)) }))} style={{ width: '70px', padding: '4px 6px', backgroundColor: '#0a0e1a', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px' }} />
+            <input type="number" min={1} max={90} value={settings.growthDays} onChange={e => setSettings(s => ({ ...s, growthDays: Math.min(90, Math.max(1, Number(e.target.value) || 1)) }))} style={{ width: '70px', padding: '4px 6px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px' }} />
           </label>
         </div>
-        <p style={{ margin: '12px 0 0', color: '#8fa3bf', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把本轮要点放进确认台，不会自动升格为事实。</p>
+        <p style={{ margin: '12px 0 0', color: 'var(--muted)', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把本轮要点放进确认台，不会自动升格为事实。</p>
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button style={primaryBtnStyle} disabled={busy !== ''} onClick={() => void saveSettings()}>{busy === 'settings' ? '保存中…' : '保存设置'}</button>
           <button style={btnStyle} disabled={busy !== ''} onClick={() => void doExport()}>{busy === 'export' ? '导出中…' : '导出记忆数据'}</button>

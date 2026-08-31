@@ -237,6 +237,15 @@ func TestCompanionToolLeadIn(t *testing.T) {
 	if got := companionToolResultSpeech("desktop.open", "无法执行：桌面上有多份匹配"); !strings.Contains(got, "无法执行") {
 		t.Fatalf("fail %q", got)
 	}
+	if got := companionToolResultSpeech("computer.act", "clicked; verify capture failed"); got != "这次没有完成。" {
+		t.Fatalf("verify fail speech %q", got)
+	}
+	if got := companionToolResultSpeech("computer.act", "COMPUTER_STALE_FRAME: echo frameId"); got != "这次没有完成。" {
+		t.Fatalf("stale speech %q", got)
+	}
+	if got := companionToolResultSpeech("computer.act", "uac dialog — needs_user: 这是系统提权对话框"); got != "这次没有完成。" {
+		t.Fatalf("uac speech %q", got)
+	}
 }
 
 func TestAdapterCacheReusesProductionConnector(t *testing.T) {
