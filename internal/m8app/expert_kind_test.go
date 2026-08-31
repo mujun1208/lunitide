@@ -13,9 +13,19 @@ func TestExpertKindForConversationSpecialists(t *testing.T) {
 	if got := m8app.ExpertKindForName("pm-advisor"); got != m8app.ExpertKindPromptSkill {
 		t.Fatalf("pm-advisor kind = %q", got)
 	}
-	item, ok := m8app.ConversationExpertByID("excel-maker")
-	if !ok || item.ResolvedKind() != m8app.ExpertKindAgent {
-		t.Fatalf("excel-maker resolved kind missing: ok=%v kind=%q", ok, item.ResolvedKind())
+	if got := m8app.ExpertKindForExpert("演示顾问", "ppt-expert"); got != m8app.ExpertKindAgent {
+		t.Fatalf("renamed specialist must stay agent: %q", got)
+	}
+	if got := m8app.ExpertKindForExpert("演示顾问", ""); got != m8app.ExpertKindPromptSkill {
+		t.Fatalf("unknown name without catalog id must be prompt_skill: %q", got)
+	}
+	item, ok := m8app.ResolveConversationExpert("演示顾问", "ppt-expert")
+	if !ok || item.ID != "ppt-expert" {
+		t.Fatalf("resolve renamed specialist: ok=%v id=%q", ok, item.ID)
+	}
+	excel, ok := m8app.ConversationExpertByID("excel-maker")
+	if !ok || excel.ResolvedKind() != m8app.ExpertKindAgent {
+		t.Fatalf("excel-maker resolved kind missing: ok=%v kind=%q", ok, excel.ResolvedKind())
 	}
 }
 

@@ -43,15 +43,12 @@ func TestSeedRecommendedMcpKitAddsDistinctNpxServers(t *testing.T) {
 
 func TestInvokeBrowserActGuidesInteractiveOps(t *testing.T) {
 	e := NewEngine(nil, "test")
-	out, err := e.invokeBrowserAct(context.Background(), executionModeApproval, "sess", []byte(`{"op":"click"}`))
-	if err != nil {
-		t.Fatal(err)
+	_, err := e.invokeBrowserAct(context.Background(), executionModeApproval, "sess", []byte(`{"op":"click"}`))
+	if err == nil || !strings.Contains(err.Error(), "BROWSER_") {
+		t.Fatalf("unready click must error, got %v", err)
 	}
-	if !strings.Contains(out.Output, "Playwright") {
-		t.Fatalf("output = %q", out.Output)
-	}
-	if strings.Contains(out.Output, "已经在播") || strings.Contains(strings.ToLower(out.Output), `"action":"play"`) {
-		t.Fatalf("empty click must not fall through to media.play: %q", out.Output)
+	if strings.Contains(err.Error(), "已经在播") || strings.Contains(strings.ToLower(err.Error()), `"action":"play"`) {
+		t.Fatalf("empty click must not fall through to media.play: %v", err)
 	}
 }
 
@@ -66,15 +63,12 @@ func TestInvokeBrowserActNavigateNeedsURL(t *testing.T) {
 func TestInvokeBrowserActNewOpsGuidePlaywright(t *testing.T) {
 	e := NewEngine(nil, "test")
 	for _, raw := range []string{`{"op":"scroll","direction":"down"}`, `{"op":"back"}`, `{"op":"tabs","tab":"list"}`} {
-		out, err := e.invokeBrowserAct(context.Background(), executionModeApproval, "sess", []byte(raw))
-		if err != nil {
-			t.Fatal(err)
+		_, err := e.invokeBrowserAct(context.Background(), executionModeApproval, "sess", []byte(raw))
+		if err == nil || !strings.Contains(err.Error(), "BROWSER_") {
+			t.Fatalf("op %s must error when MCP is missing, got %v", raw, err)
 		}
-		if out.Output == "" || strings.Contains(out.Output, "evaluate") {
-			t.Fatalf("op %s output = %q", raw, out.Output)
-		}
-		if !strings.Contains(out.Output, "Playwright") {
-			t.Fatalf("op %s must not return empty success: %q", raw, out.Output)
+		if strings.Contains(err.Error(), "evaluate") {
+			t.Fatalf("op %s must not invent evaluate: %v", raw, err)
 		}
 	}
 }

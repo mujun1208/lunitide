@@ -156,17 +156,24 @@ describe('companion engine fallback helpers', () => {
     expect(companionEngineProbeOrder('edge')).toEqual(['edge'])
     expect(companionEngineProbeOrder('ref')).toEqual(['ref', 'edge'])
     expect(companionEngineProbeOrder('sapi')).toEqual(['edge'])
+    expect(companionEngineProbeOrder('volc')).toEqual(['volc'])
     expect(companionEngineProbeOrder('edge')).not.toContain('sapi')
     expect(companionEngineProbeOrder('ref')).not.toContain('sapi')
+    expect(companionEngineProbeOrder('volc')).not.toContain('edge')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('cloud')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').engine).toBe('edge')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc').voicePath).toBe('volc')
-    expect(applyVoicePath(defaultCompanionSettings(), 'volc').engine).toBe('edge')
-    expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceBargeIn).toBe(true)
-    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc').engine).toBe('volc')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).engine).toBe('edge')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).voicePath).toBe('volc')
+    expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceBargeIn).toBe(false)
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceBargeIn: true }, 'volc').voiceBargeIn).toBe(true)
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
+    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'zh_female_vv_uranus_bigtts' }, 'cloud').voiceId).toBe('')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('refpack:优质台湾腔.wav')
-    expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceBargeIn).toBe(true)
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceBargeIn).toBe(false)
     expect(applyVoicePath(defaultCompanionSettings(), 'local').recognizer).toBe('local')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'cloud').voiceId).toBe('')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'omni').voicePath).toBe('cloud')
@@ -183,10 +190,10 @@ describe('companion engine fallback helpers', () => {
     expect(loaded.voicePath).toBe('local')
     expect(loaded.engine).toBe('ref')
     expect(loaded.voiceId).toBe('refpack:甜心少女.wav')
-    expect(loaded.voiceBargeIn).toBe(true)
+    expect(loaded.voiceBargeIn).toBe(false)
   })
 
-  test('keeps a saved volc listen path on Edge TTS', () => {
+  test('migrates a saved volc listen path onto seed-tts', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       enabled: true,
       voicePath: 'volc',
@@ -195,7 +202,8 @@ describe('companion engine fallback helpers', () => {
     }))
     const loaded = loadCompanionSettings()
     expect(loaded.voicePath).toBe('volc')
-    expect(loaded.engine).toBe('edge')
+    expect(loaded.engine).toBe('volc')
+    expect(loaded.voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
     expect(loaded.voiceBargeIn).toBe(true)
   })
 

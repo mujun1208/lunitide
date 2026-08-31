@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,6 +93,41 @@ func TestRefSynthesizeValidation(t *testing.T) {
 		if _, _, err := engine.Synthesize(tc.in); !errors.Is(err, ErrSynthesisFailed) {
 			t.Fatalf("%s: err = %v, want ErrSynthesisFailed", tc.name, err)
 		}
+	}
+}
+
+func TestWrapRefHostErrKeepsStartingFamily(t *testing.T) {
+	starting := fmt.Errorf("%w: still loading", ErrRefEngineStarting)
+	if got := wrapRefHostErr(starting); !errors.Is(got, ErrRefEngineStarting) || errors.Is(got, ErrSynthesisFailed) {
+		t.Fatalf("starting wrap = %v", got)
+	}
+	other := errors.New("no launcher")
+	if got := wrapRefHostErr(other); !errors.Is(got, ErrSynthesisFailed) || errors.Is(got, ErrRefEngineStarting) {
+		t.Fatalf("other wrap = %v", got)
+	}
+}
+
+func TestRefServiceErrorDetail(t *testing.T) {
+	if got := refServiceErrorDetail(500, []byte("boom")); got != "HTTP 500：boom" {
+		t.Fatalf("plain = %q", got)
+	}
+	if got := refServiceErrorDetail(400, []byte(`{"message":"ref wav too short"}`)); !strings.Contains(got, "ref wav too short") {
+		t.Fatalf("json = %q", got)
+	}
+	if got := refServiceErrorDetail(502, []byte("<html>no</html>")); got != "HTTP 502" {
+		t.Fatalf("html = %q", got)
+	}
+}
+
+func TestCanonicalRefEndpoint(t *testing.T) {
+	if CanonicalRefEndpoint("") != strings.TrimRight(DefaultRefEndpoint, "/") {
+		t.Fatalf("empty = %q", CanonicalRefEndpoint(""))
+	}
+	if !IsDefaultRefEndpoint("http://127.0.0.1:9880/") || !IsDefaultRefEndpoint("") {
+		t.Fatal("default aliases must auto-host")
+	}
+	if IsDefaultRefEndpoint("http://127.0.0.1:9874") {
+		t.Fatal("webui port is not api_v2")
 	}
 }
 

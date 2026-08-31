@@ -389,3 +389,41 @@ func TestExpertCreateBindsSkillKeys(t *testing.T) {
 		t.Fatalf("detail boundSkills = %#v", detail.Expert["boundSkills"])
 	}
 }
+
+func TestCreatePersistsCatalogItemIDAndSkillFloor(t *testing.T) {
+	store := openSliceStore(t)
+	svc := m8app.NewExpertService(store.AgentRuntimeRepository(), "local-user", &m8app.MemoryPersonaStore{})
+	svc.SetSkillStore(store)
+	ctx := context.Background()
+	res, err := svc.Create(ctx, m8app.CreateInput{
+		Source:        m8core.ExpertSourceLocal,
+		Frontmatter:   fm("演示顾问"),
+		SixSection:    sixBody("renamed-ppt"),
+		RequestID:     "req-renamed-ppt",
+		CatalogItemID: "ppt-expert",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.List(ctx, m8app.ExpertFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Experts) != 1 || listed.Experts[0].CatalogItemID != "ppt-expert" || listed.Experts[0].Kind != m8app.ExpertKindAgent {
+		t.Fatalf("list = %+v", listed.Experts)
+	}
+	detail, err := svc.Detail(ctx, m8app.DetailInput{ExpertID: res.ExpertID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Expert["catalogItemId"] != "ppt-expert" || detail.Expert["kind"] != m8app.ExpertKindAgent {
+		t.Fatalf("detail = %#v", detail.Expert)
+	}
+	got, err := svc.ReplaceBoundSkills(ctx, res.ExpertID, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsStr(got, "slide-builder") || !containsStr(got, "mcp:playwright") {
+		t.Fatalf("renamed specialist lost catalog floor: %#v", got)
+	}
+}

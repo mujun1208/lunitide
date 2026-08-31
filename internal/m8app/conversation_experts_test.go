@@ -75,8 +75,14 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		if strings.Contains(item.SixSection.Identity, "对话技能包") {
 			t.Fatalf("%s identity still calls itself a conversation skill pack", item.ID)
 		}
-		if !strings.Contains(item.SixSection.Identity, "独立智能体") {
-			t.Fatalf("%s identity must say 独立智能体", item.ID)
+		if strings.Contains(item.SixSection.Identity, "独立智能体") {
+			t.Fatalf("%s identity still claims 独立智能体", item.ID)
+		}
+		if !strings.Contains(item.SixSection.Identity, "同事专家") {
+			t.Fatalf("%s identity must say 同事专家", item.ID)
+		}
+		if !strings.Contains(item.SixSection.Identity, "不是独立进程") {
+			t.Fatalf("%s identity must say it is not a separate process", item.ID)
 		}
 		if strings.Contains(item.SixSection.Identity, "你是月汐的") {
 			t.Fatalf("%s identity must not call itself 月汐的", item.ID)
@@ -343,12 +349,17 @@ func TestEnsureBuiltinExpertsSeedsConversationRoster(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := map[string]bool{}
+	catalogIDs := map[string]string{}
 	for _, row := range listed.Experts {
 		names[row.Name] = true
+		catalogIDs[row.Name] = row.CatalogItemID
 	}
 	for _, item := range m8app.ConversationExperts() {
 		if !names[item.Name] {
 			t.Fatalf("seeded library missing %q (picker will not see it)", item.Name)
+		}
+		if catalogIDs[item.Name] != item.ID {
+			t.Fatalf("%s catalog_item_id = %q, want %q", item.Name, catalogIDs[item.Name], item.ID)
 		}
 	}
 	if !names["pm-advisor"] {
@@ -378,11 +389,14 @@ func TestEnsureBuiltinExpertsRefreshesStaleConversationBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(after.SixSection)
-	if !strings.Contains(body, "上台稿导演") || !strings.Contains(body, "独立智能体") {
+	if !strings.Contains(body, "上台稿导演") || !strings.Contains(body, "同事专家") {
 		t.Fatalf("stale PPT专家 body not refreshed: %s", body)
 	}
 	if len(after.Versions) < 2 {
 		t.Fatal("refresh must append a new version")
+	}
+	if after.Expert["catalogItemId"] != "ppt-expert" {
+		t.Fatalf("stale row must receive catalog_item_id, got %#v", after.Expert["catalogItemId"])
 	}
 }
 

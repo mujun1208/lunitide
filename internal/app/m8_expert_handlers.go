@@ -60,7 +60,7 @@ func handleExpertCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	e.registerAgentContactForExpert(ctx, res.ExpertID, p.Frontmatter.Name, p.Frontmatter.Division, string(res.State))
+	e.registerAgentContactForExpert(ctx, res.ExpertID, p.Frontmatter.Name, p.Frontmatter.Division, string(res.State), "")
 	return bridge.Success(r.ID, res)
 }
 
@@ -118,7 +118,7 @@ func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 		return m8ExpertFailure(r, err)
 	}
 	if item, ok := m8app.LookupCatalogItem(p.ID); ok && res.ExpertID != "" {
-		e.registerAgentContactForExpert(ctx, res.ExpertID, item.Name, item.Division, m8core.ExpertEnabled)
+		e.registerAgentContactForExpert(ctx, res.ExpertID, item.Name, item.Division, m8core.ExpertEnabled, item.ID)
 	}
 	return bridge.Success(r.ID, res)
 }

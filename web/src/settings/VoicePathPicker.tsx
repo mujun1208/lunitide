@@ -1,13 +1,16 @@
 import React from 'react'
-import { shownVoicePath, VOICE_PATHS, type ShownVoicePath, type VoicePath } from '../session/companion/voicePersonas'
+import { shownVoicePath, voicePathOptions, type ShownVoicePath, type VoicePath } from '../session/companion/voicePersonas'
 
 export function VoicePathPicker({
   value,
   onChange,
+  volcTtsReady = false,
 }: {
   value: VoicePath
   onChange: (path: ShownVoicePath) => void
+  volcTtsReady?: boolean
 }): React.JSX.Element {
+  const options = voicePathOptions(volcTtsReady)
   const shown = shownVoicePath(value)
   const select = (path: ShownVoicePath) => {
     if (path !== shown) onChange(path)
@@ -15,8 +18,13 @@ export function VoicePathPicker({
   return (
     <div className="voice-path-section">
       <p className="voice-path-lead">
-        月伴听写与朗读走哪条通道，和对话模型不是一回事。云端默认晓晓；火山只要 ASR（seed-asr），朗读仍是晓晓；本机用 sherpa 听写、GPT-SoVITS 克隆音色。豆包 App 里的温柔桃子等是火山 TTS 角色库，和 seed-asr 不是同一份能力，火山通道用不上。
+        月伴听写与朗读走哪条通道，和对话模型不是一回事。云端默认晓晓；火山听写 seed-asr、朗读 seed-tts 官方音色；本机用 sherpa 听写、GPT-SoVITS 克隆音色。豆包 App 里的温柔桃子是另一份角色库，不能拿来冒充这里的官方 speaker。
       </p>
+      {volcTtsReady && shown === 'cloud' && (
+        <p className="voice-path-hint" role="status">
+          已配火山朗读。当前仍走晓晓；点「火山」才火山听·火山读。不会自动改通道。
+        </p>
+      )}
       <div
         className="voice-path-picker"
         role="radiogroup"
@@ -24,7 +32,7 @@ export function VoicePathPicker({
         onKeyDown={event => {
           if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
           event.preventDefault()
-          const order = VOICE_PATHS.map(option => option.value)
+          const order = options.map(option => option.value)
           const at = order.indexOf(shown)
           const dir = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1
           const next = order[(at + dir + order.length) % order.length]!
@@ -33,7 +41,7 @@ export function VoicePathPicker({
           if (node instanceof HTMLElement) node.focus()
         }}
       >
-        {VOICE_PATHS.map(option => {
+        {options.map(option => {
           const on = option.value === shown
           return (
             <button

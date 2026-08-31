@@ -56,7 +56,7 @@ func TestPeopleAgentSessionAndToolAllow(t *testing.T) {
 func TestPeopleAgentPromptUsesTools(t *testing.T) {
 	e := NewEngine(nil, "test")
 	got := e.peopleAgentPrompt(context.Background(), people.Contact{Nickname: "PPT专家"})
-	for _, needle := range []string{"独立智能体", "PPT专家", "desktop=true", "skill.invoke", "pptx.gen", "@同事昵称"} {
+	for _, needle := range []string{"同事专家", "不是独立进程", "PPT专家", "desktop=true", "skill.invoke", "pptx.gen", "@同事昵称"} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("prompt missing %q: %s", needle, got)
 		}

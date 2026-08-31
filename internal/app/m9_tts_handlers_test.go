@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/tts"
@@ -93,6 +94,52 @@ func TestTtsSegmentFailureIsolatedFromEngineLoss(t *testing.T) {
 	}
 }
 
+func TestTtsSynthesizeKeepsRefHttpDetail(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(httpFailSynthEngine{}))
+	resp := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","voiceId":"refpack:甜心少女.wav"}`))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "M95-002" {
+		t.Fatalf("http fail = %+v, want M95-002", resp)
+	}
+	if !strings.Contains(resp.Error.Message, "HTTP 400") || !strings.Contains(resp.Error.Message, "ref wav too short") {
+		t.Fatalf("message = %q, want HTTP detail", resp.Error.Message)
+	}
+}
+
+func TestTtsSynthesizeRefStartingIsRetryable(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(startingRefEngine{}))
+
+	resp := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"ref","voiceId":"refpack:甜心少女.wav"}`))
+	if resp.OK || resp.Error == nil {
+		t.Fatalf("tts.synthesize starting = %+v, want failure", resp)
+	}
+	if resp.Error.Code != "M95-001" || !resp.Error.Retryable {
+		t.Fatalf("starting = %+v, want retryable M95-001", resp.Error)
+	}
+	if resp.Error.Message != "语音引擎启动中，请稍候" {
+		t.Fatalf("message = %q", resp.Error.Message)
+	}
+}
+
+type httpFailSynthEngine struct{}
+
+func (httpFailSynthEngine) Voices() ([]tts.Voice, error) {
+	return []tts.Voice{{VoiceID: "v", DisplayName: "V", Gender: "neutral", Lang: "zh-CN"}}, nil
+}
+func (httpFailSynthEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResult, bool, error) {
+	return tts.SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务返回异常（HTTP 400：ref wav too short）", tts.ErrSynthesisFailed)
+}
+
+type startingRefEngine struct{}
+
+func (startingRefEngine) Voices() ([]tts.Voice, error) {
+	return []tts.Voice{{VoiceID: "v", DisplayName: "V", Gender: "neutral", Lang: "zh-CN"}}, nil
+}
+func (startingRefEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResult, bool, error) {
+	return tts.SynthesizeResult{}, false, tts.ErrRefEngineStarting
+}
+
 type failingSynthEngine struct{}
 
 func (failingSynthEngine) Voices() ([]tts.Voice, error) {
@@ -141,6 +188,15 @@ func TestTtsVoicesPerEngine(t *testing.T) {
 	bad := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"mega"}`))
 	if bad.OK || bad.Error == nil || bad.Error.Code != "BRIDGE_SCHEMA_INVALID" {
 		t.Fatalf("tts.voices bogus engine = %+v, want schema invalid", bad)
+	}
+
+	volc := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"volc"}`))
+	if !volc.OK {
+		t.Fatalf("tts.voices volc = %+v, want ok without a wired engine", volc)
+	}
+	volcVoices := volc.Payload.(map[string]any)["voices"].([]tts.Voice)
+	if len(volcVoices) < 20 || volcVoices[0].VoiceID != tts.VolcDefaultVoiceID() {
+		t.Fatalf("volc voices = %+v", volcVoices)
 	}
 }
 
@@ -314,6 +370,30 @@ func TestTtsVoicesAndSynthesizeEdgeRoutesToCloud(t *testing.T) {
 	}
 	if synth.Payload.(map[string]any)["wav_base64"] != "edge-wav" {
 		t.Fatalf("payload = %+v", synth.Payload)
+	}
+}
+
+func TestTtsVoicesVolcWithoutService(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	resp := e.Handle(context.Background(), validRequest("tts.voices", `{"engine":"volc"}`))
+	if !resp.OK {
+		t.Fatalf("tts.voices volc without service = %+v, want ok", resp)
+	}
+	voices := resp.Payload.(map[string]any)["voices"].([]tts.Voice)
+	if len(voices) < 20 {
+		t.Fatalf("volc voices = %d", len(voices))
+	}
+}
+
+func TestTtsSynthesizeVolcWithoutKeyIsM95_001(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithVolc(nil, nil, nil, tts.NewVolcEngine())))
+	resp := e.Handle(context.Background(), validRequest("tts.synthesize", `{"text":"段","engine":"volc"}`))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "M95-001" {
+		t.Fatalf("tts.synthesize volc = %+v, want M95-001", resp)
+	}
+	if !strings.Contains(resp.Error.Message, "火山") {
+		t.Fatalf("message = %q, want 火山", resp.Error.Message)
 	}
 }
 

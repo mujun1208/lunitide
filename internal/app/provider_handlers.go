@@ -66,7 +66,11 @@ func handleProviderCreate(e *Engine, ctx context.Context, request bridge.Request
 	if failure := requireIdempotency(request); failure != nil {
 		return *failure
 	}
-	baseURL, err := provider.NormalizeBaseURL(payload.BaseURL)
+	baseURL, models, prepErr := prepareVolcSpeechFields(payload.Protocol, payload.BaseURL, models)
+	if prepErr != nil {
+		return invalidProviderPayload(request, "provider.create")
+	}
+	baseURL, err := provider.NormalizeBaseURL(baseURL)
 	if err != nil {
 		return invalidProviderPayload(request, "provider.create")
 	}
@@ -159,10 +163,18 @@ func applyProviderPatchInternal(item provider.Provider, payload updateProviderPa
 		item.Protocol = *payload.Protocol
 	}
 	if payload.BaseURL != nil && *payload.BaseURL != item.BaseURL {
-		if _, normalizeErr := provider.NormalizeOrigin(*payload.BaseURL); normalizeErr != nil {
+		item.BaseURL = *payload.BaseURL
+	}
+	preparedURL, preparedModels, prepErr := prepareVolcSpeechFields(item.Protocol, item.BaseURL, item.Models)
+	if prepErr != nil {
+		return item, errInvalidProviderPatch
+	}
+	item.BaseURL = preparedURL
+	item.Models = preparedModels
+	if item.Protocol != provider.ProtocolVolcSpeech {
+		if _, normalizeErr := provider.NormalizeOrigin(item.BaseURL); normalizeErr != nil {
 			return item, errInvalidProviderPatch
 		}
-		item.BaseURL = *payload.BaseURL
 	}
 	newFingerprint, fingerprintErr := provider.OriginFingerprint(item.Protocol, item.BaseURL)
 	if fingerprintErr != nil {

@@ -23,15 +23,22 @@ export function companionListenKind(voicePath: VoicePath, recognizer: SpeechReco
 
 /**
  * Next listen engine after the current one heard audio but produced no text.
- * An explicit 本地 card stays on-machine.
+ * An explicit 本地 card stays on-machine. An explicit 火山 card stays on
+ * seed-asr — sherpa is a different product choice, not a quiet repair.
  */
 export function companionListenFailover(failed: AsrRoute, preferred: AsrRoute | 'auto', localReady: boolean): AsrRoute {
   if (preferred === 'local') return 'local'
-  if (failed === 'volc' && preferred === 'volc') return localReady ? 'local' : 'volc'
-  if (failed === 'volc') return localReady ? 'local' : 'cloud'
-  if (failed === 'cloud') return localReady ? 'local' : preferred === 'volc' ? 'volc' : 'cloud'
-  if (failed === 'local') return preferred === 'volc' ? 'volc' : 'cloud'
+  if (preferred === 'volc' || failed === 'volc') return 'volc'
+  if (failed === 'cloud') return localReady ? 'local' : 'cloud'
+  if (failed === 'local') return 'cloud'
   return failed
+}
+
+/** Stay-on-volc deaf recoveries before VOICE-004 instead of restarting forever. */
+export const VOLC_DEAF_RESTART_LIMIT = 2
+
+export function companionVolcDeafGiveUp(preferred: AsrRoute | 'auto', next: AsrRoute, restarts: number): boolean {
+  return preferred === 'volc' && next === 'volc' && restarts >= VOLC_DEAF_RESTART_LIMIT
 }
 
 /** Reject if `work` has not settled before `ms`. The original promise keeps running. */

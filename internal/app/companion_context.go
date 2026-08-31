@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
+
+var errCompanionToolDenied = errors.New("月伴不能执行命令行或发送即时消息，请改在工作台会话里做")
 
 type companionActionContext struct {
 	ActiveAppName string `json:"activeAppName,omitempty"`
@@ -482,6 +485,9 @@ func (e *Engine) companionAutoDesktopTypeArgs(sessionID, goal string) (json.RawM
 }
 
 func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string), companion bool) (toolruntime.Result, error) {
+	if companion && companionDefaultDeniedTool(name) {
+		return toolruntime.Result{}, errCompanionToolDenied
+	}
 	if name == "media.play" {
 		args = e.resolveMediaPlayArgs(session, args)
 	}

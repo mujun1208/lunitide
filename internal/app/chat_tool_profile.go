@@ -66,3 +66,30 @@ func applyToolProfile(defs []gateway.ToolDefinition, profile toolProfile) []gate
 	}
 	return filterToolDefs(defs, allow)
 }
+
+// companionDefaultDeniedTool is the P1-PROF high-risk set: 月伴 may open
+// desktop/media and (when CC is on) computer.act, but must not advertise
+// or run a shell / outbound IM / raw cc.* ladder.
+func companionDefaultDeniedTool(name string) bool {
+	n := strings.TrimSpace(name)
+	if strings.HasPrefix(n, "cc.") {
+		return true
+	}
+	switch n {
+	case "command.run", "im.send":
+		return true
+	default:
+		return false
+	}
+}
+
+func filterCompanionDefaultTools(defs []gateway.ToolDefinition) []gateway.ToolDefinition {
+	out := make([]gateway.ToolDefinition, 0, len(defs))
+	for _, d := range defs {
+		if companionDefaultDeniedTool(d.Name) {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}

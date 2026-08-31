@@ -78,33 +78,51 @@ export function shownVoicePath(path: VoicePath): ShownVoicePath {
   return 'cloud'
 }
 
-/** Product picker for 月伴. MiniCPM-o stays in the type for leftover saves but is not offered. */
-export const VOICE_PATHS: VoicePathOption[] = [
-  {
-    value: 'cloud',
-    label: '云端',
-    badge: '默认',
-    kicker: '即开即用',
-    meta: '晓晓 · 微软 Neural',
-    desc: '免密钥。听写与朗读走现有云端通道，适合大多数对话。',
-  },
-  {
-    value: 'volc',
-    label: '火山',
-    badge: '听写',
-    kicker: 'seed-asr',
-    meta: '火山听 · 晓晓读',
-    desc: '听写走火山 seed-asr 2.0，不是对话模型。朗读仍是晓晓。豆包里的温柔桃子等角色是火山 TTS，不是 seed-asr，这里选不了。密钥配在供应商「语音模型」。',
-  },
-  {
-    value: 'local',
-    label: '本地',
-    badge: '本机',
-    kicker: '离线克隆',
-    meta: 'sherpa + GPT-SoVITS',
-    desc: '本机 sherpa 听写，GPT-SoVITS 克隆 50 种人生音色。音频不出设备。',
-  },
-]
+const CLOUD_PATH: VoicePathOption = {
+  value: 'cloud',
+  label: '云端',
+  badge: '默认',
+  kicker: '即开即用',
+  meta: '晓晓 · 微软 Neural',
+  desc: '免密钥。听写与朗读走现有云端通道，适合大多数对话。',
+}
+
+const LOCAL_PATH: VoicePathOption = {
+  value: 'local',
+  label: '本地',
+  badge: '本机',
+  kicker: '离线克隆',
+  meta: 'sherpa + GPT-SoVITS',
+  desc: '本机 sherpa 听写，GPT-SoVITS 克隆 50 种人生音色。音频不出设备。',
+}
+
+/** Card copy: only write 火山读 when a tts row is actually configured. */
+export function voicePathOptions(volcTtsReady = false): VoicePathOption[] {
+  return [
+    CLOUD_PATH,
+    volcTtsReady
+      ? {
+          value: 'volc',
+          label: '火山',
+          badge: '听+读',
+          kicker: 'seed-asr + tts',
+          meta: '火山听 · 火山读',
+          desc: '听写走 seed-asr 2.0，朗读走 seed-tts 2.0 官方音色。不是本机 50 种人生，也不是豆包 App 温柔桃子。密钥配在供应商「语音模型」。',
+        }
+      : {
+          value: 'volc',
+          label: '火山',
+          badge: '听',
+          kicker: 'seed-asr',
+          meta: '火山听 · 晓晓读（未配朗读）',
+          desc: '听写走 seed-asr 2.0。还没配朗读模型，朗读先走晓晓。在供应商「语音模型」加一行类型为朗读。不是本机 50 种人生，也不是豆包 App 温柔桃子。',
+        },
+    LOCAL_PATH,
+  ]
+}
+
+/** Default cards assume TTS is not configured — the honest shelf copy. */
+export const VOICE_PATHS: VoicePathOption[] = voicePathOptions(false)
 
 export function voicePersonaGroups(personas = VOICE_PERSONAS): [string, VoicePersona[]][] {
   const map = new Map<string, VoicePersona[]>()

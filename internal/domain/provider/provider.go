@@ -32,6 +32,10 @@ const (
 	ProtocolVolcSpeech       Protocol = "volc_speech"
 )
 
+// VolcSpeechOrigin is the only stored 基础 URL for Agent Plan speech.
+// Official wss/http paths are appended by the engine, not typed by the user.
+const VolcSpeechOrigin = "https://openspeech.bytedance.com"
+
 // ValidProtocol is the stored-provider enum, including speech-only Volc.
 func ValidProtocol(p Protocol) bool {
 	return p == ProtocolOpenAICompatible || p == ProtocolAnthropic || p == ProtocolVolcSpeech
@@ -186,6 +190,34 @@ func validASCIIHostname(host string) bool {
 	return true
 }
 
+// CanonicalVolcSpeechURL accepts the official Agent Plan full paths (https/wss)
+// and stores only the speech origin. ark.cn-beijing text URLs remap here too.
+func CanonicalVolcSpeechURL(raw string) (string, error) {
+	input := strings.TrimSpace(raw)
+	if input == "" || input == "https://" || input == "http://" {
+		return VolcSpeechOrigin, nil
+	}
+	rewritten := input
+	if strings.HasPrefix(strings.ToLower(rewritten), "wss://") {
+		rewritten = "https://" + rewritten[6:]
+	} else if strings.HasPrefix(strings.ToLower(rewritten), "ws://") {
+		rewritten = "http://" + rewritten[5:]
+	}
+	origin, err := NormalizeOrigin(rewritten)
+	if err != nil {
+		return "", errors.New("火山语音基础 URL 只接受 openspeech.bytedance.com")
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return "", errors.New("火山语音基础 URL 只接受 openspeech.bytedance.com")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "openspeech.bytedance.com" || strings.HasSuffix(host, ".volces.com") || host == "volces.com" {
+		return VolcSpeechOrigin, nil
+	}
+	return "", errors.New("火山语音基础 URL 只接受 openspeech.bytedance.com")
+}
+
 // NormalizeOrigin returns only the credential security boundary: scheme, host,
 // and effective non-default port. Paths never participate in credential binding.
 func NormalizeOrigin(raw string) (string, error) {
@@ -272,8 +304,8 @@ func (p Provider) Validate() error {
 	}
 	if p.Protocol == ProtocolVolcSpeech {
 		for _, model := range p.Models {
-			if model.EffectiveKind() != KindVoice {
-				return errors.New("volc speech providers may only contain voice models")
+			if !IsSpeechKind(model.EffectiveKind()) {
+				return errors.New("volc speech providers may only contain asr or tts models")
 			}
 		}
 	}

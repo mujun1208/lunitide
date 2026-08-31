@@ -94,12 +94,16 @@ func localBrainUserError(kind string, err error) string {
 	}
 	msg := strings.TrimSpace(err.Error())
 	if strings.Contains(msg, "not on PATH") || strings.Contains(msg, "executable file not found") {
-		return label + " 不在 PATH 上，没跑起来。"
+		return label + " 不在 PATH 上，没跑起来。已改用月汐引擎。"
 	}
 	if strings.Contains(strings.ToLower(msg), "timeout") || errors.Is(err, context.DeadlineExceeded) {
-		return label + " 超时。"
+		return label + " 超时。已改用月汐引擎。"
 	}
-	return label + " 失败：" + clipRunes(msg, 200) + "。"
+	return label + " 失败：" + clipRunes(msg, 200) + "。已改用月汐引擎。"
+}
+
+func localBrainFallbackNotice(kind string, err error) string {
+	return localBrainUserError(kind, err) + "下面是月汐引擎，不是本机 Codex / Claude Code。\n"
 }
 
 func readLocalBrainResume(workDir string) string {

@@ -10,9 +10,13 @@ const tts = vi.hoisted(() => ({
   ensureRefEngine: vi.fn(),
 }))
 
+const providers = vi.hoisted(() => ({
+  list: vi.fn(),
+}))
+
 vi.mock('../bridge/client', async () => {
   const actual = await vi.importActual<typeof import('../bridge/client')>('../bridge/client')
-  return { ...actual, getTtsBridge: () => tts }
+  return { ...actual, getTtsBridge: () => tts, getProviderBridge: () => providers }
 })
 
 vi.mock('../session/companion/localAsr', () => ({
@@ -29,8 +33,20 @@ describe('CompanionSection voice path', () => {
   beforeEach(() => {
     localStorage.clear()
     tts.voices.mockReset()
-    tts.voices.mockResolvedValue({
-      voices: [{ voice_id: 'zh-CN-XiaoxiaoNeural', display_name: '晓晓', lang: 'zh-CN', gender: 'female' }],
+    tts.synthesize.mockReset()
+    tts.ensureRefEngine.mockReset()
+    providers.list.mockReset()
+    providers.list.mockResolvedValue({ items: [] })
+    tts.ensureRefEngine.mockResolvedValue({ state: 'launching', host_script: '', endpoint: 'http://127.0.0.1:9880' })
+    tts.voices.mockImplementation(async (payload?: { engine?: string }) => {
+      if (payload?.engine === 'volc') {
+        return {
+          voices: [{ voice_id: 'zh_female_xiaohe_uranus_bigtts', display_name: '小何', lang: 'zh-CN', gender: 'female', group: '通用女声' }],
+        }
+      }
+      return {
+        voices: [{ voice_id: 'zh-CN-XiaoxiaoNeural', display_name: '晓晓', lang: 'zh-CN', gender: 'female' }],
+      }
     })
   })
 
@@ -42,7 +58,7 @@ describe('CompanionSection voice path', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(3)
     expect(screen.getByRole('radio', { name: /云端/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText('晓晓 · 微软 Neural')).toBeInTheDocument()
-    expect(screen.getByText('火山听 · 晓晓读')).toBeInTheDocument()
+    expect(screen.getByText('火山听 · 晓晓读（未配朗读）')).toBeInTheDocument()
     expect(screen.getByText('sherpa + GPT-SoVITS')).toBeInTheDocument()
     expect(document.querySelectorAll('.voice-path-card')).toHaveLength(3)
   })
@@ -102,14 +118,74 @@ describe('CompanionSection voice path', () => {
     expect(stored).not.toHaveProperty('omniPersonaId')
   })
 
-  test('volc path keeps Edge 晓晓 extras and turns barge-in on', async () => {
+  test('volc path without TTS keeps 晓晓 extras', async () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     await user.click(await screen.findByRole('radio', { name: /火山/ }))
     expect(screen.getByRole('radio', { name: /火山/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText('朗读音色')).toBeInTheDocument()
+    expect(screen.queryByRole('searchbox', { name: '查找火山音色' })).not.toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>
+    expect(stored.engine).toBe('edge')
+    expect(stored.voicePath).toBe('volc')
+    expect(stored.voiceBargeIn).toBe(false)
+  })
+
+  test('volc path lists official seed-tts speakers after TTS is configured', async () => {
+    providers.list.mockResolvedValue({
+      items: [{
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+        name: 'Volc',
+        protocol: 'volc_speech',
+        baseUrl: 'https://openspeech.bytedance.com',
+        status: 'enabled',
+        credentialState: 'configured',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        version: 1,
+        models: [
+          { modelId: 'seed-asr-2.0', displayName: 'seed-asr', isDefault: true, kind: 'asr' },
+          { modelId: 'zh_female_xiaohe_uranus_bigtts', displayName: '小何', isDefault: false, kind: 'tts', kindDefault: true },
+        ],
+      }],
+    })
+    const user = userEvent.setup()
+    render(<CompanionSection />)
+    await waitFor(() => expect(screen.getByText('火山听 · 火山读')).toBeInTheDocument())
+    expect(screen.getByText(/已配火山朗读/)).toBeInTheDocument()
+    await user.click(await screen.findByRole('radio', { name: /火山/ }))
+    expect(screen.queryByText(/已配火山朗读/)).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /火山/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByText('显示外语音色')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('GPT-SoVITS 服务地址')).not.toBeInTheDocument()
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').voiceBargeIn).toBe(true)
+    expect(await screen.findByText('小何')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: '查找火山音色' })).toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>
+    expect(stored.engine).toBe('volc')
+    expect(stored.voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
+    expect(stored.voiceBargeIn).toBe(false)
+    expect(await screen.findByRole('button', { name: '试听' })).toBeEnabled()
+  })
+
+  test('local preview stays disabled while the hosted engine is launching', async () => {
+    tts.voices.mockResolvedValue({
+      voices: [{ voice_id: 'refpack:温暖御姐.wav', display_name: '温暖御姐', lang: 'zh-CN', gender: 'female', group: '温柔御姐' }],
+      ref_meta: {
+        endpoint: 'http://127.0.0.1:9880',
+        pack_dir: 'pack',
+        server_online: false,
+        pack_exists: true,
+        missing_files: [],
+        host_state: 'launching',
+        host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat',
+      },
+    })
+    const user = userEvent.setup()
+    render(<CompanionSection />)
+    await user.click(await screen.findByRole('radio', { name: /本地/ }))
+    expect(await screen.findByText(/语音引擎启动中/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '启动中…' })).toBeDisabled()
+    expect(tts.synthesize).not.toHaveBeenCalled()
   })
 
   test('local path keeps three cards and shows GPT-SoVITS extras', async () => {

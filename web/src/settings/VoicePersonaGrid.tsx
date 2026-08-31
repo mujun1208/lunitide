@@ -1,19 +1,27 @@
 import React, { useMemo, useState } from 'react'
-import { voicePersonaGroups, type VoicePersona } from '../session/companion/voicePersonas'
+import { VOICE_PERSONAS, voicePersonaGroups, type VoicePersona } from '../session/companion/voicePersonas'
 
 export function VoicePersonaGrid({
   value,
   onChange,
   caption,
+  personas = VOICE_PERSONAS,
+  filterPlaceholder = '在 50 种人生里查找',
+  filterLabel = '查找人生',
+  empty = '没有匹配的人生。',
 }: {
   value: string
   onChange: (id: string) => void
   caption?: string
+  personas?: VoicePersona[]
+  filterPlaceholder?: string
+  filterLabel?: string
+  empty?: string
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const all = voicePersonaGroups()
+    const all = voicePersonaGroups(personas)
     if (!q) return all
     return all
       .map(([group, items]): [string, VoicePersona[]] => [
@@ -21,7 +29,7 @@ export function VoicePersonaGrid({
         items.filter(persona => `${persona.name} ${persona.group} ${persona.gender}`.toLowerCase().includes(q)),
       ])
       .filter(([, items]) => items.length > 0)
-  }, [query])
+  }, [personas, query])
 
   return (
     <div className="persona-gallery">
@@ -31,8 +39,8 @@ export function VoicePersonaGrid({
         type="search"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        placeholder="在 50 种人生里查找"
-        aria-label="查找人生"
+        placeholder={filterPlaceholder}
+        aria-label={filterLabel}
       />
       {groups.map(([group, items]) => (
         <section key={group} className="persona-gallery-group">
@@ -56,7 +64,7 @@ export function VoicePersonaGrid({
           </div>
         </section>
       ))}
-      {groups.length === 0 && <p className="persona-gallery-caption">没有匹配的人生。</p>}
+      {groups.length === 0 && <p className="persona-gallery-caption">{empty}</p>}
     </div>
   )
 }

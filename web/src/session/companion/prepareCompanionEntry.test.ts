@@ -74,7 +74,8 @@ describe('prepareCompanionEntry', () => {
     })
     expect(prepared.voicePath).toBe('volc')
     expect(prepared.settings.engine).toBe('edge')
-    expect(prepared.settings.voiceBargeIn).toBe(true)
+    expect(prepared.hasVolcTts).toBe(false)
+    expect(prepared.settings.voiceBargeIn).toBe(false)
   })
 
   test('defaults an unset path to 云端 when there is no voice provider', async () => {
@@ -88,6 +89,28 @@ describe('prepareCompanionEntry', () => {
     })
     expect(prepared.voicePath).toBe('volc')
     expect(prepared.settings.voicePath).toBe('volc')
+  })
+
+  test('volc speak id uses an official speaker when kindDefault is the resource id', async () => {
+    const stored = { ...applyVoicePath(defaultCompanionSettings(), 'volc'), voiceId: 'seed-tts-2.0' }
+    saveCompanionSettings(stored)
+    const withResource = {
+      ...volc,
+      models: [
+        { modelId: 'seed-asr', displayName: 'seed-asr', isDefault: true, kind: 'asr' as const, kindDefault: true },
+        { modelId: 'seed-tts-2.0', displayName: '豆包语音合成 2.0', isDefault: false, kind: 'tts' as const, kindDefault: true },
+        { modelId: 'zh_female_vv_uranus_bigtts', displayName: 'Vivi', isDefault: false, kind: 'tts' as const },
+      ],
+    }
+    const prepared = await prepareCompanionEntry(stored, {
+      listProviders: async () => ({ items: [chat, withResource] }),
+    })
+    expect(prepared.voicePath).toBe('volc')
+    expect(prepared.settings.engine).toBe('volc')
+    expect(prepared.settings.voiceId).toBe('zh_female_vv_uranus_bigtts')
+    expect(prepared.hasVolcTts).toBe(true)
+    expect(prepared.speakVoiceId).toBe('zh_female_vv_uranus_bigtts')
+    expect(prepared.lights[1].label).toMatch(/Vivi/)
   })
 
   test('keeps an explicit 云端 card even when seed-asr exists', async () => {

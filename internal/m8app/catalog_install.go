@@ -147,9 +147,10 @@ func installCatalogExpert(ctx context.Context, experts *ExpertService, item Cata
 			Name: item.Name, Division: item.Division,
 			Description: desc, Semver: version,
 		},
-		SixSection: item.SixSection,
-		RequestID:  "catalog-" + item.ID,
-		Actor:      "catalog-install",
+		SixSection:    item.SixSection,
+		RequestID:     "catalog-" + item.ID,
+		Actor:         "catalog-install",
+		CatalogItemID: item.ID,
 	})
 	if err != nil {
 		if errors.Is(err, ErrExpertDuplicate) {

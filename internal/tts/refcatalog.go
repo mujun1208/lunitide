@@ -18,6 +18,20 @@ import (
 // so the dedicated api_v2 service on 9880 is the integration target.
 const DefaultRefEndpoint = "http://127.0.0.1:9880"
 
+// CanonicalRefEndpoint trims space and a trailing slash. Empty means the
+// built-in api_v2 default so a typed 127.0.0.1:9880 still auto-hosts.
+func CanonicalRefEndpoint(endpoint string) string {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return strings.TrimRight(DefaultRefEndpoint, "/")
+	}
+	return endpoint
+}
+
+func IsDefaultRefEndpoint(endpoint string) bool {
+	return CanonicalRefEndpoint(endpoint) == strings.TrimRight(DefaultRefEndpoint, "/")
+}
+
 // DefaultRefPackDir points at the shipped character-voice collection
 // (role-play voices). A var (not const) so tests can point it at fixtures.
 var DefaultRefPackDir = `E:\AI电影漫剧\800+音色合集\逗哥音色整理合集\角色扮演`
@@ -189,9 +203,7 @@ type RefMeta struct {
 // checks the preset files on disk across both pack directories.
 // MissingFiles stays empty when a pack folder itself is absent.
 func RefPackMeta(endpoint string) RefMeta {
-	if endpoint == "" {
-		endpoint = DefaultRefEndpoint
-	}
+	endpoint = CanonicalRefEndpoint(endpoint)
 	meta := RefMeta{Endpoint: endpoint, PackDir: DefaultRefPackDir + " + " + DefaultRefPackDirHot, MissingFiles: []string{}}
 	client := &http.Client{Timeout: 800 * time.Millisecond}
 	// FastAPI api_v2 has no root handler; /docs is the reliable liveness probe.

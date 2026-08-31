@@ -35,20 +35,20 @@ func (e *Engine) RegisterExpertAgentContacts(ctx context.Context) error {
 		return err
 	}
 	for _, item := range listed.Experts {
-		e.registerAgentContactForExpert(ctx, item.ExpertID, item.Name, item.Division, item.State)
+		e.registerAgentContactForExpert(ctx, item.ExpertID, item.Name, item.Division, item.State, item.CatalogItemID)
 	}
 	return nil
 }
 
-func (e *Engine) registerAgentContactForExpert(ctx context.Context, expertID, name, division, state string) {
+func (e *Engine) registerAgentContactForExpert(ctx context.Context, expertID, name, division, state, catalogItemID string) {
 	if e == nil || e.people == nil {
 		return
 	}
-	if m8app.ExpertKindForName(name) != m8app.ExpertKindAgent || state == "archived" {
+	if m8app.ExpertKindForExpert(name, catalogItemID) != m8app.ExpertKindAgent || state == "archived" {
 		return
 	}
 	emoji, bio := "🌙", ""
-	if item, ok := m8app.ConversationExpertByName(name); ok {
+	if item, ok := m8app.ResolveConversationExpert(name, catalogItemID); ok {
 		if item.Emoji != "" {
 			emoji = item.Emoji
 		}
@@ -272,7 +272,7 @@ func (e *Engine) runPeopleAgentJob(ctx context.Context, job peopleAgentJob) {
 			continue
 		}
 		if ident, bindErr := e.conversationIdentityForPeople(workCtx, threadID, agent.Nickname, []string{agent.SubjectID}); bindErr == nil {
-			e.writeExpertLastMemory(workCtx, ident.BoundSessionID, agent.SubjectID, user.Body, reply)
+			e.recordPeopleTurnMemory(workCtx, ident.BoundSessionID, agent.SubjectID, user.Body, reply, posted.MessageID)
 		}
 		e.enqueuePeopleAgentHandoffs(thread, posted, agent, job.hop)
 	}
@@ -342,7 +342,7 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 		if err == nil && strings.TrimSpace(text) != "" {
 			return localBrainPrefix(eq.Brain) + text, nil
 		}
-		note := localBrainUserError(eq.Brain, err) + "已改用月汐引擎。\n"
+		note := localBrainFallbackNotice(eq.Brain, err)
 		if e.tools != nil && sessionID != "" {
 			if out, tErr := e.completePeopleAgentWithTools(ctx, agent, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
 				return note + out, nil
@@ -385,9 +385,9 @@ func (e *Engine) peopleAgentPrompt(ctx context.Context, agent people.Contact) st
 
 func (e *Engine) peopleAgentTurnPrompt(ctx context.Context, agent people.Contact, sessionID, userText string) string {
 	var b strings.Builder
-	b.WriteString("你是独立智能体「")
+	b.WriteString("你是同事专家「")
 	b.WriteString(agent.Nickname)
-	b.WriteString("」。这是同事聊天：按岗位把事做完，最后用中文纯文本回复。生成的文件写在本机工作区或桌面（desktop=true），并在回复里给出路径。群聊里可以用 @同事昵称 把未完成的部分交给对方；不要 @ 自己，不要来回互 @。不要说你是月汐主编排。不要向同事要审批。\n")
+	b.WriteString("」（同一月汐引擎上的人设和工具，不是独立进程）。这是同事聊天：按岗位把事做完，最后用中文纯文本回复。生成的文件写在本机工作区或桌面（desktop=true），并在回复里给出路径。群聊里可以用 @同事昵称 把未完成的部分交给对方；不要 @ 自己，不要来回互 @。不要说你是月汐主编排。不要向同事要审批。\n")
 	if e.m8expert != nil {
 		if detail, dErr := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: agent.SubjectID}); dErr == nil {
 			var six struct {
@@ -427,7 +427,14 @@ func (e *Engine) peopleAgentTurnPrompt(ctx context.Context, agent people.Contact
 	}
 	var preferred []string
 	if e.m8expert != nil {
-		preferred = e.m8expert.ComposeSkillsForNames(ctx, []string{agent.Nickname})
+		if agent.SubjectID != "" {
+			if keys, err := e.m8expert.ListBoundSkills(ctx, agent.SubjectID); err == nil && len(keys) > 0 {
+				preferred = keys
+			}
+		}
+		if len(preferred) == 0 {
+			preferred = e.m8expert.ComposeSkillsForNames(ctx, []string{agent.Nickname})
+		}
 	}
 	b.WriteString(expertComposeHint([]string{agent.Nickname}, published, e.connectedComposeMcpIDs(), preferred))
 	b.WriteString(e.peopleCompanionMemoryHint(ctx, sessionID, userText, agent.SubjectID))

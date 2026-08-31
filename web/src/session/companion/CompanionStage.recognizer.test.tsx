@@ -243,7 +243,26 @@ test('does not fall back to system recognition when volc handshake fails', async
 
   expect(recognizers.volc).toHaveBeenCalled()
   expect(recognizers.cloud).not.toHaveBeenCalled()
+  expect(recognizers.local).not.toHaveBeenCalled()
   expect(utils.container.querySelector('[data-asr-route="cloud"]')).toBeNull()
+  expect(utils.container.querySelector('[data-asr-route="local"]')).toBeNull()
+  expect(utils.container.textContent).toMatch(/VOICE-004/)
+  utils.unmount()
+})
+
+test('does not fall back to sherpa when volc handshake fails and local is ready', async () => {
+  saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'volc'))
+  recognizers.providers = [chatProvider, volcProvider]
+  recognizers.volc.mockRejectedValueOnce(new Error('handshake'))
+  const utils = render(<CompanionStage {...baseProps} />)
+  await act(async () => {
+    recognizers.settleProbe(true)
+  })
+  await flush(LOCAL_ASR_DECISION_MS + 50)
+
+  expect(recognizers.local).not.toHaveBeenCalled()
+  expect(recognizers.cloud).not.toHaveBeenCalled()
+  expect(utils.container.querySelector('[data-asr-route="local"]')).toBeNull()
   expect(utils.container.textContent).toMatch(/VOICE-004/)
   utils.unmount()
 })

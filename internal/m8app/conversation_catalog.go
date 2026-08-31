@@ -23,12 +23,22 @@ var ConversationExpertIDs = []string{
 const ConversationExpertCapabilityClause = "任务过程中必须思考（todo.write）；需要技能立刻 skill.invoke；事实与素材先 web.search（必要时 web.fetch / browser.act）；结构/流程/架构用 mermaid 画图（节点双引号，换行 <br/>）；成文调用 docx.gen / excel.gen / pptx.gen / html.gen / workspace.write（桌面 desktop=true）。不要只口头交差，不要倾倒 200 页全书。"
 
 func withConversationExpertCapabilities(item CatalogItem) CatalogItem {
+	item.SixSection.Identity = honestColleagueExpertIdentity(item.SixSection.Identity)
 	body := item.SixSection.Rules + "\n" + item.SixSection.Workflow + "\n" + item.SixSection.Mission
 	if strings.Contains(body, "skill.invoke") && strings.Contains(body, "web.search") && strings.Contains(body, "mermaid") {
 		return item
 	}
 	item.SixSection.Rules = strings.TrimSpace(item.SixSection.Rules) + "\n" + ConversationExpertCapabilityClause
 	return item
+}
+
+// Catalog seeds used to say「独立智能体」. That is a persona on the same
+// engine, not a process. Keep the recipe; change the lie.
+func honestColleagueExpertIdentity(identity string) string {
+	identity = strings.ReplaceAll(identity, "你是独立智能体：", "你是同事专家（同一月汐引擎，不是独立进程）：")
+	identity = strings.ReplaceAll(identity, "你是独立智能体，", "你是同事专家（同一月汐引擎，不是独立进程），")
+	identity = strings.ReplaceAll(identity, "独立智能体", "同事专家")
+	return identity
 }
 
 // ConversationExperts answers the 对话 specialists (PPT / 报告 / 小说 /

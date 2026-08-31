@@ -36,6 +36,10 @@ type SynthesizeInput struct {
 	RefPromptText string
 	// Style is an optional Edge neural speaking style (chat, affectionate…).
 	Style string
+	// VolcAPIKey / VolcBaseURL are filled by the bridge from the stored
+	// volc_speech provider lease. The renderer never sends them.
+	VolcAPIKey  string
+	VolcBaseURL string
 }
 
 // Engine selector values carried by tts.synthesize payloads.
@@ -44,12 +48,13 @@ const (
 	EngineNatural = "natural" // local OneCore natural neural voices (default)
 	EngineEdge    = "edge"    // free Microsoft cloud neural voices (晓晓等)
 	EngineRef     = "ref"     // zero-shot reference-timbre cloning via local service
+	EngineVolc    = "volc"    // Ark Agent Plan seed-tts (openspeech)
 )
 
 // ValidEngine reports whether the payload engine field is accepted.
 func ValidEngine(engine string) bool {
 	switch engine {
-	case "", EngineSapi, EngineNatural, EngineEdge, EngineRef:
+	case "", EngineSapi, EngineNatural, EngineEdge, EngineRef, EngineVolc:
 		return true
 	}
 	return false

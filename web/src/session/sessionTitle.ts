@@ -10,6 +10,13 @@ export function isRenameableChatTitle(title: string): boolean {
   return PLACEHOLDER_CHAT_TITLES.has(t) || COMPANION_CHAT_TITLES.has(t)
 }
 
+/** Sidebar/search label. Bound colleague sessions used to store「同事 · 专家」. */
+export function displaySessionTitle(title: string): string {
+  const trimmed = title.trim()
+  if (trimmed.startsWith('同事 · ')) return trimmed.slice('同事 · '.length).trim() || trimmed
+  return trimmed
+}
+
 export function titleFromFirstTurn(text: string, max = 80): string {
   const t = text.replace(/\s+/g, ' ').trim()
   if (!t) return ''

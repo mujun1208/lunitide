@@ -170,7 +170,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// so path answers match reality instead of a stale sandbox assumption.
 	if mode == executionModeFullAccess && e.tools != nil {
 		if e.fullDiskChat(mode) {
-			instruction += " Full-disk full-access is enabled: file tools accept absolute paths on any drive (Desktop, Documents, other drives) and command.run executes arbitrary commands on this machine. Use absolute paths for user folders; create missing parent directories with writes when needed."
+			instruction += " Full-disk full-access is enabled: file tools accept absolute paths on any drive (Desktop, Documents, other drives)"
+			if !p.Companion {
+				instruction += " and command.run executes arbitrary commands on this machine"
+			}
+			instruction += ". Use absolute paths for user folders; create missing parent directories with writes when needed."
 		} else if root, ok := e.tools.FullAccessRootHint(); ok {
 			instruction += " File tools operate directly inside the user's workspace root " + root + "; relative paths resolve there. Keep every read and write inside that root and answer with real paths from it."
 			if p.Companion {
@@ -581,6 +585,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
 			req.Tools = applyToolProfile(req.Tools, profile)
 		}
+		if p.Companion {
+			req.Tools = filterCompanionDefaultTools(req.Tools)
+		}
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, boundSessionID, mode)
 	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
@@ -685,15 +692,15 @@ func companionPersonaInstruction() string {
 		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
 		"- 搜网页/查火车/查航班/查天气：必须 web.search，再用一两句把结果说出来（气温、阴晴），不要只说等一下就停\n" +
-		"- 打开页面：browser.act 或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL）\n" +
-		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
+		"- 打开页面：用 browser.act，不要猜 command.run 或系统 start\n" +
+		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」。做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act screenshot 看清，记下 frameId，再 click 输入位置后 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
-		"- 发飞书/企微/钉钉/微信/QQ：设置里启用消息通道后用 im.send（channel=feishu|wecom|dingtalk|wechat|qq，text=内容，to=联系人可选）。飞书/企微/钉钉有 Webhook 就走机器人；微信/QQ 打开本机已登录客户端再输入。未启用就提示去设置 → 消息通道\n" +
+		"- 发飞书/企微/钉钉/微信/QQ：月伴不发即时消息。请用户改在工作台会话里发，或去设置 → 消息通道\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
-		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
+		"- 建文件夹/写文件：只用 workspace.write，不要猜命令行\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
-		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。command.run 仅在需要跑命令时用\n" +
+		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。月伴不要跑命令行、不要发 IM\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
 		"- 月伴不挂专家装备：不要召开评议会，不要用专家芯片；你就是月汐。"
 }
@@ -771,23 +778,45 @@ func companionTypedText(out string) string {
 	return strings.TrimSpace(rest[:j])
 }
 
+func companionToolResultFailed(out string) bool {
+	lower := strings.ToLower(out)
+	return strings.HasPrefix(out, "ok:false") ||
+		strings.Contains(out, "无法执行") ||
+		strings.Contains(out, "COMPUTER_STALE_FRAME") ||
+		strings.Contains(out, "M10-CC-012") ||
+		strings.Contains(out, "电脑控制未启用") ||
+		strings.Contains(out, "BROWSER_MCP_NOT_READY") ||
+		strings.Contains(lower, "verify capture failed") ||
+		strings.Contains(lower, "refused") ||
+		strings.Contains(out, "not invokable") ||
+		strings.Contains(lower, "uac") ||
+		strings.Contains(out, "提权")
+}
+
+const companionBrowserMCPSpeech = "浏览器没就绪。请到设置里安装 Playwright MCP，这次没有点到页面。"
+
 func companionToolResultSpeech(name, out string) string {
 	out = strings.TrimSpace(out)
-	if i := strings.IndexAny(out, "\r\n"); i >= 0 {
-		out = strings.TrimSpace(out[:i])
-	}
-	fail := strings.Contains(out, "无法执行") ||
-		strings.Contains(out, "COMPUTER_STALE_FRAME") ||
-		strings.Contains(strings.ToLower(out), "verify capture failed") ||
-		strings.Contains(strings.ToLower(out), "refused") ||
-		strings.Contains(out, "not invokable") ||
-		strings.Contains(strings.ToLower(out), "uac") ||
-		strings.Contains(out, "提权")
-	if fail {
+	if companionToolResultFailed(out) {
+		if strings.Contains(out, "BROWSER_MCP_NOT_READY") {
+			return companionBrowserMCPSpeech
+		}
+		if strings.Contains(out, "M10-CC-012") || strings.Contains(out, "电脑控制未启用") {
+			return "电脑控制未启用。第一次控桌面请到设置里打开。"
+		}
+		if strings.Contains(strings.ToLower(out), "uac") || strings.Contains(out, "提权") {
+			return "这是系统提权对话框，我不能代点「是」。请你自己确认或取消。"
+		}
+		if i := strings.IndexAny(out, "\r\n"); i >= 0 {
+			out = strings.TrimSpace(out[:i])
+		}
 		if strings.Contains(out, "无法执行") && out != "" {
 			return out
 		}
 		return "这次没有完成。"
+	}
+	if i := strings.IndexAny(out, "\r\n"); i >= 0 {
+		out = strings.TrimSpace(out[:i])
 	}
 	if strings.Contains(out, "multiple desktop files") || strings.Contains(out, "多份") {
 		return "桌面上有好几份文档，请说出完整文件名。"
@@ -807,13 +836,32 @@ func companionToolResultSpeech(name, out string) string {
 	case "media.play":
 		return "已经在播了。"
 	default:
-		if name == "computer.act" || strings.HasPrefix(name, "cc.") {
-			if out == "" {
-				return "这次没有完成。"
-			}
+		if name == "computer.act" || name == "browser.act" || strings.HasPrefix(name, "cc.") {
+			return companionDesktopResultSpeech(out)
 		}
-		return "好，完成了。"
+		// Unknown / mid-loop tools: under-claim. “完成了” is a settle
+		// phrase; empty or opaque output is still process.
+		return "还在处理。"
 	}
+}
+
+// companionDesktopResultSpeech never claims “完成了” for a see/click/ok
+// mid-step. desktopTurnSettled treats “点了一下” as process, not done.
+func companionDesktopResultSpeech(out string) string {
+	if out == "" || strings.EqualFold(out, "ok") {
+		return "这次没有完成。"
+	}
+	if text := companionTypedText(out); text != "" {
+		return "已经写入了 " + text + "。"
+	}
+	lower := strings.ToLower(out)
+	if strings.Contains(lower, "screenshot") || strings.Contains(lower, "observe") {
+		return "先看了一下。"
+	}
+	if strings.Contains(lower, "clicked") || strings.Contains(out, "点了") {
+		return "点了一下。"
+	}
+	return "还在处理。"
 }
 
 // companionWantsTools is the voice fast-path gate: idle chat must not ship
@@ -1184,7 +1232,7 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Never click 我喜欢的音乐 / 收藏. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Full-access mode is enough; the full-disk switch is not required.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "im.send", Description: "Send a message on a configured IM channel (设置 → 消息通道). channel=feishu|wecom|dingtalk uses the pasted https webhook; channel=wechat|qq opens the logged-in desktop client. Pass to= for a contact name when using the desktop client. If the channel is off, tell the user to enable it in Settings.", Schema: []byte(`{"type":"object","properties":{"channel":{"type":"string","enum":["feishu","wecom","dingtalk","wechat","qq"]},"to":{"type":"string","maxLength":80,"description":"optional contact or group name"},"text":{"type":"string","minLength":1,"maxLength":4000}},"required":["channel","text"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace. Latin text renders best; Chinese reports should use docx.gen. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
-		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). Most mutating ops return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. Do not use evaluate, file upload, or install. navigate prefers Playwright MCP (auto-installed); read extracts public-page text via fetch. Do not fall back to media.play or desktop pixels. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read","scroll","back","hover","select","press","tabs","wait","dialog"],"description":"navigate opens url; snapshot first if you have no refs; click/type/hover/select/press use those refs; scroll/back/tabs/wait/dialog are Playwright extras; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type/hover/select. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type, or option value for select"},"key":{"type":"string","description":"Key name for press (e.g. Enter, Escape)"},"direction":{"type":"string","enum":["up","down"],"description":"scroll direction"},"ms":{"type":"integer","minimum":0,"maximum":30000,"description":"wait milliseconds"},"accept":{"type":"boolean","description":"dialog accept=true or dismiss=false"},"tab":{"type":"string","enum":["list","new","close","select"],"description":"tabs action"},"index":{"type":"integer","minimum":0,"description":"tab index for tabs select/close"}},"required":["op"],"additionalProperties":false}`)},
+		{Name: "browser.act", Description: "Browser automation on this PC in one managed browser. Typical flow: navigate → use returned snapshot refs to click/type (do not guess CSS). Most mutating ops return a fresh snapshot; if a ref is stale, snapshot once and retry that one action. Login walls, 2FA, captcha, and file pickers are manual — stop and ask. Do not use evaluate, file upload, or install. navigate prefers Playwright MCP (auto-installed); click/type/snapshot error with BROWSER_MCP_NOT_READY if Playwright is missing — that is not a successful click. read extracts public-page text via fetch. Do not fall back to media.play or desktop pixels. Example: {\"op\":\"navigate\",\"url\":\"https://example.com/login\"}.", Schema: []byte(`{"type":"object","properties":{"op":{"type":"string","enum":["navigate","snapshot","click","type","read","scroll","back","hover","select","press","tabs","wait","dialog"],"description":"navigate opens url; snapshot first if you have no refs; click/type/hover/select/press use those refs; scroll/back/tabs/wait/dialog are Playwright extras; read extracts text"},"url":{"type":"string","description":"Absolute URL for navigate. Example: https://example.com/login. read reuses the last navigated URL when omitted"},"selector":{"type":"string","description":"CSS selector or snapshot ref for click/type/hover/select. Prefer refs from the last snapshot."},"text":{"type":"string","description":"Text to type, or option value for select"},"key":{"type":"string","description":"Key name for press (e.g. Enter, Escape)"},"direction":{"type":"string","enum":["up","down"],"description":"scroll direction"},"ms":{"type":"integer","minimum":0,"maximum":30000,"description":"wait milliseconds"},"accept":{"type":"boolean","description":"dialog accept=true or dismiss=false"},"tab":{"type":"string","enum":["list","new","close","select"],"description":"tabs action"},"index":{"type":"integer","minimum":0,"description":"tab index for tabs select/close"}},"required":["op"],"additionalProperties":false}`)},
 		{Name: "image.generate", Description: "Generate an image with the configured 生图模型 catalog (default, then backups). Use when the user asks to draw, illustrate, or generate a picture. Prompt is the image description.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Image description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
 		{Name: "video.generate", Description: "Generate a video with the configured 生视频模型 catalog (default, then backups). Use when the user asks to make or generate a video.", Schema: []byte(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000,"description":"Video description"},"path":{"type":"string","description":"Optional workspace-relative hint for where to save"}},"required":["prompt"],"additionalProperties":false}`)},
 		structuredOutputDefinition(),
@@ -1739,15 +1787,9 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
 		return toolruntime.Result{}, errors.New("browser.act needs op")
 	}
-	playwrightHint := toolruntime.Result{Output: "交互式浏览器自动化正在初始化 Playwright MCP（首次会下载 Chromium，约 1–2 分钟）。若仍失败，请用 media.play 播放音乐，或在设置 → 插件/MCP 检查 Playwright 状态。"}
 	switch a.Op {
 	case "click", "type", "snapshot", "scroll", "back", "hover", "select", "press", "tabs", "wait", "dialog":
-		if out, err := e.invokeBrowserActViaPlaywright(ctx, a); err != nil {
-			return toolruntime.Result{}, err
-		} else if out.Output != "" {
-			return out, nil
-		}
-		return playwrightHint, nil
+		return e.invokeBrowserActViaPlaywright(ctx, a)
 	case "navigate":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {
@@ -1763,6 +1805,7 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 		out, err := e.executeUserTool(ctx, mode, session, "web.fetch", args)
 		if err == nil {
 			e.browserLastURL.Store(session, u)
+			out = markBrowserNavigateFetch(out)
 		}
 		return out, err
 	case "read":
@@ -2107,8 +2150,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			assistantText.WriteString(text)
 			e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: text}})
-		} else if note != "" && len(req.Messages) > 0 && req.Messages[0].Role == gateway.RoleSystem {
-			req.Messages[0].Content = note + req.Messages[0].Content
+		} else if note != "" {
+			assistantText.WriteString(note)
+			e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: note}})
+			if len(req.Messages) > 0 && req.Messages[0].Role == gateway.RoleSystem {
+				req.Messages[0].Content = note + req.Messages[0].Content
+			}
 		}
 	}
 	var err error
@@ -2260,17 +2308,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				noteDocxChars(&turn, stepText)
 				if len(result.Message.ToolCalls) == 0 {
-					continueKind := ""
 					toolOut := lastToolOutput(req.Messages)
-					if shouldContinueTurn(stepText, usedTools, nudges, req.DisableReasoning) {
-						continueKind = "ask"
-					} else if shouldContinueIncompleteWork(stepText, toolOut, turn.LastTools, usedTools, nudges) {
-						continueKind = "incomplete"
-					} else if state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) && nudges < maxContinueNudges {
-						continueKind = "leadin"
-					} else if state.companion && usedDesktopTools && shouldContinueDesktopTurn(stepText, nudges) {
-						continueKind = "desktop"
-					}
+					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges)
 					if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
 						skillDraftOffered = true
 						msg := result.Message
@@ -2939,11 +2978,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			terminal.Completed = completed
 		}
 		if messageID != "" {
-			go func() {
-				bg := context.Background()
-				_ = e.maybeAutoNominateTurn(bg, sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
-				e.maybeWriteExpertTurnMemories(bg, sessionID, turn.Goal, assistantText.String())
-			}()
+			// Write before EventCompleted so the session banner and the
+			// next surface (companion / people) can see session:last and
+			// the confirm-inbox candidate without racing the UI fetch.
+			bg := context.Background()
+			e.maybeWriteExpertTurnMemories(bg, sessionID, turn.Goal, assistantText.String())
+			e.writeSessionLastMemory(bg, sessionID, turn.Goal, assistantText.String())
+			_ = e.maybeAutoNominateTurn(bg, sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
 		}
 	}
 	if terminal.Type == bridge.EventFailed {

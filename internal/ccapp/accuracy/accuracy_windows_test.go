@@ -47,6 +47,21 @@ func appActivate(title string) {
 	_ = cmd.Run()
 }
 
+// windowMatches requires every provided constraint. Process-only used to
+// steal the first explorer.exe (often release/out) on a dirty desktop.
+func windowMatches(w ccapp.WindowInfo, queries, wantProc []string) bool {
+	if len(wantProc) == 0 && len(queries) == 0 {
+		return false
+	}
+	if len(wantProc) > 0 && !processMatch(w.Process, wantProc...) {
+		return false
+	}
+	if len(queries) > 0 && !processMatch(w.Title, queries...) {
+		return false
+	}
+	return true
+}
+
 func waitTarget(t *testing.T, h ccapp.Host, queries, wantProc []string, timeout time.Duration) ccapp.WindowInfo {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -59,7 +74,7 @@ func waitTarget(t *testing.T, h ccapp.Host, queries, wantProc []string, timeout 
 			continue
 		}
 		for _, w := range wins {
-			if !processMatch(w.Process, wantProc...) && !processMatch(w.Title, queries...) {
+			if !windowMatches(w, queries, wantProc) {
 				continue
 			}
 			q := w.ID
@@ -81,6 +96,85 @@ func waitTarget(t *testing.T, h ccapp.Host, queries, wantProc []string, timeout 
 	return ccapp.WindowInfo{}
 }
 
+func uiBlob(nodes []ccapp.UINode) string {
+	var b strings.Builder
+	for _, n := range nodes {
+		b.WriteString(n.Name)
+		b.WriteByte(' ')
+		b.WriteString(n.Value)
+		b.WriteByte(' ')
+	}
+	return b.String()
+}
+
+func waitUIReady(t *testing.T, h ccapp.Host, minNodes int, timeout time.Duration) []ccapp.UINode {
+	t.Helper()
+	if minNodes < 1 {
+		minNodes = 1
+	}
+	deadline := time.Now().Add(timeout)
+	var last []ccapp.UINode
+	var lastErr error
+	for time.Now().Before(deadline) {
+		nodes, err := h.ObserveUI(80)
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		last = nodes
+		if len(nodes) >= minNodes {
+			return nodes
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("ui tree still empty after wait: err=%v nodes=%d", lastErr, len(last))
+	return last
+}
+
+func waitUIContaining(t *testing.T, h ccapp.Host, needles []string, timeout time.Duration) []ccapp.UINode {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last []ccapp.UINode
+	var lastErr error
+	for time.Now().Before(deadline) {
+		nodes, err := h.ObserveUI(80)
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		last = nodes
+		blob := uiBlob(nodes)
+		for _, needle := range needles {
+			if needle != "" && strings.Contains(blob, needle) {
+				return nodes
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("ui tree missing %v after wait: err=%v blob=%q", needles, lastErr, uiBlob(last))
+	return last
+}
+
+func TestWindowMatchesRequiresProcessAndTitle(t *testing.T) {
+	release := ccapp.WindowInfo{Title: "out", Process: "explorer.exe"}
+	marker := ccapp.WindowInfo{Title: "lunitide-d6-explorer", Process: "explorer.exe"}
+	calc := ccapp.WindowInfo{Title: "计算器", Process: "CalculatorApp.exe"}
+	if windowMatches(release, []string{"lunitide-d6-explorer"}, []string{"explorer"}) {
+		t.Fatal("untitled explorer must not match a named fixture")
+	}
+	if !windowMatches(marker, []string{"lunitide-d6-explorer"}, []string{"explorer"}) {
+		t.Fatal("titled explorer fixture must match")
+	}
+	if windowMatches(calc, []string{"lunitide-d6-explorer"}, []string{"explorer"}) {
+		t.Fatal("calculator must not match explorer fixture")
+	}
+	if !windowMatches(calc, []string{"计算器", "Calculator"}, []string{"calculatorapp", "calculator"}) {
+		t.Fatal("calculator title+process must match")
+	}
+}
+
 func TestLiveNotepadTypesVisibleText(t *testing.T) {
 	h := requireAccuracy(t)
 	dir := t.TempDir()
@@ -97,12 +191,9 @@ func TestLiveNotepadTypesVisibleText(t *testing.T) {
 			_ = cmd.Process.Kill()
 		}
 	})
-	waitTarget(t, h, []string{"lunitide-d6-notepad", "记事本", "notepad"}, []string{"notepad"}, 12*time.Second)
+	waitTarget(t, h, []string{"lunitide-d6-notepad"}, []string{"notepad"}, 12*time.Second)
 	marker := "lunitide-d6-notepad"
-	nodes, err := h.ObserveUI(80)
-	if err != nil {
-		t.Fatalf("observe: %v", err)
-	}
+	nodes := waitUIReady(t, h, 1, 8*time.Second)
 	typed := false
 	for _, n := range nodes {
 		role := strings.ToLower(n.Role)
@@ -153,11 +244,8 @@ func TestLiveCalculatorNamedClick(t *testing.T) {
 		}
 	})
 	waitTarget(t, h, []string{"计算器", "Calculator"}, []string{"calculatorapp", "calculator"}, 15*time.Second)
+	nodes := waitUIContaining(t, h, []string{"7", "七"}, 10*time.Second)
 	if err := h.InvokeUI("7"); err != nil {
-		nodes, obsErr := h.ObserveUI(80)
-		if obsErr != nil {
-			t.Fatalf("invoke 7: %v; observe: %v", err, obsErr)
-		}
 		found := false
 		for _, n := range nodes {
 			if name := strings.TrimSpace(n.Name); name == "7" || name == "七" {
@@ -191,18 +279,18 @@ func TestLiveCalculatorNamedClick(t *testing.T) {
 	}
 }
 
-func TestLiveExplorerWindowListed(t *testing.T) {
+func TestLiveExplorerNamedObserve(t *testing.T) {
 	h := requireAccuracy(t)
-	wins, err := h.ListWindows()
-	if err != nil {
+	dir := t.TempDir()
+	marker := "lunitide-d6-explorer"
+	openDir := filepath.Join(dir, marker)
+	if err := os.Mkdir(openDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range wins {
-		if strings.EqualFold(w.Process, "explorer.exe") {
-			return
-		}
+	if err := os.WriteFile(filepath.Join(openDir, marker+".txt"), []byte("d6"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	cmd := exec.Command("explorer.exe")
+	cmd := exec.Command("explorer.exe", openDir)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +299,12 @@ func TestLiveExplorerWindowListed(t *testing.T) {
 			_ = cmd.Process.Kill()
 		}
 	})
-	waitTarget(t, h, []string{"explorer", "文件资源管理器"}, []string{"explorer"}, 8*time.Second)
+	info := waitTarget(t, h, []string{marker}, []string{"explorer"}, 12*time.Second)
+	nodes := waitUIContaining(t, h, []string{marker}, 8*time.Second)
+	blob := info.Title + " " + info.Process + " " + uiBlob(nodes)
+	if !strings.Contains(strings.ToLower(blob), strings.ToLower(marker)) {
+		t.Fatalf("explorer tree missing %q: %q", marker, blob)
+	}
 }
 
 func TestLiveOptionalWPFAndElectron(t *testing.T) {

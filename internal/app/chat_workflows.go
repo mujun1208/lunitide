@@ -14,7 +14,7 @@ const workflowCodeClause = "- 改代码：workspace.search 定位 → workspace.
 
 const workflowReviewClause = "- 审查：读改动与周边代码，按 严重/建议 分级，引用 path:line。\n"
 
-const workflowBrowserClause = "- 浏览：公开页用 browser.act，始终在同一托管浏览器里操作。操作前先 snapshot 再按 ref 点击/填写，不要猜 CSS。click/type/navigate/scroll/back/hover/select/press 以及 tabs 的 new/close/select 会带回新 snapshot；ref 失效只再 snapshot 一次后重试该步。登录墙、验证码、2FA、文件选择框交给用户，不要猜，也不要 evaluate / 上传文件。navigate 优先 Playwright；read 抽正文。首次使用自动安装 Playwright MCP。多步填表可 skill.invoke browser-automation。\n"
+const workflowBrowserClause = "- 浏览：公开页用 browser.act，始终在同一托管浏览器里操作。操作前先 snapshot 再按 ref 点击/填写，不要猜 CSS。click/type/navigate/scroll/back/hover/select/press 以及 tabs 的 new/close/select 会带回新 snapshot；ref 失效只再 snapshot 一次后重试该步。登录墙、验证码、2FA、文件选择框交给用户，不要猜，也不要 evaluate / 上传文件。navigate 优先 Playwright；read 抽正文。首次使用自动安装 Playwright MCP。若工具返回 BROWSER_MCP_NOT_READY，这次没有点到页面，不要说已完成。多步填表可 skill.invoke browser-automation。\n"
 
 const workflowCrossAppClause = "- 跨应用：网页数据用 browser.act 再 structured.output，然后 excel.gen/docx.gen 写入工作区。桌面软件先 computer.act action=focus，再用 set_value 或 clipboard，不要截图盲点。定时结果用自动化出站 webhook（飞书/企微/钉钉）。禁止远程电脑、局域网控制、入站公网 webhook。\n"
 

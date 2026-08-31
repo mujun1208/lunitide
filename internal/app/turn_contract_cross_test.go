@@ -212,7 +212,7 @@ func TestCrossSurfaceTurnContract(t *testing.T) {
 		t.Fatalf("people.thread.send = %#v", sent.Message)
 	}
 
-	peopleReq := c4WaitCaptured(t, captured, "你是独立智能体", 4*time.Second)
+	peopleReq := c4WaitCaptured(t, captured, "你是同事专家", 4*time.Second)
 	peopleSys := c4SystemContent(peopleReq)
 	c4AssertOwnMemory(t, "people.thread.send", peopleSys)
 	if !strings.Contains(peopleSys, "PPT专家") {

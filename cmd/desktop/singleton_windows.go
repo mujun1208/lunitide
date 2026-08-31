@@ -4,6 +4,7 @@ package main
 
 import (
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -31,5 +32,22 @@ func claimGatewayInstance() (already bool, release func()) {
 	return false, func() {
 		_, _, _ = procReleaseMutex.Call(handle)
 		_, _, _ = procCloseHandle.Call(handle)
+	}
+}
+
+func claimGatewayInstanceRetry(timeout time.Duration) (already bool, release func()) {
+	if timeout < 0 {
+		timeout = 0
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		already, release = claimGatewayInstance()
+		if !already {
+			return false, release
+		}
+		if time.Now().After(deadline) {
+			return true, func() {}
+		}
+		time.Sleep(150 * time.Millisecond)
 	}
 }

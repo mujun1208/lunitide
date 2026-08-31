@@ -3,6 +3,7 @@ package m8app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 )
@@ -71,7 +72,7 @@ func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 		existing[item.Name] = struct{}{}
 	}
 	for _, spec := range builtinExpertSpecs {
-		if err := seedMissingExpert(ctx, svc, existing, spec.name, spec.division, spec.desc, "1.0.0", "bootstrap-"+spec.name, spec.six); err != nil {
+		if err := seedMissingExpert(ctx, svc, existing, spec.name, spec.division, spec.desc, "1.0.0", "bootstrap-"+spec.name, "", spec.six); err != nil {
 			return err
 		}
 	}
@@ -84,11 +85,14 @@ func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 		if version == "" {
 			version = "1.0.0"
 		}
-		if err := seedMissingExpert(ctx, svc, existing, item.Name, item.Division, desc, version, "bootstrap-"+item.ID, item.SixSection); err != nil {
+		if err := seedMissingExpert(ctx, svc, existing, item.Name, item.Division, desc, version, "bootstrap-"+item.ID, item.ID, item.SixSection); err != nil {
 			return err
 		}
 	}
 	if err := refreshConversationExpertBodies(ctx, svc); err != nil {
+		return err
+	}
+	if err := backfillConversationCatalogIDs(ctx, svc); err != nil {
 		return err
 	}
 	return seedConversationSkillBindings(ctx, svc)
@@ -189,7 +193,7 @@ func seedConversationSkillBindings(ctx context.Context, svc *ExpertService) erro
 
 // seedMissingExpert creates one library expert when no row already uses this
 // name. Existing installs keep the user's copy.
-func seedMissingExpert(ctx context.Context, svc *ExpertService, existing map[string]struct{}, name, division, desc, semver, requestID string, six m8core.SixSection) error {
+func seedMissingExpert(ctx context.Context, svc *ExpertService, existing map[string]struct{}, name, division, desc, semver, requestID, catalogItemID string, six m8core.SixSection) error {
 	if _, ok := existing[name]; ok {
 		return nil
 	}
@@ -202,12 +206,45 @@ func seedMissingExpert(ctx context.Context, svc *ExpertService, existing map[str
 			Name: name, Division: division,
 			Description: desc, Semver: semver,
 		},
-		SixSection: six,
-		RequestID:  requestID,
-		Actor:      "engine-bootstrap",
+		SixSection:    six,
+		RequestID:     requestID,
+		Actor:         "engine-bootstrap",
+		CatalogItemID: catalogItemID,
 	}); err != nil && !errors.Is(err, ErrExpertDuplicate) {
 		return err
 	}
 	existing[name] = struct{}{}
 	return nil
+}
+
+// backfillConversationCatalogIDs stamps catalog_item_id onto same-name
+// factory rows created before Create started persisting it.
+func backfillConversationCatalogIDs(ctx context.Context, svc *ExpertService) error {
+	if svc == nil || svc.uow == nil {
+		return nil
+	}
+	listed, err := svc.List(ctx, ExpertFilter{})
+	if err != nil {
+		return err
+	}
+	return svc.uow.TransactExpert(ctx, func(tx ExpertTx) error {
+		for _, row := range listed.Experts {
+			if strings.TrimSpace(row.CatalogItemID) != "" {
+				continue
+			}
+			item, ok := ConversationExpertByName(row.Name)
+			if !ok {
+				continue
+			}
+			e, err := tx.GetExpert(row.ExpertID)
+			if err != nil {
+				return err
+			}
+			e.CatalogItemID = item.ID
+			if err := tx.PutExpert(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

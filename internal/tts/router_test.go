@@ -31,7 +31,8 @@ func TestRouterRoutesByEngine(t *testing.T) {
 	sapi := &recordingEngine{label: "sapi-wav"}
 	ref := &recordingEngine{label: "ref-wav"}
 	edge := &recordingEngine{label: "edge-wav"}
-	router := NewRouterEngineWithAll(sapi, ref, edge)
+	volc := &recordingEngine{label: "volc-wav"}
+	router := NewRouterEngineWithVolc(sapi, ref, edge, volc)
 
 	cases := []struct {
 		engine string
@@ -42,6 +43,7 @@ func TestRouterRoutesByEngine(t *testing.T) {
 		{EngineNatural, "sapi-wav"},
 		{EngineEdge, "edge-wav"},
 		{EngineRef, "ref-wav"},
+		{EngineVolc, "volc-wav"},
 	}
 	for _, tc := range cases {
 		res, _, err := router.Synthesize(SynthesizeInput{Text: "段", Engine: tc.engine})
@@ -52,8 +54,8 @@ func TestRouterRoutesByEngine(t *testing.T) {
 			t.Fatalf("engine %q routed to %q, want %q", tc.engine, res.WavBase64, tc.want)
 		}
 	}
-	if len(sapi.calls) != 3 || len(ref.calls) != 1 || len(edge.calls) != 1 {
-		t.Fatalf("call fan-out wrong: sapi=%d ref=%d edge=%d", len(sapi.calls), len(ref.calls), len(edge.calls))
+	if len(sapi.calls) != 3 || len(ref.calls) != 1 || len(edge.calls) != 1 || len(volc.calls) != 1 {
+		t.Fatalf("call fan-out wrong: sapi=%d ref=%d edge=%d volc=%d", len(sapi.calls), len(ref.calls), len(edge.calls), len(volc.calls))
 	}
 }
 
@@ -62,7 +64,7 @@ func TestRouterNilEngineIsM95_001(t *testing.T) {
 	if _, err := router.Voices(); !errors.Is(err, ErrEngineUnavailable) {
 		t.Fatalf("voices err = %v, want ErrEngineUnavailable", err)
 	}
-	for _, engine := range []string{"", EngineSapi, EngineNatural, EngineEdge, EngineRef} {
+	for _, engine := range []string{"", EngineSapi, EngineNatural, EngineEdge, EngineRef, EngineVolc} {
 		if _, _, err := router.Synthesize(SynthesizeInput{Text: "段", Engine: engine}); !errors.Is(err, ErrEngineUnavailable) {
 			t.Fatalf("engine %q err = %v, want ErrEngineUnavailable", engine, err)
 		}

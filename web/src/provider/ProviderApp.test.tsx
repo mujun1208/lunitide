@@ -107,7 +107,11 @@ it('creates a volc speech provider from the voice tab',async()=>{
  expect(screen.getByLabelText('协议')).toHaveValue('volc_speech')
  expect(screen.getByLabelText('基础 URL')).toHaveValue('https://openspeech.bytedance.com')
  expect(screen.getByLabelText('模型 1 ID')).toHaveValue('volc.seedasr.sauc.duration')
- expect(screen.getByLabelText('模型 1 类型')).toHaveValue('voice')
+ expect(screen.getByLabelText('模型 1 类型')).toHaveValue('asr')
+ expect(screen.getByLabelText('模型 1 类型')).toHaveTextContent('听写')
+ expect(screen.getByLabelText('模型 2 ID')).toHaveValue('seed-tts-2.0')
+ expect(screen.getByLabelText('模型 2 类型')).toHaveValue('tts')
+ expect(screen.queryByLabelText('模型 2 官方音色')).not.toBeInTheDocument()
  expect(screen.queryByLabelText('模型 1 上下文窗口')).not.toBeInTheDocument()
  await user.type(screen.getByLabelText('供应商名称'),'Volc')
  await user.type(screen.getByLabelText(/API 凭据/),'test-only')
@@ -116,6 +120,60 @@ it('creates a volc speech provider from the voice tab',async()=>{
  const saved=vi.mocked(create).mock.calls[0][0]
  expect(saved.protocol).toBe('volc_speech')
  expect(saved.baseUrl).toBe('https://openspeech.bytedance.com')
- expect(saved.models[0]).toMatchObject({modelId:'volc.seedasr.sauc.duration',kind:'voice',kindDefault:true,isDefault:true})
+ expect(saved.models).toEqual([
+  expect.objectContaining({modelId:'volc.seedasr.sauc.duration',kind:'asr',kindDefault:true,isDefault:true}),
+  expect.objectContaining({modelId:'seed-tts-2.0',kind:'tts',kindDefault:true,isDefault:false}),
+ ])
+})
+
+it('canonicalizes official Agent Plan URLs and model aliases on save',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,protocol:payload.protocol,baseUrl:payload.baseUrl,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('tab',{name:'语音模型'}))
+ await user.click(screen.getByRole('button',{name:/新建供应商/}))
+ const url=screen.getByLabelText('基础 URL')
+ await user.clear(url)
+ await user.type(url,'wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async')
+ const asr=screen.getByLabelText('模型 1 ID')
+ await user.clear(asr)
+ await user.type(asr,'doubao-seed-asr-2.0')
+ const tts=screen.getByLabelText('模型 2 ID')
+ await user.clear(tts)
+ await user.type(tts,'seedtts-2.0')
+ await user.type(screen.getByLabelText('供应商名称'),'Volc')
+ await user.type(screen.getByLabelText(/API 凭据/),'test-only')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ const saved=vi.mocked(create).mock.calls[0][0]
+ expect(saved.baseUrl).toBe('https://openspeech.bytedance.com')
+ expect(saved.models).toEqual([
+  expect.objectContaining({modelId:'volc.seedasr.sauc.duration',kind:'asr'}),
+  expect.objectContaining({modelId:'seed-tts-2.0',kind:'tts'}),
+ ])
+})
+
+it('lets one volc provider hang listen and speak rows',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,protocol:payload.protocol,baseUrl:payload.baseUrl,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('tab',{name:'语音模型'}))
+ await user.click(screen.getByRole('button',{name:/新建供应商/}))
+ await user.click(screen.getByRole('button',{name:'＋ 添加模型'}))
+ expect(screen.getByLabelText('模型 3 类型')).toHaveValue('tts')
+ expect(screen.getByLabelText('模型 3 ID')).toHaveValue('zh_female_xiaohe_uranus_bigtts')
+ await user.selectOptions(screen.getByLabelText('模型 3 官方音色'),'zh_female_tianmeitaozi_uranus_bigtts')
+ expect(screen.getByLabelText('模型 3 显示名称')).toHaveValue('甜美桃子')
+ await user.type(screen.getByLabelText('供应商名称'),'Volc')
+ await user.type(screen.getByLabelText(/API 凭据/),'test-only')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ expect(vi.mocked(create).mock.calls[0][0].models).toEqual([
+  expect.objectContaining({modelId:'volc.seedasr.sauc.duration',kind:'asr',isDefault:true}),
+  expect.objectContaining({modelId:'seed-tts-2.0',kind:'tts'}),
+  expect.objectContaining({modelId:'zh_female_tianmeitaozi_uranus_bigtts',kind:'tts',displayName:'甜美桃子'}),
+ ])
 })
 

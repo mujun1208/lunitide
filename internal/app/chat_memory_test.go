@@ -84,6 +84,29 @@ func TestWorkingToSourcesSkipsOtherSessionsAndExpired(t *testing.T) {
 	}
 }
 
+func TestWorkingToSourcesMarksExpertLastUnconfirmed(t *testing.T) {
+	items := []memory.Memory{
+		{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", Layer: memory.LayerWorking, Scope: memory.ScopeProject, Key: "任务", Content: "共享任务"},
+		{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAB", Layer: memory.LayerWorking, Scope: memory.ScopeProject, Key: "expert:01ARZ3NDEKTSV4RRFFQ69G5FAV:last", Content: "封面改深色"},
+	}
+	got := workingToSources(items, "01ARZ3NDEKTSV4RRFFQ69G5FAW")
+	var last, plain string
+	for _, s := range got {
+		if strings.Contains(s.Content, "封面") {
+			last = s.Content
+		}
+		if strings.Contains(s.Content, "共享任务") {
+			plain = s.Content
+		}
+	}
+	if !strings.Contains(last, "未确认工作摘要") || !strings.Contains(last, "封面改深色") {
+		t.Fatalf("expert last must stay working and marked unconfirmed: %q", last)
+	}
+	if plain == "" || strings.Contains(plain, "未确认工作摘要") {
+		t.Fatalf("plain working leaked disclaimer: %q", plain)
+	}
+}
+
 func TestClipMemorySourcesHonorsLayeredQuotas(t *testing.T) {
 	items := []contextapp.ContextSource{{Content: "aaaa"}, {Content: "bbbb"}, {Content: "cccc"}}
 	got := clipMemorySources(items, 2, 10)
@@ -234,16 +257,21 @@ func TestIsolateExpertMemoriesDropsForeignBuckets(t *testing.T) {
 	other := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 	items := []memory.Memory{
 		{Key: "任务", Content: "共享"},
+		{Key: sessionLastMemoryKey, Content: "刚才的封面"},
 		{Key: "expert:" + mine + ":语气", Content: "我的"},
 		{Key: "expert:" + other + ":语气", Content: "别人的"},
 	}
 	got := isolateExpertMemories(items, []string{mine})
-	if len(got) != 2 || got[0].Content != "我的" || got[1].Content != "共享" {
+	if len(got) != 3 || got[0].Content != "我的" {
 		t.Fatalf("isolated = %#v", got)
 	}
 	plain := isolateExpertMemories(items, nil)
-	if len(plain) != 1 || plain[0].Content != "共享" {
+	if len(plain) != 2 {
 		t.Fatalf("no-expert turn leaked buckets: %#v", plain)
+	}
+	shared := plain[0].Content + " " + plain[1].Content
+	if !strings.Contains(shared, "共享") || !strings.Contains(shared, "刚才的封面") {
+		t.Fatalf("session last must survive a no-expert turn: %#v", plain)
 	}
 }
 
@@ -292,8 +320,157 @@ func TestWriteExpertLastMemoryFromPeoplePath(t *testing.T) {
 		t.Fatalf("people write = %#v", store.items)
 	}
 	got := e.peopleCompanionMemoryHint(context.Background(), sessionID, "继续封面", expertID)
-	if !strings.Contains(got, "工作记忆") || !strings.Contains(got, "封面") {
-		t.Fatalf("people hint must inject working last: %q", got)
+	if !strings.Contains(got, "工作记忆") || !strings.Contains(got, "封面") || !strings.Contains(got, "未确认工作摘要") {
+		t.Fatalf("people hint must inject working last as unconfirmed: %q", got)
+	}
+}
+
+func TestWriteSessionLastMemoryCrossesCompanionAndPeople(t *testing.T) {
+	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	store := &layerMemoryStub{}
+	e := NewEngine(nil, "test")
+	e.sessions = sessionGetStub{projectID: projectID}
+	e.memories = store
+	user := "以后回答请默认用中文，并且封面用深色"
+	asst := strings.Repeat("好，封面改深色，后文都用中文写。", 6)
+	e.writeSessionLastMemory(context.Background(), sessionID, user, asst)
+	if len(store.items) != 1 || store.items[0].Key != sessionLastMemoryKey {
+		t.Fatalf("session last = %#v", store.items)
+	}
+	e.writeSessionLastMemory(context.Background(), sessionID, user, asst+" 已记下")
+	if len(store.items) != 1 {
+		t.Fatal("upsert must not duplicate session last")
+	}
+	companion := e.prepareChatMemory(context.Background(), chatMemoryRequest{
+		Query: "继续刚才的", SessionID: sessionID, Companion: true,
+	})
+	if len(companion.TaskState) != 1 || !strings.Contains(companion.TaskState[0].Content, "未确认工作摘要") || !strings.Contains(companion.TaskState[0].Content, "深色") {
+		t.Fatalf("companion must inject session last: %+v", companion.TaskState)
+	}
+	peopleSession := "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	people := e.peopleCompanionMemoryHint(context.Background(), peopleSession, "继续刚才的")
+	if !strings.Contains(people, "工作记忆") || !strings.Contains(people, "深色") || !strings.Contains(people, "未确认工作摘要") {
+		t.Fatalf("people continue-just-now missed session last: %q", people)
+	}
+	e.writeSessionLastMemory(context.Background(), sessionID, "短", "也短")
+	if !strings.Contains(store.items[0].Content, "已记下") {
+		t.Fatalf("short turn must not overwrite: %q", store.items[0].Content)
+	}
+	ackStore := &layerMemoryStub{}
+	e.memories = ackStore
+	e.writeSessionLastMemory(context.Background(), sessionID, user, "好，记下了。")
+	if len(ackStore.items) != 1 || !strings.Contains(ackStore.items[0].Content, "深色") {
+		t.Fatalf("preference ack must write session last: %#v", ackStore.items)
+	}
+}
+
+type sessionLastCompleteAdapter struct{}
+
+func (sessionLastCompleteAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	return gateway.Response{}, nil
+}
+func (sessionLastCompleteAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, nil
+}
+func (sessionLastCompleteAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+	text := "好，以后回答默认用中文，封面改深色。"
+	if err := emit(gateway.Delta{Text: text}); err != nil {
+		return gateway.Response{}, err
+	}
+	return gateway.Response{Message: gateway.Message{Content: text}}, nil
+}
+
+func TestChatStartWritesSessionLastBeforeCompleted(t *testing.T) {
+	store := &layerMemoryStub{}
+	spy := &appendAssistantSpy{}
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.sessions = sessionGetStub{projectID: chatAttachmentProjectID}
+	e.memories = store
+	e.messages = spy
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return sessionLastCompleteAdapter{}, nil
+	})
+	events := make(chan bridge.Event, 16)
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"以后回答请默认用中文，并且封面用深色"}]}`
+	resp := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(event bridge.Event) error {
+		events <- event
+		return nil
+	})
+	if !resp.OK {
+		t.Fatalf("chat.start: %#v", resp)
+	}
+	terminal := terminalEvent(t, events)
+	if terminal.Type != bridge.EventCompleted {
+		t.Fatalf("terminal=%s", terminal.Type)
+	}
+	if len(store.items) != 1 || store.items[0].Key != sessionLastMemoryKey {
+		t.Fatalf("session last after chat.start = %#v", store.items)
+	}
+	if !strings.Contains(store.items[0].Content, "封面用深色") {
+		t.Fatalf("session last missed user goal: %q", store.items[0].Content)
+	}
+	companion := e.prepareChatMemory(context.Background(), chatMemoryRequest{
+		Query: "继续刚才的", SessionID: chatAttachmentOtherID, Companion: true,
+	})
+	if len(companion.TaskState) != 1 || !strings.Contains(companion.TaskState[0].Content, "未确认工作摘要") || !strings.Contains(companion.TaskState[0].Content, "深色") {
+		t.Fatalf("companion continue must see session last written by chat.start: %+v", companion.TaskState)
+	}
+}
+
+func TestWriteExpertLastMemoryNominatesForConfirm(t *testing.T) {
+	mem, ops, nom := openAppMemory(t)
+	store := &layerMemoryStub{}
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	e.SetM10NominationService(nom)
+	e.SetMemoryOpsService(ops)
+	e.sessions = sessionGetStub{projectID: "01ARZ3NDEKTSV4RRFFQ69G5FAY"}
+	e.memories = store
+	ctx := context.Background()
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: false, GrowthDays: 14,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	user := "请按上次语气继续写封面要点和结构"
+	asst := strings.Repeat("这页讲结论，下一页讲证据。", 8)
+	e.writeExpertLastMemory(ctx, sessionID, expertID, user, asst)
+	if len(store.items) != 1 || store.items[0].Key != "expert:"+expertID+":last" {
+		t.Fatalf("working last = %#v", store.items)
+	}
+	items, err := nom.ListNominations(ctx, "nominated", 50)
+	if err != nil || len(items) != 1 || items[0].Reason != expertLastNominationReason {
+		t.Fatalf("expert nomination = %+v err=%v", items, err)
+	}
+	e.writeExpertLastMemory(ctx, sessionID, expertID, user, asst)
+	again, err := nom.ListNominations(ctx, "nominated", 50)
+	if err != nil || len(again) != 1 {
+		t.Fatalf("duplicate nomination = %+v err=%v", again, err)
+	}
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: true, GrowthDays: 14,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, user, asst, "01ARZ3NDEKTSV4RRFFQ69G5FAV", false); err != nil {
+		t.Fatal(err)
+	}
+	deduped, err := nom.ListNominations(ctx, "nominated", 50)
+	if err != nil || len(deduped) != 1 {
+		t.Fatalf("auto-nominate must not duplicate expert gist: %+v err=%v", deduped, err)
+	}
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: false, AutoNominate: false, GrowthDays: 14,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.writeExpertLastMemory(ctx, sessionID, expertID, "另一条足够长的用户请求请记住要点", strings.Repeat("另一段足够长的专家回答内容。", 8))
+	disabled, err := nom.ListNominations(ctx, "nominated", 50)
+	if err != nil || len(disabled) != 1 {
+		t.Fatalf("disabled memory still nominated: %+v err=%v", disabled, err)
 	}
 }
 
@@ -427,6 +604,67 @@ func TestMaybeAutoNominateRespectsSwitchAndConfirmationInbox(t *testing.T) {
 		if strings.Contains(item.Content, "不应该出现") {
 			t.Fatal("autoNominate=false still nominated")
 		}
+	}
+
+	if err := e.maybeAutoNominateTurn(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+		"以后回答请默认用中文，并且封面用深色",
+		"好，记下了。",
+		"01ARZ3NDEKTSV4RRFFQ69G5FAD", false); err != nil {
+		t.Fatalf("preference nominate: %v", err)
+	}
+	prefItems, err := nom.ListNominations(ctx, "nominated", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range prefItems {
+		if item.Reason == preferenceNominationReason && strings.Contains(item.Content, "默认用中文") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("explicit preference must reach inbox when autoNominate is off: %+v", prefItems)
+	}
+	if !looksLikePreferenceTurn("以后回答请默认用中文") || looksLikePreferenceTurn("下次开会几点") {
+		t.Fatal("preference detector")
+	}
+}
+
+func TestRecordPeopleTurnMemoryNominatesPreference(t *testing.T) {
+	mem, ops, nom := openAppMemory(t)
+	store := &layerMemoryStub{}
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	e.SetM10NominationService(nom)
+	e.SetMemoryOpsService(ops)
+	e.sessions = sessionGetStub{projectID: "01ARZ3NDEKTSV4RRFFQ69G5FAY"}
+	e.memories = store
+	ctx := context.Background()
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
+		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: false, GrowthDays: 14,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	user := "以后回答请默认用中文，并且封面用深色"
+	asst := "好，记下了。"
+	e.recordPeopleTurnMemory(ctx, sessionID, expertID, user, asst, "01ARZ3NDEKTSV4RRFFQ69G5FAD")
+	if len(store.items) != 1 || store.items[0].Key != sessionLastMemoryKey {
+		t.Fatalf("people must write session last even when expert last is short: %#v", store.items)
+	}
+	items, err := nom.ListNominations(ctx, "nominated", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range items {
+		if item.Reason == preferenceNominationReason && strings.Contains(item.Content, "默认用中文") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("colleague preference must reach inbox: %+v", items)
 	}
 }
 

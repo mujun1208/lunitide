@@ -96,8 +96,11 @@ func peopleBoundSessionTitle(hint string) string {
 	if hint == "" {
 		return "同事对话"
 	}
-	if strings.HasPrefix(hint, "同事") {
-		return hint
+	hint = strings.TrimPrefix(hint, "同事 · ")
+	hint = strings.TrimPrefix(hint, "同事 ")
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return "同事对话"
 	}
-	return "同事 · " + hint
+	return hint
 }

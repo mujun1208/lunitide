@@ -81,6 +81,28 @@ it('expands placeholder input before installing a needsArgs preset', async () =>
   expect(vi.mocked(bridge.add).mock.calls[0][0].args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', 'E:/proj/demo'])
 })
 
+it('labels a curated install with its preset id', async () => {
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({
+      items: [{
+        id: 'playwright', name: 'Playwright', description: '浏览器自动化',
+        transport: 'stdio' as const, command: 'npx' as const, args: ['-y', '@playwright/mcp'],
+        needsArgs: false, category: '浏览器',
+      }],
+    }),
+    list: vi.fn().mockResolvedValue({
+      endpoints: [{
+        ...memoryEndpoint,
+        displayName: 'Playwright',
+        args: ['-y', '@playwright/mcp'],
+      }],
+    }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  expect(await screen.findByText(/策展预置 playwright/)).toBeInTheDocument()
+})
+
 it('shows installed display names and connection status', async () => {
   const bridge = api({ list: vi.fn().mockResolvedValue({ endpoints: [memoryEndpoint] }) })
   render(<McpPage bridge={bridge} />)
@@ -131,6 +153,21 @@ it('saves Cursor-style mcpServers JSON from the create dialog', async () => {
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-memory'],
   })
+})
+
+it('warns that Chrome attach presets are not default computer control', async () => {
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({
+      items: [{
+        id: 'chrome-devtools', name: 'Chrome DevTools', description: '官方 Chrome DevTools MCP',
+        transport: 'stdio' as const, command: 'npx' as const, args: ['-y', 'chrome-devtools-mcp'],
+        needsArgs: false, category: '浏览器',
+      }],
+    }),
+  })
+  render(<McpPage bridge={bridge} />)
+  expect(await screen.findByText(/不是默认电脑控制/)).toBeInTheDocument()
+  expect(screen.getByText(/月伴不会自动安装/)).toBeInTheDocument()
 })
 
 it('parses both mcpServers maps and single command entries', () => {

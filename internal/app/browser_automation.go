@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +13,18 @@ import (
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
+
+var (
+	errBrowserMCPNotReady = errors.New("BROWSER_MCP_NOT_READY: Playwright MCP 未就绪。这次没有点击或输入任何页面。请在设置 → MCP 安装 Playwright，或等首次下载完成后再试。不要把这次调用当成已成功。")
+	errBrowserToolMissing = errors.New("BROWSER_TOOL_MISSING: Playwright 已连接但没有这个操作。这次没有执行。")
+)
+
+const browserNavigateFetchNotice = "BROWSER_NAVIGATE_FETCH: Playwright 没有打开页面，已改为抓取网页。不要把这次当成浏览器已打开。\n"
+
+func markBrowserNavigateFetch(out toolruntime.Result) toolruntime.Result {
+	out.Output = browserNavigateFetchNotice + out.Output
+	return out
+}
 
 const playwrightPackage = "@playwright/mcp"
 
@@ -130,16 +144,16 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 	endpointID, tool, ok := e.findPlaywrightTool(op)
 	if !ok {
 		if !e.ensurePlaywrightMCP(ctx) {
-			return toolruntime.Result{}, nil
+			return toolruntime.Result{}, errBrowserMCPNotReady
 		}
 		endpointID, tool, ok = e.findPlaywrightTool(op)
 		if !ok {
-			return toolruntime.Result{}, nil
+			return toolruntime.Result{}, errBrowserToolMissing
 		}
 	}
 	args, skip := playwrightArgs(call)
 	if skip {
-		return toolruntime.Result{}, nil
+		return toolruntime.Result{}, fmt.Errorf("BROWSER_ACT_INVALID: browser.act %s 参数不完整，没有执行", op)
 	}
 	if browserActUsesRef(call) && e.consumeBrowserMutation() {
 		if pre := e.playwrightSnapshotFollowup(ctx); pre != "" {
@@ -156,6 +170,9 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 		snap := e.playwrightSnapshotFollowup(ctx)
 		e.storeBrowserSnapshot(snap)
 		return toolruntime.Result{Output: appendPostActSnapshot(op, out, snap)}, nil
+	}
+	if strings.TrimSpace(out) == "" {
+		out = "ok"
 	}
 	return toolruntime.Result{Output: strings.TrimSpace(out)}, nil
 }

@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { IdentityBridge, PeopleBridge } from '../bridge/client'
+import type { FeedbackBridge, IdentityBridge, MemoryBridge, PeopleBridge } from '../bridge/client'
 import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO } from '../generated/bridge'
 import { captureThisPcFrame } from './peopleCapture'
 import { PeoplePage } from './PeoplePage'
@@ -9,6 +9,15 @@ import { PeoplePage } from './PeoplePage'
 vi.mock('./peopleCapture', async importOriginal => {
   const actual = await importOriginal<typeof import('./peopleCapture')>()
   return { ...actual, captureThisPcFrame: vi.fn() }
+})
+
+vi.mock('../bridge/client', async importOriginal => {
+  const actual = await importOriginal<typeof import('../bridge/client')>()
+  return {
+    ...actual,
+    getFeedbackBridge: () => ({ record: vi.fn(), candidates: vi.fn().mockResolvedValue({ items: [] }) }),
+    getMemoryBridge: () => ({ confirmCandidate: vi.fn() }),
+  }
 })
 
 async function invokeLastNativeCapture() {
@@ -61,7 +70,12 @@ function bridges(decide = vi.fn()) {
     peerAdd: vi.fn(),
     contactUpdate: vi.fn(),
   }
-  return { identity, people, decide }
+  const feedback: FeedbackBridge = {
+    record: vi.fn(),
+    candidates: vi.fn().mockResolvedValue({ items: [] }),
+  }
+  const memory = { confirmCandidate: vi.fn() } as unknown as MemoryBridge
+  return { identity, people, decide, feedback, memory }
 }
 
 describe('PeoplePage', () => {
@@ -84,7 +98,7 @@ describe('PeoplePage', () => {
     expect(screen.getByText('[文件] secret.txt')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.queryByText('月汐 · 设计')).not.toBeInTheDocument()
-    expect(screen.getByText(/智能体会按岗位做事/)).toBeInTheDocument()
+    expect(screen.getByText(/同事专家按岗位做事/)).toBeInTheDocument()
   })
 
   test('contacts tree, file confirm, person-picker groups, and 我 share ProfilePanel', async () => {
@@ -473,6 +487,35 @@ describe('PeoplePage', () => {
     expect(screen.getByText(/电脑控制仍然只作用于这台电脑/)).toBeInTheDocument()
   })
 
+  test('opening a DM then clicking self replaces the expert header with the profile card', async () => {
+    const expert: PeopleContactDTO = {
+      ...peer, subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', nickname: 'Excel表格制作专家', avatar: '📊',
+      orgName: '月汐智能体', department: 'product', hostAddr: '',
+    }
+    const expertThread: PeopleThreadDTO = {
+      ...thread, members: [selfContact, expert], lastMessage: undefined, unreadCount: 0,
+    }
+    const { identity, people } = bridges()
+    people.list = vi.fn().mockResolvedValue({ items: [selfContact, expert] })
+    people.threadList = vi.fn().mockResolvedValue({ items: [expertThread] })
+    people.threadOpen = vi.fn().mockResolvedValue({ thread: expertThread, messages: [{ ...fileMsg, kind: 'text', body: '继续刚才的表', fileName: undefined, offerId: undefined }] })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    const rail = screen.getByRole('navigation', { name: '同事工作区' })
+    await user.click(within(rail).getByRole('button', { name: /通讯录/ }))
+    await user.click(await screen.findByRole('button', { name: /Excel表格制作专家/ }))
+    expect(await screen.findByRole('heading', { name: 'Excel表格制作专家' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/发消息/)).toBeInTheDocument()
+    people.threadOpen = vi.fn()
+    await user.click(screen.getByRole('button', { name: /mu（我）/ }))
+    expect(people.threadOpen).not.toHaveBeenCalled()
+    expect(within(rail).getByRole('button', { name: /通讯录/ })).toHaveAttribute('aria-current', 'true')
+    expect(await screen.findByRole('heading', { name: 'mu（我）' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Excel表格制作专家' })).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/发消息/)).not.toBeInTheDocument()
+    expect(screen.getByText(/电脑控制仍然只作用于这台电脑/)).toBeInTheDocument()
+  })
+
   test('opening a colleague by catalog name uses the roster subject id', async () => {
     const agent: PeopleContactDTO = {
       ...peer, subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', nickname: 'PPT专家', avatar: '📊',
@@ -488,5 +531,37 @@ describe('PeoplePage', () => {
     render(<PeoplePage identity={identity} people={people} initialPeerSubjectId="ppt-expert" initialPeerName="PPT专家" />)
     await vi.waitFor(() => expect(people.threadOpen).toHaveBeenCalledWith({ peerSubjectId: agent.subjectId }))
     expect(await screen.findByRole('heading', { name: 'PPT专家' })).toBeInTheDocument()
+  })
+
+  test('confirms a pending preference on the colleague thread', async () => {
+    const { identity, people, feedback, memory } = bridges()
+    const C = '01ARZ3NDEKTSV4RRFFQ69G5FAC'
+    feedback.candidates = vi.fn().mockResolvedValue({
+      items: [{ candidateId: C, content: '以后回答默认用中文，封面用深色', scopeId: 'learning', confirmationToken: 'tok', createdAt: now, expiresAt: now }],
+    })
+    const confirmCandidate = vi.fn().mockResolvedValue({ candidateId: C, state: 'confirmed' })
+    memory.confirmCandidate = confirmCandidate
+    render(<PeoplePage identity={identity} people={people} feedback={feedback} memory={memory} initialPeerSubjectId={peer.subjectId} />)
+    const banner = await screen.findByRole('status', { name: '待确认偏好' })
+    expect(banner).toHaveTextContent('默认用中文')
+    await userEvent.click(screen.getByRole('button', { name: '确认沉淀' }))
+    await vi.waitFor(() => expect(confirmCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      candidateId: C,
+      confirmationToken: 'tok',
+      action: 'confirm',
+    })))
+    await vi.waitFor(() => expect(screen.queryByRole('status', { name: '待确认偏好' })).not.toBeInTheDocument())
+  })
+
+  test('shows the confirm banner after a colleague reply even if the first inbox fetch is empty', async () => {
+    const { identity, people, feedback, memory } = bridges()
+    const C = '01ARZ3NDEKTSV4RRFFQ69G5FAC'
+    feedback.candidates = vi.fn()
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValue({
+        items: [{ candidateId: C, content: '以后回答默认用中文', scopeId: 'learning', confirmationToken: 'tok', createdAt: now, expiresAt: now }],
+      })
+    render(<PeoplePage identity={identity} people={people} feedback={feedback} memory={memory} initialPeerSubjectId={peer.subjectId} />)
+    expect(await screen.findByRole('status', { name: '待确认偏好' }, { timeout: 2000 })).toHaveTextContent('默认用中文')
   })
 })

@@ -49,7 +49,7 @@ func (t ReplyTransport) Send(ctx context.Context, kind Kind, appID, appSecret, s
 	}
 	switch kind {
 	case KindFeishu:
-		return t.sendFeishu(ctx, appID, appSecret, sender, text)
+		return t.sendFeishu(ctx, appID, appSecret, sender, conversationID, text)
 	case KindWeCom:
 		return t.sendWeCom(ctx, appID, appSecret, sender, text)
 	case KindDingTalk:
@@ -59,7 +59,7 @@ func (t ReplyTransport) Send(ctx context.Context, kind Kind, appID, appSecret, s
 	}
 }
 
-func (t ReplyTransport) sendFeishu(ctx context.Context, appID, appSecret, sender, text string) error {
+func (t ReplyTransport) sendFeishu(ctx context.Context, appID, appSecret, sender, conversationID, text string) error {
 	domain := strings.TrimRight(strings.TrimSpace(t.FeishuDomain), "/")
 	if domain == "" {
 		domain = FeishuOpenDomain
@@ -74,9 +74,13 @@ func (t ReplyTransport) sendFeishu(ctx context.Context, appID, appSecret, sender
 	if access == "" {
 		return fmt.Errorf("imapp: feishu token missing")
 	}
+	receiveType, receiveID := feishuReplyTarget(sender, conversationID)
+	if receiveID == "" {
+		return fmt.Errorf("imapp: feishu reply missing receive id")
+	}
 	content, _ := json.Marshal(map[string]string{"text": text})
-	body, err := t.postJSON(ctx, domain+"/open-apis/im/v1/messages?receive_id_type=open_id", "Bearer "+access, map[string]string{
-		"receive_id": sender,
+	body, err := t.postJSON(ctx, domain+"/open-apis/im/v1/messages?receive_id_type="+url.QueryEscape(receiveType), "Bearer "+access, map[string]string{
+		"receive_id": receiveID,
 		"msg_type":   "text",
 		"content":    string(content),
 	})
@@ -193,6 +197,13 @@ func (t ReplyTransport) doJSON(req *http.Request) (map[string]any, error) {
 		return nil, err
 	}
 	return parsed, nil
+}
+
+func feishuReplyTarget(sender, conversationID string) (receiveType, receiveID string) {
+	if chat := strings.TrimSpace(conversationID); chat != "" {
+		return "chat_id", chat
+	}
+	return "open_id", strings.TrimSpace(sender)
 }
 
 func stringFrom(m map[string]any, key string) string {

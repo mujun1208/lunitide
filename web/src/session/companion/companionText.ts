@@ -66,6 +66,13 @@ export function companionReplyStallMs(chatStreaming: boolean, hasAssistantText: 
   return chatStreaming ? COMPANION_FIRST_TOKEN_STREAMING_MS : COMPANION_FIRST_TOKEN_CONNECTING_MS
 }
 
+/** Leftover previous-turn captions are not this turn's first token. */
+export function companionHasFreshAssistantText(assistantText: string, staleReply = ''): boolean {
+  const live = assistantText.trim()
+  if (!live) return false
+  return live !== staleReply.trim()
+}
+
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
 export function cleanForSpeech(raw: string): string {
@@ -363,7 +370,15 @@ export function companionExecutingSpeech(activity?: string): string {
   return cleaned ? `${cleaned}。` : '正在执行。'
 }
 
+export const COMPANION_BROWSER_MCP_SPEECH = '浏览器没就绪。请到设置里安装 Playwright MCP，这次没有点到页面。'
+
+export function companionBrowserUnreadySpeech(text?: string): string {
+  return /BROWSER_MCP_NOT_READY|Playwright MCP 未就绪/.test(text ?? '') ? COMPANION_BROWSER_MCP_SPEECH : ''
+}
+
 export function companionCannotExecuteSpeech(reason?: string): string {
+  const browser = companionBrowserUnreadySpeech(reason)
+  if (browser) return browser
   const why = (reason ?? '')
     .replace(/^无法执行[。.]?\s*/u, '')
     .replace(/^出错了[，,]\s*/u, '')
@@ -373,9 +388,18 @@ export function companionCannotExecuteSpeech(reason?: string): string {
 
 export function companionTaskCompleteSpeech(summary?: string): string {
   const line = stripTaskDonePhrases(summary ?? '').trim()
-  if (!line) return '好，完成了。'
+  if (!line) return '好。'
   if (/[。！？.!?]$/.test(line)) return line
   return `${line}。`
+}
+
+/** Tool-loop closeout: empty/lead-in is process, not “完成了”. */
+export function companionToolCloseoutSpeech(summary?: string): string {
+  const browser = companionBrowserUnreadySpeech(summary)
+  if (browser) return browser
+  const line = stripTaskDonePhrases(summary ?? '').trim()
+  if (!line) return '还在处理。'
+  return companionTaskCompleteSpeech(line)
 }
 
 /**

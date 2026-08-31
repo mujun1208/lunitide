@@ -150,25 +150,54 @@ func (e *Engine) pushInboundReply(sessionID, text string) {
 		return
 	}
 	go func() {
+		var err error
 		if route.Kind == imapp.KindWeCom {
-			if err := e.sendWeComInboundReply(route.Sender, route.ConversationID, text); err != nil {
-				log.Printf("im inbound reply: %v", err)
+			err = e.sendWeComInboundReply(route.Sender, route.ConversationID, text)
+		} else if e.imChannels == nil {
+			return
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			ch, lookErr := e.imChannels.LookupSecret(ctx, route.Kind)
+			if lookErr != nil || ch.Secret() == "" || ch.InboundAppID == "" {
+				err = errors.New("im inbound reply missing channel credentials")
+			} else {
+				err = e.imReply.Send(ctx, route.Kind, ch.InboundAppID, ch.Secret(), route.Sender, route.ConversationID, text)
 			}
-			return
 		}
-		if e.imChannels == nil {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		ch, err := e.imChannels.LookupSecret(ctx, route.Kind)
-		if err != nil || ch.Secret() == "" || ch.InboundAppID == "" {
-			return
-		}
-		if err := e.imReply.Send(ctx, route.Kind, ch.InboundAppID, ch.Secret(), route.Sender, route.ConversationID, text); err != nil {
+		if err != nil {
 			log.Printf("im inbound reply: %v", err)
+			e.noteInboundReplyFailure(sessionID, route.Kind, err)
 		}
 	}()
+}
+
+func inboundReplyFailureNotice(kind imapp.Kind, err error) string {
+	msg := "通道暂时不可用"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		msg = strings.TrimSpace(err.Error())
+	}
+	body := "【回程失败】没有发回" + imapp.Label(kind) + "：" + msg + "。回答只留在工作台。"
+	if n := utf8.RuneCountInString(body); n > message.MaxRunes {
+		body = string([]rune(body)[:message.MaxRunes])
+	}
+	return body
+}
+
+func (e *Engine) noteInboundReplyFailure(sessionID string, kind imapp.Kind, err error) {
+	if e == nil || !messageServiceAvailable(e.messages) || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	text := inboundReplyFailureNotice(kind, err)
+	norm, nerr := message.NormalizeText(text)
+	if nerr != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	_, _ = e.messages.Append(ctx, ulid.Make().String(), "im-inbound-reply", map[string]string{
+		"sessionId": sessionID, "text": norm,
+	}, message.Message{SessionID: sessionID, Text: norm})
 }
 
 func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, ch imapp.Channel, sender, text, conversationID string) (string, error) {

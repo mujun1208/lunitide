@@ -265,7 +265,7 @@ test('heard-you-no-glyphs restarts the recognizer instead of hanging', async () 
   expect(speech.start.mock.calls.length).toBeGreaterThan(started)
 }, 15_000)
 
-test('lead-in-only done after tools speaks a result instead of going silent', async () => {
+test('lead-in-only done after tools speaks process, not 完成了', async () => {
   const onSend = vi.fn()
   const { container, rerender } = await renderStage({ onSend })
   await act(async () => {
@@ -290,8 +290,9 @@ test('lead-in-only done after tools speaks a result instead of going silent', as
       activityStatus="输入文字中…"
     />,
   )
-  await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('完成了'))).toBe(true))
-  expect(liveLog(container).textContent).toMatch(/完成了/)
+  await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('还在处理'))).toBe(true))
+  expect(liveLog(container).textContent).toMatch(/还在处理/)
+  expect(liveLog(container).textContent).not.toMatch(/完成了/)
 })
 
 test('打断 during a task resumes listen so the next utterance is accepted', async () => {

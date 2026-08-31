@@ -61,6 +61,22 @@ export function companionNextState(from: CompanionState, type: CompanionEvent['t
   return transitionTable[from][type]
 }
 
+/**
+ * Late chat-terminal events arrive after the stage has already moved on.
+ * The frozen table has no speaking × REPLY_TERMINAL edge — map that pair
+ * onto PLAYBACK_ENDED. Idle/listening leftovers are swallowed so applyEvent
+ * does not increment M95-005. Do not add those edges to the matrix.
+ */
+export function companionEventForDispatch(state: CompanionState, event: CompanionEvent): CompanionEvent | null {
+  if (event.type === 'REPLY_TERMINAL' && state === 'speaking') return { type: 'PLAYBACK_ENDED' }
+  const lateReply =
+    event.type === 'REPLY_TERMINAL' || event.type === 'REPLY_COMPLETED' || event.type === 'PLAYBACK_ENDED'
+  if (lateReply && (state === 'idle' || state === 'listening')) return null
+  if (event.type === 'REPLY_COMPLETED' && state === 'speaking') return null
+  if (event.type === 'PLAYBACK_ENDED' && state === 'thinking') return null
+  return event
+}
+
 export interface CompanionMachine {
   state: CompanionState
   rejected: number

@@ -100,6 +100,9 @@ func TestResourceIDFromModel(t *testing.T) {
 	if got := ResourceIDFromModel("seed-asr-2.0"); got != DefaultResourceID {
 		t.Fatal(got)
 	}
+	if got := ResourceIDFromModel("doubao-seed-asr-2.0"); got != DefaultResourceID {
+		t.Fatal(got)
+	}
 	if got := ResourceIDFromModel("volc.seedasr.sauc.concurrent"); got != "volc.seedasr.sauc.concurrent" {
 		t.Fatal(got)
 	}

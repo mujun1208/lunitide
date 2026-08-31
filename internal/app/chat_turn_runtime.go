@@ -320,7 +320,7 @@ func (e *Engine) trySessionLocalBrain(ctx context.Context, sessionID, userText s
 	if err == nil && strings.TrimSpace(out) != "" {
 		return localBrainPrefix(state.brain) + out, "", true
 	}
-	return "", localBrainUserError(state.brain, err) + "已改用月汐引擎。\n", false
+	return "", localBrainFallbackNotice(state.brain, err), false
 }
 
 func packEntrypointOrDefault(entry string) string {

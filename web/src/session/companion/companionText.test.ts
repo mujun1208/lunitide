@@ -19,6 +19,7 @@ import {
   COMPANION_PAD_SPEECH,
   isCompanionPadSpeech,
   looksLikeBargeInSpeech,
+  companionHasFreshAssistantText,
   companionReplyStallMs,
   looksLikePlaybackEcho,
   looksIncompleteUtterance,
@@ -36,7 +37,9 @@ import {
   companionToolsExecuting,
   companionExecutingSpeech,
   companionCannotExecuteSpeech,
+  COMPANION_BROWSER_MCP_SPEECH,
   companionTaskCompleteSpeech,
+  companionToolCloseoutSpeech,
   isCompanionLeadInOnly,
   takeSpeakableChunk,
   accumulateSpeakableCaption,
@@ -321,6 +324,16 @@ describe('companionReplyStallMs', () => {
   })
 })
 
+describe('companionHasFreshAssistantText', () => {
+  test('treats leftover previous-turn captions as not this turn', () => {
+    expect(companionHasFreshAssistantText('', '')).toBe(false)
+    expect(companionHasFreshAssistantText('今晚多云', '')).toBe(true)
+    expect(companionHasFreshAssistantText('今晚多云', '今晚多云')).toBe(false)
+    expect(companionHasFreshAssistantText('今晚多云，有风', '今晚多云')).toBe(true)
+    expect(companionHasFreshAssistantText('', '今晚多云')).toBe(false)
+  })
+})
+
 describe('stripTaskDonePhrases', () => {
   test('drops the machine self-reports the user asked not to hear', () => {
     expect(stripTaskDonePhrases('我已经做完了。')).toBe('')
@@ -341,8 +354,13 @@ describe('companion task speech', () => {
     expect(companionExecutingSpeech('打开桌面文件中…')).toBe('打开桌面文件。')
     expect(companionCannotExecuteSpeech('找不到证件号码')).toBe('无法执行。找不到证件号码')
     expect(companionCannotExecuteSpeech('无法执行。权限不足')).toBe('无法执行。权限不足')
+    expect(companionCannotExecuteSpeech('BROWSER_MCP_NOT_READY: Playwright MCP 未就绪')).toBe(COMPANION_BROWSER_MCP_SPEECH)
     expect(companionTaskCompleteSpeech('已在证件号码后写入')).toBe('已在证件号码后写入。')
-    expect(companionTaskCompleteSpeech('我做完了')).toBe('好，完成了。')
+    expect(companionTaskCompleteSpeech('我做完了')).toBe('好。')
+    expect(companionToolCloseoutSpeech('')).toBe('还在处理。')
+    expect(companionToolCloseoutSpeech('我做完了')).toBe('还在处理。')
+    expect(companionToolCloseoutSpeech('已经写入了 204040')).toBe('已经写入了 204040。')
+    expect(companionToolCloseoutSpeech('ok:false\nBROWSER_MCP_NOT_READY')).toBe(COMPANION_BROWSER_MCP_SPEECH)
     expect(isCompanionLeadInOnly('好，我来输入。')).toBe(true)
     expect(isCompanionLeadInOnly('好，我来打开。')).toBe(true)
     expect(isCompanionLeadInOnly('已经打开了。')).toBe(false)

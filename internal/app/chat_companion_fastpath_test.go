@@ -89,10 +89,14 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 		t.Fatalf("companion chat.start failed: %#v", response)
 	}
 	req := capturedChatRequest(t, requests)
-	want := map[string]bool{"web.search": false, "web.fetch": false, "workspace.write": false, "command.run": false, "browser.act": false, "skill.invoke": false}
+	want := map[string]bool{"web.search": false, "web.fetch": false, "workspace.write": false, "desktop.open": false, "media.play": false, "browser.act": false, "skill.invoke": false}
+	forbidden := map[string]bool{"command.run": true, "im.send": true}
 	for _, def := range req.Tools {
 		if _, ok := want[def.Name]; ok {
 			want[def.Name] = true
+		}
+		if forbidden[def.Name] {
+			t.Fatalf("companion must not advertise %s", def.Name)
 		}
 	}
 	for name, found := range want {
@@ -243,8 +247,29 @@ func TestCompanionToolLeadIn(t *testing.T) {
 	if got := companionToolResultSpeech("computer.act", "COMPUTER_STALE_FRAME: echo frameId"); got != "这次没有完成。" {
 		t.Fatalf("stale speech %q", got)
 	}
-	if got := companionToolResultSpeech("computer.act", "uac dialog — needs_user: 这是系统提权对话框"); got != "这次没有完成。" {
+	if got := companionToolResultSpeech("computer.act", "uac dialog — needs_user: 这是系统提权对话框"); got != "这是系统提权对话框，我不能代点「是」。请你自己确认或取消。" {
 		t.Fatalf("uac speech %q", got)
+	}
+	if got := companionToolResultSpeech("computer.act", "ok:false\nM10-CC-012: 电脑控制未启用"); got != "电脑控制未启用。第一次控桌面请到设置里打开。" {
+		t.Fatalf("disabled speech %q", got)
+	}
+	if got := companionToolResultSpeech("browser.act", "ok:false\nBROWSER_MCP_NOT_READY: Playwright MCP 未就绪"); got != companionBrowserMCPSpeech {
+		t.Fatalf("browser unready speech %q", got)
+	}
+	if got := companionToolResultSpeech("computer.act", "screenshot frameId=01ARZ3NDEKTSV4RRFFQ69G5FAV"); got != "先看了一下。" {
+		t.Fatalf("screenshot must not claim done: %q", got)
+	}
+	if got := companionToolResultSpeech("computer.act", "clicked left mouse 1 time(s)"); got != "点了一下。" {
+		t.Fatalf("click mid-step must not claim done: %q", got)
+	}
+	if got := companionToolResultSpeech("browser.act", "ok"); got != "这次没有完成。" {
+		t.Fatalf("empty browser ok must not claim done: %q", got)
+	}
+	if got := companionToolResultSpeech("skill.invoke", "ok"); got != "还在处理。" {
+		t.Fatalf("opaque skill closeout must not claim done: %q", got)
+	}
+	if got := companionToolResultSpeech("filesystem.write", ""); got != "还在处理。" {
+		t.Fatalf("empty unknown tool must not claim done: %q", got)
 	}
 }
 

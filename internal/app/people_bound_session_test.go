@@ -61,7 +61,7 @@ func TestPeopleBoundSessionNotThreadID(t *testing.T) {
 	if got.ID != sessionID {
 		t.Fatalf("got %#v", got)
 	}
-	if got.Title != "同事 · PPT专家" {
+	if got.Title != "PPT专家" {
 		t.Fatalf("title = %q", got.Title)
 	}
 	mapped, ok, err := roster.ThreadSession(ctx, thread.ThreadID)

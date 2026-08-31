@@ -98,7 +98,7 @@ it('lists installed experts in a skill-center table with a resizable detail pane
   expect(screen.queryByText('九阶段挂载矩阵')).toBeNull()
   expect(await screen.findByText('安全岗位')).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: /技能包/ })).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: /独立智能体/ })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /同事专家/ })).toBeInTheDocument()
   expect(await screen.findByText('尚未挂技能，仅提示词。')).toBeInTheDocument()
   await waitFor(() => expect(screen.queryByRole('tab', { name: '专家市场' })).toBeNull())
 })
@@ -218,8 +218,8 @@ it('lets an agent specialist pick a local Codex or Claude Code brain', async () 
   })
   render(<ExpertCenterPage bridge={bridge} projects={projects} />)
   expect(await screen.findByRole('group', { name: '大脑' })).toBeInTheDocument()
-  expect(screen.getByRole('radio', { name: /月汐引擎/ })).toBeChecked()
-  fireEvent.click(screen.getByRole('radio', { name: /本机 Codex/ }))
+  expect(screen.getAllByRole('radio', { name: /月汐引擎/ })[0]).toBeChecked()
+  fireEvent.click(screen.getAllByRole('radio', { name: /本机 Codex/ })[0])
   fireEvent.click(screen.getByRole('button', { name: '保存运行时绑定' }))
   await waitFor(() => expect(bridge.skillsSet).toHaveBeenCalled())
   expect(vi.mocked(bridge.skillsSet!).mock.calls[0][0].skillKeys).toContain('brain:codex')
@@ -252,4 +252,17 @@ it('saves expert skill bindings from the detail pane', async () => {
   fireEvent.click(screen.getByRole('button', { name: '保存运行时绑定' }))
   await waitFor(() => expect(skillsSet).toHaveBeenCalled())
   expect(skillsSet.mock.calls[0][0]).toMatchObject({ expertId, skillKeys: ['slide-builder'] })
+})
+
+it('states conversation specialists are same-engine colleagues, not independent processes', async () => {
+  const catalogList = vi.fn().mockResolvedValue({
+    items: [{
+      id: 'ppt-expert', name: 'ppt-expert', displayName: 'PPT专家',
+      description: '做演示文稿', category: '产品', version: '1.0.0', installed: false, featured: true,
+    }],
+  })
+  render(<ExpertCenterPage bridge={expertApi({ catalogList })} projects={projects} />)
+  fireEvent.click(await screen.findByRole('tab', { name: '专家市场' }))
+  expect(await screen.findByText(/同一引擎，不是独立进程/)).toBeInTheDocument()
+  expect(screen.queryByText(/独立同事/)).not.toBeInTheDocument()
 })
