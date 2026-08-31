@@ -100,6 +100,9 @@ func SensitiveObserveHide(title, process, class string, buttons []string) string
 // FilePickerUserPrompt is spoken/tool text when a file Open/Save dialog is up.
 const FilePickerUserPrompt = "needs_user: 请你点「保存」「打开」或「取消」，我不能代你选文件"
 
+// UACUserPrompt is spoken/tool text when a UAC / elevation dialog is up.
+const UACUserPrompt = "needs_user: 这是系统提权对话框，我不能代点「是」。请你自己确认或取消。"
+
 // FilePickerHandoff returns a human-handoff line for file Open/Save dialogs.
 func FilePickerHandoff(title, process, class string, buttons []string) string {
 	_, reason := ClassifyDialog(title, process, class, buttons)

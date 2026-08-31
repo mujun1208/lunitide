@@ -32,7 +32,7 @@ func (h *windowsHost) ObserveUI(maxNodes int) ([]UINode, error) {
 	if maxNodes > CcMaxObserveUINodes {
 		maxNodes = CcMaxObserveUINodes
 	}
-	hwnd, _, _ := procGetForegroundWindow.Call()
+	hwnd := h.actionHWND()
 	if hwnd == 0 {
 		return nil, nil
 	}
@@ -167,7 +167,7 @@ func accNameScore(got, want string) int {
 	if g == "" || w == "" {
 		return 0
 	}
-	if g == w {
+	if g == w || namesEquivalent(want, got) {
 		return 100
 	}
 	if strings.Contains(g, w) || strings.Contains(w, g) {
@@ -328,12 +328,15 @@ func (h *windowsHost) InvokeUI(target string) error {
 	if target == "" {
 		return fmt.Errorf("empty UI target")
 	}
-	hwnd, _, _ := procGetForegroundWindow.Call()
+	hwnd := h.actionHWND()
 	if hwnd == 0 {
 		return fmt.Errorf("no foreground window")
 	}
 	_, _, _ = procCoInitializeEx.Call(0, uintptr(windows.COINIT_MULTITHREADED))
 	defer procCoUninitialize.Call()
+	if err := invokeUIAutomation(hwnd, target); err == nil {
+		return nil
+	}
 	acc := accessibleFromWindow(hwnd)
 	if acc == 0 {
 		return fmt.Errorf("no accessible object")
@@ -346,7 +349,7 @@ func (h *windowsHost) InvokeUI(target string) error {
 }
 
 func (h *windowsHost) SetValue(target, value string) error {
-	hwnd, _, _ := procGetForegroundWindow.Call()
+	hwnd := h.actionHWND()
 	if hwnd == 0 {
 		return fmt.Errorf("no foreground window")
 	}
@@ -361,4 +364,83 @@ func (h *windowsHost) SetValue(target, value string) error {
 		return nil
 	}
 	return putValueMin(acc, target, value, 50, 0)
+}
+
+func (h *windowsHost) HitTest(sx, sy int) (string, error) {
+	nodes, err := h.ObserveUI(80)
+	if err != nil {
+		return "", err
+	}
+	best := ""
+	bestArea := int(^uint(0) >> 1)
+	for _, n := range nodes {
+		if n.W <= 0 || n.H <= 0 || strings.TrimSpace(n.Name) == "" {
+			continue
+		}
+		if sx < n.X || sy < n.Y || sx >= n.X+n.W || sy >= n.Y+n.H {
+			continue
+		}
+		area := n.W * n.H
+		if area < bestArea {
+			bestArea = area
+			best = n.Name
+		}
+	}
+	if best != "" {
+		return best, nil
+	}
+	if name := windowFromPointName(sx, sy); name != "" {
+		return name, nil
+	}
+	return "", fmt.Errorf("no UI node at (%d,%d)", sx, sy)
+}
+
+func windowFromPointName(sx, sy int) string {
+	var pt struct{ X, Y int32 }
+	pt.X, pt.Y = int32(sx), int32(sy)
+	hwnd, _, _ := procWindowFromPoint.Call(uintptr(*(*uint64)(unsafe.Pointer(&pt))))
+	if hwnd == 0 {
+		return ""
+	}
+	buf := make([]uint16, 512)
+	n, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if title := strings.TrimSpace(windows.UTF16ToString(buf[:n])); title != "" {
+		return title
+	}
+	return strings.TrimSpace(windowProcessName(hwnd))
+}
+
+func (h *windowsHost) Win32Click(target string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return fmt.Errorf("empty UI target")
+	}
+	hwnd := h.actionHWND()
+	if hwnd == 0 {
+		return fmt.Errorf("no foreground window")
+	}
+	var found uintptr
+	want := strings.ToLower(target)
+	cb := syscall.NewCallback(func(child, _ uintptr) uintptr {
+		var buf [256]uint16
+		n, _, _ := procGetWindowTextW.Call(child, uintptr(unsafe.Pointer(&buf[0])), 256)
+		if n == 0 {
+			return 1
+		}
+		name := strings.ToLower(strings.TrimSpace(windows.UTF16ToString(buf[:n])))
+		if name == want || strings.Contains(name, want) {
+			found = child
+			return 0
+		}
+		return 1
+	})
+	_, _, _ = procEnumChildWindows.Call(hwnd, cb, 0)
+	if found == 0 {
+		return fmt.Errorf("no Win32 control matching %q", target)
+	}
+	r, _, err := procSendMessageW.Call(found, bmClick, 0, 0)
+	if r == 0 && err != windows.ERROR_SUCCESS && err != syscall.Errno(0) {
+		return fmt.Errorf("BN_CLICKED failed: %v", err)
+	}
+	return nil
 }

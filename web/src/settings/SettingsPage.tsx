@@ -32,6 +32,7 @@ interface GeneralSettings {
   enterToSend: boolean
   autoTitle: boolean
   defaultMode: 'auto' | 'collab' | 'code' | 'full-access'
+  toolProfile: '' | 'minimal' | 'coding' | 'colleague'
   replyStyle: 'default' | 'assistant' | 'support' | 'teacher' | 'npc'
   structuredTemplate: 'off' | 'event' | 'form' | 'kv'
 }
@@ -52,6 +53,7 @@ const DEFAULT_GENERAL: GeneralSettings = {
   enterToSend: true,
   autoTitle: true,
   defaultMode: 'full-access', // 默认提升为完全访问权限
+  toolProfile: '',
   replyStyle: 'default',
   structuredTemplate: 'off',
 }
@@ -78,7 +80,7 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, onPreferLLM }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; onPreferLLM?: (providerId: string, modelId: string) => void }): React.JSX.Element {
   const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
@@ -151,7 +153,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'profile' && <ProfilePanel />}
-          {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
+          {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
@@ -159,7 +161,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
             <div className="setting-group">
               <div className="setting-group-title">编码与权限</div>
               <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-                <div className="setting-desc">命令白名单约束 command.run。Git 默认只读（写操作需确认）。工作区 AGENTS.md / .agents/skills 叠在月汐身份上，不替换身份。技能与 MCP 在能力中心维护。</div>
+                <div className="setting-desc">命令白名单约束 command.run。Git 默认只读（写操作需确认）。工作区 AGENTS.md / .agents/skills 叠在月汐身份上，不替换身份。技能在技能中心，MCP 在 MCP 页，能力包单独入口。</div>
               </div>
             </div>
             <CommandPolicyPanel />
@@ -343,6 +345,19 @@ function GeneralPanel({ settings, onChange }: { settings: GeneralSettings; onCha
           ]}
           onChange={v => onChange('defaultMode', v as GeneralSettings['defaultMode'])}
         />
+        <SelectRow
+          label="工具剖面"
+          desc="默认保持现有全部工具。精简=检索与记忆；编程=工作区与命令；同事=专家工具集（不含电脑控制）。"
+          value={settings.toolProfile || 'default'}
+          options={[
+            { value: 'default', label: '默认（当前工具）' },
+            { value: 'minimal', label: '精简' },
+            { value: 'coding', label: '编程' },
+            { value: 'colleague', label: '同事' },
+          ]}
+          onChange={v => onChange('toolProfile', (v === 'default' ? '' : v) as GeneralSettings['toolProfile'])}
+        />
+        <div className="setting-desc">关窗口 ≠ 退出助手。助手在托盘继续运行；从托盘退出才会停工作台。引擎可在关掉窗口后继续接回。</div>
       </div>
       <div className="setting-group">
         <div className="setting-group-title">人设与输出</div>
@@ -584,6 +599,7 @@ function AboutPanel(): React.JSX.Element {
         <dl className="about-info">
           <div><dt>{zh ? '版本' : 'Version'}</dt><dd>{version || '—'}</dd></div>
           <div><dt>{zh ? '作者' : 'Author'}</dt><dd>Yy.MJ</dd></div>
+          <div><dt>{zh ? '运行' : 'Runtime'}</dt><dd>{zh ? '关窗口 ≠ 退出助手，助手在托盘运行' : 'Closing the window keeps the tray assistant'}</dd></div>
         </dl>
         <div className="about-links">
           <span>{zh ? '产品定位：不只是一个“更好的界面”，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。' : 'A local-first AI workbench that keeps project context, history, and governance boundaries — not just a prettier chat box.'}</span>
@@ -593,25 +609,15 @@ function AboutPanel(): React.JSX.Element {
   )
 }
 
-// c3-mcp — 预置免费官方 MCP server 目录：卡片展示 + 一键注册（stdio / npx），
-// needsArgs 条目先把占位符替换为用户输入再注册；不放宽任何 stdio 白名单。
 export type McpPresetItem = Mcp6PresetsListResult['items'][number]
 
 export function McpPresetsSection({ bridge = getMcpBridge(), onOpenMcp }: { bridge?: McpBridge; onOpenMcp?: () => void }): React.JSX.Element {
-  const [items, setItems] = useState<McpPresetItem[]>([])
   const [leftover, setLeftover] = useState<string[]>([])
   const [status, setStatus] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [argDraft, setArgDraft] = useState<{ id: string; value: string } | null>(null)
 
   useEffect(() => {
-    setBusy(true)
-    Promise.all([
-      bridge.presets(),
-      bridge.list().catch(() => ({ endpoints: [] })),
-    ])
-      .then(([r, listed]) => {
-        setItems(r.items)
+    bridge.list().catch(() => ({ endpoints: [] }))
+      .then(listed => {
         const names = new Set<string>()
         for (const ep of listed?.endpoints ?? []) {
           leftoverArchivedMcp(ep.args).forEach(name => names.add(name))
@@ -619,69 +625,19 @@ export function McpPresetsSection({ bridge = getMcpBridge(), onOpenMcp }: { brid
         setLeftover([...names])
         setStatus('')
       })
-      .catch(e => setStatus(e instanceof Error ? e.message : '预置目录加载失败'))
-      .finally(() => setBusy(false))
+      .catch(e => setStatus(e instanceof Error ? e.message : 'MCP 清单加载失败'))
   }, [bridge])
-
-  // 反斜杠属于 stdio 白名单元字符：Windows 路径先归一为正斜杠再替换占位符。
-  const resolveArgs = (preset: McpPresetItem, value: string): string[] =>
-    preset.args.map(a => a === preset.argPlaceholder ? value.trim().replaceAll('\\', '/') : a)
-
-  const register = async (preset: McpPresetItem, value?: string) => {
-    setBusy(true); setStatus('')
-    try {
-      const added = await bridge.add({ origin: 'manual', transport: 'stdio', command: preset.command, args: resolveArgs(preset, value ?? ''), riskConfirmed: true, requestId: crypto.randomUUID() })
-      try { await bridge.toggle({ endpointId: added.endpointId, enabled: true }) } catch { /* still registered */ }
-      setArgDraft(null)
-      setStatus(`已启用 ${preset.name}，对话里可直接调用其工具。`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : `${preset.name} 注册失败`) } finally { setBusy(false) }
-  }
-
-  const kitIds = new Set(['memory', 'sequentialthinking'])
-  const enableKit = async () => {
-    const kit = items.filter(p => kitIds.has(p.id) && !p.needsArgs)
-    if (!kit.length) return
-    setBusy(true); setStatus('')
-    try {
-      for (const preset of kit) {
-        const added = await bridge.add({ origin: 'manual', transport: 'stdio', command: preset.command, args: preset.args, riskConfirmed: true, requestId: crypto.randomUUID() })
-        try { await bridge.toggle({ endpointId: added.endpointId, enabled: true }) } catch { /* still registered */ }
-      }
-      setStatus('已启用推荐套件（记忆 + 结构化推理），对话可直接调用。')
-    } catch (e) { setStatus(e instanceof Error ? e.message : '推荐套件启用失败') } finally { setBusy(false) }
-  }
 
   return (
     <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-      <div className="setting-group-title" style={{ marginTop: 8 }}>预置服务器（免费直连）</div>
-      <div className="setting-desc">仅列出仍在维护的 MCP（官方参考服 + Playwright + Context7）。Git 用对话里的 command.run；公开网页用 web.search。已下架 2025 归档包（GitHub / Puppeteer / SQLite / Git）。注册后会自动启用并进入对话工具表。</div>
+      <div className="setting-group-title" style={{ marginTop: 8 }}>MCP</div>
+      <div className="setting-desc">预置服务器、手动 JSON 和连接状态都在左侧「MCP」。设置里不再安装第二套。</div>
       {leftover.length > 0 && (
         <p role="status" className="notice" style={{ color: 'var(--err)' }}>
           检测到已下架 MCP（{leftover.join('、')}）。请到 MCP 页卸载，设置里不再做第二套卸载。
-          {onOpenMcp ? <button type="button" onClick={onOpenMcp} style={{ marginLeft: 8 }}>去 MCP 页</button> : null}
         </p>
       )}
-      <div style={{ margin: '8px 0' }}>
-        <button disabled={busy || items.length === 0} onClick={() => void enableKit()}>一键启用推荐套件</button>
-      </div>
-      {items.map(p => (
-        <div className="setting-row" key={p.id} style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
-          <div style={{ minWidth: 0 }}>
-            <div className="setting-label">{p.name} · {p.category}{p.needsArgs ? ' · 需补充参数' : ''}</div>
-            <div className="setting-desc">{p.description} — <span style={{ fontFamily: 'var(--mono)' }}>{p.command} {p.args.join(' ')}</span></div>
-            {argDraft?.id === p.id && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input className="setting-input" style={{ flex: 1 }} placeholder={p.argHint ?? '请输入参数'} value={argDraft.value}
-                  onChange={ev => setArgDraft({ id: p.id, value: ev.target.value })} aria-label={`${p.name} 参数`} />
-                <button disabled={busy || !argDraft.value.trim()} aria-label={`确认注册 ${p.name}`} onClick={() => void register(p, argDraft.value)}>确认注册</button>
-              </div>
-            )}
-          </div>
-          {argDraft?.id === p.id
-            ? <button disabled={busy} onClick={() => setArgDraft(null)}>取消</button>
-            : <button disabled={busy} aria-label={`注册 ${p.name}`} onClick={() => (p.needsArgs ? setArgDraft({ id: p.id, value: '' }) : void register(p))}>注册</button>}
-        </div>
-      ))}
+      {onOpenMcp ? <div style={{ margin: '8px 0' }}><button type="button" onClick={onOpenMcp}>去 MCP 页</button></div> : null}
       {status && <p role="status" className="notice">{status}</p>}
     </div>
   )
@@ -1053,7 +1009,7 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
   }
 
   const webhookKind = (kind: string) => kind === 'feishu' || kind === 'wecom' || kind === 'dingtalk'
-  const inboundKind = (kind: string) => kind === 'feishu' || kind === 'wecom'
+  const inboundKind = (kind: string) => kind === 'feishu' || kind === 'wecom' || kind === 'dingtalk'
   const modeLabel = (mode: string) => mode === 'webhook' ? '机器人 Webhook' : mode === 'desktop' ? '本机客户端' : '未启用'
   const webhookPlaceholder = (kind: string) => kind === 'wecom'
     ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…'
@@ -1065,7 +1021,7 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
     <div className="setting-group">
       <div className="setting-group-title">消息通道</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">粘贴飞书 / 企微 / 钉钉群机器人 https Webhook，点「识别并启用」。会先试发「月汐已连上」，成功才保存。没有 Webhook 不能启用，也不会改用本机打字。微信 / QQ 只用本机已登录客户端。入站：飞书 / 企微填 App ID 与 Secret，点「连接并等待配对」，用那个账号发第一条消息即可，不用手填 open_id。本机向外长连接，不开放公网端口。</div>
+        <div className="setting-desc">粘贴飞书 / 企微 / 钉钉群机器人 https Webhook，点「识别并启用」。会先试发「月汐已连上」，成功才保存。没有 Webhook 不能启用，也不会改用本机打字。微信 / QQ 是本机已登录客户端代发，不能收消息。入站：飞书 / 企微 / 钉钉填 App ID 与 Secret，点「连接并等待配对」，用那个账号发第一条消息即可。本机向外长连接，不开放公网端口。关窗口 ≠ 退出助手。</div>
       </div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1105,14 +1061,14 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
               <button disabled={busy} onClick={() => void apply({ kind: ch.kind, enabled: true, webhookUrl: (drafts[ch.kind] ?? '').trim(), testSend: true }, `${ch.label} Webhook 已保存`)}>保存{ch.label} Webhook</button>
             </div>
           ) : (
-            <div className="setting-desc">启用时会检测本机是否装了{ch.desktopApp}。没有安装或未登录时，发送会立刻说无法执行，不会假装发出去。</div>
+            <div className="setting-desc">本机已登录客户端代发，不能收消息。启用时会检测本机是否装了{ch.desktopApp}。没有安装或未登录时，发送会立刻说无法执行，不会假装发出去。</div>
           )}
           {inboundKind(ch.kind) ? (
             <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
               <div className="setting-desc">{inboundPairStatus(ch)}。填 App ID / Secret 后连接，用那个账号发第一条消息即配对。之后只收已配对的人。都不监听公网端口。</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <input className="setting-input" style={{ flex: 1, minWidth: 160, fontFamily: 'var(--mono)', fontSize: 12 }}
-                  value={appIdDrafts[ch.kind] ?? ''} placeholder={ch.kind === 'wecom' ? '智能机器人 Bot ID' : '应用 App ID'}
+                  value={appIdDrafts[ch.kind] ?? ''} placeholder={ch.kind === 'wecom' ? '智能机器人 Bot ID' : ch.kind === 'dingtalk' ? '应用 AppKey' : '应用 App ID'}
                   aria-label={ch.kind === 'wecom' ? `${ch.label} 入站 Bot ID` : `${ch.label} 入站 App ID`}
                   onChange={ev => setAppIdDrafts(d => ({ ...d, [ch.kind]: ev.target.value }))} />
                 <input className="setting-input" style={{ flex: 1, minWidth: 160, fontFamily: 'var(--mono)', fontSize: 12 }} type="password"

@@ -113,7 +113,10 @@ func selectedTurnExpertIDs(mounted []string, turnTexts ...string) []string {
 			return appendUniqueExpertIDs(nil, refs...)
 		}
 	}
-	return appendUniqueExpertIDs(nil, mounted...)
+	if len(mounted) == 1 {
+		return appendUniqueExpertIDs(nil, mounted[0])
+	}
+	return nil
 }
 
 func (e *Engine) collectCouncilExpertIDs(ctx context.Context, in expertCouncilInputs) []string {
@@ -123,13 +126,7 @@ func (e *Engine) collectCouncilExpertIDs(ctx context.Context, in expertCouncilIn
 			mounted = ids
 		}
 	}
-	turn := strings.TrimSpace(in.TurnText)
-	if in.SessionID != "" && e.messageReader != nil {
-		if last := e.peekLastUserMessage(ctx, in.SessionID); last != "" && last != turn {
-			return selectedTurnExpertIDs(mounted, turn, last)
-		}
-	}
-	return selectedTurnExpertIDs(mounted, turn)
+	return selectedTurnExpertIDs(mounted, e.priorTurnTexts(ctx, in.SessionID, in.TurnText)...)
 }
 
 func (e *Engine) resolveCouncilExperts(ctx context.Context, ids []string) []councilExpert {
@@ -221,14 +218,16 @@ func expertDeliberateUserPrompt(question, phaseLabel string) string {
 
 func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel string, companion bool, mode executionMode, sessionID string) councilOpinion {
 	op := councilOpinion{ExpertID: expert.ID, ExpertName: expert.Name}
+	eq := e.equipmentForNames(ctx, []string{expert.Name})
 	tools := specialistToolDefinitions(e.engineToolDefinitionsFor(mode))
 	if e.skills != nil {
 		for _, d := range e.skillToolDefinitions() {
-			if d.Name == "skill.invoke" {
+			if d.Name == "skill.invoke" || d.Name == "skill.view" {
 				tools = append(tools, d)
 			}
 		}
 	}
+	tools = append(tools, e.mcpToolDefinitionsRestricted(eq.McpIDs, true)...)
 	req := gateway.Request{
 		Model:            model,
 		MaxTokens:        councilExpertMaxTokens,
@@ -263,7 +262,7 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 			break
 		}
 		req.Messages = append(req.Messages, resp.Message)
-		req.Messages = append(req.Messages, e.runCouncilToolCalls(ctx, mode, sessionID, allowed, resp.Message.ToolCalls)...)
+		req.Messages = append(req.Messages, e.runCouncilToolCalls(ctx, mode, sessionID, expert.Name, allowed, resp.Message.ToolCalls)...)
 	}
 	if lastText == "" {
 		op.Text = "（该专家未返回有效意见）"
@@ -276,11 +275,36 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 	return op
 }
 
-func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, sessionID string, allowed map[string]bool, calls []gateway.ToolCall) []gateway.Message {
+func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, sessionID, expertName string, allowed map[string]bool, calls []gateway.ToolCall) []gateway.Message {
+	eq := e.equipmentForNames(ctx, []string{expertName})
 	out := make([]gateway.Message, len(calls))
 	for i, call := range calls {
 		summary := "refused: tool not allowed for expert.deliberate"
-		if allowed[call.Name] {
+		if reason, deny := e.denyRestrictedMCP(call.Name, call.Arguments, true, eq.McpIDs); deny {
+			summary = reason
+		} else if call.Name == "mcp.search" {
+			outText, err := e.searchMcpToolsFiltered(call.Arguments, eq.McpIDs, true)
+			if err != nil {
+				summary = err.Error()
+			} else {
+				summary = outText
+			}
+		} else if call.Name == "mcp.call" {
+			outText, err := e.callMcpToolByNameGuarded(ctx, call.Arguments, eq.McpIDs, true)
+			if err != nil {
+				summary = err.Error()
+			} else {
+				summary = outText
+			}
+		} else if endpointID, tool, ok := parseMcpToolName(call.Name); ok {
+			if !e.mcpNameAllowed(call.Name, endpointID, eq.McpIDs, true) {
+				summary = "未授权这个 MCP"
+			} else if text, err := e.invokeMcpTool(ctx, endpointID, tool, call.Arguments); err != nil {
+				summary = err.Error()
+			} else {
+				summary = text
+			}
+		} else if allowed[call.Name] {
 			r, err := e.executeUserTool(ctx, mode, sessionID, call.Name, call.Arguments)
 			if err != nil {
 				summary = err.Error()

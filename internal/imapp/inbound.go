@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrInboundKind      = errors.New("imapp: inbound is only for 飞书 and 企业微信")
+	ErrInboundKind      = errors.New("imapp: inbound is only for 飞书, 企业微信, and 钉钉")
 	ErrInboundAllowlist = errors.New("imapp: inbound requires a sender allowlist")
 	ErrInboundOff       = errors.New("imapp: inbound is off")
 	ErrInboundDenied    = errors.New("imapp: sender is not on the allowlist")
@@ -39,7 +39,7 @@ type ChannelPatch struct {
 }
 
 func inboundAllowed(kind Kind) bool {
-	return kind == KindFeishu || kind == KindWeCom
+	return kind == KindFeishu || kind == KindWeCom || kind == KindDingTalk
 }
 
 func InboundSessionTitle(kind Kind) string {

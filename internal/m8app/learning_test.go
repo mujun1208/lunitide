@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/m8app"
 )
 
@@ -156,5 +157,40 @@ func TestConfirmedSnapshotBudgetSkipsNotTruncates(t *testing.T) {
 		if p != long {
 			t.Fatalf("preference mutated: len=%d", len(p))
 		}
+	}
+}
+
+func TestConfirmedSnapshotForIsolatesSubject(t *testing.T) {
+	svc, _ := openMemoryService(t)
+	ctx := context.Background()
+	mine := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	other := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	propose := func(subject, content string) {
+		t.Helper()
+		prop, err := svc.ProposeCandidate(ctx, m8app.ProposeInput{
+			SubjectID: subject,
+			Doc: m8core.PayloadDoc{
+				Content: content, ScopeID: m8app.LearningScope, Sensitivity: m8core.SensPrivate,
+				Leaves: []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "artifact://run-1/evidence-a", Digest: strings.Repeat("a", 64)}},
+			},
+			Trust: m8core.TrustUntrusted, Actor: "test",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.ConfirmCandidate(ctx, m8app.ConfirmInput{
+			CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken, Action: "confirm", RequestID: "pref-" + prop.Candidate.CandidateID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	propose(mine, "晚上用深色主题")
+	propose(other, "别人的偏好不该注入")
+	got, err := svc.ConfirmedSnapshotFor(ctx, mine, m8app.LearningScope, 8, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "晚上用深色主题" {
+		t.Fatalf("subject snapshot = %v", got)
 	}
 }

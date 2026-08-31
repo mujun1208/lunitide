@@ -1,10 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { PluginBridge } from '../bridge/client'
+import type { McpBridge, PluginBridge, SkillBridge } from '../bridge/client'
 import type { PluginListResult } from '../generated/bridge'
 import { PluginPage } from './PluginPage'
+import { PACK_LEDGER_KEY } from './capabilityPacks'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  localStorage.removeItem(PACK_LEDGER_KEY)
+})
 
 type Plugin = PluginListResult['plugins'][number]
 const now = '2026-01-01T00:00:00Z'
@@ -50,10 +54,11 @@ function api(overrides: Partial<PluginBridge> = {}): PluginBridge {
 it('renders the plugin market and enables a catalog card', async () => {
   const bridge = api()
   render(<PluginPage bridge={bridge} />)
-  expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '能力包' })).toBeInTheDocument()
   expect(await screen.findByText('网页搜索')).toBeInTheDocument()
-  expect(screen.getByText(/加号是启用开关/)).toBeInTheDocument()
-  expect(screen.getByText(/不会安装 Git 插件/)).toBeInTheDocument()
+  expect(screen.getAllByText(/不会执行外部脚本/).length).toBeGreaterThan(0)
+  expect(screen.getByText(/要连服务器去 MCP/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '安装 浏览器工作包' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '启用 网页搜索' }))
   await waitFor(() => expect(bridge.toggle).toHaveBeenCalledWith({ installId: webSearch.installId, enabled: true }))
   expect(await screen.findByRole('status')).toHaveTextContent('已启用「网页搜索」')
@@ -95,18 +100,49 @@ it('creates a plugin from a pasted Harness manifest', async () => {
   const bridge = api()
   render(<PluginPage bridge={bridge} />)
   fireEvent.click(await screen.findByRole('button', { name: '手动填写' }))
-  expect(await screen.findByRole('dialog', { name: '手动创建插件' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: '手动创建能力包' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
   await waitFor(() => expect(bridge.devCreate).toHaveBeenCalledOnce())
   expect(vi.mocked(bridge.devCreate).mock.calls[0][0]).toMatchObject({
     workspaceId: 'chat',
-    entrypoint: 'plugin/main.ts',
+    entrypoint: 'pack://manifest',
   })
+})
+
+it('lists a chat-created pack from plugin.list without localStorage', async () => {
+  const packRow: Plugin = {
+    ...webSearch,
+    installId: '01ARZ3NDEKTSV4RRFFQ69G5FAH',
+    pluginId: 'pack-ppt',
+    kind: 'workflow',
+    state: 'enabled',
+  }
+  render(<PluginPage bridge={api({ list: vi.fn().mockResolvedValue({ plugins: [packRow] }) })} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  expect(await screen.findByText('演示文稿包')).toBeInTheDocument()
+})
+
+it('removes a capability pack without uninstalling skills', async () => {
+  localStorage.setItem(PACK_LEDGER_KEY, JSON.stringify([{
+    packId: 'pack-browser',
+    addedMcpEndpointIds: ['01ARZ3NDEKTSV4RRFFQ69G5FAE'],
+    enabledGateInstallIds: ['01ARZ3NDEKTSV4RRFFQ69G5FAF'],
+  }]))
+  const mcp = { presets: vi.fn(), list: vi.fn(), add: vi.fn(), toggle: vi.fn().mockResolvedValue({}), health: vi.fn(), marketSearch: vi.fn() } as unknown as McpBridge
+  const skills = { delete: vi.fn() } as unknown as SkillBridge
+  render(<PluginPage bridge={api()} mcp={mcp} skills={skills} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  expect(await screen.findByText('浏览器工作包')).toBeInTheDocument()
+  fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0])
+  expect(await screen.findByRole('dialog', { name: '撤下「浏览器工作包」' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+  await waitFor(() => expect(mcp.toggle).toHaveBeenCalledWith({ endpointId: '01ARZ3NDEKTSV4RRFFQ69G5FAE', enabled: false }))
+  expect(skills.delete).not.toHaveBeenCalled()
 })
 
 it('starts chat-based plugin creation', async () => {
   const onCreateInChat = vi.fn()
   render(<PluginPage bridge={api()} onCreateInChat={onCreateInChat} />)
-  fireEvent.click(await screen.findByRole('button', { name: '＋ 创建插件' }))
+  fireEvent.click(await screen.findByRole('button', { name: '＋ 创建能力包' }))
   expect(onCreateInChat).toHaveBeenCalledOnce()
 })

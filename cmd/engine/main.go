@@ -76,24 +76,31 @@ func main() {
 	if *pipe == "" {
 		log.Fatal("pipe is required")
 	}
-	bootstrapSecret, brokerPipe, err := ipc.ReadLaunchBootstrap(os.Stdin)
+	bootstrapSecret, _, err := ipc.ReadLaunchBootstrap(os.Stdin)
 	if err != nil {
 		log.Fatal(err)
 	}
-	brokerKey := secretlease.DeriveKey(bootstrapSecret)
 	cursorKey := messageapp.DeriveCursorKey(bootstrapSecret)
 	authenticator := ipc.NewSessionAuthenticator(bootstrapSecret)
-	leaseClient, err := secretlease.NewClient(brokerPipe, *hostPID, brokerKey)
-	secret.Zero(brokerKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer leaseClient.Close()
 	dataRoot, err := datadir.PrepareProduction()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer dataRoot.Close()
+	if pidPath, pidErr := dataRoot.FilePath(ipc.GatewayEnginePIDFile); pidErr == nil {
+		if err := ipc.SaveEnginePID(pidPath, os.Getpid()); err != nil {
+			log.Printf("write engine.pid: %v", err)
+		}
+	}
+	secretService, err := secret.NewDPAPIService(dataRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	leaseClient, err := secretlease.NewLocalClient(secretService)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer leaseClient.Close()
 	// Engine diagnostics land in a rotating file under <data>/logs. The
 	// desktop host is a GUI process, so pipe-inherited stdout/stderr are
 	// lost; without this file engine crashes leave no trace at all.
@@ -199,7 +206,9 @@ func main() {
 	// M8 slice 1: the governed long-term memory core (candidate/fact/
 	// source-leaf/recall on the shared single-writer transaction).
 	memorySvc := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")
+	memorySvc.SetFTS(store)
 	engine.SetM8MemoryServices(memorySvc)
+	engine.SetPersistDir(dataRoot.Path())
 	// M10: the memory nomination workflow over the slice-1 core.
 	engine.SetM10NominationService(m8app.NewNominationService(store.AgentRuntimeRepository(), memorySvc))
 	// M10: expert scenario cards over the FR-19 expert core.
@@ -537,12 +546,9 @@ func main() {
 			}
 			shutdownAfterSession(err, cancel)
 			if authenticated {
-				// The engine is single-use per desktop host: when the host's
-				// RPC client hangs up (clean EOF or transport failure) the
-				// engine exits code=0 by design. Logging the cause pairs the
-				// engine exit with the host-side poison reason in host-*.log.
-				log.Printf("authenticated RPC session ended (err=%v); engine exiting with its host", err)
-				cancel()
+				// Owner disconnect unloads this client only. Handshake ACK
+				// failure still cancels the engine (shutdownAfterSession).
+				log.Printf("authenticated RPC session ended (err=%v); engine staying up", err)
 			}
 		}()
 	}

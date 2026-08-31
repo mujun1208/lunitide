@@ -158,6 +158,7 @@ test('prefers the local recognizer when the probe answers ready in time', async 
   expect(recognizers.local).toHaveBeenCalled()
   expect(recognizers.cloud).not.toHaveBeenCalled()
   expect(utils.container.querySelector('[data-asr-route="local"]')).toBeTruthy()
+  expect(utils.container.querySelector('[data-light="listen"]')?.textContent).toMatch(/本机 sherpa/)
   utils.unmount()
 })
 
@@ -287,14 +288,16 @@ test('shows 听 说 想 lights after a cloud entry', async () => {
   expect(chrome?.contains(utils.container.querySelector('.companion-interrupt'))).toBe(true)
   expect(chrome?.contains(utils.container.querySelector('.companion-lights'))).toBe(true)
   expect(
-    [...(chrome?.querySelectorAll('.companion-exit, .companion-interrupt, [data-light]') ?? [])].map(el =>
+    [...(chrome?.querySelectorAll('.companion-exit, .companion-interrupt, .companion-pause, [data-light]') ?? [])].map(el =>
       el.classList.contains('companion-exit')
         ? 'exit'
         : el.classList.contains('companion-interrupt')
           ? 'interrupt'
-          : el.getAttribute('data-light'),
+          : el.classList.contains('companion-pause')
+            ? 'pause'
+            : el.getAttribute('data-light'),
     ),
-  ).toEqual(['exit', 'interrupt', 'listen', 'speak', 'think'])
+  ).toEqual(['exit', 'interrupt', 'pause', 'listen', 'speak', 'think'])
   utils.unmount()
 })
 

@@ -86,6 +86,19 @@ describe('useCompanionMachine transition matrix', () => {
     })
     expect(result.current.state).toBe('thinking')
   })
+
+  test('dispatch returns the next state immediately and does not reset on a rejected follow-up', () => {
+    const { result } = renderHook(() => useCompanionMachine())
+    let accepted: string | null = null
+    let rejected: string | null = 'unset'
+    act(() => {
+      accepted = result.current.dispatch({ type: 'MIC_ACTIVATE' })
+      rejected = result.current.dispatch({ type: 'INTERRUPT' })
+    })
+    expect(accepted).toBe('listening')
+    expect(rejected).toBeNull()
+    expect(result.current.state).toBe('listening')
+  })
 })
 
 describe('companionSurfaceState', () => {

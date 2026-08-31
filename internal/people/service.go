@@ -39,6 +39,7 @@ var (
 	ErrUnsupported  = errors.New("people picker unsupported")
 	ErrOpenFailed   = errors.New("people file open failed")
 	ErrLocked       = identity.ErrLocked
+	ErrSelfChat     = errors.New("people cannot chat with self")
 )
 
 const (
@@ -200,6 +201,9 @@ type Store interface {
 	DecideOffer(ctx context.Context, offerID, status, destPath, decidedAt string) error
 	MarkThreadRead(ctx context.Context, threadID, subjectID, at string) error
 	CountUnread(ctx context.Context, threadID, subjectID string) (int, error)
+	ThreadSession(ctx context.Context, threadID string) (string, bool, error)
+	BindThreadSession(ctx context.Context, threadID, sessionID, createdAt string) error
+	ClearThreadSession(ctx context.Context, threadID string) error
 }
 
 type Identity interface {
@@ -430,6 +434,40 @@ func (s *Service) IngestBeacon(ctx context.Context, b Beacon, host string) error
 	})
 }
 
+func (s *Service) stampThreadMembers(t *Thread) {
+	if s == nil || t == nil || s.identity == nil {
+		return
+	}
+	self := s.identity.SubjectID()
+	for i := range t.Members {
+		t.Members[i].Self = t.Members[i].SubjectID == self
+	}
+}
+
+func collapseListedDirects(items []Thread) []Thread {
+	seen := map[string]bool{}
+	out := make([]Thread, 0, len(items))
+	for _, item := range items {
+		if item.Kind != "direct" {
+			out = append(out, item)
+			continue
+		}
+		peer := ""
+		for _, member := range item.Members {
+			if !member.Self {
+				peer = member.SubjectID
+				break
+			}
+		}
+		if peer == "" || seen[peer] {
+			continue
+		}
+		seen[peer] = true
+		out = append(out, item)
+	}
+	return out
+}
+
 func (s *Service) DiscoveryGet() (enabled bool, pairingCode string) {
 	if s == nil || s.identity == nil {
 		return false, ""
@@ -467,6 +505,7 @@ func (s *Service) ListThreads(ctx context.Context) ([]Thread, error) {
 	}
 	self := s.identity.SubjectID()
 	for i := range items {
+		s.stampThreadMembers(&items[i])
 		n, countErr := s.store.CountUnread(ctx, items[i].ThreadID, self)
 		if countErr != nil {
 			return nil, countErr
@@ -477,7 +516,7 @@ func (s *Service) ListThreads(ctx context.Context) ([]Thread, error) {
 			items[i].LastMessage.TransferPercent = s.progressFor(items[i].LastMessage.OfferID)
 		}
 	}
-	return items, nil
+	return collapseListedDirects(items), nil
 }
 
 func (s *Service) OpenDirect(ctx context.Context, peerSubjectID string) (Thread, []Message, error) {
@@ -486,8 +525,8 @@ func (s *Service) OpenDirect(ctx context.Context, peerSubjectID string) (Thread,
 	}
 	self := s.identity.SubjectID()
 	peerSubjectID = strings.TrimSpace(peerSubjectID)
-	if peerSubjectID == "" {
-		peerSubjectID = self
+	if peerSubjectID == "" || peerSubjectID == self {
+		return Thread{}, nil, ErrSelfChat
 	}
 	if _, err := s.store.GetContact(ctx, peerSubjectID); err != nil {
 		return Thread{}, nil, ErrNotFound
@@ -499,12 +538,7 @@ func (s *Service) OpenDirect(ctx context.Context, peerSubjectID string) (Thread,
 	}
 	now := nowRFC3339()
 	t := Thread{ThreadID: ulid.Make().String(), Kind: "direct", OwnerID: self, CreatedAt: now, UpdatedAt: now}
-	members := []string{self}
-	if peerSubjectID != self {
-		members = append(members, peerSubjectID)
-	} else {
-		members = []string{self}
-	}
+	members := []string{self, peerSubjectID}
 	if err := s.store.InsertThread(ctx, t, members, self); err != nil {
 		return Thread{}, nil, err
 	}
@@ -527,6 +561,19 @@ func (s *Service) OpenThread(ctx context.Context, threadID string) (Thread, []Me
 	return s.openExisting(ctx, t)
 }
 
+func (s *Service) ListMessages(ctx context.Context, threadID string, limit int) ([]Message, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > maxMessages {
+		limit = maxMessages
+	}
+	return s.store.ListPeopleMessages(ctx, threadID, limit)
+}
+
 func (s *Service) PeekThread(ctx context.Context, threadID string) (Thread, error) {
 	if err := s.ready(); err != nil {
 		return Thread{}, err
@@ -535,6 +582,7 @@ func (s *Service) PeekThread(ctx context.Context, threadID string) (Thread, erro
 	if err != nil {
 		return Thread{}, err
 	}
+	s.stampThreadMembers(&t)
 	return t, nil
 }
 
@@ -552,6 +600,7 @@ func (s *Service) openExisting(ctx context.Context, t Thread) (Thread, []Message
 	if err := s.store.MarkThreadRead(ctx, t.ThreadID, s.identity.SubjectID(), readAt); err != nil {
 		return Thread{}, nil, err
 	}
+	s.stampThreadMembers(&t)
 	t.UnreadCount = 0
 	t.TypingSubjectIDs = s.typingFor(t.ThreadID)
 	for i := range msgs {
@@ -609,6 +658,7 @@ func (s *Service) CreateGroup(ctx context.Context, title, ownerSubjectID string,
 		return Thread{}, err
 	}
 	go s.deliverThread(opened)
+	s.stampThreadMembers(&opened)
 	return opened, nil
 }
 
@@ -1134,6 +1184,41 @@ func joinHostPort(host string, port int) string {
 		port = defaultTCP
 	}
 	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func (s *Service) ThreadSession(ctx context.Context, threadID string) (string, bool, error) {
+	if s == nil || s.store == nil {
+		return "", false, ErrUnavailable
+	}
+	if !canonicalPeopleULID(threadID) {
+		return "", false, ErrInvalid
+	}
+	return s.store.ThreadSession(ctx, threadID)
+}
+
+func (s *Service) BindThreadSession(ctx context.Context, threadID, sessionID string) error {
+	if s == nil || s.store == nil {
+		return ErrUnavailable
+	}
+	if !canonicalPeopleULID(threadID) || !canonicalPeopleULID(sessionID) {
+		return ErrInvalid
+	}
+	return s.store.BindThreadSession(ctx, threadID, sessionID, nowRFC3339())
+}
+
+func (s *Service) ClearThreadSession(ctx context.Context, threadID string) error {
+	if s == nil || s.store == nil {
+		return ErrUnavailable
+	}
+	if !canonicalPeopleULID(threadID) {
+		return ErrInvalid
+	}
+	return s.store.ClearThreadSession(ctx, threadID)
+}
+
+func canonicalPeopleULID(v string) bool {
+	u, err := ulid.ParseStrict(v)
+	return err == nil && u.String() == v && v[0] <= '7'
 }
 
 func parsePeerAddr(raw string) (string, error) {

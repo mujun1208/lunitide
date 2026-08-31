@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type ChatBridge, type MessageBridge, type ProviderBridge, type SessionBridge } from '../bridge/client'
 import type { ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
@@ -99,6 +99,38 @@ const provider: ProviderDTO = {
   updatedAt: NOW,
   version: 1,
 }
+
+it('does not start companion chat when the user turn fails to persist', async () => {
+  const start = vi.fn()
+  const append = vi.fn().mockRejectedValue(new BridgeClientError('write failed', 'WRITE_FAILED', true, 'engine'))
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={messages}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('今晚月色如何')
+  })
+  await waitFor(() => expect(append).toHaveBeenCalled())
+  expect(start).not.toHaveBeenCalled()
+  expect(await screen.findByRole('alert')).toHaveTextContent('这句话没记下')
+})
 
 it('does not auto-resume a retryable companion chat.start failure with the work prompt', async () => {
   const start = vi.fn().mockRejectedValue(new BridgeClientError('上下文装配暂时不可用', 'CONTEXT_ASSEMBLY_FAILED', true, 'engine'))
@@ -247,4 +279,68 @@ it('retries companion chat.start after HOST_BUSY without speaking 无法执行',
   })
   await waitFor(() => expect(start.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4000 })
   expect(document.body.textContent).not.toMatch(/无法执行/)
+})
+
+it('shows persist-retry on the companion stage from the server turn', async () => {
+  const inspectTurn = vi.fn().mockResolvedValue({ status: 'completed', persistFailed: true, persistDraft: '已经生成但没落库' })
+  const chat: ChatBridge = { start: vi.fn(), approve: vi.fn(), inspectTurn, dispose: vi.fn() }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  expect(await screen.findByRole('button', { name: '只重试写入' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '继续上次' })).toBeNull()
+  expect(inspectTurn).toHaveBeenCalledWith({ sessionId: S })
+})
+
+it('restores a running companion draft without persist-failed or auto-send', async () => {
+  const inspectTurn = vi.fn().mockResolvedValue({ status: 'running', persistFailed: false, persistDraft: '流到一半还没写完' })
+  const start = vi.fn()
+  const chat: ChatBridge = { start, approve: vi.fn(), inspectTurn, dispose: vi.fn() }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  expect(await screen.findByRole('button', { name: '继续上次' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '只重试写入' })).toBeNull()
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)) })
+  expect(start).not.toHaveBeenCalled()
+})
+
+it('shows resume on the companion stage when the server turn is interrupted', async () => {
+  const inspectTurn = vi.fn().mockResolvedValue({ status: 'interrupted', persistFailed: false, persistDraft: '' })
+  const chat: ChatBridge = { start: vi.fn(), approve: vi.fn(), inspectTurn, dispose: vi.fn() }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  expect(await screen.findByRole('button', { name: '继续上次' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '只重试写入' })).toBeNull()
 })

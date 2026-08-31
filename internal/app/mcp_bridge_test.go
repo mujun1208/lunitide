@@ -47,8 +47,11 @@ func TestInvokeBrowserActGuidesInteractiveOps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.Output, "Playwright") && !strings.Contains(out.Output, "media.play") {
+	if !strings.Contains(out.Output, "Playwright") {
 		t.Fatalf("output = %q", out.Output)
+	}
+	if strings.Contains(out.Output, "已经在播") || strings.Contains(strings.ToLower(out.Output), `"action":"play"`) {
+		t.Fatalf("empty click must not fall through to media.play: %q", out.Output)
 	}
 }
 

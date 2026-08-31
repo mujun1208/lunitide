@@ -64,7 +64,7 @@ func TestValidateInboundRequiresAllowlist(t *testing.T) {
 	if err := validateInboundFields(KindFeishu, true, "", "cli_x", ""); err != nil {
 		t.Fatalf("app id pairing=%v", err)
 	}
-	if err := validateInboundFields(KindDingTalk, true, "x", "", ""); err != ErrInboundKind {
+	if err := validateInboundFields(KindDingTalk, true, "x", "", ""); err != nil {
 		t.Fatalf("dingtalk=%v", err)
 	}
 	if err := validateInboundFields(KindFeishu, false, "", "", ""); err != nil {

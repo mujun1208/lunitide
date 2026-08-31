@@ -46,14 +46,14 @@ describe('inspectCompanionEntry', () => {
     expect(report.lights[0].state).toBe('off')
   })
 
-  test('blocks local entry when GPT-SoVITS is offline', async () => {
+  test('still allows local listen when GPT-SoVITS is offline', async () => {
     const report = await inspectCompanionEntry('local', '', {
       listProviders: async () => ({ items: [chat] }),
       localAsr: async () => ({ supported: true, ready: true }),
       refEngine: async () => ({ state: 'offline' }),
     })
-    expect(report.allowListen).toBe(false)
-    expect(report.blockReason).toMatch(/SoVITS/)
+    expect(report.allowListen).toBe(true)
+    expect(report.speakReady).toBe(false)
     expect(report.lights[1].state).toBe('off')
   })
 

@@ -17,6 +17,40 @@ import (
 // parked user.ask approval without a second renderer-only overlay.
 var filePickerAskArgs = json.RawMessage(`{"title":"文件对话框","questions":[{"id":"file-dialog","prompt":"屏幕上出现了打开/保存文件对话框。我不能代你选文件，请你在系统对话框里点「保存」「打开」或「取消」。","options":[{"id":"done","label":"我已经点完了"},{"id":"cancel","label":"我点了取消"},{"id":"wait","label":"稍等一下"}]}]}`)
 
+var uacAskArgs = json.RawMessage(`{"title":"系统提权","questions":[{"id":"uac-dialog","prompt":"屏幕上出现了 UAC / 系统提权对话框。我不能代点「是」。请你自己确认或取消。","options":[{"id":"done","label":"我已经处理完了"},{"id":"cancel","label":"我点了取消"},{"id":"wait","label":"稍等一下"}]}]}`)
+
+func looksLikeUACToolResult(summary string) bool {
+	text := strings.ToLower(strings.TrimSpace(summary))
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "needs_user") && (strings.Contains(text, "uac") || strings.Contains(text, "提权")) {
+		return true
+	}
+	return strings.Contains(text, "uac dialog") || strings.Contains(text, "elevation dialog")
+}
+
+func (e *Engine) parkUACAsk(ctx context.Context, runID, sessionID string, mode executionMode, send func(bridge.Event) error) error {
+	if e == nil || e.tools == nil || sessionID == "" || send == nil {
+		return nil
+	}
+	callID := "ask-" + ulid.Make().String()
+	pending, err := e.tools.Prepare(ctx, runID, sessionID, callID, "user.ask", uacAskArgs, toolruntime.Mode(mode), 10*time.Minute)
+	if err != nil {
+		log.Printf("uac park Prepare failed: %v", err)
+		return nil
+	}
+	return send(bridge.Event{
+		Type: bridge.EventApprovalRequired,
+		Tool: &bridge.ToolEvent{
+			CallID:     pending.CallID,
+			Name:       "user.ask",
+			ArgsDigest: pending.ArgsDigest,
+			Summary:    approvalRequiredSummary("user.ask", uacAskArgs),
+		},
+	})
+}
+
 func looksLikeFilePickerToolResult(summary string) bool {
 	text := strings.TrimSpace(summary)
 	if text == "" {

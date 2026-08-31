@@ -19,8 +19,8 @@ const statusColor = (s: string): string => {
 }
 const riskColor = (r: RiskLevel): string => r === 'low' ? '#34d399' : r === 'medium' ? '#60a5fa' : r === 'high' ? '#fbbf24' : '#f87171'
 
-const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: '#0a0e1a', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', boxSizing: 'border-box' }
-const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: '#1e293b', color: '#e5e7eb', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer' }
+const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', boxSizing: 'border-box' }
+const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 
 export function PlanPage({ projectId, bridge = planBridge }: { projectId: string; bridge?: PlanBridge }): React.JSX.Element {
@@ -116,8 +116,8 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
     return <div className="shell"><div className="empty"><b>请先选择项目</b><span>在项目总览中选择一个项目后即可管理计划。</span></div></div>
   }
 
-  const panelStyle: React.CSSProperties = { border: '1px solid #1f2937', borderRadius: '16px', background: '#0e1c30', padding: '20px' }
-  const cardStyle: React.CSSProperties = { padding: '14px', border: '1px solid #1f2937', borderRadius: '12px', background: '#111827' }
+  const panelStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: '16px', background: 'var(--bg2)', padding: '20px' }
+  const cardStyle: React.CSSProperties = { padding: '14px', border: '1px solid var(--rule)', borderRadius: '12px', background: 'var(--bg3)' }
 
   return (
     <div className="shell">
@@ -133,7 +133,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
             </div>
           </div>
           {showCreatePlan && (
-            <form onSubmit={e => void doCreatePlan(e)} style={{ marginBottom: '14px', padding: '12px', border: '1px solid #334155', borderRadius: '8px', background: '#0a0e1a', display: 'grid', gap: '8px' }}>
+            <form onSubmit={e => void doCreatePlan(e)} style={{ marginBottom: '14px', padding: '12px', border: '1px solid var(--line)', borderRadius: '8px', background: 'var(--bg)', display: 'grid', gap: '8px' }}>
               <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>计划名称
                 <input style={inputStyle} value={planName} onChange={e => setPlanName(e.target.value)} aria-label="计划名称" placeholder="输入计划名称" />
               </label>
@@ -146,7 +146,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
               </div>
             </form>
           )}
-          {loading ? <p style={{ color: '#8fa3bf' }}>正在载入…</p> :
+          {loading ? <p style={{ color: 'var(--muted)' }}>正在载入…</p> :
            plans.length === 0 ? <div className="empty"><b>暂无计划</b><span>该项目下还没有计划。</span></div> :
            <div style={{ display: 'grid', gap: '8px' }}>
              {plans.map(plan => (
@@ -155,7 +155,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
                    <strong style={{ fontSize: '14px' }}>{plan.name}</strong>
                    <span style={{ color: statusColor(plan.status), fontSize: '12px', whiteSpace: 'nowrap' }}>{PLAN_STATUS_LABELS[plan.status]}</span>
                  </div>
-                 {plan.description && <p style={{ margin: '6px 0 0', color: '#8fa3bf', fontSize: '12px' }}>{plan.description}</p>}
+                 {plan.description && <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '12px' }}>{plan.description}</p>}
                  <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                    {plan.status === 'draft' && <button disabled={busy} onClick={e => { e.stopPropagation(); void doPlanOp('activate', plan.id) }}>激活</button>}
                    {plan.status === 'active' && <button disabled={busy} onClick={e => { e.stopPropagation(); void doPlanOp('pause', plan.id) }}>暂停</button>}
@@ -172,7 +172,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
             {selectedPlan && <button style={btnStyle} onClick={() => setShowCreateNode(v => !v)}>新建节点</button>}
           </div>
           {selectedPlan && showCreateNode && (
-            <form onSubmit={e => void doCreateNode(e)} style={{ marginBottom: '14px', padding: '12px', border: '1px solid #334155', borderRadius: '8px', background: '#0a0e1a', display: 'grid', gap: '8px' }}>
+            <form onSubmit={e => void doCreateNode(e)} style={{ marginBottom: '14px', padding: '12px', border: '1px solid var(--line)', borderRadius: '8px', background: 'var(--bg)', display: 'grid', gap: '8px' }}>
               <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>节点名称
                 <input style={inputStyle} value={nodeName} onChange={e => setNodeName(e.target.value)} aria-label="节点名称" placeholder="输入节点名称" />
               </label>
@@ -209,14 +209,14 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                    <div>
                      <strong style={{ fontSize: '14px' }}>{node.sequence}. {node.name}</strong>
-                     {node.description && <p style={{ margin: '4px 0 0', color: '#8fa3bf', fontSize: '12px' }}>{node.description}</p>}
+                     {node.description && <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '12px' }}>{node.description}</p>}
                    </div>
                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                      <span style={{ color: statusColor(isReady ? 'ready' : node.status), fontSize: '12px' }}>{isReady ? '✓ 就绪' : NODE_STATUS_LABELS[node.status]}</span>
                      <span style={{ color: riskColor(node.riskLevel), fontSize: '11px' }}>风险: {RISK_LABELS[node.riskLevel]}</span>
                    </div>
                  </div>
-                 <div style={{ marginTop: '6px', fontSize: '11px', color: '#8fa3bf' }}>
+                 <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--muted)' }}>
                    角色: {node.workerRole}{node.budgetTokens ? ` · 预算 ${node.budgetTokens}` : ''}
                    {node.parentNodeId && (parent ? ` · 依赖: ${parent.name} (${NODE_STATUS_LABELS[parent.status]})` : ' · 依赖: 已删除节点')}
                  </div>

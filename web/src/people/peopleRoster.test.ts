@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, isAgentContact, lastPreview, orgGroupLabel, statusLabel, threadTitle, trustLabel, unreadTotal, type PeopleContact } from './peopleRoster'
+import { contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, isAgentContact, lastPreview, orgGroupCollapsed, orgGroupLabel, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadTitle, trustLabel, unreadTotal, visiblePeopleThreads, type PeopleContact } from './peopleRoster'
 
 const contact = (partial: Partial<PeopleContact>): PeopleContact => ({
   subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -42,6 +42,43 @@ describe('people roster grouping', () => {
     expect(unreadTotal([{ unreadCount: 2 }, { unreadCount: 0 }, {}])).toBe(2)
     expect(displayName({ nickname: '甲', remark: '阿甲' })).toBe('阿甲')
     expect(threadTitle({ kind: 'direct', members: [{ nickname: '甲', remark: '阿甲', self: false }, { nickname: 'mu', self: true }] })).toBe('阿甲')
+    expect(threadTitle({ kind: 'direct', members: [{ nickname: 'mu', self: true, subjectId: 'me' }, { nickname: 'PPT专家', self: false, subjectId: 'ppt' }] })).toBe('PPT专家')
+    expect(threadTitle({ kind: 'direct', members: [{ nickname: 'mu', self: true, subjectId: 'me' }] })).toBe('同事对话')
+    expect(threadHeading({ kind: 'group', title: '三人组', members: [{ nickname: '甲', self: false }, { nickname: '乙', self: false }, { nickname: 'mu', self: true }] })).toBe('三人组 (3)')
+  })
+
+  test('hides note-to-self and keeps one direct row per peer', () => {
+    const self = { nickname: 'mu', self: true, subjectId: 'me' }
+    const ppt = { nickname: 'PPT专家', self: false, subjectId: 'ppt' }
+    const peer = { nickname: '甲', self: false, subjectId: 'jia' }
+    expect(visiblePeopleThreads([
+      { kind: 'direct', members: [self] },
+      { kind: 'direct', members: [self, ppt] },
+      { kind: 'direct', members: [self, ppt] },
+      { kind: 'direct', members: [self, peer] },
+      { kind: 'group', title: '项目群', members: [self, ppt, peer] },
+    ]).map(item => item.kind === 'group' ? item.title : threadTitle(item))).toEqual(['PPT专家', '甲', '项目群'])
+  })
+
+  test('resolves colleague open by subject or agent name', () => {
+    const items = [
+      contact({ subjectId: 'me', nickname: 'mu', self: true }),
+      contact({ subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', nickname: 'PPT专家', orgName: '月汐智能体' }),
+    ]
+    expect(resolveColleaguePeerId(items, '01ARZ3NDEKTSV4RRFFQ69G5FAD')).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAD')
+    expect(resolveColleaguePeerId(items, 'ppt-expert', 'PPT专家')).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAD')
+    expect(resolveColleaguePeerId(items, 'me')).toBeUndefined()
+  })
+
+  test('pins the people log only when already at the bottom and the last id changed', () => {
+    expect(shouldPinPeopleLog({ stickToBottom: true, previousLastId: 'a', nextLastId: 'a' })).toBe(false)
+    expect(shouldPinPeopleLog({ stickToBottom: true, previousLastId: 'a', nextLastId: 'b' })).toBe(true)
+    expect(shouldPinPeopleLog({ stickToBottom: false, previousLastId: 'a', nextLastId: 'b' })).toBe(false)
+    expect(shouldReloadOpenThread({ stickToBottom: true, listedLastId: 'b', localLastId: 'a' })).toBe(true)
+    expect(shouldReloadOpenThread({ stickToBottom: false, listedLastId: 'b', localLastId: 'a' })).toBe(false)
+    expect(orgGroupCollapsed(undefined, 4, false)).toBe(true)
+    expect(orgGroupCollapsed(undefined, 2, false)).toBe(false)
+    expect(orgGroupCollapsed(true, 2, true)).toBe(false)
   })
 
   test('filters contacts and threads for WeChat-mode search', () => {

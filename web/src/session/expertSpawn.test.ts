@@ -19,7 +19,7 @@ const REPORT = '01ARZ3NDEKTSV4RRFFQ69G5FAD'
 
 describe('expert spawn filter', () => {
   it('keeps only the selected subset from session mounts', () => {
-    expect(selectedTurnExpertIDs([AI, ARCH, SEC, OPT], '重新思考，给出一个新的方案。')).toEqual([AI, ARCH, SEC, OPT])
+    expect(selectedTurnExpertIDs([AI, ARCH, SEC, OPT], '重新思考，给出一个新的方案。')).toEqual([])
     expect(selectedTurnExpertIDs([SEC], '请评审')).toEqual([SEC])
     expect(spawnedExpertsMatchSelection([SEC], selectedTurnExpertIDs([SEC], '请评审'))).toBe(true)
   })

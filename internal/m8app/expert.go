@@ -495,7 +495,11 @@ func (s *ExpertService) applySkillFloor(ctx context.Context, expertID string, ke
 	if err != nil || ExpertKindForName(name) != ExpertKindAgent {
 		return keys
 	}
-	floor, _, _, _ := ComposeForExpertNames([]string{name})
+	floorSkills, _, floorMcp, _ := ComposeForExpertNames([]string{name})
+	floor := append([]string{}, floorSkills...)
+	for _, id := range floorMcp {
+		floor = append(floor, BoundMcpPrefix+id)
+	}
 	if len(floor) == 0 {
 		return keys
 	}

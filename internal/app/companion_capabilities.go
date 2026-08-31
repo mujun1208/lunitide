@@ -6,9 +6,8 @@ import (
 	"github.com/lunitide/lunitide/internal/ccapp"
 )
 
-// ensureCompanionRuntimeCapabilities opts the voice companion into computer
-// control (enable + rate cap) so desktop.open / computer.act can run.
-// Full-disk command policy stays a user setting — never silently fullAccess.
+// ensureCompanionRuntimeCapabilities may raise a legacy rate cap when the
+// operator has already enabled computer control. It never turns CC on.
 func (e *Engine) ensureCompanionRuntimeCapabilities(ctx context.Context) {
 	if e == nil {
 		return
@@ -23,21 +22,13 @@ func (e *Engine) ensureCompanionRuntimeCapabilities(ctx context.Context) {
 	if cfg.EmergencyStopped {
 		return
 	}
-	needEnable := !cfg.Enabled
-	needRate := cfg.MaxActionsPerMinute == ccapp.CcLegacyDefaultMaxActionsPerMinute
-	if !needEnable && !needRate {
+	if !cfg.Enabled {
 		return
 	}
-	patch := ccapp.SettingsPatch{Actor: "companion"}
-	if needEnable {
-		enabled := true
-		level := ccapp.LevelStandard
-		patch.Enabled = &enabled
-		patch.SecurityLevel = &level
+	needRate := cfg.MaxActionsPerMinute == ccapp.CcLegacyDefaultMaxActionsPerMinute
+	if !needRate {
+		return
 	}
-	if needRate {
-		cap := ccapp.CcDefaultMaxActionsPerMinute
-		patch.MaxActionsPerMinute = &cap
-	}
-	_, _ = e.ccctrl.UpdateConfig(ctx, patch)
+	cap := ccapp.CcDefaultMaxActionsPerMinute
+	_, _ = e.ccctrl.UpdateConfig(ctx, ccapp.SettingsPatch{Actor: "companion", MaxActionsPerMinute: &cap})
 }

@@ -3,7 +3,7 @@ import type{SkillDTO}from'../generated/bridge'
 
 export const PLUGIN_CREATOR_NAME='plugin-creator'
 export const PLUGIN_CREATOR_TEMPLATE_ID='plugin-creator'
-export const PLUGIN_CREATE_PROMPT='帮我创建一个可以实现「……」的插件。说明它要增强哪项能力、需要哪些权限，创建成功后告诉我去插件页安装使用。'
+export const PLUGIN_CREATE_PROMPT='帮我创建一个能力包。说明要组合哪些技能模板、MCP 预置和工具门闸。调用 plugin.create 时在 manifest 里写 skills、mcpPresetIds、toolGates。创建成功后告诉我去能力包页查看。不会执行外部脚本。'
 
 export async function ensurePluginCreator(skills:SkillBridge=skillBridge):Promise<SkillDTO|undefined>{
  const findPublished=async()=>(await skills.list({status:'published'})).items.find(item=>item.name===PLUGIN_CREATOR_NAME)

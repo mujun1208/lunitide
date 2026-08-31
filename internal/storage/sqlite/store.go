@@ -244,6 +244,8 @@ var manifest = []struct{ name, checksum string }{
 	{"0103_cc_arm.sql", "c4699266bebc70bc72912fa86399542ca92d7c7fc81d3999d3a98bb769dac83c"},
 	{"0104_expert_skill_bindings.sql", "1b330f10d7e249628c634072399df219c9d6920311dfd0b2310b7c2680f9f284"},
 	{"0105_expert_task_claims.sql", "b5feb3b375d55221e44f92e70551a13feb3a9ae279af6a4dde87ce504c82c46b"},
+	{"0106_people_thread_session.sql", "91dbf6f1d4acc2688a8f4e0a0503eeca42499e036c61e05f738f4dd9b43cda6b"},
+	{"0107_memory_fact_fts.sql", "41bde89603acccb5224ec22d1878023e1801cad224c0734c033e4b7122b4c8c3"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -872,7 +874,8 @@ func validateJournal(ctx context.Context, q sqlRunner, _ []string) error {
 }
 
 func skipMessageFTSSchema(name string) bool {
-	return name == "message_fts" || strings.HasPrefix(name, "message_fts_") || strings.HasPrefix(name, "trg_message_fts")
+	return name == "message_fts" || strings.HasPrefix(name, "message_fts_") || strings.HasPrefix(name, "trg_message_fts") ||
+		name == "memory_fact_fts" || strings.HasPrefix(name, "memory_fact_fts_") || strings.HasPrefix(name, "trg_memory_fact_fts")
 }
 
 var expectedSchemaSQL = map[string]string{
@@ -1055,6 +1058,7 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_sessions_project_created":               "CREATE INDEX ix_sessions_project_created ON sessions(project_id, created_at, id)",
 	"index:ix_expert_skill_bindings_expert":           "CREATE INDEX ix_expert_skill_bindings_expert ON expert_skill_bindings(expert_id, ordinal, skill_key)",
 	"index:ix_expert_task_claims_expert":              "CREATE INDEX ix_expert_task_claims_expert ON expert_task_claims(expert_id, claimed_at)",
+	"index:ix_people_thread_session_session":          "CREATE INDEX ix_people_thread_session_session ON people_thread_session(session_id)",
 	"index:ix_session_expert_mounts_session":          "CREATE INDEX ix_session_expert_mounts_session ON session_expert_mounts(session_id, ordinal, expert_id)",
 	"index:ix_sm_subject":                             "CREATE INDEX ix_sm_subject ON stale_marks(subject_type, subject_id)",
 	"index:ix_sr_mark":                                "CREATE INDEX ix_sr_mark ON stale_resolutions(stale_mark_id)",
@@ -1329,6 +1333,7 @@ var expectedSchemaSQL = map[string]string{
 	"table:people_file_offers":          "CREATE TABLE people_file_offers (\n    offer_id TEXT PRIMARY KEY CHECK (length(offer_id) = 26 AND substr(offer_id, 1, 1) GLOB '[0-7]' AND offer_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    message_id TEXT NOT NULL UNIQUE REFERENCES people_messages(message_id) ON DELETE CASCADE,\n    thread_id TEXT NOT NULL REFERENCES people_threads(thread_id) ON DELETE CASCADE,\n    from_subject_id TEXT NOT NULL CHECK (length(from_subject_id) = 26 AND substr(from_subject_id, 1, 1) GLOB '[0-7]' AND from_subject_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    to_subject_id TEXT NOT NULL CHECK (length(to_subject_id) = 26 AND substr(to_subject_id, 1, 1) GLOB '[0-7]' AND to_subject_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    status TEXT NOT NULL CHECK (status IN ('pending','accepted','rejected')),\n    file_name TEXT NOT NULL CHECK (length(file_name) BETWEEN 1 AND 256),\n    file_mime TEXT NOT NULL DEFAULT '' CHECK (length(file_mime) <= 128),\n    file_size INTEGER NOT NULL CHECK (file_size >= 0),\n    file_sha256 TEXT NOT NULL CHECK (length(file_sha256) = 64 AND file_sha256 NOT GLOB '*[^0-9a-f]*'),\n    staging_path TEXT NOT NULL DEFAULT '' CHECK (length(staging_path) <= 1024),\n    dest_path TEXT NOT NULL DEFAULT '' CHECK (length(dest_path) <= 1024),\n    created_at TEXT NOT NULL,\n    decided_at TEXT NOT NULL DEFAULT ''\n)",
 	"table:people_messages":             "CREATE TABLE people_messages (\n    message_id TEXT PRIMARY KEY CHECK (length(message_id) = 26 AND substr(message_id, 1, 1) GLOB '[0-7]' AND message_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    thread_id TEXT NOT NULL REFERENCES people_threads(thread_id) ON DELETE CASCADE,\n    sender_subject_id TEXT NOT NULL CHECK (length(sender_subject_id) = 26 AND substr(sender_subject_id, 1, 1) GLOB '[0-7]' AND sender_subject_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    kind TEXT NOT NULL CHECK (kind IN ('text','image','file','emoji','system')),\n    body TEXT NOT NULL DEFAULT '' CHECK (length(body) <= 16384),\n    file_name TEXT NOT NULL DEFAULT '' CHECK (length(file_name) <= 256),\n    file_mime TEXT NOT NULL DEFAULT '' CHECK (length(file_mime) <= 128),\n    file_size INTEGER NOT NULL DEFAULT 0 CHECK (file_size >= 0),\n    file_sha256 TEXT NOT NULL DEFAULT '' CHECK (file_sha256 = '' OR (length(file_sha256) = 64 AND file_sha256 NOT GLOB '*[^0-9a-f]*')),\n    created_at TEXT NOT NULL\n)",
 	"table:people_thread_members":       "CREATE TABLE people_thread_members (\n    thread_id TEXT NOT NULL REFERENCES people_threads(thread_id) ON DELETE CASCADE,\n    subject_id TEXT NOT NULL CHECK (length(subject_id) = 26 AND substr(subject_id, 1, 1) GLOB '[0-7]' AND subject_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    role TEXT NOT NULL CHECK (role IN ('owner','member')),\n    joined_at TEXT NOT NULL,\n    last_read_at TEXT NOT NULL DEFAULT '',\n    PRIMARY KEY (thread_id, subject_id)\n)",
+	"table:people_thread_session":       "CREATE TABLE people_thread_session (\n    thread_id TEXT PRIMARY KEY CHECK (length(thread_id) = 26 AND substr(thread_id, 1, 1) GLOB '[0-7]' AND thread_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL UNIQUE CHECK (length(session_id) = 26 AND substr(session_id, 1, 1) GLOB '[0-7]' AND session_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    created_at TEXT NOT NULL,\n    FOREIGN KEY (thread_id) REFERENCES people_threads(thread_id) ON DELETE CASCADE,\n    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE\n)",
 	"table:people_threads":              "CREATE TABLE people_threads (\n    thread_id TEXT PRIMARY KEY CHECK (length(thread_id) = 26 AND substr(thread_id, 1, 1) GLOB '[0-7]' AND thread_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    kind TEXT NOT NULL CHECK (kind IN ('direct','group')),\n    title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 128),\n    owner_subject_id TEXT NOT NULL CHECK (length(owner_subject_id) = 26 AND substr(owner_subject_id, 1, 1) GLOB '[0-7]' AND owner_subject_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
 	"index:ix_meeting_docs_meeting":     "CREATE INDEX ix_meeting_docs_meeting ON meeting_docs(meeting_id, created_at DESC)",
 	"index:ix_meeting_segments_meeting": "CREATE INDEX ix_meeting_segments_meeting ON meeting_segments(meeting_id, seq)",

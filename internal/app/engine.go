@@ -142,7 +142,10 @@ type Engine struct {
 	adapterCacheMu     sync.Mutex
 	adapterCache       map[string]gateway.Adapter
 	browserLastURL     sync.Map
+	lastBrowserSnap    atomic.Value
+	browserMutated     atomic.Bool
 	meetingNotesModel  atomic.Value
+	preferredChat      atomic.Value
 	streamsMu          sync.Mutex
 	streams            map[string]*streamState
 	maxStreams         int
@@ -230,13 +233,21 @@ type Engine struct {
 	omni *OmniService
 
 	// This-PC person identity + LAN people messenger (identity.* / people.*).
-	identity *identity.Service
-	people   *people.Service
+	identity          *identity.Service
+	people            *people.Service
+	memorySubjectOnce sync.Once
 
 	// This-PC meeting notes (meetings.*). Independent of 对话 and 同事.
 	meetings *meetings.Service
 	// Settings → 消息通道 (Feishu/WeCom/DingTalk webhooks + WeChat/QQ desktop).
-	imChannels *imapp.Service
+	imChannels    *imapp.Service
+	inboundRoutes sync.Map
+	imReply       imapp.ReplyTransport
+	wecomWriteMu  sync.Mutex
+	wecomWrite    func([]byte) error
+	mcpPresetByEP sync.Map
+	persistDir    string
+	persistMu     sync.Mutex
 
 	// M9 slice-1: org-admin bridge service (org.* methods, T-9.1.3).
 	m9org *m9app.OrgAdminService
@@ -270,6 +281,10 @@ type streamState struct {
 	companion      bool
 	subagentPolicy subagentChatPolicy
 	council        *expertCouncilConfig
+	mcpRestrict    bool
+	mcpAllowed     []string
+	brain          string
+	memorySummary  string
 }
 
 type streamLifecycle uint8
@@ -401,8 +416,10 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodAttachmentUploadBegin:         handleAttachmentUploadBegin,
 	bridge.MethodAttachmentUploadChunk:         handleAttachmentUploadChunk,
 	bridge.MethodAttachmentUploadCommit:        handleAttachmentUploadCommit,
+	bridge.MethodChatPrefer:                    handleChatPrefer,
 	bridge.MethodChatStart:                     handleChatStart,
 	bridge.MethodChatToolApprove:               handleChatToolApprove,
+	bridge.MethodChatTurnGet:                   handleChatTurnGet,
 	bridge.MethodContextStatus:                 handleContextStatus,
 	bridge.MethodConversationsRootGet:          handleConversationsRootGet,
 	bridge.MethodConversationsRootSet:          handleConversationsRootSet,

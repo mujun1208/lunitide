@@ -56,21 +56,17 @@ func catalogByUsage(t *testing.T, usage string) m8app.CatalogItem {
 	return m8app.CatalogItem{}
 }
 
-func TestInstallAgencyAgentChatPublishesSkill(t *testing.T) {
+func TestInstallAgencyAgentChatCreatesPersonaExpert(t *testing.T) {
 	item := catalogByUsage(t, m8app.CatalogUsageChat)
-	skills := &memCatalogSkills{}
-	res, err := m8app.InstallAgencyAgent(context.Background(), nil, skills, item.ID)
+	svc := openExpertService(t)
+	res, err := m8app.InstallAgencyAgent(context.Background(), svc, nil, item.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.SkillID == "" || res.SkillName != item.SkillName() || res.ExpertID != "" {
-		t.Fatalf("result = %+v", res)
+	if res.ExpertID == "" || res.SkillID != "" {
+		t.Fatalf("persona card must install as expert, not aa-* skill: %+v", res)
 	}
-	got, err := skills.GetByNameVersion(context.Background(), item.SkillName(), item.Version)
-	if err != nil || got.Status != skill.SkillStatusPublished {
-		t.Fatalf("published skill: %+v err=%v", got, err)
-	}
-	if _, err := m8app.InstallAgencyAgent(context.Background(), nil, skills, item.ID); !errors.Is(err, m8app.ErrCatalogInstalled) {
+	if _, err := m8app.InstallAgencyAgent(context.Background(), svc, nil, item.ID); !errors.Is(err, m8app.ErrCatalogInstalled) {
 		t.Fatalf("duplicate: %v", err)
 	}
 }

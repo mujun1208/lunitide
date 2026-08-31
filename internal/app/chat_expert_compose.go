@@ -6,36 +6,8 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/m8app"
+	"github.com/lunitide/lunitide/internal/mcp6"
 )
-
-func extractExpertRefNames(text string) []string {
-	const prefix = "[引用专家 "
-	var names []string
-	seen := map[string]bool{}
-	rest := text
-	for {
-		i := strings.Index(rest, prefix)
-		if i < 0 {
-			break
-		}
-		rest = rest[i+len(prefix):]
-		bar := strings.IndexByte(rest, '|')
-		end := strings.IndexByte(rest, ']')
-		if bar < 0 || end < 0 || bar >= end {
-			continue
-		}
-		name := strings.TrimSpace(rest[:bar])
-		if name != "" && !seen[name] {
-			seen[name] = true
-			names = append(names, name)
-		}
-		if end+1 >= len(rest) {
-			break
-		}
-		rest = rest[end+1:]
-	}
-	return names
-}
 
 func (e *Engine) sessionMountedExpertIDs(ctx context.Context, sessionID string) []string {
 	if e == nil || sessionID == "" || e.sessionExperts == nil {
@@ -75,22 +47,7 @@ func (e *Engine) composeExpertNames(ctx context.Context, sessionID, turnText str
 	if len(names) > 0 {
 		return names
 	}
-	if sessionID == "" || e.sessionExperts == nil || e.m8expert == nil {
-		return names
-	}
-	ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, sessionID)
-	if err != nil {
-		return names
-	}
-	for _, id := range ids {
-		detail, err := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: id})
-		if err != nil {
-			continue
-		}
-		name, _ := detail.Expert["name"].(string)
-		add(name)
-	}
-	return names
+	return e.turnEquipmentFor(ctx, sessionID, turnText, false).Names
 }
 
 func skillMatchesPreferred(sk skill.Skill, preferred []string) bool {
@@ -137,38 +94,22 @@ func (e *Engine) connectedComposeMcpIDs() []string {
 	if e == nil || e.mcp6Registry == nil {
 		return nil
 	}
+	seen := map[string]bool{}
 	have := map[string]bool{}
-	for _, t := range e.mcp6Registry.ReadyToolSnapshot() {
-		name := strings.ToLower(t.Tool)
-		switch {
-		case strings.HasPrefix(name, "browser_") || strings.Contains(name, "playwright"):
-			have["playwright"] = true
-		case strings.Contains(name, "sequential_thinking"):
-			have["sequentialthinking"] = true
-		case name == "create_entities" || name == "add_observations" || name == "search_nodes":
-			have["memory"] = true
-		case name == "fetch":
-			have["fetch"] = true
-		case strings.Contains(name, "read_file") || strings.Contains(name, "list_directory"):
-			have["filesystem"] = true
-		case strings.Contains(name, "git_"):
-			have["git"] = true
-		case strings.Contains(name, "sqlite") || name == "query":
-			have["sqlite"] = true
-		}
-	}
 	var out []string
-	for _, id := range []string{"playwright", "fetch", "filesystem", "memory", "sequentialthinking"} {
-		if have[id] {
-			out = append(out, id)
+	for _, t := range e.mcp6Registry.ReadyToolSnapshot() {
+		if seen[t.EndpointID] {
+			continue
 		}
+		seen[t.EndpointID] = true
+		id := e.endpointPresetID(t.EndpointID)
+		if id == "" || have[id] {
+			continue
+		}
+		have[id] = true
+		out = append(out, id)
 	}
 	return out
-}
-
-var liveComposeMCP = map[string]bool{
-	"playwright": true, "fetch": true, "filesystem": true,
-	"memory": true, "sequentialthinking": true,
 }
 
 func uniqueStrings(ids []string) []string {
@@ -189,7 +130,7 @@ func filterLiveComposeMCP(ids []string) []string {
 	seen := map[string]bool{}
 	for _, id := range ids {
 		id = strings.ToLower(strings.TrimSpace(id))
-		if !liveComposeMCP[id] || seen[id] {
+		if _, ok := mcp6.PresetByID(id); !ok || seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -200,8 +141,14 @@ func filterLiveComposeMCP(ids []string) []string {
 
 func expertComposeHint(names []string, published []skill.Skill, connectedMcp []string, preferred ...[]string) string {
 	skills, tools, mcp, fallbacks := m8app.ComposeForExpertNames(names)
-	if len(preferred) > 0 {
-		skills = preferred[0]
+	if len(preferred) > 0 && len(preferred[0]) > 0 {
+		storedSkills, storedMcp := m8app.SplitBoundKeys(preferred[0])
+		if len(storedSkills) > 0 {
+			skills = storedSkills
+		}
+		if len(storedMcp) > 0 {
+			mcp = storedMcp
+		}
 	}
 	if len(skills) == 0 && len(tools) == 0 {
 		return ""
@@ -260,7 +207,7 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 			b.WriteString("。可用 mcp.search / mcp.call 或已合并的 MCP 工具。\n")
 		}
 		if len(missing) > 0 {
-			b.WriteString("未连接 MCP（设置里可选）：")
+			b.WriteString("未连接 MCP（去 MCP 页打开）：")
 			b.WriteString(strings.Join(filterLiveComposeMCP(missing), "、"))
 			b.WriteString("。\n")
 		}

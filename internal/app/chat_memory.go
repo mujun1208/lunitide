@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,6 +16,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/memory"
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/m8app"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 // Chat-side memory fusion budgets. Confirmed preferences keep the existing
@@ -31,7 +36,7 @@ const (
 	autoNominateMinUserRunes = 8
 	autoNominateMinAsstRunes = 40
 	autoNominateMaxContent   = 1800
-	memoryOpsSubject         = "local-user"
+	memoryOpsLegacySubject   = "local-user"
 )
 
 type chatMemoryRequest struct {
@@ -71,7 +76,7 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 	pack.Enabled = settings.MemoryEnabled
 
 	if e.m8memory != nil {
-		if snapshot, err := e.m8memory.ConfirmedSnapshot(ctx, m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); err == nil {
+		if snapshot, err := e.m8memory.ConfirmedSnapshotFor(ctx, e.memorySubjectID(), m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); err == nil {
 			pack.Prefs = snapshot
 		} else {
 			log.Printf("chat memory: preference snapshot skipped: %v", err)
@@ -94,9 +99,10 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 
 	if query != "" && e.m8memory != nil {
 		res, err := e.m8memory.RecallForInject(ctx, m8app.RecallInput{
-			ScopeID: m8app.LearningScope,
-			Query:   clipRunes(query, 2048),
-			TopK:    pinnedMaxItems,
+			ScopeID:   m8app.LearningScope,
+			Query:     clipRunes(query, 2048),
+			TopK:      pinnedMaxItems,
+			SubjectID: e.memorySubjectID(),
 		})
 		if err != nil {
 			log.Printf("chat memory: recall inject skipped: %v", err)
@@ -136,7 +142,7 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 	if err != nil {
 		log.Printf("chat memory: working-layer list skipped: %v", err)
 	} else {
-		working = preferExpertOwnedMemories(working, req.ExpertIDs)
+		working = isolateExpertMemories(working, req.ExpertIDs)
 		pack.TaskState = clipMemorySources(workingToSources(working, req.SessionID), workingInjectMaxItems, workingInjectMaxBytes)
 	}
 
@@ -149,7 +155,7 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 		return pack
 	}
 
-	hits = preferExpertOwnedMemories(hits, req.ExpertIDs)
+	hits = isolateExpertMemories(hits, req.ExpertIDs)
 	pinnedUsed := sourcesBytes(pack.Pinned)
 	var evidence []contextapp.ContextSource
 	evidenceUsed := 0
@@ -225,17 +231,85 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 	return pack
 }
 
+func (e *Engine) memorySubjectID() string {
+	if e != nil && e.identity != nil {
+		if id := strings.TrimSpace(e.identity.SubjectID()); id != "" {
+			return id
+		}
+	}
+	return memoryOpsLegacySubject
+}
+
+func (e *Engine) ensureChatMemorySubject(ctx context.Context) string {
+	id := e.memorySubjectID()
+	if e == nil || e.identity == nil {
+		return id
+	}
+	e.memorySubjectOnce.Do(func() {
+		if err := e.identity.RebindLegacy(ctx); err != nil {
+			log.Printf("chat memory: rebind local-user skipped: %v", err)
+		}
+	})
+	return id
+}
+
 func (e *Engine) chatMemorySettings(ctx context.Context) m8core.MemorySettings {
-	defaults := m8core.DefaultMemorySettings(memoryOpsSubject)
+	subject := e.ensureChatMemorySubject(ctx)
+	defaults := m8core.DefaultMemorySettings(subject)
 	if e == nil || e.memoryOps == nil {
 		return defaults
 	}
-	st, err := e.memoryOps.SettingsGet(ctx, memoryOpsSubject)
+	st, err := e.memoryOps.SettingsGet(ctx, subject)
 	if err != nil {
 		log.Printf("chat memory: settings read skipped: %v", err)
 		return defaults
 	}
 	return st
+}
+
+func (e *Engine) peopleLocalBrainMemoryHint(ctx context.Context, sessionID, userText string, expertIDs ...string) string {
+	if sessionID == "" {
+		return ""
+	}
+	// Colleague / local-brain turns are not voice TTFT: use the session pack
+	// (full pinned + evidence), not the companion-tight budget.
+	pack := e.prepareChatMemory(ctx, chatMemoryRequest{Query: userText, SessionID: sessionID, Companion: false, ExpertIDs: expertIDs})
+	return renderPeopleMemorySlots(renderPreferenceInstruction("", pack.Prefs), pack.Pinned, pack.TaskState, nil)
+}
+
+func (e *Engine) peopleCompanionMemoryHint(ctx context.Context, sessionID, userText string, expertIDs ...string) string {
+	if sessionID == "" {
+		return ""
+	}
+	pack := e.prepareChatMemory(ctx, chatMemoryRequest{Query: userText, SessionID: sessionID, Companion: false, ExpertIDs: expertIDs})
+	return renderPeopleMemorySlots(renderPreferenceInstruction("", pack.Prefs), pack.Pinned, pack.TaskState, pack.Evidence)
+}
+
+func renderPeopleMemorySlots(prefs string, pinned, taskState, evidence []contextapp.ContextSource) string {
+	var b strings.Builder
+	b.WriteString(prefs)
+	write := func(title string, items []contextapp.ContextSource) {
+		started := false
+		for _, item := range items {
+			content := strings.TrimSpace(item.Content)
+			if content == "" {
+				continue
+			}
+			if !started {
+				b.WriteString("\n[")
+				b.WriteString(title)
+				b.WriteString("]\n")
+				started = true
+			}
+			b.WriteString("- ")
+			b.WriteString(content)
+			b.WriteString("\n")
+		}
+	}
+	write("置顶记忆", pinned)
+	write("工作记忆", taskState)
+	write("相关证据", evidence)
+	return b.String()
 }
 
 func (e *Engine) projectIDForSession(ctx context.Context, sessionID string) string {
@@ -266,6 +340,22 @@ func applyChatMemoryPack(env *contextapp.ContextEnvelope, pack chatMemoryPack) {
 	if len(pack.Evidence) > 0 {
 		env.RelatedEvidence = append(env.RelatedEvidence, pack.Evidence...)
 	}
+}
+
+func isolateExpertMemories(items []memory.Memory, expertIDs []string) []memory.Memory {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]memory.Memory, 0, len(items))
+	for _, item := range items {
+		if strings.HasPrefix(strings.TrimSpace(item.Key), "expert:") {
+			if len(expertIDs) == 0 || !memoryOwnedByExperts(item.Key, expertIDs) {
+				continue
+			}
+		}
+		out = append(out, item)
+	}
+	return preferExpertOwnedMemories(out, expertIDs)
 }
 
 func preferExpertOwnedMemories(items []memory.Memory, expertIDs []string) []memory.Memory {
@@ -351,6 +441,92 @@ func clipRunes(s string, max int) string {
 	return string(runes[:max])
 }
 
+func (e *Engine) invokeMemorySearch(ctx context.Context, raw json.RawMessage) (toolruntime.Result, error) {
+	if e == nil || e.m8memory == nil {
+		return toolruntime.Result{}, errors.New("confirmed memory is not available")
+	}
+	var a struct {
+		Query string `json:"query"`
+		Max   int    `json:"max"`
+	}
+	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
+		return toolruntime.Result{}, errors.New("memory.search needs query")
+	}
+	max := a.Max
+	if max < 1 {
+		max = 6
+	}
+	if max > 12 {
+		max = 12
+	}
+	res, err := e.m8memory.RecallForInject(ctx, m8app.RecallInput{
+		ScopeID:   m8app.LearningScope,
+		Query:     clipRunes(strings.TrimSpace(a.Query), 2048),
+		TopK:      max,
+		SubjectID: e.memorySubjectID(),
+	})
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	var b strings.Builder
+	for _, hit := range res.Hits {
+		content := strings.TrimSpace(hit.Content)
+		if content == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "%s\t%s\n", hit.Source, clipRunes(content, 400))
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		return toolruntime.Result{Output: "no confirmed memories matched"}, nil
+	}
+	return toolruntime.Result{Output: out}, nil
+}
+
+func (e *Engine) invokeMemoryGet(ctx context.Context, raw json.RawMessage) (toolruntime.Result, error) {
+	if e == nil || e.m8memory == nil {
+		return toolruntime.Result{}, errors.New("confirmed memory is not available")
+	}
+	var a struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.ID) == "" {
+		return toolruntime.Result{}, errors.New("memory.get needs id")
+	}
+	id := strings.TrimSpace(a.ID)
+	id = strings.TrimPrefix(id, "candidate:")
+	content, err := e.m8memory.ConfirmedByIDFor(ctx, id, e.memorySubjectID())
+	if err != nil {
+		if errors.Is(err, m8app.ErrCandidateNotFound) {
+			return toolruntime.Result{Output: "confirmed memory not found"}, nil
+		}
+		return toolruntime.Result{}, err
+	}
+	return toolruntime.Result{Output: clipRunes(content, 800)}, nil
+}
+
+func formatChatMemorySummary(pack chatMemoryPack) string {
+	if len(pack.Prefs) == 0 && len(pack.Pinned) == 0 && len(pack.TaskState) == 0 && len(pack.Evidence) == 0 {
+		return ""
+	}
+	prefPart := "偏好 " + strconv.Itoa(len(pack.Prefs))
+	if n := len(pack.Prefs); n > 0 {
+		shown := pack.Prefs
+		if n > 2 {
+			shown = pack.Prefs[:2]
+		}
+		quoted := make([]string, 0, len(shown))
+		for _, pref := range shown {
+			quoted = append(quoted, "「"+clipRunes(strings.TrimSpace(pref), 16)+"」")
+		}
+		prefPart = "偏好" + strings.Join(quoted, "")
+		if n > 2 {
+			prefPart += " 等" + strconv.Itoa(n) + "条"
+		}
+	}
+	return "注入记忆：" + prefPart + " · 置顶 " + strconv.Itoa(len(pack.Pinned)) + " · 任务 " + strconv.Itoa(len(pack.TaskState)) + " · 证据 " + strconv.Itoa(len(pack.Evidence))
+}
+
 func renderPreferenceInstruction(instruction string, prefs []string) string {
 	if len(prefs) == 0 {
 		return instruction
@@ -381,7 +557,7 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 	}
 	gist := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
 	if e.m8memory != nil {
-		pending, err := e.m8memory.ListPendingCandidates(ctx, 20)
+		pending, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), 20)
 		if err == nil {
 			for _, item := range pending {
 				if item.Content == gist {
@@ -402,7 +578,7 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 	}
 	if e.m10nomination != nil {
 		_, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
-			SubjectID:       memoryOpsSubject,
+			SubjectID:       e.memorySubjectID(),
 			Doc:             doc,
 			Reason:          "本轮对话自动提名",
 			Nominator:       "chat.auto",
@@ -418,7 +594,7 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 		return nil
 	}
 	_, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
-		SubjectID: memoryOpsSubject,
+		SubjectID: e.memorySubjectID(),
 		Doc:       doc,
 		Inferred:  true,
 		Trust:     m8core.TrustUntrusted,
@@ -435,38 +611,46 @@ func expertOwnedMemoryKey(expertID, kind string) string {
 }
 
 func (e *Engine) resolveTurnExpertIDs(ctx context.Context, sessionID, turnText string) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(id string) {
-		id = strings.TrimSpace(id)
-		if id == "" || seen[id] {
-			return
-		}
-		seen[id] = true
-		out = append(out, id)
+	eq := e.turnEquipmentFor(ctx, sessionID, turnText, false)
+	if len(eq.ExpertIDs) > 0 {
+		return append([]string(nil), eq.ExpertIDs...)
 	}
-	for _, id := range e.sessionMountedExpertIDs(ctx, sessionID) {
-		add(id)
-	}
-	if e.m8expert == nil {
-		return out
+	if e.m8expert == nil || len(eq.Names) == 0 {
+		return nil
 	}
 	listed, err := e.m8expert.List(ctx, m8app.ExpertFilter{})
 	if err != nil {
-		return out
+		return nil
 	}
 	byName := map[string]string{}
 	for _, row := range listed.Experts {
 		byName[row.Name] = row.ExpertID
 	}
-	for _, name := range e.composeExpertNames(ctx, sessionID, turnText) {
-		add(byName[name])
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range eq.Names {
+		id := strings.TrimSpace(byName[name])
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
 	}
 	return out
 }
 
 func (e *Engine) maybeWriteExpertTurnMemories(ctx context.Context, sessionID, userText, assistantText string) {
+	for _, id := range e.resolveTurnExpertIDs(ctx, sessionID, userText) {
+		e.writeExpertLastMemory(ctx, sessionID, id, userText, assistantText)
+	}
+}
+
+func (e *Engine) writeExpertLastMemory(ctx context.Context, sessionID, expertID, userText, assistantText string) {
 	if e == nil || !memoryServiceAvailable(e.memories) || sessionID == "" {
+		return
+	}
+	expertID = strings.TrimSpace(expertID)
+	if expertID == "" {
 		return
 	}
 	settings := e.chatMemorySettings(ctx)
@@ -482,17 +666,10 @@ func (e *Engine) maybeWriteExpertTurnMemories(ctx context.Context, sessionID, us
 	if projectID == "" {
 		return
 	}
-	ids := e.resolveTurnExpertIDs(ctx, sessionID, userText)
-	if len(ids) == 0 {
-		return
-	}
 	src, srcType := sessionID, "session"
 	content := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
-	for _, id := range ids {
-		key := expertOwnedMemoryKey(id, "last")
-		if err := e.upsertWorkingMemory(ctx, projectID, key, content, &src, &srcType); err != nil {
-			log.Printf("chat memory: expert %s write skipped: %v", id, err)
-		}
+	if err := e.upsertWorkingMemory(ctx, projectID, expertOwnedMemoryKey(expertID, "last"), content, &src, &srcType); err != nil {
+		log.Printf("chat memory: expert %s write skipped: %v", expertID, err)
 	}
 }
 

@@ -33,6 +33,7 @@ var specialistToolAllow = map[string]bool{
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true,
 	"pdf.gen": true, "html.gen": true,
 	"skill.invoke":   true,
+	"skill.view":     true,
 	"image.generate": true,
 }
 

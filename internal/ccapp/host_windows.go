@@ -36,6 +36,7 @@ var (
 	procReleaseDC             = user32.NewProc("ReleaseDC")
 	procSetCursorPos          = user32.NewProc("SetCursorPos")
 	procGetCursorPos          = user32.NewProc("GetCursorPos")
+	procWindowFromPoint       = user32.NewProc("WindowFromPoint")
 	procSetProcessDpiCtx      = user32.NewProc("SetProcessDpiAwarenessContext")
 	procGetWindowRect         = user32.NewProc("GetWindowRect")
 	procShowWindow            = user32.NewProc("ShowWindow")
@@ -175,9 +176,36 @@ var virtualKeyCodes = map[string]uint16{
 	"media_play": 0xB3, "media_pause": 0xB3, "media_next": 0xB0, "media_prev": 0xB1, "media_stop": 0xB2,
 }
 
-type windowsHost struct{}
+type windowsHost struct {
+	targetMu   sync.Mutex
+	targetHWND uintptr
+}
 
 var _ Host = (*windowsHost)(nil)
+
+func (h *windowsHost) rememberHWND(hwnd uintptr) {
+	if h == nil || hwnd == 0 {
+		return
+	}
+	h.targetMu.Lock()
+	h.targetHWND = hwnd
+	h.targetMu.Unlock()
+}
+
+func (h *windowsHost) actionHWND() uintptr {
+	if h != nil {
+		h.targetMu.Lock()
+		hwnd := h.targetHWND
+		h.targetMu.Unlock()
+		if hwnd != 0 {
+			if ok, _, _ := procIsWindow.Call(hwnd); ok != 0 {
+				return hwnd
+			}
+		}
+	}
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	return hwnd
+}
 
 func (h *windowsHost) Available() bool { return true }
 

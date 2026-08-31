@@ -34,7 +34,7 @@ describe('ensureCompanionCapabilities', () => {
     expect(out).toEqual({ fullAccess: true, ccEnabled: false })
   })
 
-  it('enables computer control when it is idle', async () => {
+  it('does not silently enable computer control when it is idle', async () => {
     vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: true })
     vi.mocked(ccBridge.getConfig).mockResolvedValue({
       enabled: false,
@@ -46,24 +46,9 @@ describe('ensureCompanionCapabilities', () => {
       confirmTimeoutSeconds: 60,
       updatedAt: '2026-08-26T00:00:00Z',
     })
-    vi.mocked(ccBridge.updateConfig).mockResolvedValue({
-      enabled: true,
-      emergencyStopped: false,
-      securityLevel: 'standard',
-      allowCritical: false,
-      processBlocklist: [],
-      maxActionsPerMinute: 30,
-      confirmTimeoutSeconds: 60,
-      updatedAt: '2026-08-26T00:00:01Z',
-    })
     const out = await ensureCompanionCapabilities()
-    expect(ccBridge.updateConfig).toHaveBeenCalledWith({
-      enabled: true,
-      securityLevel: 'standard',
-      maxActionsPerMinute: 60,
-      actor: 'companion',
-    })
-    expect(out).toEqual({ fullAccess: true, ccEnabled: true })
+    expect(ccBridge.updateConfig).not.toHaveBeenCalled()
+    expect(out).toEqual({ fullAccess: true, ccEnabled: false })
   })
 
   it('bumps a legacy 30/min cap when computer control is already on', async () => {
@@ -107,6 +92,7 @@ describe('ensureCompanionCapabilities', () => {
     })
     const out = await ensureCompanionCapabilities()
     expect(toolsPolicyBridge.setCommandPolicy).not.toHaveBeenCalled()
+    expect(ccBridge.updateConfig).not.toHaveBeenCalled()
     expect(out).toEqual({ fullAccess: false, ccEnabled: true })
   })
 })

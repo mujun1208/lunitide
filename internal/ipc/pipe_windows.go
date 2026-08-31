@@ -57,8 +57,14 @@ func VerifyClientProcess(conn net.Conn, expectedPID int) error {
 }
 
 // AdmitClient verifies the accepted pipe peer before consuming a session slot.
+// The owner PID is preferred; any other current-user client is auto-paired
+// (pipe DACL already excludes other users).
 func AdmitClient(conn net.Conn, expectedPID int, gate *SessionGate) (func(), bool) {
-	if VerifyClientProcess(conn, expectedPID) != nil {
+	pid, err := ClientProcessID(conn)
+	if err != nil || pid < 1 {
+		return nil, false
+	}
+	if expectedPID > 0 && pid != uint32(expectedPID) && !sameUserPairedPID(expectedPID, int(pid)) {
 		return nil, false
 	}
 	return gate.TryEnter()

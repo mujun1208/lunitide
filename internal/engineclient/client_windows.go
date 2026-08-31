@@ -90,6 +90,15 @@ func (c *Client) Close() error {
 	return c.closeErr
 }
 
+// ServerPID is the engine process on the other end of the named pipe.
+// Tray Exit uses it after a reconnect, when this process did not spawn the engine.
+func (c *Client) ServerPID() (uint32, error) {
+	if c == nil || c.conn == nil {
+		return 0, errors.New("Engine RPC client is closed")
+	}
+	return ipc.ServerProcessID(c.conn)
+}
+
 func (c *Client) Call(ctx context.Context, request bridge.Request) (bridge.Response, error) {
 	if err := c.brokenError(); err != nil {
 		return bridge.Response{}, err
@@ -648,6 +657,9 @@ func dialExpectedEngine(ctx context.Context, pipe string, expectedPID int) (net.
 	for ctx.Err() == nil {
 		conn, err := ipc.Dial(ctx, pipe)
 		if err == nil {
+			if expectedPID < 1 {
+				return conn, nil
+			}
 			pid, pidErr := ipc.ServerProcessID(conn)
 			if pidErr == nil && pid == uint32(expectedPID) {
 				return conn, nil

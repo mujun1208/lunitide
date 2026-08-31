@@ -131,9 +131,10 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
       await handle.flush?.()
       buffer.flush()
     },
-    forceCommit: () => {
-      handle.forceCommit()
+    forceCommit: (fallback?: string) => {
+      const ok = handle.forceCommit(fallback)
       buffer.flush()
+      return ok
     },
     stop: () => {
       buffer.flush()

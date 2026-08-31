@@ -48,6 +48,7 @@ type fakeCcHost struct {
 	confirmed   []string
 	confirmErr  error
 	flipCapture bool
+	captureErr  error
 	winX, winY  int
 	actions     []string
 	quits       []string
@@ -132,6 +133,9 @@ func (f *fakeCcHost) EnsureForeground() error {
 }
 func (f *fakeCcHost) ScreenCapture() ([]byte, error) {
 	f.captures++
+	if f.captureErr != nil {
+		return nil, f.captureErr
+	}
 	if len(f.png) > 0 {
 		out := append([]byte(nil), f.png...)
 		if f.flipCapture && len(out) > 8 {
@@ -819,7 +823,7 @@ func TestCcOpenClawParityTools(t *testing.T) {
 		t.Fatalf("wait: %v %s", err, waited.Summary)
 	}
 
-	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"name":"保存"}`), true)
 	if err != nil || !strings.Contains(named.Summary, "保存") {
 		t.Fatalf("named click: %v %s", err, named.Summary)
 	}
@@ -839,18 +843,15 @@ func TestCcNamedClickFallsBackToCenterWhenInvokeFails(t *testing.T) {
 	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
 	host.invokeFail = map[string]error{"保存": errors.New("invoke unavailable")}
 
-	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
-	if err != nil || !strings.Contains(named.Summary, "保存") {
-		t.Fatalf("named click fallback: %v %s", err, named.Summary)
+	_, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	if err == nil || !errors.Is(err, ccapp.ErrCcExecFailed) {
+		t.Fatalf("invoke miss must fail closed, err=%v", err)
 	}
 	if len(host.invokes) != 1 || host.invokes[0] != "保存" {
 		t.Fatalf("should try invoke first, invokes=%v", host.invokes)
 	}
-	if len(host.moves) != 1 || host.moves[0] != [2]int{70, 92} {
-		t.Fatalf("fallback should center-click, moves=%v", host.moves)
-	}
-	if len(host.clicks) != 1 || host.clicks[0] != "left" {
-		t.Fatalf("fallback clicks=%v", host.clicks)
+	if len(host.moves) != 0 || len(host.clicks) != 0 {
+		t.Fatalf("must not center-click, moves=%v clicks=%v", host.moves, host.clicks)
 	}
 }
 
@@ -977,7 +978,7 @@ func TestCcClickVerifyReturnsNewFrameWhenPixelsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := host.captures
-	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"button":"left"}`), true)
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"button":"left"}`), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1361,7 +1362,7 @@ func TestCcVerifyUnchangedKeepsCurrentFrame(t *testing.T) {
 		t.Fatal(err)
 	}
 	beforeID := svc.CurrentFrameID()
-	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"button":"left"}`), true)
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"button":"left"}`), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1561,5 +1562,36 @@ func TestComputerActAuditsAsOwnTool(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected computer.act ledger row, got %#v", entries)
+	}
+}
+
+func TestCcNamedClickRequiresFrameIDAfterCapture(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	if err == nil || !strings.Contains(err.Error(), "COMPUTER_STALE_FRAME") {
+		t.Fatalf("name click without frameId after capture: %v", err)
+	}
+}
+
+func TestCcVerifyAfterCaptureError(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 320, 200)
+	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
+		t.Fatal(err)
+	}
+	host.captureErr = errors.New("camera busy")
+	_, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"name":"保存"}`), true)
+	if err == nil || !errors.Is(err, ccapp.ErrCcExecFailed) || !strings.Contains(err.Error(), "verify capture failed") {
+		t.Fatalf("verify fail must be ErrCcExecFailed, got %v", err)
 	}
 }

@@ -8,6 +8,24 @@ import (
 	"github.com/lunitide/lunitide/internal/m8app"
 )
 
+func TestSplitBoundKeysAndCatalogSeed(t *testing.T) {
+	item, ok := m8app.ConversationExpertByName("PPT专家")
+	if !ok {
+		t.Fatal("PPT专家 missing")
+	}
+	keys := m8app.BindKeysFromCatalog(item)
+	skills, mcp := m8app.SplitBoundKeys(keys)
+	if !containsStr(skills, "slide-builder") {
+		t.Fatalf("seed skills = %#v", skills)
+	}
+	if !containsStr(mcp, "playwright") {
+		t.Fatalf("seed mcp = %#v", mcp)
+	}
+	if brain := m8app.BoundBrainFromKeys(append(keys, "brain:codex")); brain != "codex" {
+		t.Fatalf("brain = %q", brain)
+	}
+}
+
 func TestConversationExpertsCatalogAndRules(t *testing.T) {
 	items := m8app.ConversationExperts()
 	if len(items) != len(m8app.ConversationExpertIDs) {

@@ -175,11 +175,13 @@ func seedConversationSkillBindings(ctx context.Context, svc *ExpertService) erro
 	}
 	for _, item := range ConversationExperts() {
 		id := byName[item.Name]
-		if id == "" || len(item.PreferredSkills) == 0 {
+		if id == "" {
 			continue
 		}
-		if err := svc.skills.SeedExpertSkillsIfEmpty(ctx, id, append([]string{}, item.PreferredSkills...)); err != nil {
-			return err
+		if keys := BindKeysFromCatalog(item); len(keys) > 0 {
+			if err := svc.skills.SeedExpertSkillsIfEmpty(ctx, id, keys); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

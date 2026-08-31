@@ -12,25 +12,13 @@ import (
 // c3-mcp: the shipped catalog must survive the unchanged M6-MCP-004
 // admission gate (fail-closed m7flow whitelist) both as-shipped and after
 // placeholder resolution.
-func presetPackageAllowed(spec string) bool {
-	if strings.HasPrefix(spec, "@modelcontextprotocol/") {
-		return true
-	}
-	switch spec {
-	case "@playwright/mcp", "@upstash/context7-mcp":
-		return true
-	default:
-		return false
-	}
-}
-
 func TestPresetCatalogPassesWhitelist(t *testing.T) {
 	if err := ValidatePresetCatalog(); err != nil {
 		t.Fatalf("preset catalog invalid: %v", err)
 	}
 	all := Presets()
-	if len(all) != 8 {
-		t.Fatalf("expected 8 live presets, got %d", len(all))
+	if len(all) < 30 || len(all) > 48 {
+		t.Fatalf("expected a curated ~40 live presets, got %d", len(all))
 	}
 	for _, p := range all {
 		if p.Transport != "stdio" {
@@ -45,7 +33,7 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		if !m7flow.McpArgsSafe(p.Args) {
 			t.Fatalf("preset %s: template args contain metacharacters", p.ID)
 		}
-		if !presetPackageAllowed(p.Args[1]) {
+		if !PresetPackageAllowed(p.Args[1]) {
 			t.Fatalf("preset %s: args[1] = %q, want a curated free server spec", p.ID, p.Args[1])
 		}
 	}
@@ -116,6 +104,7 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 	wantNeedsArgs := map[string]bool{
 		"everything": false, "filesystem": true, "fetch": false, "memory": false,
 		"sequentialthinking": false, "playwright": false, "time": false, "context7": false,
+		"chrome-devtools": false, "postgres": true, "tavily": true,
 	}
 	for id, want := range wantNeedsArgs {
 		p, ok := PresetByID(id)
@@ -124,6 +113,11 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 		}
 		if p.NeedsArgs != want {
 			t.Fatalf("preset %s needsArgs = %v, want %v", id, p.NeedsArgs, want)
+		}
+	}
+	for _, p := range Presets() {
+		if p.NeedsArgs && p.ArgPlaceholder == "" {
+			t.Fatalf("preset %s needsArgs without placeholder", p.ID)
 		}
 	}
 	fs, _ := PresetByID("filesystem")

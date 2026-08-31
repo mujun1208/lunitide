@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
@@ -42,6 +43,8 @@ type chatTurnCheckpoint struct {
 	DocxNudges    int      `json:"docxNudges,omitempty"`
 	DocxGenerated bool     `json:"docxGenerated,omitempty"`
 	DocxChars     int      `json:"docxChars,omitempty"`
+	PersistDraft  string   `json:"persistDraft,omitempty"`
+	PersistFailed bool     `json:"persistFailed,omitempty"`
 	UpdatedAt     string   `json:"updatedAt"`
 }
 
@@ -221,6 +224,49 @@ func closedLoopTurnInjection(userText string) string {
 		return ""
 	}
 	return "\n\n[本轮范围] 只执行用户这一条最新消息。上一轮无论成功还是失败都已闭环，禁止重做，禁止和本轮绑在一起。用户没有说「继续」时，不要去完成聊天记录里更早的任务，也不要打开与本轮无关的文件。"
+}
+
+func (e *Engine) noteLiveTurnDraft(sessionID string, turn *chatTurnCheckpoint, text string, last *time.Time) {
+	text = strings.TrimSpace(text)
+	if e == nil || turn == nil || sessionID == "" || text == "" {
+		return
+	}
+	if last != nil && !last.IsZero() && time.Since(*last) < 750*time.Millisecond && utf8.RuneCountInString(text) < 80 {
+		return
+	}
+	if last != nil {
+		*last = time.Now()
+	}
+	turn.PersistDraft = clipRunes(text, 8192)
+	e.saveTurnCheckpoint(sessionID, *turn)
+}
+
+func handleChatTurnGet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
+	_ = ctx
+	var p struct {
+		SessionID string `json:"sessionId"`
+	}
+	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.SessionID) {
+		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.turn.get 参数无效", false)
+	}
+	cp := e.loadTurnCheckpoint(p.SessionID)
+	draft := clipRunes(strings.TrimSpace(cp.PersistDraft), 8192)
+	persistFailed := cp.PersistFailed && draft != ""
+	unfinished := draft != "" && (cp.Status == turnStatusRunning || cp.Status == turnStatusInterrupted)
+	if !persistFailed && !unfinished {
+		draft = ""
+	}
+	status := strings.TrimSpace(cp.Status)
+	switch status {
+	case turnStatusRunning, turnStatusCompleted, turnStatusCancelled, turnStatusInterrupted:
+	default:
+		status = ""
+	}
+	return bridge.Success(request.ID, map[string]any{
+		"status":        status,
+		"persistFailed": persistFailed,
+		"persistDraft":  draft,
+	})
 }
 
 func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {

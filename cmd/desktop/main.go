@@ -26,7 +26,6 @@ import (
 	"github.com/lunitide/lunitide/internal/hostbridge"
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/secret"
-	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/systemsettings"
 	"github.com/lunitide/lunitide/internal/uitheme"
 	"github.com/lunitide/lunitide/internal/webviewhost"
@@ -45,6 +44,9 @@ func run() error {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	enginePath := flag.String("engine", "", "engine executable")
 	pipe := flag.String("pipe", "", "development-only named pipe override")
+	startHidden := flag.Bool("tray", false, "start hidden in the notification area")
+	rpcHealth := flag.Bool("rpc-health", false, "connect to the running engine, print system.health, and exit")
+	quitEngine := flag.Bool("quit", false, "stop the running engine (same as tray Exit) and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(buildinfo.Version)
@@ -57,36 +59,78 @@ func run() error {
 	if *enginePath == "" {
 		*enginePath = filepath.Join(filepath.Dir(executable), "lunitide-engine.exe")
 	}
-	pipeID := make([]byte, 16)
-	if _, err := rand.Read(pipeID); err != nil {
-		return err
+	if *rpcHealth {
+		return runRPCHealth(*pipe)
 	}
+	if *quitEngine {
+		return runQuitEngine(*pipe)
+	}
+	already, releaseInstance := claimGatewayInstance()
+	if already {
+		if webviewhost.ActivateExistingMainWindow() {
+			return nil
+		}
+		return errors.New("月汐已在运行，但没能唤起窗口。请从托盘打开。")
+	}
+	defer releaseInstance()
 	if *pipe == "" {
-		*pipe = `\\.\pipe\lunitide-engine-` + hex.EncodeToString(pipeID)
+		*pipe = ipc.GatewayPipeName(os.Getenv("USERNAME"))
 	}
-	brokerID := make([]byte, 16)
-	if _, err := rand.Read(brokerID); err != nil {
-		return err
-	}
-	brokerPipe := `\\.\pipe\lunitide-secret-` + hex.EncodeToString(brokerID)
-	brokerListener, err := ipc.ListenCurrentUser(brokerPipe)
+	dataRoot, err := datadir.PrepareProduction()
 	if err != nil {
 		return err
 	}
-	defer brokerListener.Close()
-	bootstrapReader, bootstrapWriter, nonce, err := ipc.NewSessionBootstrap()
+	defer dataRoot.Close()
+	noncePath, err := dataRoot.FilePath(ipc.GatewayNonceFile)
 	if err != nil {
 		return err
+	}
+	nonce, err := ipc.LoadGatewayNonce(noncePath)
+	if err != nil || len(nonce) != 32 {
+		nonce = make([]byte, 32)
+		if _, err := rand.Read(nonce); err != nil {
+			return err
+		}
+		if err := ipc.SaveGatewayNonce(noncePath, nonce); err != nil {
+			return err
+		}
 	}
 	defer zeroBytes(nonce)
-	defer bootstrapReader.Close()
-	defer bootstrapWriter.Close()
-	command := exec.Command(*enginePath, "--pipe", *pipe, "--host-pid", fmt.Sprint(os.Getpid()))
-	command.Stdin = bootstrapReader
-	command.Stdout, command.Stderr = os.Stdout, os.Stderr
-	configureEngineProcess(command)
-	if err := command.Start(); err != nil {
-		return err
+	reconnectWait := 800 * time.Millisecond
+	if pidPath, pidErr := dataRoot.FilePath(ipc.GatewayEnginePIDFile); pidErr == nil {
+		if savedPID, loadErr := ipc.LoadEnginePID(pidPath); loadErr == nil && processAlive(savedPID) {
+			reconnectWait = 3 * time.Second
+		}
+	}
+	reconnectCtx, cancelReconnect := context.WithTimeout(context.Background(), reconnectWait)
+	existing, reconnectErr := engineclient.Connect(reconnectCtx, *pipe, 0, hex.EncodeToString(nonce))
+	cancelReconnect()
+	var command *exec.Cmd
+	if reconnectErr == nil && existing != nil {
+		command = nil
+	} else {
+		bootstrapReader, bootstrapWriter, _, bootErr := ipc.NewSessionBootstrap()
+		if bootErr != nil {
+			return bootErr
+		}
+		defer bootstrapReader.Close()
+		defer bootstrapWriter.Close()
+		command = exec.Command(*enginePath, "--pipe", *pipe, "--host-pid", fmt.Sprint(os.Getpid()))
+		command.Stdin = bootstrapReader
+		command.Stdout, command.Stderr = os.Stdout, os.Stderr
+		configureEngineProcess(command)
+		if err := command.Start(); err != nil {
+			return err
+		}
+		if err := bootstrapReader.Close(); err != nil {
+			return err
+		}
+		if err := ipc.WriteLaunchBootstrap(bootstrapWriter, nonce, `\\.\pipe\lunitide-secret-local`); err != nil {
+			return fmt.Errorf("write Engine bootstrap secret: %w", err)
+		}
+		if err := bootstrapWriter.Close(); err != nil {
+			return err
+		}
 	}
 	// Engine watchdog: once the WebView host is up, an unexpected Engine exit
 	// (crash, OOM, external kill) must not leave a zombie UI whose every
@@ -99,39 +143,77 @@ func run() error {
 	defer stopHost()
 	hostReady := make(chan struct{})
 	engineDied := make(chan struct{})
+	var engineDiedOnce sync.Once
+	signalEngineDied := func() { engineDiedOnce.Do(func() { close(engineDied) }) }
 	shuttingDown := &atomic.Bool{}
+	shouldStopEngine := &atomic.Bool{}
+	var enginePID atomic.Int32
+	if command != nil && command.Process != nil {
+		enginePID.Store(int32(command.Process.Pid))
+	}
 	// engineClient lets the watchdog distinguish root causes: engine crash
 	// (client still healthy) vs client-side RPC failure (poison reason is
 	// logged via engineclient.DiagnosticsSink) vs our own shutdown.
 	var engineClient atomic.Pointer[engineclient.Client]
-	go func() {
-		waitErr := command.Wait()
-		if !shuttingDown.Load() {
-			// Capture the exit code: 2 means a Go runtime fatal error (concurrent
-			// map write, OOM, deadlock) whose traceback now lands in the engine
-			// log thanks to the engine-side stderr rebinding; 0xC0000005 would be
-			// a native access violation; 1 is log.Fatal. This is the primary
-			// forensic record for the "engine dies, desktop relaunches" symptom.
-			code, detail := 0, "clean exit"
-			if waitErr != nil {
-				detail = waitErr.Error()
-				var exitErr *exec.ExitError
-				if errors.As(waitErr, &exitErr) {
-					code = exitErr.ExitCode()
+	if command != nil {
+		go func() {
+			waitErr := command.Wait()
+			if !shuttingDown.Load() {
+				// Capture the exit code: 2 means a Go runtime fatal error (concurrent
+				// map write, OOM, deadlock) whose traceback now lands in the engine
+				// log thanks to the engine-side stderr rebinding; 0xC0000005 would be
+				// a native access violation; 1 is log.Fatal. This is the primary
+				// forensic record for the "engine dies, desktop relaunches" symptom.
+				code, detail := 0, "clean exit"
+				if waitErr != nil {
+					detail = waitErr.Error()
+					var exitErr *exec.ExitError
+					if errors.As(waitErr, &exitErr) {
+						code = exitErr.ExitCode()
+					}
 				}
-			}
-			if c := engineClient.Load(); c != nil {
-				if broken := c.Broken(); broken != nil {
-					hostLog("engine exited after RPC client failure: code=%d (%s); rpc: %v", code, detail, broken)
+				if c := engineClient.Load(); c != nil {
+					if broken := c.Broken(); broken != nil {
+						hostLog("engine exited after RPC client failure: code=%d (%s); rpc: %v", code, detail, broken)
+					} else {
+						hostLog("engine exited unexpectedly while RPC client healthy: code=%d (%s)", code, detail)
+					}
 				} else {
-					hostLog("engine exited unexpectedly while RPC client healthy: code=%d (%s)", code, detail)
+					hostLog("engine exited unexpectedly before RPC connect: code=%d (%s)", code, detail)
 				}
-			} else {
-				hostLog("engine exited unexpectedly before RPC connect: code=%d (%s)", code, detail)
+				signalEngineDied()
 			}
-			close(engineDied)
-		}
-	}()
+		}()
+	} else {
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			pidPath, _ := dataRoot.FilePath(ipc.GatewayEnginePIDFile)
+			for {
+				select {
+				case <-hostCtx.Done():
+					return
+				case <-ticker.C:
+					pid := int(enginePID.Load())
+					if pid < 1 && pidPath != "" {
+						if saved, err := ipc.LoadEnginePID(pidPath); err == nil {
+							pid = saved
+							enginePID.Store(int32(pid))
+						}
+					}
+					rpcBroken := false
+					if c := engineClient.Load(); c != nil {
+						rpcBroken = c.Broken() != nil
+					}
+					if engineWatchShouldRelaunch(shuttingDown.Load(), rpcBroken, pid, processAlive(pid)) {
+						hostLog("reconnected engine died (rpcBroken=%v pid=%d); relaunching desktop to respawn engine", rpcBroken, pid)
+						signalEngineDied()
+						return
+					}
+				}
+			}
+		}()
+	}
 	go func() {
 		select {
 		case <-engineDied:
@@ -151,22 +233,20 @@ func run() error {
 	}()
 	defer func() {
 		shuttingDown.Store(true)
-		stopEngine(command)
+		// G1: Task Manager / window crash must leave the detached engine.
+		// D11: engine death (not tray death) relaunches desktop to respawn it.
+		// Tray "退出" is the only path that stops the assistant — including
+		// after a reconnect, when this process did not spawn the engine.
+		if !shouldStopEngine.Load() {
+			return
+		}
+		if command != nil {
+			stopEngine(command)
+		}
+		if pid := int(enginePID.Load()); pid > 0 {
+			stopEnginePID(pid, false)
+		}
 	}()
-	if err := bootstrapReader.Close(); err != nil {
-		return err
-	}
-	if err := ipc.WriteLaunchBootstrap(bootstrapWriter, nonce, brokerPipe); err != nil {
-		return fmt.Errorf("write Engine bootstrap secret: %w", err)
-	}
-	if err := bootstrapWriter.Close(); err != nil {
-		return err
-	}
-	dataRoot, err := datadir.PrepareProduction()
-	if err != nil {
-		return err
-	}
-	defer dataRoot.Close()
 	webViewDataRoot, err := dataRoot.PrepareSubdirectory("WebView2")
 	if err != nil {
 		return err
@@ -192,24 +272,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	brokerKey := secretlease.DeriveKey(nonce)
-	defer secret.Zero(brokerKey)
-	broker, err := secretlease.NewServer(brokerListener, secretService, command.Process.Pid, brokerKey)
-	if err != nil {
-		return err
+	var client *engineclient.Client
+	if existing != nil {
+		client = existing
+	} else {
+		startupCtx, cancelStartup := context.WithTimeout(context.Background(), 15*time.Second)
+		client, err = engineclient.Connect(startupCtx, *pipe, command.Process.Pid, hex.EncodeToString(nonce))
+		cancelStartup()
 	}
-	brokerCtx, stopBroker := context.WithCancel(context.Background())
-	defer broker.Close()
-	defer stopBroker()
-	brokerErr := make(chan error, 1)
-	go func() {
-		if err := broker.Serve(brokerCtx); err != nil {
-			brokerErr <- err
-		}
-	}()
-	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 15*time.Second)
-	client, err := engineclient.Connect(startupCtx, *pipe, command.Process.Pid, hex.EncodeToString(nonce))
-	cancelStartup()
 	zeroBytes(nonce)
 	if err != nil {
 		return err
@@ -222,11 +292,18 @@ func run() error {
 	engineclient.DiagnosticsSink = func(reason string) { hostLog("%s", reason) }
 	webviewhost.HostDiagnosticsSink = func(message string) { hostLog("%s", message) }
 	engineClient.Store(client)
+	if pid, pidErr := client.ServerPID(); pidErr == nil && pid > 0 {
+		enginePID.Store(int32(pid))
+	}
+	if path, pathErr := dataRoot.FilePath(ipc.GatewayEnginePIDFile); pathErr == nil {
+		if pid := int(enginePID.Load()); pid > 0 {
+			_ = ipc.SaveEnginePID(path, pid)
+		}
+	}
 	// Shutdown ordering: the watchdog treats "engine exited while not
 	// shutting down" as an unexpected death and relaunches the desktop.
-	// client.Close() makes the engine exit code=0 by design (single-use
-	// session), so the flag MUST be stored BEFORE the connection closes —
-	// otherwise a normal exit races the watchdog into a spurious relaunch.
+	// Closing the RPC no longer exits the engine. Tray Exit sets
+	// shouldStopEngine so the detached engine is stopped only then.
 	defer func() {
 		shuttingDown.Store(true)
 		_ = client.Close()
@@ -289,19 +366,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	host.SetStartHidden(*startHidden)
 	themeHandler.Bind(host.SetTheme)
 	fmt.Printf("Lunitide %s: Engine health check passed; starting WebView2 host\n", buildinfo.Version)
 	close(hostReady)
 	hostErr := make(chan error, 1)
 	go func() { hostErr <- host.Run(hostCtx) }()
-	select {
-	case err := <-brokerErr:
-		stopHost()
-		<-hostErr
-		return fmt.Errorf("secret broker stopped unexpectedly: %w", err)
-	case err := <-hostErr:
-		return err
+	runErr := <-hostErr
+	if host.ForceQuitRequested() {
+		shouldStopEngine.Store(true)
 	}
+	return runErr
 }
 
 func zeroBytes(value []byte) {
@@ -317,6 +392,87 @@ func stopEngine(command *exec.Cmd) {
 		return
 	}
 	_ = command.Process.Kill()
+}
+
+func runRPCHealth(pipe string) error {
+	if pipe == "" {
+		pipe = ipc.GatewayPipeName(os.Getenv("USERNAME"))
+	}
+	dataRoot, err := datadir.PrepareProduction()
+	if err != nil {
+		return err
+	}
+	defer dataRoot.Close()
+	noncePath, err := dataRoot.FilePath(ipc.GatewayNonceFile)
+	if err != nil {
+		return err
+	}
+	nonce, err := ipc.LoadGatewayNonce(noncePath)
+	if err != nil || len(nonce) != 32 {
+		return errors.New("引擎未就绪：没有可用的会话凭证。请先启动月汐。")
+	}
+	defer zeroBytes(nonce)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	client, err := engineclient.Connect(ctx, pipe, 0, hex.EncodeToString(nonce))
+	if err != nil {
+		return fmt.Errorf("无法连上已有引擎: %w", err)
+	}
+	defer client.Close()
+	id := ulid.Make().String()
+	request := bridge.Request{Version: bridge.Version, Kind: "request", ID: id, TraceID: ulid.Make().String(), Method: "system.health", SentAt: time.Now().UTC(), Payload: json.RawMessage(`{}`), DeadlineMS: 3000}
+	response, err := client.Call(ctx, request)
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New("Engine health check failed")
+	}
+	raw, err := json.Marshal(response.Payload)
+	if err != nil || len(raw) == 0 || string(raw) == "null" {
+		fmt.Println(`{"engine":"ready"}`)
+		return nil
+	}
+	fmt.Println(string(raw))
+	return nil
+}
+
+func runQuitEngine(pipe string) error {
+	if pipe == "" {
+		pipe = ipc.GatewayPipeName(os.Getenv("USERNAME"))
+	}
+	dataRoot, err := datadir.PrepareProduction()
+	if err != nil {
+		return err
+	}
+	defer dataRoot.Close()
+	var enginePID int
+	if path, pathErr := dataRoot.FilePath(ipc.GatewayEnginePIDFile); pathErr == nil {
+		if pid, loadErr := ipc.LoadEnginePID(path); loadErr == nil {
+			enginePID = pid
+		}
+	}
+	noncePath, err := dataRoot.FilePath(ipc.GatewayNonceFile)
+	if err == nil {
+		if nonce, loadErr := ipc.LoadGatewayNonce(noncePath); loadErr == nil && len(nonce) == 32 {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			client, connErr := engineclient.Connect(ctx, pipe, 0, hex.EncodeToString(nonce))
+			cancel()
+			if connErr == nil {
+				if pid, pidErr := client.ServerPID(); pidErr == nil && pid > 0 {
+					enginePID = int(pid)
+				}
+				_ = client.Close()
+			}
+			zeroBytes(nonce)
+		}
+	}
+	if enginePID < 1 {
+		return errors.New("没有正在运行的引擎可退出")
+	}
+	stopEnginePID(enginePID, false)
+	fmt.Println("engine stopped")
+	return nil
 }
 
 // hostLogMu guards the lazily-opened host log file. The desktop is a GUI

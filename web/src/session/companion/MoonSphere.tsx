@@ -21,7 +21,7 @@ export interface MoonSphereProps {
   gain: number
   /** 12 normalized ring levels while listening; visual-only. */
   levels: number[]
-  /** Moon is clickable in every state except pure listening (mic is live). */
+  /** Moon is clickable except while listening (unless unlocking audio). */
   interruptible: boolean
   onInterrupt?: () => void
   /** 0 = just arrived (jade disc only), 1 = aurora and ring fully up. */
@@ -32,7 +32,7 @@ const idleLevels = Array.from({ length: MOON_RING_BINS }, () => 0)
 
 const MOON_CLICK_LABELS: Record<CompanionState, string> = {
   idle: '月亮：轻点开始说话',
-  listening: '月亮正在聆听，轻点暂停',
+  listening: '月亮正在聆听',
   thinking: '月亮正在回应',
   speaking: '月亮正在说话，点击打断朗读',
 }

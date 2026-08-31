@@ -48,21 +48,21 @@ const (
 )
 
 type Record struct {
-	SubjectID          string
-	PublicKey          string
-	PrivateKey         string
-	Nickname           string
-	Avatar             string
-	Status             Status
-	Department         string
-	Title              string
-	OrgName            string
-	Bio                string
-	PasswordHash       string
-	PairingCode        string
-	DiscoveryEnabled   bool
-	CreatedAt          string
-	UpdatedAt          string
+	SubjectID        string
+	PublicKey        string
+	PrivateKey       string
+	Nickname         string
+	Avatar           string
+	Status           Status
+	Department       string
+	Title            string
+	OrgName          string
+	Bio              string
+	PasswordHash     string
+	PairingCode      string
+	DiscoveryEnabled bool
+	CreatedAt        string
+	UpdatedAt        string
 }
 
 type Public struct {
@@ -140,6 +140,20 @@ func (s *Service) Ensure(ctx context.Context) error {
 	s.rec = rec
 	s.unlocked = rec.PasswordHash == ""
 	return nil
+}
+
+// RebindLegacy copies rows still keyed as local-user onto this PC's subject.
+// Safe to call after Ensure. memory_settings unique conflicts copy the newer
+// local-user row onto the ULID; expert/plugin name collisions are skipped.
+func (s *Service) RebindLegacy(ctx context.Context) error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	id := s.SubjectID()
+	if id == "" || id == legacySubject {
+		return nil
+	}
+	return s.store.RebindLegacySubject(ctx, legacySubject, id)
 }
 
 func (s *Service) SubjectID() string {

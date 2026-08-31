@@ -44,6 +44,41 @@ const projects: ProjectBridge = {
   create: vi.fn(), update: vi.fn(), publish: vi.fn(), close: vi.fn(), reopen: vi.fn(), advanceStatus: vi.fn(), delete: vi.fn(),
 }
 
+it('shows runtime tools and opens a conversation specialist as a colleague', async () => {
+  const onOpenExpert = vi.fn()
+  const ppt = {
+    ...expertList.experts[0],
+    name: 'PPT专家',
+    division: 'product' as const,
+  }
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [ppt], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: 'PPT专家', division: 'product' },
+    }),
+  })
+  const mcp = {
+    presets: vi.fn().mockResolvedValue({ items: [{ id: 'playwright', name: 'Playwright', description: '浏览器自动化', transport: 'stdio', command: 'npx', args: [], needsArgs: false, category: '浏览器' }] }),
+    list: vi.fn().mockResolvedValue({ endpoints: [] }),
+    add: vi.fn(), toggle: vi.fn(), health: vi.fn(), marketSearch: vi.fn(),
+  }
+  render(<ExpertCenterPage bridge={bridge} projects={projects} mcp={mcp} onOpenExpert={onOpenExpert} />)
+  expect((await screen.findAllByText('PPT专家')).length).toBeGreaterThanOrEqual(1)
+  expect(await screen.findByLabelText('必备工具')).toHaveTextContent('pptx.gen')
+  expect(await screen.findByLabelText('已授权 MCP')).toHaveTextContent('Playwright')
+  fireEvent.click(screen.getByRole('button', { name: '打开同事' }))
+  expect(onOpenExpert).toHaveBeenCalledWith(expect.objectContaining({ name: 'PPT专家' }))
+})
+
+it('offers use-in-current-session without opening a colleague thread', async () => {
+  const onUseInSession = vi.fn()
+  render(<ExpertCenterPage bridge={expertApi()} projects={projects} onOpenExpert={vi.fn()} onUseInSession={onUseInSession} />)
+  expect((await screen.findAllByText('安全工程师')).length).toBeGreaterThanOrEqual(1)
+  fireEvent.click(screen.getByRole('button', { name: '在当前会话使用' }))
+  expect(onUseInSession).toHaveBeenCalledWith(expect.objectContaining({ name: '安全工程师' }))
+})
+
 it('shows a persona card and opens an enabled expert', async () => {
   const onOpenExpert = vi.fn()
   render(<ExpertCenterPage bridge={expertApi()} projects={projects} onOpenExpert={onOpenExpert} />)
@@ -147,6 +182,49 @@ it('creates a scenario card from the detail pane', async () => {
   })
 })
 
+it('prompts to install missing preferred factory kits for a conversation specialist', async () => {
+  const install = vi.fn().mockResolvedValue({ name: 'slide-builder' })
+  const skills = {
+    list: vi.fn().mockResolvedValue({ items: [] }),
+    install,
+  } as unknown as SkillBridge
+  const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: [] })
+  const ppt = { ...expertList.experts[0], name: 'PPT专家', division: 'product' as const }
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [ppt], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: 'PPT专家', division: 'product' },
+    }),
+    skillsSet,
+  })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} skills={skills} />)
+  expect(await screen.findByText('岗位需要但技能库还没有：')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '去技能中心安装 slide-builder' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '去技能中心安装 web-researcher' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '去技能中心安装 slide-builder' }))
+  await waitFor(() => expect(install).toHaveBeenCalledWith({ templateId: 'slide-builder' }))
+})
+
+it('lets an agent specialist pick a local Codex or Claude Code brain', async () => {
+  const ppt = { ...expertList.experts[0], name: 'PPT专家', division: 'product' as const }
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [ppt], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: 'PPT专家', division: 'product' },
+    }),
+    skillsSet: vi.fn().mockResolvedValue({ expertId, skillKeys: ['brain:codex'] }),
+  })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  expect(await screen.findByRole('group', { name: '大脑' })).toBeInTheDocument()
+  expect(screen.getByRole('radio', { name: /月汐引擎/ })).toBeChecked()
+  fireEvent.click(screen.getByRole('radio', { name: /本机 Codex/ }))
+  fireEvent.click(screen.getByRole('button', { name: '保存运行时绑定' }))
+  await waitFor(() => expect(bridge.skillsSet).toHaveBeenCalled())
+  expect(vi.mocked(bridge.skillsSet!).mock.calls[0][0].skillKeys).toContain('brain:codex')
+})
+
 it('saves expert skill bindings from the detail pane', async () => {
   const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: ['slide-builder'] })
   const skills = {
@@ -171,7 +249,7 @@ it('saves expert skill bindings from the detail pane', async () => {
   render(<ExpertCenterPage bridge={expertApi({ skillsSet })} projects={projects} skills={skills} />)
   expect(await screen.findByText('尚未挂技能，仅提示词。')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('checkbox', { name: /演示文稿/ }))
-  fireEvent.click(screen.getByRole('button', { name: '保存技能挂载' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存运行时绑定' }))
   await waitFor(() => expect(skillsSet).toHaveBeenCalled())
   expect(skillsSet.mock.calls[0][0]).toMatchObject({ expertId, skillKeys: ['slide-builder'] })
 })

@@ -3,7 +3,7 @@
 // finished sentence goes to the engine while the model is still writing
 // (instead of waiting for the whole reply), and talking over her cuts the
 // reply short and starts the user's turn.
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { TtsPlayerCallbacks } from './ttsPlayer'
 
@@ -388,4 +388,93 @@ test('a barge-in from local ASR cuts the reply and starts the next user turn', a
   expect(onSend).toHaveBeenCalledTimes(2)
   expect(onSend).toHaveBeenLastCalledWith('不是这个')
   expect(stateOf(utils.container)).toBe('thinking')
+})
+
+test('Space and moon while listening do not cancel the microphone', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  expect(stateOf(utils.container)).toBe('listening')
+  speech.stop.mockClear()
+  fireEvent.keyDown(utils.container.firstChild as HTMLElement, { key: ' ' })
+  fireEvent.click(utils.container.querySelector('.companion-moon-body') as HTMLButtonElement)
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('listening')
+  expect(speech.stop).not.toHaveBeenCalled()
+})
+
+test('the pause control is the only listening path that cancels the mic', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  const pause = utils.container.querySelector('.companion-pause') as HTMLButtonElement
+  expect(pause.disabled).toBe(false)
+  fireEvent.click(pause)
+  await flush(0)
+  expect(speech.stop).toHaveBeenCalled()
+  expect(stateOf(utils.container)).toBe('idle')
+})
+
+test('force-commits the stage caption when the recognizer buffer is empty', async () => {
+  const onSend = vi.fn()
+  const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onInterim?.('气氛对于音乐已经')
+  })
+  await flush(0)
+  expect(utils.container.textContent).toMatch(/气氛对于音乐已经/)
+  await flush(1800)
+  expect(onSend).toHaveBeenCalledWith('气氛对于音乐已经')
+  expect(stateOf(utils.container)).toBe('thinking')
+})
+
+test('caption fade does not wipe an uncommitted user line', async () => {
+  const onSend = vi.fn()
+  const props = { ...baseProps, onSend }
+  const utils = render(<CompanionStage {...props} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('打开桌面协议')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="好，我来执行。" />)
+  })
+  await flush(0)
+  await act(async () => {
+    tts.playing = false
+    tts.enqueueCalls.at(-1)!.callbacks.onFinished?.('completed')
+  })
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="done" assistantText="好，我来执行。" />)
+  })
+  await flush(400)
+  expect(stateOf(utils.container)).toBe('listening')
+  await act(async () => {
+    speech.callbacks!.onInterim?.('下一句还在')
+  })
+  await flush(1600)
+  expect(utils.container.textContent).toMatch(/下一句还在/)
+  expect(onSend).toHaveBeenCalledTimes(1)
+})
+
+test('reply stall does not cancel while userAsk is open', async () => {
+  const onCancel = vi.fn()
+  const onSend = vi.fn()
+  const userAsk = {
+    title: '选一个',
+    questions: [{ id: 'q1', prompt: '哪一个？', options: [{ id: 'a', label: '甲' }, { id: 'b', label: '乙' }] }],
+  }
+  const props = { ...baseProps, onSend, onCancel, userAsk, onUserAsk: vi.fn() }
+  const utils = render(<CompanionStage {...props} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('帮我选一下')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="" />)
+  })
+  await flush(13_000)
+  expect(onCancel).not.toHaveBeenCalled()
+  expect(utils.container.textContent).not.toMatch(/没有及时回应/)
 })

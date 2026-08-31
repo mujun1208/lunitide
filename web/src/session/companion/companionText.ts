@@ -51,6 +51,16 @@ export function looksLikeBargeInSpeech(heard: string, spoken: string): boolean {
   return !looksLikePlaybackEcho(heard, spoken)
 }
 
+/** ChatBridge companion turns refuse more than 2048 Unicode characters. */
+export const COMPANION_PROMPT_MAX_CHARS = 2048
+
+export function clipCompanionPrompt(text: string, maxChars = COMPANION_PROMPT_MAX_CHARS): string {
+  const cleaned = text.replace(/\0/g, '')
+  const chars = Array.from(cleaned)
+  if (chars.length <= maxChars) return cleaned
+  return chars.slice(0, maxChars).join('')
+}
+
 export function companionReplyStallMs(chatStreaming: boolean, hasAssistantText: boolean): number {
   if (hasAssistantText) return COMPANION_AFTER_TOKEN_MS
   return chatStreaming ? COMPANION_FIRST_TOKEN_STREAMING_MS : COMPANION_FIRST_TOKEN_CONNECTING_MS
@@ -434,6 +444,23 @@ export function shouldAcceptUserTranscript(input: {
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
   return true
+}
+
+/** Real user speech during a busy turn — queue for after this reply, do not drop. */
+export function shouldQueueBusyUserTranscript(input: {
+  state: 'idle' | 'listening' | 'thinking' | 'speaking'
+  text: string
+  lastSpoken: string
+  lastAssistant: string
+  assistantBusy?: boolean
+}): boolean {
+  if (!(input.assistantBusy || input.state === 'speaking' || input.state === 'thinking')) return false
+  if (!input.text.trim()) return false
+  if (looksLikeOmniPersonaCaption(input.text)) return false
+  if (looksLikeOmniUnavailable(input.text)) return false
+  if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
+  if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
+  return looksLikeBargeInSpeech(input.text, input.lastSpoken)
 }
 
 /** Settings/clone labels must never become a dialogue round. */

@@ -34,7 +34,15 @@ func TestRepoGuidanceInjectionReadsAgentsAndLocalSkills(t *testing.T) {
 	}
 }
 
+func isolateHomeAgentSkills(t *testing.T) {
+	t.Helper()
+	empty := t.TempDir()
+	testHomeAgentSkillsRoot = &empty
+	t.Cleanup(func() { testHomeAgentSkillsRoot = nil })
+}
+
 func TestRepoGuidanceInjectionEmptyWhenNoFiles(t *testing.T) {
+	isolateHomeAgentSkills(t)
 	if got := repoGuidanceInjection(t.TempDir()); got != "" {
 		t.Fatalf("want empty, got %q", got)
 	}
@@ -85,7 +93,29 @@ func TestRepoGuidanceChainsNestedAgentsMarkdown(t *testing.T) {
 }
 
 func TestRepoGuidanceDoesNotWalkPastMissingGit(t *testing.T) {
+	isolateHomeAgentSkills(t)
 	if got := repoGuidanceInjection(t.TempDir()); got != "" {
 		t.Fatalf("want empty without git/AGENTS, got %q", got)
+	}
+}
+
+func TestRepoGuidanceIncludesHomeAgentSkills(t *testing.T) {
+	home := t.TempDir()
+	skillDir := filepath.Join(home, ".agents", "skills", "my-home-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testHomeAgentSkillsRoot = &home
+	t.Cleanup(func() { testHomeAgentSkillsRoot = nil })
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("Keep going."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := repoGuidanceInjection(root)
+	if !strings.Contains(got, "my-home-skill") {
+		t.Fatalf("missing home skill: %s", got)
 	}
 }

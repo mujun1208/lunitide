@@ -315,6 +315,29 @@ func (s *Store) memberIDs(ctx context.Context, threadID string) ([]string, error
 	return ids, rows.Err()
 }
 
+func (s *Store) ThreadSession(ctx context.Context, threadID string) (string, bool, error) {
+	var sessionID string
+	err := s.db.QueryRowContext(ctx, `SELECT session_id FROM people_thread_session WHERE thread_id=?`, threadID).Scan(&sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return sessionID, true, nil
+}
+
+func (s *Store) BindThreadSession(ctx context.Context, threadID, sessionID, createdAt string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO people_thread_session(thread_id, session_id, created_at) VALUES(?,?,?)
+		ON CONFLICT(thread_id) DO NOTHING`, threadID, sessionID, createdAt)
+	return err
+}
+
+func (s *Store) ClearThreadSession(ctx context.Context, threadID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM people_thread_session WHERE thread_id=?`, threadID)
+	return err
+}
+
 func isDirectPair(members []string, a, b string) bool {
 	if a == b {
 		return len(members) == 1 && members[0] == a

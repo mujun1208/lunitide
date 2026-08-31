@@ -28,16 +28,17 @@ const (
 
 func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Kind      string `json:"kind"`
-		Sender    string `json:"sender"`
-		Text      string `json:"text"`
-		MessageID string `json:"messageId"`
+		Kind           string `json:"kind"`
+		Sender         string `json:"sender"`
+		Text           string `json:"text"`
+		MessageID      string `json:"messageId"`
+		ConversationID string `json:"conversationId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "im.inbound.deliver 参数无效", false)
 	}
 	kind, err := imapp.ParseKind(p.Kind)
-	if err != nil || (kind != imapp.KindFeishu && kind != imapp.KindWeCom) {
+	if err != nil || !imappInboundKind(kind) {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "im.inbound.deliver 参数无效", false)
 	}
 	if e.imChannels == nil {
@@ -55,7 +56,7 @@ func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) br
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
-	sessionID, err := e.parkInboundMessage(ctx, r.IdempotencyKey, ch, p.Sender, p.Text)
+	sessionID, err := e.parkInboundMessage(ctx, r.IdempotencyKey, ch, p.Sender, p.Text, p.ConversationID)
 	if err != nil {
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "无法写入入站会话", true)
 	}
@@ -77,13 +78,100 @@ func inboundAdmitFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, imapp.ErrInboundDenied):
 		return bridge.Failure(r.ID, r.TraceID, "IM_INBOUND_DENIED", "发送者不在白名单", false)
 	case errors.Is(err, imapp.ErrInboundKind):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "仅飞书和企业微信支持入站", false)
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "仅飞书、企业微信和钉钉支持入站", false)
 	default:
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "入站消息无效", false)
 	}
 }
 
-func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, ch imapp.Channel, sender, text string) (string, error) {
+func imappInboundKind(kind imapp.Kind) bool {
+	return kind == imapp.KindFeishu || kind == imapp.KindWeCom || kind == imapp.KindDingTalk
+}
+
+type inboundRoute struct {
+	Kind           imapp.Kind
+	Sender         string
+	ConversationID string
+}
+
+func (e *Engine) rememberInboundRoute(sessionID string, ch imapp.Channel, sender, conversationID string) {
+	if e == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	e.inboundRoutes.Store(sessionID, inboundRoute{
+		Kind:           ch.Kind,
+		Sender:         strings.TrimSpace(sender),
+		ConversationID: strings.TrimSpace(conversationID),
+	})
+	e.saveInboundRoutes()
+}
+
+func (e *Engine) setWeComWriter(write func([]byte) error) {
+	if e == nil {
+		return
+	}
+	e.wecomWriteMu.Lock()
+	e.wecomWrite = write
+	e.wecomWriteMu.Unlock()
+}
+
+func (e *Engine) sendWeComInboundReply(sender, conversationID, text string) error {
+	if e == nil {
+		return errors.New("engine unavailable")
+	}
+	e.wecomWriteMu.Lock()
+	write := e.wecomWrite
+	e.wecomWriteMu.Unlock()
+	if write == nil {
+		return errors.New("wecom inbound stream is down")
+	}
+	chatID := strings.TrimSpace(conversationID)
+	group := chatID != "" && chatID != strings.TrimSpace(sender)
+	if chatID == "" {
+		chatID = strings.TrimSpace(sender)
+		group = false
+	}
+	if chatID == "" {
+		return errors.New("wecom reply missing chat id")
+	}
+	return write(imapp.WeComSendMsgPayload(chatID, group, text))
+}
+
+func (e *Engine) pushInboundReply(sessionID, text string) {
+	if e == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(text) == "" {
+		return
+	}
+	raw, ok := e.inboundRoutes.Load(sessionID)
+	if !ok {
+		return
+	}
+	route, ok := raw.(inboundRoute)
+	if !ok || route.Sender == "" {
+		return
+	}
+	go func() {
+		if route.Kind == imapp.KindWeCom {
+			if err := e.sendWeComInboundReply(route.Sender, route.ConversationID, text); err != nil {
+				log.Printf("im inbound reply: %v", err)
+			}
+			return
+		}
+		if e.imChannels == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		ch, err := e.imChannels.LookupSecret(ctx, route.Kind)
+		if err != nil || ch.Secret() == "" || ch.InboundAppID == "" {
+			return
+		}
+		if err := e.imReply.Send(ctx, route.Kind, ch.InboundAppID, ch.Secret(), route.Sender, route.ConversationID, text); err != nil {
+			log.Printf("im inbound reply: %v", err)
+		}
+	}()
+}
+
+func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, ch imapp.Channel, sender, text, conversationID string) (string, error) {
 	if !projectServiceAvailable(e.projects) || !sessionServiceAvailable(e.sessions) || !messageServiceAvailable(e.messages) {
 		return "", errors.New("im inbound storage unavailable")
 	}
@@ -114,6 +202,7 @@ func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, 
 	if err != nil {
 		return "", err
 	}
+	e.rememberInboundRoute(sessionID, ch, sender, conversationID)
 	return sessionID, nil
 }
 
@@ -171,11 +260,10 @@ func (e *Engine) kickInboundChat(sessionID, text string) bool {
 	if err != nil {
 		return false
 	}
-	catalog := provider.CatalogForKind(items, provider.KindLLM)
-	if len(catalog) == 0 {
+	entry, ok := e.resolvePreferredChatModel(items)
+	if !ok {
 		return false
 	}
-	entry := catalog[0]
 	payload, err := json.Marshal(map[string]any{
 		"providerId":    entry.Provider.ID,
 		"modelId":       entry.Model.ModelID,
@@ -223,14 +311,15 @@ func (e *Engine) pairInboundSender(ctx context.Context, ch *imapp.Channel, sende
 	ch.InboundAllowlist = sender
 }
 
-// StartIMInbound connects outbound to Feishu long-connection when inbound is
-// enabled and credentials exist. No listen port. Safe to call once from cmd/engine.
+// StartIMInbound connects outbound to Feishu / WeCom / DingTalk streams when
+// inbound is enabled and credentials exist. No listen port. Safe to call once from cmd/engine.
 func (e *Engine) StartIMInbound(ctx context.Context) {
 	if e == nil || e.imChannels == nil {
 		return
 	}
 	go e.loopFeishuInbound(ctx)
 	go e.loopWeComInbound(ctx)
+	go e.loopDingTalkInbound(ctx)
 }
 
 func (e *Engine) loopFeishuInbound(ctx context.Context) {
@@ -269,7 +358,7 @@ func (e *Engine) tickFeishuInbound(ctx context.Context) {
 		if strings.TrimSpace(msg.MessageID) == "" {
 			key = ulid.Make().String()
 		}
-		sessionID, err := e.parkInboundMessage(context.Background(), key, ch, msg.Sender, msg.Text)
+		sessionID, err := e.parkInboundMessage(context.Background(), key, ch, msg.Sender, msg.Text, msg.ConversationID)
 		if err != nil {
 			log.Printf("feishu inbound park: %v", err)
 			return
@@ -327,7 +416,7 @@ func (e *Engine) tickWeComInbound(ctx context.Context) {
 	if err != nil || !ch.InboundEnabled || ch.InboundAppID == "" || ch.Secret() == "" {
 		return
 	}
-	if err := runWeComWebsocket(ctx, imapp.WeComOpenWS, ch.InboundAppID, ch.Secret(), func(msg imapp.WeComInboundMessage) {
+	if err := runWeComWebsocket(ctx, imapp.WeComOpenWS, ch.InboundAppID, ch.Secret(), e.setWeComWriter, func(msg imapp.WeComInboundMessage) {
 		if err := imapp.AdmitInbound(ch, msg.Sender, msg.Text); err != nil {
 			return
 		}
@@ -337,7 +426,7 @@ func (e *Engine) tickWeComInbound(ctx context.Context) {
 		if strings.TrimSpace(msg.MessageID) == "" {
 			key = ulid.Make().String()
 		}
-		sessionID, err := e.parkInboundMessage(context.Background(), key, ch, msg.Sender, msg.Text)
+		sessionID, err := e.parkInboundMessage(context.Background(), key, ch, msg.Sender, msg.Text, msg.ConversationID)
 		if err != nil {
 			log.Printf("wecom inbound park: %v", err)
 			return
@@ -350,7 +439,7 @@ func (e *Engine) tickWeComInbound(ctx context.Context) {
 	}
 }
 
-func runWeComWebsocket(ctx context.Context, wsURL, botID, secret string, onMessage func(imapp.WeComInboundMessage)) error {
+func runWeComWebsocket(ctx context.Context, wsURL, botID, secret string, onWriter func(func([]byte) error), onMessage func(imapp.WeComInboundMessage)) error {
 	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
 	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
@@ -364,6 +453,10 @@ func runWeComWebsocket(ctx context.Context, wsURL, botID, secret string, onMessa
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		return conn.WriteMessage(websocket.TextMessage, payload)
+	}
+	if onWriter != nil {
+		onWriter(writeJSON)
+		defer onWriter(nil)
 	}
 	if err := writeJSON(imapp.WeComSubscribePayload(botID, secret)); err != nil {
 		return err
@@ -394,6 +487,85 @@ func runWeComWebsocket(ctx context.Context, wsURL, botID, secret string, onMessa
 		msg, ok := imapp.ParseWeComMessageEvent(data)
 		if !ok {
 			continue
+		}
+		onMessage(msg)
+	}
+}
+
+func (e *Engine) loopDingTalkInbound(ctx context.Context) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		e.tickDingTalkInbound(ctx)
+		timer := time.NewTimer(20 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (e *Engine) tickDingTalkInbound(ctx context.Context) {
+	ch, err := e.imChannels.LookupSecret(ctx, imapp.KindDingTalk)
+	if err != nil || !ch.InboundEnabled || ch.InboundAppID == "" || ch.Secret() == "" {
+		return
+	}
+	ep, err := imapp.FetchDingTalkEndpoint(ctx, http.DefaultClient, imapp.DingTalkOpenAPI, ch.InboundAppID, ch.Secret())
+	if err != nil {
+		log.Printf("dingtalk inbound endpoint: %v", err)
+		return
+	}
+	if err := runDingTalkWebsocket(ctx, imapp.DingTalkStreamURL(ep), func(msg imapp.DingTalkInboundMessage) {
+		if err := imapp.AdmitInbound(ch, msg.Sender, msg.Text); err != nil {
+			return
+		}
+		auto := imapp.InboundShouldAutoRun(ch)
+		e.pairInboundSender(context.Background(), &ch, msg.Sender)
+		key := "im-inbound-" + msg.MessageID
+		if strings.TrimSpace(msg.MessageID) == "" {
+			key = ulid.Make().String()
+		}
+		sessionID, err := e.parkInboundMessage(context.Background(), key, ch, msg.Sender, msg.Text, msg.ConversationID)
+		if err != nil {
+			log.Printf("dingtalk inbound park: %v", err)
+			return
+		}
+		if auto {
+			e.kickInboundChat(sessionID, msg.Text)
+		}
+	}); err != nil && ctx.Err() == nil {
+		log.Printf("dingtalk inbound websocket: %v", err)
+	}
+}
+
+func runDingTalkWebsocket(ctx context.Context, wsURL string, onMessage func(imapp.DingTalkInboundMessage)) error {
+	if strings.TrimSpace(wsURL) == "" {
+		return errors.New("dingtalk stream url empty")
+	}
+	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(4 * time.Minute))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+		msg, ok := imapp.ParseDingTalkMessageEvent(data)
+		if !ok {
+			continue
+		}
+		if ack := imapp.DingTalkStreamAck(msg.MessageID); len(ack) > 0 {
+			_ = conn.WriteMessage(websocket.TextMessage, ack)
 		}
 		onMessage(msg)
 	}

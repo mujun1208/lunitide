@@ -29,6 +29,7 @@ describe('expert reference prefix',()=>{
     expect(prompt.startsWith(`[引用专家 安全工程师|${A}]`)).toBe(true)
     expect(prompt).toContain('重新思考，给出一个新的方案。')
     expect(composeChatPrompt('继续',[],[{name:'PPT专家',expertId:A}],false)).toBe('继续')
+    expect(composeChatPrompt('继续上次未完成的工作。',[],[{name:'PPT专家',expertId:A}],true)).toContain(`[引用专家 PPT专家|${A}]`)
   })
   it('splits leading expert refs with skills',()=>{
     const split=splitLeadingRefs(`[引用技能 摘要|${S}]\n[引用专家 安全工程师|${A}]\n请审查这段设计`)

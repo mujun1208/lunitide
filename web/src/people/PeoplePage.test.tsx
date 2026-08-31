@@ -70,6 +70,13 @@ describe('PeoplePage', () => {
     localStorage.removeItem('lunitide:people-composer-height')
     vi.mocked(captureThisPcFrame).mockReset()
   })
+  test('opens a colleague DM when given an initial peer subject', async () => {
+    const { identity, people } = bridges()
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await vi.waitFor(() => expect(people.threadOpen).toHaveBeenCalledWith({ peerSubjectId: peer.subjectId }))
+    expect(await screen.findByText('[文件] secret.txt')).toBeInTheDocument()
+  })
+
   test('chat list shows last preview and unread without mixing the org tree', async () => {
     const { identity, people } = bridges()
     render(<PeoplePage identity={identity} people={people} />)
@@ -142,6 +149,7 @@ describe('PeoplePage', () => {
     await user.click(screen.getByRole('button', { name: '添加' }))
     expect(people.peerAdd).toHaveBeenCalledWith({ hostAddr: '10.0.0.8' })
     await user.click(screen.getAllByRole('button', { name: /同事甲/ })[0])
+    await user.click(await screen.findByRole('button', { name: '更多' }))
     expect(await screen.findByLabelText('备注')).toBeInTheDocument()
     await user.type(screen.getByLabelText('备注'), '阿甲')
     await user.click(screen.getByRole('button', { name: '保存备注' }))
@@ -399,5 +407,86 @@ describe('PeoplePage', () => {
       kind: 'image', fileName: '飞算AI.png', localPath: 'C:/stage/up-feisuan.png',
     })))
     expect(screen.getByRole('status').textContent).toMatch(/已发出文件/)
+  })
+
+  test('chat list keeps one row per peer and titles the other person', async () => {
+    const { identity, people } = bridges()
+    const selfNote: PeopleThreadDTO = { ...thread, threadId: '01ARZ3NDEKTSV4RRFFQ69G5FB6', members: [selfContact], lastMessage: undefined, unreadCount: 0 }
+    const dup: PeopleThreadDTO = { ...thread, threadId: '01ARZ3NDEKTSV4RRFFQ69G5FB7', updatedAt: '2026-08-26T00:00:00.000Z', unreadCount: 0 }
+    people.threadList = vi.fn().mockResolvedValue({ items: [thread, dup, selfNote] })
+    render(<PeoplePage identity={identity} people={people} />)
+    await screen.findByRole('heading', { name: '聊天' })
+    expect(screen.getAllByRole('button', { name: /同事甲/ })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /mu（我）/ })).not.toBeInTheDocument()
+  })
+
+  test('group chats show member count, a member drawer, and an @ picker with people', async () => {
+    const agent: PeopleContactDTO = {
+      ...peer, subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', nickname: 'PPT专家', avatar: '📊',
+      orgName: '月汐智能体', department: 'product', title: '研究员', hostAddr: '',
+    }
+    const group: PeopleThreadDTO = {
+      threadId: '01ARZ3NDEKTSV4RRFFQ69G5FB8', kind: 'group', title: '三人组', ownerSubjectId: me.subjectId,
+      members: [selfContact, peer, agent], unreadCount: 0, createdAt: now, updatedAt: now,
+    }
+    const { identity, people } = bridges()
+    people.threadList = vi.fn().mockResolvedValue({ items: [group] })
+    people.threadOpen = vi.fn().mockResolvedValue({ thread: group, messages: [] })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    expect(await screen.findByRole('button', { name: /三人组 \(3\)/ })).toBeInTheDocument()
+    expect(document.querySelector('.people-ava-mosaic')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /三人组 \(3\)/ }))
+    await user.click(await screen.findByRole('button', { name: '查看群成员' }))
+    expect(await screen.findByLabelText('搜索群成员')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /PPT专家/ })).toBeInTheDocument()
+    const composer = screen.getByPlaceholderText(/群里 @同事/)
+    await user.click(composer)
+    await user.type(composer, '@')
+    expect(await screen.findByRole('listbox', { name: '选择要@的人' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '同事甲' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'PPT专家' })).toBeInTheDocument()
+  })
+
+  test('address book groups fold and clicking self only opens the card', async () => {
+    const extras: PeopleContactDTO[] = Array.from({ length: 4 }, (_, i) => ({
+      ...peer,
+      subjectId: `01ARZ3NDEKTSV4RRFFQ69G5F${String(i).padStart(2, '0')}`,
+      nickname: `开发专家${i}`,
+      orgName: '月汐智能体',
+      department: 'engineering',
+      hostAddr: '',
+    }))
+    const { identity, people } = bridges()
+    people.list = vi.fn().mockResolvedValue({ items: [selfContact, peer, ...extras] })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    const rail = screen.getByRole('navigation', { name: '同事工作区' })
+    await user.click(within(rail).getByRole('button', { name: /通讯录/ }))
+    expect(await screen.findByRole('button', { name: /月汐智能体 · engineering/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: /开发专家0/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /月汐智能体 · engineering/ }))
+    expect(screen.getByRole('button', { name: /开发专家0/ })).toBeInTheDocument()
+    people.threadOpen = vi.fn()
+    await user.click(screen.getByRole('button', { name: /mu（我）/ }))
+    expect(people.threadOpen).not.toHaveBeenCalled()
+    expect(screen.getByText(/电脑控制仍然只作用于这台电脑/)).toBeInTheDocument()
+  })
+
+  test('opening a colleague by catalog name uses the roster subject id', async () => {
+    const agent: PeopleContactDTO = {
+      ...peer, subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', nickname: 'PPT专家', avatar: '📊',
+      orgName: '月汐智能体', department: 'product', hostAddr: '',
+    }
+    const agentThread: PeopleThreadDTO = {
+      ...thread, members: [selfContact, agent], lastMessage: undefined, unreadCount: 0,
+    }
+    const { identity, people } = bridges()
+    people.list = vi.fn().mockResolvedValue({ items: [selfContact, agent] })
+    people.threadList = vi.fn().mockResolvedValue({ items: [] })
+    people.threadOpen = vi.fn().mockResolvedValue({ thread: agentThread, messages: [{ ...fileMsg, kind: 'text', body: '你好！我是PPT专家', fileName: undefined, offerId: undefined }] })
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId="ppt-expert" initialPeerName="PPT专家" />)
+    await vi.waitFor(() => expect(people.threadOpen).toHaveBeenCalledWith({ peerSubjectId: agent.subjectId }))
+    expect(await screen.findByRole('heading', { name: 'PPT专家' })).toBeInTheDocument()
   })
 })

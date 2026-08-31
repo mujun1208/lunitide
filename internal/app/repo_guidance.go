@@ -55,6 +55,18 @@ func repoGuidanceInjection(root string) string {
 		}
 		if line != "" {
 			b.WriteString(line)
+			budget = repoGuidanceMaxBytes - b.Len()
+		}
+	}
+	if home := homeAgentSkillsRoot(); home != "" {
+		if names := listLocalAgentSkills(home); len(names) > 0 {
+			line := "本机 ~/.agents/skills：" + strings.Join(names, "、") + "。需要时 skill.invoke。\n"
+			if len(line) > budget {
+				line = truncateUTF8Bytes(line, budget)
+			}
+			if line != "" {
+				b.WriteString(line)
+			}
 		}
 	}
 	if b.Len() <= len(header) {
@@ -212,6 +224,69 @@ func readBoundedAgentsMarkdown(root string) string {
 		text = strings.ToValidUTF8(text, "")
 	}
 	return text
+}
+
+var testHomeAgentSkillsRoot *string
+
+func homeAgentSkillsRoot() string {
+	if testHomeAgentSkillsRoot != nil {
+		return *testHomeAgentSkillsRoot
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
+const skillAttachmentMaxBytes = 12000
+
+func readLocalSkillAttachment(roots []string, skillKeys []string, rel string) (string, bool) {
+	rel = strings.TrimSpace(rel)
+	if rel == "" || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
+		return "", false
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	for _, root := range roots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		for _, key := range skillKeys {
+			key = strings.TrimSpace(key)
+			if key == "" || strings.Contains(key, "..") || strings.ContainsAny(key, `/\`) {
+				continue
+			}
+			base := filepath.Join(root, ".agents", "skills", key)
+			path := filepath.Join(base, rel)
+			relToBase, err := filepath.Rel(base, path)
+			if err != nil || strings.HasPrefix(relToBase, "..") {
+				continue
+			}
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				continue
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil || len(raw) == 0 {
+				continue
+			}
+			if len(raw) > skillAttachmentMaxBytes {
+				raw = raw[:skillAttachmentMaxBytes]
+			}
+			text := strings.TrimSpace(string(raw))
+			if !utf8.ValidString(text) {
+				text = strings.ToValidUTF8(text, "")
+			}
+			if text == "" {
+				continue
+			}
+			return text, true
+		}
+	}
+	return "", false
 }
 
 func listLocalAgentSkills(root string) []string {

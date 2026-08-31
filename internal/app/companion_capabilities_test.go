@@ -49,8 +49,8 @@ func TestEnsureCompanionEnablesWhenIdle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Enabled || cfg.EmergencyStopped {
-		t.Fatalf("companion should enable idle computer control: %+v", cfg)
+	if cfg.Enabled {
+		t.Fatalf("companion must not silently enable computer control: %+v", cfg)
 	}
 	if cfg.MaxActionsPerMinute != ccapp.CcDefaultMaxActionsPerMinute {
 		t.Fatalf("companion enable should seed rate cap %d, got %d", ccapp.CcDefaultMaxActionsPerMinute, cfg.MaxActionsPerMinute)

@@ -56,6 +56,21 @@ func (s *MemoryService) RecallForInject(ctx context.Context, in RecallInput) (Re
 	}
 	now := s.clock.Now().UTC()
 	terms := injectTerms(in.Query)
+	subjectID := strings.TrimSpace(in.SubjectID)
+	ftsCand := map[string]bool{}
+	var ftsSummaries []MemoryFTSHit
+	if s.fts != nil {
+		if hits, ferr := s.fts.SearchMemoryFactFTS(ctx, in.Query, in.TopK*4); ferr == nil {
+			for _, hit := range hits {
+				switch hit.Kind {
+				case "candidate":
+					ftsCand[hit.SourceID] = true
+				case "summary":
+					ftsSummaries = append(ftsSummaries, hit)
+				}
+			}
+		}
+	}
 	rows, err := s.listCandidates(ctx, m8core.CandConfirmed, 200)
 	if err != nil {
 		return RecallResult{}, err
@@ -72,6 +87,9 @@ func (s *MemoryService) RecallForInject(ctx context.Context, in RecallInput) (Re
 	redactions := map[string]bool{}
 	var notAdopted []string
 	for _, c := range rows {
+		if subjectID != "" && c.SubjectID != subjectID {
+			continue
+		}
 		var doc m8core.PayloadDoc
 		if json.Unmarshal([]byte(c.Payload), &doc) != nil {
 			continue
@@ -90,8 +108,12 @@ func (s *MemoryService) RecallForInject(ctx context.Context, in RecallInput) (Re
 				matched++
 			}
 		}
-		if matched == 0 {
+		fts := ftsOverlap(in.Query, content)
+		if matched == 0 && fts < 0.34 && !ftsCand[c.CandidateID] {
 			continue
+		}
+		if matched == 0 {
+			matched = 1
 		}
 		if doc.Sensitivity == m8core.SensSensitive {
 			redactions["policy:sensitivity=sensitive"] = true
@@ -135,6 +157,25 @@ func (s *MemoryService) RecallForInject(ctx context.Context, in RecallInput) (Re
 			Content:         strings.TrimSpace(c.doc.Content),
 		})
 		reasons = append(reasons, fmt.Sprintf("candidate %s: keyword %.3f, freshness %.3f", c.cand.CandidateID, c.cov, c.fresh))
+	}
+	for _, sum := range ftsSummaries {
+		if subjectID != "" {
+			break
+		}
+		if len(hits) >= in.TopK {
+			break
+		}
+		content := strings.TrimSpace(sum.Body)
+		if content == "" {
+			continue
+		}
+		hits = append(hits, RecallHit{
+			Source:  "summary:" + sum.SourceID,
+			Version: 1,
+			Score:   0.5,
+			Content: content,
+		})
+		reasons = append(reasons, "summary "+sum.SourceID+": fts")
 	}
 	red := make([]string, 0, len(redactions))
 	for r := range redactions {
@@ -223,4 +264,35 @@ func containsCJK(runes []rune) bool {
 		}
 	}
 	return false
+}
+
+func ftsTrigrams(s string) map[string]bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	out := map[string]bool{}
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return out
+	}
+	if len(runes) < 3 {
+		out[string(runes)] = true
+		return out
+	}
+	for i := 0; i+2 < len(runes); i++ {
+		out[string(runes[i:i+3])] = true
+	}
+	return out
+}
+
+func ftsOverlap(query, body string) float64 {
+	qg, bg := ftsTrigrams(query), ftsTrigrams(body)
+	if len(qg) == 0 || len(bg) == 0 {
+		return 0
+	}
+	hit := 0
+	for g := range qg {
+		if bg[g] {
+			hit++
+		}
+	}
+	return float64(hit) / float64(len(qg))
 }

@@ -96,7 +96,9 @@ type UsageEvent struct {
 	TotalTokens  int `json:"totalTokens"`
 }
 type CompletedEvent struct {
-	MessageID string `json:"messageId,omitempty"`
+	MessageID     string `json:"messageId,omitempty"`
+	PersistFailed bool   `json:"persistFailed,omitempty"`
+	MemorySummary string `json:"memorySummary,omitempty"`
 }
 type ToolEvent struct {
 	CallID     string         `json:"callId"`

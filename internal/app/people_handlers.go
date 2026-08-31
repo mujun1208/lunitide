@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"log"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/ccapp"
@@ -208,6 +209,12 @@ func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) br
 	}
 	if err != nil {
 		return peopleFailure(r, err)
+	}
+	if hint, ok := peopleThreadAgentHint(t); ok {
+		if _, bindErr := e.ensurePeopleBoundSession(ctx, t.ThreadID, hint); bindErr != nil {
+			log.Printf("people thread open bound session: %v", bindErr)
+			msgs = e.noticePeopleBoundSessionFailure(ctx, t.ThreadID, msgs)
+		}
 	}
 	return bridge.Success(r.ID, map[string]any{"thread": publicThread(t), "messages": publicMessages(msgs)})
 }
@@ -444,6 +451,8 @@ func peopleFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_PASSWORD", "启动密码不正确", false)
 	case errors.Is(err, identity.ErrAvatarUnreadable):
 		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_AVATAR", "图片无法读取", false)
+	case errors.Is(err, people.ErrSelfChat):
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "不能和自己开会话", false)
 	case errors.Is(err, identity.ErrInvalidProfile), errors.Is(err, identity.ErrPasswordTooLong), errors.Is(err, people.ErrInvalid):
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "个人资料或同事请求无效", false)
 	case errors.Is(err, people.ErrNotFound):
@@ -496,6 +505,15 @@ func publicContacts(items []people.Contact) []map[string]any {
 		out = append(out, publicContact(c))
 	}
 	return out
+}
+
+func peopleThreadAgentHint(t people.Thread) (string, bool) {
+	for _, m := range t.Members {
+		if people.IsAgentContact(m) {
+			return m.Nickname, true
+		}
+	}
+	return "", false
 }
 
 func publicThread(t people.Thread) map[string]any {

@@ -124,14 +124,14 @@ export function filterContacts<T extends PeopleContact>(items: T[], query: strin
 export function filterThreads<T extends {
   kind?: string
   title?: string
-  members?: Array<{ nickname: string; remark?: string; self?: boolean }>
+  members?: Array<{ nickname: string; remark?: string; self?: boolean; subjectId?: string }>
   lastMessage?: { kind?: string; body?: string; fileName?: string }
 }>(items: T[], query: string): T[] {
   const q = query.trim().toLocaleLowerCase()
   if (!q) return items
   return items.filter(item => {
     const preview = lastPreview(item.lastMessage?.kind, item.lastMessage?.body, item.lastMessage?.fileName)
-    return `${threadTitle(item)} ${preview}`.toLocaleLowerCase().includes(q)
+    return `${threadHeading(item)} ${preview}`.toLocaleLowerCase().includes(q)
   })
 }
 
@@ -171,10 +171,80 @@ export function displayName(person: { nickname: string; remark?: string; self?: 
   return withSelf && person.self ? `${name}（我）` : name
 }
 
-export function threadTitle(thread: { kind?: string; title?: string; members?: Array<{ nickname: string; remark?: string; self?: boolean }> }, fallback = '同事对话'): string {
-  if (thread.kind === 'group' && thread.title?.trim()) return thread.title.trim()
-  const peer = thread.members?.find(m => !m.self) ?? thread.members?.[0]
+export function threadPeer<T extends { self?: boolean; subjectId?: string; nickname: string; remark?: string }>(members?: T[], selfId?: string): T | undefined {
+  return members?.find(member => !member.self && (!selfId || member.subjectId !== selfId))
+}
+
+export function threadTitle(thread: { kind?: string; title?: string; members?: Array<{ nickname: string; remark?: string; self?: boolean; subjectId?: string }> }, fallback = '同事对话', selfId?: string): string {
+  if (thread.kind === 'group') return thread.title?.trim() || fallback
+  const peer = threadPeer(thread.members, selfId)
   return (peer ? displayName(peer) : '') || fallback
+}
+
+export function threadHeading(thread: { kind?: string; title?: string; members?: Array<{ nickname: string; remark?: string; self?: boolean; subjectId?: string }> }, fallback = '同事对话', selfId?: string): string {
+  const title = threadTitle(thread, fallback, selfId)
+  if (thread.kind !== 'group') return title
+  const n = thread.members?.length ?? 0
+  return n > 0 ? `${title} (${n})` : title
+}
+
+export function visiblePeopleThreads<T extends {
+  kind?: string
+  members?: Array<{ nickname: string; remark?: string; self?: boolean; subjectId?: string }>
+}>(items: T[], selfId?: string): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const item of items) {
+    if (item.kind !== 'direct') {
+      out.push(item)
+      continue
+    }
+    const peer = threadPeer(item.members, selfId)
+    if (!peer?.subjectId || seen.has(peer.subjectId)) continue
+    seen.add(peer.subjectId)
+    out.push(item)
+  }
+  return out
+}
+
+export function resolveColleaguePeerId(
+  contacts: Array<{ subjectId: string; nickname: string; orgName: string; self?: boolean }>,
+  raw?: string,
+  name?: string,
+): string | undefined {
+  const id = raw?.trim()
+  if (id) {
+    const exact = contacts.find(item => item.subjectId === id && !item.self)
+    if (exact) return exact.subjectId
+  }
+  const q = (name || id || '').trim().toLowerCase()
+  if (!q) return undefined
+  return contacts.find(item => isAgentContact(item) && !item.self && item.nickname.trim().toLowerCase() === q)?.subjectId
+}
+
+export function orgGroupCollapsed(explicit: boolean | undefined, count: number, searching: boolean): boolean {
+  if (searching) return false
+  if (explicit !== undefined) return explicit
+  return count >= 4
+}
+
+export function shouldPinPeopleLog(opts: {
+  stickToBottom: boolean
+  previousLastId?: string
+  nextLastId?: string
+  force?: boolean
+}): boolean {
+  if (opts.force) return true
+  if (!opts.stickToBottom) return false
+  return (opts.nextLastId || '') !== (opts.previousLastId || '')
+}
+
+export function shouldReloadOpenThread(opts: {
+  stickToBottom: boolean
+  listedLastId?: string
+  localLastId?: string
+}): boolean {
+  return Boolean(opts.stickToBottom && opts.listedLastId && opts.listedLastId !== opts.localLastId)
 }
 
 export const PEOPLE_EMOJI = ['😀', '😃', '😄', '😊', '😍', '🤔', '👍', '👎', '🎉', '❤️', '🌙', '✨', '✅', '🙏', '📎']

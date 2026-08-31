@@ -16,4 +16,24 @@ func TestAppendPostActSnapshot(t *testing.T) {
 	if got := appendPostActSnapshot("navigate", "", "tree-only"); got != "tree-only" {
 		t.Fatalf("empty primary: %q", got)
 	}
+	if got := appendPostActSnapshot("read", "body", "tree"); got != "body\n\n[snapshot after read]\ntree" {
+		t.Fatalf("read follow-up: %q", got)
+	}
+}
+
+func TestBrowserActNeedsSnapshotRing(t *testing.T) {
+	for _, op := range []string{"click", "type", "navigate", "read", "wait", "dialog", "scroll", "press"} {
+		if !browserActNeedsSnapshot(browserActCall{Op: op}) {
+			t.Fatalf("%s must resnapshot after act", op)
+		}
+	}
+	if browserActNeedsSnapshot(browserActCall{Op: "snapshot"}) {
+		t.Fatal("snapshot must not follow itself")
+	}
+	if browserActNeedsSnapshot(browserActCall{Op: "tabs", Tab: "list"}) {
+		t.Fatal("tabs list is read-only")
+	}
+	if !browserActNeedsSnapshot(browserActCall{Op: "tabs", Tab: "new"}) {
+		t.Fatal("tab switch must resnapshot")
+	}
 }

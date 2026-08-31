@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-
 type windowListState struct {
 	fg      uintptr
 	windows []WindowInfo
@@ -89,6 +88,7 @@ func (h *windowsHost) FocusWindow(query string) (WindowInfo, error) {
 	}
 	forceForeground(hwnd)
 	time.Sleep(40 * time.Millisecond)
+	h.rememberHWND(hwnd)
 	info.Foreground = true
 	return info, nil
 }

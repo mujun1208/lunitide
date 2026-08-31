@@ -47,8 +47,10 @@ func (s *Store) RebindLegacySubject(ctx context.Context, from, to string) error 
 	}
 	defer tx.Rollback()
 	now := formatTime(time.Now().UTC())
+	if err := rebindMemorySettings(ctx, tx, from, to, now); err != nil {
+		return err
+	}
 	statements := []string{
-		`UPDATE memory_settings SET subject_id=? WHERE subject_id=?`,
 		`UPDATE memory_candidates SET subject_id=? WHERE subject_id=?`,
 		`UPDATE kb_collections SET subject_id=? WHERE subject_id=?`,
 		`UPDATE expert_catalog SET subject_id=? WHERE subject_id=? AND NOT EXISTS (SELECT 1 FROM expert_catalog e2 WHERE e2.subject_id=? AND e2.name=expert_catalog.name)`,
@@ -75,8 +77,35 @@ func (s *Store) RebindLegacySubject(ctx context.Context, from, to string) error 
 			return err
 		}
 	}
-	_ = now
 	return tx.Commit()
+}
+
+func rebindMemorySettings(ctx context.Context, tx *sql.Tx, from, to, now string) error {
+	var fromEnabled, fromAuto, fromDays int
+	var fromUpdated string
+	err := tx.QueryRowContext(ctx, `SELECT memory_enabled, auto_nominate, growth_days, updated_at FROM memory_settings WHERE subject_id=?`, from).Scan(&fromEnabled, &fromAuto, &fromDays, &fromUpdated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var toUpdated string
+	err = tx.QueryRowContext(ctx, `SELECT updated_at FROM memory_settings WHERE subject_id=?`, to).Scan(&toUpdated)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = tx.ExecContext(ctx, `UPDATE memory_settings SET subject_id=? WHERE subject_id=?`, to, from)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if fromUpdated >= toUpdated {
+		if _, err = tx.ExecContext(ctx, `UPDATE memory_settings SET memory_enabled=?, auto_nominate=?, growth_days=?, updated_at=? WHERE subject_id=?`, fromEnabled, fromAuto, fromDays, now, to); err != nil {
+			return err
+		}
+	}
+	_, err = tx.ExecContext(ctx, `DELETE FROM memory_settings WHERE subject_id=?`, from)
+	return err
 }
 
 func containsTriplePlaceholder(stmt string) bool {

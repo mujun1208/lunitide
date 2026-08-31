@@ -1,0 +1,22 @@
+[
+  {
+    "name": "expert-token",
+    "text": "[引用专家 PPT专家|01ARZ3NDEKTSV4RRFFQ69G5FAV] 继续刚才的",
+    "want": [{ "kind": "expert", "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "PPT专家" }]
+  },
+  {
+    "name": "member-at",
+    "text": "继续刚才的 @PPT专家 ",
+    "want": [{ "kind": "member", "id": "", "name": "PPT专家" }]
+  },
+  {
+    "name": "skill-token",
+    "text": "[引用技能 摘要|01ARZ3NDEKTSV4RRFFQ69G5FAV]\n正文",
+    "want": [{ "kind": "skill", "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "摘要" }]
+  },
+  {
+    "name": "email-ignored",
+    "text": "写给 a@b.com",
+    "want": []
+  }
+]

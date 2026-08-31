@@ -195,8 +195,9 @@ func TestRunStreamAppendFailureEmitsFailedAfterFinalizationClaim(t *testing.T) {
 		t.Fatal("cancellation won while failing durable append was in flight")
 	}
 	close(writer.release)
-	if terminal := terminalEvent(t, events); terminal.Type != bridge.EventFailed {
-		t.Fatalf("terminal=%s want failed", terminal.Type)
+	terminal := terminalEvent(t, events)
+	if terminal.Type != bridge.EventCompleted || terminal.Completed == nil || !terminal.Completed.PersistFailed {
+		t.Fatalf("terminal=%#v want completed persistFailed", terminal)
 	}
 	waitForStreamCleanup(t, e, id)
 }
