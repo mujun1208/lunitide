@@ -20,15 +20,46 @@ const relsDocx = xmlDecl + `
 
 // --- PPTX parts ---------------------------------------------------------
 
-func contentTypesPptx(slides int) string {
+func contentTypesPptx(slides int, noteSlides ...int) string {
+	noted := map[int]bool{}
+	for _, n := range noteSlides {
+		if n >= 1 && n <= slides {
+			noted[n] = true
+		}
+	}
 	var b strings.Builder
 	b.WriteString(xmlDecl + `
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>`)
 	for i := 1; i <= slides; i++ {
 		fmt.Fprintf(&b, `<Override PartName="/ppt/slides/slide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, i)
+		if noted[i] {
+			fmt.Fprintf(&b, `<Override PartName="/ppt/notesSlides/notesSlide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>`, i)
+		}
 	}
 	fmt.Fprintf(&b, `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>`)
 	return b.String()
+}
+
+func noteSlideIndexes(slides []SlideSpec) []int {
+	var out []int
+	for i, s := range slides {
+		if strings.TrimSpace(s.Notes) != "" {
+			out = append(out, i+1)
+		}
+	}
+	return out
+}
+
+func notesSlideXML(notes string) string {
+	return xmlDecl + `
+<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>` +
+		pptxFontRun(strings.TrimSpace(notes), clrInk, 1400, false) +
+		`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>`
+}
+
+func notesSlideRels(slide int) string {
+	return xmlDecl + fmt.Sprintf(`
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/slide%d.xml"/></Relationships>`, slide)
 }
 
 const relsPptx = xmlDecl + `

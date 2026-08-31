@@ -62,7 +62,7 @@ it('lets the 对话 picker select 系统架构师专家 with the other conversat
   }
 })
 
-it('auto-attaches published slide-builder when 选专家 PPT专家', async () => {
+it('does not pin published skills onto the composer when 选专家 PPT专家', async () => {
   const sessionSolo = {...session, id: '01ARZ3NDEKTSV4RRFFQ69G5F99'}
   const ppt = {
     expertId: '01ARZ3NDEKTSV4RRFFQ69G5F00',
@@ -97,9 +97,7 @@ it('auto-attaches published slide-builder when 选专家 PPT专家', async () =>
   await user.click(screen.getByRole('button', {name: '添加上下文'}))
   await user.click(screen.getByRole('button', {name: /选专家/}))
   await user.click(await screen.findByRole('option', {name: (n) => n.startsWith('PPT专家 ')}))
-  await waitFor(() => expect(skills.list).toHaveBeenCalled())
-  const chips = await screen.findByRole('list', {name: '已引用技能'})
-  expect(chips).toHaveTextContent('演示文稿助手')
-  expect(chips).toHaveTextContent('联网调研')
-  expect(chips).toHaveTextContent('Mermaid 结构图')
+  expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('PPT专家')
+  await waitFor(() => expect(screen.queryByRole('list', {name: '已引用技能'})).toBeNull())
+  expect(screen.queryByText('演示文稿助手')).toBeNull()
 })

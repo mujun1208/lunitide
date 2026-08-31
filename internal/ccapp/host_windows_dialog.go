@@ -431,6 +431,16 @@ func accName(acc uintptr, child variant) string {
 	return windows.UTF16PtrToString((*uint16)(ptrFromUintptr(bstr)))
 }
 
+func accValue(acc uintptr, child variant) string {
+	var bstr uintptr
+	hr, _, _ := syscall.SyscallN(comVtbl(acc, 11), acc, uintptr(unsafe.Pointer(&child)), uintptr(unsafe.Pointer(&bstr)))
+	if hr != 0 || bstr == 0 {
+		return ""
+	}
+	defer procSysFreeString.Call(bstr)
+	return windows.UTF16PtrToString((*uint16)(ptrFromUintptr(bstr)))
+}
+
 func accRole(acc uintptr, child variant) uint32 {
 	var role variant
 	hr, _, _ := syscall.SyscallN(comVtbl(acc, 13), acc, uintptr(unsafe.Pointer(&child)), uintptr(unsafe.Pointer(&role)))

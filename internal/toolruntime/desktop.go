@@ -2,6 +2,7 @@ package toolruntime
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,6 +176,19 @@ func pickDesktopNamedFile(dir, query string) (string, []string, error) {
 	return pickBestDesktopHit(hits, query)
 }
 
+// ProbeDesktopApp reports whether a named desktop client (微信 / QQ) can
+// be launched on this PC. Settings uses it so enable fails loud.
+func ProbeDesktopApp(name string) error {
+	path, others, err := pickLaunchTarget(name)
+	if err != nil {
+		return err
+	}
+	if path == "" {
+		return fmt.Errorf("多个程序匹配%s：%s", name, strings.Join(others, "、"))
+	}
+	return nil
+}
+
 // pickLaunchTarget resolves a desktop file/folder/shortcut, then falls
 // back to known install paths (e.g. cloudmusic.exe) and Start Menu
 // shortcuts (e.g. 汽水音乐 / 网易云音乐 when only installed globally).
@@ -198,6 +212,18 @@ func pickLaunchTarget(query string) (string, []string, error) {
 	}
 	if recalled := recallDesktopOpen(query); recalled != "" && looksLikeReopenQuery(query) {
 		return recalled, nil, nil
+	}
+	if looksLikeGenericDocumentQuery(query) {
+		if dir, err := userDesktopDir(); err == nil {
+			names := listDesktopDocuments(dir)
+			if len(names) == 1 {
+				return filepath.Join(dir, names[0]), names, nil
+			}
+			if len(names) > 1 {
+				return "", names, nil
+			}
+		}
+		return "", nil, errors.New("无法执行：桌面上没有文档")
 	}
 	if dir, err := userDesktopDir(); err == nil {
 		for _, q := range searches {
@@ -260,10 +286,46 @@ func looksLikeReopenQuery(query string) bool {
 		q = foldLaunchQuery(query)
 	}
 	switch q {
-	case "文档", "文件", "刚才", "那个", "刚才的", "那个文档", "刚才那个", "再打开", "重新打开":
+	case "刚才", "那个", "刚才的", "那个文档", "刚才那个", "刚才的文档", "再打开", "重新打开":
 		return true
 	}
 	return strings.Contains(q, "再打开") || strings.Contains(q, "重新打开") || strings.Contains(q, "再开一下")
+}
+
+func looksLikeGenericDocumentQuery(query string) bool {
+	q := foldLaunchQuery(launchQueryCore(query))
+	if q == "" {
+		q = foldLaunchQuery(query)
+	}
+	switch q {
+	case "文档", "文件", "桌面文档", "桌面文件":
+		return true
+	}
+	return false
+}
+
+func listDesktopDocuments(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		base := e.Name()
+		if strings.HasPrefix(base, "~$") || strings.HasPrefix(base, ".") {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(base))
+		switch ext {
+		case ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".pdf", ".txt", ".md":
+			names = append(names, base)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func recallDesktopOpen(query string) string {

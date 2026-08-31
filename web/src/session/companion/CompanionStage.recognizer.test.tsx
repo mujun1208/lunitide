@@ -282,6 +282,19 @@ test('shows 听 说 想 lights after a cloud entry', async () => {
   expect(utils.container.querySelector('[data-light="listen"]')?.textContent).toMatch(/系统识别/)
   expect(utils.container.querySelector('[data-light="speak"]')?.textContent).toMatch(/晓晓/)
   expect(utils.container.querySelector('[data-light="think"]')?.textContent).toMatch(/chat/)
+  const chrome = utils.container.querySelector('.companion-chrome')
+  expect(chrome?.contains(utils.container.querySelector('.companion-exit'))).toBe(true)
+  expect(chrome?.contains(utils.container.querySelector('.companion-interrupt'))).toBe(true)
+  expect(chrome?.contains(utils.container.querySelector('.companion-lights'))).toBe(true)
+  expect(
+    [...(chrome?.querySelectorAll('.companion-exit, .companion-interrupt, [data-light]') ?? [])].map(el =>
+      el.classList.contains('companion-exit')
+        ? 'exit'
+        : el.classList.contains('companion-interrupt')
+          ? 'interrupt'
+          : el.getAttribute('data-light'),
+    ),
+  ).toEqual(['exit', 'interrupt', 'listen', 'speak', 'think'])
   utils.unmount()
 })
 

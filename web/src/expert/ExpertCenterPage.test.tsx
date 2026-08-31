@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { ExpertBridge, ProjectBridge } from '../bridge/client'
+import type { ExpertBridge, ProjectBridge, SkillBridge } from '../bridge/client'
 import { ExpertCenterPage } from './ExpertCenterPage'
 
 afterEach(cleanup)
@@ -44,6 +44,16 @@ const projects: ProjectBridge = {
   create: vi.fn(), update: vi.fn(), publish: vi.fn(), close: vi.fn(), reopen: vi.fn(), advanceStatus: vi.fn(), delete: vi.fn(),
 }
 
+it('shows a persona card and opens an enabled expert', async () => {
+  const onOpenExpert = vi.fn()
+  render(<ExpertCenterPage bridge={expertApi()} projects={projects} onOpenExpert={onOpenExpert} />)
+  expect((await screen.findAllByText('安全工程师')).length).toBeGreaterThanOrEqual(1)
+  expect(screen.getByRole('region', { name: '专家名片' })).toBeInTheDocument()
+  expect(screen.getByText(/技能包 · 工程师 · 安全/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '打开专家' }))
+  expect(onOpenExpert).toHaveBeenCalledWith(expect.objectContaining({ expertId, name: '安全工程师' }))
+})
+
 it('lists installed experts in a skill-center table with a resizable detail pane', async () => {
   render(<ExpertCenterPage bridge={expertApi()} projects={projects} />)
   expect((await screen.findAllByText('安全工程师')).length).toBeGreaterThanOrEqual(1)
@@ -52,6 +62,9 @@ it('lists installed experts in a skill-center table with a resizable detail pane
   expect(screen.getByRole('separator', { name: '调整详情栏宽度' })).toBeInTheDocument()
   expect(screen.queryByText('九阶段挂载矩阵')).toBeNull()
   expect(await screen.findByText('安全岗位')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /技能包/ })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /独立智能体/ })).toBeInTheDocument()
+  expect(await screen.findByText('尚未挂技能，仅提示词。')).toBeInTheDocument()
   await waitFor(() => expect(screen.queryByRole('tab', { name: '专家市场' })).toBeNull())
 })
 
@@ -132,4 +145,33 @@ it('creates a scenario card from the detail pane', async () => {
     summary: '针对慢查询的索引与执行计划处置剧本',
     scenario: { steps: ['定位', '处置', '验收'] },
   })
+})
+
+it('saves expert skill bindings from the detail pane', async () => {
+  const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: ['slide-builder'] })
+  const skills = {
+    list: vi.fn().mockResolvedValue({
+      items: [{
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FA1',
+        name: 'tpl-slide-builder',
+        displayName: '演示文稿',
+        description: 'slides',
+        version: '1.0.0',
+        status: 'published',
+        permissions: ['read_write'],
+        entryPoint: 'builtin://slide-builder',
+        manifestJson: '{}',
+        category: 'writing',
+        categorySource: 'keyword',
+        createdAt: now,
+        updatedAt: now,
+      }],
+    }),
+  } as unknown as SkillBridge
+  render(<ExpertCenterPage bridge={expertApi({ skillsSet })} projects={projects} skills={skills} />)
+  expect(await screen.findByText('尚未挂技能，仅提示词。')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: /演示文稿/ }))
+  fireEvent.click(screen.getByRole('button', { name: '保存技能挂载' }))
+  await waitFor(() => expect(skillsSet).toHaveBeenCalled())
+  expect(skillsSet.mock.calls[0][0]).toMatchObject({ expertId, skillKeys: ['slide-builder'] })
 })

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { IdentityBridge, PeopleBridge } from '../bridge/client'
@@ -67,6 +67,7 @@ function bridges(decide = vi.fn()) {
 describe('PeoplePage', () => {
   afterEach(() => {
     cleanup()
+    localStorage.removeItem('lunitide:people-composer-height')
     vi.mocked(captureThisPcFrame).mockReset()
   })
   test('chat list shows last preview and unread without mixing the org tree', async () => {
@@ -76,6 +77,7 @@ describe('PeoplePage', () => {
     expect(screen.getByText('[文件] secret.txt')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.queryByText('月汐 · 设计')).not.toBeInTheDocument()
+    expect(screen.getByText(/智能体会按岗位做事/)).toBeInTheDocument()
   })
 
   test('contacts tree, file confirm, person-picker groups, and 我 share ProfilePanel', async () => {
@@ -251,6 +253,29 @@ describe('PeoplePage', () => {
     expect(captureThisPcFrame).toHaveBeenCalled()
     await invokeLastNativeCapture()
     expect(people.screenCapture).toHaveBeenCalledWith({ region: true })
+  })
+
+  test('composer height can be dragged up and down', async () => {
+    const { identity, people } = bridges()
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} />)
+    await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
+    const handle = await screen.findByRole('separator', { name: '调整输入框高度' })
+    const composer = (await screen.findByPlaceholderText(/粘贴图片/)).closest('form')
+    expect(composer).toBeTruthy()
+    expect((composer as HTMLElement).style.getPropertyValue('--people-composer-height')).toBe('96px')
+    act(() => {
+      const pointer = (target: EventTarget, type: string, clientY: number) => {
+        const event = new Event(type, { bubbles: true })
+        Object.defineProperties(event, { clientX: { value: 0 }, clientY: { value: clientY }, button: { value: 0 } })
+        target.dispatchEvent(event)
+      }
+      pointer(handle, 'pointerdown', 400)
+      pointer(window, 'pointermove', 300)
+      pointer(window, 'pointerup', 300)
+    })
+    expect((composer as HTMLElement).style.getPropertyValue('--people-composer-height')).toBe('196px')
+    expect(localStorage.getItem('lunitide:people-composer-height')).toBe('196')
   })
 
   test('emoji picker inserts into the composer draft', async () => {

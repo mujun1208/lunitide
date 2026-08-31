@@ -32,11 +32,12 @@ func handleExpertCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 			DeliverableTemplate string `json:"deliverableTemplate"`
 			SuccessMetrics      string `json:"successMetrics"`
 		} `json:"sixSection"`
-		RequestID string `json:"requestId"`
-		Actor     string `json:"actor"`
+		RequestID string   `json:"requestId"`
+		Actor     string   `json:"actor"`
+		SkillKeys []string `json:"skillKeys"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Source != m8core.ExpertSourceLocal ||
-		len(p.RequestID) < 1 || len(p.RequestID) > 128 {
+		len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.SkillKeys) > 32 {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.create 参数无效", false)
 	}
 	if e.m8expert == nil {
@@ -54,11 +55,12 @@ func handleExpertCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 			DeliverableTemplate: p.SixSection.DeliverableTemplate,
 			SuccessMetrics:      p.SixSection.SuccessMetrics,
 		},
-		RequestID: p.RequestID, Actor: p.Actor,
+		RequestID: p.RequestID, Actor: p.Actor, SkillKeys: p.SkillKeys,
 	})
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
+	e.registerAgentContactForExpert(ctx, res.ExpertID, p.Frontmatter.Name, p.Frontmatter.Division, string(res.State))
 	return bridge.Success(r.ID, res)
 }
 
@@ -114,6 +116,9 @@ func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 	res, err := m8app.InstallAgencyAgent(ctx, e.m8expert, skills, p.ID)
 	if err != nil {
 		return m8ExpertFailure(r, err)
+	}
+	if item, ok := m8app.LookupCatalogItem(p.ID); ok && res.ExpertID != "" {
+		e.registerAgentContactForExpert(ctx, res.ExpertID, item.Name, item.Division, m8core.ExpertEnabled)
 	}
 	return bridge.Success(r.ID, res)
 }
@@ -273,6 +278,50 @@ func handleExpertMountingGet(e *Engine, ctx context.Context, r bridge.Request) b
 		return m8ExpertFailure(r, err)
 	}
 	return bridge.Success(r.ID, res)
+}
+
+func handleExpertSkillsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ExpertID string `json:"expertId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.skills.get 参数无效", false)
+	}
+	if e.m8expert == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+	}
+	keys, err := e.m8expert.ListBoundSkills(ctx, p.ExpertID)
+	if err != nil {
+		return m8ExpertFailure(r, err)
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return bridge.Success(r.ID, map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
+}
+
+func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ExpertID  string   `json:"expertId"`
+		SkillKeys []string `json:"skillKeys"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || p.SkillKeys == nil || len(p.SkillKeys) > 32 {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.skills.set 参数无效", false)
+	}
+	if e.m8expert == nil {
+		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+	}
+	if failure := requireIdempotency(r); failure != nil {
+		return *failure
+	}
+	keys, err := e.m8expert.ReplaceBoundSkills(ctx, p.ExpertID, p.SkillKeys)
+	if err != nil {
+		return m8ExpertFailure(r, err)
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return bridge.Success(r.ID, map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
 }
 
 // m8ExpertFailure maps the FR-19 error family onto the M8 code matrix

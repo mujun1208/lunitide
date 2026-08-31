@@ -37,6 +37,17 @@ func extractExpertRefNames(text string) []string {
 	return names
 }
 
+func (e *Engine) sessionMountedExpertIDs(ctx context.Context, sessionID string) []string {
+	if e == nil || sessionID == "" || e.sessionExperts == nil {
+		return nil
+	}
+	ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+	return ids
+}
+
 func (e *Engine) composeExpertNames(ctx context.Context, sessionID, turnText string) []string {
 	seen := map[string]bool{}
 	var names []string
@@ -45,12 +56,8 @@ func (e *Engine) composeExpertNames(ctx context.Context, sessionID, turnText str
 		if name == "" || seen[name] {
 			return
 		}
-		if _, ok := m8app.ConversationExpertByName(name); !ok {
-			if item, ok := m8app.ConversationExpertByID(name); ok {
-				name = item.Name
-			} else {
-				return
-			}
+		if item, ok := m8app.ConversationExpertByID(name); ok {
+			name = item.Name
 		}
 		seen[name] = true
 		names = append(names, name)
@@ -191,8 +198,11 @@ func filterLiveComposeMCP(ids []string) []string {
 	return out
 }
 
-func expertComposeHint(names []string, published []skill.Skill, connectedMcp []string) string {
+func expertComposeHint(names []string, published []skill.Skill, connectedMcp []string, preferred ...[]string) string {
 	skills, tools, mcp, fallbacks := m8app.ComposeForExpertNames(names)
+	if len(preferred) > 0 {
+		skills = preferred[0]
+	}
 	if len(skills) == 0 && len(tools) == 0 {
 		return ""
 	}
@@ -201,12 +211,13 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 		connected[strings.ToLower(strings.TrimSpace(id))] = true
 	}
 	var b strings.Builder
-	b.WriteString("\n\n[专家自动挂载]\n")
-	b.WriteString("本会话已为「")
+	b.WriteString("\n\n[专家装备]\n")
+	b.WriteString("[稳定身份] 你就是「")
 	b.WriteString(strings.Join(names, "、"))
-	b.WriteString("」自动挂载技能与工具，不必去技能中心找。匹配后立刻 skill.invoke（skillId 见技能目录）。\n")
+	b.WriteString("」。不要改口成月汐主编排。\n")
+	b.WriteString("[岗位装备] 由专家私下 skill.invoke，不是用户已在输入框点选的技能。\n")
 	if len(skills) > 0 {
-		b.WriteString("自动挂载技能：")
+		b.WriteString("可调用技能：")
 		parts := make([]string, 0, len(skills))
 		for _, id := range skills {
 			label := id
@@ -260,6 +271,7 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 		b.WriteByte('\n')
 	}
 	b.WriteString("官方 filesystem/fetch/memory/sequential-thinking MCP 月汐已用 workspace.* / web.fetch / 会话记忆 / todo.write 包住，不必再装一份。\n")
+	b.WriteString("[本轮任务] 只处理用户这一句，不要重开整份说明书。\n")
 	return b.String()
 }
 
@@ -268,12 +280,16 @@ func (e *Engine) expertComposeForTurn(ctx context.Context, sessionID, turnText s
 	if len(names) == 0 {
 		return nil, ""
 	}
-	preferred, _, _, _ = m8app.ComposeForExpertNames(names)
+	if e.m8expert != nil {
+		preferred = e.m8expert.ComposeSkillsForNames(ctx, names)
+	} else {
+		preferred, _, _, _ = m8app.ComposeForExpertNames(names)
+	}
 	var published []skill.Skill
 	if skillServiceAvailable(e.skills) {
 		if items, err := e.skills.List(ctx, skill.SkillStatusPublished); err == nil {
 			published = items
 		}
 	}
-	return preferred, expertComposeHint(names, published, e.connectedComposeMcpIDs())
+	return preferred, expertComposeHint(names, published, e.connectedComposeMcpIDs(), preferred)
 }

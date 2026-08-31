@@ -4,6 +4,7 @@ export type SettingsCategory =
   | 'profile'
   | 'providers'
   | 'voice'
+  | 'meetings'
   | 'personal'
   | 'security'
   | 'browser'
@@ -22,6 +23,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'profile', icon: '☺', label: '个人资料', labelEn: 'Profile', keywords: '昵称 头像 状态 部门 职位 组织 局域网 发现 配对 密码 名片 nickname' },
   { id: 'providers', icon: '◈', label: '模型与供应商', labelEn: 'Models & providers', keywords: '模型 API Key 供应商 BYOK endpoint 视觉 生图 生视频 OCR LLM models providers' },
   { id: 'voice', icon: '◉', label: '语音与麦克风', labelEn: 'Voice & microphone', keywords: '月伴 TTS ASR 朗读 麦克风 全双工 音色 云端 本地 晓晓 sherpa GPT-SoVITS 克隆 人生 唤醒 纠错 VAD 先应一声 语音插话 voice' },
+  { id: 'meetings', icon: '◎', label: '会议纪要', labelEn: 'Meeting notes', keywords: '会议 纪要 听写 转写 字幕 摘要 待办 系统 火山 本机 sherpa 模型 meeting minutes asr' },
   { id: 'personal', icon: '✧', label: '个人智能', labelEn: 'Personal intelligence', keywords: '记忆 偏好 专家 画像 memory' },
   { id: 'security', icon: '⛨', label: '安全与治理', labelEn: 'Security', keywords: '命令白名单 编码 技能 MCP 权限 审批 hooks 全盘' },
   { id: 'browser', icon: '⬟', label: '浏览器', labelEn: 'Browser', keywords: 'Playwright Chrome 探测 snapshot 浏览' },
@@ -35,7 +37,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
 
 export const SETTINGS_NAV_GROUPS: { label: string; labelEn: string; ids: SettingsCategory[] }[] = [
   { label: '界面', labelEn: 'Interface', ids: ['general', 'appearance', 'profile'] },
-  { label: '智能', labelEn: 'Intelligence', ids: ['providers', 'voice', 'personal'] },
+  { label: '智能', labelEn: 'Intelligence', ids: ['providers', 'voice', 'meetings', 'personal'] },
   { label: '能力', labelEn: 'Capabilities', ids: ['security', 'browser', 'computer', 'channels', 'subagents', 'collab'] },
   { label: '系统', labelEn: 'System', ids: ['diagnostics', 'about'] },
 ]

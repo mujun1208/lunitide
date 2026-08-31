@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, getProviderBridge, type MeetingsBridge } from '../bridge/client'
-import type { MeetingDTO, MeetingSegmentDTO, ModelDTO, ProviderDTO } from '../generated/bridge'
-import { llmReadyProviders, pickDefaultLLM, pickDefaultVoice } from '../provider/modelKind'
-import { loadMeetingSettings, saveMeetingSettings, type MeetingListen, type MeetingSettings } from './meetingSettings'
+import type { MeetingDTO, MeetingSegmentDTO, ProviderDTO } from '../generated/bridge'
+import { pickDefaultVoice } from '../provider/modelKind'
+import { loadMeetingSettings, MEETING_SETTINGS_EVENT, type MeetingSettings } from './meetingSettings'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
@@ -81,7 +81,9 @@ async function retryMeetingWrite<T>(op: () => Promise<T>): Promise<T> {
   throw last
 }
 
-export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: MeetingsBridge }): React.JSX.Element {
+const HISTORY_OPEN_KEY = 'lunitide:meeting-history-open'
+
+export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: { meetings?: MeetingsBridge; onOpenSettings?: () => void }): React.JSX.Element {
   const [items, setItems] = useState<MeetingDTO[]>([])
   const [current, setCurrent] = useState<MeetingDTO>()
   const [interim, setInterim] = useState('')
@@ -94,7 +96,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const [draftTranscript, setDraftTranscript] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<MeetingDTO>()
   const [prefs, setPrefs] = useState<MeetingSettings>(() => loadMeetingSettings())
-  const [llmChoices, setLlmChoices] = useState<Array<{ provider: ProviderDTO; model: ModelDTO }>>([])
+  const [historyOpen, setHistoryOpen] = useState(() => localStorage.getItem(HISTORY_OPEN_KEY) !== '0')
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
   const [listWidth, startListResize] = usePanelResize({
@@ -121,22 +123,14 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
   const currentIdRef = useRef('')
 
   useEffect(() => {
-    void getProviderBridge().list().then(listed => {
-      const ready = llmReadyProviders(listed.items)
-      const choices = ready.flatMap(provider => provider.models.map(model => ({ provider, model })))
-      setLlmChoices(choices)
-      setPrefs(current => {
-        if (current.modelId && choices.some(item => item.model.modelId === current.modelId)) return current
-        const picked = pickDefaultLLM(listed.items)
-        if (!picked) return current
-        return saveMeetingSettings({ ...current, modelId: picked.modelId })
-      })
-    }).catch(() => undefined)
+    const sync = () => setPrefs(loadMeetingSettings())
+    window.addEventListener('storage', sync)
+    window.addEventListener(MEETING_SETTINGS_EVENT, sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener(MEETING_SETTINGS_EVENT, sync)
+    }
   }, [])
-
-  const updatePrefs = (patch: Partial<MeetingSettings>) => {
-    setPrefs(current => saveMeetingSettings({ ...current, ...patch }))
-  }
 
   const refresh = useCallback(async () => {
     const listed = await meetings.list()
@@ -605,8 +599,31 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
     }
   }
 
+  const composeNew = () => {
+    if (current?.status === 'recording' || stopping) {
+      setNotice('先停止当前录制，才能开新纪要。')
+      return
+    }
+    currentIdRef.current = ''
+    setCurrent(undefined)
+    setDraftSummary('')
+    setDraftActions('')
+    setDraftTranscript('')
+    setInterim('')
+    setElapsed(0)
+    setNotice('')
+  }
+
+  const toggleHistory = () => {
+    setHistoryOpen(open => {
+      const next = !open
+      localStorage.setItem(HISTORY_OPEN_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
   const open = async (id: string) => {
-    if (busy || current?.status === 'recording') return
+    if (busy || current?.status === 'recording' || stopping) return
     try {
       adopt(honestNotes(await meetings.get({ meetingId: id })))
       setNotice('')
@@ -650,6 +667,7 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
       await meetings.delete({ meetingId: deleteTarget.meetingId })
       setItems(values => values.filter(item => item.meetingId !== deleteTarget.meetingId))
       if (current?.meetingId === deleteTarget.meetingId) {
+        currentIdRef.current = ''
         setCurrent(undefined)
         setDraftSummary('')
         setDraftActions('')
@@ -672,63 +690,52 @@ export function MeetingPage({ meetings = getMeetingsBridge() }: { meetings?: Mee
 
   return (
     <div className="meeting-shell" style={{ '--meeting-list-width': `${listWidth}px` } as React.CSSProperties}>
-      <aside className="meeting-list" aria-label="历史会议">
-        <header>
-          <h2>会议记录</h2>
-          <p>一点「开始录制」即收录麦克风与系统声音，一直录到你点停止。长会以本机录音为准。补转写只用本机识别，不跟听写里的系统/火山走。不区分说话人；逐字稿是一条时间流，多人时可能张冠李戴。不会共享给其他电脑。</p>
-        </header>
-        {items.length === 0 ? <p className="meeting-empty">还没有会议。点开始录制这一场。</p> : items.map(item => (
-          <div className="meeting-row" key={item.meetingId}>
-            <button
-              type="button"
-              className={current?.meetingId === item.meetingId ? 'on' : ''}
-              onClick={() => void open(item.meetingId)}
-            >
-              <b>{item.title}</b>
-              <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.status === 'recording' && item.meetingId === current?.meetingId ? elapsed : item.durationMs)} · {item.meetingId === current?.meetingId && stopping ? '整理中' : STATUS[item.status]}</small>
-            </button>
-            {item.status !== 'recording' && (
-              <button type="button" className="meeting-row-delete" aria-label={`删除 ${item.title}`} onClick={() => setDeleteTarget(item)}>删除</button>
-            )}
-          </div>
-        ))}
+      <aside className="meeting-list" aria-label="会议纪要">
+        <button type="button" className={`meeting-new ${current ? '' : 'on'}`} aria-pressed={!current} disabled={recording || stopping} onClick={composeNew}>＋ 新纪要</button>
+        <section className={`meeting-history ${historyOpen ? 'is-open' : 'is-closed'}`}>
+          <button type="button" className="meeting-history-heading" aria-expanded={historyOpen} aria-controls="meeting-history-list" onClick={toggleHistory}>
+            <span aria-hidden="true">›</span>历史纪要
+          </button>
+          {historyOpen && (
+            <div id="meeting-history-list" className="meeting-history-list">
+              {items.length === 0 ? <p className="meeting-empty">还没有历史纪要。点新纪要开始录制。</p> : items.map(item => (
+                <div className="meeting-row" key={item.meetingId}>
+                  <button
+                    type="button"
+                    className={current?.meetingId === item.meetingId ? 'on' : ''}
+                    onClick={() => void open(item.meetingId)}
+                  >
+                    <b>{item.title}</b>
+                    <small>{formatWhen(item.startedAt)} · {formatMeetingDuration(item.status === 'recording' && item.meetingId === current?.meetingId ? elapsed : item.durationMs)} · {item.meetingId === current?.meetingId && stopping ? '整理中' : STATUS[item.status]}</small>
+                  </button>
+                  {item.status !== 'recording' && (
+                    <button type="button" className="meeting-row-delete" aria-label={`删除 ${item.title}`} onClick={() => setDeleteTarget(item)}>删除</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </aside>
       <div className="panel-resizer split-resizer" role="separator" aria-label="调整会议列表宽度" aria-orientation="vertical" onPointerDown={startListResize} />
       <section className="meeting-main" aria-label="会议工作台">
         <header className="meeting-hero">
           <div>
             <h2>{current?.title || '新的会议'}</h2>
-            <p>开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束。{MEETING_CATCHUP_HINT} 再生成摘要、待办和逐字稿。</p>
+            <p>{current
+              ? `开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束。${MEETING_CATCHUP_HINT} 再生成摘要、待办和逐字稿。`
+              : '空白页。点开始录制这一场；听写引擎和纪要模型在设置里。'}</p>
           </div>
           <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording || stopping ? elapsed : current?.durationMs ?? 0)}</div>
         </header>
         <div className="meeting-rec">
           {recording
             ? <button type="button" className="meeting-stop" disabled={busy} onClick={() => void stop()}>停止</button>
-            : <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>}
-          <span>{recording ? audioSourceLabel(current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
-        </div>
-        <div className="meeting-prefs">
-          <fieldset disabled={recording || stopping || busy}>
-            <legend>听写</legend>
-            {(['cloud', 'volc', 'local'] as MeetingListen[]).map(value => (
-              <label key={value}>
-                <input type="radio" name="meeting-listen" checked={prefs.listen === value} onChange={() => updatePrefs({ listen: value })} />
-                {value === 'cloud' ? '系统' : value === 'volc' ? '火山' : '本机'}
-              </label>
-            ))}
-          </fieldset>
-          <label className="meeting-prefs-model">纪要模型
-            <select aria-label="纪要模型" value={prefs.modelId} onChange={e => updatePrefs({ modelId: e.target.value })} disabled={recording || stopping || busy}>
-              <option value="">自动（已启用的对话模型）</option>
-              {llmChoices.map(item => (
-                <option key={`${item.provider.id}:${item.model.modelId}`} value={item.model.modelId}>
-                  {item.model.displayName || item.model.modelId}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p>听写管实时字幕。纪要只管整理已经转写出的字。停止后的补转写只用本机，换纪要模型不会让乱码变准。</p>
+            : !current || stopping
+              ? <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>
+              : <button type="button" className="meeting-new-inline" onClick={composeNew}>新纪要</button>}
+          <span>{recording ? audioSourceLabel(current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
+          {onOpenSettings && <button type="button" className="meeting-settings-link" onClick={onOpenSettings}>听写与纪要设置</button>}
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">

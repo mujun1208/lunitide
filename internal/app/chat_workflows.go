@@ -32,9 +32,9 @@ const workflowHtmlClause = "- 桌面 HTML 小游戏、计时器或清单：必�
 
 const workflowDesktopHandClause = "- 桌面手（按意图选一把，不要四套里轮流赌）：未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」。\n"
 
-const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open，只打开文件名最匹配用户所说名字的那一个（协议/协议文档 → 桌面上的那个文件）。语音把「打开」听成「把开」时同样执行。禁止把桌面上其它无关文件一起打开。网易云音乐走 cloudmusic.exe，汽水音乐走 sodamusic.exe / Soda Music，都从开始菜单或本机安装路径解析，不要打开网页版。\n"
+const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open，name=用户原话里的文件名。只打开最匹配的那一个。用户只说「打开文档」时列出桌面候选，不要默认打开协议。语音把「打开」听成「把开」时同样执行。禁止把桌面上其它无关文件一起打开。网易云音乐走 cloudmusic.exe，汽水音乐走 sodamusic.exe / Soda Music，都从开始菜单或本机安装路径解析，不要打开网页版。\n"
 
-const workflowDesktopTypeClause = "- 在已打开的 Word/文档/对话框里填写：desktop.type（after=文档里真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。写完不要关窗口。再打开刚才的文档继续用 desktop.open。找不到字段必须对用户说无法执行和原因。\n"
+const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
 const workflowMediaClause = "- 播放音乐/视频：打开桌面播放器后用 media.play target=foreground（没说歌名或要随机播放时 query=热门；说了歌手如周杰伦则 query=周杰伦）。未运行则 desktop.open 启动后再 foreground 搜索播放。禁止点「我喜欢的音乐」「收藏」。成功以正在播放为准，不要只启动进程。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 	"- 暂停/下一首：media.play action=pause|next|prev。\n"

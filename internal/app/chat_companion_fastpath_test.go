@@ -231,6 +231,12 @@ func TestCompanionToolLeadIn(t *testing.T) {
 	if got := companionToolLeadIn("desktop.type"); got != "好，我来输入。" {
 		t.Fatalf("got %q", got)
 	}
+	if got := companionToolResultSpeech("desktop.type", `typed "204040" after "证件号码"`); got != "已经写入了 204040。" {
+		t.Fatalf("result %q", got)
+	}
+	if got := companionToolResultSpeech("desktop.open", "无法执行：桌面上有多份匹配"); !strings.Contains(got, "无法执行") {
+		t.Fatalf("fail %q", got)
+	}
 }
 
 func TestAdapterCacheReusesProductionConnector(t *testing.T) {

@@ -128,7 +128,7 @@ func expertManagerManifest() map[string]any {
 	body := stripYAMLFrontmatter(string(expertManagerSkillMD))
 	lunitide := "\n\n--- Lunitide 集成 ---\n" +
 		"完成六段式岗位说明书后，调用 expert.create（source=local，frontmatter + sixSection，requestId=新 UUID）。\n" +
-		"不要用 skill.create。expert.create 成功后必须立刻用中文明确告诉用户：已创建「名称」，请到专家中心挂载到项目步骤。然后继续用户还没做完的工作。\n" +
+		"不要用 skill.create。expert.create 可带 skillKeys 把已发布技能挂到这位专家（不要钉对话输入框）。成功后必须立刻用中文明确告诉用户：已创建「名称」，请到专家中心确认挂载技能，需要时再挂到项目步骤。然后继续用户还没做完的工作。\n" +
 		"失败时用中文说明原因，不要沉默结束。"
 	prompt := strings.TrimSpace(body) + lunitide
 	if len(prompt) > 60000 {
@@ -237,7 +237,7 @@ func antiAIProseManifest() map[string]any {
 		"triggers": []string{"去AI味", "humanizer", "润色", "翻译腔", "anti-vibe"},
 		"prompt": "你是去AI味技能（改编自 anti-vibe-writing MIT、human-readable-reports MIT 的「先结论」、以及中文 AI 痕迹规则 CC-BY-4.0，署名 Wechat-ggGitHub/chinese-ai-humanizer）。\n" +
 			"结构优先：每节第一句先给结论。删赋能/打通/闭环/抓手/链路；拆掉首先/其次/最后空骨架；改翻译腔；少用不是…而是…、——、英文逗号。\n" +
-			"数字、命令、专名原样。引号用中文“ ”。不要把规则全书倾倒给用户，直接改文。报告走 docx.gen kind=report；小说走 kind=novel。",
+			"终检再跑质量体检表：AI味 / 编号 / 引号 / 空话 / 术语，只改命中项。数字、命令、专名原样。引号用中文“ ”。不要把规则全书倾倒给用户，直接改文。报告走 docx.gen kind=report；小说走 kind=novel。",
 	}
 }
 
@@ -264,8 +264,8 @@ func hardwareBOMManifest() map[string]any {
 	return map[string]any{
 		"triggers": []string{"BOM", "硬件选型", "容量", "SKU", "服务器配置", "GPU 显存"},
 		"prompt": "你是硬件 BOM 技能（改编自 it-infrastructure-equipment-selection MIT 与 LLM-Capacity-Planner MIT 的容量心态，不搬源码）。\n" +
-			"先工作负载（QPS/并发/数据量/HA/IOPS/本地模型 GPU），再 2–4 档短名单，再 excel.gen 出 BOM。\n" +
-			"现价必须 web.search，标待确认。禁止电气 DIY。月汐本机才谈 WebView2/ASR/TTS GPU。",
+			"Mandatory 门闸先于价格。企业 ERP/MES/WMS 与月汐本机 Windows 分开做。先工作负载（QPS/并发/数据量/HA/IOPS/本地模型 GPU），再最小架构，再 2–4 档短名单，再 excel.gen 出 BOM。\n" +
+			"本地模型显存粗算：权重 + KV×上下文×并发 + 运行时开销。现价必须 web.search，标待确认。禁止电气 DIY。月汐本机才谈 WebView2/ASR/TTS GPU。",
 	}
 }
 
@@ -273,7 +273,7 @@ func fictionContinuityManifest() map[string]any {
 	return map[string]any{
 		"triggers": []string{"连续性", "人设", "伏笔", "故事圣经", "人物卡", "continuity"},
 		"prompt": "你是小说连续性技能（改编自 ArcVellum MIT 与 fiction-forge 的故事圣经心态：长篇必须记得自己，禁止搬 MCP/扫描器源码）。\n" +
-			"维护人物卡（欲望/恐惧/秘密/说话方式）与已对读者做过的承诺。新细节标「暂定」，禁止无声改写人设或世界规则。\n" +
+			"维护作品账本：Canon 规则、人物卡（欲望/恐惧/秘密/说话方式）、读者承诺、场景功能。正式章与候选稿必须分开：审查通过才晋升。新细节标「暂定」，禁止无声改写人设或世界规则。\n" +
 			"分章正文用 docx.gen kind=novel；一章过长就分次调用。去AI味配合 anti-ai-prose。不写未成年人的性内容。",
 	}
 }
@@ -419,7 +419,7 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://excel-analyst",
 		Manifest: map[string]any{
 			"triggers": []string{"分析表格", "excel 分析", "数据汇总", "xlsx"},
-			"prompt":   "你是表格分析助手。先用 excel.parse 读取用户指定的工作区表格，再做统计与趋势分析；结论用条目列出，必要时用 excel.gen 输出带图表的结果文件。",
+			"prompt":   "你是表格分析助手。先用 excel.parse 读取用户指定的工作区表格，再做统计与趋势分析；结论用条目列出。需要回写时 excel.gen：合计列用 = 公式，有表头时冻结首行，不要手写汇总数。",
 		},
 	},
 	{
@@ -440,7 +440,7 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://slide-builder",
 		Manifest: map[string]any{
 			"triggers": []string{"做 ppt", "演示文稿", "幻灯片", "pptx"},
-			"prompt":   "你是演示文稿助手。按九步做：思考受众→定义结构（mermaid）→写每页要点→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 pptx.gen。每页一句标题+3-5 条要点，禁止空页或只有深色底没有文字。",
+			"prompt":   "你是演示文稿助手。先锁定听众、文类、语气、密度、是否封面/目录。按九步做：思考受众→定义结构（mermaid）→写每页要点与演讲备注→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 pptx.gen。大纲须确认后再生成。每页一句主张标题+3-5 条要点+slides[].notes 演讲备注，禁止空页或只有深色底没有文字。",
 		},
 	},
 	{
@@ -502,6 +502,16 @@ var catalogTemplates = []CatalogTemplate{
 		Manifest: map[string]any{
 			"triggers": []string{"补测试", "写单测", "unit test", "回归测试"},
 			"prompt":   "你是测试助手。先读现有测试风格，再 workspace.edit/write 补测试；用 command.run 跑白名单测试命令，失败则修到绿。",
+		},
+	},
+	{
+		ID: "find-bug", Name: "tpl-find-bug", DisplayName: "找缺陷",
+		Description: "对账 API/UI/DB，断言业务规则而不是按钮；默认只测不修。",
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://find-bug",
+		Manifest: map[string]any{
+			"triggers": []string{"找 bug", "找缺陷", "对账", "find-bug"},
+			"prompt":   "你是找缺陷助手。能跑 ≠ 业务正确。人审计划后再跑。对账接口、界面与数据。七类探针：一致性/台账、隔离/越权、状态机、信任边界、前后端守卫是否一致、对抗面、UI 五类动作。断言计数、权限、状态机、幂等，不要只断言按钮或 HTTP 200。报告强制含「已验证正确项」。默认只报告不改代码。",
 		},
 	},
 	{
@@ -771,7 +781,7 @@ var catalogTemplates = []CatalogTemplate{
 		Description: "按工作负载出 SKU 短名单与 BOM 表，价格必须检索，禁止电气 DIY。",
 		Category:    "研发效能", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
-		EntryPoint:  "builtin://hardware-bom", Compose: true, Source: "capacity-planner skills",
+		EntryPoint:  "builtin://hardware-bom", Compose: true, Source: "workload + LLM-Capacity-Planner mindset",
 		Manifest: hardwareBOMManifest(),
 	},
 	{
@@ -888,8 +898,24 @@ func (s *Service) publishCatalogTemplate(ctx context.Context, tpl CatalogTemplat
 	return true, nil
 }
 
+func (s *Service) refreshCatalogTemplate(ctx context.Context, tpl CatalogTemplate) (bool, error) {
+	existing, err := s.GetByNameVersion(ctx, tpl.Name, tpl.Version)
+	if err != nil || existing == nil {
+		return false, nil
+	}
+	want := manifestFor(tpl)
+	if existing.ManifestJSON == want && existing.Description == tpl.Description && existing.DisplayName == tpl.DisplayName && existing.EntryPoint == tpl.EntryPoint {
+		return false, nil
+	}
+	_, err = s.UpdateFields(ctx, existing.ID, &tpl.DisplayName, &tpl.Description, &tpl.EntryPoint, &want, tpl.Permissions, existing.MinEngineVersion, 0)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // EnsureComposeSkills installs and publishes templates that conversation
-// specialists auto-attach (preferredSkills + Compose flag) so 选专家
+// specialists can skill.invoke (preferredSkills factory kit) so 选专家
 // does not require hunting Skill Center.
 func (s *Service) EnsureComposeSkills(ctx context.Context) (int, error) {
 	if s == nil || s.write == nil {
@@ -906,6 +932,9 @@ func (s *Service) EnsureComposeSkills(ctx context.Context) (int, error) {
 			continue
 		}
 		if ok {
+			published++
+		}
+		if refreshed, rerr := s.refreshCatalogTemplate(ctx, tpl); rerr == nil && refreshed {
 			published++
 		}
 	}

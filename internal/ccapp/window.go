@@ -23,13 +23,14 @@ type WindowInfo struct {
 // cc.mouse_click). Huge trees are never dumped: the host already filtered
 // to actionable controls with a hard cap. Unnamed nodes keep a role label.
 type UINode struct {
-	ID   string `json:"id"`
-	Role string `json:"role"`
-	Name string `json:"name"`
-	X    int    `json:"x"`
-	Y    int    `json:"y"`
-	W    int    `json:"w"`
-	H    int    `json:"h"`
+	ID    string `json:"id"`
+	Role  string `json:"role"`
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	W     int    `json:"w"`
+	H     int    `json:"h"`
 }
 
 type uiHit struct {

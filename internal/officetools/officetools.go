@@ -97,13 +97,21 @@ func GenXLSX(sheets []SheetSpec) ([]byte, error) {
 			if err := f.SetSheetRow(name, "A1", &s.Headers); err != nil {
 				return nil, err
 			}
+			if err := f.SetPanes(name, &excelize.Panes{
+				Freeze:      true,
+				YSplit:      1,
+				TopLeftCell: "A2",
+				ActivePane:  "bottomLeft",
+			}); err != nil {
+				return nil, err
+			}
 		}
 		for ri, row := range s.Rows {
 			if len(row) == 0 {
 				continue
 			}
-			cell, _ := excelize.CoordinatesToCellName(1, ri+boolToInt(len(s.Headers) > 0)+1)
-			if err := f.SetSheetRow(name, cell, &row); err != nil {
+			rowIdx := ri + boolToInt(len(s.Headers) > 0) + 1
+			if err := writeSheetCells(f, name, rowIdx, row); err != nil {
 				return nil, err
 			}
 		}
@@ -118,6 +126,37 @@ func GenXLSX(sheets []SheetSpec) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func writeSheetCells(f *excelize.File, sheet string, rowIdx int, row []interface{}) error {
+	for i, value := range row {
+		cell, err := excelize.CoordinatesToCellName(i+1, rowIdx)
+		if err != nil {
+			return err
+		}
+		if formula, ok := excelFormula(value); ok {
+			if err := f.SetCellFormula(sheet, cell, formula); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := f.SetCellValue(sheet, cell, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func excelFormula(value interface{}) (string, bool) {
+	s, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "=") || len(s) < 2 {
+		return "", false
+	}
+	return s, true
 }
 
 func addChart(f *excelize.File, sheet string, s SheetSpec, hasHeaders bool) error {
@@ -285,6 +324,7 @@ type SlideSpec struct {
 	Subtitle string   `json:"subtitle,omitempty"`
 	Bullets  []string `json:"bullets"`
 	Layout   string   `json:"layout,omitempty"`
+	Notes    string   `json:"notes,omitempty"`
 }
 
 // GenPptx writes a minimal-but-valid PowerPoint deck (OOXML zip:
@@ -297,7 +337,7 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		return nil, err
 	}
 	parts := []zipPart{
-		{"[Content_Types].xml", contentTypesPptx(len(slides))},
+		{"[Content_Types].xml", contentTypesPptx(len(slides), noteSlideIndexes(slides)...)},
 		{"_rels/.rels", relsPptx},
 		{"ppt/presentation.xml", presentationXML(len(slides))},
 		{"ppt/_rels/presentation.xml.rels", presentationRels(len(slides))},
@@ -314,7 +354,15 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		name := fmt.Sprintf("ppt/slides/slide%d.xml", i+1)
 		parts = append(parts, zipPart{name, slideXML(i, len(slides), title, s)})
 		rels := xmlDecl + `
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`
+		if strings.TrimSpace(s.Notes) != "" {
+			rels += fmt.Sprintf(`<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide%d.xml"/>`, i+1)
+			parts = append(parts,
+				zipPart{fmt.Sprintf("ppt/notesSlides/notesSlide%d.xml", i+1), notesSlideXML(s.Notes)},
+				zipPart{fmt.Sprintf("ppt/notesSlides/_rels/notesSlide%d.xml.rels", i+1), notesSlideRels(i + 1)},
+			)
+		}
+		rels += `</Relationships>`
 		parts = append(parts, zipPart{path.Dir(name) + "/_rels/" + path.Base(name) + ".rels", rels})
 	}
 	// Deck title lands in the presentation properties (core.xml).

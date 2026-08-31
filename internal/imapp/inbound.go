@@ -120,10 +120,14 @@ func validateInboundFields(kind Kind, enabled bool, allowlist, appID, appSecret 
 	if utf8.RuneCountInString(appSecret) > MaxAppSecretRunes {
 		return fmt.Errorf("imapp: app secret too long")
 	}
-	if enabled && len(ParseAllowlist(allowlist)) == 0 {
+	if enabled && len(ParseAllowlist(allowlist)) == 0 && strings.TrimSpace(appID) == "" && strings.TrimSpace(appSecret) == "" {
 		return ErrInboundAllowlist
 	}
 	return nil
+}
+
+func InboundShouldAutoRun(ch Channel) bool {
+	return ch.InboundEnabled && ch.InboundAutoRun && len(ParseAllowlist(ch.InboundAllowlist)) > 0
 }
 
 func AdmitInbound(ch Channel, sender, text string) error {
@@ -136,6 +140,12 @@ func AdmitInbound(ch Channel, sender, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > MaxInboundTextRunes {
 		return errors.New("imapp: empty inbound text")
+	}
+	if len(ParseAllowlist(ch.InboundAllowlist)) == 0 {
+		if strings.TrimSpace(sender) == "" {
+			return ErrInboundDenied
+		}
+		return nil
 	}
 	if !SenderAllowed(ch.InboundAllowlist, sender) {
 		return ErrInboundDenied

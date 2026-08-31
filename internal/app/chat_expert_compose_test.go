@@ -32,6 +32,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		catalogTestSkill("tpl-test-writer", "测试补全。", `{}`),
 		catalogTestSkill("tpl-e2e-browser", "E2E。", `{}`),
 		catalogTestSkill("browser-automation", "浏览器自动化。", `{}`),
+		catalogTestSkill("tpl-find-bug", "找缺陷。", `{}`),
 		catalogTestSkill("tpl-hardware-bom", "硬件 BOM。", `{}`),
 		catalogTestSkill("tpl-implement", "驱动实现。", `{}`),
 		catalogTestSkill("tpl-tdd-loop", "TDD。", `{}`),
@@ -48,7 +49,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"数据库设计专家":     {"tpl-mermaid-diagrams", "tpl-pm-phase-3"},
 		"系统项目结构规范专家": {"tpl-knowledge-index", "tpl-mermaid-diagrams"},
 		"开发规范专家":      {"tpl-code-reviewer", "tpl-grill-me"},
-		"系统测试专家":      {"tpl-test-writer", "tpl-e2e-browser", "browser-automation"},
+		"系统测试专家":      {"tpl-test-writer", "tpl-e2e-browser", "browser-automation", "tpl-find-bug"},
 		"硬件配置专家":      {"tpl-web-researcher", "tpl-hardware-bom"},
 		"开发专家":        {"tpl-implement", "tpl-tdd-loop", "tpl-debugger"},
 	}
@@ -57,7 +58,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"报告编写专家":      "docx.gen",
 		"小说编写专家":      "docx.gen",
 		"Excel表格制作专家": "excel.gen",
-		"UI专家":         "html.gen",
+		"UI专家":         "workspace.write",
 		"产品经理专家":      "web.search",
 		"系统架构师专家":     "workspace.read",
 		"数据库设计专家":     "skill.invoke",
@@ -72,7 +73,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 	}
 	for _, item := range m8app.ConversationExperts() {
 		hint := expertComposeHint([]string{item.Name}, published, nil)
-		if !strings.Contains(hint, "[专家自动挂载]") || !strings.Contains(hint, item.Name) {
+		if !strings.Contains(hint, "[专家装备]") || !strings.Contains(hint, "[稳定身份]") || !strings.Contains(hint, "[本轮任务]") || !strings.Contains(hint, item.Name) || strings.Contains(hint, "已自动挂载") {
 			t.Fatalf("%s compose hint missing header:\n%s", item.Name, hint)
 		}
 		for _, name := range wantSkill[item.Name] {

@@ -38,6 +38,7 @@ type chatMemoryRequest struct {
 	Query     string
 	SessionID string
 	Companion bool
+	ExpertIDs []string
 }
 
 // chatMemoryPack is the fused inject payload for one chat.start.
@@ -135,6 +136,7 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 	if err != nil {
 		log.Printf("chat memory: working-layer list skipped: %v", err)
 	} else {
+		working = preferExpertOwnedMemories(working, req.ExpertIDs)
 		pack.TaskState = clipMemorySources(workingToSources(working, req.SessionID), workingInjectMaxItems, workingInjectMaxBytes)
 	}
 
@@ -147,6 +149,7 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) c
 		return pack
 	}
 
+	hits = preferExpertOwnedMemories(hits, req.ExpertIDs)
 	pinnedUsed := sourcesBytes(pack.Pinned)
 	var evidence []contextapp.ContextSource
 	evidenceUsed := 0
@@ -263,6 +266,32 @@ func applyChatMemoryPack(env *contextapp.ContextEnvelope, pack chatMemoryPack) {
 	if len(pack.Evidence) > 0 {
 		env.RelatedEvidence = append(env.RelatedEvidence, pack.Evidence...)
 	}
+}
+
+func preferExpertOwnedMemories(items []memory.Memory, expertIDs []string) []memory.Memory {
+	if len(items) == 0 || len(expertIDs) == 0 {
+		return items
+	}
+	owned, rest := make([]memory.Memory, 0, len(items)), make([]memory.Memory, 0, len(items))
+	for _, item := range items {
+		if memoryOwnedByExperts(item.Key, expertIDs) {
+			owned = append(owned, item)
+			continue
+		}
+		rest = append(rest, item)
+	}
+	return append(owned, rest...)
+}
+
+func memoryOwnedByExperts(key string, expertIDs []string) bool {
+	key = strings.TrimSpace(key)
+	for _, id := range expertIDs {
+		id = strings.TrimSpace(id)
+		if id != "" && strings.HasPrefix(key, "expert:"+id+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func workingToSources(items []memory.Memory, sessionID string) []contextapp.ContextSource {
@@ -398,5 +427,97 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 	if err != nil {
 		log.Printf("chat memory: auto-propose skipped: %v", err)
 	}
+	return err
+}
+
+func expertOwnedMemoryKey(expertID, kind string) string {
+	return "expert:" + strings.TrimSpace(expertID) + ":" + kind
+}
+
+func (e *Engine) resolveTurnExpertIDs(ctx context.Context, sessionID, turnText string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, id := range e.sessionMountedExpertIDs(ctx, sessionID) {
+		add(id)
+	}
+	if e.m8expert == nil {
+		return out
+	}
+	listed, err := e.m8expert.List(ctx, m8app.ExpertFilter{})
+	if err != nil {
+		return out
+	}
+	byName := map[string]string{}
+	for _, row := range listed.Experts {
+		byName[row.Name] = row.ExpertID
+	}
+	for _, name := range e.composeExpertNames(ctx, sessionID, turnText) {
+		add(byName[name])
+	}
+	return out
+}
+
+func (e *Engine) maybeWriteExpertTurnMemories(ctx context.Context, sessionID, userText, assistantText string) {
+	if e == nil || !memoryServiceAvailable(e.memories) || sessionID == "" {
+		return
+	}
+	settings := e.chatMemorySettings(ctx)
+	if !settings.MemoryEnabled {
+		return
+	}
+	userText = strings.TrimSpace(userText)
+	assistantText = strings.TrimSpace(assistantText)
+	if utf8.RuneCountInString(userText) < autoNominateMinUserRunes || utf8.RuneCountInString(assistantText) < autoNominateMinAsstRunes {
+		return
+	}
+	projectID := e.projectIDForSession(ctx, sessionID)
+	if projectID == "" {
+		return
+	}
+	ids := e.resolveTurnExpertIDs(ctx, sessionID, userText)
+	if len(ids) == 0 {
+		return
+	}
+	src, srcType := sessionID, "session"
+	content := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
+	for _, id := range ids {
+		key := expertOwnedMemoryKey(id, "last")
+		if err := e.upsertWorkingMemory(ctx, projectID, key, content, &src, &srcType); err != nil {
+			log.Printf("chat memory: expert %s write skipped: %v", id, err)
+		}
+	}
+}
+
+func (e *Engine) upsertWorkingMemory(ctx context.Context, projectID, key, content string, sourceID, sourceType *string) error {
+	if !memoryServiceAvailable(e.memories) {
+		return nil
+	}
+	items, err := e.memories.ListByProject(ctx, projectID, memory.LayerWorking)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.Key == key {
+			return e.memories.UpdateContent(ctx, item.ID, content)
+		}
+	}
+	_, err = e.memories.Create(ctx, memory.Memory{
+		ProjectID:  projectID,
+		Layer:      memory.LayerWorking,
+		Scope:      memory.ScopeProject,
+		Key:        key,
+		Content:    content,
+		SourceID:   sourceID,
+		SourceType: sourceType,
+		Confidence: 0.7,
+	})
 	return err
 }

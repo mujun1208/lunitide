@@ -360,3 +360,32 @@ func TestExpertMountingGetNinePhaseDefaults(t *testing.T) {
 		t.Fatalf("mountings = %+v", matrix.Matrix[0].Mountings)
 	}
 }
+
+func TestExpertCreateBindsSkillKeys(t *testing.T) {
+	store := openSliceStore(t)
+	svc := m8app.NewExpertService(store.AgentRuntimeRepository(), "local-user", &m8app.MemoryPersonaStore{})
+	svc.SetSkillStore(store)
+	res, err := svc.Create(context.Background(), m8app.CreateInput{
+		Source: m8core.ExpertSourceLocal, Frontmatter: fm("绑定专家"),
+		SixSection: sixBody("bind"), RequestID: "req-bind",
+		SkillKeys: []string{"slide-builder", "web-researcher"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.ListBoundSkills(context.Background(), res.ExpertID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "slide-builder" || got[1] != "web-researcher" {
+		t.Fatalf("bound = %#v", got)
+	}
+	detail, err := svc.Detail(context.Background(), m8app.DetailInput{ExpertID: res.ExpertID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, _ := detail.Expert["boundSkills"].([]string)
+	if len(bound) != 2 || bound[0] != "slide-builder" {
+		t.Fatalf("detail boundSkills = %#v", detail.Expert["boundSkills"])
+	}
+}

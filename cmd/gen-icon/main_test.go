@@ -42,6 +42,37 @@ func TestRenderMoonMarkHasGapAndCloudLine(t *testing.T) {
 	assertNoBlueCloudOnMoon(t, img)
 }
 
+func TestCloudStaysBelowMoon(t *testing.T) {
+	img := renderMoonMark(256)
+	x := 128
+	sawMoon, sawGap, sawCloud := false, false, false
+	for y := 0; y < 256; y++ {
+		c := img.RGBAAt(x, y)
+		if !sawMoon {
+			if c.A > 200 {
+				sawMoon = true
+			}
+			continue
+		}
+		if !sawGap {
+			if c.A <= 40 {
+				sawGap = true
+			}
+			continue
+		}
+		if c.A > 50 && c.R >= 200 {
+			sawCloud = true
+			if y < 256*62/100 {
+				t.Fatalf("cloud too close to moon at y=%d", y)
+			}
+			break
+		}
+	}
+	if !sawMoon || !sawGap || !sawCloud {
+		t.Fatalf("moon=%v gap=%v cloud=%v", sawMoon, sawGap, sawCloud)
+	}
+}
+
 func TestCloudLineVisibleAtDesktopSize(t *testing.T) {
 	img := renderMoonMark(32)
 	found := false

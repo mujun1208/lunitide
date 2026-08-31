@@ -51,25 +51,37 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		if item.Usage != m8app.CatalogUsageBoth {
 			t.Fatalf("%s usage = %q, want both (center + 对话)", item.ID, item.Usage)
 		}
+		if item.ResolvedKind() != m8app.ExpertKindAgent {
+			t.Fatalf("%s kind = %q, want agent", item.ID, item.ResolvedKind())
+		}
+		if strings.Contains(item.SixSection.Identity, "对话技能包") {
+			t.Fatalf("%s identity still calls itself a conversation skill pack", item.ID)
+		}
+		if !strings.Contains(item.SixSection.Identity, "独立智能体") {
+			t.Fatalf("%s identity must say 独立智能体", item.ID)
+		}
+		if strings.Contains(item.SixSection.Identity, "你是月汐的") {
+			t.Fatalf("%s identity must not call itself 月汐的", item.ID)
+		}
 		body := strings.Join([]string{
 			item.SixSection.Identity, item.SixSection.Mission, item.SixSection.Rules,
 			item.SixSection.Workflow, item.SixSection.DeliverableTemplate, item.SixSection.SuccessMetrics,
 		}, "\n")
 		switch item.ID {
 		case "ppt-expert":
-			for _, needle := range []string{"大纲", "演讲备注", "pptx.gen", "结构", "desktop=true", `A["封面<br/>副标题"]`, "收集素材", "web.search", "九步", "再思考"} {
+			for _, needle := range []string{"大纲", "演讲备注", "pptx.gen", "结构", "desktop=true", `A["封面<br/>副标题"]`, "收集素材", "web.search", "九步", "再思考", "文类", "slides[].notes"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("PPT专家 missing %q", needle)
 				}
 			}
 		case "report-writer":
-			for _, needle := range []string{"去AI味", "结构", "赋能", "首先/其次", "翻译腔", "docx.gen", "desktop=true", "流水线", "两轮", "完整章节", "特别简单", "封面"} {
+			for _, needle := range []string{"去AI味", "结构", "赋能", "首先/其次", "翻译腔", "docx.gen", "desktop=true", "流水线", "两轮", "完整章节", "特别简单", "封面", "使用说明书", "质量体检"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("报告编写专家 missing %q", needle)
 				}
 			}
 		case "novel-writer":
-			for _, needle := range []string{"去AI味", "人物", "场景", "虚构", "不是工作报告", "desktop=true", "docx.gen", "起承转合", "分章", "提纲", "kind=novel"} {
+			for _, needle := range []string{"去AI味", "人物", "场景", "虚构", "不是工作报告", "desktop=true", "docx.gen", "起承转合", "分章", "提纲", "kind=novel", "账本", "晋升"} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("小说编写专家 missing %q", needle)
 				}
@@ -163,7 +175,7 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 			for _, needle := range []string{
 				"金字塔", "风险优先", "E2E", "探索", "流量回放",
 				"能跑 ≠ 业务正确", "200 用例", "未授权抓包",
-				"FullScopeTest", "QuAIA", "Agentic QE", "find-bug", "GoReplay",
+				"FullScopeTest", "QuAIA", "Agentic QE", "find-bug", "GoReplay", "七类探针",
 				"系统架构师专家", "开发规范专家", "系统项目结构规范专家", "开发专家",
 				"API 测试员",
 			} {
@@ -179,7 +191,7 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 				"QPS", "并发用户", "IOPS", "BOM", "ERP", "MES", "WMS",
 				"GPU", "ASR", "TTS", "WebView2", "证据先行", "短名单", "电气",
 				"系统架构师专家", "上位机工程师", "capacity-planning",
-				"wanghao-io", "LLM-Capacity-Planner",
+				"wanghao-io", "LLM-Capacity-Planner", "仓不存在",
 			} {
 				if !strings.Contains(body, needle) {
 					t.Fatalf("硬件配置专家 missing %q", needle)
@@ -254,7 +266,7 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"db-expert":        {"mermaid-diagrams"},
 		"repo-expert":      {"knowledge-index", "mermaid-diagrams"},
 		"standards-expert": {"code-reviewer", "grill-me"},
-		"test-expert":      {"test-writer", "e2e-browser", "browser-automation"},
+		"test-expert":      {"test-writer", "e2e-browser", "browser-automation", "find-bug"},
 		"hardware-expert":  {"web-researcher", "hardware-bom"},
 		"dev-expert":       {"implement", "tdd-loop", "debugger", "code-reviewer"},
 	}
@@ -263,10 +275,10 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"report-writer":    {"web.search", "docx.gen", "skill.invoke"},
 		"novel-writer":     {"docx.gen", "skill.invoke"},
 		"excel-maker":      {"excel.gen", "excel.parse"},
-		"ui-designer":      {"html.gen", "skill.invoke"},
+		"ui-designer":      {"workspace.write", "skill.invoke"},
 		"pm-expert":        {"web.search", "skill.invoke"},
 		"architect-expert": {"skill.invoke", "workspace.read"},
-		"db-expert":        {"skill.invoke"},
+		"db-expert":        {"skill.invoke", "workspace.write"},
 		"repo-expert":      {"workspace.list", "workspace.read"},
 		"standards-expert": {"skill.invoke", "workspace.read"},
 		"test-expert":      {"skill.invoke", "browser.act"},
@@ -326,6 +338,33 @@ func TestEnsureBuiltinExpertsSeedsConversationRoster(t *testing.T) {
 	}
 	if err := m8app.EnsureBuiltinExperts(context.Background(), svc); err != nil {
 		t.Fatalf("idempotent seed: %v", err)
+	}
+}
+
+func TestEnsureBuiltinExpertsRefreshesStaleConversationBodies(t *testing.T) {
+	svc := openExpertService(t)
+	ctx := context.Background()
+	created := createExpert(t, svc, "PPT专家")
+	before, err := svc.Detail(ctx, m8app.DetailInput{ExpertID: created.ExpertID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(before.SixSection), "上台稿导演") {
+		t.Fatal("fixture already has catalog recipe")
+	}
+	if err := m8app.EnsureBuiltinExperts(ctx, svc); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.Detail(ctx, m8app.DetailInput{ExpertID: created.ExpertID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(after.SixSection)
+	if !strings.Contains(body, "上台稿导演") || !strings.Contains(body, "独立智能体") {
+		t.Fatalf("stale PPT专家 body not refreshed: %s", body)
+	}
+	if len(after.Versions) < 2 {
+		t.Fatal("refresh must append a new version")
 	}
 }
 

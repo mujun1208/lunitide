@@ -200,6 +200,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Query:     turnText,
 			SessionID: p.SessionID,
 			Companion: p.Companion,
+			ExpertIDs: e.sessionMountedExpertIDs(ctx, p.SessionID),
 		})
 	}()
 	prep.Add(1)
@@ -253,6 +254,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	subagentPolicy.ExpertWork = expertWork
 	if expertWork {
 		instruction += specialistRuntimeInstruction()
+		names := e.composeExpertNames(ctx, p.SessionID, turnText)
+		_, writeTools, _, _ := m8app.ComposeForExpertNames(names)
+		subagentPolicy.ExpertWriteTools = writeTools
 	}
 	if composeHint != "" {
 		instruction += composeHint
@@ -624,15 +628,15 @@ func companionPersonaInstruction() string {
 		"- 语气自然有人味儿：像闺蜜/老友聊天，不要机械复读「好的我明白了」\n" +
 		"- 不要原样复读用户刚说的话；听到问候就热情回一句，再等用户说正事\n" +
 		"- 禁止 Markdown、代码块、表格、列表、括号旁白\n" +
-		"- 禁止在完成电脑操作后说「我做完了」「我已经做完了」「任务已完成」；做完就用一句结果本身收尾，或直接停\n" +
+		"- 禁止在完成电脑操作后说「我做完了」「我已经做完了」「任务已完成」；做完必须用一句结果本身收尾，禁止沉默停住\n" +
 		"- 闲聊立刻回答，不要先调工具\n" +
 		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
 		"- 搜网页/查火车/查航班/查天气：必须 web.search，再用一两句把结果说出来（气温、阴晴），不要只说等一下就停\n" +
 		"- 打开页面：browser.act 或 command.run 用系统浏览器打开 URL（Windows argv：cmd /c start \"\" URL）\n" +
-		"- 打开桌面文件/软件：必须用 desktop.open（name=用户说的文件名或软件名，如 协议、协议文档、汽水音乐、网易云音乐）。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
+		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要用 command.run 猜路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」。做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
-		"- 在文档或对话框里填写：desktop.type（text=要写的内容，after=文档里真实的字段名如身份证号码或证件号码，window=文档或对话框标题，需要发送时 submit=true）。先 desktop.open 打开文件，再 desktop.type。写完不要关窗口，不要 cc.window_action op=close，不要点「关闭」。再打开刚才的文档继续用 desktop.open。找不到字段就报无法执行\n" +
+		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act screenshot 看清，记下 frameId，再 click 输入位置后 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发飞书/企微/钉钉/微信/QQ：设置里启用消息通道后用 im.send（channel=feishu|wecom|dingtalk|wechat|qq，text=内容，to=联系人可选）。飞书/企微/钉钉有 Webhook 就走机器人；微信/QQ 打开本机已登录客户端再输入。未启用就提示去设置 → 消息通道\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
 		"- 建文件夹/写文件：workspace.write 或 command.run\n" +
@@ -697,6 +701,53 @@ func companionToolLeadIn(toolName string) string {
 			return "好，我来操作电脑。"
 		}
 		return "好，我马上处理。"
+	}
+}
+
+func companionTypedText(out string) string {
+	const mark = `typed "`
+	i := strings.Index(out, mark)
+	if i < 0 {
+		return ""
+	}
+	rest := out[i+len(mark):]
+	j := strings.Index(rest, `"`)
+	if j <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:j])
+}
+
+func companionToolResultSpeech(name, out string) string {
+	out = strings.TrimSpace(out)
+	if i := strings.IndexAny(out, "\r\n"); i >= 0 {
+		out = strings.TrimSpace(out[:i])
+	}
+	if strings.Contains(out, "无法执行") {
+		if out != "" {
+			return out
+		}
+		return "无法执行。"
+	}
+	if strings.Contains(out, "multiple desktop files") || strings.Contains(out, "多份") {
+		return "桌面上有好几份文档，请说出完整文件名。"
+	}
+	switch name {
+	case "desktop.open":
+		return "已经打开了。"
+	case "desktop.type":
+		if text := companionTypedText(out); text != "" {
+			return "已经写入了 " + text + "。"
+		}
+		return "已经写入了。"
+	case "web.search", "web.fetch":
+		return "查到了。"
+	case "im.send":
+		return "已经发出去了。"
+	case "media.play":
+		return "已经在播了。"
+	default:
+		return "好，完成了。"
 	}
 }
 
@@ -1059,10 +1110,10 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 		{Name: "excel.gen", Description: "Generate an .xlsx workbook (headers, rows and an optional bar/col/line/pie chart over the first two columns) into the session workspace. Set desktop=true to write onto the real Desktop (filename in path is enough). Never build XLSX via Excel COM, Python, or command.run — that truncates the tool call and fails the turn. Keep sheets compact (monthly totals, not hundreds of daily rows).", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .xlsx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"sheets":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{}}},"chart":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["bar","col","line","pie"]},"title":{"type":"string"}}}},"required":["rows"]}}},"required":["path","sheets"],"additionalProperties":false}`)},
 		{Name: "excel.parse", Description: "Parse an .xlsx workbook from the session workspace and return sheet names, dimensions and a bounded cell preview as JSON", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "docx.gen", Description: "Generate a print-ready .docx (Chinese 宋体/黑体, Heading 1/2, body, optional quote/caption, 1.5 line spacing). Empty or unstyled single-style bodies are rejected. Reports: kind=report (cover + sections). Novels: kind=novel (title+author, chapter Heading 1, substantial prose — not an outline dump). Call only after the report/novel pipeline. Set desktop=true to write onto the real Desktop. Never build DOCX via Word COM or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .docx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"subtitle":{"type":"string"},"author":{"type":"string"},"kind":{"type":"string","enum":["report","novel","document"]},"blocks":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{"type":{"type":"string","enum":["heading","heading2","paragraph","bullet","quote","caption"]},"text":{"type":"string"},"level":{"type":"integer","minimum":1,"maximum":2}},"required":["text"]}}},"required":["path","title","blocks"],"additionalProperties":false}`)},
-		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Every slide needs a visible title; dark backgrounds must use light text. Empty or fill-only slides are rejected. Call this only after the PPT pipeline (outline, copy, two web research passes). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","minLength":1},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
+		{Name: "pptx.gen", Description: "Generate a widescreen business .pptx (navy/teal cover, section dividers, content slides with headers and bullets, Microsoft YaHei). Every slide needs a visible title; dark backgrounds must use light text. Empty or fill-only slides are rejected. Put speaker notes in slides[].notes. Call this only after the PPT pipeline (outline, copy, two web research passes). Write it into the session workspace. Set desktop=true to write onto the real Desktop. Never build PPTX via PowerPoint COM, ZipFile XML, or command.run.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pptx; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"slides":{"type":"array","minItems":1,"maxItems":30,"items":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","minLength":1},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["title","section","content"]},"bullets":{"type":"array","maxItems":12,"items":{"type":"string"}},"notes":{"type":"string","description":"speaker notes for this slide"}},"required":["title"]}}},"required":["path","title","slides"],"additionalProperties":false}`)},
 		{Name: "html.gen", Description: "Generate a built-in single-file HTML app (World Cup penalty shootout, countdown timer, or a local checklist). Use this for desktop mini-games, timers, and to-do pages. Never dump a full HTML page into workspace.write or command.run — that truncates the tool call and fails the turn. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output .html path; with desktop=true a relative name lands on the real Desktop"},"title":{"type":"string"},"template":{"type":"string","enum":["penalty-shootout","timer","checklist"]},"desktop":{"type":"boolean"}},"required":["template"],"additionalProperties":false}`)},
 		{Name: "desktop.open", Description: "Open exactly one Desktop file, folder, shortcut, or installed app whose name best matches the query (e.g. 协议 → 协议.docx, 汽水音乐 / 网易云音乐 → desktop shortcut, Start Menu, or known install path like cloudmusic.exe). Never open unrelated items. If several tie, return the list and open nothing.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200,"description":"filename or app name fragment the user said"}},"required":["name"],"additionalProperties":false}`)},
-		{Name: "desktop.type", Description: "Type into the focused desktop document or dialog. Use after= to find a label such as 身份证号码 or 证件号码 then type after it (Ctrl+F or a named UIA field). submit=true presses Enter and clicks 发送/确定. Pass window= to focus Word/the dialog first so keys do not hit 月伴. If the field cannot be found, this returns 无法执行 with the reason — do not pretend it succeeded.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"find this label (e.g. 身份证号码, 证件号码) then type after it"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
+		{Name: "desktop.type", Description: "Type into a named UIA edit or a visible labeled field. Use after= for the on-screen name such as 身份证号码. Do not use Ctrl+F: if no named edit or labeled field is visible this returns 无法执行 — then use computer.act (screenshot, frameId, click, type, verifyAfter). submit=true presses Enter and clicks 发送/确定. Pass window= to focus the dialog first so keys do not hit 月伴.", Schema: []byte(`{"type":"object","properties":{"text":{"type":"string","minLength":1,"maxLength":4096,"description":"literal text to type"},"after":{"type":"string","maxLength":200,"description":"visible field name (e.g. 身份证号码, 证件号码)"},"window":{"type":"string","maxLength":200,"description":"window title fragment to focus first"},"submit":{"type":"boolean","description":"press Enter / click 发送 after typing"}},"required":["text"],"additionalProperties":false}`)},
 		{Name: "media.play", Description: "Play, pause, or skip music/video on this machine. target=foreground launches/focuses the named desktop player if needed (网易云音乐=cloudmusic.exe), searches in that app, and plays; artist queries like 周杰伦 click a search result in the focused player. Never click 我喜欢的音乐 / 收藏. Prefer this over website search. target=browser opens a search URL only when the user asked for the web player. Full-access mode is enough; the full-disk switch is not required.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["play","open_and_play","open","pause","toggle","next","prev","stop"],"description":"default play"},"query":{"type":"string","description":"song or artist to search"},"url":{"type":"string","description":"direct http(s) music page"},"target":{"type":"string","enum":["auto","foreground","browser","netease","qqmusic"],"description":"foreground=desktop player on this PC; auto prefers session context"},"app":{"type":"string","description":"app name to focus when target=foreground"}},"additionalProperties":false}`)},
 		{Name: "im.send", Description: "Send a message on a configured IM channel (设置 → 消息通道). channel=feishu|wecom|dingtalk uses the pasted https webhook; channel=wechat|qq opens the logged-in desktop client. Pass to= for a contact name when using the desktop client. If the channel is off, tell the user to enable it in Settings.", Schema: []byte(`{"type":"object","properties":{"channel":{"type":"string","enum":["feishu","wecom","dingtalk","wechat","qq"]},"to":{"type":"string","maxLength":80,"description":"optional contact or group name"},"text":{"type":"string","minLength":1,"maxLength":4000}},"required":["channel","text"],"additionalProperties":false}`)},
 		{Name: "pdf.gen", Description: "Generate a .pdf report (title plus body paragraphs) into the session workspace. Latin text renders best; Chinese reports should use docx.gen. Set desktop=true to write onto the real Desktop.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string","description":"output path ending in .pdf; with desktop=true a relative name lands on the real Desktop"},"desktop":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"}},"required":["path","title","body"],"additionalProperties":false}`)},
@@ -1081,7 +1132,7 @@ func (e *Engine) expertToolDefinitions() []gateway.ToolDefinition {
 		return nil
 	}
 	return []gateway.ToolDefinition{
-		{Name: "expert.create", Description: "Create a six-section expert profile (name, division, description, and six-section body: identity, mission, rules, workflow, deliverableTemplate, successMetrics). The expert is immediately available for mounting to projects.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"Expert display name"},"division":{"type":"string","enum":["engineering","design","product","project-management","testing","security","operations","data"],"description":"Expert domain"},"description":{"type":"string","minLength":1,"maxLength":2000,"description":"Short description of the expert"},"semver":{"type":"string","description":"Semantic version like 1.0.0"},"identity":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert identity prompt section"},"mission":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert mission prompt section"},"rules":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert rules prompt section"},"workflow":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert workflow prompt section"},"deliverableTemplate":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert deliverable template prompt section"},"successMetrics":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert success metrics prompt section"}},"required":["name","division","description","semver","identity","mission","rules","workflow","deliverableTemplate","successMetrics"],"additionalProperties":false}`)},
+		{Name: "expert.create", Description: "Create a six-section expert profile (name, division, description, and six-section body: identity, mission, rules, workflow, deliverableTemplate, successMetrics). Optionally bind published skill catalog keys with skillKeys — skills hang on the expert, not the chat composer. After success, tell the user to confirm skills in Expert Center.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"Expert display name"},"division":{"type":"string","enum":["engineering","design","product","project-management","testing","security","operations","data"],"description":"Expert domain"},"description":{"type":"string","minLength":1,"maxLength":2000,"description":"Short description of the expert"},"semver":{"type":"string","description":"Semantic version like 1.0.0"},"identity":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert identity prompt section"},"mission":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert mission prompt section"},"rules":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert rules prompt section"},"workflow":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert workflow prompt section"},"deliverableTemplate":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert deliverable template prompt section"},"successMetrics":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert success metrics prompt section"},"skillKeys":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":64},"description":"Optional published skill catalog keys bound to this expert"}},"required":["name","division","description","semver","identity","mission","rules","workflow","deliverableTemplate","successMetrics"],"additionalProperties":false}`)},
 	}
 }
 
@@ -1312,8 +1363,9 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 		Mission             string `json:"mission"`
 		Rules               string `json:"rules"`
 		Workflow            string `json:"workflow"`
-		DeliverableTemplate string `json:"deliverableTemplate"`
-		SuccessMetrics      string `json:"successMetrics"`
+		DeliverableTemplate string   `json:"deliverableTemplate"`
+		SuccessMetrics      string   `json:"successMetrics"`
+		SkillKeys           []string `json:"skillKeys"`
 	}
 	if json.Unmarshal(jsonutil.Repair(args), &a) != nil {
 		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("expert.create", "arguments are not valid JSON"))
@@ -1337,6 +1389,7 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 			SuccessMetrics:      a.SuccessMetrics,
 		},
 		RequestID: ulid.Make().String(),
+		SkillKeys: a.SkillKeys,
 	})
 	if err != nil {
 		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("expert.create", err.Error()))
@@ -2092,6 +2145,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					req.Messages = append(req.Messages, msg, nudge)
 					continue
 				}
+				if continueKind == "" && state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) {
+					close := companionToolResultSpeech(lastToolName(turn.LastTools), lastToolOutput(req.Messages))
+					assistantText.WriteString(close)
+					if err := sendDeltaChunks(send, close); err != nil {
+						return err
+					}
+				}
 				note, texts := e.pullQueuedSupplements(op, sessionID)
 				if note != "" {
 					msg := result.Message
@@ -2647,7 +2707,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	if terminal.Type == bridge.EventCompleted && messageID != "" {
 		terminal.Completed = &bridge.CompletedEvent{MessageID: messageID}
 		go func() {
-			_ = e.maybeAutoNominateTurn(context.Background(), sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
+			bg := context.Background()
+			_ = e.maybeAutoNominateTurn(bg, sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
+			e.maybeWriteExpertTurnMemories(bg, sessionID, turn.Goal, assistantText.String())
 		}()
 	}
 	if terminal.Type == bridge.EventFailed {
@@ -2667,12 +2729,15 @@ func createTurnClosingNotice(tools []string, assistantText string) string {
 				return "技能已创建并写入技能中心。请到技能中心安装并发布。\n"
 			}
 			if name == "expert.create" {
-				return "专家已创建。请到专家中心把它挂载到项目步骤。\n"
+				return "专家已创建。请到专家中心确认挂载技能（技能挂在专家身上），需要时再挂到项目步骤。\n"
 			}
 			if name == "plugin.create" {
 				return "插件已创建。请到插件页查看安装状态。\n"
 			}
 		}
+	}
+	if complexTaskCanSaveAsSkill(tools) && !strings.Contains(assistantText, "技能草稿") {
+		return "这次任务已经落成文件。若要复用做法，可以到技能中心保存为技能草稿。\n"
 	}
 	if !hasActingComputerTool(tools) {
 		return ""
@@ -2681,6 +2746,19 @@ func createTurnClosingNotice(tools []string, assistantText string) string {
 		return ""
 	}
 	return ""
+}
+
+func complexTaskCanSaveAsSkill(tools []string) bool {
+	office, acted := false, false
+	for _, name := range tools {
+		switch name {
+		case "excel.gen", "docx.gen", "pptx.gen", "pdf.gen", "html.gen", "workspace.write":
+			office = true
+		case "skill.invoke", "web.search", "todo.write":
+			acted = true
+		}
+	}
+	return office && acted
 }
 
 func createTurnFailureNotice(tools []string, assistantText string) string {
@@ -2978,7 +3056,11 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(expertPersonaHeader(len(experts)))
+	if len(experts) == 1 {
+		b.WriteString(expertPersonaHeader(1, experts[0].name))
+	} else {
+		b.WriteString(expertPersonaHeader(len(experts)))
+	}
 	for _, item := range experts {
 		b.WriteString("\n【专家「")
 		b.WriteString(item.name)
@@ -2989,13 +3071,21 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _
 	return b.String()
 }
 
-func expertPersonaHeader(count int) string {
+func expertPersonaHeader(count int, names ...string) string {
 	caps := specialistPersonaCapabilityLine()
 	if count >= 2 {
 		return "\n\n你是月汐主编排（会议主席）。以下专家已常驻挂载到本会话，直到用户移除。请在思考/推理通道内部召开有界专家理事会：具名专家轮流发言，全场合计最多 5–6 轮（不是每位专家各 5–6 轮），再给出用户可见的一份综合结论。不要把每位专家的发言拆成多条助手消息，不要并行打满多路完整 completion。" +
 			caps + "协作包：\n"
 	}
-	return "\n\n你是月汐主编排。以下专家已常驻挂载到本会话，直到用户移除。请统筹他们的职责：按岗位约束作答；" +
+	name := ""
+	if len(names) > 0 {
+		name = strings.TrimSpace(names[0])
+	}
+	if name != "" {
+		return "\n\n你就是「" + name + "」。下面是你的岗位说明书。以这个身份作答，不要自称月汐主编排。" +
+			caps + "协作包：\n"
+	}
+	return "\n\n按已挂载专家的岗位说明书作答，不要自称月汐主编排。" +
 		caps + "不要并行打满多路完整 completion。协作包：\n"
 }
 

@@ -23,7 +23,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { cleanForSpeech, cleanUserTranscript, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolsExecuting, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -164,6 +164,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   chatStatusRef.current = chatStatus
   const activityStatusRef = useRef(activityStatus)
   activityStatusRef.current = activityStatus
+  const toolsRanThisTurnRef = useRef(false)
   const lastDeltaAtRef = useRef(0)
   const assistantTextRef = useRef(assistantText)
   assistantTextRef.current = assistantText
@@ -582,12 +583,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       }
       const speakable = ttsAvailable !== false && settings.autoSpeak
       const reply = stripTaskDonePhrases(assistantText.trim())
-      const completionLine = reply || stripTaskDonePhrases(activityStatus?.trim() || '')
-      if (!completionLine.trim()) {
-        machine.dispatch({ type: 'REPLY_TERMINAL' })
-        return
-      }
-      if (!reply) {
+      const leadInOnly = isCompanionLeadInOnly(assistantText.trim())
+      const toolsRan = toolsRanThisTurnRef.current
+      const activityLine = activityStatus?.trim() || ''
+      const activityResult = /中[….…]+$/.test(activityLine) ? '' : stripTaskDonePhrases(activityLine)
+      const completionLine = (!leadInOnly ? reply : '') || activityResult
+      const speakCloseout = () => {
         const spoken = companionTaskCompleteSpeech(completionLine)
         setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: spoken }))
         if (speakable) {
@@ -596,6 +597,21 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           return
         }
         machine.dispatch({ type: 'REPLY_TERMINAL' })
+      }
+      if (leadInOnly && toolsRan) {
+        speakCloseout()
+        return
+      }
+      if (!completionLine.trim()) {
+        if (toolsRan) {
+          speakCloseout()
+          return
+        }
+        machine.dispatch({ type: 'REPLY_TERMINAL' })
+        return
+      }
+      if (!reply) {
+        speakCloseout()
         return
       }
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
@@ -777,12 +793,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
   // 说话中 so a desktop task is never silent idle-chat.
   useEffect(() => {
     if (!companionToolsExecuting(chatStatus, activityStatus)) return
+    toolsRanThisTurnRef.current = true
     if (userInterruptedRef.current) return
     const line = activityStatus?.trim()
     if (!line) return
-    // Once tokens land, the stream owns the subtitle — a tool-status prefix
-    // used to poison accumulateSpeakableCaption and replay the whole reply.
-    if (assistantText.trim()) return
+    // A host lead-in is not the result. Keep 执行中 audible on top of it.
+    if (assistantText.trim() && !isCompanionLeadInOnly(assistantText)) return
     setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: line }))
     const spoken = companionExecutingSpeech(line)
     if (spoken === lastActivitySpokenRef.current) return
@@ -813,6 +829,36 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       },
     })
   }, [activityStatus, assistantText, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback])
+
+  useEffect(() => {
+    if (!companionToolsExecuting(chatStatus, activityStatus)) return
+    if (userInterruptedRef.current) return
+    const timer = window.setTimeout(() => {
+      if (userInterruptedRef.current) return
+      if (!companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)) return
+      const spoken = '还在处理。'
+      if (lastActivitySpokenRef.current === spoken) return
+      lastActivitySpokenRef.current = spoken
+      if (ttsAvailable === false || !settings.autoSpeak) return
+      const player = ensurePlayer()
+      const voiceId = activeVoiceId()
+      player.configure(voiceId, settings.rate, settings.volume, settings)
+      speakingRef.current = true
+      setAssistantAloud(true)
+      syncSpeechModesRef.current()
+      player.enqueue([spoken], { ...settings, voiceId }, {
+        onEngineFallback: handleEngineFallback,
+        onGain: value => setGain(speakingGain(value)),
+        onFinished: () => {
+          setGain(0)
+          speakingRef.current = false
+          setAssistantAloud(false)
+          syncSpeechModesRef.current()
+        },
+      })
+    }, 2000)
+    return () => window.clearTimeout(timer)
+  }, [activityStatus, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback, ensurePlayer, activeVoiceId])
 
   const speakChunk = useCallback(
     (text: string) => {
@@ -1068,6 +1114,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
       setAssistantAloud(false)
       streamCaptionRef.current = ''
       lastActivitySpokenRef.current = ''
+      toolsRanThisTurnRef.current = false
       setStreamTick(0)
       setInterimText('')
       setLocalError(undefined)
@@ -1820,7 +1867,6 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           朗读挂了，听写还在。可以看字幕。
         </div>
       )}
-      <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       <MoonSphere
         state={surfaceState}
         gain={gain}
@@ -1934,6 +1980,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, erro
           {zh ? '打断' : 'Interrupt'}
           <span className="companion-interrupt-key">{formatInterruptHotkey(settings.interruptHotkey)}</span>
         </button>
+        <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       </div>
     </div>
   )

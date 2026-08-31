@@ -18,31 +18,31 @@ const seeded: ImChannelsGetResult = {
 describe('ChannelsPanel', () => {
   afterEach(() => cleanup())
 
-  test('lists five channels and saves a Feishu webhook', async () => {
+  test('detects a Feishu webhook and enables with a test send', async () => {
     const user = userEvent.setup()
     const set = vi.fn(async (p: ImChannelsSetPayload): Promise<ImChannelsGetResult> => ({
       channels: seeded.channels.map(ch => ch.kind === p.kind ? {
         ...ch,
         enabled: p.enabled ?? true,
         webhookUrl: p.webhookUrl ?? ch.webhookUrl,
-        mode: p.kind === 'feishu' ? 'webhook' : 'desktop',
+        mode: 'webhook',
       } : ch),
     }))
     render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(seeded), set, deliver: vi.fn() }} />)
     expect(await screen.findByText('飞书')).toBeInTheDocument()
     expect(screen.getByText('微信')).toBeInTheDocument()
-    const url = screen.getByLabelText('飞书 Webhook 地址')
-    await user.clear(url)
+    const url = screen.getByLabelText('消息通道 Webhook')
     await user.type(url, 'https://open.feishu.cn/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
-    await user.click(screen.getByRole('button', { name: '保存飞书 Webhook' }))
+    await user.click(screen.getByRole('button', { name: '识别并启用' }))
     expect(set).toHaveBeenCalledWith({
       kind: 'feishu',
       enabled: true,
       webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      testSend: true,
     })
   })
 
-  test('enables Feishu inbound only after an allowlist is saved', async () => {
+  test('connects Feishu inbound and waits for first-message pairing', async () => {
     const user = userEvent.setup()
     const set = vi.fn(async (p: ImChannelsSetPayload): Promise<ImChannelsGetResult> => ({
       channels: seeded.channels.map(ch => ch.kind === p.kind ? {
@@ -54,15 +54,31 @@ describe('ChannelsPanel', () => {
     }))
     render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(seeded), set, deliver: vi.fn() }} />)
     expect(await screen.findByText('飞书')).toBeInTheDocument()
-    const allow = screen.getByLabelText('飞书 入站白名单')
-    await user.type(allow, 'ou_ok')
-    await user.click(screen.getAllByRole('button', { name: '开启入站' })[0])
+    expect(screen.queryByLabelText('飞书 入站白名单')).toBeNull()
+    const appId = screen.getByLabelText('飞书 入站 App ID')
+    await user.type(appId, 'cli_ok')
+    await user.click(screen.getAllByRole('button', { name: '连接并等待配对' })[0])
     expect(set).toHaveBeenCalledWith({
       kind: 'feishu',
       inboundEnabled: true,
-      inboundAllowlist: 'ou_ok',
-      inboundAppId: '',
+      inboundAppId: 'cli_ok',
     })
+    expect(set.mock.calls[0][0].inboundAllowlist).toBeUndefined()
+  })
+
+  test('shows paired status and enables auto-run only after a sender is stored', async () => {
+    const paired: ImChannelsGetResult = {
+      channels: seeded.channels.map(ch => ch.kind === 'feishu' ? {
+        ...ch,
+        inboundEnabled: true,
+        inboundAllowlist: 'ou_me',
+        inboundAppId: 'cli_ok',
+      } : ch),
+    }
+    render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(paired), set: vi.fn(), deliver: vi.fn() }} />)
+    expect((await screen.findAllByText(/已配对：ou_me/)).length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('飞书 入站自动执行')).toBeEnabled()
+    expect(screen.getByLabelText('企业微信 入站自动执行')).toBeDisabled()
   })
 
   test('shows WeCom Bot ID and Secret for inbound long-connect', async () => {

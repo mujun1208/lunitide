@@ -107,13 +107,34 @@ func uiaReadNode(el *win32.IUIAutomationElement) (UINode, bool) {
 		name = string([]rune(name)[:80])
 	}
 	return UINode{
-		Role: uiaRoleName(control),
-		Name: name,
-		X:    int(rc.Left),
-		Y:    int(rc.Top),
-		W:    w,
-		H:    h,
+		Role:  uiaRoleName(control),
+		Name:  name,
+		Value: uiaValue(el),
+		X:     int(rc.Left),
+		Y:     int(rc.Top),
+		W:     w,
+		H:     h,
 	}, true
+}
+
+func uiaValue(el *win32.IUIAutomationElement) string {
+	if el == nil {
+		return ""
+	}
+	var isPwd win32.BOOL
+	if hr := el.Get_CurrentIsPassword(&isPwd); !win32.FAILED(hr) && isPwd != 0 {
+		return ""
+	}
+	var pat *win32.IUIAutomationValuePattern
+	if hr := el.GetCurrentPatternAs(win32.UIA_ValuePatternId, &win32.IID_IUIAutomationValuePattern, unsafe.Pointer(&pat)); win32.FAILED(hr) || pat == nil {
+		return ""
+	}
+	defer pat.Release()
+	var bstr win32.BSTR
+	if hr := pat.Get_CurrentValue(&bstr); win32.FAILED(hr) || bstr == nil {
+		return ""
+	}
+	return strings.TrimSpace(win32.BstrToStrAndFree(bstr))
 }
 
 func uiaName(el *win32.IUIAutomationElement) string {

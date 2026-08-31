@@ -1373,13 +1373,16 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		path, others, e := pickLaunchTarget(a.Name)
 		if e != nil {
-			return Result{}, e
+			if strings.Contains(e.Error(), "无法执行") {
+				return Result{}, e
+			}
+			return Result{}, fmt.Errorf("无法执行：%v", e)
 		}
 		if path == "" {
-			return Result{}, fmt.Errorf("multiple desktop files match %q: %s", strings.TrimSpace(a.Name), strings.Join(others, ", "))
+			return Result{}, fmt.Errorf("无法执行：桌面上有多份匹配「%s」：%s。请说出完整文件名", strings.TrimSpace(a.Name), strings.Join(others, "、"))
 		}
 		if e = openWithDefaultApp(path); e != nil {
-			return Result{}, e
+			return Result{}, fmt.Errorf("无法执行：打不开（%v）", e)
 		}
 		return result("opened " + path), nil
 	case "desktop.type":

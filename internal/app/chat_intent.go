@@ -40,9 +40,6 @@ func fallbackDesktopTypeArgs(goal string) json.RawMessage {
 		return nil
 	}
 	window := ""
-	if strings.Contains(goal, "协议") || strings.Contains(goal, "劳动") || strings.Contains(goal, "合同") {
-		window = "协议"
-	}
 	raw, _ := json.Marshal(map[string]any{
 		"text": text, "after": after, "window": window,
 	})

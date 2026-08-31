@@ -127,6 +127,48 @@ func TestPrepareChatMemoryKeepsPrefsWhenRecallDisabled(t *testing.T) {
 	}
 }
 
+func TestPreferExpertOwnedMemories(t *testing.T) {
+	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	items := []memory.Memory{
+		{Key: "任务", Content: "共享"},
+		{Key: "expert:" + expertID + ":语气", Content: "专家私有"},
+	}
+	got := preferExpertOwnedMemories(items, []string{expertID})
+	if got[0].Content != "专家私有" || got[1].Content != "共享" {
+		t.Fatalf("order = %#v", got)
+	}
+}
+
+func TestMaybeWriteExpertTurnMemories(t *testing.T) {
+	expertID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	store := &layerMemoryStub{}
+	e := NewEngine(nil, "test")
+	e.sessions = sessionGetStub{projectID: projectID}
+	e.memories = store
+	e.sessionExperts = stubSessionExperts{ids: []string{expertID}}
+	user := "请按上次语气继续写封面要点和结构"
+	asst := strings.Repeat("这页讲结论，下一页讲证据。", 8)
+	e.maybeWriteExpertTurnMemories(context.Background(), sessionID, user, asst)
+	if len(store.items) != 1 {
+		t.Fatalf("want 1 memory, got %#v", store.items)
+	}
+	if store.items[0].Key != "expert:"+expertID+":last" {
+		t.Fatalf("key = %q", store.items[0].Key)
+	}
+	if !strings.Contains(store.items[0].Content, "封面") {
+		t.Fatalf("content = %q", store.items[0].Content)
+	}
+	e.maybeWriteExpertTurnMemories(context.Background(), sessionID, user, asst+" 更新")
+	if len(store.items) != 1 {
+		t.Fatal("upsert must not duplicate")
+	}
+	if !strings.Contains(store.items[0].Content, "更新") {
+		t.Fatalf("update missed: %q", store.items[0].Content)
+	}
+}
+
 func TestPrepareChatMemoryNilServicesDoNotBlock(t *testing.T) {
 	e := NewEngine(nil, "test")
 	pack := e.prepareChatMemory(context.Background(), chatMemoryRequest{Query: "hello there friend"})
@@ -316,8 +358,20 @@ func (s *layerMemoryStub) Search(_ context.Context, _ string, query string) ([]m
 	}
 	return out, nil
 }
-func (s *layerMemoryStub) Create(context.Context, memory.Memory) (memory.Memory, error) {
-	return memory.Memory{}, nil
+func (s *layerMemoryStub) Create(_ context.Context, m memory.Memory) (memory.Memory, error) {
+	if m.ID == "" {
+		m.ID = "01ARZ3NDEKTSV4RRFFQ69G5FZZ"
+	}
+	s.items = append(s.items, m)
+	return m, nil
 }
-func (s *layerMemoryStub) UpdateContent(context.Context, string, string) error { return nil }
+func (s *layerMemoryStub) UpdateContent(_ context.Context, id, content string) error {
+	for i, item := range s.items {
+		if item.ID == id {
+			s.items[i].Content = content
+			return nil
+		}
+	}
+	return memoryapp.ErrMemoryNotFound
+}
 func (s *layerMemoryStub) Delete(context.Context, string) error                { return nil }

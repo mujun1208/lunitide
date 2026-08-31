@@ -213,6 +213,7 @@ type Engine struct {
 	m8expert *m8app.ExpertService
 	// Session-scoped expert collaboration pack (durable mounts).
 	sessionExperts sessionExpertStore
+	claims         expertClaimStore
 
 	// M8 FR-17: the write-collaboration evaluation gate (default disabled).
 	m8gate *m8app.CollabGateService
@@ -597,6 +598,8 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodExpertMountingGet:             handleExpertMountingGet,
 	bridge.MethodExpertScenarioCreate:          handleExpertScenarioCreate,
 	bridge.MethodExpertScenarioList:            handleExpertScenarioList,
+	bridge.MethodExpertSkillsGet:               handleExpertSkillsGet,
+	bridge.MethodExpertSkillsSet:               handleExpertSkillsSet,
 	bridge.MethodExpertScenarioDelete:          handleExpertScenarioDelete,
 	bridge.MethodCollabGateEvaluate:            handleCollabGateEvaluate,
 	bridge.MethodCollabGateStatus:              handleCollabGateStatus,
@@ -1466,6 +1469,14 @@ type sessionExpertStore interface {
 
 func (e *Engine) SetSessionExpertStore(store sessionExpertStore) {
 	e.sessionExperts = store
+}
+
+type expertClaimStore interface {
+	TryClaimExpertTask(ctx context.Context, threadID, taskKey, expertID string) (ownerID string, created bool, err error)
+}
+
+func (e *Engine) SetExpertClaimStore(store expertClaimStore) {
+	e.claims = store
 }
 
 // SetM8CollabGateService wires the M8 FR-17 write-collaboration gate.

@@ -243,8 +243,10 @@ func main() {
 		store.AgentRuntimeRepository(), "local-user",
 		m8app.NewFilePersonaStore(personaRoot.Path()),
 	)
+	expertSvc.SetSkillStore(store)
 	engine.SetM8ExpertService(expertSvc)
 	engine.SetSessionExpertStore(store)
+	engine.SetExpertClaimStore(store)
 	if err := m8app.EnsureBuiltinExperts(ctx, expertSvc); err != nil {
 		log.Printf("builtin expert seed: %v", err)
 	}
@@ -315,6 +317,9 @@ func main() {
 	}
 	peopleSvc := people.New(store, ident, peopleRecv.Path(), peopleStage.Path())
 	engine.SetIdentityPeopleServices(ident, peopleSvc)
+	if err := engine.RegisterExpertAgentContacts(ctx); err != nil {
+		log.Printf("expert agent roster: %v", err)
+	}
 	peopleSvc.StartDiscoveryIfEnabled()
 	defer peopleSvc.Close()
 	meetingsSvc := meetings.New(store)

@@ -120,7 +120,19 @@ func (m *memSkillStore) CreateSkill(_ context.Context, sk skill.Skill) (skill.Sk
 	return sk, nil
 }
 func (m *memSkillStore) UpdateSkill(context.Context, string, string, string) error { return nil }
-func (m *memSkillStore) UpdateSkillFields(context.Context, string, string, string, string, string, string, *string) error {
+func (m *memSkillStore) UpdateSkillFields(_ context.Context, id, display, desc, entry, manifest, _ string, minEV *string) error {
+	sk, ok := m.byID[id]
+	if !ok {
+		return ErrSkillNotFound
+	}
+	sk.DisplayName = display
+	sk.Description = desc
+	sk.EntryPoint = entry
+	sk.ManifestJSON = manifest
+	if minEV != nil {
+		sk.MinEngineVersion = minEV
+	}
+	m.byID[id] = sk
 	return nil
 }
 func (m *memSkillStore) UpdateSkillStatus(_ context.Context, id, status string) error {
@@ -256,6 +268,39 @@ func TestEnsureComposeSkillsPublishesPreferred(t *testing.T) {
 	}
 }
 
+func TestEnsureComposeSkillsRefreshesStaleManifest(t *testing.T) {
+	store := newMemSkillStore()
+	svc := New(store, store)
+	if _, err := svc.EnsureComposeSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sk, err := svc.GetByNameVersion(context.Background(), "tpl-find-bug", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := `{"prompt":"旧正文","triggers":["找 bug"]}`
+	if _, err := svc.UpdateFields(context.Background(), sk.ID, nil, nil, nil, &stale, nil, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	n, err := svc.EnsureComposeSkills(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 1 {
+		t.Fatal("stale compose skill must be refreshed")
+	}
+	got, err := svc.GetByNameVersion(context.Background(), "tpl-find-bug", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != "1.0.0" {
+		t.Fatalf("refresh must keep semver, got %q", got.Version)
+	}
+	if !strings.Contains(got.ManifestJSON, "七类探针") {
+		t.Fatalf("stale find-bug not refreshed: %s", got.ManifestJSON)
+	}
+}
+
 func TestCatalogBuiltinEntryPointReturnsWorkingAgreement(t *testing.T) {
 	sk := skill.Skill{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Name: "tpl-meeting-minutes", DisplayName: "会议纪要助手",
@@ -276,5 +321,31 @@ func TestCatalogBuiltinEntryPointReturnsWorkingAgreement(t *testing.T) {
 	}
 	if !strings.Contains(out.Output, "你是会议纪要助手") || !strings.Contains(out.Output, "整理今天的会") {
 		t.Fatalf("output = %q", out.Output)
+	}
+}
+
+func TestComposeSkillPromptsCarryRecipes(t *testing.T) {
+	want := map[string][]string{
+		"slide-builder":       {"九步", "演讲备注", "文类"},
+		"find-bug":            {"七类探针", "已验证正确项", "状态机"},
+		"anti-ai-prose":       {"质量体检", "赋能"},
+		"fiction-continuity":  {"账本", "晋升", "kind=novel"},
+		"hardware-bom":        {"Mandatory", "KV", "ERP"},
+	}
+	for _, tpl := range Catalog() {
+		needles, ok := want[tpl.ID]
+		if !ok {
+			continue
+		}
+		prompt, _ := tpl.Manifest["prompt"].(string)
+		for _, needle := range needles {
+			if !strings.Contains(prompt, needle) {
+				t.Fatalf("%s prompt missing %q", tpl.ID, needle)
+			}
+		}
+		delete(want, tpl.ID)
+	}
+	if len(want) > 0 {
+		t.Fatalf("missing catalog templates: %v", want)
 	}
 }
