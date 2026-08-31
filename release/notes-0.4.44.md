@@ -14,11 +14,13 @@
 - Quality 等价门禁连续三轮通过（`CGO_ENABLED=0`）：`verify:bridge`、`Test-OmniExcluded.ps1`、`go test -timeout 20m -count=1 ./...`、`go vet ./...`、`go build ./...`、`generate:bridge`、`typecheck`、`npm --prefix web test`（164 files / 1217 tests）、`npm --prefix web run build`、生成契约与 `verify:bridge --check` 一致
 - 第 1 轮修了供应商协议切到火山语音时 `ModelDTO.kind` 的 typecheck
 - 未跑 CI 第二岗 `go test -race -timeout 90m ./...`（本机耗时长，GitHub `windows-cgo-race` 仍会跑）
+- `Verify-Release.ps1` 对 0.4.44 stage + installer 通过
+- 本机 Authenticode：`CN=Yy.MJ`（仅当前 Windows 账户信任）
 - 主尺门闩可报 4.8；拆分加权不是 4.80；13 个独立 Agent 不是本包
 
 ## 安装包
 
-- `release/out/Lunitide-Setup-0.4.44-x64.exe`
-- SHA-256：待打包后填写
+- `release/out/Lunitide-Setup-0.4.44-x64.exe`（Authenticode `Valid`：`CN=Yy.MJ`，RFC3161 时间戳。仅当前 Windows 账户信任该证书；其他电脑仍可能提示未知发布者）
+- SHA-256：`d2a14ffa95db474421e97c44abecea80673e692568848fb8d880bc038b3f1b6a`
 - `release/out/SHA256SUMS.txt`
 - `release/out` 只保留 0.4.44 安装包与 stage
