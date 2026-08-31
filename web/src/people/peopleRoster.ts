@@ -86,7 +86,7 @@ export function isAgentContact(person: Pick<PeopleContact, 'orgName'>): boolean 
 }
 
 export function trustLabel(state: PeopleTrust, orgName?: string): string {
-  if ((orgName ?? '').trim() === AGENT_ORG_NAME) return '智能体'
+  if ((orgName ?? '').trim() === AGENT_ORG_NAME) return '同事专家'
   switch (state) {
     case 'self': return '我'
     case 'trusted': return '已配对'
@@ -186,6 +186,15 @@ export function threadHeading(thread: { kind?: string; title?: string; members?:
   if (thread.kind !== 'group') return title
   const n = thread.members?.length ?? 0
   return n > 0 ? `${title} (${n})` : title
+}
+
+/** Right pane shows the live thread, not a leftover DM under a self card. */
+export function peopleShowsOpenThread(
+  rail: 'chats' | 'contacts' | 'me',
+  thread: unknown,
+  card?: { self?: boolean },
+): boolean {
+  return rail !== 'me' && Boolean(thread) && !card?.self
 }
 
 export function visiblePeopleThreads<T extends {

@@ -1,6 +1,8 @@
 package m8app
 
-import "github.com/lunitide/lunitide/internal/domain/m8core"
+import (
+	"github.com/lunitide/lunitide/internal/domain/m8core"
+)
 
 const (
 	ExpertKindPromptSkill = "prompt_skill"
@@ -10,7 +12,23 @@ const (
 // ExpertKindForName answers agent for the 13 conversation specialists and
 // prompt_skill for everyone else (market cards, builtins, user-created).
 func ExpertKindForName(name string) string {
-	if _, ok := ConversationExpertByName(name); ok {
+	return ExpertKindForExpert(name, "")
+}
+
+// ResolveConversationExpert prefers the stored catalog id so a renamed
+// specialist still maps to the shipped roster. Name-only matching remains
+// for rows that predate catalog_item_id.
+func ResolveConversationExpert(name, catalogItemID string) (CatalogItem, bool) {
+	if item, ok := ConversationExpertByID(catalogItemID); ok {
+		return item, true
+	}
+	return ConversationExpertByName(name)
+}
+
+// ExpertKindForExpert prefers the stored catalog id so a renamed specialist
+// stays agent. Name-only matching remains for rows that predate catalog_item_id.
+func ExpertKindForExpert(name, catalogItemID string) string {
+	if _, ok := ResolveConversationExpert(name, catalogItemID); ok {
 		return ExpertKindAgent
 	}
 	return ExpertKindPromptSkill

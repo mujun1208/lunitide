@@ -1,6 +1,13 @@
 package app
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/lunitide/lunitide/internal/toolruntime"
+)
 
 func TestAppendPostActSnapshot(t *testing.T) {
 	if got := appendPostActSnapshot("snapshot", "tree", "ignored"); got != "tree" {
@@ -35,5 +42,20 @@ func TestBrowserActNeedsSnapshotRing(t *testing.T) {
 	}
 	if !browserActNeedsSnapshot(browserActCall{Op: "tabs", Tab: "new"}) {
 		t.Fatal("tab switch must resnapshot")
+	}
+}
+
+func TestInvokeBrowserActViaPlaywrightRefusesEmptySuccess(t *testing.T) {
+	e := NewEngine(nil, "test")
+	_, err := e.invokeBrowserActViaPlaywright(context.Background(), browserActCall{Op: "click", Selector: "e12"})
+	if !errors.Is(err, errBrowserMCPNotReady) && (err == nil || !strings.Contains(err.Error(), "BROWSER_MCP_NOT_READY")) {
+		t.Fatalf("unready act must be a typed error, got %v", err)
+	}
+}
+
+func TestMarkBrowserNavigateFetchIsVisible(t *testing.T) {
+	got := markBrowserNavigateFetch(toolruntime.Result{Output: "title\nbody"})
+	if !strings.Contains(got.Output, "BROWSER_NAVIGATE_FETCH") || !strings.Contains(got.Output, "不要把这次当成浏览器已打开") || !strings.Contains(got.Output, "title") {
+		t.Fatalf("%q", got.Output)
 	}
 }

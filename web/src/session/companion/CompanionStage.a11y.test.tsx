@@ -513,6 +513,27 @@ describe('MC-06 state distinguishability + live announcements', () => {
     await waitFor(() => expect(onSend.mock.calls.filter(call => call[0] === '帮我打开桌面').length).toBeGreaterThanOrEqual(2))
   })
 
+  test('a busy onSend while listening does not leave the machine stuck thinking', async () => {
+    const onSend = vi.fn().mockReturnValue(false)
+    speech.start.mockResolvedValue(speech.handle())
+    const { container, rerender } = await renderStage({ onSend })
+    await waitFor(() => expect(stateOf(container)).toBe('listening'), { timeout: 3000 })
+    await act(async () => {
+      speech.callbacks!.onFinal('帮我打开桌面')
+    })
+    await waitFor(() => expect(container.textContent).toMatch(/还在发送/))
+    expect(stateOf(container)).not.toBe('thinking')
+    rerender(
+      <CompanionStage
+        {...baseProps}
+        onSend={onSend}
+        chatStatus="idle"
+        assistantText=""
+      />,
+    )
+    await waitFor(() => expect(onSend.mock.calls.filter(call => call[0] === '帮我打开桌面').length).toBeGreaterThanOrEqual(2))
+  })
+
   test('a new utterance clears the previous round and shows only this turn', async () => {
     const onSend = vi.fn()
     const handle = speech.handle()
@@ -590,6 +611,12 @@ describe('MC-06 state distinguishability + live announcements', () => {
     await waitFor(() => expect(stateOf(container)).toBe('idle'), { timeout: 3000 })
     expect(speech.start).not.toHaveBeenCalled()
     expect(container.textContent).toMatch(/不会空听/)
+  })
+
+  test('shows the computer-control-off banner on the stage', async () => {
+    const { container } = await renderStage({ computerControlOff: true })
+    expect(container.textContent).toMatch(/电脑控制未启用/)
+    expect(container.textContent).toMatch(/月伴不会自己打开/)
   })
 })
 
@@ -709,5 +736,18 @@ describe('subtitle strip: this round only', () => {
     expect(liveLog(container).textContent).toContain('文件夹建好了')
     expect(liveLog(container).textContent).not.toContain('我已经做完了')
     expect(liveLog(container).textContent).not.toContain('任务已完成')
+  })
+
+  test('shows the append-only tool trajectory while tools run', async () => {
+    const { container } = await renderStage({
+      toolActivities: [
+        { callId: 'c1', name: 'browser.act', status: 'failed', summary: 'BROWSER_MCP_NOT_READY' },
+        { callId: 'c2', name: 'web.fetch', status: 'tool_completed', summary: 'ok' },
+      ],
+    })
+    expect(container.querySelector('[aria-label="工具轨迹"]')).toBeTruthy()
+    expect(container.textContent).toContain('browser.act')
+    expect(container.textContent).toContain('失败')
+    expect(container.textContent).toContain('web.fetch')
   })
 })

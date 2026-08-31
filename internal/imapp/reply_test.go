@@ -10,18 +10,32 @@ import (
 	"testing"
 )
 
+func TestFeishuReplyTargetPrefersChatID(t *testing.T) {
+	kind, id := feishuReplyTarget("ou_me", "oc_group")
+	if kind != "chat_id" || id != "oc_group" {
+		t.Fatalf("group = %s %s", kind, id)
+	}
+	kind, id = feishuReplyTarget("ou_me", "")
+	if kind != "open_id" || id != "ou_me" {
+		t.Fatalf("dm = %s %s", kind, id)
+	}
+}
+
 func TestReplyTransportFeishuAndDingTalk(t *testing.T) {
-	var feishuText, dingText string
+	var feishuText, feishuType, feishuID, dingText string
 	feishu := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/tenant_access_token/internal"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "tenant_access_token": "t"})
 		case strings.Contains(r.URL.Path, "/im/v1/messages"):
+			feishuType = r.URL.Query().Get("receive_id_type")
 			raw, _ := io.ReadAll(r.Body)
 			var body struct {
-				Content string `json:"content"`
+				ReceiveID string `json:"receive_id"`
+				Content   string `json:"content"`
 			}
 			_ = json.Unmarshal(raw, &body)
+			feishuID = body.ReceiveID
 			var inner struct {
 				Text string `json:"text"`
 			}
@@ -60,11 +74,11 @@ func TestReplyTransportFeishuAndDingTalk(t *testing.T) {
 		DingTalkDomain: dingAPI.URL,
 		DingTalkOAPI:   dingOAPI.URL,
 	}
-	if err := tr.Send(context.Background(), KindFeishu, "cli", "sec", "ou_me", "", "飞书回了"); err != nil {
+	if err := tr.Send(context.Background(), KindFeishu, "cli", "sec", "ou_me", "oc_group", "飞书回了"); err != nil {
 		t.Fatal(err)
 	}
-	if feishuText != "飞书回了" {
-		t.Fatalf("feishu text %q", feishuText)
+	if feishuText != "飞书回了" || feishuType != "chat_id" || feishuID != "oc_group" {
+		t.Fatalf("feishu text=%q type=%q id=%q", feishuText, feishuType, feishuID)
 	}
 	if err := tr.Send(context.Background(), KindDingTalk, "app", "sec", "staff", "cid", "钉钉回了"); err != nil {
 		t.Fatal(err)

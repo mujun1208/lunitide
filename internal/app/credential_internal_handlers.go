@@ -27,9 +27,13 @@ func handleProviderCreateWithCredential(e *Engine, ctx context.Context, request 
 	}
 	cp := *p.Create
 	cp.CredentialSubmissionID = nil
-	baseURL, err := provider.NormalizeBaseURL(cp.BaseURL)
-	origin, originErr := provider.NormalizeOrigin(cp.BaseURL)
 	models, ok := publicModels(cp.Models)
+	baseURL, models, prepErr := prepareVolcSpeechFields(cp.Protocol, cp.BaseURL, models)
+	if prepErr != nil {
+		return invalidProviderPayload(request, "provider.create")
+	}
+	normalized, err := provider.NormalizeBaseURL(baseURL)
+	origin, originErr := provider.NormalizeOrigin(baseURL)
 	ref := secret.Ref{CredentialRef: p.CredentialRef, ProviderID: p.ProviderID, Origin: p.Origin, Protocol: p.Protocol}
 	validatedRef, refErr := ref.Validate()
 	if err != nil || originErr != nil || refErr != nil || validatedRef != ref || p.Protocol != string(cp.Protocol) || p.Origin != origin || !ok || !publicNameValid(cp.Name) {
@@ -39,7 +43,7 @@ func handleProviderCreateWithCredential(e *Engine, ctx context.Context, request 
 	if cp.Status != nil {
 		status = *cp.Status
 	}
-	item := provider.Provider{ID: p.ProviderID, Name: cp.Name, Protocol: cp.Protocol, BaseURL: baseURL, Models: models, Status: status, CredentialState: provider.CredentialConfigured, CredentialRef: p.CredentialRef}
+	item := provider.Provider{ID: p.ProviderID, Name: cp.Name, Protocol: cp.Protocol, BaseURL: normalized, Models: models, Status: status, CredentialState: provider.CredentialConfigured, CredentialRef: p.CredentialRef}
 	if item.Validate() != nil {
 		return invalidProviderPayload(request, "provider.create")
 	}

@@ -46,6 +46,17 @@ describe('inspectCompanionEntry', () => {
     expect(report.lights[0].state).toBe('off')
   })
 
+  test('marks speak as starting instead of dead while SoVITS is launching', async () => {
+    const report = await inspectCompanionEntry('local', '', {
+      listProviders: async () => ({ items: [chat] }),
+      localAsr: async () => ({ supported: true, ready: true }),
+      refEngine: async () => ({ state: 'launching' }),
+    })
+    expect(report.allowListen).toBe(true)
+    expect(report.speakReady).toBe(false)
+    expect(report.lights[1]).toMatchObject({ label: 'GPT-SoVITS 启动中', state: 'warn' })
+  })
+
   test('still allows local listen when GPT-SoVITS is offline', async () => {
     const report = await inspectCompanionEntry('local', '', {
       listProviders: async () => ({ items: [chat] }),
@@ -81,6 +92,25 @@ describe('inspectCompanionEntry', () => {
     })
     expect(report.allowListen).toBe(true)
     expect(report.lights[0]).toMatchObject({ label: '火山 seed-asr', state: 'on' })
+    expect(report.lights[1]).toMatchObject({ label: '晓晓（未配朗读）', state: 'on' })
+    expect(report.hasVolcTts).toBe(false)
+  })
+
+  test('volc speak light is seed-tts only after a tts row exists', async () => {
+    const withTts = {
+      ...volc,
+      models: [
+        { modelId: 'seed-asr', displayName: 'seed-asr', isDefault: true, kind: 'asr' as const },
+        { modelId: 'zh_female_xiaohe_uranus_bigtts', displayName: '小何', isDefault: false, kind: 'tts' as const, kindDefault: true },
+      ],
+    }
+    const report = await inspectCompanionEntry('volc', '', {
+      listProviders: async () => ({ items: [chat, withTts] }),
+    })
+    expect(report.allowListen).toBe(true)
+    expect(report.hasVolcTts).toBe(true)
+    expect(report.lights[1]).toMatchObject({ label: '火山 · 小何', state: 'on' })
+    expect(report.speakVoiceId).toBe('zh_female_xiaohe_uranus_bigtts')
   })
 
   test('volc list timeout refuses listen with VOICE-004', async () => {

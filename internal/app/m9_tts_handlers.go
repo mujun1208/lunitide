@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/tts"
 )
 
@@ -28,7 +31,10 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.voices 参数无效", false)
 	}
 	if !tts.ValidEngine(p.Engine) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref", false)
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
+	}
+	if p.Engine == tts.EngineVolc {
+		return bridge.Success(r.ID, map[string]any{"voices": tts.VolcVoices()})
 	}
 	if p.Engine == tts.EngineRef {
 		return bridge.Success(r.ID, map[string]any{
@@ -67,7 +73,10 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
 	}
 	if !tts.ValidEngine(p.Engine) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref", false)
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
+	}
+	if p.Engine == tts.EngineVolc && p.VoiceID == "" {
+		p.VoiceID = tts.VolcDefaultVoiceID()
 	}
 	if p.Engine == tts.EngineRef {
 		if p.VoiceID == "" {
@@ -90,6 +99,9 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if e.m9tts == nil {
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
 	}
+	if p.Engine == tts.EngineVolc {
+		return synthesizeVolc(e, ctx, r, p.Text, p.VoiceID, p.Rate, p.Volume)
+	}
 	rate, volume := tts.DefaultRate, tts.DefaultVolume
 	if p.Rate != nil {
 		rate = *p.Rate
@@ -103,12 +115,65 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 		RefWavPath: p.RefWavPath, RefPromptText: p.RefPromptText,
 	}
 	out, err := e.m9tts.Synthesize(input)
+	return ttsSynthResponse(r, out, err)
+}
+
+func synthesizeVolc(e *Engine, ctx context.Context, r bridge.Request, text, voiceID string, rate, volume *int) bridge.Response {
+	input := tts.SynthesizeInput{
+		Text: text, VoiceID: voiceID, Rate: tts.DefaultRate, Volume: tts.DefaultVolume, Engine: tts.EngineVolc,
+	}
+	if rate != nil {
+		input.Rate = *rate
+	}
+	if volume != nil {
+		input.Volume = *volume
+	}
+	p, err := e.firstReadyVolcSpeech(ctx)
+	if err != nil {
+		return ttsFailure(r, err)
+	}
+	var out tts.SynthesizeResultOut
+	err = e.withProviderLease(ctx, p, secretlease.OperationChat, func(_ context.Context, secret []byte) error {
+		input.VolcAPIKey = string(secret)
+		input.VolcBaseURL = p.BaseURL
+		var synthErr error
+		out, synthErr = e.m9tts.Synthesize(input)
+		return synthErr
+	})
+	if err != nil {
+		if errors.Is(err, tts.ErrEngineUnavailable) || errors.Is(err, tts.ErrSynthesisFailed) {
+			return ttsFailure(r, err)
+		}
+		return ttsFailure(r, fmt.Errorf("%w: 火山语音密钥不可用", tts.ErrEngineUnavailable))
+	}
+	return ttsSynthResponse(r, out, nil)
+}
+
+func (e *Engine) firstReadyVolcSpeech(ctx context.Context) (provider.Provider, error) {
+	if e.providers == nil {
+		return provider.Provider{}, fmt.Errorf("%w: 未配火山语音密钥", tts.ErrEngineUnavailable)
+	}
+	items, err := e.providers.List(ctx, provider.Filter{Protocol: provider.ProtocolVolcSpeech})
+	if err != nil {
+		return provider.Provider{}, fmt.Errorf("%w: 未配火山语音密钥", tts.ErrEngineUnavailable)
+	}
+	for _, item := range items {
+		if item.Status != provider.StatusEnabled {
+			continue
+		}
+		if item.CredentialState != provider.CredentialConfigured || item.CredentialRef == "" {
+			continue
+		}
+		return item, nil
+	}
+	return provider.Provider{}, fmt.Errorf("%w: 未配火山语音密钥", tts.ErrEngineUnavailable)
+}
+
+func ttsSynthResponse(r bridge.Request, out tts.SynthesizeResultOut, err error) bridge.Response {
 	if err != nil {
 		return ttsFailure(r, err)
 	}
 	if out.Discarded {
-		// The segment raced a cancel: the renderer is already muted, so
-		// answer quietly instead of surfacing an error (M95-003 note).
 		return bridge.Success(r.ID, map[string]any{
 			"wav_base64": "", "duration_hint": 0, "discarded": true, "notice": "TTS_CANCELLED",
 		})
@@ -118,7 +183,7 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 		"duration_hint": out.Result.DurationHint,
 	}
 	if out.VoiceFallback {
-		payload["notice"] = "TTS_VOICE_NOT_FOUND" // M95-004 (200 notice)
+		payload["notice"] = "TTS_VOICE_NOT_FOUND"
 	}
 	return bridge.Success(r.ID, payload)
 }
@@ -163,7 +228,9 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, tts.ErrEngineUnavailable):
 		msg := "本机无可用语音合成引擎"
-		if strings.Contains(err.Error(), "云端") || strings.Contains(err.Error(), "联网") {
+		if strings.Contains(err.Error(), "火山") {
+			msg = "火山朗读不可用。请在供应商「语音模型」里配置 Agent Plan 专属 API Key"
+		} else if strings.Contains(err.Error(), "云端") || strings.Contains(err.Error(), "联网") {
 			msg = "无法连接微软云端语音（需联网）"
 		}
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", msg, true)
@@ -173,10 +240,14 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "语音引擎启动中，请稍候", true)
 	case errors.Is(err, tts.ErrSynthesisFailed):
 		msg := "该段语音合成失败"
-		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "Forbidden") {
+		if strings.Contains(err.Error(), "火山") || strings.Contains(err.Error(), "seed-tts") {
+			msg = "火山语音合成失败（请核对 Agent Plan 专属 API Key 与音色）"
+		} else if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "Forbidden") {
 			msg = "云端语音被拒绝（请检查系统时间与网络，或改用「自然语音」本机引擎）"
 		} else if strings.Contains(err.Error(), "云端") {
 			msg = "云端语音合成失败（请检查网络，或改用「自然语音」本机引擎）"
+		} else if idx := strings.Index(err.Error(), "HTTP "); idx >= 0 {
+			msg = "该段语音合成失败（" + err.Error()[idx:] + "）"
 		}
 		return bridge.Failure(r.ID, r.TraceID, "M95-002", msg, false)
 	default:

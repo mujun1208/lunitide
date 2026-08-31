@@ -46,6 +46,15 @@ export function conversationExpertKind(idOrName: string): ExpertKind {
   return conversationExpertByNameOrID(idOrName) ? 'agent' : 'prompt_skill'
 }
 
+export function expertCatalogKey(item: {name?: string; id?: string; catalogItemId?: string}): string {
+  return (item.catalogItemId ?? item.id ?? item.name ?? '').trim()
+}
+
+export function expertKindOf(item: {name?: string; id?: string; catalogItemId?: string; kind?: string}): ExpertKind {
+  if (item.kind === 'agent' || item.kind === 'prompt_skill') return item.kind
+  return conversationExpertKind(expertCatalogKey(item) || item.name || '')
+}
+
 export const MCP_BIND_PREFIX = 'mcp:'
 export const BRAIN_BIND_PREFIX = 'brain:'
 export type ExpertBrain = 'lunitide' | 'codex' | 'claude'

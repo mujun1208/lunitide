@@ -47,6 +47,7 @@ func run() error {
 	startHidden := flag.Bool("tray", false, "start hidden in the notification area")
 	rpcHealth := flag.Bool("rpc-health", false, "connect to the running engine, print system.health, and exit")
 	quitEngine := flag.Bool("quit", false, "stop the running engine (same as tray Exit) and exit")
+	takeover := flag.Bool("takeover", false, "D11: wait for the previous desktop instance to exit, then become the gateway")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(buildinfo.Version)
@@ -66,12 +67,21 @@ func run() error {
 		return runQuitEngine(*pipe)
 	}
 	already, releaseInstance := claimGatewayInstance()
+	if already && *takeover {
+		already, releaseInstance = claimGatewayInstanceRetry(time.Duration(gatewayTakeoverWait) * time.Second)
+	}
 	if already {
-		if webviewhost.ActivateExistingMainWindow() {
+		if !*takeover && webviewhost.ActivateExistingMainWindow() {
 			return nil
+		}
+		if *takeover {
+			return errors.New("引擎重启失败：上一实例还没退出。请从托盘打开月汐。")
 		}
 		return errors.New("月汐已在运行，但没能唤起窗口。请从托盘打开。")
 	}
+	var releaseOnce sync.Once
+	innerRelease := releaseInstance
+	releaseInstance = func() { releaseOnce.Do(innerRelease) }
 	defer releaseInstance()
 	if *pipe == "" {
 		*pipe = ipc.GatewayPipeName(os.Getenv("USERNAME"))
@@ -134,11 +144,11 @@ func run() error {
 	}
 	// Engine watchdog: once the WebView host is up, an unexpected Engine exit
 	// (crash, OOM, external kill) must not leave a zombie UI whose every
-	// chat.start fails with ENGINE_EVENT_SOURCE_CLOSED. The watcher relaunches
-	// a fresh desktop instance (SQLite state survives) and lets this one exit
-	// through the normal shutdown path. Engine death before hostReady takes
-	// the normal startup-failure path instead, so a crashing engine cannot
-	// spawn a relaunch loop.
+	// chat.start fails with ENGINE_EVENT_SOURCE_CLOSED. The watcher drops
+	// Local\lunitide-gateway first, then starts a --takeover sibling, then
+	// exits. Holding the mutex until WebView2 finishes teardown is how
+	// 0.4.43 failed D11: the child waited 15s, gave up, and nothing
+	// respawned the engine. Engine death before hostReady is a startup fail.
 	hostCtx, stopHost := context.WithCancel(context.Background())
 	defer stopHost()
 	hostReady := make(chan struct{})
@@ -219,11 +229,12 @@ func run() error {
 		case <-engineDied:
 			select {
 			case <-hostReady:
-				hostLog("engine death detected after host ready; relaunching desktop")
+				hostLog("engine death detected after host ready; dropping gateway mutex then relaunching with --takeover")
 				fmt.Fprintln(os.Stderr, "engine process exited unexpectedly; relaunching desktop")
 				if self, err := os.Executable(); err == nil {
-					relaunch := exec.Command(self, os.Args[1:]...)
-					_ = relaunch.Start()
+					if err := releaseGatewayThenRelaunch(self, os.Args[1:], releaseInstance, nil); err != nil {
+						hostLog("engine death relaunch failed: %v", err)
+					}
 				}
 				stopHost()
 			default:

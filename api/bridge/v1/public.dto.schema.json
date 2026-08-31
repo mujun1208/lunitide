@@ -67,7 +67,9 @@
             "vision",
             "image",
             "video",
-            "voice"
+            "voice",
+            "asr",
+            "tts"
           ]
         },
         "supportsVision": {

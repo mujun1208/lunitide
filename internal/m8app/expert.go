@@ -206,12 +206,13 @@ func (s *ExpertService) loadBody(ref string) ([]byte, bool) {
 
 // CreateInput is the expert.create command.
 type CreateInput struct {
-	Source      string
-	Frontmatter m8core.Frontmatter
-	SixSection  m8core.SixSection
-	RequestID   string
-	Actor       string
-	SkillKeys   []string
+	Source        string
+	Frontmatter   m8core.Frontmatter
+	SixSection    m8core.SixSection
+	RequestID     string
+	Actor         string
+	SkillKeys     []string
+	CatalogItemID string
 }
 
 // CreateResult is the expert.create outcome.
@@ -257,6 +258,7 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 		e := m8core.ExpertCatalog{
 			ExpertID: expertID, SubjectID: s.subject, Name: in.Frontmatter.Name,
 			Division: in.Frontmatter.Division, Source: in.Source,
+			CatalogItemID:    strings.TrimSpace(in.CatalogItemID),
 			CurrentVersionID: versionID, State: m8core.ExpertEnabled,
 			CreatedAt: now, UpdatedAt: now,
 		}
@@ -316,6 +318,7 @@ type ExpertListItem struct {
 	VersionCount      int    `json:"versionCount"`
 	MountedPhaseCount int    `json:"mountedPhaseCount"`
 	OriginBundleID    string `json:"originBundleId,omitempty"`
+	CatalogItemID     string `json:"catalogItemId,omitempty"`
 	Kind              string `json:"kind,omitempty"`
 }
 
@@ -349,7 +352,7 @@ func (s *ExpertService) List(ctx context.Context, filter ExpertFilter) (ExpertLi
 			return err
 		}
 		for i := range items {
-			items[i].Kind = ExpertKindForName(items[i].Name)
+			items[i].Kind = ExpertKindForExpert(items[i].Name, items[i].CatalogItemID)
 		}
 		out.Experts = items
 		return nil
@@ -436,10 +439,13 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 			"expertId": e.ExpertID, "name": e.Name, "division": e.Division,
 			"source": e.Source, "state": e.State, "semver": cur.Semver,
 			"currentVersionId": e.CurrentVersionID,
-			"kind":             ExpertKindForName(e.Name),
+			"kind":             ExpertKindForExpert(e.Name, e.CatalogItemID),
 		}
 		if e.OriginBundleID != "" {
 			out.Expert["originBundleId"] = e.OriginBundleID
+		}
+		if e.CatalogItemID != "" {
+			out.Expert["catalogItemId"] = e.CatalogItemID
 		}
 		out.SixSection = json.RawMessage(`{}`)
 		if body, ok := s.loadBody(v.PersonaRef); ok {
@@ -463,17 +469,18 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 	if err != nil {
 		return out, err
 	}
-	out.Expert["boundSkills"] = s.boundOrPreferred(ctx, in.ExpertID, fmt.Sprint(out.Expert["name"]))
+	catalogID, _ := out.Expert["catalogItemId"].(string)
+	out.Expert["boundSkills"] = s.boundOrPreferred(ctx, in.ExpertID, fmt.Sprint(out.Expert["name"]), catalogID)
 	return out, nil
 }
 
-func (s *ExpertService) boundOrPreferred(ctx context.Context, expertID, name string) []string {
+func (s *ExpertService) boundOrPreferred(ctx context.Context, expertID, name, catalogItemID string) []string {
 	if s != nil && s.skills != nil && expertID != "" {
 		if keys, err := s.skills.ListExpertSkillKeys(ctx, expertID); err == nil {
 			return keys
 		}
 	}
-	if item, ok := ConversationExpertByName(name); ok {
+	if item, ok := ResolveConversationExpert(name, catalogItemID); ok {
 		return append([]string{}, item.PreferredSkills...)
 	}
 	return []string{}
@@ -483,23 +490,21 @@ func (s *ExpertService) applySkillFloor(ctx context.Context, expertID string, ke
 	if s == nil || s.uow == nil {
 		return keys
 	}
-	var name string
+	var name, catalogID string
 	err := s.uow.TransactExpert(ctx, func(tx ExpertTx) error {
 		item, err := tx.GetExpert(expertID)
 		if err != nil {
 			return err
 		}
 		name = item.Name
+		catalogID = item.CatalogItemID
 		return nil
 	})
-	if err != nil || ExpertKindForName(name) != ExpertKindAgent {
+	item, ok := ResolveConversationExpert(name, catalogID)
+	if err != nil || !ok {
 		return keys
 	}
-	floorSkills, _, floorMcp, _ := ComposeForExpertNames([]string{name})
-	floor := append([]string{}, floorSkills...)
-	for _, id := range floorMcp {
-		floor = append(floor, BoundMcpPrefix+id)
-	}
+	floor := BindKeysFromCatalog(item)
 	if len(floor) == 0 {
 		return keys
 	}
@@ -583,8 +588,12 @@ func (s *ExpertService) ComposeSkillsForNames(ctx context.Context, names []strin
 		return catalog
 	}
 	byName := map[string]string{}
+	byCatalog := map[string]string{}
 	for _, item := range listed.Experts {
 		byName[item.Name] = item.ExpertID
+		if id := strings.TrimSpace(item.CatalogItemID); id != "" {
+			byCatalog[id] = item.ExpertID
+		}
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -600,16 +609,20 @@ func (s *ExpertService) ComposeSkillsForNames(ctx context.Context, names []strin
 	}
 	usedStore := false
 	for _, name := range names {
-		id := byName[strings.TrimSpace(name)]
+		name = strings.TrimSpace(name)
+		id := byName[name]
 		if id == "" {
-			if item, ok := ConversationExpertByName(name); ok {
+			id = byCatalog[name]
+		}
+		if id == "" {
+			if item, ok := ResolveConversationExpert(name, name); ok {
 				add(item.PreferredSkills)
 			}
 			continue
 		}
 		keys, err := s.skills.ListExpertSkillKeys(ctx, id)
 		if err != nil {
-			if item, ok := ConversationExpertByName(name); ok {
+			if item, ok := ResolveConversationExpert(name, name); ok {
 				add(item.PreferredSkills)
 			}
 			continue

@@ -1,9 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, type ChatBridge, type MessageBridge, type ProviderBridge, type SessionBridge } from '../bridge/client'
+import { BridgeClientError, type ChatBridge, type FeedbackBridge, type MemoryBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import type { CompanionSpeechHandle } from './companion/speech'
 import { SessionPage, TURN_RESUME_PROMPT } from './SessionPage'
+import { ensureCompanionCapabilities } from './companion/ensureCompanionCapabilities'
 import { resetLiveChatForTests } from './liveChat'
 
 const speech = vi.hoisted(() => ({
@@ -79,6 +80,7 @@ beforeEach(() => {
   speech.callbacks = undefined
   speech.start.mockReset()
   speech.start.mockResolvedValue(speech.handle())
+  vi.mocked(ensureCompanionCapabilities).mockResolvedValue({ fullAccess: true, ccEnabled: true })
 })
 
 const P = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
@@ -281,6 +283,27 @@ it('retries companion chat.start after HOST_BUSY without speaking 无法执行',
   expect(document.body.textContent).not.toMatch(/无法执行/)
 })
 
+it('shows the companion computer-control-off banner without enabling CC', async () => {
+  vi.mocked(ensureCompanionCapabilities).mockResolvedValue({ fullAccess: true, ccEnabled: false })
+  const chat: ChatBridge = { start: vi.fn(), approve: vi.fn(), dispose: vi.fn() }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  expect(await screen.findByText(/电脑控制未启用/)).toBeInTheDocument()
+  expect(document.body.textContent).toMatch(/第一次控桌面请到设置里打开/)
+  expect(ensureCompanionCapabilities).toHaveBeenCalled()
+})
+
 it('shows persist-retry on the companion stage from the server turn', async () => {
   const inspectTurn = vi.fn().mockResolvedValue({ status: 'completed', persistFailed: true, persistDraft: '已经生成但没落库' })
   const chat: ChatBridge = { start: vi.fn(), approve: vi.fn(), inspectTurn, dispose: vi.fn() }
@@ -343,4 +366,90 @@ it('shows resume on the companion stage when the server turn is interrupted', as
   )
   expect(await screen.findByRole('button', { name: '继续上次' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '只重试写入' })).toBeNull()
+})
+
+it('parks a UAC computer.act result as user.ask on the companion stage', async () => {
+  let onEvent: (event: StreamEvent) => void = () => {}
+  const start = vi.fn().mockImplementation(async (_payload: unknown, onStreamEvent: (event: StreamEvent) => void) => {
+    onEvent = onStreamEvent
+    return { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel: vi.fn(), dispose: vi.fn() }
+  })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('点一下那个确认')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalled())
+  await act(async () => {
+    onEvent({
+      v: '1.0',
+      kind: 'event',
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+      sequence: 1,
+      type: 'tool_completed',
+      tool: {
+        callId: 'cc-uac',
+        name: 'computer.act',
+        argsDigest: 'a'.repeat(64),
+        summary: 'needs_user: 这是系统提权对话框，我不能代点「是」。请你自己确认或取消。',
+      },
+    })
+  })
+  const wizard = await screen.findByRole('form', { name: '系统提权' })
+  expect(wizard).toHaveTextContent(/不能代点「是」/)
+  expect(screen.getByRole('radio', { name: /我已经处理完了/ })).toBeInTheDocument()
+})
+
+it('keeps the pending preference banner above the companion stage', async () => {
+  const confirmCandidate = vi.fn().mockResolvedValue({ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAC', state: 'confirmed' })
+  const feedback = {
+    record: vi.fn(),
+    candidates: vi.fn().mockResolvedValue({
+      items: [{ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAC', content: '以后回答默认用中文', scopeId: 'learning', confirmationToken: 'tok', createdAt: NOW, expiresAt: NOW }],
+    }),
+  } as unknown as FeedbackBridge
+  const memory = { confirmCandidate } as unknown as MemoryBridge
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={{ start: vi.fn(), approve: vi.fn(), dispose: vi.fn() }}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+      feedback={feedback}
+      memory={memory}
+    />,
+  )
+  await waitFor(() => expect(document.querySelector('.companion-stage')).toBeTruthy())
+  const banner = await screen.findByRole('status', { name: '待确认偏好' })
+  expect(banner).toHaveClass('companion-float')
+  fireEvent.click(screen.getByRole('button', { name: '确认沉淀' }))
+  await waitFor(() => expect(confirmCandidate).toHaveBeenCalledWith(expect.objectContaining({
+    candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAC',
+    confirmationToken: 'tok',
+    action: 'confirm',
+  })))
 })

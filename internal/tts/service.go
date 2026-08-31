@@ -40,7 +40,7 @@ func (s *Service) Voices() ([]Voice, error) {
 func (s *Service) VoicesFor(engine string) ([]Voice, error) {
 	// Edge catalogue is an HTTPS fetch — do not hold the single-flight
 	// lock across the network, or a settings probe would stall speech.
-	if engine == EngineEdge {
+	if engine == EngineEdge || engine == EngineVolc {
 		s.mu.Lock()
 		eng := s.engine
 		s.mu.Unlock()

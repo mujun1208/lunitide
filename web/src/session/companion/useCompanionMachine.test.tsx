@@ -4,7 +4,7 @@
 // state is kept.
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import { useCompanionMachine, companionSurfaceState, companionStatusLabel, type CompanionEvent } from './useCompanionMachine'
+import { useCompanionMachine, companionEventForDispatch, companionSurfaceState, companionStatusLabel, type CompanionEvent } from './useCompanionMachine'
 
 const EVENTS: CompanionEvent['type'][] = [
   'MIC_ACTIVATE',
@@ -98,6 +98,24 @@ describe('useCompanionMachine transition matrix', () => {
     expect(accepted).toBe('listening')
     expect(rejected).toBeNull()
     expect(result.current.state).toBe('listening')
+  })
+})
+
+describe('companionEventForDispatch', () => {
+  test('maps a late REPLY_TERMINAL while speaking onto PLAYBACK_ENDED', () => {
+    expect(companionEventForDispatch('speaking', { type: 'REPLY_TERMINAL' })).toEqual({ type: 'PLAYBACK_ENDED' })
+    expect(companionEventForDispatch('thinking', { type: 'REPLY_TERMINAL' })).toEqual({ type: 'REPLY_TERMINAL' })
+    expect(companionEventForDispatch('speaking', { type: 'PLAYBACK_ENDED' })).toEqual({ type: 'PLAYBACK_ENDED' })
+  })
+
+  test('swallows leftover terminal events after the stage has already left the turn', () => {
+    expect(companionEventForDispatch('speaking', { type: 'REPLY_COMPLETED', speakable: true })).toBeNull()
+    expect(companionEventForDispatch('idle', { type: 'REPLY_TERMINAL' })).toBeNull()
+    expect(companionEventForDispatch('idle', { type: 'PLAYBACK_ENDED' })).toBeNull()
+    expect(companionEventForDispatch('idle', { type: 'REPLY_COMPLETED', speakable: true })).toBeNull()
+    expect(companionEventForDispatch('listening', { type: 'REPLY_TERMINAL' })).toBeNull()
+    expect(companionEventForDispatch('listening', { type: 'PLAYBACK_ENDED' })).toBeNull()
+    expect(companionEventForDispatch('thinking', { type: 'PLAYBACK_ENDED' })).toBeNull()
   })
 })
 

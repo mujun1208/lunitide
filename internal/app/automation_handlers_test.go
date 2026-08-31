@@ -205,6 +205,15 @@ func TestIsolatedAutomationSessionCreatesHiddenChat(t *testing.T) {
 	}
 }
 
+func TestAutomationHeadlessChatStartDeadlineFitsEnvelope(t *testing.T) {
+	if bridge.ChatStartDeadlineMS < 1 || bridge.ChatStartDeadlineMS > bridge.MaxDeadlineMS(string(bridge.MethodChatStart)) {
+		t.Fatalf("chat.start deadline %d exceeds envelope max %d", bridge.ChatStartDeadlineMS, bridge.MaxDeadlineMS(string(bridge.MethodChatStart)))
+	}
+	if 600000 <= bridge.MaxDeadlineMS(string(bridge.MethodChatStart)) {
+		t.Fatal("old 10-minute envelope would no longer be rejected; keep this test in sync")
+	}
+}
+
 func TestAutomationJobListFeatureDisabled(t *testing.T) {
 	e := NewEngine(nil, "test")
 	resp := e.Handle(context.Background(), automationRequest("automation.job.list", "{}"))

@@ -80,6 +80,13 @@ it('deletes a skill from the list', async () => {
   expect(del.mock.calls[0][0]).toEqual({ id: skill.id, expectedVersion: 1 })
 })
 
+it('states the market is a bundled catalog not an online store', async () => {
+  render(<SkillPage bridge={api({ catalogList: vi.fn().mockResolvedValue({ items: [catalogEntry] }) })} />)
+  expect(await screen.findByText(/本机捆绑目录/)).toBeInTheDocument()
+  expect(screen.getByText(/不是在线商店/)).toBeInTheDocument()
+  expect(screen.getAllByText(/捆绑目录/).length).toBeGreaterThanOrEqual(2)
+})
+
 it('shows the market catalog and installs a template', async () => {
   const catalogList = vi.fn().mockResolvedValue({ items: [catalogEntry] })
   const install = vi.fn().mockResolvedValue({ skillId: '01ARZ3NDEKTSV4RRFFQ69G5FBB', name: 'tpl-meeting-minutes', status: 'published' })

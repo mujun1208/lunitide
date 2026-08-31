@@ -237,10 +237,11 @@ func stampOrEmpty(t time.Time) string {
 
 // AutomationHeadlessExecutor answers the executor that drives one scheduled
 // job through the durable chat pipeline (chat.start via HandleStreaming
-// with an event collector). Runs cap at 10 minutes.
+// with an event collector). Envelope deadline must stay inside
+// bridge.ChatStartDeadlineMS — 600000 was rejected as 请求超时参数无效.
 func (e *Engine) AutomationHeadlessExecutor() scheduler.Executor {
 	return func(ctx context.Context, job scheduler.Job) scheduler.Outcome {
-		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		runCtx, cancel := context.WithTimeout(ctx, time.Duration(bridge.ChatStartDeadlineMS)*time.Millisecond)
 		defer cancel()
 		isolatedID := ""
 		if strings.TrimSpace(job.SessionMode) == "isolated" {
@@ -258,7 +259,7 @@ func (e *Engine) AutomationHeadlessExecutor() scheduler.Executor {
 			Version: bridge.Version, Kind: "request",
 			ID: ulid.Make().String(), TraceID: ulid.Make().String(),
 			Method: "chat.start", SentAt: time.Now().UTC(),
-			Payload: payload, DeadlineMS: 600000,
+			Payload: payload, DeadlineMS: bridge.ChatStartDeadlineMS,
 		}
 		resp := e.HandleStreaming(runCtx, req, func(ev bridge.Event) error {
 			switch {

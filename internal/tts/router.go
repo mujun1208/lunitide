@@ -10,6 +10,7 @@ type RouterEngine struct {
 	sapi Engine
 	ref  Engine
 	edge Engine
+	volc Engine
 }
 
 type naturalVoiceCatalog interface {
@@ -19,7 +20,7 @@ type naturalVoiceCatalog interface {
 // NewRouterEngine wraps the platform (SAPI) engine with the cloud Edge
 // engine and the local reference-timbre engine.
 func NewRouterEngine(platform Engine) *RouterEngine {
-	return &RouterEngine{sapi: platform, ref: NewRefEngine(), edge: NewEdgeEngine()}
+	return &RouterEngine{sapi: platform, ref: NewRefEngine(), edge: NewEdgeEngine(), volc: NewVolcEngine()}
 }
 
 // NewRouterEngineWithEngines wires explicit SAPI and ref implementations
@@ -32,6 +33,11 @@ func NewRouterEngineWithEngines(sapi, ref Engine) *RouterEngine {
 // catalogue for handler tests.
 func NewRouterEngineWithAll(sapi, ref, edge Engine) *RouterEngine {
 	return &RouterEngine{sapi: sapi, ref: ref, edge: edge}
+}
+
+// NewRouterEngineWithVolc wires a fake or real Volc engine for tests.
+func NewRouterEngineWithVolc(sapi, ref, edge, volc Engine) *RouterEngine {
+	return &RouterEngine{sapi: sapi, ref: ref, edge: edge, volc: volc}
 }
 
 // Voices enumerates the platform engine catalogue (OneCore natural
@@ -48,6 +54,11 @@ func (r *RouterEngine) VoicesFor(engine string) ([]Voice, error) {
 			return nil, fmt.Errorf("%w: 云端语音引擎未装配", ErrEngineUnavailable)
 		}
 		return r.edge.Voices()
+	case EngineVolc:
+		if r.volc == nil {
+			return nil, fmt.Errorf("%w: 火山语音引擎未装配", ErrEngineUnavailable)
+		}
+		return r.volc.Voices()
 	case EngineRef:
 		if r.ref == nil {
 			return nil, fmt.Errorf("%w: 参考音色引擎未装配", ErrEngineUnavailable)
@@ -73,6 +84,11 @@ func (r *RouterEngine) VoicesFor(engine string) ([]Voice, error) {
 // natural/SAPI path so old payloads stay valid.
 func (r *RouterEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
 	switch in.Engine {
+	case EngineVolc:
+		if r.volc == nil {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 火山语音引擎未装配", ErrEngineUnavailable)
+		}
+		return r.volc.Synthesize(in)
 	case EngineRef:
 		if r.ref == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色引擎未装配", ErrEngineUnavailable)

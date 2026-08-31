@@ -2,7 +2,9 @@
 
 日期：2026-08-31  
 状态：终稿，按波落地。每一波一个 PR，验收不过不开始下一波。  
-画板摘要：`gateway-desktop-full-mark.canvas.tsx`（和本文冲突时以本文为准）。
+画板摘要：`gateway-desktop-full-mark.canvas.tsx`（和本文冲突时以本文为准）。  
+四家对标与完整整改：`docs/superpowers/specs/2026-08-31-peer-alignment-and-remediation.md`（主尺加权算法、问题清单、P0/P0.5/P1/P2 以那份为准；K/G/D/I 仍以本文 §6 为准）。  
+P0 真机勾选表：`docs/superpowers/specs/2026-08-31-p0-live-acceptance.md`。
 
 作废（不要按下面施工）：
 
@@ -36,13 +38,13 @@
 
 ## 2. 现码对照（第 5 波后，不要按旧绑死点施工）
 
-下面是**当前代码**，不是开工前的旧表。验收仍以 §6 的 K/G/D/I 为准；G1/G3/D1/D6/D11 必须在本机 Windows 桌面跑过才能报实测 4.8。
+下面是**当前代码**，不是开工前的旧表。验收仍以 §6 的 K/G/D/I 为准。G1/G2/G3/D6/D11 已本机勾（D11 用含 `--takeover` 的旁路桌面）。K/G/D 门闩可报主尺 4.8；I 不过对照停 4.6；R0 不过不得称正式发布。
 
 | 位置 | 事实 |
 |---|---|
 | `cmd/engine/main.go` | 已认证 RPC 结束只 `leave()`；仅握手 ACK 失败 `cancel()`。写 `engine.pid`。密钥经纪在引擎进程（DPAPI `secretlease.LocalClient`） |
 | `AdmitClient` | owner = 拉起引擎的 PID；同用户其它 PID 自动配对（管道 DACL 已排除其它用户）。`SessionGate(8)` |
-| `cmd/desktop/main.go` | 稳定管 `\\.\pipe\lunitide-gateway-<user>`；先重连再拉起；`--tray` 隐藏窗口；托盘「退出」按 `engine.pid` / pipe 对端 PID 停引擎（重连后 `command==nil` 也能停）。任务管理器杀窗口不杀引擎。`--rpc-health` 第二条客户端只做 `system.health` |
+| `cmd/desktop/main.go` | 稳定管 `\\.\pipe\lunitide-gateway-<user>`；先重连再拉起；`--tray` 隐藏窗口；托盘「退出」按 `engine.pid` / pipe 对端 PID 停引擎（重连后 `command==nil` 也能停）。任务管理器杀窗口不杀引擎。死引擎先放 `Local\lunitide-gateway` 再 `--takeover` 拉子进程。`--rpc-health` 第二条客户端只做 `system.health` |
 | `docs/adr/ADR-002-ipc-security.md` | 稳定名 + 多客户端配对；禁止非本机 / `0.0.0.0` |
 | `internal/ccapp/service.go` | 命名点击阶梯：Invoke/MSAA → Win32 → 本机像素 + hit-test。`verifyAfter` 截图失败 = error。宽屏映射目的地是 `ScreenSize()`，不走 1280 缩图当桌面 |
 | `internal/ccapp` `filterInput` | 有过截图后，x/y、id、name、光标点击都要当前 `frameId` |

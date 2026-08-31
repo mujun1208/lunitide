@@ -88,6 +88,77 @@ func TestValidateAcceptsVolcSpeechVoiceModels(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsVolcSpeechAsrAndTts(t *testing.T) {
+	p := Provider{ID: "01K00000000000000000000000", Name: "Volc", Protocol: ProtocolVolcSpeech, BaseURL: "https://openspeech.bytedance.com", Models: []Model{
+		{ModelID: "seed-asr-2.0", DisplayName: "seed-asr 2.0", IsDefault: true, Kind: KindASR, KindDefault: true},
+		{ModelID: "zh_female_xiaohe_uranus_bigtts", DisplayName: "小何", Kind: KindTTS, KindDefault: true},
+	}}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("volc asr+tts: %v", err)
+	}
+	p.Models = append(p.Models, Model{ModelID: "seed-asr-backup", DisplayName: "backup", Kind: KindASR, KindDefault: true})
+	if err := p.Validate(); err == nil {
+		t.Fatal("two asr kind defaults on one provider must fail")
+	}
+}
+
+func TestNormalizeKindMapsVoiceToAsr(t *testing.T) {
+	if NormalizeKind("voice") != KindASR {
+		t.Fatalf("voice = %q", NormalizeKind("voice"))
+	}
+	if NormalizeKind("asr") != KindASR || NormalizeKind("tts") != KindTTS {
+		t.Fatal("asr/tts must persist")
+	}
+	if !ValidKind("asr") || !ValidKind("tts") || !ValidKind("voice") || ValidKind("nope") {
+		t.Fatal("valid kinds")
+	}
+	if (Model{Kind: KindVoice}).EffectiveKind() != KindASR {
+		t.Fatal("leftover voice is listen")
+	}
+	if !IsSpeechKind(KindASR) || !IsSpeechKind(KindTTS) || !IsSpeechKind(KindVoice) || IsSpeechKind(KindLLM) {
+		t.Fatal("speech kinds")
+	}
+}
+
+func TestCatalogForKindVoiceIncludesAsrAndTts(t *testing.T) {
+	p := Provider{ID: "01K00000000000000000000006", Name: "Volc", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", Models: []Model{
+		{ModelID: "seed-asr-2.0", DisplayName: "asr", IsDefault: true, Kind: KindASR},
+		{ModelID: "zh_female_xiaohe_uranus_bigtts", DisplayName: "tts", Kind: KindTTS, KindDefault: true},
+	}}
+	speech := CatalogForKind([]Provider{p}, KindVoice)
+	if len(speech) != 2 || speech[0].Model.ModelID != "zh_female_xiaohe_uranus_bigtts" {
+		t.Fatalf("voice catalog = %#v", speech)
+	}
+	listen := CatalogForKind([]Provider{p}, KindASR)
+	if len(listen) != 1 || listen[0].Model.ModelID != "seed-asr-2.0" {
+		t.Fatalf("asr catalog = %#v", listen)
+	}
+	speak := CatalogForKind([]Provider{p}, KindTTS)
+	if len(speak) != 1 || speak[0].Model.ModelID != "zh_female_xiaohe_uranus_bigtts" {
+		t.Fatalf("tts catalog = %#v", speak)
+	}
+}
+
+func TestCanonicalVolcSpeechURLAcceptsOfficialFullPaths(t *testing.T) {
+	cases := []string{
+		"https://openspeech.bytedance.com",
+		"https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional",
+		"wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async",
+		"wss://openspeech.bytedance.com/api/v3/plan/tts/bidirection",
+		"https://ark.cn-beijing.volces.com/api/plan/v3",
+		"",
+	}
+	for _, raw := range cases {
+		got, err := CanonicalVolcSpeechURL(raw)
+		if err != nil || got != VolcSpeechOrigin {
+			t.Fatalf("CanonicalVolcSpeechURL(%q)=%q,%v", raw, got, err)
+		}
+	}
+	if _, err := CanonicalVolcSpeechURL("https://evil.example/v1"); err == nil {
+		t.Fatal("foreign host must fail")
+	}
+}
+
 func TestNormalizeBaseURLIPv6AndEscapedPath(t *testing.T) {
 	for raw, want := range map[string]string{
 		"HTTPS://[2001:DB8::1]:443/a/../v1":   "https://[2001:db8::1]/v1",

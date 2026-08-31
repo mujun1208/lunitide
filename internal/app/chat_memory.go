@@ -25,18 +25,22 @@ import (
 // instead of crowding the system prompt. Companion uses a tighter pinned
 // budget and skips the evidence channel to protect first-spoken-token latency.
 const (
-	pinnedInjectMaxItems     = 6
-	pinnedInjectMaxBytes     = 1536
-	companionPinnedMaxItems  = 3
-	companionPinnedMaxBytes  = 768
-	evidenceInjectMaxItems   = 4
-	evidenceInjectMaxBytes   = 3072
-	workingInjectMaxItems    = 3
-	workingInjectMaxBytes    = 1024
-	autoNominateMinUserRunes = 8
-	autoNominateMinAsstRunes = 40
-	autoNominateMaxContent   = 1800
-	memoryOpsLegacySubject   = "local-user"
+	pinnedInjectMaxItems       = 6
+	pinnedInjectMaxBytes       = 1536
+	companionPinnedMaxItems    = 3
+	companionPinnedMaxBytes    = 768
+	evidenceInjectMaxItems     = 4
+	evidenceInjectMaxBytes     = 3072
+	workingInjectMaxItems      = 3
+	workingInjectMaxBytes      = 1024
+	autoNominateMinUserRunes   = 8
+	autoNominateMinAsstRunes   = 40
+	preferenceMinAsstRunes     = 2
+	autoNominateMaxContent     = 1800
+	preferenceNominationReason = "用户声明的偏好，确认后进长期记忆"
+	memoryOpsLegacySubject     = "local-user"
+	expertLastNominationReason = "专家本轮摘要，确认后进长期记忆"
+	sessionLastMemoryKey       = "session:last"
 )
 
 type chatMemoryRequest struct {
@@ -393,8 +397,8 @@ func workingToSources(items []memory.Memory, sessionID string) []contextapp.Cont
 		if item.Scope == memory.ScopeSession && sessionID != "" && item.SourceID != nil && *item.SourceID != sessionID {
 			continue
 		}
-		content := strings.TrimSpace(item.Key + ": " + item.Content)
-		if content == "" || content == ": " {
+		content := formatWorkingMemoryContent(item)
+		if content == "" {
 			continue
 		}
 		out = append(out, contextapp.ContextSource{
@@ -406,6 +410,18 @@ func workingToSources(items []memory.Memory, sessionID string) []contextapp.Cont
 		})
 	}
 	return out
+}
+
+func formatWorkingMemoryContent(item memory.Memory) string {
+	key := strings.TrimSpace(item.Key)
+	content := strings.TrimSpace(key + ": " + strings.TrimSpace(item.Content))
+	if content == "" || content == ": " {
+		return ""
+	}
+	if key == sessionLastMemoryKey || (strings.HasPrefix(key, "expert:") && strings.HasSuffix(key, ":last")) {
+		return "未确认工作摘要（确认后才进长期记忆）：" + content
+	}
+	return content
 }
 
 func clipMemorySources(items []contextapp.ContextSource, maxItems, maxBytes int) []contextapp.ContextSource {
@@ -542,17 +558,53 @@ func renderPreferenceInstruction(instruction string, prefs []string) string {
 	return b.String()
 }
 
-func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText, assistantText, messageID string, companion bool) error {
-	if e == nil || companion || sessionID == "" || messageID == "" {
-		return nil
+func looksLikePreferenceTurn(userText string) bool {
+	t := strings.TrimSpace(userText)
+	if t == "" {
+		return false
 	}
-	settings := e.chatMemorySettings(ctx)
-	if !settings.MemoryEnabled || !settings.AutoNominate {
+	lower := strings.ToLower(t)
+	for _, n := range []string{
+		"记住", "请记住", "以后", "默认用", "默认都", "从现在起",
+		"都用中文", "请用中文", "不要再用", "我希望你",
+		"remember", "from now on", "always use", "please always",
+	} {
+		if strings.Contains(t, n) || strings.Contains(lower, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func turnLongEnoughForMemory(userText, assistantText string) bool {
+	if utf8.RuneCountInString(userText) < autoNominateMinUserRunes {
+		return false
+	}
+	need := autoNominateMinAsstRunes
+	if looksLikePreferenceTurn(userText) {
+		need = preferenceMinAsstRunes
+	}
+	return utf8.RuneCountInString(assistantText) >= need
+}
+
+func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText, assistantText, messageID string, companion bool) error {
+	if e == nil || sessionID == "" || messageID == "" {
 		return nil
 	}
 	userText = strings.TrimSpace(userText)
 	assistantText = strings.TrimSpace(assistantText)
-	if utf8.RuneCountInString(userText) < autoNominateMinUserRunes || utf8.RuneCountInString(assistantText) < autoNominateMinAsstRunes {
+	pref := looksLikePreferenceTurn(userText)
+	if companion && !pref {
+		return nil
+	}
+	settings := e.chatMemorySettings(ctx)
+	if !settings.MemoryEnabled {
+		return nil
+	}
+	if !settings.AutoNominate && !pref {
+		return nil
+	}
+	if !turnLongEnoughForMemory(userText, assistantText) {
 		return nil
 	}
 	gist := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
@@ -577,10 +629,14 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 		}},
 	}
 	if e.m10nomination != nil {
+		reason := "本轮对话自动提名"
+		if pref {
+			reason = preferenceNominationReason
+		}
 		_, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
 			SubjectID:       e.memorySubjectID(),
 			Doc:             doc,
-			Reason:          "本轮对话自动提名",
+			Reason:          reason,
 			Nominator:       "chat.auto",
 			SourceSessionID: sessionID,
 			Actor:           "engine",
@@ -645,6 +701,43 @@ func (e *Engine) maybeWriteExpertTurnMemories(ctx context.Context, sessionID, us
 	}
 }
 
+// writeSessionLastMemory is the cross-surface working gist: text → companion
+// continue → people “继续刚才的”. It is not a confirmed preference. Companion
+// turns skip auto-nominate (voice chitchat), but they still upsert this key
+// so the next surface can see “刚才”.
+func (e *Engine) writeSessionLastMemory(ctx context.Context, sessionID, userText, assistantText string) {
+	if e == nil || !memoryServiceAvailable(e.memories) || sessionID == "" {
+		return
+	}
+	settings := e.chatMemorySettings(ctx)
+	if !settings.MemoryEnabled {
+		return
+	}
+	userText = strings.TrimSpace(userText)
+	assistantText = strings.TrimSpace(assistantText)
+	if !turnLongEnoughForMemory(userText, assistantText) {
+		return
+	}
+	projectID := e.projectIDForSession(ctx, sessionID)
+	if projectID == "" {
+		return
+	}
+	src, srcType := sessionID, "session"
+	content := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
+	if err := e.upsertWorkingMemory(ctx, projectID, sessionLastMemoryKey, content, &src, &srcType); err != nil {
+		log.Printf("chat memory: session last write skipped: %v", err)
+	}
+}
+
+// recordPeopleTurnMemory is the colleague-surface closeout: working gist,
+// expert last, and a preference-shaped turn into the confirm inbox.
+// AutoNominate stays off by default; only 记住/以后/默认用… nominate.
+func (e *Engine) recordPeopleTurnMemory(ctx context.Context, sessionID, expertID, userText, assistantText, messageID string) {
+	e.writeExpertLastMemory(ctx, sessionID, expertID, userText, assistantText)
+	e.writeSessionLastMemory(ctx, sessionID, userText, assistantText)
+	_ = e.maybeAutoNominateTurn(ctx, sessionID, userText, assistantText, messageID, false)
+}
+
 func (e *Engine) writeExpertLastMemory(ctx context.Context, sessionID, expertID, userText, assistantText string) {
 	if e == nil || !memoryServiceAvailable(e.memories) || sessionID == "" {
 		return
@@ -670,6 +763,65 @@ func (e *Engine) writeExpertLastMemory(ctx context.Context, sessionID, expertID,
 	content := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
 	if err := e.upsertWorkingMemory(ctx, projectID, expertOwnedMemoryKey(expertID, "last"), content, &src, &srcType); err != nil {
 		log.Printf("chat memory: expert %s write skipped: %v", expertID, err)
+		return
+	}
+	e.maybeNominateExpertLast(ctx, sessionID, expertID, content)
+}
+
+func (e *Engine) maybeNominateExpertLast(ctx context.Context, sessionID, expertID, gist string) {
+	if e == nil || sessionID == "" || strings.TrimSpace(gist) == "" {
+		return
+	}
+	settings := e.chatMemorySettings(ctx)
+	if !settings.MemoryEnabled {
+		return
+	}
+	if e.m8memory != nil {
+		pending, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), 20)
+		if err == nil {
+			for _, item := range pending {
+				if item.Content == gist {
+					return
+				}
+			}
+		}
+	}
+	doc := m8core.PayloadDoc{
+		Content:     gist,
+		ScopeID:     m8app.LearningScope,
+		Sensitivity: m8core.SensPrivate,
+		Leaves: []m8core.SourceLeafClaim{{
+			JSONPointer: "/content",
+			EvidenceRef: clipRunes("expert://"+strings.TrimSpace(expertID)+"/"+sessionID, m8core.MaxEvidenceRef),
+			Digest:      m8core.DigestOf(gist),
+		}},
+	}
+	if e.m10nomination != nil {
+		_, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
+			SubjectID:       e.memorySubjectID(),
+			Doc:             doc,
+			Reason:          expertLastNominationReason,
+			Nominator:       "chat.expert",
+			SourceSessionID: sessionID,
+			Actor:           "engine",
+		})
+		if err != nil {
+			log.Printf("chat memory: expert last nomination skipped: %v", err)
+		}
+		return
+	}
+	if e.m8memory == nil {
+		return
+	}
+	_, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
+		SubjectID: e.memorySubjectID(),
+		Doc:       doc,
+		Inferred:  true,
+		Trust:     m8core.TrustUntrusted,
+		Actor:     "engine",
+	})
+	if err != nil {
+		log.Printf("chat memory: expert last propose skipped: %v", err)
 	}
 }
 

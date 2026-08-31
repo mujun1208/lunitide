@@ -496,6 +496,30 @@ func TestMcpAddTwoStdioNpxServersStayDistinct(t *testing.T) {
 	}
 }
 
+func TestMcpAddRemembersCuratedPresetID(t *testing.T) {
+	dir := t.TempDir()
+	e, _, _ := newM7RuntimeEngineHarness(t)
+	e.SetPersistDir(dir)
+	added := e.Handle(context.Background(), m7Request(bridge.MethodMcpAdd,
+		`{"origin":"manual","transport":"stdio","command":"npx","args":["-y","@playwright/mcp"],`+
+			`"riskConfirmed":true,"requestId":"preset-pw"}`, "idem-preset-pw"))
+	var ar struct {
+		EndpointID string `json:"endpointId"`
+	}
+	m7Decode(t, added, &ar)
+	if ar.EndpointID == "" {
+		t.Fatal("add returned empty endpoint")
+	}
+	if got := e.endpointPresetID(ar.EndpointID); got != "playwright" {
+		t.Fatalf("preset after add = %q", got)
+	}
+	second := NewEngine(nil, "test")
+	second.SetPersistDir(dir)
+	if got := second.endpointPresetID(ar.EndpointID); got != "playwright" {
+		t.Fatalf("preset after reload = %q", got)
+	}
+}
+
 func TestMcpAddGuardFamily(t *testing.T) {
 	e, _, _ := newM7RuntimeEngineHarness(t)
 	ctx := context.Background()

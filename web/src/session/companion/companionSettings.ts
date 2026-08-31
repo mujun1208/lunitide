@@ -3,12 +3,14 @@
 // migrations). The engine family picks the synthesis route: "edge"
 // (free Microsoft cloud neural voices, default), leftover "natural"
 // (OneCore) / "sapi" (classic desktop, no longer offered), or "ref"
-// (GPT-SoVITS local cloning). Saved SAPI/OneCore installs move onto
-// Edge; the local clone path stays. rev < 2 OneCore defaults are
-// moved onto the cloud engine once.
+// (GPT-SoVITS local cloning), or "volc" (Ark Agent Plan seed-tts).
+// Saved SAPI/OneCore installs move onto Edge; the local clone path stays.
+// rev < 2 OneCore defaults are moved onto the cloud engine once.
 import type { VoicePath } from './voicePersonas'
 
-export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref'
+import { VOLC_DEFAULT_VOICE_ID, isVolcSpeakerId } from './volcVoices'
+
+export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref' | 'volc'
 /** Product-level voice channel. MiniCPM-o is not a TTS engine. */
 export type { VoicePath }
 /** normal = default endpointing; noisy = tighter mic gate for cafes / shared rooms. */
@@ -117,6 +119,7 @@ const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['edge']
 
 export function companionEngineProbeOrder(primary: CompanionEngine): CompanionEngine[] {
   const start = primary === 'sapi' || primary === 'natural' ? 'edge' : primary
+  if (start === 'volc') return ['volc']
   const order: CompanionEngine[] = [start]
   for (const engine of ENGINE_PROBE_FALLBACK) {
     if (!order.includes(engine)) order.push(engine)
@@ -127,6 +130,8 @@ export function companionEngineProbeOrder(primary: CompanionEngine): CompanionEn
 /** Cloud voice ids are invalid on OneCore/SAPI — drop them on engine switch. */
 export function voiceIdForEngineSwitch(from: CompanionEngine, to: CompanionEngine, voiceId: string): string {
   if (!voiceId || from === to) return voiceId
+  if (to === 'volc') return isVolcSpeakerId(voiceId) ? voiceId : ''
+  if (from === 'volc') return ''
   if (from === 'edge' && (to === 'natural' || to === 'sapi')) {
     if (/Neural|::|^zh-CN-/i.test(voiceId)) return ''
   }
@@ -193,8 +198,12 @@ export function loadCompanionSettings(): CompanionSettings {
     if (voicePath === 'local') {
       engine = 'ref'
     } else if (voicePath === 'volc') {
-      engine = 'edge'
-      if (voiceId.startsWith('refpack:')) voiceId = ''
+      if (engine !== 'volc') persist = true
+      engine = 'volc'
+      if (!isVolcSpeakerId(voiceId)) {
+        voiceId = VOLC_DEFAULT_VOICE_ID
+        persist = true
+      }
     } else if (engine === 'natural' || engine === 'sapi') {
       // Classic SAPI / OneCore are no longer offered — they were the
       // tinny 本机语音 option. Move onto Edge rather than keep speaking it.
@@ -213,11 +222,7 @@ export function loadCompanionSettings(): CompanionSettings {
       wakeVad: typeof parsed.wakeVad === 'boolean' ? parsed.wakeVad : fallback.wakeVad,
       fullDuplex: typeof parsed.fullDuplex === 'boolean' ? parsed.fullDuplex : fallback.fullDuplex,
       instantAck,
-      voiceBargeIn: typeof parsed.voiceBargeIn === 'boolean'
-        ? parsed.voiceBargeIn
-        : voicePath === 'volc' || voicePath === 'local'
-          ? true
-          : fallback.voiceBargeIn,
+      voiceBargeIn: typeof parsed.voiceBargeIn === 'boolean' ? parsed.voiceBargeIn : fallback.voiceBargeIn,
       interruptHotkey,
       speechEnvironment: parsed.speechEnvironment === 'noisy' ? 'noisy' : fallback.speechEnvironment,
       // Absent for anyone who saved settings before the local recognizer
@@ -260,7 +265,7 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 }
 
 function isEngine(value: unknown): value is CompanionEngine {
-  return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref'
+  return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref' || value === 'volc'
 }
 
 function isVoicePath(value: unknown): value is VoicePath {
@@ -282,15 +287,20 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
   return fallback
 }
 
-export function applyVoicePath(settings: CompanionSettings, path: VoicePath): CompanionSettings {
+export function applyVoicePath(settings: CompanionSettings, path: VoicePath, opts?: { volcTtsReady?: boolean }): CompanionSettings {
   if (path === 'local') {
     const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
-    return { ...settings, voicePath: 'local', engine: 'ref', voiceId, voiceBargeIn: true, recognizer: 'local' }
+    return { ...settings, voicePath: 'local', engine: 'ref', voiceId, recognizer: 'local' }
   }
-  const voiceId = settings.voiceId.startsWith('refpack:') ? '' : settings.voiceId
   if (path === 'volc') {
-    return { ...settings, voicePath: 'volc', engine: 'edge', voiceId, voiceBargeIn: true }
+    if (opts?.volcTtsReady === false) {
+      const voiceId = settings.voiceId.startsWith('refpack:') || isVolcSpeakerId(settings.voiceId) ? '' : settings.voiceId
+      return { ...settings, voicePath: 'volc', engine: 'edge', voiceId }
+    }
+    const voiceId = isVolcSpeakerId(settings.voiceId) ? settings.voiceId : VOLC_DEFAULT_VOICE_ID
+    return { ...settings, voicePath: 'volc', engine: 'volc', voiceId }
   }
+  const voiceId = settings.voiceId.startsWith('refpack:') || isVolcSpeakerId(settings.voiceId) ? '' : settings.voiceId
   return { ...settings, voicePath: 'cloud', engine: 'edge', voiceId }
 }
 

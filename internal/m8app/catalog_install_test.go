@@ -89,6 +89,12 @@ func TestInstallAgencyAgentProjectCreatesExpert(t *testing.T) {
 	for _, row := range listed.Experts {
 		if row.Name == item.Name {
 			found = true
+			if row.CatalogItemID != item.ID {
+				t.Fatalf("catalog_item_id = %q, want %q", row.CatalogItemID, item.ID)
+			}
+			if item.ResolvedKind() == m8app.ExpertKindAgent && row.Kind != m8app.ExpertKindAgent {
+				t.Fatalf("kind = %q, want agent", row.Kind)
+			}
 		}
 	}
 	if !found {

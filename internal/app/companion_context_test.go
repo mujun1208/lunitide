@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -257,5 +258,15 @@ func TestNoteCompanionDesktopOpen(t *testing.T) {
 	ctx := e.loadCompanionContext("s1")
 	if ctx.ActiveAppName != "汽水音乐" || ctx.Kind != "music_app" {
 		t.Fatalf("ctx = %+v", ctx)
+	}
+}
+
+func TestCompanionExecuteRejectsCommandAndIM(t *testing.T) {
+	e := NewEngine(nil, "test")
+	for _, name := range []string{"command.run", "im.send", "cc.mouse_click"} {
+		_, err := e.executeUserToolWithCompanion(context.Background(), executionModeFullAccess, "s1", name, json.RawMessage(`{}`), nil, true)
+		if err == nil || !strings.Contains(err.Error(), "月伴不能") {
+			t.Fatalf("%s must be denied on companion, got %v", name, err)
+		}
 	}
 }

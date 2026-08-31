@@ -121,6 +121,14 @@ func refLiveness(endpoint string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// IsLaunching is true only while a spawn is in flight and /docs is still
+// silent. Synthesize uses this to return ErrRefEngineStarting immediately
+// instead of blocking another 25s on every companion retry.
+func (h *RefHost) IsLaunching(endpoint string) bool {
+	state, _ := h.Status(endpoint)
+	return state == RefHostLaunching
+}
+
 // Status reports the live host state. It re-probes /docs when idle
 // (cheap) so a server the user started manually shows as online, and
 // keeps "launching" while a spawn is in flight.

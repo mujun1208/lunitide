@@ -6,6 +6,8 @@ import {
   conversationExpertEmoji,
   conversationExpertKind,
   conversationExpertRole,
+  expertCatalogKey,
+  expertKindOf,
   mcpBindKey,
   missingPreferredSkills,
   preferredMcpForExperts,
@@ -78,6 +80,15 @@ it('matches published catalog names without treating them as composer chips', ()
   const published = {id: '01ARZ3NDEKTSV4RRFFQ69G5F01', name: 'tpl-slide-builder', entryPoint: 'builtin://slide-builder'}
   expect(skillMatchesPreferred(published, ['slide-builder'])).toBe(true)
   expect(preferredSkillsForExperts([{name: 'PPT专家'}])).toEqual(['slide-builder', 'web-researcher', 'mermaid-diagrams'])
+})
+
+it('keeps a renamed specialist as an agent when the catalog id is present', () => {
+  expect(expertCatalogKey({name: '演示顾问', catalogItemId: 'ppt-expert'})).toBe('ppt-expert')
+  expect(expertKindOf({name: '演示顾问', catalogItemId: 'ppt-expert'})).toBe('agent')
+  expect(expertKindOf({name: '演示顾问'})).toBe('prompt_skill')
+  expect(preferredSkillsForExperts([{name: '演示顾问', id: 'ppt-expert'}])).toEqual([
+    'slide-builder', 'web-researcher', 'mermaid-diagrams',
+  ])
 })
 
 it('opens conversation specialists as colleagues and stores MCP bindings beside skills', () => {

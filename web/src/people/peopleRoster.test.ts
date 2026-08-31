@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, isAgentContact, lastPreview, orgGroupCollapsed, orgGroupLabel, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadTitle, trustLabel, unreadTotal, visiblePeopleThreads, type PeopleContact } from './peopleRoster'
+import { contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, isAgentContact, lastPreview, orgGroupCollapsed, orgGroupLabel, peopleShowsOpenThread, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadTitle, trustLabel, unreadTotal, visiblePeopleThreads, type PeopleContact } from './peopleRoster'
 
 const contact = (partial: Partial<PeopleContact>): PeopleContact => ({
   subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -98,10 +98,19 @@ describe('people roster grouping', () => {
     expect(filterThreads(threads, '研发群').map(t => t.title)).toEqual(['研发群'])
   })
 
+  test('hides a leftover thread when the address-book card is self', () => {
+    const leftover = { kind: 'direct' as const, title: '', members: [{ nickname: 'Excel表格制作专家', self: false }] }
+    expect(peopleShowsOpenThread('contacts', leftover, { self: false })).toBe(true)
+    expect(peopleShowsOpenThread('contacts', leftover, { self: true })).toBe(false)
+    expect(peopleShowsOpenThread('chats', leftover, { self: true })).toBe(false)
+    expect(peopleShowsOpenThread('me', leftover, { self: false })).toBe(false)
+    expect(peopleShowsOpenThread('contacts', undefined, { self: false })).toBe(false)
+  })
+
   test('labels local agent contacts without treating emoji as images', () => {
     const agent = contact({ nickname: 'PPT专家', orgName: '月汐智能体', avatar: '📊', trustState: 'trusted' })
     expect(isAgentContact(agent)).toBe(true)
-    expect(trustLabel(agent.trustState, agent.orgName)).toBe('智能体')
+    expect(trustLabel(agent.trustState, agent.orgName)).toBe('同事专家')
     expect(contactAvatarIsImage('📊')).toBe(false)
     expect(contactAvatarIsImage('data:image/png;base64,xx')).toBe(true)
   })

@@ -93,6 +93,15 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !isDesktopControlTool("desktop.open") || !isDesktopControlTool("media.play") || !isDesktopControlTool("browser.act") {
 		t.Fatal("open/play/browser must raise the companion tool budget")
 	}
+	if got := pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", "screenshot frameId=01ARZ3NDEKTSV4RRFFQ69G5FAV", []string{"computer.act"}, true, true, true, true, 0); got != "desktop" {
+		t.Fatalf("screenshot + lead-in must keep desktop loop, got %q", got)
+	}
+	if got := pickTurnContinueKind("好，我帮你查一下。", "好，我帮你查一下。", "ok", []string{"web.search"}, true, false, true, true, 0); got != "leadin" {
+		t.Fatalf("non-desktop lead-in must ask for a spoken result, got %q", got)
+	}
+	if got := pickTurnContinueKind("Word 里已经写上号码了。", "Word 里已经写上号码了。", `typed "204040"`, []string{"desktop.type"}, true, true, true, true, 0); got != "" {
+		t.Fatalf("settled desktop result must stop, got %q", got)
+	}
 }
 
 type continueAdapter struct {

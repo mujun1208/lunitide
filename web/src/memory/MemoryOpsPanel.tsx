@@ -316,7 +316,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
             <input type="number" min={1} max={90} value={settings.growthDays} onChange={e => setSettings(s => ({ ...s, growthDays: Math.min(90, Math.max(1, Number(e.target.value) || 1)) }))} style={{ width: '70px', padding: '4px 6px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px' }} />
           </label>
         </div>
-        <p style={{ margin: '12px 0 0', color: 'var(--muted)', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把本轮要点放进确认台，不会自动升格为事实。</p>
+        <p style={{ margin: '12px 0 0', color: 'var(--muted)', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把普通回合要点放进确认台。你说「记住 / 以后 / 默认用」这类声明式偏好时，即使关掉自动提名也会进确认台，不会自动升格为事实。</p>
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button style={primaryBtnStyle} disabled={busy !== ''} onClick={() => void saveSettings()}>{busy === 'settings' ? '保存中…' : '保存设置'}</button>
           <button style={btnStyle} disabled={busy !== ''} onClick={() => void doExport()}>{busy === 'export' ? '导出中…' : '导出记忆数据'}</button>

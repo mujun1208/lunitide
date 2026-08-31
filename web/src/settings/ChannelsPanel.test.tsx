@@ -87,6 +87,7 @@ describe('ChannelsPanel', () => {
     expect(screen.getByLabelText('钉钉 入站 App ID')).toBeInTheDocument()
     expect(screen.getAllByText(/本机已登录客户端代发，不能收消息/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/关窗口 ≠ 退出助手/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/第一条发来的人会写入白名单/).length).toBeGreaterThan(0)
   })
 
   test('shows WeCom Bot ID and Secret for inbound long-connect', async () => {

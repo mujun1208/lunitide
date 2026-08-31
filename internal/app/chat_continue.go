@@ -129,6 +129,26 @@ func shouldContinueDesktopTurn(text string, nudges int) bool {
 	return !desktopTurnSettled(text)
 }
 
+// pickTurnContinueKind decides why the tool loop should take another
+// model step. Desktop mid-task beats companion lead-in: a screenshot plus
+// 「好，我来操作电脑」 is not done (that used to ask the model to narrate
+// “完成了” after only looking).
+func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int) string {
+	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
+		return "ask"
+	}
+	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
+		return "incomplete"
+	}
+	if companion && usedDesktop && shouldContinueDesktopTurn(stepText, nudges) {
+		return "desktop"
+	}
+	if companion && usedTools && isCompanionLeadInOnly(assistantAll) && nudges < maxContinueNudges {
+		return "leadin"
+	}
+	return ""
+}
+
 func companionWantsDesktopControl(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {

@@ -81,6 +81,9 @@ func TestLocalBrainUserErrorAndPrefix(t *testing.T) {
 	if !strings.Contains(localBrainUserError(BrainCodex, errLocalBrainMissing), "PATH") {
 		t.Fatal("PATH miss must be visible")
 	}
+	if note := localBrainFallbackNotice(BrainCodex, errLocalBrainMissing); !strings.Contains(note, "已改用月汐引擎") || !strings.Contains(note, "不是本机 Codex") {
+		t.Fatalf("fallback = %q", note)
+	}
 	if localBrainPrefix(BrainCodex) != "【本机 Codex】\n" {
 		t.Fatal(localBrainPrefix(BrainCodex))
 	}

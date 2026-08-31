@@ -1,6 +1,7 @@
 import { getProviderBridge, getTtsBridge } from '../../bridge/client'
 import type { ProviderDTO } from '../../generated/bridge'
-import { pickDefaultLLM, pickDefaultVoice } from '../../provider/modelKind'
+import { hasConfiguredVolcTts, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice } from '../../provider/modelKind'
+import { VOLC_OFFICIAL_SPEAKERS } from './volcVoices'
 import { localAsrStatus } from './localAsr'
 import { shownVoicePath, type VoicePath } from './voicePersonas'
 
@@ -19,6 +20,9 @@ export type CompanionEntryReport = {
   listenReady: boolean
   speakReady: boolean
   hasVolc: boolean
+  hasVolcTts: boolean
+  /** Official speaker id when a TTS row exists. Never the seed-tts resource id. */
+  speakVoiceId?: string
   allowListen: boolean
   blockReason: string
 }
@@ -76,6 +80,10 @@ export async function inspectCompanionEntry(
   const llmReady = items.length === 0 ? true : !!llm
   const volc = pickDefaultVoice(items)
   const hasVolc = !!volc
+  const hasVolcTts = hasConfiguredVolcTts(items)
+  const ttsPick = hasVolcTts ? pickDefaultTTS(items) : undefined
+  const speakVoiceId = ttsPick?.modelId
+  const speakerName = speakVoiceId ? VOLC_OFFICIAL_SPEAKERS.find(s => s.id === speakVoiceId)?.name : undefined
 
   let listenReady = true
   let listenLabel = '系统识别'
@@ -93,13 +101,32 @@ export async function inspectCompanionEntry(
 
   let speakReady = true
   let speakLabel = '晓晓'
-  if (path === 'local') {
+  let speakState: LightKind = 'on'
+  if (path === 'volc') {
+    speakLabel = hasVolcTts ? (speakerName ? `火山 · ${speakerName}` : '火山 seed-tts') : '晓晓（未配朗读）'
+    speakReady = true
+    speakState = 'on'
+  } else if (path === 'local') {
     speakLabel = 'GPT-SoVITS'
     const ref = await withBudget(
       (probes.refEngine ?? (endpoint => getTtsBridge().ensureRefEngine({ refEndpoint: endpoint || undefined })))(refEndpoint),
       { state: 'offline' },
     )
-    speakReady = !ref.timedOut && ref.value.state === 'online'
+    if (ref.timedOut) {
+      speakReady = false
+      speakState = 'warn'
+      speakLabel = 'GPT-SoVITS 检测中'
+    } else if (ref.value.state === 'online') {
+      speakReady = true
+      speakState = 'on'
+    } else if (ref.value.state === 'launching') {
+      speakReady = false
+      speakState = 'warn'
+      speakLabel = 'GPT-SoVITS 启动中'
+    } else {
+      speakReady = false
+      speakState = 'off'
+    }
   }
 
   const thinkLabel = llm?.modelId || (llmReady ? '对话模型' : '未配置')
@@ -118,13 +145,15 @@ export async function inspectCompanionEntry(
   return {
     lights: [
       { key: 'listen', title: '听', label: listenLabel, state: listenReady ? 'on' : 'off' },
-      { key: 'speak', title: '说', label: speakLabel, state: speakReady ? 'on' : 'off' },
+      { key: 'speak', title: '说', label: speakLabel, state: path === 'local' ? speakState : speakReady ? 'on' : 'off' },
       { key: 'think', title: '想', label: thinkLabel, state: llmReady ? 'on' : 'off' },
     ],
     llmReady,
     listenReady,
     speakReady,
     hasVolc,
+    hasVolcTts,
+    speakVoiceId,
     allowListen,
     blockReason,
   }

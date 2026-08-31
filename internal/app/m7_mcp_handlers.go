@@ -71,6 +71,9 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		Enabled:    true,
 		State:      res.State,
 	})
+	if id := presetIDFromCommandArgs(p.Command, p.Args); id != "" {
+		e.rememberMcpPreset(res.EndpointID, id)
+	}
 	return bridge.Success(r.ID, struct {
 		EndpointID       string `json:"endpointId"`
 		State            string `json:"state"`

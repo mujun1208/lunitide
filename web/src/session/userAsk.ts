@@ -112,3 +112,31 @@ export function looksLikeFilePickerHandoff(summary?: string): boolean {
 export function filePickerHandoffKey(activities: Array<{callId: string; summary?: string}>): string {
   return activities.filter(item => looksLikeFilePickerHandoff(item.summary)).map(item => item.callId).join('|')
 }
+
+export const UAC_ASK: UserAskPack = {
+  title: '系统提权',
+  questions: [
+    {
+      id: 'uac-dialog',
+      prompt: '屏幕上出现了 UAC / 系统提权对话框。我不能代点「是」。请你自己确认或取消。',
+      options: [
+        {id: 'done', label: '我已经处理完了'},
+        {id: 'cancel', label: '我点了取消'},
+        {id: 'wait', label: '稍等一下'},
+      ],
+    },
+  ],
+}
+
+export function looksLikeUACHandoff(summary?: string): boolean {
+  const text = (summary ?? '').trim().toLowerCase()
+  if (!text) return false
+  if (text.includes('needs_user') && (text.includes('uac') || text.includes('提权'))) {
+    return true
+  }
+  return text.includes('uac dialog') || text.includes('elevation dialog')
+}
+
+export function uacHandoffKey(activities: Array<{callId: string; summary?: string}>): string {
+  return activities.filter(item => looksLikeUACHandoff(item.summary)).map(item => item.callId).join('|')
+}

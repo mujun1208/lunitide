@@ -2,6 +2,7 @@
 // It never bounces the user to Settings: 云端 is the default card, and a
 // saved 本地 card is kept.
 import { applyVoicePath, hasExplicitCompanionVoicePath, loadCompanionSettings, saveCompanionSettings, type CompanionSettings } from './companionSettings'
+import { isVolcSpeakerId } from './volcVoices'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import type { VoicePath } from './voicePersonas'
 import { inspectCompanionEntry, pendingCompanionLights, type CompanionEntryReport, type CompanionLightProbes } from './companionLights'
@@ -34,9 +35,16 @@ export async function prepareCompanionEntry(
   let report = await inspectCompanionEntry(voicePath, settings.refEndpoint, probes)
   if (voicePath === 'cloud' && !explicitPath && report.hasVolc) {
     voicePath = 'volc'
-    settings = applyVoicePath(loaded, 'volc')
+    settings = applyVoicePath(loaded, 'volc', { volcTtsReady: report.hasVolcTts })
     saveCompanionSettings(settings)
     report = await inspectCompanionEntry('volc', settings.refEndpoint, probes)
+  }
+  if (voicePath === 'volc') {
+    const priorVoiceId = settings.voiceId
+    settings = applyVoicePath(settings, 'volc', { volcTtsReady: report.hasVolcTts })
+    if (report.hasVolcTts && report.speakVoiceId && !isVolcSpeakerId(priorVoiceId)) {
+      settings = { ...settings, voiceId: report.speakVoiceId }
+    }
   }
   return { settings, voicePath, ...report }
 }

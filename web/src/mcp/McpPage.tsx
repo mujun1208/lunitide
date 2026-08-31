@@ -8,6 +8,8 @@ type Endpoint=McpListResult['endpoints'][number]
 type View='installed'|'market'
 
 const STATE_LABEL:Record<string,string>={probe:'连接中',ready:'已连接',degraded:'连接异常',revoked:'已删除',quarantined:'连接失败'}
+const CHROME_ATTACH_PRESETS=new Set(['chrome-devtools','browsermcp'])
+const chromeAttachNote='人装才生效，不是默认电脑控制，月伴不会自动安装。默认网页自动化请用 Playwright。'
 const MANUAL_TEMPLATE=`{
   "mcpServers": {
     "example": {
@@ -24,6 +26,7 @@ const statusOf=(item:Endpoint)=>{
 const packageName=(args?:string[])=>args?.find(item=>item.startsWith('@')||item.includes('mcp'))??''
 const installedKey=(item:Endpoint)=>`${item.command??''}|${packageName(item.args)}`
 const presetKey=(preset:Preset)=>`${preset.command}|${packageName(preset.args)}`
+const presetIdForEndpoint=(item:Endpoint,presets:readonly Preset[])=>presets.find(preset=>presetKey(preset)===installedKey(item))?.id??''
 
 type ParsedServer={name:string;transport:'stdio'|'https';command?:string;args?:string[];url?:string}
 
@@ -126,7 +129,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
 
  return <main className="skill-center mcp-page">
   <header className="skill-center-header">
-   <div><h1>MCP</h1><p>已安装 {endpoints.filter(item=>item.state!=='revoked').length} 个 · 市场 {presets.length} 个可点选安装 · 已连接 {connected} · 失败 {failed}</p><small>点加号安装成熟 MCP；也可以手动填写 JSON 接到你的清单。同一市场项只安装一次。</small></div>
+   <div><h1>MCP</h1><p>已安装 {endpoints.filter(item=>item.state!=='revoked').length} 个 · 市场 {presets.length} 个可点选安装 · 已连接 {connected} · 失败 {failed}</p><small>点加号安装成熟 MCP；也可以手动填写 JSON 接到你的清单。同一市场项只安装一次。Chrome DevTools / Browser MCP 要人点安装，不是默认电脑控制。</small></div>
    <button className="primary skill-chat-create" onClick={()=>setCreateOpen(true)}>＋ 创建 MCP</button>
   </header>
   <section className="skill-center-toolbar">
@@ -154,16 +157,17 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
        {installed?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>void installPreset(preset)}>{busy===preset.id?'…':'＋'}</button>}
       </header>
       <p>{preset.description}</p>
+      {CHROME_ATTACH_PRESETS.has(preset.id)&&<p className="setting-desc">{chromeAttachNote}</p>}
       {argDraft?.id===preset.id&&!preset.argDefault&&<div className="mcp-arg-row"><input aria-label={`${preset.name} 参数`} placeholder={preset.argHint??'请输入参数'} value={argDraft.value} onChange={e=>setArgDraft({id:preset.id,value:e.target.value})}/><button className="primary" disabled={!argDraft.value.trim()||Boolean(busy)} onClick={()=>void installPreset(preset,argDraft.value)}>安装</button></div>}
       <footer><small>{preset.args.join(' ')}</small></footer>
      </article>
     })}</div>:<div className="empty"><b>没有匹配的 MCP</b><span>换个分类或关键字再试。</span></div>}
    </section>
   </>:<section className="expert-card-list" aria-label="已安装 MCP">
-   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);return <article className="expert-card mcp-card" key={item.endpointId}>
+   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);return <article className="expert-card mcp-card" key={item.endpointId}>
     <div className="expert-card-main">
      <b>{item.displayName||packageName(item.args)||item.endpointId}</b>
-     <small>{item.transport==='https'?'远程 HTTPS':'本地 stdio'} · {item.origin==='market'?'市场':'手动'} · {item.command?`${item.command} ${item.args?.join(' ')??''}`:item.url}</small>
+     <small>{item.transport==='https'?'远程 HTTPS':'本地 stdio'} · {presetId?`策展预置 ${presetId}`:(item.origin==='market'?'市场':'手动')} · {item.command?`${item.command} ${item.args?.join(' ')??''}`:item.url}</small>
     </div>
     <i className={`skill-status status-${status.id==='ready'?'published':status.id==='off'||status.id==='degraded'?'disabled':status.id==='quarantined'?'deprecated':'draft'}`}>{status.label}</i>
     <div className="expert-card-actions">

@@ -101,6 +101,28 @@ func TestRefHostAdoptsInFlightLaunch(t *testing.T) {
 	h.Stop()
 }
 
+func TestRefHostIsLaunchingSkipsDocsOnline(t *testing.T) {
+	if _, err := os.Stat(`C:\Windows\System32\cmd.exe`); err != nil {
+		t.Skip("windows-only spawn test")
+	}
+	dir := t.TempDir()
+	bat := filepath.Join(dir, "slow-start.bat")
+	if err := os.WriteFile(bat, []byte("@echo off\r\nping -n 20 127.0.0.1 > nul\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewRefHost(bat)
+	if h.IsLaunching("http://127.0.0.1:1") {
+		t.Fatal("idle host must not report launching")
+	}
+	if err := h.EnsureRunning("http://127.0.0.1:1", 80*time.Millisecond); !errors.Is(err, ErrRefEngineStarting) {
+		t.Fatalf("EnsureRunning = %v", err)
+	}
+	if !h.IsLaunching("http://127.0.0.1:1") {
+		t.Fatal("in-flight spawn must report launching")
+	}
+	h.Stop()
+}
+
 func TestRefMetaCarriesHostState(t *testing.T) {
 	// RefPackMeta must embed the host state without panicking on a
 	// not_configured host (no launcher, dead endpoint).

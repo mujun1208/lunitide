@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getIdentityBridge, getPeopleBridge, type IdentityBridge, type PeopleBridge } from '../bridge/client'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getFeedbackBridge, getIdentityBridge, getMemoryBridge, getPeopleBridge, type FeedbackBridge, type IdentityBridge, type MemoryBridge, type PeopleBridge } from '../bridge/client'
 import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO } from '../generated/bridge'
 import { clipboardImages, normalizePastedImages } from '../session/attachments'
+import { PendingMemoryBanner } from '../session/PendingMemoryBanner'
+import { pickLatestPending, type PendingMemoryItem } from '../session/pendingMemory'
 import { ProfilePanel } from '../settings/ProfilePanel'
 import { Dialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
@@ -9,7 +11,7 @@ import { captureThisPcFrame } from './peopleCapture'
 import { ScreenCropOverlay } from './ScreenCropOverlay'
 import { stageBrowserFile } from './peopleStage'
 import { filterMentionMembers, insertMention, mentionQuery, parseClaimedTasks, pendingClaimTask } from './peopleMentions'
-import { PEOPLE_EMOJI, contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, isAgentContact, lastPreview, orgGroupCollapsed, relativeTime, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadPeer, threadTitle, trustLabel, visiblePeopleThreads } from './peopleRoster'
+import { PEOPLE_EMOJI, contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, isAgentContact, lastPreview, orgGroupCollapsed, peopleShowsOpenThread, relativeTime, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadPeer, threadTitle, trustLabel, visiblePeopleThreads } from './peopleRoster'
 
 const STICK_PX = 48
 
@@ -20,6 +22,8 @@ type Rail = 'chats' | 'contacts' | 'me'
 export function PeoplePage({
   identity = getIdentityBridge(),
   people = getPeopleBridge(),
+  feedback = getFeedbackBridge(),
+  memory = getMemoryBridge(),
   initialRail = 'chats',
   initialPeerSubjectId,
   initialPeerName,
@@ -27,6 +31,8 @@ export function PeoplePage({
 }: {
   identity?: IdentityBridge
   people?: PeopleBridge
+  feedback?: FeedbackBridge
+  memory?: MemoryBridge
   initialRail?: Rail
   initialPeerSubjectId?: string
   initialPeerName?: string
@@ -65,6 +71,9 @@ export function PeoplePage({
     min: 240,
     max: () => Math.min(480, Math.max(280, window.innerWidth - 420)),
   })
+  const [pendingPref, setPendingPref] = useState<PendingMemoryItem>()
+  const [prefBusy, setPrefBusy] = useState(false)
+  const prefDismissedRef = useRef('')
   const [composerHeight, startComposerResize] = usePanelResize({
     storageKey: 'lunitide:people-composer-height',
     initial: 96,
@@ -179,6 +188,40 @@ export function PeoplePage({
     const timer = window.setTimeout(() => { void people.threadTyping({ threadId: thread.threadId }).catch(() => {}) }, 600)
     return () => window.clearTimeout(timer)
   }, [draft, thread, people])
+
+  const loadPendingPref = useCallback(async () => {
+    try {
+      const r = await feedback.candidates({ limit: 3 })
+      setPendingPref(pickLatestPending(r.items, prefDismissedRef.current))
+    } catch {
+      setPendingPref(undefined)
+    }
+  }, [feedback])
+  useEffect(() => {
+    void loadPendingPref()
+    const timer = window.setTimeout(() => { void loadPendingPref() }, 500)
+    return () => window.clearTimeout(timer)
+  }, [loadPendingPref, messages.length])
+  const decidePref = async (action: 'confirm' | 'later') => {
+    if (!pendingPref) return
+    if (action === 'later') {
+      prefDismissedRef.current = pendingPref.candidateId
+      setPendingPref(undefined)
+      return
+    }
+    if (!memory.confirmCandidate || prefBusy) return
+    setPrefBusy(true)
+    try {
+      await memory.confirmCandidate({ candidateId: pendingPref.candidateId, confirmationToken: pendingPref.confirmationToken, action: 'confirm', requestId: `people-${Date.now()}` })
+      prefDismissedRef.current = pendingPref.candidateId
+      setPendingPref(undefined)
+      showNotice('已确认，后续对话会遵守这条偏好')
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : '确认偏好失败', true)
+    } finally {
+      setPrefBusy(false)
+    }
+  }
 
   const visibleContacts = useMemo(() => filterContacts(contacts, rosterQuery), [contacts, rosterQuery])
   const groups = useMemo(() => groupContactsByOrg(visibleContacts), [visibleContacts])
@@ -397,7 +440,7 @@ export function PeoplePage({
   }
 
   const title = threadHeading(thread ?? {}, '同事对话', me?.subjectId)
-  const showThread = rail !== 'me' && thread
+  const showThread = peopleShowsOpenThread(rail, thread, card)
 
   return (
     <div className="people-shell" data-rail={rail} style={{ '--people-mid-width': `${midWidth}px` } as React.CSSProperties}>
@@ -483,7 +526,7 @@ export function PeoplePage({
       <section className="people-thread" aria-label={rail === 'me' ? '个人资料' : '同事对话'}>
         {rail === 'me' ? (
           <ProfilePanel identity={identity} people={people} />
-        ) : showThread ? (
+        ) : showThread && thread ? (
           <>
             <header>
               <div className="people-thread-ident">
@@ -510,6 +553,7 @@ export function PeoplePage({
                 <label className="people-search">搜索<input value={query} onChange={e => setQuery(e.target.value)} placeholder="本会话历史" aria-label="搜索本会话" /></label>
               </div>
             </header>
+            {pendingPref ? <PendingMemoryBanner item={pendingPref} busy={prefBusy} onConfirm={() => void decidePref('confirm')} onLater={() => void decidePref('later')} /> : null}
             {thread.kind === 'group' && membersOpen && (
               <div className="people-member-drawer">
                 <label className="people-search">搜索群成员<input value={memberQuery} onChange={e => setMemberQuery(e.target.value)} placeholder="昵称或备注" aria-label="搜索群成员" /></label>
@@ -640,7 +684,7 @@ export function PeoplePage({
         ) : (
           <div className="people-blank">
             <h2>{rail === 'contacts' ? '选择一位同事' : '选择一个会话'}</h2>
-            <p>像微信一样点开名片进入一对一。群聊需要已配对同事或智能体。智能体会按岗位做事，生成的文件写在本机工作区或桌面。BeeBEEP 式桌面共享和默认自动收文件不会做。</p>
+            <p>像微信一样点开名片进入一对一。群聊需要已配对同事或同事专家。同事专家按岗位做事，跑在同一月汐引擎上，不是独立进程。生成的文件写在本机工作区或桌面。BeeBEEP 式桌面共享和默认自动收文件不会做。</p>
           </div>
         )}
         {notice && <p className={`people-notice${noticeError ? ' is-error' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
@@ -663,7 +707,7 @@ export function PeoplePage({
               </div>
             </fieldset>
             <fieldset>
-              <legend>成员（已配对同事或智能体）</legend>
+              <legend>成员（已配对同事或同事专家）</legend>
               <div className="people-picker">
                 {trusted.filter(p => !p.self).map(person => (
                   <label key={person.subjectId} className={`people-pick-row ${groupMembers.includes(person.subjectId) ? 'on' : ''}`}>
@@ -671,7 +715,7 @@ export function PeoplePage({
                     <ContactRow person={person} pick />
                   </label>
                 ))}
-                {trusted.filter(p => !p.self).length === 0 && <p>把已配对同事或智能体拉进群。</p>}
+                {trusted.filter(p => !p.self).length === 0 && <p>把已配对同事或同事专家拉进群。</p>}
               </div>
             </fieldset>
             <div className="dialog-actions">
@@ -789,7 +833,7 @@ function ContactCard({ person, me, pairCode, setPairCode, onOpen, onPair, onUpda
       )}
       {isAgentContact(person) && (
         <div className="people-expert-home">
-          <p>独立智能体主页。技能包装专家不会出现在花名册。</p>
+          <p>同事专家主页。同一月汐引擎，人设和工具不同，不是独立进程。技能包装专家不会出现在花名册。</p>
           {onOpenExpertCenter ? <button type="button" onClick={() => onOpenExpertCenter(person.subjectId)}>打开专家中心</button> : null}
           {recentThreads.length > 0 ? <ul>{recentThreads.slice(0, 5).map(item => <li key={item.threadId}>{threadTitle(item, displayName(person))}</li>)}</ul> : <small>还没有一起开过的房间</small>}
         </div>

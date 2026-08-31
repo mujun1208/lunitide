@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lunitide/lunitide/internal/gateway"
+)
 
 func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 	all := engineToolDefinitions()
@@ -29,5 +33,23 @@ func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 		if d.Name == "computer.act" {
 			t.Fatal("colleague must not gain computer.act")
 		}
+	}
+}
+
+func TestFilterCompanionDefaultToolsOmitsShellAndIM(t *testing.T) {
+	all := append(engineToolDefinitions(), gateway.ToolDefinition{Name: "computer.act"}, gateway.ToolDefinition{Name: "cc.mouse_click"})
+	got := filterCompanionDefaultTools(all)
+	seen := map[string]bool{}
+	for _, d := range got {
+		seen[d.Name] = true
+	}
+	if seen["command.run"] || seen["im.send"] || seen["cc.mouse_click"] {
+		t.Fatalf("companion leaked high-risk tools: %v", seen)
+	}
+	if !seen["desktop.open"] || !seen["media.play"] || !seen["computer.act"] || !seen["web.search"] {
+		t.Fatalf("companion dropped desktop/media tools: %v", seen)
+	}
+	if !companionDefaultDeniedTool("command.run") || !companionDefaultDeniedTool("im.send") {
+		t.Fatal("denied set incomplete")
 	}
 }

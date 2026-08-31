@@ -35,34 +35,34 @@ const (
 // plugin lifecycle, local experts are six-section creations, builtin
 // experts ship with M7 (disable allowed, archive forbidden).
 const (
-	ExpertSourcePack   = "pack"
-	ExpertSourceLocal  = "local"
+	ExpertSourcePack    = "pack"
+	ExpertSourceLocal   = "local"
 	ExpertSourceBuiltin = "builtin"
 )
 
 // The M7 closed eight-skeleton division whitelist.
 const (
-	DivisionEngineering      = "engineering"
-	DivisionDesign           = "design"
-	DivisionProduct          = "product"
+	DivisionEngineering       = "engineering"
+	DivisionDesign            = "design"
+	DivisionProduct           = "product"
 	DivisionProjectManagement = "project-management"
-	DivisionTesting          = "testing"
-	DivisionSecurity         = "security"
-	DivisionOperations       = "operations"
-	DivisionData             = "data"
+	DivisionTesting           = "testing"
+	DivisionSecurity          = "security"
+	DivisionOperations        = "operations"
+	DivisionData              = "data"
 )
 
 // The M7 fixed nine phase keys.
 const (
-	PhaseInitiationBoundary       = "INITIATION_BOUNDARY"
-	PhaseResearchEvidence         = "RESEARCH_EVIDENCE"
-	PhaseRequirementDefinition    = "REQUIREMENT_DEFINITION"
-	PhaseSolutionExperience       = "SOLUTION_EXPERIENCE"
-	PhaseArchitecturePlan         = "ARCHITECTURE_PLAN"
-	PhaseDevelopmentChange        = "DEVELOPMENT_CHANGE"
-	PhaseVerificationAcceptance   = "VERIFICATION_ACCEPTANCE"
-	PhaseReleaseDelivery          = "RELEASE_DELIVERY"
-	PhaseOperationsRetrospective  = "OPERATIONS_RETROSPECTIVE"
+	PhaseInitiationBoundary      = "INITIATION_BOUNDARY"
+	PhaseResearchEvidence        = "RESEARCH_EVIDENCE"
+	PhaseRequirementDefinition   = "REQUIREMENT_DEFINITION"
+	PhaseSolutionExperience      = "SOLUTION_EXPERIENCE"
+	PhaseArchitecturePlan        = "ARCHITECTURE_PLAN"
+	PhaseDevelopmentChange       = "DEVELOPMENT_CHANGE"
+	PhaseVerificationAcceptance  = "VERIFICATION_ACCEPTANCE"
+	PhaseReleaseDelivery         = "RELEASE_DELIVERY"
+	PhaseOperationsRetrospective = "OPERATIONS_RETROSPECTIVE"
 )
 
 // PhaseKeys lists the nine fixed phase keys in canonical order.
@@ -105,6 +105,7 @@ type ExpertCatalog struct {
 	Division         string
 	Source           string
 	OriginBundleID   string
+	CatalogItemID    string
 	CurrentVersionID string
 	State            string
 	CreatedAt        string

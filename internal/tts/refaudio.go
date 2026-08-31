@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,11 @@ var refAudioExts = map[string]bool{
 
 const refMaxAudio = 32 << 20 // 32 MiB response cap
 
+// First connection-refused wait. Cold loads take 30-90s; if /docs is
+// still silent after this, return ErrRefEngineStarting so the player
+// retries instead of occupying the bridge for a full minute.
+const refHostFirstWait = 8 * time.Second
+
 type refEngine struct{ client *http.Client }
 
 // NewRefEngine returns the reference-timbre engine. The 120s budget matters:
@@ -49,13 +55,44 @@ func NewRefEngine() Engine {
 	return &refEngine{client: &http.Client{Timeout: 120 * time.Second}}
 }
 
+// wrapRefHostErr keeps the starting window in the M95-001 family. Wrapping
+// it as ErrSynthesisFailed used to turn a 30-90s cold load into a hard
+// "该段语音合成失败" on the settings preview and the companion player.
+func refServiceErrorDetail(status int, body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" || strings.Contains(text, "<") {
+		return fmt.Sprintf("HTTP %d", status)
+	}
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) == nil {
+		for _, key := range []string{"message", "detail", "error", "msg"} {
+			if s, ok := payload[key].(string); ok && strings.TrimSpace(s) != "" {
+				text = strings.TrimSpace(s)
+				break
+			}
+		}
+	}
+	runes := []rune(text)
+	if len(runes) > 120 {
+		text = string(runes[:120]) + "…"
+	}
+	return fmt.Sprintf("HTTP %d：%s", status, text)
+}
+
+func wrapRefHostErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrRefEngineStarting) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", ErrSynthesisFailed, err)
+}
+
 func (r *refEngine) Voices() ([]Voice, error) { return RefVoices(), nil }
 
 func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
-	endpoint := in.RefEndpoint
-	if endpoint == "" {
-		endpoint = DefaultRefEndpoint
-	}
+	endpoint := CanonicalRefEndpoint(in.RefEndpoint)
 	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务地址无效", ErrSynthesisFailed)
 	}
@@ -94,11 +131,14 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 		// test stubs never trigger a spawn. This is what makes the
 		// 50-preset catalogue work without the user ever launching the
 		// model server by hand.
-		if endpoint == DefaultRefEndpoint {
-			if hostErr := DefaultRefHost.EnsureRunning(endpoint, 25*time.Second); hostErr == nil {
+		if IsDefaultRefEndpoint(endpoint) {
+			if DefaultRefHost.IsLaunching(endpoint) {
+				return SynthesizeResult{}, false, fmt.Errorf("%w: 语音引擎仍在启动", ErrRefEngineStarting)
+			}
+			if hostErr := DefaultRefHost.EnsureRunning(endpoint, refHostFirstWait); hostErr == nil {
 				resp, err = r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
 			} else {
-				return SynthesizeResult{}, false, fmt.Errorf("%w: %v", ErrSynthesisFailed, hostErr)
+				return SynthesizeResult{}, false, wrapRefHostErr(hostErr)
 			}
 			if err != nil {
 				return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接参考音色服务（%v）", ErrSynthesisFailed, err)
@@ -113,7 +153,7 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 读取合成结果失败", ErrSynthesisFailed)
 	}
 	if resp.StatusCode != http.StatusOK || len(wav) < 44 || string(wav[:4]) != "RIFF" {
-		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务返回异常（HTTP %d）", ErrSynthesisFailed, resp.StatusCode)
+		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务返回异常（%s）", ErrSynthesisFailed, refServiceErrorDetail(resp.StatusCode, wav))
 	}
 	return SynthesizeResult{
 		WavBase64:    base64.StdEncoding.EncodeToString(wav),

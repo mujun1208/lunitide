@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, withDeadline } from './asrPath'
+import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, VOLC_DEAF_RESTART_LIMIT, withDeadline } from './asrPath'
 
 describe('companionAsrPathLabel', () => {
   test('says local when the sidecar is actually decoding', () => {
@@ -43,9 +43,14 @@ describe('companionListenKind', () => {
 })
 
 describe('companionListenFailover', () => {
-  test('volc that hears but never transcribes moves to local then cloud', () => {
-    expect(companionListenFailover('volc', 'volc', true)).toBe('local')
+  test('explicit 火山 stays on seed-asr even when sherpa is ready', () => {
+    expect(companionListenFailover('volc', 'volc', true)).toBe('volc')
     expect(companionListenFailover('volc', 'volc', false)).toBe('volc')
+  })
+
+  test('a live volc route never failovers to sherpa, even if the card preference drifted', () => {
+    expect(companionListenFailover('volc', 'auto', true)).toBe('volc')
+    expect(companionListenFailover('volc', 'cloud', true)).toBe('volc')
   })
 
   test('deaf system recognition uses sherpa when it is installed', () => {
@@ -55,6 +60,15 @@ describe('companionListenFailover', () => {
 
   test('explicit 本地 never ships audio off the machine', () => {
     expect(companionListenFailover('local', 'local', false)).toBe('local')
+  })
+})
+
+describe('companionVolcDeafGiveUp', () => {
+  test('stops an explicit 火山 deaf loop after the restart budget', () => {
+    expect(companionVolcDeafGiveUp('volc', 'volc', 1)).toBe(false)
+    expect(companionVolcDeafGiveUp('volc', 'volc', VOLC_DEAF_RESTART_LIMIT)).toBe(true)
+    expect(companionVolcDeafGiveUp('local', 'local', VOLC_DEAF_RESTART_LIMIT)).toBe(false)
+    expect(companionVolcDeafGiveUp('cloud', 'local', VOLC_DEAF_RESTART_LIMIT)).toBe(false)
   })
 })
 

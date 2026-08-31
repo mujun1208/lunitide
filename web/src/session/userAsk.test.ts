@@ -4,7 +4,10 @@ import {
   filePickerHandoffKey,
   formatUserAskFollowUp,
   looksLikeFilePickerHandoff,
+  looksLikeUACHandoff,
   parseUserAskSummary,
+  UAC_ASK,
+  uacHandoffKey,
   USER_ASK_OTHER_ID,
   userAskActivitySummary,
   userAskChoiceReady,
@@ -73,5 +76,14 @@ describe('user.ask pack', () => {
     expect(looksLikeFilePickerHandoff('captured desktop 1920x1080')).toBe(false)
     expect(FILE_PICKER_ASK.questions[0].options.length).toBeGreaterThanOrEqual(2)
     expect(filePickerHandoffKey([{callId: 'a', summary: 'captured'}, {callId: 'b', summary: 'needs_user file_dialog'}])).toBe('b')
+  })
+
+  it('detects UAC handoff and parks as a decision pack', () => {
+    expect(looksLikeUACHandoff('needs_user: 这是系统提权对话框，我不能代点「是」。请你自己确认或取消。')).toBe(true)
+    expect(looksLikeUACHandoff('ccapp: operation blocked by risk policy: uac dialog')).toBe(true)
+    expect(looksLikeUACHandoff('captured desktop 1920x1080')).toBe(false)
+    expect(UAC_ASK.title).toBe('系统提权')
+    expect(UAC_ASK.questions[0].options.length).toBeGreaterThanOrEqual(2)
+    expect(uacHandoffKey([{callId: 'a', summary: 'clicked'}, {callId: 'b', summary: 'needs_user uac 提权'}])).toBe('b')
   })
 })
