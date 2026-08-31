@@ -34,6 +34,7 @@ import {
   companionExecutingSpeech,
   companionCannotExecuteSpeech,
   companionTaskCompleteSpeech,
+  isCompanionLeadInOnly,
   takeSpeakableChunk,
   accumulateSpeakableCaption,
   collapseRepeatedCaptionBlocks,
@@ -339,6 +340,9 @@ describe('companion task speech', () => {
     expect(companionCannotExecuteSpeech('无法执行。权限不足')).toBe('无法执行。权限不足')
     expect(companionTaskCompleteSpeech('已在证件号码后写入')).toBe('已在证件号码后写入。')
     expect(companionTaskCompleteSpeech('我做完了')).toBe('好，完成了。')
+    expect(isCompanionLeadInOnly('好，我来输入。')).toBe(true)
+    expect(isCompanionLeadInOnly('好，我来打开。')).toBe(true)
+    expect(isCompanionLeadInOnly('已经打开了。')).toBe(false)
   })
 })
 

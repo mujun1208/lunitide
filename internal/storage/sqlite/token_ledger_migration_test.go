@@ -188,6 +188,8 @@ DROP TABLE expert_catalog;
 DROP TABLE expert_versions;
 DROP TABLE project_phase_expert_mounting;
 DROP TABLE expert_scenario_cards;
+DROP TABLE expert_skill_bindings;
+DROP TABLE expert_task_claims;
 DROP TABLE sk_category_map;
 DROP TABLE queued_user_messages;
 DROP TABLE memory_settings;

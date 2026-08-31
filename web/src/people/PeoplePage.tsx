@@ -8,7 +8,7 @@ import { usePanelResize } from '../ui/usePanelResize'
 import { captureThisPcFrame } from './peopleCapture'
 import { ScreenCropOverlay } from './ScreenCropOverlay'
 import { stageBrowserFile } from './peopleStage'
-import { PEOPLE_EMOJI, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, lastPreview, relativeTime, statusLabel, threadTitle, trustLabel } from './peopleRoster'
+import { PEOPLE_EMOJI, contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, lastPreview, relativeTime, statusLabel, threadTitle, trustLabel } from './peopleRoster'
 
 const MAX_FILE = 32 * 1024 * 1024
 const INLINE_MAX = 80 * 1024
@@ -50,6 +50,14 @@ export function PeoplePage({
     initial: 300,
     min: 240,
     max: () => Math.min(480, Math.max(280, window.innerWidth - 420)),
+  })
+  const [composerHeight, startComposerResize] = usePanelResize({
+    storageKey: 'lunitide:people-composer-height',
+    initial: 96,
+    min: 56,
+    max: () => Math.min(420, Math.max(160, window.innerHeight - 280)),
+    axis: 'y',
+    reverse: true,
   })
   const imageRef = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -435,7 +443,8 @@ export function PeoplePage({
               {typingNames.length > 0 && <p className="people-typing">{typingNames.join('、')}正在输入…</p>}
               {readHint && <p className="people-read">{readHint}</p>}
             </div>
-            <form className="people-composer" onSubmit={e => { e.preventDefault(); if (draft.trim()) void send('text') }} onDragOver={e => e.preventDefault()} onDrop={e => {
+            <div className="panel-resizer people-composer-resizer" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" onPointerDown={startComposerResize} />
+            <form className="people-composer" style={{ '--people-composer-height': `${composerHeight}px` } as React.CSSProperties} onSubmit={e => { e.preventDefault(); if (draft.trim()) void send('text') }} onDragOver={e => e.preventDefault()} onDrop={e => {
               e.preventDefault()
               const file = e.dataTransfer.files?.[0]
               if (file) void send(file.type.startsWith('image/') ? 'image' : 'file', '', file)
@@ -469,7 +478,7 @@ export function PeoplePage({
         ) : (
           <div className="people-blank">
             <h2>{rail === 'contacts' ? '选择一位同事' : '选择一个会话'}</h2>
-            <p>像微信一样点开名片进入一对一。群聊需要先配对。BeeBEEP 式桌面共享和默认自动收文件不会做。</p>
+            <p>像微信一样点开名片进入一对一。群聊需要已配对同事或智能体。智能体会按岗位做事，生成的文件写在本机工作区或桌面。BeeBEEP 式桌面共享和默认自动收文件不会做。</p>
           </div>
         )}
         {notice && <p className={`people-notice${noticeError ? ' is-error' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
@@ -492,7 +501,7 @@ export function PeoplePage({
               </div>
             </fieldset>
             <fieldset>
-              <legend>成员（仅已配对）</legend>
+              <legend>成员（已配对同事或智能体）</legend>
               <div className="people-picker">
                 {trusted.filter(p => !p.self).map(person => (
                   <label key={person.subjectId} className={`people-pick-row ${groupMembers.includes(person.subjectId) ? 'on' : ''}`}>
@@ -500,7 +509,7 @@ export function PeoplePage({
                     <ContactRow person={person} pick />
                   </label>
                 ))}
-                {trusted.filter(p => !p.self).length === 0 && <p>先配对同事，才能拉进群。</p>}
+                {trusted.filter(p => !p.self).length === 0 && <p>把已配对同事或智能体拉进群。</p>}
               </div>
             </fieldset>
             <div className="dialog-actions">
@@ -549,10 +558,10 @@ function ContactRow({ person, active, onOpen, pick }: { person: PeopleContactDTO
   const body = (
     <>
       <span className={`people-dot ${person.status}`} aria-hidden="true" />
-      <span className="people-ava">{person.avatar ? <img src={person.avatar} alt="" /> : initials(displayName(person))}</span>
+      <span className="people-ava">{person.avatar ? (contactAvatarIsImage(person.avatar) ? <img src={person.avatar} alt="" /> : person.avatar) : initials(displayName(person))}</span>
       <span>
         <b>{displayName(person, true)}{person.blocked ? <em className="people-blocked">已屏蔽</em> : null}</b>
-        <small>{statusLabel(person.status)} · {trustLabel(person.trustState)}{person.hostAddr ? ` · ${person.hostAddr}` : ''}{person.title ? ` · ${person.title}` : ''}</small>
+        <small>{statusLabel(person.status)} · {trustLabel(person.trustState, person.orgName)}{person.hostAddr ? ` · ${person.hostAddr}` : ''}{person.title ? ` · ${person.title}` : ''}</small>
       </span>
     </>
   )
@@ -577,10 +586,10 @@ function ContactCard({ person, me, pairCode, setPairCode, onOpen, onPair, onUpda
   useEffect(() => { setRemark(person.remark ?? '') }, [person.subjectId, person.remark])
   return (
     <div className="people-card">
-      <span className="people-ava lg">{person.avatar ? <img src={person.avatar} alt="" /> : initials(displayName(person))}</span>
+      <span className="people-ava lg">{person.avatar ? (contactAvatarIsImage(person.avatar) ? <img src={person.avatar} alt="" /> : person.avatar) : initials(displayName(person))}</span>
       <h2>{displayName(person, true)}</h2>
       <p>{[person.orgName, person.department, person.title].filter(Boolean).join(' · ') || '未填写组织'}</p>
-      <small>{statusLabel(person.status)} · {trustLabel(person.trustState)}{person.hostAddr ? ` · ${person.hostAddr}` : ''}</small>
+      <small>{statusLabel(person.status)} · {trustLabel(person.trustState, person.orgName)}{person.hostAddr ? ` · ${person.hostAddr}` : ''}</small>
       {person.bio && <p className="people-bio">{person.bio}</p>}
       {!person.self && (
         <form className="people-remark-form" onSubmit={e => { e.preventDefault(); void onUpdate({ remark }).catch(() => {}) }}>

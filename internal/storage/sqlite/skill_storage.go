@@ -225,7 +225,8 @@ func (s *Store) UpdateSkill(ctx context.Context, id, displayName, description st
 	return mapWriteError(err)
 }
 
-// UpdateSkillFields updates the mutable fields of a skill and bumps version.
+// UpdateSkillFields updates the mutable body of a skill. Semver stays put so
+// catalog refresh can rewrite manifests without breaking name+version lookup.
 func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string) error {
 	var minEV any
 	if minEngineVersion != nil {
@@ -235,7 +236,7 @@ func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, descript
 		map[string]any{"id": id},
 		func(tx *sql.Tx) error {
 			res, err := tx.ExecContext(ctx,
-				`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, version=version+1, updated_at=? WHERE id=?`,
+				`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, updated_at=? WHERE id=?`,
 				displayName, description, entryPoint, manifestJSON, permissionsJSON, minEV, formatTime(time.Now().UTC()), id)
 			if err != nil {
 				return err

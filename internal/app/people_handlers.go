@@ -239,6 +239,9 @@ func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) br
 	if offer != nil {
 		out["offer"] = publicOffer(*offer)
 	}
+	if offer == nil && msg.Kind == "text" {
+		go e.maybePeopleAgentReply(context.Background(), p.ThreadID, msg)
+	}
 	return bridge.Success(r.ID, out)
 }
 

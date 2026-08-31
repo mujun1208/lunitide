@@ -79,13 +79,25 @@ export function statusLabel(status: string): string {
   }
 }
 
-export function trustLabel(state: PeopleTrust): string {
+export const AGENT_ORG_NAME = '月汐智能体'
+
+export function isAgentContact(person: Pick<PeopleContact, 'orgName'>): boolean {
+  return person.orgName.trim() === AGENT_ORG_NAME
+}
+
+export function trustLabel(state: PeopleTrust, orgName?: string): string {
+  if ((orgName ?? '').trim() === AGENT_ORG_NAME) return '智能体'
   switch (state) {
     case 'self': return '我'
     case 'trusted': return '已配对'
     case 'discovered': return '局域网'
     default: return state
   }
+}
+
+export function contactAvatarIsImage(avatar: string): boolean {
+  const value = avatar.trim()
+  return value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/')
 }
 
 export function initials(name: string): string {

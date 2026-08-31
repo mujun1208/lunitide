@@ -48,13 +48,36 @@ func TestExpertSpawnUsesFullReadCapsAndBrowser(t *testing.T) {
 	have := map[string]bool{}
 	for _, name := range adapter.seenTools {
 		have[name] = true
-		if name == "workspace.write" || name == "html.gen" {
-			t.Fatalf("expert subagent must stay read-only, got %s", name)
+		if name == "workspace.write" || name == "html.gen" || name == "computer.act" {
+			t.Fatalf("expert subagent without requiredTools must stay read-only, got %s", name)
 		}
 	}
 	for _, name := range []string{"web.search", "web.fetch", "workspace.read", "browser.act"} {
 		if !have[name] {
 			t.Fatalf("expert/council spawn missing %s: %#v", name, adapter.seenTools)
+		}
+	}
+}
+
+func TestExpertSpawnExposesRequiredWriteTools(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	adapter := &subagentFakeAdapter{}
+	policy := subTestPolicy()
+	policy.ExpertWork = true
+	policy.ExpertWriteTools = []string{"excel.gen", "workspace.write", "computer.act"}
+	if _, err := e.invokeSubagentTool(context.Background(), adapter, nil, "model-x", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"fill the workbook","profile":"writer"}`), policy); err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, name := range adapter.seenTools {
+		have[name] = true
+		if name == "computer.act" {
+			t.Fatal("expert subagent must never receive computer.act")
+		}
+	}
+	for _, name := range []string{"excel.gen", "workspace.write", "web.search"} {
+		if !have[name] {
+			t.Fatalf("expert write spawn missing %s: %#v", name, adapter.seenTools)
 		}
 	}
 }
@@ -70,13 +93,13 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 		{"报告编写专家", "写一份调研报告", []string{"tpl-web-researcher", "tpl-docx-writer", "tpl-anti-ai-prose"}, []string{"web.search", "docx.gen", "skill.invoke"}},
 		{"小说编写专家", "写一章开篇", []string{"tpl-docx-writer", "tpl-anti-ai-prose", "tpl-fiction-continuity"}, []string{"docx.gen", "skill.invoke"}},
 		{"Excel表格制作专家", "做半年财报表", []string{"tpl-excel-analyst", "tpl-csv-workbook"}, []string{"excel.gen", "excel.parse"}},
-		{"UI专家", "画一个设置页", []string{"frontend-design", "ui-components", "design-system"}, []string{"html.gen", "skill.invoke"}},
+		{"UI专家", "画一个设置页", []string{"frontend-design", "ui-components", "design-system"}, []string{"workspace.write", "skill.invoke"}},
 		{"产品经理专家", "写一份 PRD", []string{"pm-skill", "tpl-grill-me", "tpl-to-spec"}, []string{"web.search", "skill.invoke"}},
 		{"系统架构师专家", "画 C4", []string{"tpl-improve-architecture", "tpl-mermaid-diagrams"}, []string{"workspace.read", "skill.invoke"}},
 		{"数据库设计专家", "设计订单库", []string{"tpl-mermaid-diagrams", "tpl-pm-phase-3"}, []string{"skill.invoke"}},
 		{"系统项目结构规范专家", "整理目录树", []string{"tpl-knowledge-index", "tpl-mermaid-diagrams"}, []string{"workspace.list", "workspace.read"}},
 		{"开发规范专家", "写 AGENTS.md", []string{"tpl-code-reviewer", "tpl-grill-me"}, []string{"skill.invoke", "workspace.read"}},
-		{"系统测试专家", "写 E2E 场景", []string{"tpl-test-writer", "tpl-e2e-browser", "browser-automation"}, []string{"browser.act", "skill.invoke"}},
+		{"系统测试专家", "写 E2E 场景", []string{"tpl-test-writer", "tpl-e2e-browser", "browser-automation", "tpl-find-bug"}, []string{"browser.act", "skill.invoke"}},
 		{"硬件配置专家", "选一台办公电脑", []string{"tpl-web-researcher", "tpl-hardware-bom"}, []string{"web.search", "excel.gen"}},
 		{"开发专家", "修这个编译错误", []string{"tpl-implement", "tpl-tdd-loop", "tpl-debugger"}, []string{"workspace.edit", "command.run", "skill.invoke"}},
 	}
@@ -102,6 +125,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 		catalogTestSkill("tpl-test-writer", "测试补全。", `{"triggers":["单测"]}`),
 		catalogTestSkill("tpl-e2e-browser", "E2E。", `{"triggers":["E2E"]}`),
 		catalogTestSkill("browser-automation", "浏览器自动化。", `{"triggers":["填表"]}`),
+		catalogTestSkill("tpl-find-bug", "找缺陷。", `{"triggers":["找 bug"]}`),
 		catalogTestSkill("tpl-hardware-bom", "硬件 BOM。", `{"triggers":["BOM"]}`),
 		catalogTestSkill("tpl-implement", "驱动实现。", `{"triggers":["写代码"]}`),
 		catalogTestSkill("tpl-tdd-loop", "TDD。", `{"triggers":["TDD"]}`),
@@ -136,7 +160,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 			if len(req.Messages) > 0 {
 				sys = req.Messages[0].Content
 			}
-			if !strings.Contains(sys, "[专家自动挂载]") || !strings.Contains(sys, tc.expert) {
+			if !strings.Contains(sys, "[专家装备]") || !strings.Contains(sys, tc.expert) || strings.Contains(sys, "已自动挂载") {
 				t.Fatalf("compose hint missing for %s:\n%s", tc.expert, sys)
 			}
 			for _, name := range tc.skills {
@@ -258,8 +282,11 @@ func TestApplyExpertSpawnCapsOverridesResearchProfile(t *testing.T) {
 	if !ok {
 		t.Fatal("research missing")
 	}
-	got := applyExpertSpawnCaps(def)
+	got := applyExpertSpawnCaps(def, []string{"excel.gen", "computer.act", "cc.click"})
 	if !capsIncludeAll(got.ReadCaps, fullSubagentReadCaps()) {
 		t.Fatalf("expert spawn caps = %#v", got.ReadCaps)
+	}
+	if len(got.WriteTools) != 1 || got.WriteTools[0] != "excel.gen" {
+		t.Fatalf("expert write tools = %#v", got.WriteTools)
 	}
 }

@@ -17,14 +17,14 @@ func renderMoonMark(size int) *image.RGBA {
 	cy := float64(size) * 0.36
 	r := float64(size) * 0.22
 	drawMoon(dst, cx, cy, r)
-	cloudY := float64(size) * 0.78
-	// Desktop shortcuts pick 32px. size*0.007 is sub-pixel there, so the
-	// "faint cloud line" vanished and Explorer kept showing the old 3-cloud cache.
-	thick := float64(size) * 0.011
-	if thick < 1.25 {
-		thick = 1.25
+	// Keep the cloud below the moon disc (bottom ≈ 0.58). Amplitude is in
+	// canvas units so a thicker stroke at 32px cannot climb into the moon.
+	cloudY := float64(size) * 0.82
+	thick := float64(size) * 0.042
+	if thick < 2.3 {
+		thick = 2.3
 	}
-	drawCloudLine(dst, float64(size)*0.20, float64(size)*0.80, cloudY, thick)
+	drawCloudLine(dst, float64(size)*0.17, float64(size)*0.83, cloudY, thick, float64(size)*0.018, float64(size)*0.008)
 	return dst
 }
 
@@ -59,14 +59,19 @@ func drawMoon(dst *image.RGBA, cx, cy, r float64) {
 	}
 }
 
-func drawCloudLine(dst *image.RGBA, x0, x1, yMid, thickness float64) {
+func drawCloudLine(dst *image.RGBA, x0, x1, yMid, thickness, amp1, amp2 float64) {
 	if x1 <= x0 || thickness < 0.5 {
 		return
 	}
 	b := dst.Bounds()
-	amp1 := thickness * 3.2
-	amp2 := thickness * 1.6
-	pad := thickness*4 + amp1 + 2
+	if amp1 < 0 {
+		amp1 = 0
+	}
+	if amp2 < 0 {
+		amp2 = 0
+	}
+	reach := thickness * 1.65
+	pad := thickness*3 + amp1 + amp2 + 2
 	minX := int(math.Floor(x0 - pad))
 	maxX := int(math.Ceil(x1 + pad))
 	minY := int(math.Floor(yMid - pad))
@@ -80,13 +85,13 @@ func drawCloudLine(dst *image.RGBA, x0, x1, yMid, thickness float64) {
 				continue
 			}
 			t := (px - x0) / span
-			wave := yMid + math.Sin(t*math.Pi*2.15)*amp1 + math.Sin(t*math.Pi*5.4)*amp2
+			wave := yMid + math.Sin(t*math.Pi*2.05)*amp1 + math.Sin(t*math.Pi*5.1)*amp2
 			d := math.Abs(py - wave)
 			endFade := 1.0
-			if px < x0+thickness*6 {
-				endFade = (px - (x0 - thickness)) / (thickness * 7)
-			} else if px > x1-thickness*6 {
-				endFade = (x1 + thickness - px) / (thickness * 7)
+			if px < x0+thickness*5 {
+				endFade = (px - (x0 - thickness)) / (thickness * 6)
+			} else if px > x1-thickness*5 {
+				endFade = (x1 + thickness - px) / (thickness * 6)
 			}
 			if endFade < 0 {
 				continue
@@ -94,12 +99,12 @@ func drawCloudLine(dst *image.RGBA, x0, x1, yMid, thickness float64) {
 			if endFade > 1 {
 				endFade = 1
 			}
-			if d > thickness*2.2 {
+			if d > reach {
 				continue
 			}
-			cover := 1 - d/(thickness*2.2)
-			a := 96 * cover * cover * endFade
-			blend(dst, x, y, 232, 240, 250, a)
+			cover := 1 - d/reach
+			a := 175 * cover * cover * endFade
+			blend(dst, x, y, 236, 243, 252, a)
 		}
 	}
 }

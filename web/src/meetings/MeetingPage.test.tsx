@@ -118,16 +118,37 @@ describe('MeetingPage', () => {
   test('lists past meetings and keeps the workspace independent of 对话', async () => {
     const past = { ...base, title: '评审会', status: 'ready' as const, summary: '对齐范围', actions: '- 导出安装包', transcript: '大家好' }
     render(<MeetingPage meetings={bridge({ list: vi.fn().mockResolvedValue({ items: [past] }) })} />)
-    expect(await screen.findByRole('heading', { name: '会议记录' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '＋ 新纪要' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '历史纪要' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('评审会')).toBeInTheDocument()
     expect(screen.getByText(/已完成/)).toBeInTheDocument()
-    expect(screen.getByText(/一点「开始录制」即收录麦克风与系统声音/)).toBeInTheDocument()
-    expect(screen.getByText(/不区分说话人/)).toBeInTheDocument()
-    expect(screen.getByLabelText('纪要模型')).toBeInTheDocument()
-    expect(screen.getByText(/听写管实时字幕/)).toBeInTheDocument()
-    expect(screen.getAllByText(/补转写只用本机识别/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: '新的会议' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '开始录制' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('纪要模型')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '今天想聊什么？' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '同时收录本机系统声音' })).not.toBeInTheDocument()
+  })
+
+  test('听写与纪要设置 hands the workbench off to Settings', async () => {
+    const openSettings = vi.fn()
+    render(<MeetingPage meetings={bridge()} onOpenSettings={openSettings} />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: '听写与纪要设置' }))
+    expect(openSettings).toHaveBeenCalledTimes(1)
+  })
+
+  test('opening history can return to a blank 新纪要 and history can collapse', async () => {
+    const past = { ...base, title: '评审会', status: 'ready' as const, summary: '对齐范围', actions: '- 导出安装包', transcript: '大家好' }
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={bridge({ list: vi.fn().mockResolvedValue({ items: [past] }), get: vi.fn().mockResolvedValue(past) })} />)
+    await user.click(await screen.findByText('评审会'))
+    expect(await screen.findByRole('heading', { name: '评审会' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始录制' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '＋ 新纪要' }))
+    expect(screen.getByRole('heading', { name: '新的会议' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '开始录制' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '历史纪要' }))
+    expect(screen.getByRole('button', { name: '历史纪要' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('评审会')).not.toBeInTheDocument()
   })
 
   test('ready empty actions stay honest and the four boxes scroll inside the page', async () => {
@@ -189,8 +210,8 @@ describe('MeetingPage', () => {
     const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
     speech.start.mockRejectedValue(new Error('会议听写选了本机，但 sherpa 未就绪。请改选系统或火山，或先装本机识别。'))
     const user = userEvent.setup()
+    localStorage.setItem('lunitide:meeting', JSON.stringify({ listen: 'local', modelId: '' }))
     render(<MeetingPage meetings={meetings} />)
-    await user.click(screen.getByRole('radio', { name: '本机' }))
     await user.click(screen.getByRole('button', { name: '开始录制' }))
     expect(await screen.findByRole('status')).toHaveTextContent(/sherpa 未就绪/)
     expect(speech.start).toHaveBeenCalledWith(expect.objectContaining({ listen: 'local' }))

@@ -67,7 +67,9 @@ export function CompanionVisualPreview(): React.JSX.Element {
         )}
       </div>
       <MoonSphere state={state} gain={state === 'speaking' ? gain : 0} levels={levels} enter={enter} interruptible={state !== 'listening'} />
-      <CompanionEntryLights lights={previewLights} />
+      <div className="companion-chrome">
+        <CompanionEntryLights lights={previewLights} />
+      </div>
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${state}`} aria-hidden="true" />
         {STATE_LABEL[state]}

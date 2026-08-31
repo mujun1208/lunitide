@@ -38,6 +38,7 @@ type CatalogItem struct {
 	RequiredTools   []string          `json:"requiredTools,omitempty"`
 	PreferredMcp    []string          `json:"preferredMcp,omitempty"`
 	McpFallback     string            `json:"mcpFallback,omitempty"`
+	Kind            string            `json:"kind,omitempty"`
 	SixSection      m8core.SixSection `json:"sixSection"`
 }
 
@@ -54,6 +55,7 @@ type CatalogSummary struct {
 	Scene       string `json:"scene"`
 	Emoji       string `json:"emoji"`
 	Version     string `json:"version"`
+	Kind        string `json:"kind,omitempty"`
 	Installed   bool   `json:"installed"`
 }
 
@@ -88,12 +90,19 @@ func (item CatalogItem) SkillName() string {
 }
 
 // NeedsChat answers whether install should publish a chat skill.
+// Independent agents keep skills on the expert (bindings), never as aa-* chips.
 func (item CatalogItem) NeedsChat() bool {
+	if item.ResolvedKind() == ExpertKindAgent {
+		return false
+	}
 	return item.Usage == CatalogUsageChat || item.Usage == CatalogUsageBoth
 }
 
 // NeedsProject answers whether install should create a project expert.
 func (item CatalogItem) NeedsProject() bool {
+	if item.ResolvedKind() == ExpertKindAgent {
+		return true
+	}
 	return item.Usage == CatalogUsageProject || item.Usage == CatalogUsageBoth
 }
 
@@ -108,7 +117,7 @@ func (item CatalogItem) Summary(installed bool) CatalogSummary {
 		Description: clipRunes(item.Description, catalogListDescMax),
 		Category:    item.Category, Division: item.Division, Origin: item.Origin,
 		Usage: item.Usage, Scene: item.Scene, Emoji: item.Emoji, Version: item.Version,
-		Installed: installed,
+		Kind: item.ResolvedKind(), Installed: installed,
 	}
 }
 

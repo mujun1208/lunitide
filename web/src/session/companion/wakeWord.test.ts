@@ -1,6 +1,78 @@
 import { act, renderHook } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
-import { matchWakeWord, useWakeWord } from './wakeWord'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { CompanionSpeechHandle, CompanionSpeechOptions } from './speech'
+import { HOME_WAKE_DEAF_MS, matchWakeWord, useWakeWord } from './wakeWord'
+
+const speech = vi.hoisted(() => ({
+  start: vi.fn(),
+  options: undefined as CompanionSpeechOptions | undefined,
+  handle: (): CompanionSpeechHandle => ({
+    stop: vi.fn(),
+    setAssistantPlayback: vi.fn(),
+    setCommitPaused: vi.fn(),
+    pulseRecognition: vi.fn(),
+    forceCommit: vi.fn(),
+    resumeCapture: vi.fn(),
+  }),
+}))
+
+vi.mock('./speech', () => ({
+  startCompanionSpeech: (options: CompanionSpeechOptions) => {
+    speech.options = options
+    return speech.start(options)
+  },
+}))
+
+vi.mock('./localSpeech', () => ({
+  startLocalCompanionSpeech: (options: CompanionSpeechOptions) => {
+    speech.options = options
+    return speech.start(options)
+  },
+}))
+
+vi.mock('./volc/volcSpeech', () => ({
+  startVolcCompanionSpeech: (options: CompanionSpeechOptions) => {
+    speech.options = options
+    return speech.start(options)
+  },
+}))
+
+vi.mock('./prepareCompanionEntry', () => ({
+  prepareCompanionEntry: async () => ({
+    settings: { voicePath: 'cloud', recognizer: 'cloud' },
+    voicePath: 'cloud',
+    lights: [],
+    llmReady: true,
+    listenReady: true,
+    speakReady: true,
+    hasVolc: false,
+    allowListen: true,
+    blockReason: '',
+  }),
+}))
+
+vi.mock('../../bridge/client', () => ({
+  getProviderBridge: () => ({ list: async () => ({ items: [] }) }),
+}))
+
+function installMic() {
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) },
+    configurable: true,
+  })
+}
+
+beforeEach(() => {
+  speech.options = undefined
+  speech.start.mockReset()
+  speech.start.mockResolvedValue(speech.handle())
+  installMic()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  delete (navigator as { mediaDevices?: unknown }).mediaDevices
+})
 
 it('matches the canonical wake phrase with punctuation and spacing', () => {
   for (const phrase of ['你好，月汐！', '你好 月汐', '你好月汐', '你好，月汐。', '  你好，月汐！  ']) {
@@ -44,45 +116,13 @@ it('matches common ASR homophone transcribes of the wake name', () => {
   expect(matchWakeWord('月希今天天气')).toEqual({ hit: true, prompt: '今天天气', kind: 'name' })
 })
 
-type FakeEvent = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
-
-class FakeRecognition {
-  static instances: FakeRecognition[] = []
-  lang = ''
-  continuous = false
-  interimResults = false
-  onresult: ((event: FakeEvent) => void) | null = null
-  onerror: ((event?: { error?: string }) => void) | null = null
-  onend: (() => void) | null = null
-  start = vi.fn()
-  stop = vi.fn()
-  constructor() {
-    FakeRecognition.instances.push(this)
-  }
-}
-
-function installFakeRecognition() {
-  FakeRecognition.instances = []
-  Object.defineProperty(window, 'SpeechRecognition', { value: FakeRecognition, configurable: true })
-  Object.defineProperty(navigator, 'mediaDevices', {
-    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) },
-    configurable: true,
-  })
-}
-
-afterEach(() => {
-  vi.useRealTimers()
-  delete (window as { SpeechRecognition?: unknown }).SpeechRecognition
+it('reports unsupported when the runtime has no microphone', () => {
   delete (navigator as { mediaDevices?: unknown }).mediaDevices
-})
-
-it('reports unsupported when the runtime has no speech recognition', () => {
   const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
   expect(view.result.current).toBe('unsupported')
 })
 
 it('does not wake when the energy gate says the hit is speaker playback', async () => {
-  installFakeRecognition()
   const onWake = vi.fn()
   renderHook(() =>
     useWakeWord({
@@ -94,15 +134,12 @@ it('does not wake when the energy gate says the hit is speaker playback', async 
   )
   await act(async () => {})
   act(() => {
-    FakeRecognition.instances.at(-1)!.onresult?.({
-      results: [{ 0: { transcript: '你好月汐今天天气怎么样' }, isFinal: false }],
-    })
+    speech.options?.onInterim?.('你好月汐今天天气怎么样')
   })
   expect(onWake).not.toHaveBeenCalled()
 })
 
 it('still wakes on a greeted phrase when the energy gate hears live speech', async () => {
-  installFakeRecognition()
   const onWake = vi.fn()
   renderHook(() =>
     useWakeWord({
@@ -114,70 +151,56 @@ it('still wakes on a greeted phrase when the energy gate hears live speech', asy
   )
   await act(async () => {})
   act(() => {
-    FakeRecognition.instances.at(-1)!.onresult?.({
-      results: [{ 0: { transcript: '你好月汐打开桌面' }, isFinal: false }],
-    })
+    speech.options?.onInterim?.('你好月汐打开桌面')
   })
   expect(onWake).toHaveBeenCalledExactlyOnceWith('打开桌面')
 })
 
 it('fires onWake once when the phrase lands in an interim transcript', async () => {
-  installFakeRecognition()
   const onWake = vi.fn()
   const view = renderHook(() => useWakeWord({ enabled: true, onWake }))
   await act(async () => {})
   expect(view.result.current).toBe('listening')
-  const first = FakeRecognition.instances.at(-1)!
-  expect(first.continuous).toBe(true)
   act(() => {
-    first.onresult?.({ results: [{ 0: { transcript: '你好月汐今天天气怎么样' }, isFinal: false }] })
+    speech.options?.onInterim?.('你好月汐今天天气怎么样')
   })
   expect(onWake).toHaveBeenCalledExactlyOnceWith('今天天气怎么样')
-  expect(first.stop).toHaveBeenCalled()
 })
 
-it('keeps listening across healthy session restarts', async () => {
+it('surfaces a deaf error when energy arrives without glyphs', async () => {
   vi.useFakeTimers()
-  installFakeRecognition()
-  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  const onDeaf = vi.fn()
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn(), onDeaf }))
   await act(async () => {})
-  const first = FakeRecognition.instances.at(-1)!
   act(() => {
-    first.onresult?.({ results: [{ 0: { transcript: '今天天气不错' }, isFinal: true }] })
-    first.onend?.()
+    speech.options?.onVoiceEnergy?.()
   })
+  expect(view.result.current).toBe('listening')
   await act(async () => {
-    vi.advanceTimersByTime(400)
+    vi.advanceTimersByTime(HOME_WAKE_DEAF_MS)
   })
-  expect(view.result.current).toBe('listening')
-  expect(FakeRecognition.instances.length).toBe(2)
-})
-
-it('surfaces an error after repeated fast-fail sessions instead of spinning as fake listening', async () => {
-  vi.useFakeTimers()
-  installFakeRecognition()
-  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
-  await act(async () => {})
-  expect(view.result.current).toBe('listening')
-  for (let round = 0; round < 9; round++) {
-    const current = FakeRecognition.instances.at(-1)!
-    act(() => {
-      current.onerror?.({ error: 'network' })
-      current.onend?.()
-    })
-    await act(async () => {
-      vi.advanceTimersByTime(1500)
-    })
-  }
+  expect(onDeaf).toHaveBeenCalled()
   expect(view.result.current).toBe('error')
 })
 
-it('stops permanently on language-not-supported', async () => {
-  installFakeRecognition()
+it('keeps listening across a silent recognizer restart', async () => {
+  const handle = speech.handle()
+  speech.start.mockResolvedValue(handle)
   const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
   await act(async () => {})
   act(() => {
-    FakeRecognition.instances.at(-1)!.onerror?.({ error: 'language-not-supported' })
+    speech.options?.onEndWithoutFinal?.()
+  })
+  expect(view.result.current).toBe('listening')
+  expect(handle.resumeCapture).toHaveBeenCalled()
+})
+
+it('surfaces an error from the shared ASR path instead of spinning as fake listening', async () => {
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  await act(async () => {})
+  expect(view.result.current).toBe('listening')
+  act(() => {
+    speech.options?.onError?.({ code: 'network', message: 'network', retryable: true, source: 'renderer' } as never)
   })
   expect(view.result.current).toBe('error')
 })

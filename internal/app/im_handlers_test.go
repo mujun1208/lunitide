@@ -80,7 +80,15 @@ func TestImChannelsGetSeedsAndSetWebhook(t *testing.T) {
 
 	emptyInbound := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true}`))
 	if emptyInbound.OK {
-		t.Fatal("inbound without allowlist must fail")
+		t.Fatal("inbound without allowlist or App ID must fail")
+	}
+	emptyEnable := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"dingtalk","enabled":true}`))
+	if emptyEnable.OK {
+		t.Fatal("dingtalk enable without webhook must fail")
+	}
+	pair := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAppId":"cli_x"}`))
+	if !pair.OK {
+		t.Fatalf("inbound pairing with App ID %+v", pair.Error)
 	}
 	dingInbound := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"dingtalk","inboundEnabled":true,"inboundAllowlist":"x"}`))
 	if dingInbound.OK {
@@ -151,6 +159,40 @@ func TestImInboundDeliverAllowlist(t *testing.T) {
 	}
 	if len(page.Items) != 1 || !strings.Contains(page.Items[0].Text, "打开网易云") {
 		t.Fatalf("messages %#v", page.Items)
+	}
+}
+
+func TestImInboundDeliverPairsFirstSender(t *testing.T) {
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "im-pair.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	projects := projectapp.New(store, store)
+	if _, err := projects.Create(context.Background(), "personal-key", "test", struct {
+		Name string `json:"name"`
+	}{imapp.PersonalChatProjectName}, structToProject(imapp.PersonalChatProjectName)); err != nil {
+		t.Fatal(err)
+	}
+	sessions := sessionapp.New(store, store)
+	cursorKey := []byte("0123456789abcdef0123456789abcdef")
+	msgs, err := messageapp.New(store, store, cursorKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngineWithMessages(providerapp.New(store, store), projects, sessions, msgs, "test", nil)
+	e.SetIMChannelsService(imapp.New(store))
+	ctx := context.Background()
+	if set := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAppId":"cli_x"}`)); !set.OK {
+		t.Fatalf("enable pairing %+v", set.Error)
+	}
+	ok := e.Handle(ctx, inboundDeliverReq(`{"kind":"feishu","sender":"ou_paired","text":"打开网易云"}`))
+	if !ok.OK {
+		t.Fatalf("first sender %+v", ok.Error)
+	}
+	denied := e.Handle(ctx, inboundDeliverReq(`{"kind":"feishu","sender":"ou_other","text":"打开网易云"}`))
+	if denied.OK || denied.Error == nil || denied.Error.Code != "IM_INBOUND_DENIED" {
+		t.Fatalf("second sender must be denied = %+v", denied.Error)
 	}
 }
 

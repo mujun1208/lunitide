@@ -265,6 +265,35 @@ test('heard-you-no-glyphs restarts the recognizer instead of hanging', async () 
   expect(speech.start.mock.calls.length).toBeGreaterThan(started)
 }, 15_000)
 
+test('lead-in-only done after tools speaks a result instead of going silent', async () => {
+  const onSend = vi.fn()
+  const { container, rerender } = await renderStage({ onSend })
+  await act(async () => {
+    speech.callbacks!.onFinal('在证件号码后面写204040')
+  })
+  rerender(
+    <CompanionStage
+      {...baseProps}
+      onSend={onSend}
+      chatStatus="streaming"
+      assistantText="好，我来输入。"
+      activityStatus="输入文字中…"
+    />,
+  )
+  await waitFor(() => expect(statusRegion(container).textContent).toContain('执行中'))
+  rerender(
+    <CompanionStage
+      {...baseProps}
+      onSend={onSend}
+      chatStatus="done"
+      assistantText="好，我来输入。"
+      activityStatus="输入文字中…"
+    />,
+  )
+  await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('完成了'))).toBe(true))
+  expect(liveLog(container).textContent).toMatch(/完成了/)
+})
+
 test('打断 during a task resumes listen so the next utterance is accepted', async () => {
   const onSend = vi.fn()
   const onCancel = vi.fn()

@@ -527,6 +527,17 @@ func (s *Service) OpenThread(ctx context.Context, threadID string) (Thread, []Me
 	return s.openExisting(ctx, t)
 }
 
+func (s *Service) PeekThread(ctx context.Context, threadID string) (Thread, error) {
+	if err := s.ready(); err != nil {
+		return Thread{}, err
+	}
+	t, err := s.store.GetThread(ctx, threadID)
+	if err != nil {
+		return Thread{}, err
+	}
+	return t, nil
+}
+
 func (s *Service) openExisting(ctx context.Context, t Thread) (Thread, []Message, error) {
 	msgs, err := s.store.ListPeopleMessages(ctx, t.ThreadID, maxMessages)
 	if err != nil {

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/xuri/excelize/v2"
 )
 
 func TestGenAndParseXLSXRoundTrip(t *testing.T) {
@@ -48,6 +50,33 @@ func TestGenAndParseXLSXRoundTrip(t *testing.T) {
 	// The chart part must exist inside the workbook.
 	if !zipHasPart(data, "xl/charts/chart1.xml") {
 		t.Fatal("chart part missing from workbook")
+	}
+}
+
+func TestGenXLSXWritesFormulasAndFreezesHeader(t *testing.T) {
+	data, err := GenXLSX([]SheetSpec{{
+		Name:    "账本",
+		Headers: []string{"项目", "金额", "合计"},
+		Rows: [][]interface{}{
+			{"租金", 1200, "=SUM(B2:B3)"},
+			{"水电", 300, ""},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	formula, err := f.GetCellFormula("账本", "C2")
+	if err != nil || (formula != "SUM(B2:B3)" && formula != "=SUM(B2:B3)") {
+		t.Fatalf("formula C2 = %q err=%v", formula, err)
+	}
+	sheetXML := zipPartBody(t, data, "xl/worksheets/sheet1.xml")
+	if !strings.Contains(sheetXML, "ySplit") && !strings.Contains(sheetXML, "<pane") {
+		t.Fatalf("header freeze missing from sheet: %.400s", sheetXML)
 	}
 }
 
@@ -221,6 +250,33 @@ func TestGenPptxStructure(t *testing.T) {
 	preview, err := ExtractPptxText(data)
 	if err != nil || !strings.Contains(preview, "封面") || !strings.Contains(preview, "第二章") {
 		t.Fatalf("valid deck must expose titles in XML text: %q %v", preview, err)
+	}
+}
+
+func TestGenPptxWritesSpeakerNotes(t *testing.T) {
+	data, err := GenPptx("带备注", []SlideSpec{
+		{Title: "封面", Subtitle: "副题", Layout: "title", Notes: "先讲背景，再问一句。"},
+		{Title: "要点", Bullets: []string{"A"}, Layout: "content"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !zipHasPart(data, "ppt/notesSlides/notesSlide1.xml") {
+		t.Fatal("pptx missing notes slide")
+	}
+	if zipHasPart(data, "ppt/notesSlides/notesSlide2.xml") {
+		t.Fatal("slides without notes must not grow a notes part")
+	}
+	notes := zipPartBody(t, data, "ppt/notesSlides/notesSlide1.xml")
+	if !strings.Contains(notes, "先讲背景") {
+		t.Fatalf("notes missing text: %.200s", notes)
+	}
+	rels := zipPartBody(t, data, "ppt/slides/_rels/slide1.xml.rels")
+	if !strings.Contains(rels, "notesSlide") {
+		t.Fatalf("slide rels missing notes: %s", rels)
+	}
+	if err := ValidatePptx(data); err != nil {
+		t.Fatalf("deck with notes failed validation: %v", err)
 	}
 }
 

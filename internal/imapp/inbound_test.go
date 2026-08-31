@@ -39,9 +39,30 @@ func TestAdmitInboundFailClosed(t *testing.T) {
 	}
 }
 
+func TestAdmitInboundPairsFirstSender(t *testing.T) {
+	ch := Normalize(Channel{Kind: KindFeishu, InboundEnabled: true, InboundAppID: "cli_x"})
+	if err := AdmitInbound(ch, "ou_first", "你好"); err != nil {
+		t.Fatalf("empty allowlist should pair: %v", err)
+	}
+}
+
+func TestInboundShouldAutoRunOnlyWhenPaired(t *testing.T) {
+	waiting := Normalize(Channel{Kind: KindFeishu, InboundEnabled: true, InboundAutoRun: true, InboundAppID: "cli_x"})
+	if InboundShouldAutoRun(waiting) || waiting.InboundAutoRun {
+		t.Fatal("unpaired inbound must not auto-run")
+	}
+	paired := Normalize(Channel{Kind: KindFeishu, InboundEnabled: true, InboundAutoRun: true, InboundAllowlist: "ou_ok"})
+	if !InboundShouldAutoRun(paired) {
+		t.Fatal("paired inbound should auto-run when enabled")
+	}
+}
+
 func TestValidateInboundRequiresAllowlist(t *testing.T) {
 	if err := validateInboundFields(KindFeishu, true, "", "", ""); err != ErrInboundAllowlist {
 		t.Fatalf("empty allowlist=%v", err)
+	}
+	if err := validateInboundFields(KindFeishu, true, "", "cli_x", ""); err != nil {
+		t.Fatalf("app id pairing=%v", err)
 	}
 	if err := validateInboundFields(KindDingTalk, true, "x", "", ""); err != ErrInboundKind {
 		t.Fatalf("dingtalk=%v", err)

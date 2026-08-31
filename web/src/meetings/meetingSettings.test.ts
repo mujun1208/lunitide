@@ -15,4 +15,13 @@ describe('meetingSettings', () => {
     expect(saveMeetingSettings({ listen: 'volc', modelId: 'qwen-plus' })).toEqual({ listen: 'volc', modelId: 'qwen-plus' })
     expect(loadMeetingSettings()).toEqual({ listen: 'volc', modelId: 'qwen-plus' })
   })
+
+  test('notifies the meeting workspace when settings change', () => {
+    const seen: string[] = []
+    const onChange = () => seen.push('ok')
+    window.addEventListener('lunitide:meeting', onChange)
+    saveMeetingSettings({ listen: 'local', modelId: 'glm-5.3' })
+    window.removeEventListener('lunitide:meeting', onChange)
+    expect(seen).toEqual(['ok'])
+  })
 })

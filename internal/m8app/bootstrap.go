@@ -55,7 +55,9 @@ var builtinExpertSpecs = []builtinExpertSpec{
 
 // EnsureBuiltinExperts seeds the three PM builtin experts and the shipped
 // conversation specialists when missing (by name). Existing installs keep
-// user-created rows; later catalog cards are added, never duplicated.
+// user-created rows with other names; later catalog cards are added, never
+// duplicated. Factory specialists with the same name get a six-section
+// refresh when the catalog digest changes.
 func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 	if svc == nil {
 		return nil
@@ -83,6 +85,100 @@ func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 			version = "1.0.0"
 		}
 		if err := seedMissingExpert(ctx, svc, existing, item.Name, item.Division, desc, version, "bootstrap-"+item.ID, item.SixSection); err != nil {
+			return err
+		}
+	}
+	if err := refreshConversationExpertBodies(ctx, svc); err != nil {
+		return err
+	}
+	return seedConversationSkillBindings(ctx, svc)
+}
+
+func sixSectionMap(s m8core.SixSection) map[string]string {
+	return map[string]string{
+		"identity":            s.Identity,
+		"mission":             s.Mission,
+		"rules":               s.Rules,
+		"workflow":            s.Workflow,
+		"deliverableTemplate": s.DeliverableTemplate,
+		"successMetrics":      s.SuccessMetrics,
+	}
+}
+
+// refreshConversationExpertBodies writes the current catalog six-section onto
+// the 13 factory specialists when their stored digest drifted. Same-name
+// user cards are treated as factory roster rows.
+func refreshConversationExpertBodies(ctx context.Context, svc *ExpertService) error {
+	if svc == nil {
+		return nil
+	}
+	listed, err := svc.List(ctx, ExpertFilter{})
+	if err != nil {
+		return err
+	}
+	byName := map[string]string{}
+	for _, row := range listed.Experts {
+		byName[row.Name] = row.ExpertID
+	}
+	for _, item := range ConversationExperts() {
+		id := byName[item.Name]
+		if id == "" {
+			continue
+		}
+		detail, err := svc.Detail(ctx, DetailInput{ExpertID: id})
+		if err != nil {
+			return err
+		}
+		curID, _ := detail.Expert["currentVersionId"].(string)
+		if curID == "" {
+			continue
+		}
+		curDigest := ""
+		for _, ver := range detail.Versions {
+			if ver.VersionID == curID {
+				curDigest = ver.SixSectionDigest
+				break
+			}
+		}
+		want := item.SixSection.SixSectionDigest()
+		if curDigest == want {
+			continue
+		}
+		note := "catalog recipe refresh"
+		if item.Version != "" {
+			note = "catalog recipe " + item.Version
+		}
+		if _, err := svc.Update(ctx, UpdateInput{
+			ExpertID:          id,
+			ExpectedVersionID: curID,
+			SixSection:        sixSectionMap(item.SixSection),
+			ChangeNote:        note,
+			Actor:             "engine-bootstrap",
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedConversationSkillBindings(ctx context.Context, svc *ExpertService) error {
+	if svc == nil || svc.skills == nil {
+		return nil
+	}
+	listed, err := svc.List(ctx, ExpertFilter{})
+	if err != nil {
+		return err
+	}
+	byName := map[string]string{}
+	for _, row := range listed.Experts {
+		byName[row.Name] = row.ExpertID
+	}
+	for _, item := range ConversationExperts() {
+		id := byName[item.Name]
+		if id == "" || len(item.PreferredSkills) == 0 {
+			continue
+		}
+		if err := svc.skills.SeedExpertSkillsIfEmpty(ctx, id, append([]string{}, item.PreferredSkills...)); err != nil {
 			return err
 		}
 	}

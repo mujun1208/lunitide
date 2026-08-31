@@ -248,6 +248,25 @@ func TestLooksLikeReopenQuery(t *testing.T) {
 	if looksLikeReopenQuery("网易云音乐") {
 		t.Fatal("app name is not a reopen query")
 	}
+	if looksLikeReopenQuery("文档") || looksLikeReopenQuery("打开文档") || looksLikeReopenQuery("文件") {
+		t.Fatal("bare 文档/文件 must list candidates, not reopen the last 协议")
+	}
+}
+
+func TestListDesktopDocumentsGeneric(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"协议.docx", "周报.xlsx", "readme.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := listDesktopDocuments(dir)
+	if len(names) != 3 {
+		t.Fatalf("names %v", names)
+	}
+	if looksLikeGenericDocumentQuery("打开文档") != true || looksLikeGenericDocumentQuery("协议") {
+		t.Fatal("generic vs named")
+	}
 }
 
 func TestMatchKnownLaunchAppQQDoesNotStealQQMusic(t *testing.T) {

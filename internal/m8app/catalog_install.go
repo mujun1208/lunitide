@@ -157,5 +157,10 @@ func installCatalogExpert(ctx context.Context, experts *ExpertService, item Cata
 		}
 		return "", err
 	}
+	if experts.skills != nil && len(item.PreferredSkills) > 0 {
+		if err := experts.skills.SeedExpertSkillsIfEmpty(ctx, res.ExpertID, append([]string{}, item.PreferredSkills...)); err != nil {
+			return "", err
+		}
+	}
 	return res.ExpertID, nil
 }

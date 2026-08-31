@@ -113,19 +113,6 @@ func normalizeAfterLabel(s string) string {
 	return strings.TrimRight(s, "：:")
 }
 
-func dismissFindPlaceCaretAfterMatch(ctx context.Context, invoke ccInvoker, session string, approved bool) {
-	// Word keeps the Navigation pane open after Ctrl+F; Esc clears search but
-	// focus often stays in the pane, so End/Right never reach the document.
-	_ = ccPress(ctx, invoke, session, "esc", approved)
-	mediaSleep(100 * time.Millisecond)
-	_ = ccPress(ctx, invoke, session, "esc", approved)
-	mediaSleep(120 * time.Millisecond)
-	_ = ccPress(ctx, invoke, session, "right", approved)
-	mediaSleep(40 * time.Millisecond)
-	// Skip a trailing colon/full-width colon after labels like 身份证号码：
-	_ = ccPress(ctx, invoke, session, "right", approved)
-}
-
 func nodeIsLabelText(name, want string) bool {
 	return labelsMatch(want, name)
 }
@@ -192,6 +179,28 @@ func pickDocumentLabel(nodes []mediaUINode, want string) *mediaUINode {
 		return nil
 	}
 	return best
+}
+
+func desktopTypeVisible(nodes []mediaUINode, text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	for _, n := range nodes {
+		if n.Value != "" && strings.Contains(n.Value, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func verifyDesktopTyped(ctx context.Context, invoke ccInvoker, session string, approved bool, text string) error {
+	mediaSleep(80 * time.Millisecond)
+	nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
+	if desktopTypeVisible(nodes, text) {
+		return nil
+	}
+	return fmt.Errorf("无法执行：写完后界面上看不到「%s」，不能确认已写入", text)
 }
 
 func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, args json.RawMessage, approved, unconfined bool) (Result, error) {
@@ -267,21 +276,10 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
 			}
 		} else {
-			search := documentLabelSearchTerm(after)
-			_ = ccShortcut(ctx, invoke, session, approved, "ctrl", "f")
-			mediaSleep(220 * time.Millisecond)
-			if err := ccType(ctx, invoke, session, search, approved); err != nil {
-				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
-			}
-			mediaSleep(80 * time.Millisecond)
-			if err := ccPress(ctx, invoke, session, "enter", approved); err != nil {
-				return Result{}, fmt.Errorf("无法执行：找不到「%s」", after)
-			}
-			mediaSleep(180 * time.Millisecond)
-			dismissFindPlaceCaretAfterMatch(ctx, invoke, session, approved)
-			if err := ccType(ctx, invoke, session, text, approved); err != nil {
-				return Result{}, fmt.Errorf("无法执行：无法在「%s」后输入（%v）", after, err)
-			}
+			return Result{}, fmt.Errorf("无法执行：界面上看不到可填写的「%s」。请先截图看清输入位置，不要假装已经写入", after)
+		}
+		if err := verifyDesktopTyped(ctx, invoke, session, approved, text); err != nil {
+			return Result{}, err
 		}
 	} else if err := ccType(ctx, invoke, session, text, approved); err != nil {
 		return Result{}, fmt.Errorf("无法执行：无法输入文字（%v）", err)
@@ -301,9 +299,9 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 		}
 	}
 
-	how := "typed"
+	how := fmt.Sprintf("typed %q", text)
 	if after != "" {
-		how = fmt.Sprintf("typed after %q", after)
+		how = fmt.Sprintf("typed %q after %q", text, after)
 	}
 	if a.Submit {
 		how += " and submitted"

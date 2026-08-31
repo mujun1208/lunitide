@@ -34,6 +34,7 @@ type subagentProfileDef struct {
 	Description  string   `json:"description"`
 	SystemPrompt string   `json:"systemPrompt"`
 	ReadCaps     []string `json:"readCaps"`
+	WriteTools   []string `json:"-"`
 	MaxSteps     int      `json:"maxSteps"`
 	BudgetTokens int64    `json:"budgetTokens"`
 	Builtin      bool     `json:"builtin,omitempty"`
@@ -54,6 +55,9 @@ type subagentChatPolicy struct {
 	// a 对话专家 / Expert Center / council session. Those spawns use the full
 	// readCaps pack (全部权限) instead of a crippled web-only default.
 	ExpertWork bool `json:"-"`
+	// ExpertWriteTools is the union of mounted specialists' requiredTools.
+	// Subagents may use these office/workspace writers; never computer.act / CC.
+	ExpertWriteTools []string `json:"-"`
 }
 
 func defaultSubagentChatPolicy() subagentChatPolicy {
@@ -177,9 +181,33 @@ func fullSubagentReadCaps() []string {
 	}
 }
 
-func applyExpertSpawnCaps(profile subagentProfileDef) subagentProfileDef {
+func applyExpertSpawnCaps(profile subagentProfileDef, writeTools []string) subagentProfileDef {
 	profile.ReadCaps = append([]string(nil), fullSubagentReadCaps()...)
+	profile.WriteTools = sanitizeExpertWriteTools(writeTools)
 	return profile
+}
+
+func sanitizeExpertWriteTools(tools []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(tools))
+	for _, name := range tools {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] || !specialistToolAllow[name] || expertWriteToolDenied(name) {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+func expertWriteToolDenied(name string) bool {
+	switch name {
+	case "computer.act", "desktop.open", "desktop.type", "media.play", "user.ask":
+		return true
+	default:
+		return strings.HasPrefix(name, "cc.")
+	}
 }
 
 func capsIncludeAll(have, want []string) bool {

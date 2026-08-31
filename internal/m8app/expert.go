@@ -155,11 +155,20 @@ type ExpertUnitOfWork interface {
 }
 
 // ExpertService implements the FR-19 use cases.
+// ExpertSkillStore persists per-expert skill bindings (skills hang on the
+// expert, not the conversation composer).
+type ExpertSkillStore interface {
+	ListExpertSkillKeys(ctx context.Context, expertID string) ([]string, error)
+	ReplaceExpertSkillKeys(ctx context.Context, expertID string, keys []string) error
+	SeedExpertSkillsIfEmpty(ctx context.Context, expertID string, keys []string) error
+}
+
 type ExpertService struct {
 	uow     ExpertUnitOfWork
 	clock   Clock
 	subject string
 	persona PersonaBodyStore
+	skills  ExpertSkillStore
 }
 
 // NewExpertService wires the FR-19 service. A nil persona store keeps
@@ -174,6 +183,9 @@ func (s *ExpertService) SetClock(c Clock) { s.clock = c }
 // SetPersonaStore substitutes the persona body store (tests / on-disk
 // wiring).
 func (s *ExpertService) SetPersonaStore(p PersonaBodyStore) { s.persona = p }
+
+// SetSkillStore wires the optional expert skill binder.
+func (s *ExpertService) SetSkillStore(store ExpertSkillStore) { s.skills = store }
 
 func (s *ExpertService) storeBody(ref string, body []byte) {
 	if s.persona != nil {
@@ -199,6 +211,7 @@ type CreateInput struct {
 	SixSection  m8core.SixSection
 	RequestID   string
 	Actor       string
+	SkillKeys   []string
 }
 
 // CreateResult is the expert.create outcome.
@@ -273,6 +286,14 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 		return out, err
 	}
 	s.storeBody(personaRef, []byte(in.SixSection.CanonicalJSON()))
+	if len(in.SkillKeys) > 0 {
+		if s.skills == nil {
+			return out, ErrServiceUnavailable
+		}
+		if err := s.skills.ReplaceExpertSkillKeys(ctx, out.ExpertID, in.SkillKeys); err != nil {
+			return out, mapSkillBindError(err)
+		}
+	}
 	return out, nil
 }
 
@@ -295,6 +316,7 @@ type ExpertListItem struct {
 	VersionCount      int    `json:"versionCount"`
 	MountedPhaseCount int    `json:"mountedPhaseCount"`
 	OriginBundleID    string `json:"originBundleId,omitempty"`
+	Kind              string `json:"kind,omitempty"`
 }
 
 // ExpertListResult is the expert.list outcome.
@@ -325,6 +347,9 @@ func (s *ExpertService) List(ctx context.Context, filter ExpertFilter) (ExpertLi
 		items, err := tx.ListExperts(filter)
 		if err != nil {
 			return err
+		}
+		for i := range items {
+			items[i].Kind = ExpertKindForName(items[i].Name)
 		}
 		out.Experts = items
 		return nil
@@ -411,6 +436,7 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 			"expertId": e.ExpertID, "name": e.Name, "division": e.Division,
 			"source": e.Source, "state": e.State, "semver": cur.Semver,
 			"currentVersionId": e.CurrentVersionID,
+			"kind":             ExpertKindForName(e.Name),
 		}
 		if e.OriginBundleID != "" {
 			out.Expert["originBundleId"] = e.OriginBundleID
@@ -434,7 +460,163 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	out.Expert["boundSkills"] = s.boundOrPreferred(ctx, in.ExpertID, fmt.Sprint(out.Expert["name"]))
+	return out, nil
+}
+
+func (s *ExpertService) boundOrPreferred(ctx context.Context, expertID, name string) []string {
+	if s != nil && s.skills != nil && expertID != "" {
+		if keys, err := s.skills.ListExpertSkillKeys(ctx, expertID); err == nil {
+			return keys
+		}
+	}
+	if item, ok := ConversationExpertByName(name); ok {
+		return append([]string{}, item.PreferredSkills...)
+	}
+	return []string{}
+}
+
+func (s *ExpertService) applySkillFloor(ctx context.Context, expertID string, keys []string) []string {
+	if s == nil || s.uow == nil {
+		return keys
+	}
+	var name string
+	err := s.uow.TransactExpert(ctx, func(tx ExpertTx) error {
+		item, err := tx.GetExpert(expertID)
+		if err != nil {
+			return err
+		}
+		name = item.Name
+		return nil
+	})
+	if err != nil || ExpertKindForName(name) != ExpertKindAgent {
+		return keys
+	}
+	floor, _, _, _ := ComposeForExpertNames([]string{name})
+	if len(floor) == 0 {
+		return keys
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(keys)+len(floor))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	for _, key := range floor {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
+
+func mapSkillBindError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "invalid") || strings.Contains(msg, "capacity") {
+		return ErrPayloadInvalid
+	}
+	return err
+}
+
+// ListBoundSkills answers stored bindings (empty if none).
+func (s *ExpertService) ListBoundSkills(ctx context.Context, expertID string) ([]string, error) {
+	if s == nil || s.skills == nil {
+		return nil, ErrServiceUnavailable
+	}
+	if len(expertID) != 26 {
+		return nil, ErrPayloadInvalid
+	}
+	return s.skills.ListExpertSkillKeys(ctx, expertID)
+}
+
+// ReplaceBoundSkills replaces the expert's skill bindings.
+func (s *ExpertService) ReplaceBoundSkills(ctx context.Context, expertID string, keys []string) ([]string, error) {
+	if s == nil || s.skills == nil {
+		return nil, ErrServiceUnavailable
+	}
+	if len(expertID) != 26 {
+		return nil, ErrPayloadInvalid
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	keys = s.applySkillFloor(ctx, expertID, keys)
+	if err := s.skills.ReplaceExpertSkillKeys(ctx, expertID, keys); err != nil {
+		return nil, mapSkillBindError(err)
+	}
+	return s.skills.ListExpertSkillKeys(ctx, expertID)
+}
+
+// ComposeSkillsForNames unions stored bindings when present, otherwise the
+// catalog preferredSkills for named conversation specialists.
+func (s *ExpertService) ComposeSkillsForNames(ctx context.Context, names []string) []string {
+	catalog, _, _, _ := ComposeForExpertNames(names)
+	if s == nil || s.skills == nil || s.uow == nil {
+		return catalog
+	}
+	var listed ExpertListResult
+	if err := s.uow.TransactExpert(ctx, func(tx ExpertTx) error {
+		items, err := tx.ListExperts(ExpertFilter{})
+		if err != nil {
+			return err
+		}
+		listed.Experts = items
+		return nil
+	}); err != nil {
+		return catalog
+	}
+	byName := map[string]string{}
+	for _, item := range listed.Experts {
+		byName[item.Name] = item.ExpertID
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(keys []string) {
+		for _, key := range keys {
+			key = strings.TrimSpace(key)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	usedStore := false
+	for _, name := range names {
+		id := byName[strings.TrimSpace(name)]
+		if id == "" {
+			if item, ok := ConversationExpertByName(name); ok {
+				add(item.PreferredSkills)
+			}
+			continue
+		}
+		keys, err := s.skills.ListExpertSkillKeys(ctx, id)
+		if err != nil {
+			if item, ok := ConversationExpertByName(name); ok {
+				add(item.PreferredSkills)
+			}
+			continue
+		}
+		usedStore = true
+		add(keys)
+	}
+	if !usedStore && len(out) == 0 {
+		return catalog
+	}
+	return out
 }
 
 // UpdateInput is the expert.update command.

@@ -28,7 +28,7 @@ const (
 
 	pptPipelineInstruction = "\n\n[PPT 九步流水线 · 产品强制]\n" +
 		"做演示必须按序走完，禁止跳到 pptx.gen：\n" +
-		"1) 思考：用 todo.write 记下受众、时长、语气、页数。\n" +
+		"1) 思考：用 todo.write 记下受众、时长、文类、语气、密度、页数。\n" +
 		"2) 定义结构：先输出封面/目录/分节/收尾大纲（mermaid flowchart，节点双引号+<br/>），再继续。\n" +
 		"3) 梳理写内容：为每一页写主张标题 + 3-5 条要点 + 演讲备注。\n" +
 		"4) 收集素材：必须 web.search，需要原文再 web.fetch；可选用 image.generate 做封面图。禁止编造数据与出处。\n" +
@@ -36,7 +36,7 @@ const (
 		"6) 再收集素材：第二次 web.search 或 web.fetch 补缺口。\n" +
 		"7) 思考创作：定 layout=title/section/content，深色页必须浅色字。\n" +
 		"8) 写完整 PPT：每一页都有可见标题和正文，禁止空画布。\n" +
-		"9) 最后生成：只有正文齐了才 pptx.gen（桌面则 desktop=true）。生成不完整不要写空文件冒充成功。\n" +
+		"9) 最后生成：只有正文齐了才 pptx.gen（桌面则 desktop=true；slides[].notes 写演讲备注）。生成不完整不要写空文件冒充成功。\n" +
 		"用户问进度时继续本流水线，不要重开一稿。\n"
 
 	pptGenBlockedMsg = "ok:false\npptx.gen 被流水线拦住：还没做完素材收集与正文撰写。先 web.search（必要时 web.fetch）至少两轮，写好每页标题+要点，再调用 pptx.gen。空页或只铺深色底的文件会被拒绝。\n"

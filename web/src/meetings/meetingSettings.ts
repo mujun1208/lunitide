@@ -8,6 +8,7 @@ export type MeetingSettings = {
 }
 
 const KEY = 'lunitide:meeting'
+export const MEETING_SETTINGS_EVENT = 'lunitide:meeting'
 
 export function defaultMeetingSettings(): MeetingSettings {
   return { listen: 'cloud', modelId: '' }
@@ -35,5 +36,6 @@ export function saveMeetingSettings(next: MeetingSettings): MeetingSettings {
     modelId: next.modelId.trim(),
   }
   localStorage.setItem(KEY, JSON.stringify(value))
+  window.dispatchEvent(new Event(MEETING_SETTINGS_EVENT))
   return value
 }

@@ -297,6 +297,36 @@ export function looksIncompleteUtterance(text: string): boolean {
   return Array.from(trimmed).length <= 3
 }
 
+const COMPANION_LEAD_IN_ONLY = new Set([
+  '等一下',
+  '稍等',
+  '稍等我一下',
+  '嗯，我在呢，稍等我一下',
+  '我在呢，稍等我一下',
+  '好，我帮你查一下',
+  '好，我来执行',
+  '好，我来打开',
+  '好，我来播放',
+  '好，我来输入',
+  '好，我马上处理',
+  '好，我来操作电脑',
+  '好，我来发消息',
+  '好，我用技能处理一下',
+  '好，我先看一下技能约定',
+  '好，我来生成图片',
+  '好，我来生成视频',
+  '嗯，',
+  '嗯',
+])
+
+/** Host-injected “好，我来输入。” is not a task result. Returning to listen on it is silence. */
+export function isCompanionLeadInOnly(text: string): boolean {
+  const t = text.trim().replace(/[。.!！\s]+$/g, '')
+  if (!t) return true
+  if (COMPANION_LEAD_IN_ONLY.has(t)) return true
+  return Array.from(t).length <= 6 && (t.includes('等') || t.includes('好'))
+}
+
 /** Drop machine self-reports. The user asked not to hear 「我做完了」. */
 export function stripTaskDonePhrases(raw: string): string {
   const trimmed = raw

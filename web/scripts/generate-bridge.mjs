@@ -149,6 +149,8 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'expert.scenario.create',
   'expert.scenario.delete',
   'expert.scenario.list',
+  'expert.skills.get',
+  'expert.skills.set',
   'expert.toggle',
   'expert.update',
   'extension.install',

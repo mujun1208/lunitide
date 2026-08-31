@@ -50,6 +50,8 @@ func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) br
 	if err := imapp.AdmitInbound(ch, p.Sender, p.Text); err != nil {
 		return inboundAdmitFailure(r, err)
 	}
+	auto := imapp.InboundShouldAutoRun(ch)
+	e.pairInboundSender(ctx, &ch, p.Sender)
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
@@ -58,7 +60,7 @@ func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) br
 		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "无法写入入站会话", true)
 	}
 	ran := false
-	if ch.InboundAutoRun {
+	if auto {
 		ran = e.kickInboundChat(sessionID, p.Text)
 	}
 	return bridge.Success(r.ID, map[string]any{
@@ -203,6 +205,24 @@ func (e *Engine) kickInboundChat(sessionID, text string) bool {
 	return true
 }
 
+func (e *Engine) pairInboundSender(ctx context.Context, ch *imapp.Channel, sender string) {
+	if e == nil || e.imChannels == nil || ch == nil {
+		return
+	}
+	if len(imapp.ParseAllowlist(ch.InboundAllowlist)) > 0 {
+		return
+	}
+	sender = strings.TrimSpace(sender)
+	if sender == "" {
+		return
+	}
+	if _, err := e.imChannels.Set(ctx, ch.Kind, imapp.ChannelPatch{InboundAllowlist: &sender}); err != nil {
+		log.Printf("im inbound pair: %v", err)
+		return
+	}
+	ch.InboundAllowlist = sender
+}
+
 // StartIMInbound connects outbound to Feishu long-connection when inbound is
 // enabled and credentials exist. No listen port. Safe to call once from cmd/engine.
 func (e *Engine) StartIMInbound(ctx context.Context) {
@@ -243,6 +263,8 @@ func (e *Engine) tickFeishuInbound(ctx context.Context) {
 		if err := imapp.AdmitInbound(ch, msg.Sender, msg.Text); err != nil {
 			return
 		}
+		auto := imapp.InboundShouldAutoRun(ch)
+		e.pairInboundSender(context.Background(), &ch, msg.Sender)
 		key := "im-inbound-" + msg.MessageID
 		if strings.TrimSpace(msg.MessageID) == "" {
 			key = ulid.Make().String()
@@ -252,7 +274,7 @@ func (e *Engine) tickFeishuInbound(ctx context.Context) {
 			log.Printf("feishu inbound park: %v", err)
 			return
 		}
-		if ch.InboundAutoRun {
+		if auto {
 			e.kickInboundChat(sessionID, msg.Text)
 		}
 	}); err != nil && ctx.Err() == nil {
@@ -309,6 +331,8 @@ func (e *Engine) tickWeComInbound(ctx context.Context) {
 		if err := imapp.AdmitInbound(ch, msg.Sender, msg.Text); err != nil {
 			return
 		}
+		auto := imapp.InboundShouldAutoRun(ch)
+		e.pairInboundSender(context.Background(), &ch, msg.Sender)
 		key := "im-inbound-" + msg.MessageID
 		if strings.TrimSpace(msg.MessageID) == "" {
 			key = ulid.Make().String()
@@ -318,7 +342,7 @@ func (e *Engine) tickWeComInbound(ctx context.Context) {
 			log.Printf("wecom inbound park: %v", err)
 			return
 		}
-		if ch.InboundAutoRun {
+		if auto {
 			e.kickInboundChat(sessionID, msg.Text)
 		}
 	}); err != nil && ctx.Err() == nil {

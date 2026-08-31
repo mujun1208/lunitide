@@ -18,7 +18,9 @@ export type ConversationExpertID = typeof CONVERSATION_EXPERTS[number]['id']
 
 export type ConversationExpertDivision = 'product' | 'data' | 'design' | 'engineering' | 'testing'
 
-/** Catalog template IDs auto-attached when the user 选专家. Keep in sync with conversation_experts.json. */
+export type ExpertKind = 'agent' | 'prompt_skill'
+
+/** Factory kit catalog IDs owned by the specialist. Hang on the expert, never on the composer. */
 export const CONVERSATION_EXPERT_PREFERRED_SKILLS: Record<ConversationExpertID, readonly string[]> = {
   'ppt-expert': ['slide-builder', 'web-researcher', 'mermaid-diagrams'],
   'report-writer': ['web-researcher', 'docx-writer', 'anti-ai-prose', 'mermaid-diagrams'],
@@ -30,16 +32,18 @@ export const CONVERSATION_EXPERT_PREFERRED_SKILLS: Record<ConversationExpertID, 
   'db-expert': ['mermaid-diagrams', 'pm-phase-3'],
   'repo-expert': ['knowledge-index', 'mermaid-diagrams'],
   'standards-expert': ['code-reviewer', 'grill-me', 'git-status'],
-  'test-expert': ['test-writer', 'e2e-browser', 'browser-automation'],
+  'test-expert': ['test-writer', 'e2e-browser', 'browser-automation', 'find-bug'],
   'hardware-expert': ['web-researcher', 'hardware-bom'],
   'dev-expert': ['implement', 'tdd-loop', 'debugger', 'code-reviewer', 'super-coders'],
 }
 
-const ALL_COMPOSE_SKILL_IDS = [...new Set(Object.values(CONVERSATION_EXPERT_PREFERRED_SKILLS).flat())]
-
 export function conversationExpertByNameOrID(idOrName: string): (typeof CONVERSATION_EXPERTS)[number] | undefined {
   const key = idOrName.trim()
   return CONVERSATION_EXPERTS.find(item => item.id === key || item.name === key)
+}
+
+export function conversationExpertKind(idOrName: string): ExpertKind {
+  return conversationExpertByNameOrID(idOrName) ? 'agent' : 'prompt_skill'
 }
 
 export function preferredSkillsForExperts(experts: ReadonlyArray<{name?: string; id?: string}>): string[] {
@@ -69,23 +73,37 @@ export function skillMatchesPreferred(skill: {name: string; entryPoint?: string}
   return false
 }
 
-export function mergeComposeSkills<T extends {id: string; name: string; entryPoint?: string}>(
-  current: readonly T[],
-  published: readonly T[],
-  experts: ReadonlyArray<{name?: string; id?: string}>,
-): T[] {
-  const preferred = preferredSkillsForExperts(experts)
-  const userKept = current.filter(item => !skillMatchesPreferred(item, ALL_COMPOSE_SKILL_IDS))
-  const compose = published.filter(item => skillMatchesPreferred(item, preferred))
-  const seen = new Set(userKept.map(item => item.id))
-  const next = [...userKept]
-  for (const item of compose) {
-    if (seen.has(item.id)) continue
-    seen.add(item.id)
-    next.push(item)
+export const CONVERSATION_EXPERT_EMOJI: Record<ConversationExpertID, string> = {
+  'ppt-expert': '📊',
+  'report-writer': '📝',
+  'novel-writer': '📖',
+  'excel-maker': '▦',
+  'ui-designer': '🎨',
+  'pm-expert': '📋',
+  'architect-expert': '🏗',
+  'db-expert': '🗄',
+  'repo-expert': '📁',
+  'standards-expert': '📐',
+  'test-expert': '☑',
+  'hardware-expert': '⊞',
+  'dev-expert': '⌨',
+}
+
+export function conversationExpertRole(division: string): string {
+  switch (division) {
+    case 'design': return '设计师'
+    case 'engineering':
+    case 'operations':
+    case 'security': return '工程师'
+    case 'product':
+    case 'project-management': return '产品'
+    default: return '研究员'
   }
-  if (next.length === current.length && next.every((item, i) => item.id === current[i]?.id)) return current as T[]
-  return next
+}
+
+export function conversationExpertEmoji(idOrName: string): string {
+  const hit = conversationExpertByNameOrID(idOrName)
+  return hit ? CONVERSATION_EXPERT_EMOJI[hit.id] : '🌙'
 }
 
 export function conversationExpertDivision(id: string): ConversationExpertDivision {

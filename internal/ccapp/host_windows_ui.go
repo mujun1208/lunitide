@@ -98,7 +98,7 @@ func collectIfActionable(acc uintptr, child variant, nodes *[]UINode, max int) b
 	if !ok || w <= 1 || h <= 1 {
 		return true
 	}
-	*nodes = append(*nodes, UINode{Role: roleName(role), Name: name, X: x, Y: y, W: w, H: h})
+	*nodes = append(*nodes, UINode{Role: roleName(role), Name: name, Value: strings.TrimSpace(accValue(acc, child)), X: x, Y: y, W: w, H: h})
 	return true
 }
 

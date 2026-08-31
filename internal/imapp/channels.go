@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrKind = errors.New("imapp: unknown channel")
-	ErrOff  = errors.New("imapp: channel is off")
+	ErrKind            = errors.New("imapp: unknown channel")
+	ErrOff             = errors.New("imapp: channel is off")
+	ErrWebhookRequired = errors.New("imapp: webhook url required")
 )
 
 // Kind is one of the five front-door IM channels.
@@ -133,11 +134,16 @@ func Normalize(ch Channel) Channel {
 	if !ch.InboundEnabled {
 		ch.InboundAutoRun = false
 	}
+	if len(ParseAllowlist(ch.InboundAllowlist)) == 0 {
+		ch.InboundAutoRun = false
+	}
 	ch.Mode = "off"
 	if ch.Enabled && ch.WebhookURL != "" {
 		ch.Mode = "webhook"
-	} else if ch.Enabled {
+	} else if ch.Enabled && !webhookAllowed(ch.Kind) {
 		ch.Mode = "desktop"
+	} else if ch.Enabled {
+		ch.Enabled = false
 	}
 	return ch
 }
@@ -221,6 +227,21 @@ func (s *Service) Set(ctx context.Context, kind Kind, patch ChannelPatch) ([]Cha
 	}
 	if err := validateInboundFields(kind, enabled, allow, appID, secret); err != nil {
 		return nil, err
+	}
+	wantEnabled := cur.Enabled
+	if patch.Enabled != nil {
+		wantEnabled = *patch.Enabled
+	}
+	url := cur.WebhookURL
+	if patch.WebhookURL != nil {
+		url = strings.TrimSpace(*patch.WebhookURL)
+	}
+	if wantEnabled && webhookAllowed(kind) && url == "" {
+		return nil, ErrWebhookRequired
+	}
+	if patch.InboundAutoRun != nil && *patch.InboundAutoRun && len(ParseAllowlist(allow)) == 0 {
+		off := false
+		patch.InboundAutoRun = &off
 	}
 	items, err := s.store.UpsertIMChannel(ctx, kind, patch)
 	if err != nil {

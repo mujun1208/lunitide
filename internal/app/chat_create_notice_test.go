@@ -52,6 +52,9 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 	if got := createTurnClosingNotice([]string{"web.search"}, ""); got != "" {
 		t.Fatalf("web.search must not say 我已经做完了: %q", got)
 	}
+	if got := createTurnClosingNotice([]string{"excel.gen", "skill.invoke"}, ""); !strings.Contains(got, "技能草稿") {
+		t.Fatalf("complex office turn should offer skill draft: %q", got)
+	}
 }
 
 func TestCompanionPersonaForbidsTaskDonePhrases(t *testing.T) {
@@ -100,9 +103,12 @@ func TestDuplicateToolSkipSummary(t *testing.T) {
 }
 
 func TestExpertPersonaHeaderAndClip(t *testing.T) {
-	single := expertPersonaHeader(1)
-	if strings.Contains(single, "专家理事会") || strings.Contains(single, "5–6 轮") {
+	single := expertPersonaHeader(1, "PPT专家")
+	if strings.Contains(single, "专家理事会") || strings.Contains(single, "5–6 轮") || strings.Contains(single, "你是月汐主编排") {
 		t.Fatalf("single expert must stay persona: %q", single)
+	}
+	if !strings.Contains(single, "你就是「PPT专家」") {
+		t.Fatalf("single expert must be the named person: %q", single)
 	}
 	council := expertPersonaHeader(3)
 	if !strings.Contains(council, "会议主席") || !strings.Contains(council, "5–6 轮") || !strings.Contains(council, "思考") {

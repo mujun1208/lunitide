@@ -1,31 +1,21 @@
 // wakeWord.ts — companion voice wake on the launch home. A tiny pure matcher
 // (wake phrases with punctuation/space-insensitive matching, trailing text
-// becomes the companion prompt) plus a continuous-listening hook built on the
-// same Windows online SpeechRecognition the chat composer uses. The hook
-// degrades silently when recognition is unavailable (headless/tests) and
-// always stops on unmount so it never leaks into chat pages.
-//
-// Robustness rules (the wake listener used to die on the first error):
-// - Microphone permission is probed first; a hard 'denied' surfaces the
-//   error state instead of a recognition that can never start.
-// - getUserMedia uses the same microphone constraints as in-companion
-//   speech so WebView2 actually grants the mic.
-// - Continuous mode matches the companion stage (Edge still ends after
-//   silence — onend restarts). If start() rejects continuous=true, fall
-//   back to one-shot sessions with the same restart loop.
-// - Transient errors (no-speech / network / aborted / audio-capture) restart
-//   with backoff — an idle timeout never disables the listener.
-// - Permanent denials (not-allowed / service-not-allowed) stop cleanly.
+// becomes the companion prompt) plus a continuous-listening hook on the
+// same ASR path as 月伴 (火山 / sherpa / 系统识别). One microphone; no
+// second getUserMedia VAD stream. Volc never falls through to Web Speech
+// (VOICE-004). Energy without text surfaces as a deaf error, not fake listening.
 import { useEffect, useRef, useState } from 'react'
-import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
+import { getProviderBridge } from '../../bridge/client'
+import { pickDefaultVoice } from '../../provider/modelKind'
+import { companionListenKind, withDeadline } from './asrPath'
+import { loadCompanionSettings } from './companionSettings'
 import { cleanUserTranscript } from './companionText'
+import { startLocalCompanionSpeech } from './localSpeech'
+import { prepareCompanionEntry } from './prepareCompanionEntry'
+import { startCompanionSpeech, type CompanionSpeechHandle, type CompanionSpeechOptions } from './speech'
 import { unlockTtsAudio } from './ttsPlayer'
-import {
-  createWakeVadMonitor,
-  shouldAcceptWake,
-  type WakeMatchKind,
-  type WakeVadSnapshot,
-} from './wakeVad'
+import { startVolcCompanionSpeech } from './volc/volcSpeech'
+import { shouldAcceptWake, type WakeMatchKind, type WakeVadSnapshot } from './wakeVad'
 
 export type WakeWordState = 'idle' | 'probing' | 'listening' | 'unsupported' | 'error'
 export type { WakeMatchKind }
@@ -78,184 +68,149 @@ export function matchWakeWord(transcript: string): WakeWordMatch {
   return { hit: false, prompt: '', kind: 'none' }
 }
 
-type SpeechRecognitionEventLike = { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }
-type SpeechRecognitionLike = {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event?: { error?: string }) => void) | null
-  onend: (() => void) | null
-  start: () => void
-  stop: () => void
-}
-
-const speechRecognitionConstructor = () =>
-  (window as typeof window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition ??
-  (window as typeof window & { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
-
-const PERMANENT_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported'])
-
-async function microphoneDenied(): Promise<boolean> {
-  try {
-    if (!navigator.permissions?.query) return false
-    const status = await navigator.permissions.query({ name: 'microphone' } as PermissionDescriptor)
-    return status.state === 'denied'
-  } catch {
-    return false
-  }
-}
+export const HOME_WAKE_DEAF_MS = 5000
 
 export function useWakeWord({
   enabled,
   retry = 0,
   onWake,
+  onHeard,
+  onDeaf,
   vad = true,
   readVad,
 }: {
   enabled: boolean
   retry?: number
   onWake: (prompt: string) => void
+  onHeard?: (transcript: string) => void
+  onDeaf?: () => void
   /** Live-voice gate. Off = any transcript match enters, including speaker bleed. */
   vad?: boolean
-  /** Tests inject a snapshot; production reads the analyser on the wake stream. */
+  /** Tests inject a snapshot; production treats a transcript as live speech unless this says playback. */
   readVad?: () => WakeVadSnapshot | null
 }): WakeWordState {
   const [state, setState] = useState<WakeWordState>('idle')
   const onWakeRef = useRef(onWake)
   onWakeRef.current = onWake
+  const onHeardRef = useRef(onHeard)
+  onHeardRef.current = onHeard
+  const onDeafRef = useRef(onDeaf)
+  onDeafRef.current = onDeaf
   const readVadRef = useRef(readVad)
   readVadRef.current = readVad
   useEffect(() => {
     if (!enabled) {
       setState('idle')
+      onHeardRef.current?.('')
       return
     }
-    const Recognition = speechRecognitionConstructor()
-    if (!Recognition || !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       setState('unsupported')
       return
     }
-    let stopped = false
-    let recognition: SpeechRecognitionLike | undefined
-    let restartTimer = 0
-    let failures = 0
-    let armedAt = 0
-    let sawResult = false
-    let media: MediaStream | undefined
-    let vadMonitor: { read: () => WakeVadSnapshot; stop: () => void } | null = null
-    const stopRecognition = () => {
-      try {
-        recognition?.stop()
-      } catch {
-        /* already stopped */
-      }
-    }
-    const releaseMedia = () => {
-      vadMonitor?.stop()
-      vadMonitor = null
-      media?.getTracks().forEach(track => track.stop())
-      media = undefined
-    }
+    const bag: { stopped: boolean; handle?: CompanionSpeechHandle } = { stopped: false }
+    let deafTimer = 0
+    let heardText = false
     const acceptMatch = (match: ReturnType<typeof matchWakeWord>) => {
       if (!match.hit) return false
-      const snapshot = readVadRef.current?.() ?? vadMonitor?.read() ?? null
+      const snapshot = readVadRef.current?.() ?? (heardText
+        ? { speechLikely: true, playbackLikely: false, tooQuiet: false }
+        : null)
       return shouldAcceptWake(match.kind, snapshot, vad)
     }
-    const arm = () => {
-      if (stopped) return
-      try {
-        recognition = new Recognition()
-        recognition.lang = 'zh-CN'
-        recognition.continuous = true
-        recognition.interimResults = true
-        recognition.onresult = event => {
-          if (stopped) return
-          sawResult = true
-          failures = 0
-          setState('listening')
-          for (let i = event.results.length - 1; i >= 0; i--) {
-            if (!event.results[i].isFinal && i !== event.results.length - 1) continue
-            const match = matchWakeWord(event.results[i][0].transcript)
-            if (acceptMatch(match)) {
-              stopped = true
-              stopRecognition()
-              unlockTtsAudio()
-              onWakeRef.current(cleanUserTranscript(match.prompt))
-              return
-            }
-          }
-        }
-        recognition.onerror = event => {
-          if (stopped) return
-          if (event?.error && PERMANENT_ERRORS.has(event.error)) {
-            stopped = true
-            setState('error')
-          }
-        }
-        recognition.onend = () => {
-          if (stopped) return
-          if (sawResult || Date.now() - armedAt >= 3000) failures = 0
-          else failures++
-          const delay = 200 + Math.min(failures, 6) * 180
-          restartTimer = window.setTimeout(() => {
-            if (stopped) return
-            if (failures > 8) {
-              setState('error')
-              return
-            }
-            arm()
-          }, delay)
-        }
-        armedAt = Date.now()
-        sawResult = false
-        try {
-          recognition.start()
-        } catch {
-          recognition.continuous = false
-          recognition.start()
-        }
+    const consider = (raw: string) => {
+      if (bag.stopped) return
+      const text = cleanUserTranscript(raw)
+      if (!text) return
+      heardText = true
+      window.clearTimeout(deafTimer)
+      onHeardRef.current?.(text)
+      setState('listening')
+      const match = matchWakeWord(text)
+      if (!acceptMatch(match)) return
+      bag.stopped = true
+      bag.handle?.stop()
+      unlockTtsAudio()
+      onWakeRef.current(cleanUserTranscript(match.prompt))
+    }
+    const speechOptions: CompanionSpeechOptions = {
+      duplex: true,
+      onInterim: consider,
+      onFinal: consider,
+      onVoiceEnergy: () => {
+        if (bag.stopped || heardText) return
         setState('listening')
-      } catch {
-        setState('error')
+        window.clearTimeout(deafTimer)
+        deafTimer = window.setTimeout(() => {
+          if (bag.stopped || heardText) return
+          onDeafRef.current?.()
+          setState('error')
+        }, HOME_WAKE_DEAF_MS)
+      },
+      onError: () => {
+        if (!bag.stopped) setState('error')
+      },
+      onEndWithoutFinal: () => {
+        if (bag.stopped) return
+        bag.handle?.resumeCapture()
+      },
+    }
+    const adopt = (handle: CompanionSpeechHandle) => {
+      bag.handle = handle
+      if (bag.stopped) {
+        handle.stop()
+        return
       }
+      setState('listening')
+      handle.resumeCapture()
     }
     setState('probing')
     void (async () => {
-      if (stopped) return
-      if (await microphoneDenied()) {
-        setState('error')
-        return
-      }
       try {
-        let constraints = microphoneConstraints()
-        try {
-          media = await navigator.mediaDevices.getUserMedia(constraints)
-        } catch (error) {
-          const name = error instanceof DOMException ? error.name : ''
-          if (selectedMicrophoneId() && (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError')) {
-            saveMicrophoneId('')
-            constraints = { audio: true }
-            media = await navigator.mediaDevices.getUserMedia(constraints)
-          } else throw error
+        const prepared = await prepareCompanionEntry(loadCompanionSettings())
+        if (bag.stopped) return
+        const kind = companionListenKind(prepared.settings.voicePath, prepared.settings.recognizer)
+        if (kind === 'volc') {
+          if (!prepared.hasVolc) {
+            setState('error')
+            return
+          }
+          const listed = await getProviderBridge().list().catch(() => ({ items: [] }))
+          const picked = pickDefaultVoice(listed.items)
+          if (!picked) {
+            setState('error')
+            return
+          }
+          adopt(await withDeadline(startVolcCompanionSpeech(speechOptions, picked.provider.id), 4000))
+          return
         }
+        if (kind === 'local') {
+          if (!prepared.listenReady) {
+            setState('error')
+            return
+          }
+          adopt(await withDeadline(startLocalCompanionSpeech(speechOptions), 4000))
+          return
+        }
+        adopt(await startCompanionSpeech(speechOptions))
       } catch {
-        if (!stopped) setState('error')
-        return
+        if (bag.stopped) return
+        const kind = companionListenKind(loadCompanionSettings().voicePath, loadCompanionSettings().recognizer)
+        if (kind === 'volc' || kind === 'local') {
+          setState('error')
+          return
+        }
+        try {
+          adopt(await startCompanionSpeech(speechOptions))
+        } catch {
+          if (!bag.stopped) setState('error')
+        }
       }
-      if (stopped) {
-        releaseMedia()
-        return
-      }
-      unlockTtsAudio()
-      if (vad && media && !readVadRef.current) vadMonitor = createWakeVadMonitor(media)
-      arm()
     })()
     return () => {
-      stopped = true
-      window.clearTimeout(restartTimer)
-      stopRecognition()
-      releaseMedia()
+      bag.stopped = true
+      window.clearTimeout(deafTimer)
+      bag.handle?.stop()
     }
   }, [enabled, retry, vad])
   return state

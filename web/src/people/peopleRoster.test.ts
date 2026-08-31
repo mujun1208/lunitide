@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, lastPreview, orgGroupLabel, statusLabel, threadTitle, unreadTotal, type PeopleContact } from './peopleRoster'
+import { contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, isAgentContact, lastPreview, orgGroupLabel, statusLabel, threadTitle, trustLabel, unreadTotal, type PeopleContact } from './peopleRoster'
 
 const contact = (partial: Partial<PeopleContact>): PeopleContact => ({
   subjectId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -59,5 +59,13 @@ describe('people roster grouping', () => {
     ]
     expect(filterThreads(threads, 'secret')).toHaveLength(1)
     expect(filterThreads(threads, '研发群').map(t => t.title)).toEqual(['研发群'])
+  })
+
+  test('labels local agent contacts without treating emoji as images', () => {
+    const agent = contact({ nickname: 'PPT专家', orgName: '月汐智能体', avatar: '📊', trustState: 'trusted' })
+    expect(isAgentContact(agent)).toBe(true)
+    expect(trustLabel(agent.trustState, agent.orgName)).toBe('智能体')
+    expect(contactAvatarIsImage('📊')).toBe(false)
+    expect(contactAvatarIsImage('data:image/png;base64,xx')).toBe(true)
   })
 })

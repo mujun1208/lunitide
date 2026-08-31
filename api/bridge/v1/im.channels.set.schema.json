@@ -15,7 +15,9 @@
     "inboundAllowlist": { "type": "string", "maxLength": 2000 },
     "inboundAutoRun": { "type": "boolean" },
     "inboundAppId": { "type": "string", "maxLength": 64 },
-    "inboundAppSecret": { "type": "string", "maxLength": 256 }
+    "inboundAppSecret": { "type": "string", "maxLength": 256 },
+    "testSend": { "type": "boolean" },
+    "probeDesktop": { "type": "boolean" }
   },
   "required": ["kind"],
   "x-result": {

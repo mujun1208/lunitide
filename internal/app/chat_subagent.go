@@ -93,7 +93,7 @@ func (e *Engine) invokeSubagentTool(ctx context.Context, a gateway.Adapter, cred
 			return "", fmt.Errorf("subagent.spawn budgetTokens must be 1000-%d", m7flow.SubagentMaxBudgetTokens)
 		}
 		if policy.ExpertWork {
-			profile = applyExpertSpawnCaps(profile)
+			profile = applyExpertSpawnCaps(profile, policy.ExpertWriteTools)
 		}
 		subA, subCred, subModel := e.subagentAdapter(ctx, a, credential, model, ov)
 		return e.runSubagentSession(ctx, subA, subCred, subModel, sessionID, p.Purpose, budget, profile)
@@ -217,7 +217,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 	if maxSteps < 1 {
 		maxSteps = subagentMaxSteps
 	}
-	tools := readOnlyEngineToolDefinitionsForProfile(profile)
+	tools := subagentEngineToolDefinitions(profile)
 	allowed := toolNameSet(tools)
 	req := gateway.Request{
 		Model: model, MaxTokens: maxTokens, MaxAttempts: 1,
@@ -325,6 +325,26 @@ func toolNameSet(tools []gateway.ToolDefinition) map[string]bool {
 		set[d.Name] = true
 	}
 	return set
+}
+
+func subagentEngineToolDefinitions(profile subagentProfileDef) []gateway.ToolDefinition {
+	tools := readOnlyEngineToolDefinitionsForProfile(profile)
+	if len(profile.WriteTools) == 0 {
+		return tools
+	}
+	have := toolNameSet(tools)
+	allow := map[string]bool{}
+	for _, name := range profile.WriteTools {
+		allow[name] = true
+	}
+	for _, d := range engineToolDefinitions() {
+		if have[d.Name] || !allow[d.Name] || expertWriteToolDenied(d.Name) {
+			continue
+		}
+		tools = append(tools, d)
+		have[d.Name] = true
+	}
+	return tools
 }
 
 func readOnlyEngineToolDefinitionsForProfile(profile subagentProfileDef) []gateway.ToolDefinition {
