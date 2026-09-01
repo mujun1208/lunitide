@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/voice"
@@ -173,22 +174,46 @@ func TestVoiceFinishOnAnUnknownSession(t *testing.T) {
 
 func TestVoiceInstallIsIdempotentWhileRunning(t *testing.T) {
 	// Two clicks on "download" must not start two transfers over the same
-	// files. Nothing is actually fetched here: the catalogue's real URLs are
-	// not reachable from a unit test, so what is checked is that the second
-	// call is accepted and reports state rather than racing the first.
+	// files. The install step is stubbed to block on a gate so the first
+	// transfer is genuinely in flight when the second call arrives — the exact
+	// window the idempotency guard exists for. Nothing touches the network, so
+	// the outcome no longer depends on how fast an unreachable URL fails.
 	e := NewEngine(providerRepositoryStub{}, "test")
-	e.SetVoiceService(NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M))
+	svc := NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M)
+
+	var calls atomic.Int32
+	started := make(chan struct{}, 8)
+	release := make(chan struct{})
+	svc.installBundle = func(ctx context.Context, _ voice.Bundle, _ func(voice.Progress)) error {
+		calls.Add(1)
+		started <- struct{}{}
+		<-release
+		return nil
+	}
+	e.SetVoiceService(svc)
 
 	first := e.Handle(context.Background(), validRequest("voice.install", `{}`))
+	// Wait until the first transfer is actually running before the second call,
+	// so the guard is exercised rather than raced.
+	<-started
 	second := e.Handle(context.Background(), validRequest("voice.install", `{}`))
 	if !first.OK || !second.OK {
 		t.Fatalf("install calls = %+v / %+v; both should be accepted", first, second)
 	}
-	payload := second.Payload.(map[string]any)
-	state, _ := payload["state"].(string)
-	if state != "downloading" && state != "failed" && state != "ready" {
-		t.Fatalf("state = %q; want a settled or in-flight state", state)
+	if state, _ := second.Payload.(map[string]any)["state"].(string); state != "downloading" {
+		t.Fatalf("state = %q; a call made while a transfer is in flight must report downloading", state)
 	}
+	// The guard must have kept the second call from starting its own transfer:
+	// exactly one install is in flight, and no second one has begun.
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("install started %d transfers; the second call must not race the first", got)
+	}
+	select {
+	case <-started:
+		t.Fatal("a second transfer began while the first was still running")
+	default:
+	}
+	close(release)
 }
 
 func TestVoiceServiceCloseIsSafeToRepeat(t *testing.T) {
