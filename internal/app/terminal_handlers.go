@@ -19,10 +19,10 @@ func handleTerminalStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Rows      int    `json:"rows"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || !validCanonicalULID(p.SessionID) || p.Cols < 1 || p.Cols > 500 || p.Rows < 1 || p.Rows > 500 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "terminal.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "terminal.start 参数无效", false)
 	}
 	if e.terminals == nil || !sessionServiceAvailable(e.sessions) {
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_UNAVAILABLE", "终端暂时不可用", true)
+		return r.Fail("TERMINAL_UNAVAILABLE", "终端暂时不可用", true)
 	}
 	items, err := e.sessions.List(ctx, session.Filter{ProjectID: p.ProjectID})
 	if err != nil {
@@ -36,11 +36,11 @@ func handleTerminalStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 		}
 	}
 	if !found {
-		return bridge.Failure(r.ID, r.TraceID, "SESSION_NOT_FOUND", "会话不存在或不属于当前项目", false)
+		return r.Fail("SESSION_NOT_FOUND", "会话不存在或不属于当前项目", false)
 	}
 	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 	if !ok || emit == nil {
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_EVENT_TRANSPORT_UNAVAILABLE", "终端事件通道不可用", true)
+		return r.Fail("TERMINAL_EVENT_TRANSPORT_UNAVAILABLE", "终端事件通道不可用", true)
 	}
 	id := ulid.Make().String()
 	owner := &terminalOwner{emit: emit}
@@ -55,7 +55,7 @@ func handleTerminalStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 		e.terminalsMu.Unlock()
 		return terminalFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]string{"terminalId": id})
+	return r.Ok(map[string]string{"terminalId": id})
 }
 
 func handleTerminalInput(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
@@ -64,15 +64,15 @@ func handleTerminalInput(e *Engine, _ context.Context, r bridge.Request) bridge.
 		Data       string `json:"data"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.TerminalID) || len(p.Data) < 1 || len([]byte(p.Data)) > 65536 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "terminal.input 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "terminal.input 参数无效", false)
 	}
 	if !e.ownsTerminal(p.TerminalID) {
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
+		return r.Fail("TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
 	}
 	if err := e.terminals.Write(p.TerminalID, []byte(p.Data)); err != nil {
 		return terminalFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]bool{"accepted": true})
+	return r.Ok(map[string]bool{"accepted": true})
 }
 func handleTerminalResize(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -81,25 +81,25 @@ func handleTerminalResize(e *Engine, _ context.Context, r bridge.Request) bridge
 		Rows       int    `json:"rows"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.TerminalID) || p.Cols < 1 || p.Cols > 500 || p.Rows < 1 || p.Rows > 500 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "terminal.resize 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "terminal.resize 参数无效", false)
 	}
 	if !e.ownsTerminal(p.TerminalID) {
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
+		return r.Fail("TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
 	}
 	if err := e.terminals.Resize(p.TerminalID, p.Cols, p.Rows); err != nil {
 		return terminalFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]bool{"resized": true})
+	return r.Ok(map[string]bool{"resized": true})
 }
 func handleTerminalClose(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		TerminalID string `json:"terminalId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.TerminalID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "terminal.close 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "terminal.close 参数无效", false)
 	}
 	if !e.ownsTerminal(p.TerminalID) {
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
+		return r.Fail("TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
 	}
 	err := e.terminals.Close(p.TerminalID)
 	e.terminalsMu.Lock()
@@ -108,7 +108,7 @@ func handleTerminalClose(e *Engine, _ context.Context, r bridge.Request) bridge.
 	if err != nil && !errors.Is(err, terminalruntime.ErrNotFound) {
 		return terminalFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]bool{"closed": true})
+	return r.Ok(map[string]bool{"closed": true})
 }
 func (e *Engine) ownsTerminal(id string) bool {
 	e.terminalsMu.Lock()
@@ -153,11 +153,11 @@ func (e *Engine) forwardTerminalEvents(events <-chan terminalruntime.Event) {
 func terminalFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, terminalruntime.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "终端参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "终端参数无效", false)
 	case errors.Is(err, terminalruntime.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_NOT_FOUND", "终端不存在", false)
+		return r.Fail("TERMINAL_NOT_FOUND", "终端不存在", false)
 	case errors.Is(err, terminalruntime.ErrLimit):
-		return bridge.Failure(r.ID, r.TraceID, "TERMINAL_LIMIT", "终端数量已达上限", false)
+		return r.Fail("TERMINAL_LIMIT", "终端数量已达上限", false)
 	default:
 		return internalBridgeFailure(r, "TERMINAL_OPERATION_FAILED", "终端操作失败", true, err)
 	}

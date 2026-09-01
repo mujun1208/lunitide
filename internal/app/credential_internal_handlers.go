@@ -51,7 +51,7 @@ func handleProviderCreateWithCredential(e *Engine, ctx context.Context, request 
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, publicProvider(created))
+	return request.Ok(publicProvider(created))
 }
 
 func handleProviderUpdateWithCredential(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -75,7 +75,7 @@ func handleProviderUpdateWithCredential(e *Engine, ctx context.Context, request 
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, publicProvider(updated))
+	return request.Ok(publicProvider(updated))
 }
 
 func handleProviderDeleteCoordinated(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -107,7 +107,7 @@ func handleProviderDeleteCoordinated(e *Engine, ctx context.Context, request bri
 	if _, err := lifecycle.DeleteCoordinatedRequest(ctx, request.IdempotencyKey, providerMutationActor, p, p.ID, p.ExpectedVersion, ref); err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, map[string]any{"deleted": true})
+	return request.Ok(map[string]any{"deleted": true})
 }
 
 func handleCredentialCleanupClaim(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -130,7 +130,7 @@ func handleCredentialCleanupClaim(e *Engine, ctx context.Context, r bridge.Reque
 	for _, event := range events {
 		result = append(result, map[string]any{"id": event.ID, "payload": json.RawMessage(event.Payload)})
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 func handleCredentialCleanupComplete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	return cleanupDisposition(e, ctx, r, false)
@@ -163,7 +163,7 @@ func cleanupDisposition(e *Engine, ctx context.Context, r bridge.Request, retry 
 	if err != nil {
 		return providerFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]bool{"ok": true})
+	return r.Ok(map[string]bool{"ok": true})
 }
 
 var _ = json.Valid
@@ -179,7 +179,7 @@ func handleProviderResolve(e *Engine, ctx context.Context, request bridge.Reques
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, map[string]any{"id": v.ID, "protocol": v.Protocol, "baseUrl": v.BaseURL, "credentialRef": v.CredentialRef})
+	return request.Ok(map[string]any{"id": v.ID, "protocol": v.Protocol, "baseUrl": v.BaseURL, "credentialRef": v.CredentialRef})
 }
 func handleCredentialBindingResolve(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -198,7 +198,7 @@ func handleCredentialBindingResolve(e *Engine, ctx context.Context, r bridge.Req
 	if err != nil {
 		return providerFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"configured": configured, "credentialRef": ref.CredentialRef, "providerId": ref.ProviderID, "origin": ref.Origin, "protocol": ref.Protocol})
+	return r.Ok(map[string]any{"configured": configured, "credentialRef": ref.CredentialRef, "providerId": ref.ProviderID, "origin": ref.Origin, "protocol": ref.Protocol})
 }
 func handleCredentialAdoptionResolve(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var p struct {
@@ -220,5 +220,5 @@ func handleCredentialAdoptionResolve(e *Engine, ctx context.Context, request bri
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, map[string]bool{"adopted": ok})
+	return request.Ok(map[string]bool{"adopted": ok})
 }

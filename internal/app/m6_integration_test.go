@@ -41,7 +41,7 @@ const goodBindings = `{"development":{"endpoint":"https://api.dev.example"},"pro
 func goodCreateInput(name string) m6app.CreateIntegrationInput {
 	return m6app.CreateIntegrationInput{
 		Name: name, Kind: m6supply.IntegrationKindOpenAPI,
-		BaseURL: "https://api.example",
+		BaseURL:    "https://api.example",
 		SpecDigest: strings.Repeat("a", 64), SpecVersion: "1.0.0",
 		AuthType: m6supply.AuthTypeNone, Direction: m6supply.DirectionOutbound,
 		Role: m6supply.RoleClient, EnvironmentBindings: goodBindings,
@@ -231,8 +231,8 @@ func opInput(integrationID string) m6app.OperationInput {
 	return m6app.OperationInput{
 		IntegrationID: integrationID, OperationID: "listPets", Method: "GET",
 		PathTemplate: "/pets", Risk: m6supply.OperationRiskLow,
-		InputSchemaJSON:  `{"type":"object"}`,
-		OutputSchemaJSON: `{"type":"array"}`,
+		InputSchemaJSON:     `{"type":"object"}`,
+		OutputSchemaJSON:    `{"type":"array"}`,
 		PaginationSpecJSON:  `{"type":"cursor","terminalField":"next"}`,
 		RetrySpecJSON:       `{"maxAttempts":3,"backoffMs":100,"jitter":true,"retryOnStatus":["5xx"],"deadlineMs":1000}`,
 		IdempotencySpecJSON: `{"required":true,"header":"Idempotency-Key","keyScope":"operation","ttlSeconds":86400,"replayOutcome":"original"}`,

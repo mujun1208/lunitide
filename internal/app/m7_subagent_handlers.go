@@ -35,10 +35,10 @@ func handleSubagentSpawn(e *Engine, ctx context.Context, r bridge.Request) bridg
 		len(p.StageRunID) > 128 || len(p.Purpose) < 1 || len(p.Purpose) > m7flow.SubagentMaxPurpose ||
 		len(p.ReadCaps) < 1 || len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.Actor) > 128 ||
 		(p.PersonaRef != "" && len(p.PersonaRef) != 64) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "subagent.spawn 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "subagent.spawn 参数无效", false)
 	}
 	if e.m7subagent == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -57,7 +57,7 @@ func handleSubagentSpawn(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return m7SubagentFailure(r, err, "subagent.spawn")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		SubagentID       string `json:"subagentId"`
 		Status           string `json:"status"`
 		CapabilityDigest string `json:"capabilityDigest"`
@@ -66,22 +66,22 @@ func handleSubagentSpawn(e *Engine, ctx context.Context, r bridge.Request) bridg
 
 func handleSubagentJoin(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SubagentID              string `json:"subagentId"`
-		WaitMS                  int64  `json:"waitMs"`
+		SubagentID               string `json:"subagentId"`
+		WaitMS                   int64  `json:"waitMs"`
 		ExpectedCapabilityDigest string `json:"expectedCapabilityDigest"`
-		ExpectedPolicyVersion   string `json:"expectedPolicyVersion"`
-		ExpectedPersonaDigest   string `json:"expectedPersonaDigest"`
-		MaxSummaryBytes         int64  `json:"maxSummaryBytes"`
+		ExpectedPolicyVersion    string `json:"expectedPolicyVersion"`
+		ExpectedPersonaDigest    string `json:"expectedPersonaDigest"`
+		MaxSummaryBytes          int64  `json:"maxSummaryBytes"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SubagentID) ||
 		p.WaitMS < 1 || p.WaitMS > 30000 ||
 		(p.ExpectedCapabilityDigest != "" && len(p.ExpectedCapabilityDigest) != 64) ||
 		(p.ExpectedPersonaDigest != "" && len(p.ExpectedPersonaDigest) != 64) ||
 		p.MaxSummaryBytes < 0 || p.MaxSummaryBytes > m7flow.SubagentMaxSummary {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "subagent.join 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "subagent.join 参数无效", false)
 	}
 	if e.m7subagent == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
 	}
 	res, err := e.m7subagent.Join(ctx, m7app.JoinInput{
 		SubagentRunID:            p.SubagentID,
@@ -97,7 +97,7 @@ func handleSubagentJoin(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if digests == nil {
 		digests = []string{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Status      string   `json:"status"`
 		Summary     string   `json:"summary,omitempty"`
 		Digests     []string `json:"digests"`
@@ -114,10 +114,10 @@ func handleSubagentTree(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.RootRunID) < 1 || len(p.RootRunID) > 128 ||
 		len(p.Cursor) > 128 || p.Limit < 0 || p.Limit > 100 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "subagent.tree 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "subagent.tree 参数无效", false)
 	}
 	if e.m7subagent == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
 	}
 	runs, next, err := e.m7subagent.Tree(ctx, p.RootRunID, p.Cursor, p.Limit)
 	if err != nil {
@@ -134,7 +134,7 @@ func handleSubagentTree(e *Engine, ctx context.Context, r bridge.Request) bridge
 			SpentTokens: run.SpentTokens, ObservationCount: obsCount,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Subagents  []m7SubagentTreeItem `json:"subagents"`
 		NextCursor string               `json:"nextCursor,omitempty"`
 	}{items, next})
@@ -153,21 +153,21 @@ type m7SubagentTreeItem struct {
 func m7SubagentFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
 	case errors.Is(err, m7app.ErrSubagentPurpose):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SAG-001", "purpose 缺失或超过 2000 字符", false)
+		return r.Fail("M7-SAG-001", "purpose 缺失或超过 2000 字符", false)
 	case errors.Is(err, m7app.ErrSubagentCaps):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SAG-002", "readCaps 含白名单外或写类能力，已拒绝并审计", false)
+		return r.Fail("M7-SAG-002", "readCaps 含白名单外或写类能力，已拒绝并审计", false)
 	case errors.Is(err, m7app.ErrSubagentQuota):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SAG-003", "并发、预算或期限配额超限", false)
+		return r.Fail("M7-SAG-003", "并发、预算或期限配额超限", false)
 	case errors.Is(err, m7app.ErrSubagentJoinStale):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SAG-004", "join 目标不存在、已终态或摘要漂移（TOCTOU）", false)
+		return r.Fail("M7-SAG-004", "join 目标不存在、已终态或摘要漂移（TOCTOU）", false)
 	case errors.Is(err, m7app.ErrSubagentDeadline):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SAG-005", "子代理超过 deadline 已终止并标记 partial", false)
+		return r.Fail("M7-SAG-005", "子代理超过 deadline 已终止并标记 partial", false)
 	case errors.Is(err, m7app.ErrSubagentNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "子代理不存在", false)
+		return r.Fail("NOT_FOUND", "子代理不存在", false)
 	case errors.Is(err, m7app.ErrSubagentTransition):
-		return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", "子代理状态迁移非法", false)
+		return r.Fail("INTERNAL_ERROR", "子代理状态迁移非法", false)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "子代理服务暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

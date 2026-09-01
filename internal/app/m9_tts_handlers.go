@@ -31,31 +31,31 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		RefEndpoint string `json:"refEndpoint"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.voices 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tts.voices 参数无效", false)
 	}
 	if !tts.ValidEngine(p.Engine) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
 	}
 	if p.Engine == tts.EngineVolc {
-		return bridge.Success(r.ID, map[string]any{"voices": tts.VolcVoices()})
+		return r.Ok(map[string]any{"voices": tts.VolcVoices()})
 	}
 	if p.Engine == tts.EngineRef {
-		return bridge.Success(r.ID, map[string]any{
+		return r.Ok(map[string]any{
 			"voices":   tts.RefVoices(),
 			"ref_meta": tts.RefPackMeta(p.RefEndpoint),
 		})
 	}
 	if e.m9tts == nil {
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+		return r.Fail("M95-001", "本机无可用语音合成引擎", true)
 	}
 	voices, err := e.m9tts.VoicesFor(p.Engine)
 	if err != nil {
 		return ttsFailure(r, err)
 	}
 	if len(voices) == 0 {
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成音色", true)
+		return r.Fail("M95-001", "本机无可用语音合成音色", true)
 	}
-	return bridge.Success(r.ID, map[string]any{"voices": voices})
+	return r.Ok(map[string]any{"voices": voices})
 }
 
 func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -70,13 +70,13 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 		RefPromptText string `json:"refPromptText"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.synthesize 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tts.synthesize 参数无效", false)
 	}
 	if p.Text == "" || utf8.RuneCountInString(p.Text) > tts.MaxSegmentChars {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
 	}
 	if !tts.ValidEngine(p.Engine) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
 	}
 	if p.Engine == tts.EngineVolc && p.VoiceID == "" {
 		p.VoiceID = tts.VolcDefaultVoiceID()
@@ -86,21 +86,21 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 			p.VoiceID = tts.RefDefaultVoiceID()
 		}
 		if p.RefEndpoint != "" && !strings.HasPrefix(p.RefEndpoint, "http://") && !strings.HasPrefix(p.RefEndpoint, "https://") {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
 		}
 		if !tts.IsRefPresetVoiceID(p.VoiceID) {
 			// Custom reference audio keeps the strict payload checks;
 			// preset refpack: voices resolve against the built-in pack.
 			if strings.TrimSpace(p.RefWavPath) == "" {
-				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
 			}
 			if _, err := os.Stat(p.RefWavPath); err != nil {
-				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
 			}
 		}
 	}
 	if e.m9tts == nil {
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+		return r.Fail("M95-001", "本机无可用语音合成引擎", true)
 	}
 	if p.Engine == tts.EngineVolc {
 		return synthesizeVolc(e, ctx, r, p.Text, p.VoiceID, p.Rate, p.Volume)
@@ -134,13 +134,13 @@ func handleTtsStream(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		Style         string `json:"style"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.stream 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tts.stream 参数无效", false)
 	}
 	if p.Text == "" || utf8.RuneCountInString(p.Text) > tts.MaxSegmentChars {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
 	}
 	if !tts.ValidEngine(p.Engine) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
 	}
 	if p.Engine == tts.EngineVolc && p.VoiceID == "" {
 		p.VoiceID = tts.VolcDefaultVoiceID()
@@ -150,23 +150,23 @@ func handleTtsStream(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 			p.VoiceID = tts.RefDefaultVoiceID()
 		}
 		if p.RefEndpoint != "" && !strings.HasPrefix(p.RefEndpoint, "http://") && !strings.HasPrefix(p.RefEndpoint, "https://") {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
 		}
 		if !tts.IsRefPresetVoiceID(p.VoiceID) {
 			if strings.TrimSpace(p.RefWavPath) == "" {
-				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
 			}
 			if _, err := os.Stat(p.RefWavPath); err != nil {
-				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
 			}
 		}
 	}
 	if e.m9tts == nil {
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+		return r.Fail("M95-001", "本机无可用语音合成引擎", true)
 	}
 	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 	if !ok || emit == nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.stream 需要流通道", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tts.stream 需要流通道", false)
 	}
 	rate, volume := tts.DefaultRate, tts.DefaultVolume
 	if p.Rate != nil {
@@ -183,7 +183,7 @@ func handleTtsStream(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	e.streamsMu.Lock()
 	if len(e.streams) >= e.maxStreams {
 		e.streamsMu.Unlock()
-		return bridge.Failure(r.ID, r.TraceID, "STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
+		return r.Fail("STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
 	}
 	streamID := ulid.Make().String()
 	parent, _ := ctx.Value(streamParentKey{}).(context.Context)
@@ -195,7 +195,7 @@ func handleTtsStream(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	go e.runTtsStream(streamCtx, streamID, state, input, emit)
-	return bridge.Success(r.ID, map[string]any{"streamId": streamID})
+	return r.Ok(map[string]any{"streamId": streamID})
 }
 
 func (e *Engine) runTtsStream(ctx context.Context, streamID string, state *streamState, input tts.SynthesizeInput, emit EventEmitter) {
@@ -336,7 +336,7 @@ func ttsSynthResponse(r bridge.Request, out tts.SynthesizeResultOut, err error) 
 		return ttsFailure(r, err)
 	}
 	if out.Discarded {
-		return bridge.Success(r.ID, map[string]any{
+		return r.Ok(map[string]any{
 			"wav_base64": "", "duration_hint": 0, "discarded": true, "notice": "TTS_CANCELLED",
 		})
 	}
@@ -347,20 +347,20 @@ func ttsSynthResponse(r bridge.Request, out tts.SynthesizeResultOut, err error) 
 	if out.VoiceFallback {
 		payload["notice"] = "TTS_VOICE_NOT_FOUND"
 	}
-	return bridge.Success(r.ID, payload)
+	return r.Ok(payload)
 }
 
 func handleTtsCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.cancel 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tts.cancel 参数无效", false)
 	}
 	if e.m9tts == nil {
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+		return r.Fail("M95-001", "本机无可用语音合成引擎", true)
 	}
 	e.m9tts.Cancel() // idempotent: a no-op when idle
 	e.cancelTtsStreams()
-	return bridge.Success(r.ID, map[string]any{"notice": "TTS_CANCELLED"})
+	return r.Ok(map[string]any{"notice": "TTS_CANCELLED"})
 }
 
 // handleTtsRefAudios browses a local directory for reference audio so
@@ -372,17 +372,17 @@ func handleTtsRefAudios(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Dir string `json:"dir"`
 	}
 	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.Dir) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "dir 不能为空", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "dir 不能为空", false)
 	}
 	clean, entries, err := tts.ListRefAudioEntries(p.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return bridge.Success(r.ID, map[string]any{"dir": clean, "exists": false, "entries": []tts.RefAudioEntry{}})
+			return r.Ok(map[string]any{"dir": clean, "exists": false, "entries": []tts.RefAudioEntry{}})
 		}
 		log.Printf("tts.refAudios failure: %v", err)
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "目录无法读取（请检查路径与权限）", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "目录无法读取（请检查路径与权限）", false)
 	}
-	return bridge.Success(r.ID, map[string]any{"dir": clean, "exists": true, "entries": entries})
+	return r.Ok(map[string]any{"dir": clean, "exists": true, "entries": entries})
 }
 
 // ttsFailure maps the tts error family onto the M95 code matrix while
@@ -396,11 +396,11 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 		} else if strings.Contains(err.Error(), "云端") || strings.Contains(err.Error(), "联网") {
 			msg = "无法连接微软云端语音（需联网）"
 		}
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", msg, true)
+		return r.Fail("M95-001", msg, true)
 	case errors.Is(err, tts.ErrRefEngineStarting):
 		// The hosted GPT-SoVITS service is loading (retryable M95-001
 		// family): the player waits and retries instead of breaking.
-		return bridge.Failure(r.ID, r.TraceID, "M95-001", "语音引擎启动中，请稍候", true)
+		return r.Fail("M95-001", "语音引擎启动中，请稍候", true)
 	case errors.Is(err, tts.ErrSynthesisFailed):
 		msg := "该段语音合成失败"
 		if strings.Contains(err.Error(), "火山") || strings.Contains(err.Error(), "seed-tts") {
@@ -412,10 +412,10 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 		} else if idx := strings.Index(err.Error(), "HTTP "); idx >= 0 {
 			msg = "该段语音合成失败（" + err.Error()[idx:] + "）"
 		}
-		return bridge.Failure(r.ID, r.TraceID, "M95-002", msg, false)
+		return r.Fail("M95-002", msg, false)
 	default:
 		log.Printf("tts bridge failure: %v", err)
-		return bridge.Failure(r.ID, r.TraceID, "M95-002", "该段语音合成失败", false)
+		return r.Fail("M95-002", "该段语音合成失败", false)
 	}
 }
 
@@ -428,7 +428,7 @@ func handleTtsEnsureRefEngine(e *Engine, ctx context.Context, r bridge.Request) 
 		RefEndpoint string `json:"refEndpoint"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.ensureRefEngine 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tts.ensureRefEngine 参数无效", false)
 	}
 	endpoint := p.RefEndpoint
 	if endpoint == "" {
@@ -446,7 +446,7 @@ func handleTtsEnsureRefEngine(e *Engine, ctx context.Context, r bridge.Request) 
 		}()
 		state, _ = tts.DefaultRefHost.Status(endpoint)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"state":       state,
 		"host_script": script,
 		"endpoint":    endpoint,

@@ -11,5 +11,5 @@ import (
 // the correlation ID so the client can identify the corresponding server log.
 func internalBridgeFailure(r bridge.Request, code, publicMessage string, retryable bool, err error) bridge.Response {
 	log.Printf("bridge internal failure: correlation_id=%s request_id=%s method=%s code=%s err=%v", r.TraceID, r.ID, r.Method, code, err)
-	return bridge.Failure(r.ID, r.TraceID, code, publicMessage, retryable)
+	return r.Fail(code, publicMessage, retryable)
 }

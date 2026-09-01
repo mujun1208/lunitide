@@ -14,16 +14,16 @@ import (
 func handleOrgSummary(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.summary 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.summary 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.Summary(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -31,16 +31,16 @@ func handleOrgCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		Name string `json:"name"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.create 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.CreateOrg(ctx, p.Name)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgSwitch(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -48,61 +48,61 @@ func handleOrgSwitch(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		OrgID string `json:"orgId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.switch 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.switch 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.Switch(ctx, p.OrgID)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgActivate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.activate 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.activate 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.Activate(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgSuspend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.suspend 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.suspend 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.Suspend(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgSpaceList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.space.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.space.list 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.ListSpaces(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgSpaceCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -110,31 +110,31 @@ func handleOrgSpaceCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 		Name string `json:"name"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.space.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.space.create 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.CreateSpace(ctx, p.Name)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgMemberList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.member.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.member.list 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.ListMembers(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgMemberInvite(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -145,16 +145,16 @@ func handleOrgMemberInvite(e *Engine, ctx context.Context, r bridge.Request) bri
 		ExpiresAt   string `json:"expiresAt"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.member.invite 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.member.invite 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.Invite(ctx, p.DisplayName, p.ExternalID, p.IdpIssuer, p.ExpiresAt)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleOrgMemberRevoke(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -162,16 +162,16 @@ func handleOrgMemberRevoke(e *Engine, ctx context.Context, r bridge.Request) bri
 		PrincipalID string `json:"principalId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "org.member.revoke 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.member.revoke 参数无效", false)
 	}
 	if e.m9org == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 	res, err := e.m9org.Revoke(ctx, p.PrincipalID)
 	if err != nil {
 		return m9OrgFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 // m9OrgFailure maps the M9 concept taxonomy (M9-001..M9-006) onto the wire
@@ -179,18 +179,18 @@ func handleOrgMemberRevoke(e *Engine, ctx context.Context, r bridge.Request) bri
 func m9OrgFailure(r bridge.Request, err error) bridge.Response {
 	switch org.Code(err) {
 	case "M9-001":
-		return bridge.Failure(r.ID, r.TraceID, "M9-001", "组织不存在", false)
+		return r.Fail("M9-001", "组织不存在", false)
 	case "M9-002":
-		return bridge.Failure(r.ID, r.TraceID, "M9-002", "组织已停用或封闭，写操作被拒绝", false)
+		return r.Fail("M9-002", "组织已停用或封闭，写操作被拒绝", false)
 	case "M9-003":
-		return bridge.Failure(r.ID, r.TraceID, "M9-003", "跨组织访问被拒绝", false)
+		return r.Fail("M9-003", "跨组织访问被拒绝", false)
 	case "M9-004":
-		return bridge.Failure(r.ID, r.TraceID, "M9-004", "团队空间不存在", false)
+		return r.Fail("M9-004", "团队空间不存在", false)
 	case "M9-005":
-		return bridge.Failure(r.ID, r.TraceID, "M9-005", "身份已过期或被吊销", false)
+		return r.Fail("M9-005", "身份已过期或被吊销", false)
 	case "M9-006":
-		return bridge.Failure(r.ID, r.TraceID, "M9-006", "角色绑定被拒绝", false)
+		return r.Fail("M9-006", "角色绑定被拒绝", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
 }

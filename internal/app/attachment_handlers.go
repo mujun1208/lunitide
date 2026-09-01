@@ -63,13 +63,13 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 		strings.TrimSpace(p.OriginalName) == "" ||
 		strings.TrimSpace(p.MIME) == "" ||
 		p.ContentBase64 == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.ingest 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.ingest 参数无效", false)
 	}
 	if p.SessionID != "" && !validCanonicalULID(p.SessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.ingest sessionId 无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.ingest sessionId 无效", false)
 	}
 	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
+		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
 	}
 	decodedLen := base64.StdEncoding.DecodedLen(len(p.ContentBase64))
 	if strings.HasSuffix(p.ContentBase64, "==") {
@@ -78,11 +78,11 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 		decodedLen--
 	}
 	if decodedLen > attachmentapp.MaxFileSize {
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
+		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
 	}
 	content, err := base64.StdEncoding.DecodeString(p.ContentBase64)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.ingest contentBase64 解码失败", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.ingest contentBase64 解码失败", false)
 	}
 	att, err := e.IngestAttachment(ctx, attachmentapp.IngestFileRequest{
 		ProjectID:    p.ProjectID,
@@ -95,7 +95,7 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 		return attachmentFailure(r, err)
 	}
 	dto := newAttachmentDTO(att)
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"attachmentId":    dto.AttachmentID,
 		"projectId":       dto.ProjectID,
 		"sessionId":       dto.SessionID,
@@ -112,7 +112,7 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 
 func attachmentResult(r bridge.Request, a attachment.Attachment) bridge.Response {
 	d := newAttachmentDTO(a)
-	return bridge.Success(r.ID, map[string]any{"attachmentId": d.AttachmentID, "projectId": d.ProjectID, "sessionId": d.SessionID, "originalName": d.OriginalName, "mime": d.MIME, "size": d.Size, "sha256": d.SHA256, "parseStatus": d.ParseStatus, "parseErrorCode": d.ParseErrorCode, "parsedTextBytes": d.ParsedTextBytes, "createdAt": d.CreatedAt})
+	return r.Ok(map[string]any{"attachmentId": d.AttachmentID, "projectId": d.ProjectID, "sessionId": d.SessionID, "originalName": d.OriginalName, "mime": d.MIME, "size": d.Size, "sha256": d.SHA256, "parseStatus": d.ParseStatus, "parseErrorCode": d.ParseErrorCode, "parsedTextBytes": d.ParsedTextBytes, "createdAt": d.CreatedAt})
 }
 func handleAttachmentUploadBegin(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -124,13 +124,13 @@ func handleAttachmentUploadBegin(e *Engine, ctx context.Context, r bridge.Reques
 		SHA256       string `json:"sha256"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || (p.SessionID != "" && !validCanonicalULID(p.SessionID)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.upload.begin 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.upload.begin 参数无效", false)
 	}
 	id, expires, err := e.BeginAttachmentUpload(ctx, attachmentapp.BeginUploadRequest{ProjectID: p.ProjectID, SessionID: p.SessionID, OriginalName: p.OriginalName, MIME: p.MIME, Size: p.Size, SHA256: p.SHA256})
 	if err != nil {
 		return attachmentFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"uploadId": id, "chunkSize": attachmentapp.MaxUploadChunkBytes, "expiresAt": expires})
+	return r.Ok(map[string]any{"uploadId": id, "chunkSize": attachmentapp.MaxUploadChunkBytes, "expiresAt": expires})
 }
 func handleAttachmentUploadChunk(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -139,17 +139,17 @@ func handleAttachmentUploadChunk(e *Engine, ctx context.Context, r bridge.Reques
 		ContentBase64 string `json:"contentBase64"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.UploadID) || len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxUploadChunkBytes) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.upload.chunk 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.upload.chunk 参数无效", false)
 	}
 	data, err := base64.StdEncoding.DecodeString(p.ContentBase64)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "chunk base64 无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "chunk base64 无效", false)
 	}
 	next, err := e.AppendAttachmentChunk(ctx, p.UploadID, p.Offset, data)
 	if err != nil {
 		return attachmentFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"uploadId": p.UploadID, "nextOffset": next})
+	return r.Ok(map[string]any{"uploadId": p.UploadID, "nextOffset": next})
 }
 func handleAttachmentUploadCommit(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -158,7 +158,7 @@ func handleAttachmentUploadCommit(e *Engine, ctx context.Context, r bridge.Reque
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.UploadID) || !validCanonicalULID(p.ProjectID) || (p.SessionID != "" && !validCanonicalULID(p.SessionID)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.upload.commit 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.upload.commit 参数无效", false)
 	}
 	a, err := e.CommitAttachmentUpload(ctx, p.UploadID, p.ProjectID, p.SessionID)
 	if err != nil {
@@ -173,12 +173,12 @@ func handleAttachmentUploadAbort(e *Engine, ctx context.Context, r bridge.Reques
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.UploadID) || !validCanonicalULID(p.ProjectID) || (p.SessionID != "" && !validCanonicalULID(p.SessionID)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.upload.abort 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.upload.abort 参数无效", false)
 	}
 	if err := e.AbortAttachmentUpload(ctx, p.UploadID, p.ProjectID, p.SessionID); err != nil {
 		return attachmentFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"uploadId": p.UploadID, "aborted": true})
+	return r.Ok(map[string]any{"uploadId": p.UploadID, "aborted": true})
 }
 
 // handleAttachmentGet returns an attachment by ID, including its parsed text
@@ -188,14 +188,14 @@ func handleAttachmentGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 		AttachmentID string `json:"attachmentId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.AttachmentID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.get 参数无效", false)
 	}
 	att, err := e.GetAttachment(ctx, p.AttachmentID)
 	if err != nil {
 		return attachmentFailure(r, err)
 	}
 	dto := newAttachmentDTO(*att)
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"attachmentId":    dto.AttachmentID,
 		"projectId":       dto.ProjectID,
 		"sessionId":       dto.SessionID,
@@ -219,7 +219,7 @@ func handleAttachmentList(e *Engine, ctx context.Context, r bridge.Request) brid
 		Limit     int    `json:"limit"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.list 参数无效", false)
 	}
 	atts, err := e.ListAttachmentsByProject(ctx, p.ProjectID, p.Limit)
 	if err != nil {
@@ -229,7 +229,7 @@ func handleAttachmentList(e *Engine, ctx context.Context, r bridge.Request) brid
 	for _, a := range atts {
 		items = append(items, newAttachmentDTO(a))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": items})
+	return r.Ok(map[string]any{"items": items})
 }
 
 // handleAttachmentDelete soft-deletes an attachment and removes the underlying
@@ -239,12 +239,12 @@ func handleAttachmentDelete(e *Engine, ctx context.Context, r bridge.Request) br
 		AttachmentID string `json:"attachmentId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.AttachmentID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "attachment.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.delete 参数无效", false)
 	}
 	if err := e.DeleteAttachment(ctx, p.AttachmentID); err != nil {
 		return attachmentFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"attachmentId": p.AttachmentID,
 		"deleted":      true,
 	})
@@ -254,21 +254,21 @@ func handleAttachmentDelete(e *Engine, ctx context.Context, r bridge.Request) br
 func attachmentFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, attachmentapp.ErrAttachmentNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_NOT_FOUND", "附件不存在", false)
+		return r.Fail("ATTACHMENT_NOT_FOUND", "附件不存在", false)
 	case errors.Is(err, attachmentapp.ErrFileTooLarge):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
+		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
 	case errors.Is(err, attachmentapp.ErrScopeMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_SCOPE_MISMATCH", "附件项目与会话不匹配", false)
+		return r.Fail("ATTACHMENT_SCOPE_MISMATCH", "附件项目与会话不匹配", false)
 	case errors.Is(err, attachmentapp.ErrUnsupportedMIME):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_UNSUPPORTED_MIME", "不支持的附件 MIME 类型", false)
+		return r.Fail("ATTACHMENT_UNSUPPORTED_MIME", "不支持的附件 MIME 类型", false)
 	case errors.Is(err, attachmentapp.ErrInvalidContent):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_INVALID_CONTENT", "附件内容无效", false)
+		return r.Fail("ATTACHMENT_INVALID_CONTENT", "附件内容无效", false)
 	case errors.Is(err, attachmentapp.ErrUploadNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_UPLOAD_NOT_FOUND", "上传不存在或已过期", false)
+		return r.Fail("ATTACHMENT_UPLOAD_NOT_FOUND", "上传不存在或已过期", false)
 	case errors.Is(err, attachmentapp.ErrUploadOffset):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_UPLOAD_OFFSET", "附件分块顺序无效", false)
+		return r.Fail("ATTACHMENT_UPLOAD_OFFSET", "附件分块顺序无效", false)
 	case errors.Is(err, attachmentapp.ErrUploadDigest):
-		return bridge.Failure(r.ID, r.TraceID, "ATTACHMENT_UPLOAD_DIGEST", "附件 SHA-256 校验失败", false)
+		return r.Fail("ATTACHMENT_UPLOAD_DIGEST", "附件 SHA-256 校验失败", false)
 	default:
 		return internalBridgeFailure(r, "ATTACHMENT_OPERATION_FAILED", "附件操作暂时不可用", true, err)
 	}

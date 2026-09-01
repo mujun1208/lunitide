@@ -17,7 +17,7 @@ import (
 func handleMeetingsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.list 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -30,7 +30,7 @@ func handleMeetingsList(e *Engine, ctx context.Context, r bridge.Request) bridge
 	for _, m := range items {
 		out = append(out, publicMeeting(m, false))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": out})
+	return r.Ok(map[string]any{"items": out})
 }
 
 func handleMeetingsStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -39,7 +39,7 @@ func handleMeetingsStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 		AudioSource string `json:"audioSource"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.start 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -48,7 +48,7 @@ func handleMeetingsStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, true))
+	return r.Ok(publicMeeting(m, true))
 }
 
 func handleMeetingsAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -58,7 +58,7 @@ func handleMeetingsAppend(e *Engine, ctx context.Context, r bridge.Request) brid
 		StartedMS int64  `json:"startedMs"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.append 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.append 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -67,7 +67,7 @@ func handleMeetingsAppend(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicSegment(seg))
+	return r.Ok(publicSegment(seg))
 }
 
 func handleMeetingsAudioAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -76,20 +76,20 @@ func handleMeetingsAudioAppend(e *Engine, ctx context.Context, r bridge.Request)
 		PCM       string `json:"pcm"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.MeetingID == "" || p.PCM == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.audio.append 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.audio.append 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
 	pcm, err := base64.StdEncoding.DecodeString(p.PCM)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.audio.append 音频编码无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.audio.append 音频编码无效", false)
 	}
 	audioMS, err := e.meetings.AppendAudio(ctx, p.MeetingID, pcm)
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"meetingId": p.MeetingID, "audioMs": audioMS})
+	return r.Ok(map[string]any{"meetingId": p.MeetingID, "audioMs": audioMS})
 }
 
 func handleMeetingsLoopbackPoll(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -97,7 +97,7 @@ func handleMeetingsLoopbackPoll(e *Engine, ctx context.Context, r bridge.Request
 		MeetingID string `json:"meetingId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.MeetingID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.loopback.poll 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.loopback.poll 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -106,7 +106,7 @@ func handleMeetingsLoopbackPoll(e *Engine, ctx context.Context, r bridge.Request
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"meetingId": p.MeetingID,
 		"active":    active,
 		"pcm":       base64.StdEncoding.EncodeToString(pcm),
@@ -118,7 +118,7 @@ func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bri
 		MeetingID string `json:"meetingId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.catchup 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.catchup 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -127,7 +127,7 @@ func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bri
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, true))
+	return r.Ok(publicMeeting(m, true))
 }
 
 func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -135,7 +135,7 @@ func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge
 		MeetingID string `json:"meetingId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.stop 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.stop 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -144,7 +144,7 @@ func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, true))
+	return r.Ok(publicMeeting(m, true))
 }
 
 func handleMeetingsHeartbeat(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -152,7 +152,7 @@ func handleMeetingsHeartbeat(e *Engine, ctx context.Context, r bridge.Request) b
 		MeetingID string `json:"meetingId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.heartbeat 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.heartbeat 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -161,7 +161,7 @@ func handleMeetingsHeartbeat(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, false))
+	return r.Ok(publicMeeting(m, false))
 }
 
 func handleMeetingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -169,7 +169,7 @@ func handleMeetingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		MeetingID string `json:"meetingId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.get 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -178,7 +178,7 @@ func handleMeetingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, true))
+	return r.Ok(publicMeeting(m, true))
 }
 
 func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -187,7 +187,7 @@ func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) b
 		ModelID   string `json:"modelId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.summarize 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.summarize 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -198,7 +198,7 @@ func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, true))
+	return r.Ok(publicMeeting(m, true))
 }
 
 func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -210,7 +210,7 @@ func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) brid
 		Transcript *string `json:"transcript"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.update 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -221,7 +221,7 @@ func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicMeeting(m, true))
+	return r.Ok(publicMeeting(m, true))
 }
 
 func handleMeetingsDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -229,7 +229,7 @@ func handleMeetingsDelete(e *Engine, ctx context.Context, r bridge.Request) brid
 		MeetingID string `json:"meetingId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.delete 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -237,7 +237,7 @@ func handleMeetingsDelete(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err := e.meetings.Delete(ctx, p.MeetingID); err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"meetingId": p.MeetingID})
+	return r.Ok(map[string]any{"meetingId": p.MeetingID})
 }
 
 func handleMeetingsExport(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -246,7 +246,7 @@ func handleMeetingsExport(e *Engine, ctx context.Context, r bridge.Request) brid
 		Format    string `json:"format"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "meetings.export 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.export 参数无效", false)
 	}
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
@@ -255,31 +255,31 @@ func handleMeetingsExport(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"path": path, "format": format})
+	return r.Ok(map[string]any{"path": path, "format": format})
 }
 
 func meetingsUnavailable(r bridge.Request) bridge.Response {
-	return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会议记录暂时不可用", true)
+	return r.Fail("STORAGE_UNAVAILABLE", "会议记录暂时不可用", true)
 }
 
 func meetingsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, meetings.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "MEETING_NOT_FOUND", "会议不存在", false)
+		return r.Fail("MEETING_NOT_FOUND", "会议不存在", false)
 	case errors.Is(err, meetings.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "会议请求无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "会议请求无效", false)
 	case errors.Is(err, meetings.ErrBusy):
-		return bridge.Failure(r.ID, r.TraceID, "MEETING_BUSY", "已有一场会议正在录制", false)
+		return r.Fail("MEETING_BUSY", "已有一场会议正在录制", false)
 	case errors.Is(err, meetings.ErrNotRecording):
-		return bridge.Failure(r.ID, r.TraceID, "MEETING_NOT_RECORDING", "当前会议未在录制", false)
+		return r.Fail("MEETING_NOT_RECORDING", "当前会议未在录制", false)
 	case errors.Is(err, meetings.ErrCanceled):
-		return bridge.Failure(r.ID, r.TraceID, "MEETING_CANCELED", "已取消导出", false)
+		return r.Fail("MEETING_CANCELED", "已取消导出", false)
 	case errors.Is(err, meetings.ErrUnsupported):
-		return bridge.Failure(r.ID, r.TraceID, "MEETING_PICKER_UNSUPPORTED", "当前系统没有可用的保存对话框", false)
+		return r.Fail("MEETING_PICKER_UNSUPPORTED", "当前系统没有可用的保存对话框", false)
 	case errors.Is(err, meetings.ErrUnavailable):
 		return meetingsUnavailable(r)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会议记录暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会议记录暂时不可用", true)
 	}
 }
 

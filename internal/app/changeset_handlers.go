@@ -42,47 +42,47 @@ func newChangeSetDTO(v agentrun.ChangeSet) changeSetDTO {
 func changesetFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, agentrunapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, agentrunapp.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, agentrun.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "CHANGESET_NOT_FOUND", "变更集不存在", false)
+		return r.Fail("CHANGESET_NOT_FOUND", "变更集不存在", false)
 	case errors.Is(err, agentrun.ErrVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "CHANGESET_VERSION_CONFLICT", "变更集版本已变化，请读取新版本后重试", false)
+		return r.Fail("CHANGESET_VERSION_CONFLICT", "变更集版本已变化，请读取新版本后重试", false)
 	case errors.Is(err, agentrun.ErrTerminal):
-		return bridge.Failure(r.ID, r.TraceID, "CHANGESET_TERMINAL", "变更集已终结", false)
+		return r.Fail("CHANGESET_TERMINAL", "变更集已终结", false)
 	case errors.Is(err, agentrun.ErrInvalidTransition):
-		return bridge.Failure(r.ID, r.TraceID, "CHANGESET_TRANSITION_INVALID", "变更集或运行状态不允许该操作", false)
+		return r.Fail("CHANGESET_TRANSITION_INVALID", "变更集或运行状态不允许该操作", false)
 	case errors.Is(err, agentrun.ErrReviewDigestMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "REVIEW_DIGEST_MISMATCH", "审批摘要与变更集摘要不一致", false)
+		return r.Fail("REVIEW_DIGEST_MISMATCH", "审批摘要与变更集摘要不一致", false)
 	case errors.Is(err, agentrun.ErrReviewRequired):
-		return bridge.Failure(r.ID, r.TraceID, "REVIEW_REQUIRED", "需要未消费的持久审批", false)
+		return r.Fail("REVIEW_REQUIRED", "需要未消费的持久审批", false)
 	case errors.Is(err, agentrun.ErrChangeSetBaseConflict):
-		return bridge.Failure(r.ID, r.TraceID, "CHANGESET_BASE_CONFLICT", "工作区基线已变化，变更集已标记冲突，请重新预览", false)
+		return r.Fail("CHANGESET_BASE_CONFLICT", "工作区基线已变化，变更集已标记冲突，请重新预览", false)
 	case errors.Is(err, agentrunapp.ErrChangeSetApplyFailed):
-		return bridge.Failure(r.ID, r.TraceID, "CHANGESET_APPLY_FAILED", "文件写入失败，已尽力回滚并将变更集标记冲突", false)
+		return r.Fail("CHANGESET_APPLY_FAILED", "文件写入失败，已尽力回滚并将变更集标记冲突", false)
 	case errors.Is(err, agentrunapp.ErrFsLeaseInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "FS_LEASE_INVALID", "工作区租约不存在或已过期", false)
+		return r.Fail("FS_LEASE_INVALID", "工作区租约不存在或已过期", false)
 	case errors.Is(err, agentrunapp.ErrFsFencingStale):
-		return bridge.Failure(r.ID, r.TraceID, "FS_FENCING_STALE", "租约 fencing token 已失效，请重新获取租约", false)
+		return r.Fail("FS_FENCING_STALE", "租约 fencing token 已失效，请重新获取租约", false)
 	case errors.Is(err, agentrunapp.ErrFsScopeDenied):
-		return bridge.Failure(r.ID, r.TraceID, "FS_SCOPE_DENIED", "路径不在工作区授权范围内", false)
+		return r.Fail("FS_SCOPE_DENIED", "路径不在工作区授权范围内", false)
 	case errors.Is(err, agentrunapp.ErrFsPathInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "FS_PATH_INVALID", "路径无效", false)
+		return r.Fail("FS_PATH_INVALID", "路径无效", false)
 	case errors.Is(err, agentrunapp.ErrFsNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "FS_NOT_FOUND", "路径不存在", false)
+		return r.Fail("FS_NOT_FOUND", "路径不存在", false)
 	case errors.Is(err, agentrunapp.ErrFsPathExists):
-		return bridge.Failure(r.ID, r.TraceID, "FS_PATH_EXISTS", "目标路径已存在", false)
+		return r.Fail("FS_PATH_EXISTS", "目标路径已存在", false)
 	case errors.Is(err, agentrunapp.ErrFsNotAFile):
-		return bridge.Failure(r.ID, r.TraceID, "FS_NOT_A_FILE", "目标不是常规文件", false)
+		return r.Fail("FS_NOT_A_FILE", "目标不是常规文件", false)
 	case errors.Is(err, agentrunapp.ErrFsBinary):
-		return bridge.Failure(r.ID, r.TraceID, "FS_BINARY", "文件不是 UTF-8 文本", false)
+		return r.Fail("FS_BINARY", "文件不是 UTF-8 文本", false)
 	case errors.Is(err, agentrunapp.ErrFsTooLarge):
-		return bridge.Failure(r.ID, r.TraceID, "FS_TOO_LARGE", "文件超出变更集可处理大小上限", false)
+		return r.Fail("FS_TOO_LARGE", "文件超出变更集可处理大小上限", false)
 	case errors.Is(err, agentrun.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "变更集参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "变更集参数无效", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
 	}
 }
 
@@ -99,29 +99,29 @@ func handleChangesetPreview(e *Engine, ctx context.Context, r bridge.Request) br
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || !validFsLease(p.LeaseID, p.FencingToken) ||
 		len(p.Ops) < 1 || len(p.Ops) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
 	}
 	ops := make([]agentrunapp.ChangeSetPreviewOp, len(p.Ops))
 	for i, op := range p.Ops {
 		switch op.Op {
 		case "create", "update":
 			if len(op.Content) > 1048576 {
-				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
 			}
 		case "delete":
 			if op.Content != "" {
-				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
 			}
 		default:
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
 		}
 		if op.Path == "" || len(op.Path) > 512 {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.preview 参数无效", false)
 		}
 		ops[i] = agentrunapp.ChangeSetPreviewOp{Op: op.Op, Path: op.Path, Content: op.Content}
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -130,7 +130,7 @@ func handleChangesetPreview(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return changesetFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		ChangeSet  changeSetDTO                        `json:"changeSet"`
 		Operations []agentrunapp.ChangeSetOpProjection `json:"operations"`
 	}{newChangeSetDTO(result.ChangeSet), result.Operations})
@@ -155,10 +155,10 @@ func validChangesetMutation(p changesetMutationPayload) bool {
 func handleChangesetApply(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p changesetMutationPayload
 	if decodePayload(r.Payload, &p) != nil || !validChangesetMutation(p) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.apply 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.apply 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -167,7 +167,7 @@ func handleChangesetApply(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err != nil {
 		return changesetFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		ChangeSet  changeSetDTO `json:"changeSet"`
 		AppliedOps int          `json:"appliedOps"`
 	}{newChangeSetDTO(result.ChangeSet), result.AppliedOps})
@@ -176,10 +176,10 @@ func handleChangesetApply(e *Engine, ctx context.Context, r bridge.Request) brid
 func handleChangesetRevert(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p changesetMutationPayload
 	if decodePayload(r.Payload, &p) != nil || !validChangesetMutation(p) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "changeset.revert 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "changeset.revert 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "变更集数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -188,7 +188,7 @@ func handleChangesetRevert(e *Engine, ctx context.Context, r bridge.Request) bri
 	if err != nil {
 		return changesetFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		ChangeSet   changeSetDTO `json:"changeSet"`
 		RevertedOps int          `json:"revertedOps"`
 	}{newChangeSetDTO(result.ChangeSet), result.RevertedOps})

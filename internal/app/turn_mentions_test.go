@@ -12,7 +12,7 @@ func TestParseTurnMentionsSameActor(t *testing.T) {
 	if len(at) != 1 || at[0].Kind != "member" || at[0].Name != "安全工程师" {
 		t.Fatalf("at = %#v", at)
 	}
-	if extractExpertRefNames("[引用专家 安全工程师|"+id+"] 请审一下")[0] != "安全工程师" {
+	if extractExpertRefNames("[引用专家 安全工程师|" + id + "] 请审一下")[0] != "安全工程师" {
 		t.Fatal("extractExpertRefNames must keep the display name")
 	}
 }

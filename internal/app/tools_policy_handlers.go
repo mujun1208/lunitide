@@ -13,18 +13,18 @@ import (
 
 func handleToolsCommandPolicyGet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	raw, err := e.tools.CommandPolicyJSON()
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "命令白名单读取失败", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "命令白名单读取失败", true)
 	}
-	return bridge.Success(r.ID, json.RawMessage(raw))
+	return r.Ok(json.RawMessage(raw))
 }
 
 func handleToolsCommandPolicySet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var doc struct {
 		Commands []struct {
@@ -35,12 +35,12 @@ func handleToolsCommandPolicySet(e *Engine, _ context.Context, r bridge.Request)
 		FullAccess bool `json:"fullAccess,omitempty"`
 	}
 	if decodePayload(r.Payload, &doc) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tools.commandPolicy.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tools.commandPolicy.set 参数无效", false)
 	}
 	if err := e.tools.SetCommandPolicyJSON(r.Payload); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "COMMAND_POLICY_INVALID", err.Error(), false)
+		return r.Fail("COMMAND_POLICY_INVALID", err.Error(), false)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Applied int `json:"applied"`
 	}{len(doc.Commands)})
 }

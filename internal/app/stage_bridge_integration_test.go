@@ -172,8 +172,8 @@ func TestStageBridgeConcurrentSameKeyCreatesExactlyOneMutation(t *testing.T) {
 	}
 	defer db.Close()
 	for query, want := range map[string]int{
-		`SELECT count(*) FROM stages WHERE project_id='` + parent + `'`:                                                1,
-		`SELECT count(*) FROM audit_events WHERE action='stage.created'`:                                               1,
+		`SELECT count(*) FROM stages WHERE project_id='` + parent + `'`:                                                     1,
+		`SELECT count(*) FROM audit_events WHERE action='stage.created'`:                                                    1,
 		`SELECT count(*) FROM idempotency_records WHERE operation='stage.create' AND idempotency_key='concurrent-same-key'`: 1,
 	} {
 		var got int
@@ -258,7 +258,7 @@ func TestStageBridgeUpdateReplayConflictAndVersionGuard(t *testing.T) {
 	}
 	defer db.Close()
 	for query, want := range map[string]int{
-		`SELECT count(*) FROM audit_events WHERE action='stage.updated'`:                                               1,
+		`SELECT count(*) FROM audit_events WHERE action='stage.updated'`:                                                 1,
 		`SELECT count(*) FROM idempotency_records WHERE operation='stage.update' AND idempotency_key='stage-update-key'`: 1,
 	} {
 		var got int

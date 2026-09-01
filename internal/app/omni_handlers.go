@@ -65,33 +65,33 @@ func (e *Engine) SetOmniService(svc *OmniService) { e.omni = svc }
 
 func handleOmniStatus(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.omni == nil {
-		return bridge.Success(r.ID, map[string]any{
+		return r.Ok(map[string]any{
 			"supported": false, "ready": false, "installed": false, "runtimeFound": false,
 			"hostState": omni.HostIdle, "downloadBytes": 0, "title": "",
 			"percent": 0, "doneBytes": 0, "totalBytes": 0,
 		})
 	}
-	return bridge.Success(r.ID, e.omni.status())
+	return r.Ok(e.omni.status())
 }
 
 func handleOmniInstall(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.omni == nil {
-		return bridge.Failure(r.ID, r.TraceID, "OMNI-001", "本机 MiniCPM-o 不可用", true)
+		return r.Fail("OMNI-001", "本机 MiniCPM-o 不可用", true)
 	}
 	e.omni.beginInstall()
-	return bridge.Success(r.ID, e.omni.installSnapshot())
+	return r.Ok(e.omni.installSnapshot())
 }
 
 func handleOmniEnsure(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.omni == nil {
-		return bridge.Failure(r.ID, r.TraceID, "OMNI-001", "本机 MiniCPM-o 不可用", true)
+		return r.Fail("OMNI-001", "本机 MiniCPM-o 不可用", true)
 	}
 	state, err := e.omni.host.Ensure()
 	last := ""
 	if err != nil {
 		last = truncate(err.Error(), 512)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"hostState": state,
 		"ready":     e.omni.host.Healthy(),
 		"lastError": last,
@@ -100,30 +100,30 @@ func handleOmniEnsure(e *Engine, _ context.Context, r bridge.Request) bridge.Res
 
 func handleOmniStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.omni == nil {
-		return bridge.Failure(r.ID, r.TraceID, "OMNI-001", "本机 MiniCPM-o 不可用", true)
+		return r.Fail("OMNI-001", "本机 MiniCPM-o 不可用", true)
 	}
 	var p struct {
 		PersonaID string `json:"personaId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "omni.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "omni.start 参数无效", false)
 	}
 	session, err := e.omni.start(ctx, p.PersonaID)
 	if err != nil {
 		switch {
 		case errors.Is(err, omni.ErrMissingModel):
-			return bridge.Failure(r.ID, r.TraceID, "OMNI-001", "请先在设置里下载 MiniCPM-o 4.5 Q4", true)
+			return r.Fail("OMNI-001", "请先在设置里下载 MiniCPM-o 4.5 Q4", true)
 		case errors.Is(err, omni.ErrMissingRuntime):
-			return bridge.Failure(r.ID, r.TraceID, "OMNI-002", "本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试", true)
+			return r.Fail("OMNI-002", "本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试", true)
 		default:
-			return bridge.Failure(r.ID, r.TraceID, "OMNI-003", "MiniCPM-o 启动失败："+truncate(err.Error(), 256), true)
+			return r.Fail("OMNI-003", "MiniCPM-o 启动失败："+truncate(err.Error(), 256), true)
 		}
 	}
 	id := fmt.Sprintf("o%d", e.omni.counter.Add(1))
 	e.omni.mu.Lock()
 	e.omni.sessions[id] = session
 	e.omni.mu.Unlock()
-	return bridge.Success(r.ID, map[string]any{"sessionId": id})
+	return r.Ok(map[string]any{"sessionId": id})
 }
 
 func handleOmniAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -132,25 +132,25 @@ func handleOmniAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		PCM       string `json:"pcm"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.SessionID == "" || p.PCM == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "omni.append 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "omni.append 参数无效", false)
 	}
 	pcm, err := base64.StdEncoding.DecodeString(p.PCM)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "omni.append 音频编码无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "omni.append 音频编码无效", false)
 	}
 	session, ok := e.omniSession(p.SessionID)
 	if !ok {
-		return bridge.Failure(r.ID, r.TraceID, "OMNI-004", "语音会话已结束", false)
+		return r.Fail("OMNI-004", "语音会话已结束", false)
 	}
 	turn, err := session.Append(ctx, pcm)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "OMNI-005", "MiniCPM-o 推理失败："+truncate(err.Error(), 256), true)
+		return r.Fail("OMNI-005", "MiniCPM-o 推理失败："+truncate(err.Error(), 256), true)
 	}
 	wavs := turn.WAVs
 	if wavs == nil {
 		wavs = []string{}
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"text":      turn.Text,
 		"listening": turn.Listening,
 		"wavs":      wavs,
@@ -162,19 +162,19 @@ func handleOmniStop(e *Engine, _ context.Context, r bridge.Request) bridge.Respo
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "omni.stop 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "omni.stop 参数无效", false)
 	}
 	if e.omni == nil {
-		return bridge.Success(r.ID, map[string]any{"notice": "OMNI_SESSION_CLOSED"})
+		return r.Ok(map[string]any{"notice": "OMNI_SESSION_CLOSED"})
 	}
 	if p.SessionID == "" {
 		e.omni.closeSessions()
-		return bridge.Success(r.ID, map[string]any{"notice": "OMNI_SESSION_CLOSED"})
+		return r.Ok(map[string]any{"notice": "OMNI_SESSION_CLOSED"})
 	}
 	if session, ok := e.takeOmniSession(p.SessionID); ok {
 		session.Close()
 	}
-	return bridge.Success(r.ID, map[string]any{"notice": "OMNI_SESSION_CLOSED"})
+	return r.Ok(map[string]any{"notice": "OMNI_SESSION_CLOSED"})
 }
 
 func (e *Engine) omniSession(id string) (*omni.Session, bool) {

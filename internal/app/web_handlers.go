@@ -65,31 +65,31 @@ type webSearchResultDTO struct {
 func webFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, agentrunapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, agentrunapp.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, agentrun.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "AGENT_RUN_NOT_FOUND", "Agent 运行不存在", false)
+		return r.Fail("AGENT_RUN_NOT_FOUND", "Agent 运行不存在", false)
 	case errors.Is(err, agentrun.ErrInvalidTransition):
-		return bridge.Failure(r.ID, r.TraceID, "AGENT_RUN_TRANSITION_INVALID", "Agent 运行状态不允许该操作", false)
+		return r.Fail("AGENT_RUN_TRANSITION_INVALID", "Agent 运行状态不允许该操作", false)
 	case errors.Is(err, agentrun.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "请求参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "请求参数无效", false)
 	case errors.Is(err, agentrunapp.ErrUnsupportedContent):
-		return bridge.Failure(r.ID, r.TraceID, "WEB_CONTENT_UNSUPPORTED", "目标内容类型不支持文本提取", false)
+		return r.Fail("WEB_CONTENT_UNSUPPORTED", "目标内容类型不支持文本提取", false)
 	}
 	switch networkpolicy.ErrorCode(err) {
 	case networkpolicy.CodeSSRFBlocked, networkpolicy.CodeRedirectBlocked:
-		return bridge.Failure(r.ID, r.TraceID, "WEB_SSRF_DENIED", "目标地址被网络策略拒绝", false)
+		return r.Fail("WEB_SSRF_DENIED", "目标地址被网络策略拒绝", false)
 	case networkpolicy.CodeResponseTooLarge:
-		return bridge.Failure(r.ID, r.TraceID, "WEB_RESPONSE_TOO_LARGE", "目标响应超出大小上限", false)
+		return r.Fail("WEB_RESPONSE_TOO_LARGE", "目标响应超出大小上限", false)
 	case networkpolicy.CodeDNSError, networkpolicy.CodeConnectionRefused, networkpolicy.CodeTLSError:
-		return bridge.Failure(r.ID, r.TraceID, "WEB_FETCH_FAILED", "目标地址暂时无法连接", true)
+		return r.Fail("WEB_FETCH_FAILED", "目标地址暂时无法连接", true)
 	case networkpolicy.CodeTimeout:
-		return bridge.Failure(r.ID, r.TraceID, "WEB_FETCH_FAILED", "目标地址响应超时", true)
+		return r.Fail("WEB_FETCH_FAILED", "目标地址响应超时", true)
 	case networkpolicy.CodeCancelled:
-		return bridge.Failure(r.ID, r.TraceID, "WEB_FETCH_FAILED", "请求已取消", true)
+		return r.Fail("WEB_FETCH_FAILED", "请求已取消", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Web 数据暂时不可用", true)
+	return r.Fail("STORAGE_UNAVAILABLE", "Web 数据暂时不可用", true)
 }
 
 func handleWebFetch(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -98,10 +98,10 @@ func handleWebFetch(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		URL   string `json:"url"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || len(p.URL) < 1 || len(p.URL) > 2048 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "web.fetch 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "web.fetch 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Web 数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Web 数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -113,7 +113,7 @@ func handleWebFetch(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 	if err != nil {
 		return webFailure(r, err)
 	}
-	return bridge.Success(r.ID, webFetchResultDTO{
+	return r.Ok(webFetchResultDTO{
 		Evidence:      newEvidenceDTO(result.Evidence),
 		FinalURL:      result.FinalURL,
 		Status:        result.Status,
@@ -133,10 +133,10 @@ func handleWebSearch(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || len(p.Query) < 1 || len(p.Query) > 256 ||
 		p.MaxResults < 0 || p.MaxResults > 10 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "web.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "web.search 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Web 数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Web 数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -153,7 +153,7 @@ func handleWebSearch(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	for _, item := range result.Results {
 		items = append(items, webSearchResultItemDTO{Title: item.Title, URL: item.URL, Snippet: item.Snippet})
 	}
-	return bridge.Success(r.ID, webSearchResultDTO{
+	return r.Ok(webSearchResultDTO{
 		Evidence: newEvidenceDTO(result.Evidence),
 		Query:    result.Query,
 		Results:  items,

@@ -15,12 +15,12 @@ import (
 func handleIdentityGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "identity.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "identity.get 参数无效", false)
 	}
 	if e.identity == nil {
 		return peopleUnavailable(r)
 	}
-	return bridge.Success(r.ID, e.identity.Public())
+	return r.Ok(e.identity.Public())
 }
 
 func handleIdentityUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -35,7 +35,7 @@ func handleIdentityUpdate(e *Engine, ctx context.Context, r bridge.Request) brid
 		RegeneratePairingCode bool             `json:"regeneratePairingCode"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "identity.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "identity.update 参数无效", false)
 	}
 	if e.identity == nil {
 		return peopleUnavailable(r)
@@ -56,7 +56,7 @@ func handleIdentityUpdate(e *Engine, ctx context.Context, r bridge.Request) brid
 	if e.people != nil {
 		e.people.RefreshPresence()
 	}
-	return bridge.Success(r.ID, pub)
+	return r.Ok(pub)
 }
 
 func handleIdentityPasswordSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -65,7 +65,7 @@ func handleIdentityPasswordSet(e *Engine, ctx context.Context, r bridge.Request)
 		CurrentPassword string `json:"currentPassword"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "identity.password.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "identity.password.set 参数无效", false)
 	}
 	if e.identity == nil {
 		return peopleUnavailable(r)
@@ -74,7 +74,7 @@ func handleIdentityPasswordSet(e *Engine, ctx context.Context, r bridge.Request)
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, pub)
+	return r.Ok(pub)
 }
 
 func handleIdentityUnlock(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
@@ -82,7 +82,7 @@ func handleIdentityUnlock(e *Engine, _ context.Context, r bridge.Request) bridge
 		Password string `json:"password"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "identity.unlock 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "identity.unlock 参数无效", false)
 	}
 	if e.identity == nil {
 		return peopleUnavailable(r)
@@ -91,13 +91,13 @@ func handleIdentityUnlock(e *Engine, _ context.Context, r bridge.Request) bridge
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, pub)
+	return r.Ok(pub)
 }
 
 func handlePeopleList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.list 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -106,7 +106,7 @@ func handlePeopleList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"items": publicContacts(items)})
+	return r.Ok(map[string]any{"items": publicContacts(items)})
 }
 
 func handlePeoplePair(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -120,7 +120,7 @@ func handlePeoplePair(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		OrgName     string `json:"orgName"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.pair 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.pair 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -132,19 +132,19 @@ func handlePeoplePair(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicContact(c))
+	return r.Ok(publicContact(c))
 }
 
 func handlePeopleDiscoveryGet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.discovery.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.discovery.get 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
 	}
 	enabled, code := e.people.DiscoveryGet()
-	return bridge.Success(r.ID, map[string]any{"enabled": enabled, "pairingCode": code})
+	return r.Ok(map[string]any{"enabled": enabled, "pairingCode": code})
 }
 
 func handlePeopleDiscoverySet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -152,7 +152,7 @@ func handlePeopleDiscoverySet(e *Engine, ctx context.Context, r bridge.Request) 
 		Enabled bool `json:"enabled"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.discovery.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.discovery.set 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -161,13 +161,13 @@ func handlePeopleDiscoverySet(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"enabled": pub.DiscoveryEnabled, "pairingCode": pub.PairingCode})
+	return r.Ok(map[string]any{"enabled": pub.DiscoveryEnabled, "pairingCode": pub.PairingCode})
 }
 
 func handlePeopleThreadList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.thread.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.thread.list 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -180,7 +180,7 @@ func handlePeopleThreadList(e *Engine, ctx context.Context, r bridge.Request) br
 	for _, t := range items {
 		out = append(out, publicThread(t))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": out})
+	return r.Ok(map[string]any{"items": out})
 }
 
 func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -189,7 +189,7 @@ func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) br
 		PeerSubjectID string `json:"peerSubjectId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.thread.open 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.thread.open 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -205,7 +205,7 @@ func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) br
 	case p.PeerSubjectID != "":
 		t, msgs, err = e.people.OpenDirect(ctx, p.PeerSubjectID)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.thread.open 需要 threadId 或 peerSubjectId", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.thread.open 需要 threadId 或 peerSubjectId", false)
 	}
 	if err != nil {
 		return peopleFailure(r, err)
@@ -216,7 +216,7 @@ func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) br
 			msgs = e.noticePeopleBoundSessionFailure(ctx, t.ThreadID, msgs)
 		}
 	}
-	return bridge.Success(r.ID, map[string]any{"thread": publicThread(t), "messages": publicMessages(msgs)})
+	return r.Ok(map[string]any{"thread": publicThread(t), "messages": publicMessages(msgs)})
 }
 
 func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -230,7 +230,7 @@ func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) br
 		LocalPath     string `json:"localPath"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.thread.send 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.thread.send 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -249,7 +249,7 @@ func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) br
 	if offer == nil && msg.Kind == "text" {
 		go e.maybePeopleAgentReply(context.Background(), p.ThreadID, msg)
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 func handlePeopleGroupCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -259,7 +259,7 @@ func handlePeopleGroupCreate(e *Engine, ctx context.Context, r bridge.Request) b
 		MemberSubjectIDs []string `json:"memberSubjectIds"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.group.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.group.create 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -268,7 +268,7 @@ func handlePeopleGroupCreate(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicThread(t))
+	return r.Ok(publicThread(t))
 }
 
 func handlePeopleFileDecide(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -277,7 +277,7 @@ func handlePeopleFileDecide(e *Engine, ctx context.Context, r bridge.Request) br
 		Accept  bool   `json:"accept"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.file.decide 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.file.decide 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -286,7 +286,7 @@ func handlePeopleFileDecide(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicOffer(offer))
+	return r.Ok(publicOffer(offer))
 }
 
 func handlePeopleFileOpen(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
@@ -294,7 +294,7 @@ func handlePeopleFileOpen(e *Engine, _ context.Context, r bridge.Request) bridge
 		DestPath string `json:"destPath"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.file.open 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.file.open 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -303,7 +303,7 @@ func handlePeopleFileOpen(e *Engine, _ context.Context, r bridge.Request) bridge
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"opened": opened})
+	return r.Ok(map[string]any{"opened": opened})
 }
 
 func handlePeoplePeerAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -311,7 +311,7 @@ func handlePeoplePeerAdd(e *Engine, ctx context.Context, r bridge.Request) bridg
 		HostAddr string `json:"hostAddr"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.peer.add 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.peer.add 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -320,7 +320,7 @@ func handlePeoplePeerAdd(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicContact(c))
+	return r.Ok(publicContact(c))
 }
 
 func handlePeopleContactUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -330,7 +330,7 @@ func handlePeopleContactUpdate(e *Engine, ctx context.Context, r bridge.Request)
 		Blocked   *bool   `json:"blocked"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.contact.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.contact.update 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -339,7 +339,7 @@ func handlePeopleContactUpdate(e *Engine, ctx context.Context, r bridge.Request)
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, publicContact(c))
+	return r.Ok(publicContact(c))
 }
 
 func handlePeopleThreadTyping(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -347,7 +347,7 @@ func handlePeopleThreadTyping(e *Engine, ctx context.Context, r bridge.Request) 
 		ThreadID string `json:"threadId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.thread.typing 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.thread.typing 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -355,7 +355,7 @@ func handlePeopleThreadTyping(e *Engine, ctx context.Context, r bridge.Request) 
 	if err := e.people.NoteTyping(ctx, p.ThreadID); err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"ok": true})
+	return r.Ok(map[string]any{"ok": true})
 }
 
 func handlePeopleFileStage(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -368,7 +368,7 @@ func handlePeopleFileStage(e *Engine, ctx context.Context, r bridge.Request) bri
 		ContentBase64 string `json:"contentBase64"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.file.stage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.file.stage 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -380,7 +380,7 @@ func handlePeopleFileStage(e *Engine, ctx context.Context, r bridge.Request) bri
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 func handlePeopleFilePick(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
@@ -388,7 +388,7 @@ func handlePeopleFilePick(e *Engine, _ context.Context, r bridge.Request) bridge
 		Folder bool `json:"folder"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.file.pick 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.file.pick 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
@@ -397,7 +397,7 @@ func handlePeopleFilePick(e *Engine, _ context.Context, r bridge.Request) bridge
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
@@ -405,13 +405,13 @@ func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) b
 		Region *bool `json:"region"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "people.screen.capture 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.screen.capture 参数无效", false)
 	}
 	if e.people == nil {
 		return peopleUnavailable(r)
 	}
 	if e.ccctrl == nil {
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
+		return r.Fail("PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
 	}
 	region := p.Region != nil && *p.Region
 	var png []byte
@@ -423,62 +423,62 @@ func handlePeopleScreenCapture(e *Engine, _ context.Context, r bridge.Request) b
 	}
 	if err != nil {
 		if errors.Is(err, ccapp.ErrCaptureCanceled) {
-			return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CANCELED", "已取消截图", false)
+			return r.Fail("PEOPLE_CANCELED", "已取消截图", false)
 		}
 		if errors.Is(err, ccapp.ErrCcEngineUnavailable) {
-			return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
+			return r.Fail("PEOPLE_CAPTURE_UNSUPPORTED", "当前环境无法直接截取本机画面", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_FAILED", "无法截取本机画面", false)
+		return r.Fail("PEOPLE_CAPTURE_FAILED", "无法截取本机画面", false)
 	}
 	if len(png) == 0 {
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CAPTURE_FAILED", "无法截取本机画面", false)
+		return r.Fail("PEOPLE_CAPTURE_FAILED", "无法截取本机画面", false)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"contentBase64": base64.StdEncoding.EncodeToString(png),
 		"mimeType":      "image/png",
 	})
 }
 
 func peopleUnavailable(r bridge.Request) bridge.Response {
-	return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "同事通讯录暂时不可用", true)
+	return r.Fail("STORAGE_UNAVAILABLE", "同事通讯录暂时不可用", true)
 }
 
 func peopleFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, identity.ErrLocked), errors.Is(err, people.ErrLocked):
-		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_LOCKED", "请先解锁本机个人资料", false)
+		return r.Fail("IDENTITY_LOCKED", "请先解锁本机个人资料", false)
 	case errors.Is(err, identity.ErrPassword):
-		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_PASSWORD", "启动密码不正确", false)
+		return r.Fail("IDENTITY_PASSWORD", "启动密码不正确", false)
 	case errors.Is(err, identity.ErrAvatarUnreadable):
-		return bridge.Failure(r.ID, r.TraceID, "IDENTITY_AVATAR", "图片无法读取", false)
+		return r.Fail("IDENTITY_AVATAR", "图片无法读取", false)
 	case errors.Is(err, people.ErrSelfChat):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "不能和自己开会话", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "不能和自己开会话", false)
 	case errors.Is(err, identity.ErrInvalidProfile), errors.Is(err, identity.ErrPasswordTooLong), errors.Is(err, people.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "个人资料或同事请求无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "个人资料或同事请求无效", false)
 	case errors.Is(err, people.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_NOT_FOUND", "同事或会话不存在", false)
+		return r.Fail("PEOPLE_NOT_FOUND", "同事或会话不存在", false)
 	case errors.Is(err, people.ErrPairing):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_PAIRING", "配对码不正确", false)
+		return r.Fail("PEOPLE_PAIRING", "配对码不正确", false)
 	case errors.Is(err, people.ErrNotTrusted):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_NOT_TRUSTED", "未配对的局域网用户不能加入群聊", false)
+		return r.Fail("PEOPLE_NOT_TRUSTED", "未配对的局域网用户不能加入群聊", false)
 	case errors.Is(err, people.ErrOfferDecided):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_OFFER_DECIDED", "该文件已确认过", false)
+		return r.Fail("PEOPLE_OFFER_DECIDED", "该文件已确认过", false)
 	case errors.Is(err, people.ErrTooLarge):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_TOO_LARGE", "文件超过 32 MiB 上限", false)
+		return r.Fail("PEOPLE_TOO_LARGE", "文件超过 32 MiB 上限", false)
 	case errors.Is(err, people.ErrBlocked):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_BLOCKED", "已屏蔽该同事", false)
+		return r.Fail("PEOPLE_BLOCKED", "已屏蔽该同事", false)
 	case errors.Is(err, people.ErrUnreachable):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_UNREACHABLE", "无法连接该地址，请确认对方已打开月汐", false)
+		return r.Fail("PEOPLE_UNREACHABLE", "无法连接该地址，请确认对方已打开月汐", false)
 	case errors.Is(err, people.ErrCanceled):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_CANCELED", "已取消选择", false)
+		return r.Fail("PEOPLE_CANCELED", "已取消选择", false)
 	case errors.Is(err, people.ErrUnsupported):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_PICKER_UNSUPPORTED", "当前系统没有可用的原生文件选择器，请改用拖入或发送文件", false)
+		return r.Fail("PEOPLE_PICKER_UNSUPPORTED", "当前系统没有可用的原生文件选择器，请改用拖入或发送文件", false)
 	case errors.Is(err, people.ErrOpenFailed):
-		return bridge.Failure(r.ID, r.TraceID, "PEOPLE_OPEN_FAILED", "无法打开该文件", false)
+		return r.Fail("PEOPLE_OPEN_FAILED", "无法打开该文件", false)
 	case errors.Is(err, identity.ErrUnavailable), errors.Is(err, people.ErrUnavailable):
 		return peopleUnavailable(r)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "同事通讯录暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "同事通讯录暂时不可用", true)
 	}
 }
 

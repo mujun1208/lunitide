@@ -67,13 +67,13 @@ func (e *Engine) skillCategoryFor(ctx context.Context, sk skill.Skill) skillapp.
 func handleSkillInvoke(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{ SkillID, SessionID, Input, ExecutionMode string }
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SkillID) || !validCanonicalULID(p.SessionID) || strings.TrimSpace(p.Input) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.invoke 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.invoke 参数无效", false)
 	}
 	inv, err := e.skills.Invoke(ctx, p.SkillID, p.SessionID, p.Input, p.ExecutionMode)
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"invocationId": inv.ID, "skillId": inv.SkillID, "skillVersion": inv.SkillVersion, "inputDigest": inv.InputDigest, "manifestDigest": inv.ManifestDigest, "risk": inv.Risk, "requiresApproval": inv.RequiresApproval, "status": "invoked", "expiresAt": inv.ExpiresAt})
+	return r.Ok(map[string]any{"invocationId": inv.ID, "skillId": inv.SkillID, "skillVersion": inv.SkillVersion, "inputDigest": inv.InputDigest, "manifestDigest": inv.ManifestDigest, "risk": inv.Risk, "requiresApproval": inv.RequiresApproval, "status": "invoked", "expiresAt": inv.ExpiresAt})
 }
 
 func handleSkillExecute(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -83,7 +83,7 @@ func handleSkillExecute(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Approved     bool   `json:"approved"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InvocationID) || !validCanonicalULID(p.SessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.execute 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.execute 参数无效", false)
 	}
 	result, err := e.skills.Execute(ctx, p.InvocationID, p.SessionID, p.Approved)
 	if err != nil {
@@ -94,7 +94,7 @@ func handleSkillExecute(e *Engine, ctx context.Context, r bridge.Request) bridge
 			return internalBridgeFailure(r, "SKILL_RESULT_WRITE_FAILED", "技能结果无法持久化", true, appendErr)
 		}
 	}
-	return bridge.Success(r.ID, map[string]any{"invocationId": result.InvocationID, "auditId": result.AuditID, "status": "succeeded", "output": result.Output})
+	return r.Ok(map[string]any{"invocationId": result.InvocationID, "auditId": result.AuditID, "status": "succeeded", "output": result.Output})
 }
 
 type skillDTO struct {
@@ -166,16 +166,16 @@ func handleSkillGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.get 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	s, err := e.skills.Get(ctx, p.ID)
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSkillDTO(*s, e.skillCategoryFor(ctx, *s)))
+	return r.Ok(newSkillDTO(*s, e.skillCategoryFor(ctx, *s)))
 }
 
 func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -190,10 +190,10 @@ func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		MinEngineVersion *string                 `json:"minEngineVersion,omitempty"`
 	}
 	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.DisplayName) == "" || strings.TrimSpace(p.Version) == "" || len(p.Permissions) == 0 || strings.TrimSpace(p.EntryPoint) == "" || strings.TrimSpace(p.ManifestJSON) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.create 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	s, err := e.skills.Create(ctx, skill.Skill{
 		Name:             p.Name,
@@ -208,7 +208,7 @@ func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSkillDTO(s, e.skillCategoryFor(ctx, s)))
+	return r.Ok(newSkillDTO(s, e.skillCategoryFor(ctx, s)))
 }
 
 func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -223,16 +223,16 @@ func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		ExpectedVersion  int64                   `json:"expectedVersion"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.update 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	s, err := e.skills.UpdateFields(ctx, p.ID, p.DisplayName, p.Description, p.EntryPoint, p.ManifestJSON, p.Permissions, p.MinEngineVersion, p.ExpectedVersion)
 	if err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSkillDTO(*s, e.skillCategoryFor(ctx, *s)))
+	return r.Ok(newSkillDTO(*s, e.skillCategoryFor(ctx, *s)))
 }
 
 func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -241,15 +241,15 @@ func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		ExpectedVersion int64  `json:"expectedVersion"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.delete 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	if err := e.skills.Delete(ctx, p.ID); err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true})
+	return r.Ok(map[string]any{"deleted": true})
 }
 
 func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -257,13 +257,13 @@ func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		Status skill.SkillStatus `json:"status"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.list 参数无效", false)
 	}
 	if p.Status != "" && p.Status != skill.SkillStatusDraft && p.Status != skill.SkillStatusPublished && p.Status != skill.SkillStatusDeprecated && p.Status != skill.SkillStatusDisabled {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.list 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	items, err := e.skills.List(ctx, p.Status)
 	if err != nil {
@@ -275,7 +275,7 @@ func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 			for i := range views {
 				dtos[i] = newSkillDTO(views[i].Skill, skillapp.CategoryResolution{Category: views[i].Category, Source: views[i].Source})
 			}
-			return bridge.Success(r.ID, struct {
+			return r.Ok(struct {
 				Items []skillDTO `json:"items"`
 			}{Items: dtos})
 		}
@@ -283,7 +283,7 @@ func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	for i := range items {
 		dtos[i] = newSkillDTO(items[i], e.skillCategoryFor(ctx, items[i]))
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []skillDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -293,10 +293,10 @@ func handleSkillMatch(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		Query string `json:"query"`
 	}
 	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.Query) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.match 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.match 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	items, err := e.skills.Match(ctx, p.Query)
 	if err != nil {
@@ -306,7 +306,7 @@ func handleSkillMatch(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	for i := range items {
 		dtos[i] = newSkillMatchDTO(items[i], e.skillCategoryFor(ctx, items[i].Skill))
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []skillMatchDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -316,15 +316,15 @@ func handleSkillPublish(e *Engine, ctx context.Context, r bridge.Request) bridge
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.publish 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.publish 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	if err := e.skills.Publish(ctx, p.ID); err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"published": true})
+	return r.Ok(map[string]any{"published": true})
 }
 
 func handleSkillDeprecate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -332,15 +332,15 @@ func handleSkillDeprecate(e *Engine, ctx context.Context, r bridge.Request) brid
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.deprecate 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.deprecate 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	if err := e.skills.Deprecate(ctx, p.ID); err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deprecated": true})
+	return r.Ok(map[string]any{"deprecated": true})
 }
 
 func handleSkillDisable(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -348,15 +348,15 @@ func handleSkillDisable(e *Engine, ctx context.Context, r bridge.Request) bridge
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.disable 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.disable 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	if err := e.skills.Disable(ctx, p.ID); err != nil {
 		return skillFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"disabled": true})
+	return r.Ok(map[string]any{"disabled": true})
 }
 
 // handleSkillCategorySet manually assigns one of the 12 fixed M10
@@ -368,50 +368,50 @@ func handleSkillCategorySet(e *Engine, ctx context.Context, r bridge.Request) br
 		Category string `json:"category"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SkillID) || !skill.ValidCategory(p.Category) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.category.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.category.set 参数无效", false)
 	}
 	c := skillCategorySupport(e.skills)
 	if c == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能分类存储暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能分类存储暂时不可用", true)
 	}
 	m, err := c.SetCategory(ctx, p.SkillID, skill.Category(p.Category))
 	if err != nil {
 		switch {
 		case errors.Is(err, skillapp.ErrSkillNotFound):
-			return bridge.Failure(r.ID, r.TraceID, "SKILL_NOT_FOUND", "技能不存在", false)
+			return r.Fail("SKILL_NOT_FOUND", "技能不存在", false)
 		case errors.Is(err, skillapp.ErrCategoryStoreUnavailable):
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能分类存储暂时不可用", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "技能分类存储暂时不可用", true)
 		case errors.Is(err, skillapp.ErrCategoryInvalid):
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.category.set 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.category.set 参数无效", false)
 		default:
 			return skillFailure(r, err)
 		}
 	}
-	return bridge.Success(r.ID, m)
+	return r.Ok(m)
 }
 
 func skillFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, skillapp.ErrInvocationNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_NOT_FOUND", "技能调用不存在或不属于当前会话", false)
+		return r.Fail("SKILL_INVOCATION_NOT_FOUND", "技能调用不存在或不属于当前会话", false)
 	case errors.Is(err, skillapp.ErrInvocationConsumed):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_CONSUMED", "技能调用已消费", false)
+		return r.Fail("SKILL_INVOCATION_CONSUMED", "技能调用已消费", false)
 	case errors.Is(err, skillapp.ErrInvocationExpired):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_EXPIRED", "技能调用已过期", false)
+		return r.Fail("SKILL_INVOCATION_EXPIRED", "技能调用已过期", false)
 	case errors.Is(err, skillapp.ErrInvocationChanged):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVOCATION_CHANGED", "技能在调用后已变化", false)
+		return r.Fail("SKILL_INVOCATION_CHANGED", "技能在调用后已变化", false)
 	case errors.Is(err, skillapp.ErrApprovalRequired):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_APPROVAL_REQUIRED", "技能执行需要批准", false)
+		return r.Fail("SKILL_APPROVAL_REQUIRED", "技能执行需要批准", false)
 	case errors.Is(err, skillapp.ErrExecutionForbidden):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_EXECUTION_FORBIDDEN", "当前执行模式禁止技能执行", false)
+		return r.Fail("SKILL_EXECUTION_FORBIDDEN", "当前执行模式禁止技能执行", false)
 	case errors.Is(err, skillapp.ErrUnknownEntryPoint):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_ENTRY_POINT_DENIED", "技能入口不在 Engine builtin allowlist", false)
+		return r.Fail("SKILL_ENTRY_POINT_DENIED", "技能入口不在 Engine builtin allowlist", false)
 	case errors.Is(err, skillapp.ErrSkillNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_NOT_FOUND", "技能不存在", false)
+		return r.Fail("SKILL_NOT_FOUND", "技能不存在", false)
 	case errors.Is(err, skillapp.ErrInvalidTransition):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVALID_TRANSITION", "技能状态转换无效", false)
+		return r.Fail("SKILL_INVALID_TRANSITION", "技能状态转换无效", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 }
 
@@ -420,7 +420,7 @@ func skillFailure(r bridge.Request, err error) bridge.Response {
 // already materialized locally so the UI can flip install → installed.
 func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	existing, err := e.skills.List(ctx, "")
 	if err != nil {
@@ -456,7 +456,7 @@ func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) br
 			Description: t.Description, Category: t.Category, Version: t.Version,
 			Permissions: perms, Installed: have[t.Name+"@"+t.Version], Featured: t.Featured, Source: source})
 	}
-	return bridge.Success(r.ID, map[string]any{"items": items})
+	return r.Ok(map[string]any{"items": items})
 }
 
 // handleSkillInstall materializes one catalog template and publishes it so
@@ -466,10 +466,10 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 		TemplateID string `json:"templateId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || strings.TrimSpace(p.TemplateID) == "" || len(p.TemplateID) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.install 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
 	s, err := e.skills.InstallFromCatalog(ctx, p.TemplateID)
 	switch {
@@ -477,15 +477,15 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 		status := string(s.Status)
 		if s.Status == skill.SkillStatusDraft {
 			if perr := e.skills.Publish(ctx, s.ID); perr != nil {
-				return bridge.Failure(r.ID, r.TraceID, "SKILL_PUBLISH_FAILED", "已安装但发布失败："+perr.Error(), true)
+				return r.Fail("SKILL_PUBLISH_FAILED", "已安装但发布失败："+perr.Error(), true)
 			}
 			status = string(skill.SkillStatusPublished)
 		}
-		return bridge.Success(r.ID, map[string]any{"skillId": s.ID, "name": s.Name, "status": status})
+		return r.Ok(map[string]any{"skillId": s.ID, "name": s.Name, "status": status})
 	case errors.Is(err, skillapp.ErrTemplateUnknown):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_TEMPLATE_NOT_FOUND", "模板不存在", false)
+		return r.Fail("SKILL_TEMPLATE_NOT_FOUND", "模板不存在", false)
 	case errors.Is(err, skillapp.ErrTemplateInstalled):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_TEMPLATE_INSTALLED", "该模板版本已安装", false)
+		return r.Fail("SKILL_TEMPLATE_INSTALLED", "该模板版本已安装", false)
 	default:
 		return skillFailure(r, err)
 	}

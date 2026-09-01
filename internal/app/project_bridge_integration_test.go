@@ -275,4 +275,3 @@ func TestProjectListOmitsEmptyCloseFieldsAndKeepsRFC3339NanoTimes(t *testing.T) 
 		t.Fatalf("createdAt must be UTC RFC3339Nano, got %q", createdAt)
 	}
 }
-

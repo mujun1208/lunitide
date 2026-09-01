@@ -133,9 +133,9 @@ func TestNominationServiceUnavailable(t *testing.T) {
 	e := NewEngine(nil, "test")
 	ctx := context.Background()
 	cases := map[string]string{
-		"memory.nominate":              `{"subjectId":"user-1","payload":{"content":"x","scopeId":"scope-1","sensitivity":"private","leaves":[{"jsonPointer":"/content","evidenceRef":"artifact://r/e","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"reason":"r"}`,
-		"memory.nomination.list":       `{}`,
-		"memory.nomination.withdraw":   `{"nominationId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`,
+		"memory.nominate":            `{"subjectId":"user-1","payload":{"content":"x","scopeId":"scope-1","sensitivity":"private","leaves":[{"jsonPointer":"/content","evidenceRef":"artifact://r/e","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"reason":"r"}`,
+		"memory.nomination.list":     `{}`,
+		"memory.nomination.withdraw": `{"nominationId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`,
 	}
 	for method, payload := range cases {
 		resp := e.Handle(ctx, nominationRequest(method, payload))

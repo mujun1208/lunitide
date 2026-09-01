@@ -1574,20 +1574,20 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 		return bridge.Failure(request.ID, ulid.Make().String(), "BRIDGE_SCHEMA_INVALID", "追踪标识无效", false)
 	}
 	if request.Version != bridge.Version {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "应用与引擎版本不一致，请重启月汐", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "应用与引擎版本不一致，请重启月汐", false)
 	}
 	if request.Kind != "request" {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求类型无效，请重试", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "请求类型无效，请重试", false)
 	}
 	if len(request.IdempotencyKey) > 128 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求标识过长，请重试", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "请求标识过长，请重试", false)
 	}
 	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求超时参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "请求超时参数无效", false)
 	}
 	now := time.Now().UTC()
 	if request.SentAt.Before(now.Add(-5*time.Minute)) || request.SentAt.After(now.Add(5*time.Minute)) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "请求时间无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "请求时间无效", false)
 	}
 	deadline := request.SentAt.Add(time.Duration(request.DeadlineMS) * time.Millisecond)
 	serverCap := now.Add(time.Duration(request.DeadlineMS) * time.Millisecond)
@@ -1595,7 +1595,7 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 		deadline = serverCap
 	}
 	if now.After(deadline) {
-		return bridge.Failure(request.ID, request.TraceID, "REQUEST_DEADLINE_EXCEEDED", "请求已过期", true)
+		return request.Fail("REQUEST_DEADLINE_EXCEEDED", "请求已过期", true)
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -1604,14 +1604,14 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 		handler, allowed = internalRuntimeHandlers[bridge.Method(request.Method)]
 	}
 	if !allowed || handler == nil {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false)
+		return request.Fail("BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false)
 	}
 	// Last-resort panic guard: a handler crash degrades to one failed
 	// request instead of killing the Engine process and the event pipe.
 	return func() (resp bridge.Response) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				resp = bridge.Failure(request.ID, request.TraceID, "ENGINE_HANDLER_PANIC", "内部处理错误，请重试", true)
+				resp = request.Fail("ENGINE_HANDLER_PANIC", "内部处理错误，请重试", true)
 			}
 		}()
 		return handler(e, ctx, request)
@@ -1620,9 +1620,9 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 
 func handleSystemHealth(e *Engine, _ context.Context, request bridge.Request) bridge.Response {
 	if !emptyObject(request.Payload) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "system.health 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "system.health 参数无效", false)
 	}
-	return bridge.Success(request.ID, map[string]any{"engine": "ready", "version": e.version, "protocol": bridge.Version})
+	return request.Ok(map[string]any{"engine": "ready", "version": e.version, "protocol": bridge.Version})
 }
 
 func handleProviderList(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -1630,20 +1630,20 @@ func handleProviderList(e *Engine, ctx context.Context, request bridge.Request) 
 		Protocol provider.Protocol `json:"protocol"`
 	}
 	if err := decodePayload(request.Payload, &payload); err != nil {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.list 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "provider.list 参数无效", false)
 	}
 	if payload.Protocol != "" && !provider.ValidProtocol(payload.Protocol) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "供应商协议无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "供应商协议无效", false)
 	}
 	items, err := e.providers.List(ctx, provider.Filter{Protocol: payload.Protocol})
 	if err != nil {
-		return bridge.Failure(request.ID, request.TraceID, "STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
+		return request.Fail("STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
 	}
 	publicItems := make([]providerDTO, len(items))
 	for index, item := range items {
 		publicItems[index] = publicProvider(item)
 	}
-	return bridge.Success(request.ID, map[string]any{"items": publicItems})
+	return request.Ok(map[string]any{"items": publicItems})
 }
 
 func publicProvider(item provider.Provider) providerDTO {
@@ -1653,21 +1653,21 @@ func publicProvider(item provider.Provider) providerDTO {
 func providerFailure(request bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, provider.ErrNotFound):
-		return bridge.Failure(request.ID, request.TraceID, "PROVIDER_NOT_FOUND", "供应商不存在", false)
+		return request.Fail("PROVIDER_NOT_FOUND", "供应商不存在", false)
 	case errors.Is(err, provider.ErrConflict):
-		return bridge.Failure(request.ID, request.TraceID, "PROVIDER_VERSION_CONFLICT", "供应商已被修改，请刷新后重试", false)
+		return request.Fail("PROVIDER_VERSION_CONFLICT", "供应商已被修改，请刷新后重试", false)
 	case errors.Is(err, provider.ErrCredentialReentryRequired):
-		return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_REENTRY_REQUIRED", "地址或协议变更需要重新提交凭据。本地 LM Studio 可在 API Key 栏填写任意占位（例如 lm-studio）。", false)
+		return request.Fail("CREDENTIAL_REENTRY_REQUIRED", "地址或协议变更需要重新提交凭据。本地 LM Studio 可在 API Key 栏填写任意占位（例如 lm-studio）。", false)
 	case errors.Is(err, providerapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(request.ID, request.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return request.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, providerapp.ErrIdempotencyConflict):
-		return bridge.Failure(request.ID, request.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return request.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, providerapp.ErrCredentialCleanupRequired):
-		return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_CLEANUP_REQUIRED", "请先移除供应商凭据再删除", false)
+		return request.Fail("CREDENTIAL_CLEANUP_REQUIRED", "请先移除供应商凭据再删除", false)
 	case errors.Is(err, providerapp.ErrStorageBusy):
-		return bridge.Failure(request.ID, request.TraceID, "STORAGE_BUSY", "供应商数据正忙，请稍后重试", true)
+		return request.Fail("STORAGE_BUSY", "供应商数据正忙，请稍后重试", true)
 	default:
-		return bridge.Failure(request.ID, request.TraceID, "STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
+		return request.Fail("STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
 	}
 }
 

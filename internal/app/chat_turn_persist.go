@@ -61,12 +61,12 @@ func (e *Engine) retrySessionPersistDraft(ctx context.Context, sessionID string)
 
 func (e *Engine) handlePersistRetryStart(ctx context.Context, request bridge.Request, sessionID string, emit EventEmitter) bridge.Response {
 	if !ulidValid(sessionID) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 需要提供 sessionId", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 需要提供 sessionId", false)
 	}
 	e.streamsMu.Lock()
 	if len(e.streams) >= e.maxStreams {
 		e.streamsMu.Unlock()
-		return bridge.Failure(request.ID, request.TraceID, "STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
+		return request.Fail("STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
 	}
 	streamID := ulid.Make().String()
 	parent, _ := ctx.Value(streamParentKey{}).(context.Context)
@@ -97,5 +97,5 @@ func (e *Engine) handlePersistRetryStart(ctx context.Context, request bridge.Req
 			Completed: completed,
 		})
 	}()
-	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
+	return request.Ok(map[string]any{"streamId": streamID})
 }

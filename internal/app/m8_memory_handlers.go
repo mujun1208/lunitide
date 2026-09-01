@@ -23,21 +23,21 @@ type m8ConfirmFactRef struct {
 
 func handleMemoryConfirmCandidate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		CandidateID string          `json:"candidateId"`
-		Token       string          `json:"confirmationToken"`
-		Action      string          `json:"action"`
+		CandidateID string             `json:"candidateId"`
+		Token       string             `json:"confirmationToken"`
+		Action      string             `json:"action"`
 		EditedDoc   *m8core.PayloadDoc `json:"editedPayload"`
-		RequestID   string          `json:"requestId"`
-		Actor       string          `json:"actor"`
+		RequestID   string             `json:"requestId"`
+		Actor       string             `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CandidateID) ||
 		len(p.Token) != m8core.DigestHexLen || !m8core.ValidHexDigest(p.Token) ||
 		(p.Action != "confirm" && p.Action != "reject") ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.Actor) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.confirmCandidate 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.confirmCandidate 参数无效", false)
 	}
 	if e.m8memory == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
 	}
 	var edited *m8core.PayloadDoc
 	if p.EditedDoc != nil {
@@ -68,7 +68,7 @@ func handleMemoryConfirmCandidate(e *Engine, ctx context.Context, r bridge.Reque
 	if e.m10nomination != nil {
 		_ = e.m10nomination.MarkDecided(ctx, res.CandidateID)
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 func handleRecallQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -81,10 +81,10 @@ func handleRecallQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if decodePayload(r.Payload, &p) != nil || len(p.ScopeID) < 1 || len(p.ScopeID) > m8core.MaxScopeID ||
 		len(p.Query) < 1 || len(p.Query) > 2048 || p.TopK < 0 || p.TopK > m8core.RecallMaxTopK ||
 		len(p.IndexVersion) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "recall.query 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "recall.query 参数无效", false)
 	}
 	if e.m8memory == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
 	}
 	res, err := e.m8memory.Recall(ctx, m8app.RecallInput{
 		ScopeID:      p.ScopeID,
@@ -95,38 +95,38 @@ func handleRecallQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return m8MemoryFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 // m8MemoryFailure maps m8app slice-1 errors onto the M8 code family.
 func m8MemoryFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m8app.ErrCandidateNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M8-001", "候选不存在", false)
+		return r.Fail("M8-001", "候选不存在", false)
 	case errors.Is(err, m8app.ErrCandidateExpired):
-		return bridge.Failure(r.ID, r.TraceID, "M8-002", "候选已过期", false)
+		return r.Fail("M8-002", "候选已过期", false)
 	case errors.Is(err, m8app.ErrExplicitConfirmationRequired):
-		return bridge.Failure(r.ID, r.TraceID, "M8-003", "需要显式确认", false)
+		return r.Fail("M8-003", "需要显式确认", false)
 	case errors.Is(err, m8app.ErrConfirmTokenInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M8-004", "确认令牌无效或已使用", false)
+		return r.Fail("M8-004", "确认令牌无效或已使用", false)
 	case errors.Is(err, m8app.ErrPayloadDigestMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "M8-005", "载荷被修改", false)
+		return r.Fail("M8-005", "载荷被修改", false)
 	case errors.Is(err, m8app.ErrInferencePromotionDenied):
-		return bridge.Failure(r.ID, r.TraceID, "M8-006", "禁止推断自动晋升", false)
+		return r.Fail("M8-006", "禁止推断自动晋升", false)
 	case errors.Is(err, m8app.ErrSourceLeafRequired):
-		return bridge.Failure(r.ID, r.TraceID, "M8-007", "缺少叶级来源", false)
+		return r.Fail("M8-007", "缺少叶级来源", false)
 	case errors.Is(err, m8app.ErrSourceEvidenceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "M8-008", "证据不可验证", false)
+		return r.Fail("M8-008", "证据不可验证", false)
 	case errors.Is(err, m8app.ErrRecallScopeDenied):
-		return bridge.Failure(r.ID, r.TraceID, "M8-009", "召回范围拒绝", false)
+		return r.Fail("M8-009", "召回范围拒绝", false)
 	case errors.Is(err, m8app.ErrExplanationUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "M8-010", "解释不可用", true)
+		return r.Fail("M8-010", "解释不可用", true)
 	case errors.Is(err, m8app.ErrPolicyUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "M8-027", "策略不可用，安全关闭", true)
+		return r.Fail("M8-027", "策略不可用，安全关闭", true)
 	case errors.Is(err, m8app.ErrPayloadInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "记忆载荷非法", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "记忆载荷非法", false)
 	case errors.Is(err, m8app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", "记忆内核执行失败", false)
+	return r.Fail("INTERNAL_ERROR", "记忆内核执行失败", false)
 }

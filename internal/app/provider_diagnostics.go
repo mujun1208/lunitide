@@ -66,7 +66,7 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 			}
 		}
 	} else if !storedModel(p, modelID) {
-		return bridge.Failure(request.ID, request.TraceID, "MODEL_NOT_FOUND", "模型不存在", false)
+		return request.Fail("MODEL_NOT_FOUND", "模型不存在", false)
 	}
 	started, testedAt := time.Now(), time.Now().UTC()
 	if p.Protocol == provider.ProtocolVolcSpeech {
@@ -85,7 +85,7 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 				}
 			}
 		}
-		return bridge.Success(request.ID, dto)
+		return request.Ok(dto)
 	}
 	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
 		adapter, adapterErr := e.adapter(opCtx, p)
@@ -100,7 +100,7 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 		return adapterErr
 	})
 	dto := diagnosticResult(err, time.Since(started), testedAt)
-	return bridge.Success(request.ID, dto)
+	return request.Ok(dto)
 }
 
 func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -115,7 +115,7 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 		SyncModelsDiscovery(context.Context, string, string, any, string, int64, func(provider.Provider) ([]provider.Model, string, error)) (provider.Provider, string, error)
 	})
 	if !ok {
-		return bridge.Failure(request.ID, request.TraceID, "STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
+		return request.Fail("STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
 	}
 	updated, warning, err := syncer.SyncModelsDiscovery(ctx, request.IdempotencyKey, providerMutationActor, payload, payload.ProviderID, payload.ExpectedVersion, func(p provider.Provider) ([]provider.Model, string, error) {
 		if p.Status != provider.StatusEnabled {
@@ -147,16 +147,16 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 	if err != nil {
 		switch {
 		case errors.Is(err, errProviderDisabled):
-			return bridge.Failure(request.ID, request.TraceID, "PROVIDER_DISABLED", "供应商未启用", false)
+			return request.Fail("PROVIDER_DISABLED", "供应商未启用", false)
 		case errors.Is(err, errProviderCredentialUnavailable):
-			return bridge.Failure(request.ID, request.TraceID, "PROVIDER_CREDENTIAL_UNAVAILABLE", "供应商凭据不可用", false)
+			return request.Fail("PROVIDER_CREDENTIAL_UNAVAILABLE", "供应商凭据不可用", false)
 		case errors.Is(err, errModelDiscoveryEmpty):
-			return bridge.Failure(request.ID, request.TraceID, "MODEL_DISCOVERY_EMPTY", "未发现可用模型", false)
+			return request.Fail("MODEL_DISCOVERY_EMPTY", "未发现可用模型", false)
 		}
 		var gatewayErr *gateway.Error
 		if errors.As(err, &gatewayErr) || networkpolicy.ErrorCode(err) != "" || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			d := diagnosticResult(err, 0, time.Now().UTC())
-			return bridge.Failure(request.ID, request.TraceID, d.ErrorCode, d.SanitizedMessage, d.Retryable)
+			return request.Fail(d.ErrorCode, d.SanitizedMessage, d.Retryable)
 		}
 		return providerFailure(request, err)
 	}
@@ -164,7 +164,7 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 	if warning != "" {
 		warnings = append(warnings, warning)
 	}
-	return bridge.Success(request.ID, map[string]any{"models": updated.Models, "warnings": warnings, "version": updated.Version})
+	return request.Ok(map[string]any{"models": updated.Models, "warnings": warnings, "version": updated.Version})
 }
 
 func (e *Engine) adapter(ctx context.Context, p provider.Provider) (gateway.Adapter, error) {
@@ -239,11 +239,11 @@ func (e *Engine) withProviderLease(ctx context.Context, p provider.Provider, ope
 
 func providerReadyFailure(request bridge.Request, p provider.Provider) *bridge.Response {
 	if p.Status != provider.StatusEnabled {
-		r := bridge.Failure(request.ID, request.TraceID, "PROVIDER_DISABLED", "供应商未启用", false)
+		r := request.Fail("PROVIDER_DISABLED", "供应商未启用", false)
 		return &r
 	}
 	if p.CredentialState != provider.CredentialConfigured || p.CredentialRef == "" {
-		r := bridge.Failure(request.ID, request.TraceID, "PROVIDER_CREDENTIAL_UNAVAILABLE", "供应商凭据不可用", false)
+		r := request.Fail("PROVIDER_CREDENTIAL_UNAVAILABLE", "供应商凭据不可用", false)
 		return &r
 	}
 	return nil

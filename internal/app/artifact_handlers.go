@@ -29,7 +29,7 @@ func artifactKindValid(kind string) bool {
 
 func handleWorkspaceArtifactReviewAppend(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.artifactReviews == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "产物评审存储未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "产物评审存储未初始化", false)
 	}
 	var p struct {
 		SessionID string `json:"sessionId"`
@@ -41,29 +41,29 @@ func handleWorkspaceArtifactReviewAppend(e *Engine, _ context.Context, r bridge.
 		Note      string `json:"note"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.artifactReview.append 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.artifactReview.append 参数无效", false)
 	}
 	p.Path = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(p.Path, "\\", "/")))
 	review, err := e.artifactReviews.Append(p.SessionID, p.CallID, p.ToolName, p.Kind, p.Path, p.Action, p.Note)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_REVIEW_INVALID", "产物评审记录无效", false)
+		return r.Fail("ARTIFACT_REVIEW_INVALID", "产物评审记录无效", false)
 	}
-	return bridge.Success(r.ID, review)
+	return r.Ok(review)
 }
 
 func handleWorkspaceArtifactReviewList(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.artifactReviews == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "产物评审存储未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "产物评审存储未初始化", false)
 	}
 	var p struct {
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.artifactReview.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.artifactReview.list 参数无效", false)
 	}
 	items, accepted, err := e.artifactReviews.ListBySession(p.SessionID)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_REVIEW_INVALID", "产物评审记录读取失败", false)
+		return r.Fail("ARTIFACT_REVIEW_INVALID", "产物评审记录读取失败", false)
 	}
 	if items == nil {
 		items = []artifactreview.Review{}
@@ -73,7 +73,7 @@ func handleWorkspaceArtifactReviewList(e *Engine, _ context.Context, r bridge.Re
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	return bridge.Success(r.ID, map[string]any{"items": items, "acceptedPaths": paths})
+	return r.Ok(map[string]any{"items": items, "acceptedPaths": paths})
 }
 
 // handleWorkspaceArtifactPreview answers a kind-aware text preview of one
@@ -81,24 +81,24 @@ func handleWorkspaceArtifactReviewList(e *Engine, _ context.Context, r bridge.Re
 // extracted plain text, html → raw bounded content, pdf → size-only note.
 func handleWorkspaceArtifactPreview(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var p struct {
 		SessionID string `json:"sessionId"`
 		Path      string `json:"path"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Path == "" || len(p.Path) > 512 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.artifact.preview 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.artifact.preview 参数无效", false)
 	}
 	kind := strings.TrimPrefix(strings.ToLower(filepath.Ext(p.Path)), ".")
 	if !artifactKindValid(kind) || kind == "pdf" {
 		// pdf has no text extractor yet: still gated here so the schema and
 		// handler stay in sync; the renderer offers export instead.
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_PREVIEW_UNSUPPORTED", "该格式暂不支持内容预览", false)
+		return r.Fail("ARTIFACT_PREVIEW_UNSUPPORTED", "该格式暂不支持内容预览", false)
 	}
 	data, err := e.tools.ReadWorkspaceFile(p.SessionID, p.Path, 8<<20)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_NOT_FOUND", "产物文件不存在或不可读", false)
+		return r.Fail("ARTIFACT_NOT_FOUND", "产物文件不存在或不可读", false)
 	}
 	var content string
 	switch kind {
@@ -117,16 +117,16 @@ func handleWorkspaceArtifactPreview(e *Engine, _ context.Context, r bridge.Reque
 	}
 	if err != nil {
 		if errors.Is(err, officetools.ErrLimit) {
-			return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_PREVIEW_UNSUPPORTED", "产物超出预览限制", false)
+			return r.Fail("ARTIFACT_PREVIEW_UNSUPPORTED", "产物超出预览限制", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_PREVIEW_FAILED", "产物解析失败", false)
+		return r.Fail("ARTIFACT_PREVIEW_FAILED", "产物解析失败", false)
 	}
 	if len(content) > 256<<10 {
 		runes := []rune(content)
 		keep := len(runes) * (256 << 10) / len(content)
 		content = string(runes[:keep]) + "…"
 	}
-	return bridge.Success(r.ID, map[string]any{"kind": kind, "path": filepath.ToSlash(p.Path), "size": len(data), "content": content})
+	return r.Ok(map[string]any{"kind": kind, "path": filepath.ToSlash(p.Path), "size": len(data), "content": content})
 }
 
 // resolveExportDir maps a user-authorized export target to an absolute
@@ -163,7 +163,7 @@ func resolveExportDir(target string) (string, error) {
 // opt-in so deliveries never clobber silently.
 func handleWorkspaceArtifactExport(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var p struct {
 		SessionID string `json:"sessionId"`
@@ -172,33 +172,33 @@ func handleWorkspaceArtifactExport(e *Engine, _ context.Context, r bridge.Reques
 		Overwrite bool   `json:"overwrite"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Path == "" || len(p.Path) > 512 || p.Target == "" || len(p.Target) > 400 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.artifact.export 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.artifact.export 参数无效", false)
 	}
 	p.Path = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(p.Path, "\\", "/")))
 	kind := strings.TrimPrefix(strings.ToLower(filepath.Ext(p.Path)), ".")
 	if !artifactKindValid(kind) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "产物格式不支持导出", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "产物格式不支持导出", false)
 	}
 	dir, err := resolveExportDir(p.Target)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_EXPORT_TARGET_INVALID", "导出目录无效或不存在", false)
+		return r.Fail("ARTIFACT_EXPORT_TARGET_INVALID", "导出目录无效或不存在", false)
 	}
 	data, err := e.tools.ReadWorkspaceFile(p.SessionID, p.Path, 32<<20)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_NOT_FOUND", "产物文件不存在或不可读", false)
+		return r.Fail("ARTIFACT_NOT_FOUND", "产物文件不存在或不可读", false)
 	}
 	name := filepath.Base(strings.ReplaceAll(p.Path, "/", string(filepath.Separator)))
 	if name == "" || name == "." || name == string(filepath.Separator) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "产物文件名无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "产物文件名无效", false)
 	}
 	dest := filepath.Join(dir, name)
 	if !p.Overwrite {
 		if _, err := os.Stat(dest); err == nil {
-			return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_EXPORT_EXISTS", "目标目录已存在同名文件，需确认覆盖", false)
+			return r.Fail("ARTIFACT_EXPORT_EXISTS", "目标目录已存在同名文件，需确认覆盖", false)
 		}
 	}
 	if err := os.WriteFile(dest, data, 0o644); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "ARTIFACT_EXPORT_FAILED", "导出写入失败", false)
+		return r.Fail("ARTIFACT_EXPORT_FAILED", "导出写入失败", false)
 	}
-	return bridge.Success(r.ID, map[string]any{"exportedPath": filepath.ToSlash(dest), "size": len(data)})
+	return r.Ok(map[string]any{"exportedPath": filepath.ToSlash(dest), "size": len(data)})
 }

@@ -50,17 +50,17 @@ func handleSessionCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Title     string `json:"title"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.create 参数无效", false)
 	}
 	if !sessionServiceAvailable(e.sessions) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
 	title, err := session.NormalizeTitle(p.Title)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.create 参数无效", false)
 	}
 	created, err := e.sessions.Create(ctx, r.IdempotencyKey, sessionMutationActor, p, session.Session{ProjectID: p.ProjectID, Title: title})
 	if errors.Is(err, sessionapp.ErrSessionCapacityReached) {
@@ -77,17 +77,17 @@ func handleSessionCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		// Non-fatal: folder will be created on first tool use.
 		_ = err
 	}
-	return bridge.Success(r.ID, newSessionDTO(created))
+	return r.Ok(newSessionDTO(created))
 }
 func handleSessionList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ProjectID string `json:"projectId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.list 参数无效", false)
 	}
 	if !sessionServiceAvailable(e.sessions) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}
 	items, err := e.sessions.List(ctx, session.Filter{ProjectID: p.ProjectID})
 	if err != nil {
@@ -98,7 +98,7 @@ func handleSessionList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	for i := range items {
 		dtos[i] = newSessionDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []sessionDTO `json:"items"`
 	}{dtos})
 }
@@ -110,41 +110,41 @@ func handleSessionUpdate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Version int64  `json:"version"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.Version < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.update 参数无效", false)
 	}
 	if !sessionServiceAvailable(e.sessions) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
 	title, err := session.NormalizeTitle(p.Title)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.update 参数无效", false)
 	}
 	updated, err := e.sessions.Update(ctx, r.IdempotencyKey, sessionMutationActor, p, p.ID, p.Version, title, p.Pinned)
 	if err != nil {
 		return sessionFailure(r, err)
 	}
-	return bridge.Success(r.ID, newSessionDTO(updated))
+	return r.Ok(newSessionDTO(updated))
 }
 func sessionFailure(r bridge.Request, err error) bridge.Response {
 
 	switch {
 	case errors.Is(err, sessionapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, sessionapp.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, sessionapp.ErrProjectNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_NOT_FOUND", "项目不存在", false)
+		return r.Fail("PROJECT_NOT_FOUND", "项目不存在", false)
 	case errors.Is(err, sessionapp.ErrSessionCapacityReached):
-		return bridge.Failure(r.ID, r.TraceID, "SESSION_CAPACITY_REACHED", "项目会话数量已达到上限", false)
+		return r.Fail("SESSION_CAPACITY_REACHED", "项目会话数量已达到上限", false)
 	case errors.Is(err, sessionapp.ErrSessionNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "SESSION_NOT_FOUND", "会话不存在", false)
+		return r.Fail("SESSION_NOT_FOUND", "会话不存在", false)
 	case errors.Is(err, sessionapp.ErrSessionVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "VERSION_CONFLICT", "会话版本冲突", false)
+		return r.Fail("VERSION_CONFLICT", "会话版本冲突", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}
 }
 
@@ -153,15 +153,15 @@ func handleSessionDelete(e *Engine, ctx context.Context, r bridge.Request) bridg
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.delete 参数无效", false)
 	}
 	if !sessionServiceAvailable(e.sessions) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话数据暂时不可用", true)
 	}
 	if err := e.sessions.Delete(ctx, p.ID); err != nil {
 		return sessionFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true, "id": p.ID})
+	return r.Ok(map[string]any{"deleted": true, "id": p.ID})
 }
 
 func handleSessionExpertsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -169,10 +169,10 @@ func handleSessionExpertsGet(e *Engine, ctx context.Context, r bridge.Request) b
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.experts.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.experts.get 参数无效", false)
 	}
 	if e.sessionExperts == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话专家挂载暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话专家挂载暂时不可用", true)
 	}
 	ids, err := e.sessionExperts.ListSessionExpertIDs(ctx, p.SessionID)
 	if err != nil {
@@ -181,7 +181,7 @@ func handleSessionExpertsGet(e *Engine, ctx context.Context, r bridge.Request) b
 	if ids == nil {
 		ids = []string{}
 	}
-	return bridge.Success(r.ID, map[string]any{"expertIds": ids})
+	return r.Ok(map[string]any{"expertIds": ids})
 }
 
 func handleSessionExpertsSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -190,15 +190,15 @@ func handleSessionExpertsSet(e *Engine, ctx context.Context, r bridge.Request) b
 		ExpertIDs []string `json:"expertIds"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) || p.ExpertIDs == nil || len(p.ExpertIDs) > 8 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.experts.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.experts.set 参数无效", false)
 	}
 	for _, id := range p.ExpertIDs {
 		if !validCanonicalULID(id) {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.experts.set 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "session.experts.set 参数无效", false)
 		}
 	}
 	if e.sessionExperts == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "会话专家挂载暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "会话专家挂载暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -213,5 +213,5 @@ func handleSessionExpertsSet(e *Engine, ctx context.Context, r bridge.Request) b
 	if ids == nil {
 		ids = []string{}
 	}
-	return bridge.Success(r.ID, map[string]any{"expertIds": ids})
+	return r.Ok(map[string]any{"expertIds": ids})
 }

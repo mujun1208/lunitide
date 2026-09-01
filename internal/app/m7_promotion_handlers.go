@@ -32,10 +32,10 @@ func handleReleasePromote(e *Engine, ctx context.Context, r bridge.Request) brid
 		m7flow.EnvRank(p.TargetEnv) < 1 ||
 		len(p.PolicyContext) < 1 || len(p.PolicyContext) > 64 ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.promote 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.promote 参数无效", false)
 	}
 	if e.m7promotion == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "晋级服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "晋级服务暂时不可用", true)
 	}
 	// M7-DR-001: a broken audit ledger freezes production promotions.
 	if p.TargetEnv == "prod" {
@@ -55,7 +55,7 @@ func handleReleasePromote(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err != nil {
 		return m7PromotionFailure(r, err, "release.promote")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		PromotionID string `json:"promotionId"`
 		State       string `json:"state"`
 	}{prm.ID, m7flow.PromoteWireState(prm.State)})
@@ -71,10 +71,10 @@ func handleReleaseRollback(e *Engine, ctx context.Context, r bridge.Request) bri
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.PromotionID) ||
 		len(p.Reason) < 1 || len(p.Reason) > 2000 ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.OperatorID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.rollback 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.rollback 参数无效", false)
 	}
 	if e.m7promotion == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "回退服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "回退服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -93,7 +93,7 @@ func handleReleaseRollback(e *Engine, ctx context.Context, r bridge.Request) bri
 	if len(attempts) > 0 {
 		ref = attempts[len(attempts)-1].ID
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		RollbackRef string `json:"rollbackRef"`
 		State       string `json:"state"`
 	}{ref, m7flow.RollbackWireState(prm.State)})
@@ -104,10 +104,10 @@ func handleReleaseGetPromotion(e *Engine, ctx context.Context, r bridge.Request)
 		PromotionID string `json:"promotionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.PromotionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.getPromotion 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.getPromotion 参数无效", false)
 	}
 	if e.m7promotion == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "晋级服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "晋级服务暂时不可用", true)
 	}
 	view, err := e.m7promotion.GetPromotion(ctx, p.PromotionID)
 	if err != nil {
@@ -143,11 +143,11 @@ func handleReleaseGetPromotion(e *Engine, ctx context.Context, r bridge.Request)
 			CompletedAt: m7RFC(a.CompletedAt),
 		})
 	}
-	return bridge.Success(r.ID, struct {
-		Promotion        m7PromotionDTO        `json:"promotion"`
-		Timeline         []m7app.TimelineStep  `json:"timeline"`
-		Migrations       []m7MigrationExecDTO  `json:"migrations"`
-		Deployments      []m7DeploymentDTO     `json:"deployments"`
+	return r.Ok(struct {
+		Promotion        m7PromotionDTO         `json:"promotion"`
+		Timeline         []m7app.TimelineStep   `json:"timeline"`
+		Migrations       []m7MigrationExecDTO   `json:"migrations"`
+		Deployments      []m7DeploymentDTO      `json:"deployments"`
 		RollbackAttempts []m7RollbackAttemptDTO `json:"rollbackAttempts"`
 	}{
 		Promotion: m7PromotionDTO{
@@ -228,33 +228,33 @@ func m7PromotionFailure(r bridge.Request, err error, method string) bridge.Respo
 	switch {
 	case errors.Is(err, m7app.ErrPromotionNotFound), errors.Is(err, m7app.ErrPackageNotFound),
 		errors.Is(err, m7app.ErrRevisionNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "晋级相关对象不存在", false)
+		return r.Fail("NOT_FOUND", "晋级相关对象不存在", false)
 	case errors.Is(err, m7app.ErrPackageNotSealed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PKG-003", "发行包未封版，禁止晋级", false)
+		return r.Fail("M7-PKG-003", "发行包未封版，禁止晋级", false)
 	case errors.Is(err, m7app.ErrDigestMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PKG-002", "发行包摘要校验失败，已被隔离", false)
+		return r.Fail("M7-PKG-002", "发行包摘要校验失败，已被隔离", false)
 	case errors.Is(err, m7app.ErrIntentChanged):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PRM-002", "晋级意图已变化，冻结执行", false)
+		return r.Fail("M7-PRM-002", "晋级意图已变化，冻结执行", false)
 	case errors.Is(err, m7app.ErrConcurrentPromotion):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PRM-001", "同环境已存在进行中的晋级，原晋级继续生效", false)
+		return r.Fail("M7-PRM-001", "同环境已存在进行中的晋级，原晋级继续生效", false)
 	case errors.Is(err, m7app.ErrPolicyRejected):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PRM-003", "环境或时窗策略拒绝", false)
+		return r.Fail("M7-PRM-003", "环境或时窗策略拒绝", false)
 	case errors.Is(err, m7app.ErrApprovalInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PRM-003", "晋级审批无效（SoD 校验失败）", false)
+		return r.Fail("M7-PRM-003", "晋级审批无效（SoD 校验失败）", false)
 	case errors.Is(err, m7app.ErrApprovalExpired):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PRM-003", "晋级审批已过期，请重新审批", false)
+		return r.Fail("M7-PRM-003", "晋级审批已过期，请重新审批", false)
 	case errors.Is(err, m7app.ErrMigrationFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MIG-002", "数据库迁移失败，已进入回退", false)
+		return r.Fail("M7-MIG-002", "数据库迁移失败，已进入回退", false)
 	case errors.Is(err, m7app.ErrDeploymentFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-DEP-001", "部署或健康验证失败，按策略回退", false)
+		return r.Fail("M7-DEP-001", "部署或健康验证失败，按策略回退", false)
 	case errors.Is(err, m7app.ErrRollbackFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-RBK-001", "回退失败，环境已冻结并告警", false)
+		return r.Fail("M7-RBK-001", "回退失败，环境已冻结并告警", false)
 	case errors.Is(err, m7app.ErrOutcomeUnknown):
-		return bridge.Failure(r.ID, r.TraceID, "OUTCOME_UNKNOWN", "外部步骤结果未确认，等待对账后重放", true)
+		return r.Fail("OUTCOME_UNKNOWN", "外部步骤结果未确认，等待对账后重放", true)
 	case errors.Is(err, m7app.ErrRollbackNotAllowed), errors.Is(err, m7app.ErrIllegalPromotionTransition):
-		return bridge.Failure(r.ID, r.TraceID, "M7-RBK-002", "当前状态不允许该回退或状态迁移", false)
+		return r.Fail("M7-RBK-002", "当前状态不允许该回退或状态迁移", false)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "晋级服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "晋级服务暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

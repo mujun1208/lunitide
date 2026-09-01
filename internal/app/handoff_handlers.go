@@ -49,7 +49,7 @@ func handleContextHandoffCreate(e *Engine, ctx context.Context, r bridge.Request
 		ExpiresAt        *time.Time `json:"expiresAt"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SourceSessionID) || !validCanonicalULID(p.CheckpointID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "context.handoff.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "context.handoff.create 参数无效", false)
 	}
 	capsule, err := e.CreateHandoffCapsule(ctx, handoffapp.CreateCapsuleRequest{
 		SourceSessionID:  p.SourceSessionID,
@@ -62,7 +62,7 @@ func handleContextHandoffCreate(e *Engine, ctx context.Context, r bridge.Request
 		return handoffFailure(r, err)
 	}
 	dto := newHandoffCapsuleDTO(capsule)
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"capsuleId":       dto.CapsuleID,
 		"sourceSessionId": dto.SourceSessionID,
 		"checkpointId":    dto.CheckpointID,
@@ -81,7 +81,7 @@ func handleContextHandoffInspect(e *Engine, ctx context.Context, r bridge.Reques
 		CapsuleID string `json:"capsuleId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CapsuleID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "context.handoff.inspect 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "context.handoff.inspect 参数无效", false)
 	}
 	result, err := e.InspectHandoffCapsule(ctx, p.CapsuleID)
 	if err != nil {
@@ -104,7 +104,7 @@ func handleContextHandoffInspect(e *Engine, ctx context.Context, r bridge.Reques
 		resp["sourceStartSeq"] = result.Checkpoint.SourceStartSeq
 		resp["sourceEndSeq"] = result.Checkpoint.SourceEndSeq
 	}
-	return bridge.Success(r.ID, resp)
+	return r.Ok(resp)
 }
 
 // handleContextHandoffImport imports a capsule into a target session as
@@ -116,7 +116,7 @@ func handleContextHandoffImport(e *Engine, ctx context.Context, r bridge.Request
 		TargetSessionID string `json:"targetSessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CapsuleID) || !validCanonicalULID(p.TargetSessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "context.handoff.import 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "context.handoff.import 参数无效", false)
 	}
 	result, err := e.ImportHandoffCapsule(ctx, p.CapsuleID, p.TargetSessionID)
 	if err != nil {
@@ -137,7 +137,7 @@ func handleContextHandoffImport(e *Engine, ctx context.Context, r bridge.Request
 		resp["summaryPreview"] = result.Checkpoint.SummaryJSON
 		resp["humanSummary"] = result.Checkpoint.HumanSummary
 	}
-	return bridge.Success(r.ID, resp)
+	return r.Ok(resp)
 }
 
 // handleContextHandoffRevoke revokes an active capsule. Once revoked, a
@@ -147,12 +147,12 @@ func handleContextHandoffRevoke(e *Engine, ctx context.Context, r bridge.Request
 		CapsuleID string `json:"capsuleId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CapsuleID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "context.handoff.revoke 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "context.handoff.revoke 参数无效", false)
 	}
 	if err := e.RevokeHandoffCapsule(ctx, p.CapsuleID); err != nil {
 		return handoffFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"capsuleId": p.CapsuleID,
 		"status":    string(handoff.StatusRevoked),
 		"revoked":   true,
@@ -167,7 +167,7 @@ func handleContextHandoffList(e *Engine, ctx context.Context, r bridge.Request) 
 		Limit           int    `json:"limit"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SourceSessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "context.handoff.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "context.handoff.list 参数无效", false)
 	}
 	capsules, err := e.ListHandoffCapsules(ctx, p.SourceSessionID, p.Limit)
 	if err != nil {
@@ -177,7 +177,7 @@ func handleContextHandoffList(e *Engine, ctx context.Context, r bridge.Request) 
 	for _, c := range capsules {
 		items = append(items, newHandoffCapsuleDTO(c))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": items})
+	return r.Ok(map[string]any{"items": items})
 }
 
 // handleContextHandoffListImports returns all capsules imported into the
@@ -187,7 +187,7 @@ func handleContextHandoffListImports(e *Engine, ctx context.Context, r bridge.Re
 		TargetSessionID string `json:"targetSessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.TargetSessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "context.handoff.list-imports 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "context.handoff.list-imports 参数无效", false)
 	}
 	capsules, err := e.ListImportedHandoffCapsules(ctx, p.TargetSessionID)
 	if err != nil {
@@ -197,30 +197,30 @@ func handleContextHandoffListImports(e *Engine, ctx context.Context, r bridge.Re
 	for _, c := range capsules {
 		items = append(items, newHandoffCapsuleDTO(c))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": items})
+	return r.Ok(map[string]any{"items": items})
 }
 
 // handoffFailure maps handoff service errors to stable Bridge error codes.
 func handoffFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, handoffapp.ErrCapsuleNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CAPSULE_NOT_FOUND", "胶囊不存在", false)
+		return r.Fail("HANDOFF_CAPSULE_NOT_FOUND", "胶囊不存在", false)
 	case errors.Is(err, handoffapp.ErrCapsuleNotActive):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CAPSULE_NOT_ACTIVE", "胶囊不在 active 状态", false)
+		return r.Fail("HANDOFF_CAPSULE_NOT_ACTIVE", "胶囊不在 active 状态", false)
 	case errors.Is(err, handoffapp.ErrCapsuleExpired):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CAPSULE_EXPIRED", "胶囊已过期", false)
+		return r.Fail("HANDOFF_CAPSULE_EXPIRED", "胶囊已过期", false)
 	case errors.Is(err, handoffapp.ErrCrossProjectImport):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CROSS_PROJECT_FORBIDDEN", "禁止跨项目导入胶囊", false)
+		return r.Fail("HANDOFF_CROSS_PROJECT_FORBIDDEN", "禁止跨项目导入胶囊", false)
 	case errors.Is(err, handoffapp.ErrCheckpointNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CHECKPOINT_NOT_FOUND", "源检查点不存在", false)
+		return r.Fail("HANDOFF_CHECKPOINT_NOT_FOUND", "源检查点不存在", false)
 	case errors.Is(err, handoffapp.ErrCheckpointNotSucceeded):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_CHECKPOINT_NOT_SUCCEEDED", "源检查点不在 succeeded 状态", false)
+		return r.Fail("HANDOFF_CHECKPOINT_NOT_SUCCEEDED", "源检查点不在 succeeded 状态", false)
 	case errors.Is(err, handoffapp.ErrSourceDeleted):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_SOURCE_DELETED", "胶囊源已被删除", false)
+		return r.Fail("HANDOFF_SOURCE_DELETED", "胶囊源已被删除", false)
 	case errors.Is(err, handoffapp.ErrDigestMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_DIGEST_MISMATCH", "胶囊摘要校验失败", false)
+		return r.Fail("HANDOFF_DIGEST_MISMATCH", "胶囊摘要校验失败", false)
 	case errors.Is(err, handoffapp.ErrDestinationSessionNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "HANDOFF_DESTINATION_SESSION_NOT_FOUND", "目标会话不存在", false)
+		return r.Fail("HANDOFF_DESTINATION_SESSION_NOT_FOUND", "目标会话不存在", false)
 	default:
 		return internalBridgeFailure(r, "HANDOFF_OPERATION_FAILED", "交接操作暂时不可用", true, err)
 	}

@@ -48,7 +48,7 @@ type modelPayload struct {
 func handleProviderCreate(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var payload createProviderPayload
 	if decodePayload(request.Payload, &payload) != nil || !publicNameValid(payload.Name) || payload.Protocol == "" || strings.TrimSpace(payload.BaseURL) == "" {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.create 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "provider.create 参数无效", false)
 	}
 	models, modelsOK := publicModels(payload.Models)
 	if !modelsOK {
@@ -87,7 +87,7 @@ func handleProviderCreate(e *Engine, ctx context.Context, request bridge.Request
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, publicProvider(created))
+	return request.Ok(publicProvider(created))
 }
 
 func handleProviderGet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -95,19 +95,19 @@ func handleProviderGet(e *Engine, ctx context.Context, request bridge.Request) b
 		ID string `json:"id"`
 	}
 	if decodePayload(request.Payload, &payload) != nil || !canonicalULID(payload.ID) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.get 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "provider.get 参数无效", false)
 	}
 	item, err := e.providers.Get(ctx, payload.ID)
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, publicProvider(item))
+	return request.Ok(publicProvider(item))
 }
 
 func handleProviderUpdate(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var payload updateProviderPayload
 	if decodePayload(request.Payload, &payload) != nil || !canonicalULID(payload.ID) || payload.ExpectedVersion < 1 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.update 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "provider.update 参数无效", false)
 	}
 	if payload.CredentialSubmissionID != nil {
 		if !canonicalULID(*payload.CredentialSubmissionID) {
@@ -133,7 +133,7 @@ func handleProviderUpdate(e *Engine, ctx context.Context, request bridge.Request
 	if err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, publicProvider(updated))
+	return request.Ok(publicProvider(updated))
 }
 
 func applyProviderPatch(item provider.Provider, payload updateProviderPayload) (provider.Provider, error) {
@@ -207,7 +207,7 @@ func handleProviderDelete(e *Engine, ctx context.Context, request bridge.Request
 		ExpectedVersion int64  `json:"expectedVersion"`
 	}
 	if decodePayload(request.Payload, &payload) != nil || !canonicalULID(payload.ID) || payload.ExpectedVersion < 1 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "provider.delete 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "provider.delete 参数无效", false)
 	}
 	if failure := requireIdempotency(request); failure != nil {
 		return *failure
@@ -215,7 +215,7 @@ func handleProviderDelete(e *Engine, ctx context.Context, request bridge.Request
 	if _, err := e.providers.DeleteRequest(ctx, request.IdempotencyKey, providerMutationActor, payload, payload.ID, payload.ExpectedVersion); err != nil {
 		return providerFailure(request, err)
 	}
-	return bridge.Success(request.ID, map[string]any{"deleted": true})
+	return request.Ok(map[string]any{"deleted": true})
 }
 
 func canonicalULID(value string) bool {
@@ -224,19 +224,19 @@ func canonicalULID(value string) bool {
 }
 
 func credentialSubmissionDisabled(request bridge.Request) bridge.Response {
-	return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_SUBMISSION_NOT_ENABLED", "凭据提交链路尚未启用", false)
+	return request.Fail("CREDENTIAL_SUBMISSION_NOT_ENABLED", "凭据提交链路尚未启用", false)
 }
 
 func requireIdempotency(request bridge.Request) *bridge.Response {
 	if strings.TrimSpace(request.IdempotencyKey) != "" {
 		return nil
 	}
-	response := bridge.Failure(request.ID, request.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+	response := request.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	return &response
 }
 
 func invalidProviderPayload(request bridge.Request, method string) bridge.Response {
-	return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", method+" 参数无效", false)
+	return request.Fail("BRIDGE_SCHEMA_INVALID", method+" 参数无效", false)
 }
 
 func publicNameValid(value string) bool {

@@ -30,13 +30,13 @@ func deliverableStoreAvailable(store DeliverableStore) bool {
 
 func rejectIfProjectReadOnly(e *Engine, ctx context.Context, r bridge.Request, projectID string) *bridge.Response {
 	if !projectServiceAvailable(e.projects) {
-		resp := bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
+		resp := r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 		return &resp
 	}
 	proj, err := e.projects.Get(ctx, projectID)
 	if err != nil {
 		if errors.Is(err, project.ErrNotFound) {
-			resp := bridge.Failure(r.ID, r.TraceID, "PROJECT_NOT_FOUND", "项目不存在", false)
+			resp := r.Fail("PROJECT_NOT_FOUND", "项目不存在", false)
 			return &resp
 		}
 		resp := projectFailure(r, err)
@@ -81,16 +81,16 @@ func handleDeliverableList(e *Engine, ctx context.Context, r bridge.Request) bri
 		Status    string `json:"status"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.list 参数无效", false)
 	}
 	if p.Phase != 0 && !deliverable.ValidPhase(p.Phase) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.list 参数无效", false)
 	}
 	if p.Status != "" && !deliverable.ValidStatus(deliverable.Status(p.Status)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.list 参数无效", false)
 	}
 	if !deliverableStoreAvailable(e.deliverables) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "交付物数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "交付物数据暂时不可用", true)
 	}
 	items, err := e.deliverables.ListProjectDeliverables(ctx, deliverable.Filter{
 		ProjectID: p.ProjectID, Phase: p.Phase, Status: deliverable.Status(p.Status),
@@ -102,7 +102,7 @@ func handleDeliverableList(e *Engine, ctx context.Context, r bridge.Request) bri
 	for i := range items {
 		dtos = append(dtos, newDeliverableDTO(items[i]))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": dtos})
+	return r.Ok(map[string]any{"items": dtos})
 }
 
 func handleDeliverableUpsert(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -117,30 +117,30 @@ func handleDeliverableUpsert(e *Engine, ctx context.Context, r bridge.Request) b
 		Digest       string `json:"digest"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || !deliverable.ValidPhase(p.Phase) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
 	}
 	if !asset.ValidDocumentType(asset.DocumentType(p.DocumentType)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
 	}
 	title, err := deliverable.NormalizeTitle(p.Title)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
 	}
 	if p.TemplateID != "" && !validCanonicalULID(p.TemplateID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
 	}
 	if p.AttachmentID != "" && !validCanonicalULID(p.AttachmentID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
 	}
 	status := deliverable.StatusDraft
 	if p.Status != "" {
 		if !deliverable.ValidStatus(deliverable.Status(p.Status)) {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.upsert 参数无效", false)
 		}
 		status = deliverable.Status(p.Status)
 	}
 	if !deliverableStoreAvailable(e.deliverables) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "交付物数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "交付物数据暂时不可用", true)
 	}
 	if failure := rejectIfProjectReadOnly(e, ctx, r, p.ProjectID); failure != nil {
 		return *failure
@@ -153,7 +153,7 @@ func handleDeliverableUpsert(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return deliverableFailure(r, err)
 	}
-	return bridge.Success(r.ID, newDeliverableDTO(saved))
+	return r.Ok(newDeliverableDTO(saved))
 }
 
 func handleDeliverableConfirmGate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -163,10 +163,10 @@ func handleDeliverableConfirmGate(e *Engine, ctx context.Context, r bridge.Reque
 		ExpectedVersion int64  `json:"expectedVersion"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "deliverable.confirmGate 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "deliverable.confirmGate 参数无效", false)
 	}
 	if !deliverableStoreAvailable(e.deliverables) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "交付物数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "交付物数据暂时不可用", true)
 	}
 	if failure := rejectIfProjectReadOnly(e, ctx, r, p.ProjectID); failure != nil {
 		return *failure
@@ -175,22 +175,22 @@ func handleDeliverableConfirmGate(e *Engine, ctx context.Context, r bridge.Reque
 	if err != nil {
 		return deliverableFailure(r, err)
 	}
-	return bridge.Success(r.ID, newDeliverableDTO(updated))
+	return r.Ok(newDeliverableDTO(updated))
 }
 
 func deliverableFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, deliverable.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "DELIVERABLE_NOT_FOUND", "交付物不存在", false)
+		return r.Fail("DELIVERABLE_NOT_FOUND", "交付物不存在", false)
 	case errors.Is(err, deliverable.ErrGateLocked):
-		return bridge.Failure(r.ID, r.TraceID, "DELIVERABLE_GATE_LOCKED", "交付物门禁已锁定", false)
+		return r.Fail("DELIVERABLE_GATE_LOCKED", "交付物门禁已锁定", false)
 	case errors.Is(err, deliverable.ErrVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "DELIVERABLE_VERSION_CONFLICT", "交付物已被其他操作修改，请刷新后重试", false)
+		return r.Fail("DELIVERABLE_VERSION_CONFLICT", "交付物已被其他操作修改，请刷新后重试", false)
 	default:
 		msg := strings.TrimSpace(err.Error())
 		if msg == "" {
 			msg = "交付物数据暂时不可用"
 		}
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", msg, true)
+		return r.Fail("STORAGE_UNAVAILABLE", msg, true)
 	}
 }

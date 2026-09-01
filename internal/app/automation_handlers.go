@@ -22,7 +22,7 @@ import (
 const isolatedAutomationTitle = "新对话"
 
 func automationUnavailable(r bridge.Request) bridge.Response {
-	return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "自动化调度器未初始化", false)
+	return r.Fail("FEATURE_DISABLED", "自动化调度器未初始化", false)
 }
 
 // handleAutomationJobList answers all jobs (executionMode normalized).
@@ -32,7 +32,7 @@ func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bri
 	}
 	jobs, err := e.automation.Store().ListJobs()
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_STORE_FAILED", "任务列表读取失败", true)
+		return r.Fail("AUTOMATION_STORE_FAILED", "任务列表读取失败", true)
 	}
 	type jobView struct {
 		ID            string `json:"id"`
@@ -63,7 +63,7 @@ func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bri
 		}
 		out = append(out, v)
 	}
-	return bridge.Success(r.ID, map[string]any{"jobs": out})
+	return r.Ok(map[string]any{"jobs": out})
 }
 
 // handleAutomationJobSet creates or updates one job.
@@ -87,18 +87,18 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Name == "" || len([]rune(p.Name)) > 64 ||
 		p.ModelID == "" || len(p.ModelID) > 128 || len(p.ID) > 26 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "automation.job.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.set 参数无效", false)
 	}
 	if err := scheduler.ParseSchedule(p.Cron); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_CRON_INVALID", "cron 表达式无效（需 5 字段或 at:RFC3339）", false)
+		return r.Fail("AUTOMATION_CRON_INVALID", "cron 表达式无效（需 5 字段或 at:RFC3339）", false)
 	}
 	if p.ExecutionMode != "" {
 		if _, ok := normalizeExecutionMode(executionMode(p.ExecutionMode)); !ok {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "executionMode 无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "executionMode 无效", false)
 		}
 	}
 	if err := scheduler.ValidateWebhookURL(p.WebhookURL); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_WEBHOOK_INVALID", "webhook 地址无效（需 https 且不允许内网/IP 地址）", false)
+		return r.Fail("AUTOMATION_WEBHOOK_INVALID", "webhook 地址无效（需 https 且不允许内网/IP 地址）", false)
 	}
 	now := time.Now().UTC()
 	job := scheduler.Job{
@@ -111,10 +111,10 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 	if p.ID != "" {
 		existing, ok, err := e.automation.Store().GetJob(p.ID)
 		if err != nil {
-			return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_STORE_FAILED", "任务读取失败", true)
+			return r.Fail("AUTOMATION_STORE_FAILED", "任务读取失败", true)
 		}
 		if !ok {
-			return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_JOB_NOT_FOUND", "任务不存在", false)
+			return r.Fail("AUTOMATION_JOB_NOT_FOUND", "任务不存在", false)
 		}
 		job.ID = p.ID
 		job.CreatedAt = existing.CreatedAt
@@ -124,11 +124,11 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 	}
 	if err := e.automation.Store().PutJob(job); err != nil {
 		if errors.Is(err, scheduler.ErrInvalid) {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "automation.job.set 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.set 参数无效", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_STORE_FAILED", "任务保存失败", true)
+		return r.Fail("AUTOMATION_STORE_FAILED", "任务保存失败", true)
 	}
-	return bridge.Success(r.ID, map[string]any{"id": job.ID, "createdAt": job.CreatedAt.Format(time.RFC3339)})
+	return r.Ok(map[string]any{"id": job.ID, "createdAt": job.CreatedAt.Format(time.RFC3339)})
 }
 
 // handleAutomationJobDelete removes one job.
@@ -140,12 +140,12 @@ func handleAutomationJobDelete(e *Engine, _ context.Context, r bridge.Request) b
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.ID) != 26 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "automation.job.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.delete 参数无效", false)
 	}
 	if err := e.automation.Store().DeleteJob(p.ID); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_STORE_FAILED", "任务删除失败", true)
+		return r.Fail("AUTOMATION_STORE_FAILED", "任务删除失败", true)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true})
+	return r.Ok(map[string]any{"deleted": true})
 }
 
 // handleAutomationJobTrigger fires one job immediately (manual run-now).
@@ -157,15 +157,15 @@ func handleAutomationJobTrigger(e *Engine, _ context.Context, r bridge.Request) 
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.ID) != 26 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "automation.job.trigger 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.trigger 参数无效", false)
 	}
 	if err := e.automation.TriggerNow(p.ID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_JOB_NOT_FOUND", "任务不存在", false)
+			return r.Fail("AUTOMATION_JOB_NOT_FOUND", "任务不存在", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_JOB_RUNNING", "任务正在执行，请稍后再试", false)
+		return r.Fail("AUTOMATION_JOB_RUNNING", "任务正在执行，请稍后再试", false)
 	}
-	return bridge.Success(r.ID, map[string]any{"triggered": true})
+	return r.Ok(map[string]any{"triggered": true})
 }
 
 // handleAutomationRunList answers the newest-first run history.
@@ -178,14 +178,14 @@ func handleAutomationRunList(e *Engine, _ context.Context, r bridge.Request) bri
 		Limit int    `json:"limit"`
 	}
 	if decodePayload(r.Payload, &p) != nil || (p.JobID != "" && len(p.JobID) != 26) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "automation.run.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.run.list 参数无效", false)
 	}
 	if p.Limit < 1 || p.Limit > 100 {
 		p.Limit = 50
 	}
 	runs, err := e.automation.Store().ListRuns(p.JobID, p.Limit)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "AUTOMATION_STORE_FAILED", "运行历史读取失败", true)
+		return r.Fail("AUTOMATION_STORE_FAILED", "运行历史读取失败", true)
 	}
 	type runView struct {
 		ID          string `json:"id"`
@@ -210,7 +210,7 @@ func handleAutomationRunList(e *Engine, _ context.Context, r bridge.Request) bri
 		}
 		out = append(out, v)
 	}
-	return bridge.Success(r.ID, map[string]any{"runs": out})
+	return r.Ok(map[string]any{"runs": out})
 }
 
 // handleAutomationStatus answers the scheduler heartbeat snapshot.
@@ -219,7 +219,7 @@ func handleAutomationStatus(e *Engine, _ context.Context, r bridge.Request) brid
 		return automationUnavailable(r)
 	}
 	s := e.automation.Snapshot()
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"running":       s.Running,
 		"startedAt":     stampOrEmpty(s.StartedAt),
 		"lastHeartbeat": stampOrEmpty(s.LastHeartbeat),

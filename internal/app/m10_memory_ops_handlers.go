@@ -18,13 +18,13 @@ import (
 
 func handleMemoryOpsStats(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	stats, err := e.memoryOps.Stats(ctx)
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return bridge.Success(r.ID, statsDTO(stats))
+	return r.Ok(statsDTO(stats))
 }
 
 func handleMemoryFactsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -36,10 +36,10 @@ func handleMemoryFactsList(e *Engine, ctx context.Context, r bridge.Request) bri
 	}
 	if decodePayload(r.Payload, &p) != nil || (p.State != "" && !validFactState(p.State)) ||
 		(p.Limit < 1 || p.Limit > 100) || p.Offset < 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.facts.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.facts.list 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	items, total, err := e.memoryOps.Facts(ctx, p.State, p.Scope, p.Limit, p.Offset)
 	if err != nil {
@@ -53,7 +53,7 @@ func handleMemoryFactsList(e *Engine, ctx context.Context, r bridge.Request) bri
 			Pinned: f.Pinned, Hidden: f.Hidden, Note: f.Note,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items  []factViewDTO `json:"items"`
 		Total  int           `json:"total"`
 		Limit  int           `json:"limit"`
@@ -69,15 +69,15 @@ func handleMemoryFactsFlag(e *Engine, ctx context.Context, r bridge.Request) bri
 		On     bool   `json:"on"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.FactID) || !m8core.ValidFactFlag(p.Flag) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.facts.flag 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.facts.flag 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	if err := e.memoryOps.FlagFact(ctx, p.FactID, p.Flag, p.Note, p.On); err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		FactID string `json:"factId"`
 		Flag   string `json:"flag"`
 		On     bool   `json:"on"`
@@ -90,10 +90,10 @@ func handleMemoryTracesList(e *Engine, ctx context.Context, r bridge.Request) br
 		Offset int `json:"offset"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Limit < 1 || p.Limit > 100 || p.Offset < 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.traces.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.traces.list 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	rows, total, err := e.memoryOps.Traces(ctx, p.Limit, p.Offset)
 	if err != nil {
@@ -106,7 +106,7 @@ func handleMemoryTracesList(e *Engine, ctx context.Context, r bridge.Request) br
 			ReasonsJSON: t.ReasonsJSON, RedactionsJSON: t.PolicyRedactionsJSON, CreatedAt: t.CreatedAt,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items  []traceDTO `json:"items"`
 		Total  int        `json:"total"`
 		Limit  int        `json:"limit"`
@@ -122,10 +122,10 @@ func handleMemoryGrowthList(e *Engine, ctx context.Context, r bridge.Request) br
 	}
 	if decodePayload(r.Payload, &p) != nil || (p.Status != "" && !m8core.ValidGrowthStatus(p.Status)) ||
 		p.Limit < 1 || p.Limit > 100 || p.Offset < 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.growth.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.growth.list 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	rows, total, err := e.memoryOps.GrowthList(ctx, p.Status, p.Limit, p.Offset)
 	if err != nil {
@@ -139,7 +139,7 @@ func handleMemoryGrowthList(e *Engine, ctx context.Context, r bridge.Request) br
 			ReviewAt: g.ReviewAt, DecidedAt: g.DecidedAt, CreatedAt: g.CreatedAt,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items  []growthDTO `json:"items"`
 		Total  int         `json:"total"`
 		Limit  int         `json:"limit"`
@@ -154,15 +154,15 @@ func handleMemoryGrowthDecide(e *Engine, ctx context.Context, r bridge.Request) 
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.FactID) ||
 		(p.Decision != "promoted" && p.Decision != "dropped") {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.growth.decide 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.growth.decide 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	if err := e.memoryOps.GrowthDecide(ctx, p.FactID, p.Decision); err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		FactID   string `json:"factId"`
 		Decision string `json:"decision"`
 	}{FactID: p.FactID, Decision: p.Decision})
@@ -173,16 +173,16 @@ func handleMemorySettingsGet(e *Engine, ctx context.Context, r bridge.Request) b
 		SubjectID string `json:"subjectId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.settings.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.get 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	st, err := e.memoryOps.SettingsGet(ctx, p.SubjectID)
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return bridge.Success(r.ID, settingsDTO(st))
+	return r.Ok(settingsDTO(st))
 }
 
 func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -193,10 +193,10 @@ func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request
 		GrowthDays    int    `json:"growthDays"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	if err := e.memoryOps.SettingsUpdate(ctx, m8core.MemorySettings{
 		SubjectID: p.SubjectID, MemoryEnabled: p.MemoryEnabled,
@@ -208,16 +208,16 @@ func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return bridge.Success(r.ID, settingsDTO(st))
+	return r.Ok(settingsDTO(st))
 }
 
 func handleMemoryExport(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.export 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.export 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	bundle, err := e.memoryOps.Export(ctx)
 	if err != nil {
@@ -275,7 +275,7 @@ func handleMemoryExport(e *Engine, ctx context.Context, r bridge.Request) bridge
 			"autoNominate": st.AutoNominate, "growthDays": st.GrowthDays,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Facts      []map[string]any `json:"facts"`
 		Leaves     []map[string]any `json:"leaves"`
 		Candidates []map[string]any `json:"candidates"`
@@ -289,16 +289,16 @@ func handleMemoryExport(e *Engine, ctx context.Context, r bridge.Request) bridge
 func handleMemoryPurge(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.purge 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.purge 参数无效", false)
 	}
 	if e.memoryOps == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
 	counts, err := e.memoryOps.Purge(ctx)
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		FactsTombstoned int64 `json:"factsTombstoned"`
 		Candidates      int64 `json:"candidates"`
 		GrowthRows      int64 `json:"growthRows"`
@@ -393,15 +393,15 @@ func statsDTO(stats m8app.MemoryOpsStats) struct {
 func memoryOpsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m8app.ErrOpsFactNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MO-001", "记忆事实不存在", false)
+		return r.Fail("M10-MO-001", "记忆事实不存在", false)
 	case errors.Is(err, m8app.ErrOpsFlagInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MO-002", "事实标记无效", false)
+		return r.Fail("M10-MO-002", "事实标记无效", false)
 	case errors.Is(err, m8app.ErrOpsGrowthConflict):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MO-003", "成长箱条目不存在或已处理", false)
+		return r.Fail("M10-MO-003", "成长箱条目不存在或已处理", false)
 	case errors.Is(err, m8app.ErrOpsSettingsInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MO-004", "记忆设置无效（成长期需 1–90 天）", false)
+		return r.Fail("M10-MO-004", "记忆设置无效（成长期需 1–90 天）", false)
 	case errors.Is(err, m8app.ErrOpsDecisionInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MO-005", "成长箱决定无效", false)
+		return r.Fail("M10-MO-005", "成长箱决定无效", false)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆运营存储暂时不可用", true)
+	return r.Fail("STORAGE_UNAVAILABLE", "记忆运营存储暂时不可用", true)
 }

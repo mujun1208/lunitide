@@ -24,10 +24,10 @@ func handleWorkflowCreateVersion(e *Engine, ctx context.Context, r bridge.Reques
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workflow.createVersion 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workflow.createVersion 参数无效", false)
 	}
 	if e.m7workflow == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -36,7 +36,7 @@ func handleWorkflowCreateVersion(e *Engine, ctx context.Context, r bridge.Reques
 	if err != nil {
 		return m7WorkflowFailure(r, err, "workflow.createVersion")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		WorkflowVersionID string `json:"workflowVersionId"`
 		Version           int64  `json:"version"`
 		Status            string `json:"status"`
@@ -51,10 +51,10 @@ func handleWorkflowPublish(e *Engine, ctx context.Context, r bridge.Request) bri
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.WorkflowVersionID) ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workflow.publish 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workflow.publish 参数无效", false)
 	}
 	if e.m7workflow == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -67,7 +67,7 @@ func handleWorkflowPublish(e *Engine, ctx context.Context, r bridge.Request) bri
 	if v.PublishedAt != nil {
 		publishedAt = v.PublishedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		WorkflowVersionID string `json:"workflowVersionId"`
 		Status            string `json:"status"`
 		PublishedAt       string `json:"publishedAt"`
@@ -80,22 +80,22 @@ func handleWorkflowStartStage(e *Engine, ctx context.Context, r bridge.Request) 
 		StageKey  string `json:"stageKey"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || !m7FixedStageKey(p.StageKey) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workflow.startStage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workflow.startStage 参数无效", false)
 	}
 	if e.m7workflow == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
 	}
 	res, err := e.m7workflow.StartStage(ctx, p.ProjectID, p.StageKey)
 	if err != nil {
 		return m7WorkflowFailure(r, err, "workflow.startStage")
 	}
-	return bridge.Success(r.ID, struct {
-		InstanceID       string `json:"instanceId"`
-		StageRunID       string `json:"stageRunId"`
-		State            string `json:"state"`
-		AttemptNo        int64  `json:"attemptNo"`
-		Created          bool   `json:"created"`
-		DependenciesMet  bool   `json:"dependenciesMet"`
+	return r.Ok(struct {
+		InstanceID      string `json:"instanceId"`
+		StageRunID      string `json:"stageRunId"`
+		State           string `json:"state"`
+		AttemptNo       int64  `json:"attemptNo"`
+		Created         bool   `json:"created"`
+		DependenciesMet bool   `json:"dependenciesMet"`
 	}{res.Instance.ID, res.Run.ID, res.Run.State, res.Run.AttemptNo, res.NewRun, !res.Dependent})
 }
 
@@ -107,10 +107,10 @@ func handleWorkflowTransitionStage(e *Engine, ctx context.Context, r bridge.Requ
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.StageRunID) ||
 		!m7TargetRunState(p.To) || p.ExpectedVersion < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workflow.transitionStage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workflow.transitionStage 参数无效", false)
 	}
 	if e.m7workflow == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -121,7 +121,7 @@ func handleWorkflowTransitionStage(e *Engine, ctx context.Context, r bridge.Requ
 	if err != nil {
 		return m7WorkflowFailure(r, err, "workflow.transitionStage")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		StageRunID  string `json:"stageRunId"`
 		State       string `json:"state"`
 		LockVersion int64  `json:"lockVersion"`
@@ -136,10 +136,10 @@ func handleWorkflowCaptureInput(e *Engine, ctx context.Context, r bridge.Request
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.StageRunID) ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.Inputs) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workflow.captureInput 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workflow.captureInput 参数无效", false)
 	}
 	if e.m7workflow == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作流服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -148,10 +148,10 @@ func handleWorkflowCaptureInput(e *Engine, ctx context.Context, r bridge.Request
 	if err != nil {
 		return m7WorkflowFailure(r, err, "workflow.captureInput")
 	}
-	return bridge.Success(r.ID, struct {
-		SnapshotID    string `json:"snapshotId"`
+	return r.Ok(struct {
+		SnapshotID     string `json:"snapshotId"`
 		SnapshotDigest string `json:"snapshotDigest"`
-		CapturedAt    string `json:"capturedAt"`
+		CapturedAt     string `json:"capturedAt"`
 	}{snap.ID, snap.Digest, snap.CapturedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")})
 }
 
@@ -182,30 +182,30 @@ func m7TargetRunState(to string) bool {
 func m7WorkflowFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
 	case errors.Is(err, m7app.ErrProjectNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "项目不存在", false)
+		return r.Fail("NOT_FOUND", "项目不存在", false)
 	case errors.Is(err, m7app.ErrVersionNotFound), errors.Is(err, m7app.ErrInstanceNotFound),
 		errors.Is(err, m7app.ErrStageRunNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "工作流对象不存在", false)
+		return r.Fail("NOT_FOUND", "工作流对象不存在", false)
 	case errors.Is(err, m7app.ErrAlreadyPublished):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-001", "已发布版本不可变，请克隆新版本", false)
+		return r.Fail("M7-WF-001", "已发布版本不可变，请克隆新版本", false)
 	case errors.Is(err, m7flow.ErrStageFixedSet):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-002", "阶段集合未匹配全局九阶段固定模型", false)
+		return r.Fail("M7-WF-002", "阶段集合未匹配全局九阶段固定模型", false)
 	case errors.Is(err, m7flow.ErrStageCycle):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-003", "阶段依赖存在循环", false)
+		return r.Fail("M7-WF-003", "阶段依赖存在循环", false)
 	case errors.Is(err, m7app.ErrNotPublished):
-		return bridge.Failure(r.ID, r.TraceID, "WORKFLOW_VERSION_UNPUBLISHED", "工作流版本未发布，请先发布版本", false)
+		return r.Fail("WORKFLOW_VERSION_UNPUBLISHED", "工作流版本未发布，请先发布版本", false)
 	case errors.Is(err, m7app.ErrVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-004", "乐观锁冲突，请刷新后重试", false)
+		return r.Fail("M7-WF-004", "乐观锁冲突，请刷新后重试", false)
 	case errors.Is(err, m7app.ErrDuplicateVersion):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-005", "工作流版本已存在", false)
+		return r.Fail("M7-WF-005", "工作流版本已存在", false)
 	case errors.Is(err, m7app.ErrIllegalTransition):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-006", "非法阶段状态转换", false)
+		return r.Fail("M7-WF-006", "非法阶段状态转换", false)
 	case errors.Is(err, m7app.ErrDependencyIncomplete):
-		return bridge.Failure(r.ID, r.TraceID, "M7-WF-007", "上游阶段未完成", false)
+		return r.Fail("M7-WF-007", "上游阶段未完成", false)
 	case errors.Is(err, m7app.ErrSnapshotChanged):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SNP-002", "阶段输入已变化，请重新捕获", false)
+		return r.Fail("M7-SNP-002", "阶段输入已变化，请重新捕获", false)
 	case errors.Is(err, m7app.ErrM6TreeDigest):
-		return bridge.Failure(r.ID, r.TraceID, "M7-SNP-001", "M6 final-tree 输入缺少 rootId/digest", false)
+		return r.Fail("M7-SNP-001", "M6 final-tree 输入缺少 rootId/digest", false)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

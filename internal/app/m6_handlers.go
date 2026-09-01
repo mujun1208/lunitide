@@ -40,10 +40,10 @@ func handleExtensionSearch(e *Engine, ctx context.Context, r bridge.Request) bri
 		} `json:"filters"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.Query) < 1 || len(p.Query) > 256 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "extension.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "extension.search 参数无效", false)
 	}
 	if p.Scope != "personal" && p.Scope != "project" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "extension.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "extension.search 参数无效", false)
 	}
 	maxRisk := "medium"
 	publisher := ""
@@ -54,10 +54,10 @@ func handleExtensionSearch(e *Engine, ctx context.Context, r bridge.Request) bri
 		publisher = p.Filters.Publisher
 	}
 	if maxRisk != "low" && maxRisk != "medium" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "extension.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "extension.search 参数无效", false)
 	}
 	if e.m6ext == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "扩展目录暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "扩展目录暂时不可用", true)
 	}
 	items, err := e.m6ext.Search(ctx, strings.ToLower(p.Query), strings.ToLower(publisher), maxRisk)
 	if err != nil {
@@ -66,7 +66,7 @@ func handleExtensionSearch(e *Engine, ctx context.Context, r bridge.Request) bri
 	if items == nil {
 		items = []m6app.SearchItem{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []m6app.SearchItem `json:"items"`
 	}{items})
 }
@@ -83,10 +83,10 @@ func handleExtensionInstall(e *Engine, ctx context.Context, r bridge.Request) br
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ArtifactID) || p.Version == "" ||
 		len(p.PermissionGrant.Granted) < 1 || len(p.PermissionGrant.Granted) > 64 ||
 		!validLowerHexDigest(p.PermissionGrant.ConfirmedDeltaDigest) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "extension.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "extension.install 参数无效", false)
 	}
 	if e.m6ext == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -97,7 +97,7 @@ func handleExtensionInstall(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return m6ExtensionFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		InstallID    string `json:"installId"`
 		State        string `json:"state"`
 		AuditEventID string `json:"auditEventId"`
@@ -112,10 +112,10 @@ func handleExtensionLifecycle(e *Engine, ctx context.Context, r bridge.Request) 
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InstallID) || !m6supply.ValidLifecycleOp(p.Op) ||
 		((p.Op == "upgrade" || p.Op == "rollback") && (p.TargetVersion == "" || len(p.TargetVersion) > 64)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "extension.lifecycle 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "extension.lifecycle 参数无效", false)
 	}
 	if e.m6ext == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -124,7 +124,7 @@ func handleExtensionLifecycle(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return m6ExtensionFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		InstallID    string `json:"installId"`
 		State        string `json:"state"`
 		AuditEventID string `json:"auditEventId"`
@@ -147,23 +147,23 @@ func handleMcp6Register(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Endpoint.Transport == "" ||
 		len(p.CapabilityPin.ToolSchemaDigests) < 1 || len(p.CapabilityPin.ToolSchemaDigests) > 256 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.register 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp6.register 参数无效", false)
 	}
 	// per-transport shape: https needs url+authRef, stdio needs command+args.
 	switch p.Endpoint.Transport {
 	case "https":
 		if p.Endpoint.URL == "" || p.Endpoint.AuthRef == "" {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "https 端点需要 url 与 authRef", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "https 端点需要 url 与 authRef", false)
 		}
 	case "stdio":
 		if p.Endpoint.Command == "" || len(p.Endpoint.Args) == 0 || len(p.Endpoint.Args) > 16 {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "stdio 端点需要 command 与 1-16 个 args", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "stdio 端点需要 command 与 1-16 个 args", false)
 		}
 	default:
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeStdioDisabled, "传输仅支持 https 或 stdio", false)
+		return r.Fail(mcp6.CodeStdioDisabled, "传输仅支持 https 或 stdio", false)
 	}
 	if e.mcp6Registry == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "MCP 网关尚未启用", false)
+		return r.Fail("FEATURE_DISABLED", "MCP 网关尚未启用", false)
 	}
 	endpoint, err := e.mcp6Registry.Register(ctx, mcp6.EndpointInput{
 		Transport: p.Endpoint.Transport,
@@ -185,10 +185,10 @@ func handleMcp6Register(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if e.mcp6Endpoints != nil {
 		if err := e.mcp6Endpoints.PersistRegister(ctx, endpoint); err != nil {
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "端点持久化失败", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "端点持久化失败", true)
 		}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID string `json:"endpointId"`
 		State      string `json:"state"`
 	}{endpoint.ID, endpoint.State})
@@ -205,10 +205,10 @@ func handleMcp6Invoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.EndpointID) || len(p.Tool) < 1 || len(p.Tool) > 128 ||
 		p.Args == nil || len(p.Args) > 64 || p.IdempotencyKey == "" || len(p.IdempotencyKey) > 256 ||
 		p.DeadlineMS < 100 || p.DeadlineMS > 30000 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.invoke 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp6.invoke 参数无效", false)
 	}
 	if e.mcp6Registry == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "MCP 网关尚未启用", false)
+		return r.Fail("FEATURE_DISABLED", "MCP 网关尚未启用", false)
 	}
 	invokeCtx, cancel := context.WithTimeout(ctx, time.Duration(p.DeadlineMS)*time.Millisecond)
 	defer cancel()
@@ -225,7 +225,7 @@ func handleMcp6Invoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		}
 		return m6McpFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Result     map[string]any `json:"result"`
 		Bytes      int            `json:"bytes"`
 		DurationMS int64          `json:"durationMs"`
@@ -240,10 +240,10 @@ func handleMcp6Revoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.EndpointID) ||
 		(p.Reason != "credential" && p.Reason != "drift" && p.Reason != "policy" && p.Reason != "manual") {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.revoke 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp6.revoke 参数无效", false)
 	}
 	if e.mcp6Registry == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "MCP 网关尚未启用", false)
+		return r.Fail("FEATURE_DISABLED", "MCP 网关尚未启用", false)
 	}
 	endpoint, err := e.mcp6Registry.Revoke(p.EndpointID, p.Reason)
 	if err != nil {
@@ -251,10 +251,10 @@ func handleMcp6Revoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	if e.mcp6Endpoints != nil {
 		if err := e.mcp6Endpoints.PersistState(ctx, p.EndpointID, mcp6.StateRevoked); err != nil {
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "端点状态持久化失败", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "端点状态持久化失败", true)
 		}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID   string `json:"endpointId"`
 		State        string `json:"state"`
 		PoolsCleared bool   `json:"poolsCleared"`
@@ -269,7 +269,7 @@ func handleMcp6Revoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 func handleMcp6PresetsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp6.presets.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp6.presets.list 参数无效", false)
 	}
 	items := mcp6.Presets()
 	for i := range items {
@@ -278,7 +278,7 @@ func handleMcp6PresetsList(e *Engine, ctx context.Context, r bridge.Request) bri
 		}
 		items[i].ArgDefault = mcp6.PrepareSandbox(items[i].ID)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []mcp6.Preset `json:"items"`
 	}{items})
 }
@@ -287,23 +287,23 @@ func handleMcp6PresetsList(e *Engine, ctx context.Context, r bridge.Request) bri
 func m6ExtensionFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m6app.ErrArtifactNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "EXTENSION_ARTIFACT_NOT_FOUND", "扩展制品不存在", false)
+		return r.Fail("EXTENSION_ARTIFACT_NOT_FOUND", "扩展制品不存在", false)
 	case errors.Is(err, m6app.ErrVersionMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "EXTENSION_VERSION_MISMATCH", "制品版本不一致", false)
+		return r.Fail("EXTENSION_VERSION_MISMATCH", "制品版本不一致", false)
 	case errors.Is(err, m6app.ErrArtifactUnverified):
-		return bridge.Failure(r.ID, r.TraceID, "M6-EXT-002", "制品签名状态不可安装", false)
+		return r.Fail("M6-EXT-002", "制品签名状态不可安装", false)
 	case errors.Is(err, m6app.ErrInstallNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "EXTENSION_INSTALL_NOT_FOUND", "安装记录不存在", false)
+		return r.Fail("EXTENSION_INSTALL_NOT_FOUND", "安装记录不存在", false)
 	case errors.Is(err, m6app.ErrBadLifecycleOp), errors.Is(err, m6app.ErrTargetRequired):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "生命周期操作对当前状态无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "生命周期操作对当前状态无效", false)
 	case errors.Is(err, m6app.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, m6supply.ErrVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "EXTENSION_VERSION_CONFLICT", "安装记录版本已变化，请重试", false)
+		return r.Fail("EXTENSION_VERSION_CONFLICT", "安装记录版本已变化，请重试", false)
 	case errors.Is(err, m6app.ErrSubjectRequired), errors.Is(err, m6app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "扩展服务暂时不可用", true)
 	}
 }
 
@@ -311,23 +311,23 @@ func m6ExtensionFailure(r bridge.Request, err error) bridge.Response {
 func m6McpFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, mcp6.ErrStdioDisabled):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeStdioDisabled, "stdio 端点被拒绝：命令不在白名单或参数含非法字符", false)
+		return r.Fail(mcp6.CodeStdioDisabled, "stdio 端点被拒绝：命令不在白名单或参数含非法字符", false)
 	case errors.Is(err, mcp6.ErrEndpointNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "MCP6_ENDPOINT_NOT_FOUND", "端点不存在", false)
+		return r.Fail("MCP6_ENDPOINT_NOT_FOUND", "端点不存在", false)
 	case errors.Is(err, mcp6.ErrEndpointRevoked):
-		return bridge.Failure(r.ID, r.TraceID, "MCP6_ENDPOINT_REVOKED", "端点已撤销", false)
+		return r.Fail("MCP6_ENDPOINT_REVOKED", "端点已撤销", false)
 	case errors.Is(err, mcp6.ErrCredentialRevoked):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeCredentialRevoked, "上游拒绝凭据，端点已撤销并清空连接池", false)
+		return r.Fail(mcp6.CodeCredentialRevoked, "上游拒绝凭据，端点已撤销并清空连接池", false)
 	case errors.Is(err, mcp6.ErrCapabilityDrift):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeCapabilityDrift, "能力固定摘要漂移，授权已失效", false)
+		return r.Fail(mcp6.CodeCapabilityDrift, "能力固定摘要漂移，授权已失效", false)
 	case errors.Is(err, mcp6.ErrCircuitOpen):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeCircuitOpen, "熔断窗口开启，请稍后重试", true)
+		return r.Fail(mcp6.CodeCircuitOpen, "熔断窗口开启，请稍后重试", true)
 	case errors.Is(err, mcp6.ErrNotReady), errors.Is(err, mcp6.ErrHealthCheckFailed):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeHealthCheckFailed, "端点未就绪或健康检查失败", false)
+		return r.Fail(mcp6.CodeHealthCheckFailed, "端点未就绪或健康检查失败", false)
 	case errors.Is(err, mcp6.ErrTransport):
-		return bridge.Failure(r.ID, r.TraceID, mcp6.CodeCircuitOpen, "上游传输失败，已计入熔断", true)
+		return r.Fail(mcp6.CodeCircuitOpen, "上游传输失败，已计入熔断", true)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 网关暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 网关暂时不可用", true)
 	}
 }
 
@@ -350,39 +350,39 @@ func handleConnectorSnapshot(e *Engine, ctx context.Context, r bridge.Request) b
 		MetadataScope string `json:"metadataScope"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.ConnectorID) < 1 || len(p.ConnectorID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "connector.snapshot 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "connector.snapshot 参数无效", false)
 	}
 	if !connector.ConnectorIDPattern.MatchString(p.ConnectorID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "connector.snapshot 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "connector.snapshot 参数无效", false)
 	}
 	if !connector.MetadataScopes[p.MetadataScope] {
-		return bridge.Failure(r.ID, r.TraceID, "M6-DB-002", "元数据范围越界，请缩小范围", false)
+		return r.Fail("M6-DB-002", "元数据范围越界，请缩小范围", false)
 	}
 	if e.m6catalog == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "连接器目录暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "连接器目录暂时不可用", true)
 	}
 	snapshot, err := e.m6catalog.Snapshot(ctx, p.ConnectorID, p.MetadataScope)
 	if err != nil {
 		switch {
 		case errors.Is(err, m6app.ErrScopeDenied):
-			return bridge.Failure(r.ID, r.TraceID, "M6-DB-002", "元数据范围越界，请缩小范围", false)
+			return r.Fail("M6-DB-002", "元数据范围越界，请缩小范围", false)
 		case errors.Is(err, m6app.ErrConnectorIDBad):
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "connector.snapshot 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "connector.snapshot 参数无效", false)
 		default:
 			// Upstream fetch failed: the credential may be gone (M6-CRD-001)
 			// or the integration unhealthy (M6-HLT-001); without probing we
 			// report the integration as unavailable and retryable.
-			return bridge.Failure(r.ID, r.TraceID, "M6-HLT-001", "该集成已暂停或不可用", true)
+			return r.Fail("M6-HLT-001", "该集成已暂停或不可用", true)
 		}
 	}
 	var objects map[string]any
 	if err := json.Unmarshal([]byte(snapshot.ObjectsJSON), &objects); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "快照产物损坏", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "快照产物损坏", true)
 	}
 	if objects == nil {
 		objects = map[string]any{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		SnapshotVersion int64          `json:"snapshotVersion"`
 		Objects         map[string]any `json:"objects"`
 		FetchedAt       string         `json:"fetchedAt"`
@@ -401,26 +401,26 @@ func handleWorkerDispatch(e *Engine, ctx context.Context, r bridge.Request) brid
 	if decodePayload(r.Payload, &p) != nil || len(p.JobSpecDigest) != 64 || !validLowerHexDigest(p.JobSpecDigest) ||
 		p.CapabilityToken == "" || len(p.CapabilityToken) > 4096 ||
 		p.BudgetLeaseID == "" || len(p.BudgetLeaseID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "worker.dispatch 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "worker.dispatch 参数无效", false)
 	}
 	if e.m6dispatch == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "Worker 运行时尚未启用", false)
+		return r.Fail("FEATURE_DISABLED", "Worker 运行时尚未启用", false)
 	}
 	result, err := e.m6dispatch.Dispatch(ctx, p.JobSpecDigest, p.CapabilityToken, p.BudgetLeaseID)
 	if err != nil {
 		switch {
 		case errors.Is(err, m6app.ErrWorkerNotVerified):
-			return bridge.Failure(r.ID, r.TraceID, "M6-DLG-001", "委派信封校验失败，已拒绝", false)
+			return r.Fail("M6-DLG-001", "委派信封校验失败，已拒绝", false)
 		case errors.Is(err, m6app.ErrTaskExists):
-			return bridge.Failure(r.ID, r.TraceID, "M6-TSK-001", "任务重复提交，已返回原结果", false)
+			return r.Fail("M6-TSK-001", "任务重复提交，已返回原结果", false)
 		default:
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Worker 调度暂时不可用", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "Worker 调度暂时不可用", true)
 		}
 	}
 	if result.WorktreeRef == "" {
 		result.WorktreeRef = "pending"
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		WorkerID    string `json:"workerId"`
 		TaskID      string `json:"taskId"`
 		WorktreeRef string `json:"worktreeRef"`
@@ -470,20 +470,20 @@ func handleDelegationCreate(e *Engine, ctx context.Context, r bridge.Request) br
 		len(p.CapabilitySet) == 0 || len(p.CapabilitySet) > 64 ||
 		p.DeadlineMS < 1000 || p.DeadlineMS > 86400000 ||
 		p.Depth < 0 || p.Depth > 16 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "delegation.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "delegation.create 参数无效", false)
 	}
 	for _, d := range p.InputDigests {
 		if len(d) != 64 || !validLowerHexDigest(d) {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "delegation.create 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "delegation.create 参数无效", false)
 		}
 	}
 	for _, c := range p.CapabilitySet {
 		if c == "" || len(c) > 128 {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "delegation.create 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "delegation.create 参数无效", false)
 		}
 	}
 	if e.m6delegation == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "委派服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "委派服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -504,7 +504,7 @@ func handleDelegationCreate(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return m6DelegationFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		DelegationID      string `json:"delegationId"`
 		EnvelopeSignature string `json:"envelopeSignature"`
 	}{result.DelegationID, result.EnvelopeSignature})
@@ -528,15 +528,15 @@ func handleDelegationSettle(e *Engine, ctx context.Context, r bridge.Request) br
 		len(p.ResultBundle.PatchDigest) != 64 || !validLowerHexDigest(p.ResultBundle.PatchDigest) ||
 		len(p.ResultBundle.ResultDigest) != 64 || !validLowerHexDigest(p.ResultBundle.ResultDigest) ||
 		len(p.ResultBundle.Claims) == 0 || len(p.ResultBundle.TestEvidenceRefs) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "delegation.settle 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "delegation.settle 参数无效", false)
 	}
 	for _, ref := range p.ResultBundle.TestEvidenceRefs {
 		if ref == "" || len(ref) > 512 {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "delegation.settle 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "delegation.settle 参数无效", false)
 		}
 	}
 	if e.m6delegation == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "委派服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "委派服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -554,7 +554,7 @@ func handleDelegationSettle(e *Engine, ctx context.Context, r bridge.Request) br
 	if result.BudgetConsumed == nil {
 		result.BudgetConsumed = map[string]int64{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		SettledAt      string           `json:"settledAt"`
 		BudgetConsumed map[string]int64 `json:"budgetConsumed"`
 		BarrierState   string           `json:"barrierState"`
@@ -573,10 +573,10 @@ func handleBarrierArrive(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.BarrierID) ||
 		p.ChildID == "" || len(p.ChildID) > 256 || p.Attempt < 0 || p.Attempt > 10 ||
 		len(p.ResultDigest) != 64 || !validLowerHexDigest(p.ResultDigest) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "barrier.arrive 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "barrier.arrive 参数无效", false)
 	}
 	if e.m6barriers == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "汇合服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "汇合服务暂时不可用", true)
 	}
 	// The wire schema carries no outcome field; a direct barrier.arrive is
 	// a success-shaped settlement — failure-shaped arrivals flow through
@@ -585,12 +585,12 @@ func handleBarrierArrive(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		switch {
 		case errors.Is(err, m6app.ErrBarrierNotFound):
-			return bridge.Failure(r.ID, r.TraceID, "M6_BARRIER_NOT_FOUND", "汇合点不存在", false)
+			return r.Fail("M6_BARRIER_NOT_FOUND", "汇合点不存在", false)
 		default:
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "汇合服务暂时不可用", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "汇合服务暂时不可用", true)
 		}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		BarrierState   string `json:"barrierState"`
 		AlreadySettled bool   `json:"alreadySettled"`
 	}{result.State, result.AlreadySettled})
@@ -600,25 +600,25 @@ func handleBarrierArrive(e *Engine, ctx context.Context, r bridge.Request) bridg
 func m6DelegationFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m6app.ErrLimitsExceeded):
-		return bridge.Failure(r.ID, r.TraceID, "M6-DLG-002", "委派深度或数量超出硬上限，已拒绝", false)
+		return r.Fail("M6-DLG-002", "委派深度或数量超出硬上限，已拒绝", false)
 	case errors.Is(err, m6app.ErrEnvelopeRejected):
-		return bridge.Failure(r.ID, r.TraceID, "M6-DLG-001", "委派信封校验失败，已拒绝", false)
+		return r.Fail("M6-DLG-001", "委派信封校验失败，已拒绝", false)
 	case errors.Is(err, m6app.ErrBudgetInsufficient), errors.Is(err, m6app.ErrBudgetOverconsume):
-		return bridge.Failure(r.ID, r.TraceID, "M6-BGT-001", "预算不足，已拒绝划拨", false)
+		return r.Fail("M6-BGT-001", "预算不足，已拒绝划拨", false)
 	case errors.Is(err, m6app.ErrBudgetDrift):
-		return bridge.Failure(r.ID, r.TraceID, "M6-BGT-002", "预算账本异常，已冻结并告警", false)
+		return r.Fail("M6-BGT-002", "预算账本异常，已冻结并告警", false)
 	case errors.Is(err, m6app.ErrDelegationNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M6_DELEGATION_NOT_FOUND", "委派记录不存在", false)
+		return r.Fail("M6_DELEGATION_NOT_FOUND", "委派记录不存在", false)
 	case errors.Is(err, m6app.ErrDelegationSettled):
-		return bridge.Failure(r.ID, r.TraceID, "M6-JOIN-001", "汇合已封闭或重复到达，已按既有结果处理", false)
+		return r.Fail("M6-JOIN-001", "汇合已封闭或重复到达，已按既有结果处理", false)
 	case errors.Is(err, m6app.ErrDelegationLate):
-		return bridge.Failure(r.ID, r.TraceID, "M6-JOIN-001", "汇合已封闭或重复到达，已按既有结果处理", false)
+		return r.Fail("M6-JOIN-001", "汇合已封闭或重复到达，已按既有结果处理", false)
 	case errors.Is(err, m6app.ErrBundleInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "delegation 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "delegation 参数无效", false)
 	case errors.Is(err, m6app.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "委派服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "委派服务暂时不可用", true)
 	}
 }
 
@@ -650,10 +650,10 @@ func handleMergeSubmit(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		p.Intent.ExpectedHead == "" || len(p.Intent.ExpectedHead) > 256 ||
 		!validLowerHexDigest(p.Intent.PatchDigest) ||
 		p.Intent.TestsRef == "" || len(p.Intent.TestsRef) > 512 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "merge.submit 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "merge.submit 参数无效", false)
 	}
 	if e.m6merge == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "合并服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "合并服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -666,27 +666,27 @@ func handleMergeSubmit(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return m6MergeFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 
 // m6MergeFailure maps merge service errors onto the wire.
 func m6MergeFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m6app.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, m6app.ErrMergeSequenceConflict):
-		return bridge.Failure(r.ID, r.TraceID, "M6_MERGE_SEQUENCE_CONFLICT", "合并序号已被占用（全序槽位冲突）", false)
+		return r.Fail("M6_MERGE_SEQUENCE_CONFLICT", "合并序号已被占用（全序槽位冲突）", false)
 	case errors.Is(err, merge.ErrWriterFenced):
-		return bridge.Failure(r.ID, r.TraceID, "M6-MRG-002", "写入者已被围栏（旧纪元拒绝写入）", false)
+		return r.Fail("M6-MRG-002", "写入者已被围栏（旧纪元拒绝写入）", false)
 	case errors.Is(err, m6app.ErrPatchUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "M6_PATCH_UNAVAILABLE", "补丁不可用（摘要不匹配或工作树缺失）", false)
+		return r.Fail("M6_PATCH_UNAVAILABLE", "补丁不可用（摘要不匹配或工作树缺失）", false)
 	case errors.Is(err, m6app.ErrApplyFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M6_MERGE_APPLY_FAILED", "补丁未能应用到最终树", false)
+		return r.Fail("M6_MERGE_APPLY_FAILED", "补丁未能应用到最终树", false)
 	case errors.Is(err, m6app.ErrMergeNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M6_MERGE_NOT_FOUND", "合并意图不存在", false)
+		return r.Fail("M6_MERGE_NOT_FOUND", "合并意图不存在", false)
 	case errors.Is(err, m6app.ErrMergeServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "合并服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "合并服务暂时不可用", true)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "合并服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "合并服务暂时不可用", true)
 	}
 }

@@ -39,10 +39,10 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		(p.Origin != m7flow.McpOriginMarket && p.Origin != m7flow.McpOriginManual) ||
 		len(p.Command) > 512 || len(p.URL) > 2048 || (p.MarketItemID != "" && !validCanonicalULID(p.MarketItemID)) ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.Actor) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp.add 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp.add 参数无效", false)
 	}
 	if e.m7mcp == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -74,7 +74,7 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	if id := presetIDFromCommandArgs(p.Command, p.Args); id != "" {
 		e.rememberMcpPreset(res.EndpointID, id)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID       string `json:"endpointId"`
 		State            string `json:"state"`
 		CapabilityDigest string `json:"capabilityDigest,omitempty"`
@@ -87,10 +87,10 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	}
 	if decodePayload(r.Payload, &p) != nil ||
 		(p.Transport != "" && p.Transport != m7flow.McpTransportStdio && p.Transport != m7flow.McpTransportHTTPS) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp.list 参数无效", false)
 	}
 	if e.m7mcp == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
 	eps, err := e.m7mcp.List(ctx, p.Transport)
 	if err != nil {
@@ -112,7 +112,7 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 			URL:          ep.URL,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Endpoints []m7McpEndpointDTO `json:"endpoints"`
 	}{items})
 }
@@ -189,10 +189,10 @@ func handleMcpToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.EndpointID) < 1 || len(p.EndpointID) > 128 ||
 		p.Enabled == nil || len(p.Actor) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp.toggle 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp.toggle 参数无效", false)
 	}
 	if e.m7mcp == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
 	ep, err := e.m7mcp.Toggle(ctx, p.EndpointID, *p.Enabled, p.Actor)
 	if err != nil {
@@ -203,7 +203,7 @@ func handleMcpToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	} else {
 		e.dropSettingsMcp(ep.EndpointID)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID string `json:"endpointId"`
 		Enabled    bool   `json:"enabled"`
 		State      string `json:"state"`
@@ -215,16 +215,16 @@ func handleMcpHealth(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		EndpointID string `json:"endpointId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.EndpointID) < 1 || len(p.EndpointID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp.health 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp.health 参数无效", false)
 	}
 	if e.m7mcp == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
 	res, err := e.m7mcp.Health(ctx, p.EndpointID)
 	if err != nil {
 		return m7McpFailure(r, err, "mcp.health")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		State            string `json:"state"`
 		LatencyMS        int64  `json:"latencyMs"`
 		DriftDetected    bool   `json:"driftDetected"`
@@ -241,10 +241,10 @@ func handleMcpMarketSearch(e *Engine, ctx context.Context, r bridge.Request) bri
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.Query) < 1 || len(p.Query) > 128 ||
 		len(p.Cursor) > 128 || p.Limit < 0 || p.Limit > 100 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mcp.market.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mcp.market.search 参数无效", false)
 	}
 	if e.m7mcp == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
 	items, fresh, err := e.m7mcp.MarketSearch(ctx, p.Query, p.Cursor, p.Limit)
 	if err != nil {
@@ -261,7 +261,7 @@ func handleMcpMarketSearch(e *Engine, ctx context.Context, r bridge.Request) bri
 			Digest:        it.CatalogDigest,
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items  []m7McpMarketItemDTO `json:"items"`
 		Fresh  bool                 `json:"fresh"`
 		Cursor string               `json:"cursor,omitempty"`
@@ -282,23 +282,23 @@ type m7McpMarketItemDTO struct {
 func m7McpFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
 	case errors.Is(err, m7app.ErrMcpSchema):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MCP-001", "mcpServers 配置未过 schema 校验", false)
+		return r.Fail("M7-MCP-001", "mcpServers 配置未过 schema 校验", false)
 	case errors.Is(err, m7app.ErrMcpSource):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MCP-002", "来源未确认或签名校验失败", false)
+		return r.Fail("M7-MCP-002", "来源未确认或签名校验失败", false)
 	case errors.Is(err, m7app.ErrMcpDrift):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MCP-003", "能力摘要漂移，端点已隔离", false)
+		return r.Fail("M7-MCP-003", "能力摘要漂移，端点已隔离", false)
 	case errors.Is(err, m7app.ErrMcpProbe):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MCP-004", "传输或会话建立失败", true)
+		return r.Fail("M7-MCP-004", "传输或会话建立失败", true)
 	case errors.Is(err, m7app.ErrMcpRegistry):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MCP-005", "市场目录不可达，已降级只读缓存", true)
+		return r.Fail("M7-MCP-005", "市场目录不可达，已降级只读缓存", true)
 	case errors.Is(err, m7app.ErrMcpNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M7-MCP-006", "endpointId 不存在或已撤销", false)
+		return r.Fail("M7-MCP-006", "endpointId 不存在或已撤销", false)
 	case errors.Is(err, m7app.ErrMcpQuota):
-		return bridge.Failure(r.ID, r.TraceID, "RATE_LIMITED", "MCP 端点数量或并发超限", true)
+		return r.Fail("RATE_LIMITED", "MCP 端点数量或并发超限", true)
 	case errors.Is(err, m7app.ErrMcpTimeout):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-006", "MCP 操作超时", true)
+		return r.Fail("M7-TOOL-006", "MCP 操作超时", true)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

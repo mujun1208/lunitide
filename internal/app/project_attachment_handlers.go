@@ -60,24 +60,24 @@ func handleProjectAttachmentGet(e *Engine, ctx context.Context, r bridge.Request
 	if decodePayload(r.Payload, &p) != nil ||
 		!validCanonicalULID(p.ProjectID) ||
 		!validCanonicalULID(p.AttachmentID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.get 参数无效", false)
 	}
 	if !projectAttachmentStoreAvailable(e.projectAttachments) || e.projectAttachmentFiles == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
 	}
 	att, err := e.projectAttachments.GetProjectAttachment(ctx, p.AttachmentID)
 	if err != nil {
 		return projectAttachmentFailure(r, err)
 	}
 	if att.ProjectID != p.ProjectID {
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_ATTACHMENT_NOT_FOUND", "项目附件不存在", false)
+		return r.Fail("PROJECT_ATTACHMENT_NOT_FOUND", "项目附件不存在", false)
 	}
 	content, err := e.projectAttachmentFiles.ReadFile(ctx, att.FilePath)
 	if err != nil {
 		return projectAttachmentFailure(r, err)
 	}
 	dto := newProjectAttachmentDTO(att, int64(len(content)))
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"attachmentId":  dto.AttachmentID,
 		"projectId":     dto.ProjectID,
 		"phase":         dto.Phase,
@@ -99,13 +99,13 @@ func handleProjectAttachmentList(e *Engine, ctx context.Context, r bridge.Reques
 		Phase     int    `json:"phase"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.list 参数无效", false)
 	}
 	if p.Phase != 0 && !projectattachment.ValidPhase(p.Phase) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.list 参数无效", false)
 	}
 	if !projectAttachmentStoreAvailable(e.projectAttachments) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
 	}
 	items, err := e.projectAttachments.ListProjectAttachments(ctx, projectattachment.Filter{
 		ProjectID: p.ProjectID, Phase: p.Phase,
@@ -117,7 +117,7 @@ func handleProjectAttachmentList(e *Engine, ctx context.Context, r bridge.Reques
 	for i := range items {
 		dtos = append(dtos, newProjectAttachmentDTO(items[i], 0))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": dtos})
+	return r.Ok(map[string]any{"items": dtos})
 }
 
 func handleProjectAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -135,10 +135,10 @@ func handleProjectAttachmentIngest(e *Engine, ctx context.Context, r bridge.Requ
 		strings.TrimSpace(p.FileName) == "" ||
 		strings.TrimSpace(p.MimeType) == "" ||
 		p.ContentBase64 == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest 参数无效", false)
 	}
 	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
+		return r.Fail("PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
 	}
 	decodedLen := base64.StdEncoding.DecodedLen(len(p.ContentBase64))
 	if strings.HasSuffix(p.ContentBase64, "==") {
@@ -147,18 +147,18 @@ func handleProjectAttachmentIngest(e *Engine, ctx context.Context, r bridge.Requ
 		decodedLen--
 	}
 	if decodedLen > attachmentapp.MaxFileSize {
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
+		return r.Fail("PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
 	}
 	content, err := base64.StdEncoding.DecodeString(p.ContentBase64)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest contentBase64 解码失败", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest contentBase64 解码失败", false)
 	}
 	fileName, err := projectattachment.NormalizeFileName(p.FileName)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest 参数无效", false)
 	}
 	if !projectAttachmentStoreAvailable(e.projectAttachments) || e.projectAttachmentFiles == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目附件数据暂时不可用", true)
 	}
 	if failure := rejectIfProjectReadOnly(e, ctx, r, p.ProjectID); failure != nil {
 		return *failure
@@ -180,7 +180,7 @@ func handleProjectAttachmentIngest(e *Engine, ctx context.Context, r bridge.Requ
 		return projectAttachmentFailure(r, err)
 	}
 	dto := newProjectAttachmentDTO(saved, int64(len(content)))
-	return bridge.Success(r.ID, dto)
+	return r.Ok(dto)
 }
 
 func (e *Engine) ingestProjectAttachment(ctx context.Context, att projectattachment.Attachment, content []byte) (projectattachment.Attachment, error) {
@@ -201,14 +201,14 @@ func (e *Engine) ingestProjectAttachment(ctx context.Context, att projectattachm
 func projectAttachmentFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, projectattachment.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_ATTACHMENT_NOT_FOUND", "项目附件不存在", false)
+		return r.Fail("PROJECT_ATTACHMENT_NOT_FOUND", "项目附件不存在", false)
 	case errors.Is(err, projectattachment.ErrFileTooLarge):
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
+		return r.Fail("PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
 	default:
 		msg := strings.TrimSpace(err.Error())
 		if msg == "" {
 			msg = "项目附件操作暂时不可用"
 		}
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", msg, true)
+		return r.Fail("STORAGE_UNAVAILABLE", msg, true)
 	}
 }
