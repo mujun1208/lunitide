@@ -29,6 +29,11 @@ describe('refEngineCaption', () => {
   test('keeps launching copy and surfaces last_err when offline', () => {
     expect(refEngineCaption({ host_state: 'launching', host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat' })).toMatch(/启动中/)
     expect(refEngineCaption({
+      host_state: 'launching',
+      host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat',
+      host_last_err: '引擎未就绪：/docs 仍无响应',
+    })).toMatch(/引擎未就绪/)
+    expect(refEngineCaption({
       host_state: 'offline',
       host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat',
       host_last_err: 'service stopped answering',

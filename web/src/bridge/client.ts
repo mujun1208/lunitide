@@ -316,8 +316,16 @@ export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),cre
 const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 const dtoTextValid=(v:unknown)=>typeof v==='string'&&v.length>=1&&v.length<=65536
 const messageArtifactPathValid=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
-const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&(v.kind==='html'||v.kind==='xlsx'||v.kind==='docx'||v.kind==='pptx'||v.kind==='pdf')
-const isMessage=(v:unknown,sessionId:string)=>isObj(v)&&exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts'])&&isULID(v.id)&&v.sessionId===sessionId&&(v.role==='user'||v.role==='assistant'||v.role==='tool')&&v.status==='completed'&&Number.isSafeInteger(v.sequence)&&Number(v.sequence)>0&&dtoTextValid(v.text)&&isTime(v.createdAt)&&(!('artifacts'in v)||(Array.isArray(v.artifacts)&&v.artifacts.every(isMessageArtifact)))
+const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'
+const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&messageArtifactKindValid(v.kind)
+const isMessage=(v:unknown,sessionId:string)=>{
+ if(!isObj(v)||!exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts'])||!isULID(v.id)||v.sessionId!==sessionId||(v.role!=='user'&&v.role!=='assistant'&&v.role!=='tool')||v.status!=='completed'||!Number.isSafeInteger(v.sequence)||Number(v.sequence)<=0||!dtoTextValid(v.text)||!isTime(v.createdAt))return false
+ if('artifacts'in v){
+  if(!Array.isArray(v.artifacts))return false
+  v.artifacts=v.artifacts.filter(isMessageArtifact)
+ }
+ return true
+}
 const isMessageSearchHit=(v:unknown)=>isObj(v)&&exact(v,['sessionId','messageId','role','sequence','snippet','sessionTitle'])&&isULID(v.sessionId)&&isULID(v.messageId)&&(v.role==='user'||v.role==='assistant'||v.role==='tool')&&Number.isSafeInteger(v.sequence)&&Number(v.sequence)>0&&typeof v.snippet==='string'&&v.snippet.length>=1&&Array.from(v.snippet).length<=180&&typeof v.sessionTitle==='string'&&v.sessionTitle.length>=1&&Array.from(v.sessionTitle).length<=200
 export function createMessageBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):MessageBridge{
  type Waiting={method:'message.append'|'message.list'|'message.rewind'|'message.search';sessionId:string;direction:'forward'|'backward';cursor?:string;resolve(v:unknown):void;reject(e:Error):void;timer:number}

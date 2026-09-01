@@ -36,6 +36,7 @@ import {
   stripTaskDonePhrases,
   companionToolsExecuting,
   companionExecutingSpeech,
+  seedCompanionCaptionRounds,
   companionCannotExecuteSpeech,
   COMPANION_BROWSER_MCP_SPEECH,
   companionTaskCompleteSpeech,
@@ -378,6 +379,7 @@ describe('companion task speech', () => {
     expect(companionToolsExecuting('done', '打开桌面文件中…')).toBe(false)
     expect(companionExecutingSpeech()).toBe('正在执行。')
     expect(companionExecutingSpeech('打开桌面文件中…')).toBe('打开桌面文件。')
+    expect(companionExecutingSpeech('无法执行。桌面被拦住了')).toBe('')
     expect(companionCannotExecuteSpeech('找不到证件号码')).toBe('无法执行。找不到证件号码')
     expect(companionCannotExecuteSpeech('无法执行。权限不足')).toBe('无法执行。权限不足')
     expect(companionCannotExecuteSpeech('BROWSER_MCP_NOT_READY: Playwright MCP 未就绪')).toBe(COMPANION_BROWSER_MCP_SPEECH)
@@ -537,5 +539,20 @@ describe('shouldKeepHandsFreeLoop', () => {
       expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false, errorCode: 'MICROPHONE_DEVICE_BUSY' })).toBe(true)
       expect(shouldKeepHandsFreeLoop({ exited: false, userPausedMic: false, errorCode: 'SPEECH_RECOGNITION_FAILED' })).toBe(true)
     }
+  })
+})
+
+describe('companion caption seed', () => {
+  test('keeps only the last user and assistant lines', () => {
+    expect(seedCompanionCaptionRounds([
+      { role: 'user', text: '上一问' },
+      { role: 'assistant', text: '上一答' },
+      { role: 'user', text: '今晚月色如何' },
+      { role: 'assistant', text: '【思考过程】\n重复招呼\n\n今晚月色很好。' },
+    ])).toEqual([
+      { role: 'user', text: '今晚月色如何' },
+      { role: 'assistant', text: '今晚月色很好。' },
+    ])
+    expect(seedCompanionCaptionRounds([])).toEqual([])
   })
 })

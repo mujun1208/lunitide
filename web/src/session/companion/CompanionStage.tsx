@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, seedCompanionCaptionRounds, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -56,10 +56,12 @@ import { prepareCompanionEntry, pendingCompanionLights } from './prepareCompanio
 import { CompanionEntryLights } from './CompanionEntryLights'
 import { companionTalkLiveLights, type CompanionEntryReport, type EntryLight } from './companionLights'
 import {
+  companionCascadeSpeechBlocked,
   isCompanionIdleChat,
   shouldOfferCompanionTalk,
   startCompanionTalk,
   TALK_FALLBACK_BANNER,
+  TALK_FIRST_AUDIO_MS,
   type CompanionTalkHandle,
 } from './companionTalk'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
@@ -101,6 +103,9 @@ export interface CompanionStageProps {
   onOpenMemory?: () => void
   /** D9: settings switch is off — show on the stage, never enable it. */
   computerControlOff?: boolean
+  /** Last user + assistant from history. Current-turn highlight stays in the bar. */
+  historySeed?: ReadonlyArray<{ role: string; text: string }>
+  onEngaged?: () => void
 }
 
 interface SubtitleRound {
@@ -124,7 +129,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
   return user ? [user, assistant] : [assistant]
 }
 
-export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff }: CompanionStageProps): React.JSX.Element {
+export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, historySeed, onEngaged }: CompanionStageProps): React.JSX.Element {
   const zh = useZh()
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
@@ -144,6 +149,15 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const talkSuppressPlayRef = useRef(false)
   const preparedLightsRef = useRef<CompanionEntryReport['lights']>(pendingCompanionLights())
   const [talkLive, setTalkLive] = useState(false)
+  const talkLiveRef = useRef(false)
+  talkLiveRef.current = talkLive
+  const onEngagedRef = useRef(onEngaged)
+  onEngagedRef.current = onEngaged
+  const cascadeSpeechBlocked = () => companionCascadeSpeechBlocked({
+    talkLive: talkLiveRef.current,
+    talkPending: talkPendingRef.current,
+    talkSuppressPlay: talkSuppressPlayRef.current,
+  })
   const [entryReady, setEntryReady] = useState(false)
   const [voices, setVoices] = useState<TtsVoice[]>([])
   const [degraded, setDegraded] = useState(false)
@@ -202,6 +216,24 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     stateRef.current = machine.state
   }, [machine.state])
   roundsRef.current = rounds
+  useEffect(() => {
+    if (roundsRef.current.length) return
+    const seeded = seedCompanionCaptionRounds(historySeed ?? [])
+    if (seeded.length) setRounds(seeded)
+  }, [historySeed])
+  useEffect(() => {
+    if (settings.voicePath !== 'local') return
+    const launching = entryLights.some(light => light.key === 'speak' && light.label.includes('启动中'))
+    if (!launching) return
+    const timer = window.setTimeout(() => {
+      speakReadyRef.current = false
+      setEngineHint('引擎未就绪，这轮先用晓晓读。')
+      setEntryLights(current => current.map(light => (
+        light.key === 'speak' ? { ...light, label: '晓晓（克隆未就绪）', state: 'warn' as const } : light
+      )) as typeof current)
+    }, 10_000)
+    return () => window.clearTimeout(timer)
+  }, [entryLights, settings.voicePath])
   const cancelCaptionFade = () => {
     if (fadeTimersRef.current) {
       window.clearTimeout(fadeTimersRef.current.fade)
@@ -241,6 +273,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   }
 
   const speakCompanionPad = () => {
+    if (cascadeSpeechBlocked()) return
     const stored = settingsRef.current
     if (!stored.instantAck || !stored.autoSpeak) return
     if (ttsAvailableRef.current === false) return
@@ -586,6 +619,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       markVoiceTiming('firstSynth')
       const cleaned = stripTaskDonePhrases(cleanForSpeech(chunk.text))
       if (!cleaned) return
+      if (cascadeSpeechBlocked()) return
+      if (/无法执行/.test(cleaned) && companionToolsExecuting(chatStatus, activityStatus)) return
       if (looksLikePlaybackEcho(cleaned, lastSpokenRef.current) && compactSpeech(cleaned).length <= compactSpeech(lastSpokenRef.current).length + 4) {
         return
       }
@@ -766,8 +801,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         speakingRef.current = true
         setAssistantAloud(true)
         syncSpeechModesRef.current()
-        if (opening) player.enqueue([opening], playbackExtras(voiceId), callbacks)
-        player.enqueue([opening ? spoken.slice(opening.length) : spoken], playbackExtras(voiceId), callbacks)
+        // Talk PCM already owns this player. Enqueueing cascade here is the
+        // leftover stacked-voice path (same reply, two mouths).
+        if (!cascadeSpeechBlocked()) {
+          if (opening) player.enqueue([opening], playbackExtras(voiceId), callbacks)
+          player.enqueue([opening ? spoken.slice(opening.length) : spoken], playbackExtras(voiceId), callbacks)
+        } else if (stateRef.current === 'thinking') {
+          applyEvent({ type: 'REPLY_COMPLETED', speakable: true })
+        }
         void player.flush({
           onFinished: () => {
             if (!stageAliveRef.current) return
@@ -914,6 +955,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     if (assistantText.trim() && !isCompanionLeadInOnly(assistantText)) return
     setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: line }))
     const spoken = companionExecutingSpeech(line)
+    if (!spoken) return
+    if (cascadeSpeechBlocked()) return
     if (spoken === lastActivitySpokenRef.current) return
     lastActivitySpokenRef.current = spoken
     if (stateRef.current === 'speaking') applyEvent({ type: 'AWAIT_MORE' })
@@ -949,7 +992,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const timer = window.setTimeout(() => {
       if (userInterruptedRef.current) return
       if (!companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)) return
-      const spoken = companionExecutingSpeech(activityStatusRef.current) || '还在处理。'
+      const spoken = companionExecutingSpeech(activityStatusRef.current)
+      if (!spoken || cascadeSpeechBlocked()) return
       lastActivitySpokenRef.current = spoken
       if (ttsAvailable === false || !settings.autoSpeak) return
       const player = ensurePlayer()
@@ -974,6 +1018,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
 
   const speakChunk = useCallback(
     (text: string) => {
+      if (cascadeSpeechBlocked()) return
       const segments = prepareSpeech(text)
       if (!segments.length) {
         speakingRef.current = false
@@ -1022,6 +1067,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
 
   const speak = useCallback(
     (text: string) => {
+      if (cascadeSpeechBlocked()) return
       const segments = prepareSpeech(text)
       lastSpokenRef.current = `${lastSpokenRef.current}${segments.join('')}`.slice(-1200)
       setRounds(current => withCurrentAssistant(current, { role: 'assistant', text, segments, activeIndex: undefined }))
@@ -1279,6 +1325,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       setLocalError(undefined)
       dropCompanionPad()
       playerRef.current?.interrupt()
+      onEngagedRef.current?.()
       setRounds([{ role: 'user', text }])
       if (stateRef.current === 'idle') {
         applyEvent({ type: 'MIC_ACTIVATE' })
@@ -1313,7 +1360,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   )
 
   useEffect(() => {
-    if (chatStatus === 'streaming') return
+    if (chatStatus === 'streaming' || chatStatus === 'done') return
     talkSuppressPlayRef.current = false
   }, [chatStatus])
 
@@ -1656,6 +1703,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             onUserTranscript: transcript => {
               const next = cleanUserTranscript(transcript)
               if (!next) return
+              onEngagedRef.current?.()
               setHeardThisVisit(true)
               setVoiceHeard(true)
               setInterimText('')
@@ -1700,14 +1748,18 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               setEngineHint(issue.message || TALK_FALLBACK_BANNER)
             },
             onEnded: () => {
-              if (talkHandleRef.current) {
-                talkHandleRef.current = undefined
-                setTalkLive(false)
-                setEntryLights(preparedLightsRef.current)
-                setEngineHint(TALK_FALLBACK_BANNER)
-              }
+              playerRef.current?.interrupt()
+              talkHandleRef.current = undefined
+              talkLiveRef.current = false
+              setTalkLive(false)
+              setEntryLights(preparedLightsRef.current)
+              const caption = assistantTextRef.current.trim()
+              setRounds(current => {
+                if (current.some(round => round.role === 'assistant' && round.text.trim())) return current
+                return caption ? withCurrentAssistant(current, { role: 'assistant', text: caption }) : current
+              })
             },
-          })
+          }, { firstAudioMs: TALK_FIRST_AUDIO_MS })
           if (exitedRef.current) {
             await handle?.stop()
             openingListenRef.current = false
@@ -1723,8 +1775,9 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
         talkFailedRef.current = true
         talkPendingRef.current = false
+        talkLiveRef.current = false
         setTalkLive(false)
-        setEngineHint(TALK_FALLBACK_BANNER)
+        setEngineHint('通话核未就绪。已选火山卡，不会改用本机或系统识别。VOICE-004')
       }
 
       if (listenKind === 'volc') {
@@ -2044,11 +2097,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         setLocalError(undefined)
         speakReadyRef.current = prepared.speakReady
         if (!prepared.speakReady && prepared.settings.voicePath === 'local') {
-          const launching = prepared.lights.some(light => light.key === 'speak' && light.label.includes('启动中'))
+          const launching = prepared.lights.some(light => light.key === 'speak' && (light.label.includes('启动中') || light.label.includes('克隆未就绪')))
           setEngineHint(launching ? '本机朗读还在启动，这轮先用晓晓读。' : '本机朗读未就绪，这轮先用晓晓读给你听。')
           setEntryLights(current => current.map(light => (
             light.key === 'speak'
-              ? { ...light, label: '晓晓（本机朗读未就绪）', state: 'warn' as const }
+              ? { ...light, label: light.label.includes('克隆未就绪') ? light.label : '晓晓（本机朗读未就绪）', state: 'warn' as const }
               : light
           )) as typeof current)
         }

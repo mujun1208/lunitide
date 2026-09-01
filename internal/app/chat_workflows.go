@@ -37,7 +37,7 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
 const workflowMediaClause = "- 播放音乐/视频：打开桌面播放器后用 media.play target=foreground（没说歌名或要随机播放时 query=热门；说了歌手如周杰伦则 query=周杰伦）。未运行则 desktop.open 启动后再 foreground 搜索播放。禁止点「我喜欢的音乐」「收藏」。成功以正在播放为准，不要只启动进程。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
-	"- 暂停/下一首：media.play action=pause|next|prev。\n"
+	"- 暂停/下一首：media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query，不要 computer.act 找播放按钮。\n"
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
 

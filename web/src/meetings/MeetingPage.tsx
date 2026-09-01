@@ -5,7 +5,7 @@ import { pickDefaultVoice } from '../provider/modelKind'
 import { loadMeetingSettings, MEETING_SETTINGS_EVENT, type MeetingSettings } from './meetingSettings'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
@@ -116,6 +116,8 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const stallWatchRef = useRef<number>(0)
   const loopbackPollRef = useRef<number>(0)
   const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
+  const loopbackEnergyRef = useRef({ hits: 0, zeros: 0 })
+  const [systemHeard, setSystemHeard] = useState<boolean | undefined>()
   const summarizePollRef = useRef<number>(0)
   const unwatchRef = useRef<() => void>(() => undefined)
   const speechGen = useRef(0)
@@ -140,6 +142,10 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   }, [meetings])
 
   const adopt = (next: MeetingDTO) => {
+    if (currentIdRef.current !== next.meetingId) {
+      loopbackEnergyRef.current = { hits: 0, zeros: 0 }
+      setSystemHeard(undefined)
+    }
     currentIdRef.current = next.meetingId
     const view = next.status === 'recording' && next.segments
       ? { ...next, segments: trimLiveSegments(next.segments) }
@@ -365,6 +371,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     if (live?.status !== 'recording' || live.audioSource !== 'microphone_and_system' || !meetings.loopbackPoll || stopping) {
       window.clearInterval(loopbackPollRef.current)
       loopbackHoldRef.current = undefined
+      loopbackEnergyRef.current = { hits: 0, zeros: 0 }
       return
     }
     const id = live.meetingId
@@ -377,8 +384,12 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         }
         const samples = decodeMeetingPcmBase64(next.pcm)
         if (!samples) return
+        const frame = pcmFrameFromSamples(samples)
+        const energy = noteLoopbackEnergy(loopbackEnergyRef.current, frame.peak)
+        loopbackEnergyRef.current = { hits: energy.hits, zeros: energy.zeros }
+        if (energy.heard !== undefined) setSystemHeard(energy.heard)
         if (pcmTapRef.current && !audioRef.current) {
-          pcmTapRef.current(pcmFrameFromSamples(samples))
+          pcmTapRef.current(frame)
           return
         }
         const prev = loopbackHoldRef.current
@@ -735,7 +746,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
             : !current || stopping
               ? <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>
               : <button type="button" className="meeting-new-inline" onClick={composeNew}>新纪要</button>}
-          <span>{recording ? audioSourceLabel(current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
+          <span>{recording ? audioSourceLabel(systemHeard === false ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
           {onOpenSettings && <button type="button" className="meeting-settings-link" onClick={onOpenSettings}>听写与纪要设置</button>}
         </div>
         {notice && <p className="meeting-notice" role="status">{notice}</p>}

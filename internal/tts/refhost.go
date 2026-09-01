@@ -149,6 +149,9 @@ func (h *RefHost) Status(endpoint string) (state, script string) {
 	defer h.mu.Unlock()
 	switch h.state {
 	case RefHostLaunching:
+		if !h.startedAt.IsZero() && time.Since(h.startedAt) > 10*time.Second && h.lastErr == "" {
+			h.lastErr = "引擎未就绪：/docs 仍无响应"
+		}
 		if !h.startedAt.IsZero() && time.Since(h.startedAt) > 3*time.Minute {
 			h.state = RefHostOffline
 			if h.lastErr == "" {
@@ -342,6 +345,10 @@ func (h *RefHost) awaitReady(endpoint string, wait time.Duration) error {
 	}
 	h.mu.Lock()
 	state, lastErr := h.state, h.lastErr
+	if state != RefHostOnline && lastErr == "" {
+		h.lastErr = "引擎未就绪：/docs 超时"
+		lastErr = h.lastErr
+	}
 	h.mu.Unlock()
 	if state == RefHostOnline { // lost the race, probe flipped it
 		return nil

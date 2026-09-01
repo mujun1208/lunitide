@@ -71,12 +71,27 @@ export function pcmFrameFromSamples(samples: Int16Array): { base64: string; samp
 
 export function planHasLiveSystemAudio(plan: MeetingCapturePlan | undefined): boolean {
   if (!plan || plan.audioSource !== 'microphone_and_system') return false
-  return plan.engineOwned === true || plan.extraStreams.some(hasLiveAudioTrack)
+  return plan.extraStreams.some(hasLiveAudioTrack)
+}
+
+export function planOwnsEngineLoopback(plan: MeetingCapturePlan | undefined): boolean {
+  return plan?.engineOwned === true
+}
+
+/** Three energy frames vs three silent frames. Undefined = keep the last label. */
+export function noteLoopbackEnergy(prev: { hits: number; zeros: number }, peak: number): { hits: number; zeros: number; heard?: boolean } {
+  if (peak > 0) {
+    const hits = prev.hits + 1
+    return { hits, zeros: 0, heard: hits >= 3 ? true : undefined }
+  }
+  const zeros = prev.zeros + 1
+  return { hits: 0, zeros, heard: zeros >= 3 ? false : undefined }
 }
 
 export function captureStateNotice(plan: MeetingCapturePlan | undefined): string {
   if (!plan) return ''
   if (planHasLiveSystemAudio(plan)) return ''
+  if (planOwnsEngineLoopback(plan)) return plan.notice
   if (plan.audioSource === 'microphone_and_system' && !plan.extraStreams.some(hasLiveAudioTrack)) {
     return '系统声音轨道已中断，正在重试收录。当前仅转写麦克风。'
   }
@@ -173,7 +188,9 @@ export async function recoverMeetingSystemAudio(
   const next = await prepareMeetingCapture(options)
   if (planHasLiveSystemAudio(next) && current) {
     current.extraStreams.filter(stream => !next.extraStreams.includes(stream)).forEach(stopMediaStream)
+    if (planOwnsEngineLoopback(current)) return { ...next, engineOwned: true }
   }
+  if (current && planOwnsEngineLoopback(current) && !planHasLiveSystemAudio(next)) return current
   return next
 }
 

@@ -568,7 +568,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		images = nil
 		messages = injectVisionDescription(messages, "已附图片，但视觉模型未能识别。请在设置中确认已启用视觉模型后重试。")
 	}
-	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion}
+	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
 	}
@@ -757,7 +757,11 @@ func shouldInjectCompanionToolLeadIn(assistantAll string, alreadyInjected bool) 
 	if alreadyInjected {
 		return false
 	}
-	return strings.TrimSpace(assistantAll) == ""
+	text := strings.TrimSpace(assistantAll)
+	if strings.Contains(text, "无法执行") {
+		return false
+	}
+	return text == ""
 }
 
 const companionRedundantWebSkipMsg = "ok:true\n已经有搜索摘要。不要再搜、不要打开网页，用现有结果用一两句说出气温和阴晴。"
@@ -947,6 +951,25 @@ func companionWantsTools(text string) bool {
 		}
 	}
 	return false
+}
+
+// isShortIdleGreeting is a no-tool hello. Regular chat then skips reasoning
+// so flash models do not paint the same greeting as a 任务过程 block.
+func isShortIdleGreeting(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || companionWantsTools(text) {
+		return false
+	}
+	if len([]rune(text)) > 16 {
+		return false
+	}
+	compact := strings.ToLower(strings.TrimRight(text, "。.!！？?，, "))
+	switch compact {
+	case "你好", "在吗", "嗨", "hi", "hello", "哈喽", "在不在", "你好呀", "你好啊", "你好吗":
+		return true
+	default:
+		return false
+	}
 }
 
 func validChatMessages(model string, messages []gateway.Message) bool {
@@ -2445,7 +2468,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						break
 					}
 				}
-				if state.companion && shouldInjectCompanionToolLeadIn(assistantText.String(), leadInInjected) && len(result.Message.ToolCalls) > 0 {
+				if state.companion && shouldInjectCompanionToolLeadIn(assistantText.String(), leadInInjected) && len(result.Message.ToolCalls) > 0 && len(turn.LastTools) == 0 {
 					lead := companionToolLeadIn(result.Message.ToolCalls[0].Name)
 					assistantText.WriteString(lead)
 					leadInInjected = true
@@ -3221,9 +3244,27 @@ func clipCancelledCompanionPersistToSpoken(text, spoken string) string {
 	return strings.TrimSpace(string(runes[:last+1]))
 }
 
+func thinkingDuplicatesBody(thinking, body string) bool {
+	t := strings.Join(strings.Fields(strings.TrimSpace(thinking)), " ")
+	b := strings.Join(strings.Fields(strings.TrimSpace(body)), " ")
+	if t == "" || b == "" {
+		return false
+	}
+	if t == b {
+		return true
+	}
+	if strings.Contains(t, b) && utf8.RuneCountInString(b) >= 8 {
+		return true
+	}
+	return strings.Contains(b, t) && utf8.RuneCountInString(t) >= 8
+}
+
 func assistantTurnPersistText(assistant, thinking string, persistThinking bool) string {
 	assistant = strings.TrimSpace(assistant)
 	thinking = strings.TrimSpace(thinking)
+	if thinkingDuplicatesBody(thinking, assistant) {
+		thinking = ""
+	}
 	if !persistThinking || thinking == "" {
 		return assistant
 	}

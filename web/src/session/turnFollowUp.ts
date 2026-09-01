@@ -19,8 +19,8 @@ export function companionShouldDeferInFlight(incoming: string, activeGoal: strin
 }
 
 /**
- * Companion enters without loading history, so `items` stays []. Deleting on
- * exit used to wipe a turn that had already been appended.
+ * Empty companion drafts stay discardable until the user speaks or history
+ * hydrates. home() now loads recent messages; itemsLength>0 keeps the session.
  */
 export function companionShouldDiscardOnExit(input: {
   initialCompanion: boolean

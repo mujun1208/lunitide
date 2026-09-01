@@ -60,6 +60,8 @@ export function refEngineCaption(meta: RefMetaCaption | undefined, voiceCount = 
     return `音色 ${voiceCount} 个（GPT-SoVITS 本地克隆，引擎在线，按风格分组）`
   }
   if (meta.host_state === 'launching') {
+    const err = meta.host_last_err?.trim()
+    if (err) return `引擎未就绪：${err}。可先用晓晓试听。`
     return '语音引擎启动中…（首次加载模型约 30-90 秒，就绪后 50 种音色自动可用）'
   }
   if (meta.host_script) {

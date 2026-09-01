@@ -33,7 +33,7 @@ func TestResolveMediaPlayArgsUsesSessionMusicApp(t *testing.T) {
 	}
 }
 
-func TestResolveMediaPlayArgsDefaultQueryForRandomPlay(t *testing.T) {
+func TestResolveMediaPlayArgsKeepsEmptyQueryForResume(t *testing.T) {
 	root := t.TempDir()
 	tools, err := toolruntime.New(root)
 	if err != nil {
@@ -49,8 +49,41 @@ func TestResolveMediaPlayArgsDefaultQueryForRandomPlay(t *testing.T) {
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		t.Fatal(err)
 	}
+	if parsed["target"] != "foreground" || parsed["query"] != "" || parsed["app"] != "汽水音乐" {
+		t.Fatalf("resume play must keep empty query, got %#v", parsed)
+	}
+}
+
+func TestResolveMediaPlayArgsOpenAndPlayStillDefaultsHot(t *testing.T) {
+	root := t.TempDir()
+	tools, err := toolruntime.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	e.saveCompanionContext("s1", companionActionContext{
+		ActiveAppName: "汽水音乐",
+		Kind:          "music_app",
+	})
+	out := e.resolveMediaPlayArgs("s1", json.RawMessage(`{"action":"open_and_play","query":"","target":"auto"}`))
+	var parsed map[string]string
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatal(err)
+	}
 	if parsed["target"] != "foreground" || parsed["query"] != "热门" {
-		t.Fatalf("parsed = %#v", parsed)
+		t.Fatalf("open_and_play empty query should search 热门, got %#v", parsed)
+	}
+}
+
+func TestResolveMediaPlayArgsNeteaseEmptyQueryResumes(t *testing.T) {
+	e := &Engine{}
+	out := e.resolveMediaPlayArgs("s1", json.RawMessage(`{"action":"play","query":"","target":"netease"}`))
+	var parsed map[string]string
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["target"] != "foreground" || parsed["app"] != "网易云音乐" || parsed["query"] != "" {
+		t.Fatalf("netease empty play must resume, got %#v", parsed)
 	}
 }
 
@@ -218,6 +251,9 @@ func TestCompanionSessionInjection(t *testing.T) {
 	got := e.companionSessionInjection("s1", "播放亚森")
 	if got == "" || !strings.Contains(got, "汽水音乐") || !strings.Contains(got, "foreground") {
 		t.Fatalf("injection = %q", got)
+	}
+	if !strings.Contains(got, "不要带 query") {
+		t.Fatalf("injection must tell the model resume play has no query: %q", got)
 	}
 }
 

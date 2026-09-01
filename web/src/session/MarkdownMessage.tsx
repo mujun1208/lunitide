@@ -90,11 +90,23 @@ export function splitPersistedThinking(text: string): { thinking: string; body: 
   return { thinking: rest.slice(0, split).replace(/\s+$/, ''), body: rest.slice(split + gap) }
 }
 
+/** Hide a thinking block that is the same greeting/body written twice. */
+export function thinkingDuplicatesBody(thinking: string, body: string): boolean {
+  const t = thinking.replace(/\s+/g, ' ').trim()
+  const b = body.replace(/\s+/g, ' ').trim()
+  if (!t || !b) return false
+  if (t === b) return true
+  if (t.includes(b) && Array.from(b).length >= 8) return true
+  if (b.includes(t) && Array.from(t).length >= 8) return true
+  return false
+}
+
 export function AssistantMessageBody({ text, onCopy, onMermaidLayout }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void }) {
   const { thinking, body } = splitPersistedThinking(text)
+  const shown = thinking && !thinkingDuplicatesBody(thinking, body) ? thinking : ''
   const [open, setOpen] = useState(false)
   return <>
-    {thinking ? <ThinkingPanel text={thinking} open={open} onToggle={setOpen} onCopy={onCopy} /> : null}
+    {shown ? <ThinkingPanel text={shown} open={open} onToggle={setOpen} onCopy={onCopy} /> : null}
     {body ? <MarkdownMessage text={body} onCopy={onCopy} onMermaidLayout={onMermaidLayout} /> : null}
   </>
 }

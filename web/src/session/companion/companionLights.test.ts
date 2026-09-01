@@ -57,6 +57,16 @@ describe('inspectCompanionEntry', () => {
     expect(report.lights[1]).toMatchObject({ label: 'GPT-SoVITS 启动中', state: 'warn' })
   })
 
+  test('honest 晓晓 label when launching still has last_error', async () => {
+    const report = await inspectCompanionEntry('local', '', {
+      listProviders: async () => ({ items: [chat] }),
+      localAsr: async () => ({ supported: true, ready: true }),
+      refEngine: async () => ({ state: 'launching', last_error: '引擎未就绪：/docs 仍无响应' }),
+    })
+    expect(report.speakReady).toBe(false)
+    expect(report.lights[1]).toMatchObject({ label: '晓晓（克隆未就绪）', state: 'warn' })
+  })
+
   test('still allows local listen when GPT-SoVITS is offline', async () => {
     const report = await inspectCompanionEntry('local', '', {
       listProviders: async () => ({ items: [chat] }),

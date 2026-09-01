@@ -96,6 +96,13 @@ it('splits persisted thinking from the assistant body', () => {
   expect(splitPersistedThinking('【思考过程】\n只有思考')).toEqual({ thinking: '只有思考', body: '' })
 })
 
+it('hides a persisted thinking block that repeats the assistant body', () => {
+  const hello = '你好，我是月汐，可以帮你处理音乐、搜索、工作和电脑自动化。'
+  render(<AssistantMessageBody text={`【思考过程】\n${hello}\n\n${hello}`} />)
+  expect(screen.queryByText('任务过程')).toBeNull()
+  expect(screen.getByText(/你好，我是月汐/)).toBeInTheDocument()
+})
+
 it('renders persisted thinking as one collapsed row until expanded', () => {
   render(<AssistantMessageBody text={'【思考过程】\n先规划结构再写大纲。\n\n无法执行。模型结果不完整，请重试。'} />)
   const details = screen.getByText('任务过程').closest('details')!
