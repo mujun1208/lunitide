@@ -33,6 +33,12 @@ type VoiceService struct {
 	installer *voice.Installer
 	modelID   string
 
+	// installBundle performs one bundle's download-and-verify. It exists so a
+	// test can hold a transfer "in flight" and prove that a second install
+	// call is idempotent, without reaching the real (unreachable, timing-
+	// dependent) catalogue URLs. Nil means the real installer.
+	installBundle func(context.Context, voice.Bundle, func(voice.Progress)) error
+
 	mu       sync.Mutex
 	sessions map[string]voice.Session
 	// progress is the state of the current download, read by voice.install
@@ -319,8 +325,12 @@ func (s *VoiceService) run(bundles []voice.Bundle) {
 		s.installing = false
 		s.mu.Unlock()
 	}()
+	install := s.installBundle
+	if install == nil {
+		install = s.installer.Install
+	}
 	for _, bundle := range bundles {
-		err := s.installer.Install(context.Background(), bundle, func(p voice.Progress) {
+		err := install(context.Background(), bundle, func(p voice.Progress) {
 			s.mu.Lock()
 			s.progress = p
 			s.mu.Unlock()

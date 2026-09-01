@@ -445,6 +445,18 @@ func (s *Service) stampThreadMembers(t *Thread) {
 	}
 }
 
+// forDelivery returns t with an independent copy of its Members slice. A
+// delivery goroutine reads the thread while the caller keeps stamping Self
+// flags onto its own copy; a plain struct copy shares one backing array, so
+// the read and the stamp race. Copying the slice hands the goroutine a value
+// nobody else mutates.
+func (t Thread) forDelivery() Thread {
+	if t.Members != nil {
+		t.Members = append([]Contact(nil), t.Members...)
+	}
+	return t
+}
+
 func collapseListedDirects(items []Thread) []Thread {
 	seen := map[string]bool{}
 	out := make([]Thread, 0, len(items))
@@ -547,7 +559,7 @@ func (s *Service) OpenDirect(ctx context.Context, peerSubjectID string) (Thread,
 	if err != nil {
 		return Thread{}, nil, err
 	}
-	go s.deliverThread(opened)
+	go s.deliverThread(opened.forDelivery())
 	return s.openExisting(ctx, opened)
 }
 
@@ -658,7 +670,7 @@ func (s *Service) CreateGroup(ctx context.Context, title, ownerSubjectID string,
 	if err != nil {
 		return Thread{}, err
 	}
-	go s.deliverThread(opened)
+	go s.deliverThread(opened.forDelivery())
 	s.stampThreadMembers(&opened)
 	return opened, nil
 }

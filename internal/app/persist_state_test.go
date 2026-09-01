@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,11 +45,26 @@ func TestSendWeComInboundReplyRequiresWriter(t *testing.T) {
 	}
 }
 
-type inboundAppendSpy struct{ texts []string }
+// inboundAppendSpy is written from the background reply goroutine and read
+// from the test, so its slice is guarded — otherwise the observation itself
+// is a data race the -race build (correctly) rejects.
+type inboundAppendSpy struct {
+	mu    sync.Mutex
+	texts []string
+}
 
 func (s *inboundAppendSpy) Append(_ context.Context, _, _ string, _ any, msg message.Message) (message.Message, error) {
+	s.mu.Lock()
 	s.texts = append(s.texts, msg.Text)
+	s.mu.Unlock()
 	return msg, nil
+}
+
+// snapshot returns a copy of what has been appended so far.
+func (s *inboundAppendSpy) snapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.texts...)
 }
 func (s *inboundAppendSpy) AppendAssistant(context.Context, string, string, string, string, messageapp.AssistantUsage) (message.Message, error) {
 	return message.Message{}, errors.New("not used")
@@ -64,29 +80,36 @@ func TestPushInboundReplyWeComDownWritesSessionNotice(t *testing.T) {
 	e.rememberInboundRoute("01ARZ3NDEKTSV4RRFFQ69G5FAV", imapp.Channel{Kind: imapp.KindWeCom}, "zhangsan", "")
 	e.pushInboundReply("01ARZ3NDEKTSV4RRFFQ69G5FAV", "企微回了")
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && len(spy.texts) == 0 {
+	for time.Now().Before(deadline) && len(spy.snapshot()) == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(spy.texts) != 1 || !strings.Contains(spy.texts[0], "回程失败") || !strings.Contains(spy.texts[0], "企业微信") {
-		t.Fatalf("wecom down must write a visible session notice: %#v", spy.texts)
+	texts := spy.snapshot()
+	if len(texts) != 1 || !strings.Contains(texts[0], "回程失败") || !strings.Contains(texts[0], "企业微信") {
+		t.Fatalf("wecom down must write a visible session notice: %#v", texts)
 	}
 }
 
 func TestPushInboundReplyWeComUsesStream(t *testing.T) {
 	e := NewEngine(nil, "test")
-	var got []byte
+	// The writer fires on the background reply goroutine; a channel hands the
+	// bytes across without the test and that goroutine touching one variable.
+	got := make(chan []byte, 1)
 	e.setWeComWriter(func(raw []byte) error {
-		got = append([]byte(nil), raw...)
+		select {
+		case got <- append([]byte(nil), raw...):
+		default:
+		}
 		return nil
 	})
 	e.rememberInboundRoute("01ARZ3NDEKTSV4RRFFQ69G5FAV", imapp.Channel{Kind: imapp.KindWeCom}, "zhangsan", "")
 	e.pushInboundReply("01ARZ3NDEKTSV4RRFFQ69G5FAV", "企微回了")
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && !strings.Contains(string(got), "企微回了") {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !strings.Contains(string(got), `"cmd":"aibot_send_msg"`) || !strings.Contains(string(got), "企微回了") {
-		t.Fatalf("wecom stream reply = %s", got)
+	select {
+	case raw := <-got:
+		if !strings.Contains(string(raw), `"cmd":"aibot_send_msg"`) || !strings.Contains(string(raw), "企微回了") {
+			t.Fatalf("wecom stream reply = %s", raw)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("wecom stream reply timed out")
 	}
 }
 
