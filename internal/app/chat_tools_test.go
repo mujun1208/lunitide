@@ -197,7 +197,10 @@ func TestMcpToolsMergedAndDispatched(t *testing.T) {
 		}
 	}()
 	req := gateway.Request{Model: "m", Tools: merged}
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error { events <- event; return nil }, "")
+	// MCP dispatch is now gated in approval mode (the ungated-tool guard), so
+	// this plumbing test runs full-access where dispatch is allowed; the
+	// approval-mode refusal is covered in ungated_tools_test.go.
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error { events <- event; return nil }, "", executionModeFullAccess)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

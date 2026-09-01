@@ -278,10 +278,21 @@ func (e *Engine) runPeopleAgentJob(ctx context.Context, job peopleAgentJob) {
 	}
 }
 
+// peopleAgentExecutionMode is the authority an inbound colleague message gets.
+// Deliberately not full-access: nobody is watching this turn, and full-access
+// is also the switch that turns on unconfined whole-disk tool execution
+// (fullDiskChat), so a message from outside would reach the entire filesystem.
+// auto-edit still lets the agent read, search and write inside the workspace,
+// which is all a colleague reply needs.
+func peopleAgentExecutionMode() executionMode { return executionModeAutoEdit }
+
 func peopleAgentAllowedTool(name string) bool {
 	switch name {
 	case "user.ask", "computer.act", "desktop.open", "desktop.type", "im.send",
-		"skill.create", "expert.create", "plugin.create", "plan.run", "skill.manage":
+		"skill.create", "expert.create", "plugin.create", "plan.run", "skill.manage",
+		// A shell is the one tool that makes every other restriction here
+		// decorative, and this turn is driven by a message from outside.
+		"command.run":
 		return false
 	}
 	if strings.HasPrefix(name, "cc.") {
@@ -521,7 +532,7 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 }
 
 func (e *Engine) peopleAgentToolList(ctx context.Context, agent people.Contact) []gateway.ToolDefinition {
-	tools := peopleAgentToolDefinitions(e.engineToolDefinitionsFor(executionModeFullAccess))
+	tools := peopleAgentToolDefinitions(e.engineToolDefinitionsFor(peopleAgentExecutionMode()))
 	tools = append(tools, peopleAgentToolDefinitions(e.skillToolDefinitions())...)
 	eq := e.equipmentForNames(ctx, []string{agent.Nickname})
 	tools = append(tools, peopleAgentToolDefinitions(e.mcpToolDefinitionsRestricted(eq.McpIDs, true))...)
@@ -537,11 +548,11 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 	var err error
 	switch call.Name {
 	case "skill.invoke":
-		r, err = e.invokeSkillTool(ctx, executionModeFullAccess, sessionID, call.Arguments)
+		r, err = e.invokeSkillTool(ctx, peopleAgentExecutionMode(), sessionID, call.Arguments)
 	case "skill.view":
 		r, err = e.invokeSkillViewTool(ctx, call.Arguments)
 	case "browser.act":
-		r, err = e.invokeBrowserAct(ctx, executionModeFullAccess, sessionID, call.Arguments)
+		r, err = e.invokeBrowserAct(ctx, peopleAgentExecutionMode(), sessionID, call.Arguments)
 	case "image.generate", "video.generate":
 		r, err = e.invokeMediaGenerate(ctx, call.Name, call.Arguments)
 	default:
@@ -572,7 +583,7 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 		if e.tools == nil {
 			return "ok:false\n工具运行时不可用。"
 		}
-		r, err = e.executeUserTool(ctx, executionModeFullAccess, sessionID, call.Name, call.Arguments)
+		r, err = e.executeUserTool(ctx, peopleAgentExecutionMode(), sessionID, call.Name, call.Arguments)
 	}
 	if err != nil {
 		msg := err.Error()

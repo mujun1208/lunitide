@@ -74,6 +74,22 @@ func (s *Store) CountSegments(ctx context.Context, meetingID string) (int, error
 	return n, err
 }
 
+// LastSegment answers the append path, which only ever needs the tail. Reading
+// it through ix_meeting_segments_meeting keeps a long meeting cheap: listing
+// every segment on each append made recording quadratic against a 100k cap.
+func (s *Store) LastSegment(ctx context.Context, meetingID string) (meetings.Segment, bool, error) {
+	var seg meetings.Segment
+	err := s.db.QueryRowContext(ctx, `SELECT segment_id, meeting_id, seq, started_ms, body, created_at FROM meeting_segments WHERE meeting_id=? ORDER BY seq DESC LIMIT 1`, meetingID).
+		Scan(&seg.SegmentID, &seg.MeetingID, &seg.Seq, &seg.StartedMS, &seg.Text, &seg.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return meetings.Segment{}, false, nil
+	}
+	if err != nil {
+		return meetings.Segment{}, false, err
+	}
+	return seg, true, nil
+}
+
 func (s *Store) ListSegments(ctx context.Context, meetingID string) ([]meetings.Segment, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT segment_id, meeting_id, seq, started_ms, body, created_at FROM meeting_segments WHERE meeting_id=? ORDER BY seq`, meetingID)
 	if err != nil {

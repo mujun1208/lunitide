@@ -16,15 +16,50 @@ import (
 
 var openMediaURL = openHTTPURL
 
-func openHTTPURL(raw string) error {
+// validateMediaURL is the only door between a model-chosen address and the
+// operating system's protocol handlers. Without the scheme gate media.play
+// opens file:, the ms-* diagnostic handlers and UNC paths — every one of them
+// a local program launch dressed up as "play this".
+func validateMediaURL(raw string) (string, error) {
 	u := strings.TrimSpace(raw)
 	if u == "" {
-		return errors.New("url required")
+		return "", errors.New("url required")
 	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return "", errors.New("media.play 的 url 无法解析")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("media.play 只接受 http/https 链接，拒绝 %q", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return "", errors.New("media.play 的 url 缺少主机名")
+	}
+	// Returned as given rather than re-serialized: the search addresses this
+	// package builds are already encoded, and a round trip through String()
+	// would be a silent chance to alter someone's query.
+	return u, nil
+}
+
+// mediaOpenArgv keeps the launch shell-free. `cmd /c start` re-parses & | < >
+// ^ in the address as command separators, and Go only quotes an argv element
+// that holds a space or a quote, so a query string was enough to inject.
+func mediaOpenArgv(u string) []string {
 	if runtime.GOOS == "windows" {
-		return exec.Command("cmd", "/c", "start", "", u).Start()
+		return []string{"rundll32.exe", "url.dll,FileProtocolHandler", u}
 	}
-	return exec.Command("xdg-open", u).Start()
+	return []string{"xdg-open", u}
+}
+
+func openHTTPURL(raw string) error {
+	u, err := validateMediaURL(raw)
+	if err != nil {
+		return err
+	}
+	argv := mediaOpenArgv(u)
+	return exec.Command(argv[0], argv[1:]...).Start()
 }
 
 func queryIsKnownMusicApp(query string) bool {
@@ -116,6 +151,13 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 			}
 		}
 		if u != "" {
+			// Checked here, not only inside the opener, so a replaced opener
+			// cannot become a way around the scheme gate.
+			checked, err := validateMediaURL(u)
+			if err != nil {
+				return Result{}, err
+			}
+			u = checked
 			if err := openMediaURL(u); err != nil {
 				return Result{}, err
 			}
@@ -168,6 +210,11 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 		if u == "" {
 			return Result{}, errors.New("media.play open needs url or query")
 		}
+		checked, err := validateMediaURL(u)
+		if err != nil {
+			return Result{}, err
+		}
+		u = checked
 		if err := openMediaURL(u); err != nil {
 			return Result{}, err
 		}

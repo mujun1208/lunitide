@@ -284,6 +284,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	expertWork := !intent.Companion && (councilCfg != nil || e.sessionSelectsExperts(ctx, boundSessionID, intent.Text))
 	subagentPolicy.ExpertWork = expertWork
+	// Delegation must not be a way around this turn's mode: the subagent runs
+	// its tools under the same authority the operator granted here.
+	subagentPolicy.ParentMode = mode
 	if expertWork {
 		instruction += specialistRuntimeInstruction()
 		names := e.composeExpertNames(ctx, boundSessionID, intent.Text)
@@ -2583,6 +2586,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
 						return err
+					}
+					// The branches below dispatch without going through the tool
+					// runtime, so toolruntime's approval gate never sees them.
+					if reason, deny := ungatedEngineToolDenied(mode, state.companion, call.Name, call.Arguments); deny {
+						summary := clipToolSummary(reason)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
 					}
 					if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
 						summary, invokeErr := e.invokeSettingsPlaneTool(op, call.Name, call.Arguments)

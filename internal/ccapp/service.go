@@ -156,6 +156,38 @@ var ccTools = map[string]bool{
 // IsCcTool reports whether name belongs to the frozen cc tool set.
 func IsCcTool(name string) bool { return ccTools[name] }
 
+// ccMachineChangingTools are the cc tools that act on the machine rather than
+// just look at it: synthetic input, clipboard, and window/app lifecycle. The
+// risk ladder in this package only pauses for high/critical, so this set is
+// what the caller's approval gate needs in order to stop a medium-risk click
+// or keystroke from landing unannounced.
+//
+// Observation is deliberately absent. see→act→verify screenshots before and
+// after every action, so gating a capture would put a prompt in front of
+// looking. cc.mouse_move and cc.window_focus are also left out: neither can
+// alter state on its own, and whatever they set up for is itself gated.
+var ccMachineChangingTools = map[string]bool{
+	ToolMouseClick:    true,
+	ToolMouseDrag:     true,
+	ToolKeyboardType:  true,
+	ToolPaste:         true,
+	ToolPress:         true,
+	ToolMenuClick:     true,
+	ToolSetValue:      true,
+	ToolConfirmDialog: true,
+	ToolClipboard:     true,
+	ToolWindowAction:  true,
+	ToolAppQuit:       true,
+	// Already gated by the caller for its own reasons; listed so the set
+	// stays the single answer to "does this touch the machine".
+	ToolKeyboardShortcut: true,
+}
+
+// ToolChangesMachine reports whether a cc tool acts on the machine. For
+// computer.act, resolve the payload with MapComputerAct first and ask about
+// the mapped tool: the wrapper is observation or input depending on action.
+func ToolChangesMachine(name string) bool { return ccMachineChangingTools[name] }
+
 // Code maps one service error onto its M10-CC wire code ("M10-CC-001" ..
 // "M10-CC-012"). Unknown errors answer the generic execution code.
 func Code(err error) string {

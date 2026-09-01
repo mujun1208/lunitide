@@ -797,6 +797,23 @@ func (r *Runtime) ExecuteUnconfinedStreaming(ctx context.Context, session, name 
 	return r.execute(ctx, FullAccess, session, name, args, approved, true, progress)
 }
 
+// ccToolChangesMachine folds computer control into the mutating gate. The
+// wrapper tools (desktop.type, media.play) were already listed, but a direct
+// cc.* or computer.act call reached the desktop through ccapp alone, and ccapp
+// only pauses for high/critical risk — a click is medium.
+func ccToolChangesMachine(name string, args json.RawMessage) bool {
+	if name == ccapp.ToolComputerAct {
+		mapped, _, err := ccapp.MapComputerAct(args)
+		if err != nil {
+			// Fail closed: ccapp will refuse an unmappable payload anyway, and
+			// assuming "harmless" is the wrong way to be wrong here.
+			return true
+		}
+		return ccapp.ToolChangesMachine(mapped)
+	}
+	return ccapp.ToolChangesMachine(name)
+}
+
 func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool, progress func(chunk string)) (out Result, err error) {
 	switch mode {
 	case Approval, AutoEdit, Plan, FullAccess:
@@ -818,7 +835,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved && name != userAskTool {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name]
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
