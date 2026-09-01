@@ -37,6 +37,17 @@ jobs:
         run: go vet ./...
       - name: Build Go without CGO
         run: go build ./...
+      - name: Scan Go for known vulnerabilities
+        # Fails the job when any vulnerability is reachable from this code
+        # (govulncheck exits non-zero only for called symbols, so an unused
+        # transitive CVE does not block the build). The vulnerability database
+        # is fetched fresh each run; the pinned tool version keeps the analysis
+        # itself reproducible. Stdlib fixes come in through the toolchain
+        # directive in go.mod, so a new Go patch closes them without a code
+        # change.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
       - name: Generate Renderer contracts
         run: npm --prefix web run generate:bridge
       - name: Typecheck Renderer
