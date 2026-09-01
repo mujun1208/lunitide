@@ -51,7 +51,9 @@ func TestCommandRunStreamsToolOutputEvents(t *testing.T) {
 	}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetToolRuntime(tools)
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return &commandProgressAdapter{}, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return &commandProgressAdapter{}, nil
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -101,7 +103,7 @@ func TestCommandRunStreamsToolOutputEvents(t *testing.T) {
 			doneIdx = i
 		}
 	}
-	if startIdx < 0 || outIdx < 0 || doneIdx < 0 || !(startIdx < outIdx && outIdx < doneIdx) {
+	if startIdx < 0 || outIdx < 0 || doneIdx < 0 || (startIdx >= outIdx || outIdx >= doneIdx) {
 		t.Fatalf("tool_output not between started/completed: %v", order)
 	}
 }

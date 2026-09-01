@@ -37,7 +37,7 @@ func sessionServiceAvailable(service SessionService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 func validCanonicalULID(v string) bool {
 	u, e := ulid.ParseStrict(v)

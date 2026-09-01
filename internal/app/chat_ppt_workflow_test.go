@@ -6,7 +6,6 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/gateway"
-	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 func TestLooksLikePptTask(t *testing.T) {
@@ -103,5 +102,4 @@ func TestBlockedPptGenResult(t *testing.T) {
 	if r.Output == "" || !strings.Contains(r.Output, "ok:false") {
 		t.Fatalf("blocked result = %#v", r)
 	}
-	var _ toolruntime.Result = r
 }

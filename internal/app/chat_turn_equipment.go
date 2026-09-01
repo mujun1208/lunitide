@@ -144,7 +144,7 @@ func presetIDFromCommandArgs(command string, args []string) string {
 			if arg == "" || arg == "-y" || strings.HasPrefix(arg, "{{") {
 				continue
 			}
-			if !(strings.HasPrefix(arg, "@") || strings.Contains(arg, "mcp") || mcp6.PresetPackageAllowed(arg)) {
+			if !strings.HasPrefix(arg, "@") && !strings.Contains(arg, "mcp") && !mcp6.PresetPackageAllowed(arg) {
 				continue
 			}
 			if strings.Contains(blob, arg) {

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/message"
 )
@@ -192,12 +191,3 @@ func sessionArtifactFromTool(callID, toolName, kind, path string) SessionArtifac
 	}
 }
 
-func sessionArtifactsUpdatedAt(path string) string {
-	if path == "" {
-		return ""
-	}
-	if st, err := os.Stat(path); err == nil {
-		return st.ModTime().UTC().Format(time.RFC3339)
-	}
-	return ""
-}

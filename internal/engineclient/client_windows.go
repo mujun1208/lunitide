@@ -86,7 +86,7 @@ func Connect(ctx context.Context, pipe string, expectedEnginePID int, sessionNon
 }
 
 func (c *Client) Close() error {
-	_ = c.poison(errors.New("Engine RPC client is closed"))
+	_ = c.poison(errors.New("engine RPC client is closed"))
 	return c.closeErr
 }
 
@@ -94,7 +94,7 @@ func (c *Client) Close() error {
 // Tray Exit uses it after a reconnect, when this process did not spawn the engine.
 func (c *Client) ServerPID() (uint32, error) {
 	if c == nil || c.conn == nil {
-		return 0, errors.New("Engine RPC client is closed")
+		return 0, errors.New("engine RPC client is closed")
 	}
 	return ipc.ServerProcessID(c.conn)
 }
@@ -127,7 +127,7 @@ func (c *Client) Call(ctx context.Context, request bridge.Request) (bridge.Respo
 	c.pruneTombstonesLocked(time.Now())
 	if _, cancelled := c.tombstones[request.ID]; cancelled {
 		c.stateMu.Unlock()
-		return bridge.Response{}, errors.New("Engine request ID was already cancelled")
+		return bridge.Response{}, errors.New("engine request ID was already cancelled")
 	}
 	c.pending[request.ID] = responseCh
 	c.stateMu.Unlock()
@@ -277,7 +277,7 @@ func (c *Client) readPump() {
 			case <-c.done:
 				return
 			case <-time.After(30 * time.Second):
-				c.poison(errors.New("Engine event consumer stalled"))
+				c.poison(errors.New("engine event consumer stalled"))
 				return
 			}
 		default:
@@ -345,7 +345,7 @@ func (c *Client) acceptEvent(event bridge.Event, forward bool) (uint64, error) {
 	}
 	c.pruneTombstonesLocked(time.Now())
 	if _, terminal := c.streamTerminals[event.StreamID]; terminal {
-		return 0, errors.New("Engine event received after stream terminal")
+		return 0, errors.New("engine event received after stream terminal")
 	}
 	progress, exists := c.streams[event.StreamID]
 	if !exists {
@@ -353,7 +353,7 @@ func (c *Client) acceptEvent(event bridge.Event, forward bool) (uint64, error) {
 		progress.emitSequence = 1
 	}
 	if event.Sequence != progress.nextSequence {
-		return 0, errors.New("Engine event sequence mismatch")
+		return 0, errors.New("engine event sequence mismatch")
 	}
 	progress.nextSequence++
 	var emit uint64
@@ -638,7 +638,7 @@ func (c *Client) poison(err error) error {
 	c.stateMu.Lock()
 	first := c.broken == nil
 	if first {
-		c.broken = fmt.Errorf("Engine RPC connection is unusable: %w", err)
+		c.broken = fmt.Errorf("engine RPC connection is unusable: %w", err)
 	}
 	broken := c.broken
 	for id, ch := range c.pending {
@@ -691,7 +691,7 @@ func (c *Client) handshake(ctx context.Context, sessionNonce string) error {
 	}
 	var ack handshakeAck
 	if err := decodeStrict(raw, &ack); err != nil || !ack.Accepted || ack.RPCMajor != ipc.RPCMajor || ack.RPCMinor < 0 || ack.RPCMinor > ipc.RPCMinor {
-		return errors.New("Engine RPC handshake rejected")
+		return errors.New("engine RPC handshake rejected")
 	}
 	return nil
 }
@@ -767,16 +767,16 @@ func decodeStrict(raw []byte, target any) error {
 
 func validateResponse(response bridge.Response, requestID string) error {
 	if response.Version != bridge.Version || response.Kind != "response" || response.RequestID != requestID {
-		return errors.New("Engine response envelope mismatch")
+		return errors.New("engine response envelope mismatch")
 	}
 	if _, err := ulid.ParseStrict(response.ID); err != nil {
-		return errors.New("Engine response ID is invalid")
+		return errors.New("engine response ID is invalid")
 	}
 	if _, err := ulid.ParseStrict(response.RequestID); err != nil {
-		return errors.New("Engine response request ID is invalid")
+		return errors.New("engine response request ID is invalid")
 	}
 	if response.OK == (response.Error != nil) || (!response.OK && response.Payload != nil) {
-		return fmt.Errorf("Engine response success/error shape is invalid")
+		return fmt.Errorf("engine response success/error shape is invalid")
 	}
 	return nil
 }

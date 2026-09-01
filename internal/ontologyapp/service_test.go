@@ -47,12 +47,11 @@ func (m *mockEdgeReader) ListOntologyEdgesByTarget(_ context.Context, _ string, 
 }
 
 type mockNodeWriter struct {
-	updatedDesc   string
-	updatedMeta   string
-	deletedID     string
-	err           error
-	deletedEdges  []string
-	createdNode   ontology.Node
+	updatedDesc string
+	updatedMeta string
+	deletedID   string
+	err         error
+	createdNode ontology.Node
 }
 
 func (m *mockNodeWriter) CreateOntologyNode(_ context.Context, node ontology.Node) (ontology.Node, error) {

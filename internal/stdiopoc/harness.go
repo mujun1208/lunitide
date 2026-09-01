@@ -505,8 +505,8 @@ func (h *Harness) runProtocol(ctx context.Context) (*Assumption, error) {
 		}
 		badPayload, err := p.Stdout.Read()
 		class := ""
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			if _, perr := ParseEnvelope(badPayload, AssumptionProtocol); perr != nil {
 				class = classifyFrameErr(perr)
 			} else {

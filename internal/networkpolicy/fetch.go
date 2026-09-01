@@ -71,7 +71,7 @@ func validateFetchURL(raw string, policy Policy) (*url.URL, error) {
 	u.Fragment = ""
 	u.RawFragment = ""
 	scheme := strings.ToLower(u.Scheme)
-	if scheme != "https" && !(scheme == "http" && policy.AllowHTTP) {
+	if scheme != "https" && (scheme != "http" || !policy.AllowHTTP) {
 		return nil, &Error{Code: CodeSSRFBlocked, Op: "validate fetch URL"}
 	}
 	host := canonicalHost(u.Hostname())

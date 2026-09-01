@@ -11,9 +11,6 @@ const (
 	StatusLive              Status = "live"
 )
 
-// StatusActive is a legacy alias mapped to chartered on read paths.
-const legacyActive = StatusActive
-
 func NormalizeStatus(s Status) Status {
 	if s == StatusActive {
 		return StatusChartered

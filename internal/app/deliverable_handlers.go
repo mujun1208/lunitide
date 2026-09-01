@@ -25,7 +25,7 @@ func deliverableStoreAvailable(store DeliverableStore) bool {
 		return false
 	}
 	v := reflect.ValueOf(store)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func rejectIfProjectReadOnly(e *Engine, ctx context.Context, r bridge.Request, projectID string) *bridge.Response {

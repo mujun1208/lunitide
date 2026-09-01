@@ -65,11 +65,11 @@ func TestMapComputerActDoubleClickAndKey(t *testing.T) {
 		t.Fatalf("dbl args %s", raw)
 	}
 
-	tool, raw, err = MapComputerAct([]byte(`{"action":"key","keys":["ctrl","s"]}`))
+	tool, _, err = MapComputerAct([]byte(`{"action":"key","keys":["ctrl","s"]}`))
 	if err != nil || tool != ToolKeyboardShortcut {
 		t.Fatalf("hotkey: %s %v", tool, err)
 	}
-	tool, raw, err = MapComputerAct([]byte(`{"action":"key","key":"enter"}`))
+	tool, _, err = MapComputerAct([]byte(`{"action":"key","key":"enter"}`))
 	if err != nil || tool != ToolPress {
 		t.Fatalf("press: %s %v", tool, err)
 	}

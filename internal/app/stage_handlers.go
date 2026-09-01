@@ -14,14 +14,14 @@ import (
 const stageMutationActor = "desktop-host"
 
 type stageDTO struct {
-	ID        string      `json:"id"`
-	ProjectID string      `json:"projectId"`
-	Phase     int         `json:"phase"`
-	Title     string      `json:"title"`
+	ID        string       `json:"id"`
+	ProjectID string       `json:"projectId"`
+	Phase     int          `json:"phase"`
+	Title     string       `json:"title"`
 	Status    stage.Status `json:"status"`
-	CreatedAt time.Time   `json:"createdAt"`
-	UpdatedAt time.Time   `json:"updatedAt"`
-	Version   int64       `json:"version"`
+	CreatedAt time.Time    `json:"createdAt"`
+	UpdatedAt time.Time    `json:"updatedAt"`
+	Version   int64        `json:"version"`
 }
 
 func newStageDTO(v stage.Stage) stageDTO {
@@ -33,7 +33,7 @@ func stageServiceAvailable(service StageService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func validStageStatus(status stage.Status) bool {

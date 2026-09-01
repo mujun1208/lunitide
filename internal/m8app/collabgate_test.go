@@ -202,8 +202,10 @@ func TestGateConfirmSingleUseTokenLifecycle(t *testing.T) {
 		t.Fatalf("revoked replay err = %v, want ErrDecisionTokenInvalid", err)
 	}
 	// New evaluation -> fresh pending decision; let it expire.
-	src2, has2, err := svc.PendingDecision(ctx, "subject-3")
-	_ = src2
+	_, has2, err := svc.PendingDecision(ctx, "subject-3")
+	if err != nil {
+		t.Fatalf("pending decision after revoke: %v", err)
+	}
 	if has2 {
 		t.Fatalf("revoked decision still pending")
 	}

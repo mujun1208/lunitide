@@ -414,8 +414,6 @@ func readOnlyEngineToolDefinitions() []gateway.ToolDefinition {
 	return out
 }
 
-var subagentAllowedTools = toolNameSet(readOnlyEngineToolDefinitions())
-
 type subagentFutureResult struct {
 	summary string
 	err     error

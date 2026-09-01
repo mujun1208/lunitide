@@ -41,9 +41,12 @@ const assetTemplateSelect = `SELECT id, template_code, name, template_type, docu
 
 // NextAssetTemplateCode allocates the next TPL##### code inside a transaction.
 func (s *Store) NextAssetTemplateCode(ctx context.Context, tx *sql.Tx) (string, error) {
-	q := tx.QueryRowContext
-	if q == nil {
-		q = s.db.QueryRowContext
+	// A method value bound to a nil *sql.Tx is itself non-nil, so the tx has to
+	// be nil-checked directly — testing the bound function would never fall back
+	// and a nil tx would panic on the first call instead.
+	q := s.db.QueryRowContext
+	if tx != nil {
+		q = tx.QueryRowContext
 	}
 	var last sql.NullString
 	err := q(ctx, `SELECT template_code FROM asset_templates

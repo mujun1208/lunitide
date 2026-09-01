@@ -39,27 +39,27 @@ const SummarySchemaVersion = "1.0"
 // It is derived data; it never substitutes for source messages.
 // Only accepted (succeeded) checkpoints are used in prompt assembly.
 type Checkpoint struct {
-	ID                  string    `json:"id"`
-	SessionID           string    `json:"sessionId"`
-	Version             int64     `json:"version"`
-	SourceStartID       string    `json:"sourceStartId"`
-	SourceEndID         string    `json:"sourceEndId"`
-	SourceStartSeq      int64     `json:"sourceStartSeq"`
-	SourceEndSeq        int64     `json:"sourceEndSeq"`
-	SourceDigest        string    `json:"sourceDigest"`
-	PrevCheckpointID    *string   `json:"prevCheckpointId,omitempty"`
-	PrevCheckpointDigest *string  `json:"prevCheckpointDigest,omitempty"`
-	SummarySchemaVersion string   `json:"summarySchemaVersion"`
-	Trigger             Trigger   `json:"trigger"`
-	TriggerReason       string    `json:"triggerReason"`
-	Status              Status    `json:"status"`
-	Provider            string    `json:"provider"`
-	Model               string    `json:"model"`
-	SummaryJSON         string    `json:"summaryJson"`
-	HumanSummary        string    `json:"humanSummary"`
-	FailureCode         *string   `json:"failureCode,omitempty"`
-	CreatedAt           time.Time `json:"createdAt"`
-	CompletedAt         *time.Time `json:"completedAt,omitempty"`
+	ID                   string     `json:"id"`
+	SessionID            string     `json:"sessionId"`
+	Version              int64      `json:"version"`
+	SourceStartID        string     `json:"sourceStartId"`
+	SourceEndID          string     `json:"sourceEndId"`
+	SourceStartSeq       int64      `json:"sourceStartSeq"`
+	SourceEndSeq         int64      `json:"sourceEndSeq"`
+	SourceDigest         string     `json:"sourceDigest"`
+	PrevCheckpointID     *string    `json:"prevCheckpointId,omitempty"`
+	PrevCheckpointDigest *string    `json:"prevCheckpointDigest,omitempty"`
+	SummarySchemaVersion string     `json:"summarySchemaVersion"`
+	Trigger              Trigger    `json:"trigger"`
+	TriggerReason        string     `json:"triggerReason"`
+	Status               Status     `json:"status"`
+	Provider             string     `json:"provider"`
+	Model                string     `json:"model"`
+	SummaryJSON          string     `json:"summaryJson"`
+	HumanSummary         string     `json:"humanSummary"`
+	FailureCode          *string    `json:"failureCode,omitempty"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	CompletedAt          *time.Time `json:"completedAt,omitempty"`
 }
 
 // CanTransitionTo returns whether the status can transition to the target.

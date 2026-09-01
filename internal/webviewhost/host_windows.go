@@ -1044,7 +1044,9 @@ func (h *Host) addTrayIcon() {
 		uCallbackMessage: trayMessage,
 		hIcon:            h.appIcon,
 	}
-	copy(nid.szTip[:], syscall.StringToUTF16("Lunitide"))
+	if tip, err := syscall.UTF16FromString("Lunitide"); err == nil {
+		copy(nid.szTip[:], tip)
+	}
 	shellNotifyIcon.Call(uintptr(nimAdd), uintptr(unsafe.Pointer(&nid)))
 	// Version 4 delivers WM_CONTEXTMENU / NIN_SELECT with the event in
 	// LOWORD(lParam). Without SETVERSION some overflow-area clicks never

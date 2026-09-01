@@ -10,8 +10,6 @@ import (
 
 // mockEngine records concurrency and call counts for the queue tests.
 type mockEngine struct {
-	mu sync.Mutex
-
 	inFlight  atomic.Int32
 	maxFlight atomic.Int32
 	calls     atomic.Int32

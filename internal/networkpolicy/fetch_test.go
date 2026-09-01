@@ -124,8 +124,7 @@ func TestFetchBlocksMixedDNSAnswer(t *testing.T) {
 
 func TestFetchFollowsRedirectWithPerHopRevalidation(t *testing.T) {
 	t.Parallel()
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/start":
 			http.Redirect(w, r, "/final", http.StatusFound)

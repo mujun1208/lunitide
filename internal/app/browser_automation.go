@@ -16,7 +16,6 @@ import (
 
 var (
 	errBrowserMCPNotReady = errors.New("BROWSER_MCP_NOT_READY: Playwright MCP 未就绪。这次没有点击或输入任何页面。请在设置 → MCP 安装 Playwright，或等首次下载完成后再试。不要把这次调用当成已成功。")
-	errBrowserToolMissing = errors.New("BROWSER_TOOL_MISSING: Playwright 已连接但没有这个操作。这次没有执行。")
 )
 
 const browserNavigateFetchNotice = "BROWSER_NAVIGATE_FETCH: Playwright 没有打开页面，已改为抓取网页。不要把这次当成浏览器已打开。\n"

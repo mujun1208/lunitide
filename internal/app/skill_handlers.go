@@ -47,7 +47,7 @@ func skillCategorySupport(svc SkillService) SkillCategorySupport {
 	if !ok {
 		return nil
 	}
-	if v := reflect.ValueOf(c); v.Kind() == reflect.Ptr && v.IsNil() {
+	if v := reflect.ValueOf(c); v.Kind() == reflect.Pointer && v.IsNil() {
 		return nil
 	}
 	return c
@@ -158,7 +158,7 @@ func skillServiceAvailable(service SkillService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func handleSkillGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

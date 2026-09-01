@@ -1124,12 +1124,8 @@ func (s *Service) materializeFile(in SendInput) (string, int64, string, error) {
 			if err := zipDirectory(srcPath, zipPath, maxFileBytes); err != nil {
 				return "", 0, "", err
 			}
-			srcPath = zipPath
-			defer func() {
-				if srcPath == zipPath {
-					// zip stays as staging payload; caller uses returned path
-				}
-			}()
+			// The zip is itself the staging payload; the caller consumes the
+			// returned path, so there is nothing to clean up here.
 			stage = zipPath
 		} else {
 			if err := copyFileLimited(srcPath, stage, maxFileBytes); err != nil {

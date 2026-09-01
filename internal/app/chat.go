@@ -630,7 +630,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if e.tools != nil && wantsTools {
 		profile := parseToolProfile(p.ToolProfile)
 		req.Tools = applyToolProfile(append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode, subagentPolicy)...), profile)
-		if profile == toolProfileDefault {
+		switch profile {
+		case toolProfileDefault:
 			req.Tools = append(req.Tools, planToolDefinitions(mode)...)
 			req.Tools = append(req.Tools, e.mcpToolDefinitionsRestricted(equip.McpIDs, equip.RestrictMCP())...)
 			req.Tools = append(req.Tools, e.ccToolDefinitions()...)
@@ -638,10 +639,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			req.Tools = append(req.Tools, e.expertToolDefinitions()...)
 			req.Tools = append(req.Tools, e.pluginToolDefinitions()...)
 			req.Tools = append(req.Tools, e.settingsPlaneToolDefinitions()...)
-		} else if profile == toolProfileCoding {
+		case toolProfileCoding:
 			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
 			req.Tools = applyToolProfile(req.Tools, profile)
-		} else if profile == toolProfileColleague {
+		case toolProfileColleague:
 			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
 			req.Tools = applyToolProfile(req.Tools, profile)
 		}
@@ -735,10 +736,6 @@ func (e *Engine) priorTurnTexts(ctx context.Context, sessionID, turnText string)
 		out = append(out, last)
 	}
 	return out
-}
-
-func companionPersonaInstruction() string {
-	return companionPersonaChatInstruction()
 }
 
 func companionPersonaChatInstruction() string {
@@ -1205,7 +1202,7 @@ func catalogQueryTokens(q string) []string {
 		add(f)
 	}
 	var compact []rune
-	for _, r := range []rune(q) {
+	for _, r := range q {
 		if r == ' ' || r == '\t' || r == '\n' {
 			continue
 		}
@@ -1828,7 +1825,7 @@ func mcpToolName(endpointID, tool string) (string, bool) {
 	}
 	for i := 0; i < len(name); i++ {
 		c := name[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-' {
 			return "", false
 		}
 	}
@@ -2469,11 +2466,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							msg.Content = stepText
 						}
 						nudge := continueNudgeMessage()
-						if continueKind == "leadin" {
+						switch continueKind {
+						case "leadin":
 							nudge = gateway.Message{Role: gateway.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
-						} else if continueKind == "desktop" {
+						case "desktop":
 							nudge = desktopContinueNudgeMessage()
-						} else if continueKind == "incomplete" {
+						case "incomplete":
 							nudge = incompleteContinueNudgeMessage()
 						}
 						req.Messages = append(req.Messages, msg, nudge)

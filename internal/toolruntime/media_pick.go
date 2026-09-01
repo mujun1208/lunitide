@@ -180,12 +180,12 @@ func pickRecommendNav(nodes []mediaUINode) *mediaUINode {
 		n := &nodes[i]
 		name := foldMedia(n.Name)
 		score := 0
-		switch {
-		case name == "每日推荐" || name == "日推":
+		switch name {
+		case "每日推荐", "日推":
 			score = 80
-		case name == "推荐":
+		case "推荐":
 			score = 70
-		case name == "发现" || name == "首页":
+		case "发现", "首页":
 			score = 40
 		default:
 			continue
@@ -270,10 +270,7 @@ func isMediaNavName(name string) bool {
 		"播放", "暂停", "下一首", "上一首", "play", "pause", "next", "previous":
 		return true
 	}
-	if isLikedPlaylistName(name) {
-		return true
-	}
-	return false
+	return isLikedPlaylistName(name)
 }
 
 func isLikedPlaylistName(name string) bool {

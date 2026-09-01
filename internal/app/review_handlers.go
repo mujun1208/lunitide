@@ -18,20 +18,20 @@ type GovernanceService interface {
 }
 
 type reviewDTO struct {
-	ID            string                 `json:"id"`
-	PlanID        *string                `json:"planId,omitempty"`
-	NodeID        *string                `json:"nodeId,omitempty"`
-	ActionType    governance.ActionType  `json:"actionType"`
-	ActionDigest  string                 `json:"actionDigest"`
-	InputDigest   string                 `json:"inputDigest"`
-	StateDigest   string                 `json:"stateDigest"`
-	PolicyVersion int64                  `json:"policyVersion"`
-	RiskLevel     string                 `json:"riskLevel"`
+	ID            string                  `json:"id"`
+	PlanID        *string                 `json:"planId,omitempty"`
+	NodeID        *string                 `json:"nodeId,omitempty"`
+	ActionType    governance.ActionType   `json:"actionType"`
+	ActionDigest  string                  `json:"actionDigest"`
+	InputDigest   string                  `json:"inputDigest"`
+	StateDigest   string                  `json:"stateDigest"`
+	PolicyVersion int64                   `json:"policyVersion"`
+	RiskLevel     string                  `json:"riskLevel"`
 	Status        governance.ReviewStatus `json:"status"`
-	ReviewerNote  string                 `json:"reviewerNote"`
-	ExpiresAt     *time.Time             `json:"expiresAt,omitempty"`
-	CreatedAt     time.Time              `json:"createdAt"`
-	ReviewedAt    *time.Time             `json:"reviewedAt,omitempty"`
+	ReviewerNote  string                  `json:"reviewerNote"`
+	ExpiresAt     *time.Time              `json:"expiresAt,omitempty"`
+	CreatedAt     time.Time               `json:"createdAt"`
+	ReviewedAt    *time.Time              `json:"reviewedAt,omitempty"`
 }
 
 func newReviewDTO(r governance.Review) reviewDTO {
@@ -58,7 +58,7 @@ func governanceServiceAvailable(service GovernanceService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func handleReviewList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

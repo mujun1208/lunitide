@@ -148,13 +148,17 @@ func (s *MemoryOpsService) Facts(ctx context.Context, state, scope string, limit
 	if err != nil {
 		return nil, 0, err
 	}
-	type flagPair struct{ pinned, hidden bool; note string }
+	type flagPair struct {
+		pinned, hidden bool
+		note           string
+	}
 	flagged := map[string]flagPair{}
 	for _, f := range flags {
 		pair := flagged[f.FactID]
-		if f.Flag == m8core.FlagPinned {
+		switch f.Flag {
+		case m8core.FlagPinned:
 			pair.pinned, pair.note = true, f.Note
-		} else if f.Flag == m8core.FlagHidden {
+		case m8core.FlagHidden:
 			pair.hidden, pair.note = true, f.Note
 		}
 		flagged[f.FactID] = pair

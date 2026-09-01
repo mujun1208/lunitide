@@ -880,7 +880,7 @@ func (m *blockingCreateStore) createCount() int {
 }
 
 func (m *blockingCreateStore) setCreateErr(err error) {
-	m.mockStore.mu.Lock()
-	m.mockStore.createErr = err
-	m.mockStore.mu.Unlock()
+	m.mu.Lock()
+	m.createErr = err
+	m.mu.Unlock()
 }

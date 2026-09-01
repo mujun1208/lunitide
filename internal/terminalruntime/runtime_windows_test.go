@@ -3,6 +3,7 @@
 package terminalruntime
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ func TestConPTYLifecycle(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer r.Shutdown()
-	if e = r.Start(nil, "life", 80, 24); e != nil {
+	if e = r.Start(context.Background(), "life", 80, 24); e != nil {
 		t.Skipf("ConPTY unavailable: %v", e)
 	}
 	if e = r.Write("life", []byte("Write-Output LUNITIDE_MARKER\r\n")); e != nil {
@@ -45,7 +46,7 @@ func TestJobContainsDescendant(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = r.Start(nil, "tree", 80, 24); e != nil {
+	if e = r.Start(context.Background(), "tree", 80, 24); e != nil {
 		t.Skipf("ConPTY unavailable: %v", e)
 	}
 	// A long-lived child inherits job membership. Closing the job must terminate

@@ -88,7 +88,7 @@ func ontologyServiceAvailable(service OntologyService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func handleOntologyNodeGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -291,10 +291,10 @@ func handleOntologyEdgeCreate(e *Engine, ctx context.Context, r bridge.Request) 
 
 func handleOntologyEdgeUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ID            string   `json:"id"`
-		Label         *string  `json:"label,omitempty"`
-		PropertiesJSON *string `json:"propertiesJson,omitempty"`
-		Weight        *float64 `json:"weight,omitempty"`
+		ID             string   `json:"id"`
+		Label          *string  `json:"label,omitempty"`
+		PropertiesJSON *string  `json:"propertiesJson,omitempty"`
+		Weight         *float64 `json:"weight,omitempty"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.update 参数无效", false)

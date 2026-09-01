@@ -81,7 +81,7 @@ func (e *Engine) runPlanCycle(ctx context.Context, a gateway.Adapter, credential
 	var log strings.Builder
 	for i, step := range steps {
 		outcome := e.executePlanStep(ctx, a, credential, model, sessionID, mode, objective, step, i+1, len(steps))
-		log.WriteString(fmt.Sprintf("step %d [%s]: %s\n", i+1, step.Action, outcome))
+		fmt.Fprintf(&log, "step %d [%s]: %s\n", i+1, step.Action, outcome)
 	}
 	// Phase 3: verify.
 	verifyReq := gateway.Request{

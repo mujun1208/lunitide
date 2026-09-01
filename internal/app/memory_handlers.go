@@ -64,7 +64,7 @@ func memoryServiceAvailable(service MemoryService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func handleMemoryGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -117,8 +117,8 @@ func handleMemoryCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 func handleMemoryList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ProjectID string        `json:"projectId"`
-		Layer     memory.Layer  `json:"layer"`
+		ProjectID string       `json:"projectId"`
+		Layer     memory.Layer `json:"layer"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.list 参数无效", false)

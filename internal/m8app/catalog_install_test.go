@@ -5,45 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/oklog/ulid/v2"
-
-	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/m8app"
 )
-
-type memCatalogSkills struct {
-	byName map[string]skill.Skill
-}
-
-func (m *memCatalogSkills) GetByNameVersion(_ context.Context, name, version string) (*skill.Skill, error) {
-	sk, ok := m.byName[name+"@"+version]
-	if !ok {
-		return nil, errors.New("not found")
-	}
-	copy := sk
-	return &copy, nil
-}
-
-func (m *memCatalogSkills) Create(_ context.Context, sk skill.Skill) (skill.Skill, error) {
-	if m.byName == nil {
-		m.byName = map[string]skill.Skill{}
-	}
-	sk.ID = ulid.Make().String()
-	sk.Status = skill.SkillStatusDraft
-	m.byName[sk.Name+"@"+sk.Version] = sk
-	return sk, nil
-}
-
-func (m *memCatalogSkills) Publish(_ context.Context, id string) error {
-	for key, sk := range m.byName {
-		if sk.ID == id {
-			sk.Status = skill.SkillStatusPublished
-			m.byName[key] = sk
-			return nil
-		}
-	}
-	return errors.New("not found")
-}
 
 func catalogByUsage(t *testing.T, usage string) m8app.CatalogItem {
 	t.Helper()

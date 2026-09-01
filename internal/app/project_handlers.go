@@ -69,7 +69,7 @@ func projectServiceAvailable(service ProjectService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 type projectCreatePayload struct {

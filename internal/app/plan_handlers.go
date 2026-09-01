@@ -28,31 +28,31 @@ type PlanningService interface {
 }
 
 type planDTO struct {
-	ID          string             `json:"id"`
-	ProjectID   string             `json:"projectId"`
-	StageID     *string            `json:"stageId,omitempty"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Version     int64              `json:"version"`
+	ID          string              `json:"id"`
+	ProjectID   string              `json:"projectId"`
+	StageID     *string             `json:"stageId,omitempty"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Version     int64               `json:"version"`
 	Status      planning.PlanStatus `json:"status"`
-	CreatedAt   time.Time          `json:"createdAt"`
-	UpdatedAt   time.Time          `json:"updatedAt"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	UpdatedAt   time.Time           `json:"updatedAt"`
 }
 
 type planNodeDTO struct {
-	ID              string               `json:"id"`
-	PlanID          string               `json:"planId"`
-	ParentNodeID    *string              `json:"parentNodeId,omitempty"`
-	Name            string               `json:"name"`
-	Description     string               `json:"description"`
-	Status          planning.NodeStatus  `json:"status"`
-	RiskLevel       planning.RiskLevel   `json:"riskLevel"`
-	BudgetTokens    *int64               `json:"budgetTokens,omitempty"`
-	EstimateTokens  *int64               `json:"estimateTokens,omitempty"`
-	WorkerRole      string               `json:"workerRole"`
-	Sequence        int64                `json:"sequence"`
-	CreatedAt       time.Time            `json:"createdAt"`
-	UpdatedAt       time.Time            `json:"updatedAt"`
+	ID             string              `json:"id"`
+	PlanID         string              `json:"planId"`
+	ParentNodeID   *string             `json:"parentNodeId,omitempty"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description"`
+	Status         planning.NodeStatus `json:"status"`
+	RiskLevel      planning.RiskLevel  `json:"riskLevel"`
+	BudgetTokens   *int64              `json:"budgetTokens,omitempty"`
+	EstimateTokens *int64              `json:"estimateTokens,omitempty"`
+	WorkerRole     string              `json:"workerRole"`
+	Sequence       int64               `json:"sequence"`
+	CreatedAt      time.Time           `json:"createdAt"`
+	UpdatedAt      time.Time           `json:"updatedAt"`
 }
 
 func newPlanDTO(p planning.Plan) planDTO {
@@ -92,7 +92,7 @@ func planningServiceAvailable(service PlanningService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 func handlePlanGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

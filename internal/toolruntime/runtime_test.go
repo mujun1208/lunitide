@@ -53,9 +53,10 @@ func TestInvalidExecutionModeFailsClosed(t *testing.T) {
 	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	for _, name := range []string{"workspace.list", "workspace.write", "command.run"} {
 		args := json.RawMessage(`{"path":"."}`)
-		if name == "workspace.write" {
+		switch name {
+		case "workspace.write":
 			args = json.RawMessage(`{"path":"blocked.txt","content":"blocked"}`)
-		} else if name == "command.run" {
+		case "command.run":
 			args = json.RawMessage(`{"argv":["go","version"]}`)
 		}
 		if _, err := r.Execute(context.Background(), Mode("invalid"), s, name, args, true); err == nil {

@@ -227,10 +227,6 @@ func credentialSubmissionDisabled(request bridge.Request) bridge.Response {
 	return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_SUBMISSION_NOT_ENABLED", "凭据提交链路尚未启用", false)
 }
 
-func credentialSubmissionRequired(request bridge.Request) bridge.Response {
-	return bridge.Failure(request.ID, request.TraceID, "CREDENTIAL_SUBMISSION_REQUIRED", "地址或协议变更需要同时提交新凭据", false)
-}
-
 func requireIdempotency(request bridge.Request) *bridge.Response {
 	if strings.TrimSpace(request.IdempotencyKey) != "" {
 		return nil

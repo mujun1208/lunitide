@@ -14,7 +14,6 @@ package m8core
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 )
 
@@ -209,11 +208,4 @@ func DetectLeafConflicts(edits []SyncEdit, openConflicts []SyncConflict) (merged
 		merged = append(merged, e)
 	}
 	return merged, conflicted
-}
-
-// sortStrings answers a deterministic ACK set ordering.
-func sortStrings(in []string) []string {
-	out := append([]string(nil), in...)
-	sort.Strings(out)
-	return out
 }

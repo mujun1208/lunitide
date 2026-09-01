@@ -72,9 +72,7 @@ func TestProxyBypassHandlesARealOverrideList(t *testing.T) {
 	// an implementation written from a browser's suffix rules would miss.
 	const override = "localhost;127.*;10.*;172.16.*;192.168.*"
 	config := &proxyConfig{}
-	for _, entry := range strings.Split(override, ";") {
-		config.bypass = append(config.bypass, entry)
-	}
+	config.bypass = append(config.bypass, strings.Split(override, ";")...)
 	for host, want := range map[string]bool{
 		"localhost":      true,
 		"127.0.0.1":      true,
