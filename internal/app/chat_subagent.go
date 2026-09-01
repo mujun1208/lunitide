@@ -96,7 +96,7 @@ func (e *Engine) invokeSubagentTool(ctx context.Context, a gateway.Adapter, cred
 			profile = applyExpertSpawnCaps(profile, policy.ExpertWriteTools)
 		}
 		subA, subCred, subModel := e.subagentAdapter(ctx, a, credential, model, ov)
-		return e.runSubagentSession(ctx, subA, subCred, subModel, sessionID, p.Purpose, budget, profile)
+		return e.runSubagentSession(ctx, subA, subCred, subModel, sessionID, p.Purpose, budget, profile, subagentToolMode(policy.ParentMode))
 	case "subagent.join":
 		var p struct {
 			SubagentID string `json:"subagentId"`
@@ -160,7 +160,7 @@ func subagentStoredPurpose(profile subagentProfileDef, purpose string) string {
 	return tagged
 }
 
-func (e *Engine) runSubagentSession(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef) (string, error) {
+func (e *Engine) runSubagentSession(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, error) {
 	storedPurpose := subagentStoredPurpose(profile, purpose)
 	run, err := e.m7subagent.Spawn(ctx, m7app.SpawnInput{
 		RootRunID:      sessionID,
@@ -175,7 +175,7 @@ func (e *Engine) runSubagentSession(ctx context.Context, a gateway.Adapter, cred
 	if err != nil {
 		return "", err
 	}
-	report, spent, execErr := e.executeSubagentLoop(ctx, a, credential, model, sessionID, purpose, budget, profile)
+	report, spent, execErr := e.executeSubagentLoop(ctx, a, credential, model, sessionID, purpose, budget, profile, parentMode)
 	if len(report) > subagentMaxSummaryChars {
 		report = report[:subagentMaxSummaryChars]
 	}
@@ -201,7 +201,7 @@ func (e *Engine) runSubagentSession(ctx context.Context, a gateway.Adapter, cred
 	return string(out), nil
 }
 
-func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef) (string, int64, error) {
+func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, int64, error) {
 	maxTokens := int(budget)
 	if maxTokens > 16000 {
 		maxTokens = 16000
@@ -238,7 +238,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 			return strings.TrimSpace(resp.Message.Content), spent, nil
 		}
 		req.Messages = append(req.Messages, resp.Message)
-		req.Messages = append(req.Messages, e.runSubagentToolCalls(ctx, sessionID, profile, allowed, resp.Message.ToolCalls)...)
+		req.Messages = append(req.Messages, e.runSubagentToolCalls(ctx, sessionID, profile, allowed, resp.Message.ToolCalls, parentMode)...)
 	}
 	// Running out of steps used to discard the entire delegation: several
 	// rounds of reads and searches were paid for and then thrown away, and
@@ -270,7 +270,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 // subagent turn while the main chat loop already overlapped the same calls.
 // Eligibility reuses chat_parallel.go's verified read-only contract rather
 // than inventing a second one; anything outside it still runs inline.
-func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, profile subagentProfileDef, allowed map[string]bool, calls []gateway.ToolCall) []gateway.Message {
+func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, profile subagentProfileDef, allowed map[string]bool, calls []gateway.ToolCall, parentMode executionMode) []gateway.Message {
 	summaries := make([]string, len(calls))
 	// Distinct indices, so the background writes below never overlap the
 	// inline ones.
@@ -291,12 +291,12 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 		wg.Add(1)
 		go func(i int, call gateway.ToolCall) {
 			defer wg.Done()
-			summaries[i] = e.runSubagentTool(ctx, sessionID, call)
+			summaries[i] = e.runSubagentTool(ctx, sessionID, call, parentMode)
 		}(i, call)
 	}
 	for i, call := range calls {
 		if !spawned[i] {
-			summaries[i] = e.runSubagentTool(ctx, sessionID, call)
+			summaries[i] = e.runSubagentTool(ctx, sessionID, call, parentMode)
 		}
 	}
 	wg.Wait()
@@ -311,8 +311,11 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 	return out
 }
 
-func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call gateway.ToolCall) string {
-	r, err := e.tools.Execute(ctx, toolruntime.FullAccess, sessionID, call.Name, call.Arguments, false)
+// runSubagentTool executes one delegated call. approved stays false: nobody is
+// watching a subagent, so an approval-mode parent has to see its writes
+// refused rather than have them auto-approved on its behalf.
+func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call gateway.ToolCall, parentMode executionMode) string {
+	r, err := e.tools.Execute(ctx, toolruntime.Mode(subagentToolMode(parentMode)), sessionID, call.Name, call.Arguments, false)
 	if err != nil {
 		return err.Error()
 	}

@@ -248,6 +248,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0107_memory_fact_fts.sql", "41bde89603acccb5224ec22d1878023e1801cad224c0734c033e4b7122b4c8c3"},
 	{"0108_expert_catalog_item.sql", "e2c94b62433efdcd89c33bd45b71b412ed9c923521256ac15261fb751ed4d727"},
 	{"0109_voice_kind_asr.sql", "70a3e6979ebb9990ac2cd7fac1bd39b4e3ebc6ecb33a33127f5f24e341d3a429"},
+	{"0110_audit_append_only.sql", "9124df15dfcfd1f18e5d2fa310b15dd512442b1ba75d56a173203fa15e8a0623"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1346,6 +1347,9 @@ var expectedSchemaSQL = map[string]string{
 	// after 0095's table rebuild; compared byte for byte against sqlite_schema.
 	"table:meetings":    "CREATE TABLE \"meetings\" (\n    meeting_id TEXT PRIMARY KEY CHECK (length(meeting_id) = 26 AND substr(meeting_id, 1, 1) GLOB '[0-7]' AND meeting_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 200),\n    status TEXT NOT NULL CHECK (status IN ('recording','transcribed','summarizing','ready','needs_summary')),\n    audio_source TEXT NOT NULL DEFAULT 'microphone' CHECK (audio_source IN ('microphone','microphone_and_system')),\n    started_at TEXT NOT NULL,\n    ended_at TEXT NOT NULL DEFAULT '',\n    duration_ms INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),\n    summary TEXT NOT NULL DEFAULT '' CHECK (length(summary) <= 65536),\n    actions TEXT NOT NULL DEFAULT '' CHECK (length(actions) <= 32768),\n    transcript TEXT NOT NULL DEFAULT '' CHECK (length(transcript) <= 1048576),\n    summary_error TEXT NOT NULL DEFAULT '' CHECK (length(summary_error) <= 1024),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
 	"table:im_channels": "CREATE TABLE \"im_channels\" (\n    kind TEXT PRIMARY KEY CHECK (kind IN ('feishu','wecom','dingtalk','wechat','qq')),\n    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),\n    webhook_url TEXT NOT NULL DEFAULT '' CHECK (length(webhook_url) <= 512),\n    inbound_enabled INTEGER NOT NULL DEFAULT 0 CHECK (inbound_enabled IN (0,1)),\n    inbound_allowlist TEXT NOT NULL DEFAULT '' CHECK (length(inbound_allowlist) <= 2000),\n    inbound_auto_run INTEGER NOT NULL DEFAULT 0 CHECK (inbound_auto_run IN (0,1)),\n    inbound_app_id TEXT NOT NULL DEFAULT '' CHECK (length(inbound_app_id) <= 64),\n    inbound_app_secret TEXT NOT NULL DEFAULT '' CHECK (length(inbound_app_secret) <= 256),\n    updated_at TEXT NOT NULL\n)",
+	// Migration 0110: the audit log joins the other sealed evidence tables.
+	"trigger:trg_audit_append_only": "CREATE TRIGGER trg_audit_append_only BEFORE UPDATE ON audit_events\n    BEGIN SELECT RAISE(ABORT, 'M10-AUD-001'); END",
+	"trigger:trg_audit_nodelete":    "CREATE TRIGGER trg_audit_nodelete BEFORE DELETE ON audit_events\n    BEGIN SELECT RAISE(ABORT, 'M10-AUD-001'); END",
 }
 
 type columnSpec struct {

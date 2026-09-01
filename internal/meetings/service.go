@@ -106,6 +106,7 @@ type Store interface {
 	InsertSegment(ctx context.Context, seg Segment) error
 	DeleteSegments(ctx context.Context, meetingID string) error
 	CountSegments(ctx context.Context, meetingID string) (int, error)
+	LastSegment(ctx context.Context, meetingID string) (Segment, bool, error)
 	ListSegments(ctx context.Context, meetingID string) ([]Segment, error)
 	ReplaceDocs(ctx context.Context, meetingID string, docs []Doc) error
 	ListDocs(ctx context.Context, meetingID string) ([]Doc, error)
@@ -236,6 +237,27 @@ func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting
 	return m, nil
 }
 
+// resolveAgainstLastSegment folds a fresh recognizer final into what is already
+// committed. It answers with the text still worth storing, or with the existing
+// segment when the final carried nothing new: the same line twice (a repeated
+// flush, or a restart replaying its last result), or a growing final whose
+// prefix is already on record.
+func (s *Service) resolveAgainstLastSegment(ctx context.Context, meetingID, text string) (string, Segment, bool) {
+	prev, ok, err := s.store.LastSegment(ctx, meetingID)
+	if err != nil || !ok {
+		return text, Segment{}, false
+	}
+	prevText := strings.TrimSpace(prev.Text)
+	if text == prevText {
+		return "", prev, true
+	}
+	rest, skip := peelMeetingPrefix(prevText, text)
+	if skip || strings.TrimSpace(rest) == "" {
+		return "", prev, true
+	}
+	return rest, prev, false
+}
+
 func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS int64) (Segment, error) {
 	if err := s.ready(); err != nil {
 		return Segment{}, err
@@ -247,19 +269,11 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 	if text == "" || utf8.RuneCountInString(text) > maxSegment {
 		return Segment{}, ErrInvalid
 	}
-	if last, lastErr := s.store.ListSegments(ctx, meetingID); lastErr == nil && len(last) > 0 {
-		prev := strings.TrimSpace(last[len(last)-1].Text)
-		if text != prev {
-			if rest, skip := peelMeetingPrefix(prev, text); skip {
-				return last[len(last)-1], nil
-			} else {
-				text = rest
-				if text == "" {
-					return last[len(last)-1], nil
-				}
-			}
-		}
+	kept, prev, settled := s.resolveAgainstLastSegment(ctx, meetingID, text)
+	if settled {
+		return prev, nil
 	}
+	text = kept
 	m, err := s.store.GetMeeting(ctx, meetingID)
 	if err != nil {
 		return Segment{}, err

@@ -197,19 +197,11 @@ func (s *Service) appendCatchup(ctx context.Context, meetingID, text string, sta
 	if text == "" || utf8.RuneCountInString(text) > maxSegment {
 		return Segment{}, ErrInvalid
 	}
-	if last, lastErr := s.store.ListSegments(ctx, meetingID); lastErr == nil && len(last) > 0 {
-		prev := strings.TrimSpace(last[len(last)-1].Text)
-		if text != prev {
-			if rest, skip := peelMeetingPrefix(prev, text); skip {
-				return last[len(last)-1], nil
-			} else {
-				text = rest
-				if text == "" {
-					return last[len(last)-1], nil
-				}
-			}
-		}
+	kept, prev, settled := s.resolveAgainstLastSegment(ctx, meetingID, text)
+	if settled {
+		return prev, nil
 	}
+	text = kept
 	n, err := s.store.CountSegments(ctx, meetingID)
 	if err != nil {
 		return Segment{}, err

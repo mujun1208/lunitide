@@ -280,7 +280,7 @@ func TestSubagentToolCallsKeepCallOrder(t *testing.T) {
 		{ID: "c", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`)},
 		{ID: "d", Name: "workspace.read", Arguments: json.RawMessage(`{"path":"missing.txt"}`)},
 	}
-	msgs := e.runSubagentToolCalls(context.Background(), subTestSession, profile, allowed, calls)
+	msgs := e.runSubagentToolCalls(context.Background(), subTestSession, profile, allowed, calls, executionModeFullAccess)
 	if len(msgs) != len(calls) {
 		t.Fatalf("got %d messages for %d calls", len(msgs), len(calls))
 	}
@@ -342,7 +342,7 @@ func TestSubagentOutOfStepsStillReportsWhatItFound(t *testing.T) {
 	if !ok {
 		t.Fatal("explore profile missing")
 	}
-	report, spent, err := e.executeSubagentLoop(context.Background(), adapter, nil, "model-x", subTestSession, "survey", subagentDefaultBudgetTokens, profile)
+	report, spent, err := e.executeSubagentLoop(context.Background(), adapter, nil, "model-x", subTestSession, "survey", subagentDefaultBudgetTokens, profile, executionModeFullAccess)
 	if err != nil {
 		t.Fatalf("exhausted subagent returned an error instead of a report: %v", err)
 	}

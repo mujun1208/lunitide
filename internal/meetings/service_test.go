@@ -549,7 +549,9 @@ func TestManyAppendsAndDeleteRemovesAudio(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 1200; i++ {
-		if _, err := svc.Append(ctx, started.MeetingID, "一句对齐范围", int64(i*1500)); err != nil {
+		// Distinct per line: a repeated final is now folded into the previous
+		// segment, so reusing one sentence would count 1 instead of 1200.
+		if _, err := svc.Append(ctx, started.MeetingID, fmt.Sprintf("第%d句对齐范围", i), int64(i*1500)); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}

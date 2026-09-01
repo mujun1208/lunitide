@@ -58,6 +58,24 @@ type subagentChatPolicy struct {
 	// ExpertWriteTools is the union of mounted specialists' requiredTools.
 	// Subagents may use these office/workspace writers; never computer.act / CC.
 	ExpertWriteTools []string `json:"-"`
+	// ParentMode is the execution mode of the turn that spawned the subagent,
+	// set by the engine and never by chat.start JSON. Subagent tools run under
+	// it so that delegating cannot buy authority the operator did not grant
+	// this turn. Unset means the strictest mode, not the loosest.
+	ParentMode executionMode `json:"-"`
+}
+
+// subagentToolMode resolves the mode a delegated tool call runs under. The
+// subagent inherits the parent turn rather than picking its own level: it has
+// no operator watching it, so anything it is trusted with has to already be
+// something this turn was trusted with.
+func subagentToolMode(parent executionMode) executionMode {
+	switch parent {
+	case executionModeApproval, executionModeAutoEdit, executionModeFullAccess:
+		return parent
+	default:
+		return executionModeApproval
+	}
 }
 
 func defaultSubagentChatPolicy() subagentChatPolicy {

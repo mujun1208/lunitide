@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/scheduler"
+	"github.com/lunitide/lunitide/internal/secret"
 )
 
 var (
@@ -55,7 +56,8 @@ type Store interface {
 
 // Service is the Settings + im.send surface.
 type Service struct {
-	store Store
+	store   Store
+	secrets secret.Service
 }
 
 func New(store Store) *Service { return &Service{store: store} }
@@ -243,6 +245,11 @@ func (s *Service) Set(ctx context.Context, kind Kind, patch ChannelPatch) ([]Cha
 		off := false
 		patch.InboundAutoRun = &off
 	}
+	// Move any freshly submitted plaintext into DPAPI before the row is
+	// written; the database only ever sees the marker.
+	if err := s.sealInboundSecret(ctx, kind, &patch); err != nil {
+		return nil, err
+	}
 	items, err := s.store.UpsertIMChannel(ctx, kind, patch)
 	if err != nil {
 		return nil, err
@@ -266,7 +273,7 @@ func (s *Service) LookupSecret(ctx context.Context, kind Kind) (Channel, error) 
 	}
 	for _, ch := range items {
 		if ch.Kind == kind {
-			return Normalize(ch), nil
+			return s.resolveInboundSecret(ctx, kind, Normalize(ch))
 		}
 	}
 	return Channel{}, ErrKind

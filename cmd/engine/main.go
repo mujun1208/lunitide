@@ -338,7 +338,7 @@ func main() {
 		meetingsSvc.SetAudioRoot(meetingsRoot.Path())
 	}
 	engine.SetMeetingsService(meetingsSvc)
-	imSvc := imapp.New(store)
+	imSvc := imapp.New(store).WithSecrets(secretService)
 	engine.SetIMChannelsService(imSvc)
 	engine.StartIMInbound(ctx)
 	// M4-F: resolve command jobs left in queued/running by a previous crash
