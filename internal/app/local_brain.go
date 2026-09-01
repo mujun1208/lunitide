@@ -13,14 +13,15 @@ import (
 )
 
 const (
-	BoundBrainPrefix    = "brain:"
-	BrainLunitide       = "lunitide"
-	BrainCodex          = "codex"
-	BrainClaude         = "claude"
-	localBrainTimeout   = 90 * time.Second
-	localBrainMaxRunes  = 4000
-	localBrainPromptCap = 24000
-	localBrainLastFile  = ".last-reply.txt"
+	BoundBrainPrefix       = "brain:"
+	BrainLunitide          = "lunitide"
+	BrainCodex             = "codex"
+	BrainClaude            = "claude"
+	localBrainTimeout      = 90 * time.Second
+	localBrainMaxRunes     = 4000
+	localBrainPromptCap    = 24000
+	localBrainLastFile     = ".last-reply.txt"
+	localBrainFallbackLock = "已回落月汐"
 )
 
 // BoundBrainFromKeys reads brain:<kind> from expert skill bindings.
@@ -89,21 +90,48 @@ func localBrainUserError(kind string, err error) string {
 	if kind == BrainClaude {
 		label = "本机 Claude Code"
 	}
+	lead := localBrainFallbackLock + "。"
 	if err == nil {
-		return label + " 失败。"
+		return lead + label + " 失败。已改用月汐引擎。"
 	}
 	msg := strings.TrimSpace(err.Error())
 	if strings.Contains(msg, "not on PATH") || strings.Contains(msg, "executable file not found") {
-		return label + " 不在 PATH 上，没跑起来。已改用月汐引擎。"
+		return lead + label + " 未在 PATH，没跑起来。已改用月汐引擎。"
 	}
 	if strings.Contains(strings.ToLower(msg), "timeout") || errors.Is(err, context.DeadlineExceeded) {
-		return label + " 超时。已改用月汐引擎。"
+		return lead + label + " 超时。已改用月汐引擎。"
 	}
-	return label + " 失败：" + clipRunes(msg, 200) + "。已改用月汐引擎。"
+	return lead + label + " 失败：" + clipRunes(msg, 200) + "。已改用月汐引擎。"
 }
 
 func localBrainFallbackNotice(kind string, err error) string {
 	return localBrainUserError(kind, err) + "下面是月汐引擎，不是本机 Codex / Claude Code。\n"
+}
+
+func localBrainFallbackLockHint(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	if !strings.HasSuffix(note, "\n") {
+		note += "\n"
+	}
+	return note + "系统前缀「" + localBrainFallbackLock + "」必须原样留在回复开头，不得改写或删除。\n"
+}
+
+func lockLocalBrainFallback(note, body string) string {
+	note = strings.TrimSpace(note)
+	body = strings.TrimSpace(body)
+	if note == "" {
+		return body
+	}
+	if strings.HasPrefix(body, localBrainFallbackLock) {
+		return body
+	}
+	if body == "" {
+		return note
+	}
+	return note + "\n" + body
 }
 
 func readLocalBrainResume(workDir string) string {

@@ -10,8 +10,7 @@ export function composerPrimaryAction(opts: {
 }): ComposerPrimaryAction {
   if (!opts.streaming) return 'send'
   if (opts.composerHasText) return 'follow-up-send'
-  if (opts.activeTurnCount <= 1) return 'stop'
-  return 'follow-up-send'
+  return 'send'
 }
 
 export function composerPrimaryLabel(action: ComposerPrimaryAction, zh = true): string {
@@ -25,9 +24,9 @@ export function composerPrimaryLabel(action: ComposerPrimaryAction, zh = true): 
   }
 }
 
-/** Separate stop chip in composer toolbar when multiple turns are in flight. */
-export function showComposerStopButton(streaming: boolean, activeTurnCount: number): boolean {
-  return streaming && activeTurnCount > 1
+/** Dedicated stop chip while any turn is streaming. The send button may also morph. */
+export function showComposerStopButton(streaming: boolean, activeTurnCount = 0): boolean {
+  return streaming && activeTurnCount >= 1
 }
 
 /** Stop control on the live agent segment or active user round. */

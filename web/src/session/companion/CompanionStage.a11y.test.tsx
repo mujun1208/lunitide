@@ -40,6 +40,7 @@ const tts = vi.hoisted(() => ({
   configuredWith: [] as string[],
   interrupts: 0,
   playing: false,
+  disposed: false,
 }))
 
 vi.mock('../../bridge/client', async importOriginal => {
@@ -115,10 +116,18 @@ vi.mock('./ttsPlayer', () => ({
     async flush(callbacks: TtsPlayerCallbacks) {
       await new Promise<void>(resolve => {
         const finish = () => {
+          if (tts.disposed) {
+            resolve()
+            return
+          }
           callbacks.onFinished?.('completed')
           resolve()
         }
         const check = () => {
+          if (tts.disposed) {
+            resolve()
+            return
+          }
           if (!tts.playing) finish()
           else setTimeout(check, 40)
         }
@@ -132,7 +141,10 @@ vi.mock('./ttsPlayer', () => ({
       tts.interrupts++
       tts.playing = false
     }
-    dispose() {}
+    dispose() {
+      tts.disposed = true
+      tts.playing = false
+    }
   },
 }))
 
@@ -172,6 +184,7 @@ beforeEach(() => {
   tts.configuredWith = []
   tts.interrupts = 0
   tts.playing = false
+  tts.disposed = false
   vi.mocked(baseProps.onSend).mockClear()
   vi.mocked(baseProps.onExit).mockClear()
   localStorage.clear()

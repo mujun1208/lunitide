@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -200,5 +202,71 @@ func TestPeopleThreadOpenBindFailureSendsSystem(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("open bind fail must surface system notice: %#v", resp.Payload)
+	}
+}
+
+func TestIsColleagueChatTitle(t *testing.T) {
+	if !isColleagueChatTitle("同事 · PPT专家") || !isColleagueChatTitle("同事·Excel表格制作专家") || !isColleagueChatTitle("同事对话") {
+		t.Fatal("colleague titles must be recognized")
+	}
+	if isColleagueChatTitle("你好月汐") || isColleagueChatTitle("写周报") {
+		t.Fatal("ordinary titles must stay in 对话")
+	}
+}
+
+func TestSessionListOmitsPeopleBoundAndColleagueTitledSessions(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlitestore.OpenTemplated(ctx, filepath.Join(t.TempDir(), "list-bound.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ident := identity.New(store)
+	if err := ident.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	roster := people.New(store, ident, t.TempDir(), t.TempDir())
+	t.Cleanup(roster.Close)
+	peerID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if err := roster.UpsertAgentContact(ctx, people.Contact{
+		SubjectID: peerID, Nickname: "PPT专家", Avatar: "📊", Status: "online",
+		OrgName: people.AgentOrgName,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	thread, _, err := roster.OpenDirect(ctx, peerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngineWithSessions(nil, projectapp.New(store, store), sessionapp.New(store, store), "test", nil)
+	e.SetIdentityPeopleServices(ident, roster)
+	boundID, err := e.ensurePeopleBoundSession(ctx, thread.ThreadID, "PPT专家")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.sessions.(sessionByID).Get(ctx, boundID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary := validRequest("session.create", `{"projectId":"`+got.ProjectID+`","title":"你好月汐"}`)
+	ordinary.IdempotencyKey = "ordinary-chat"
+	if created := e.Handle(ctx, ordinary); !created.OK {
+		t.Fatalf("ordinary create = %#v", created)
+	}
+	leftover := validRequest("session.create", `{"projectId":"`+got.ProjectID+`","title":"同事 · Excel表格制作专家"}`)
+	leftover.IdempotencyKey = "leftover-colleague"
+	if created := e.Handle(ctx, leftover); !created.OK {
+		t.Fatalf("leftover create = %#v", created)
+	}
+	listed := e.Handle(ctx, validRequest("session.list", `{"projectId":"`+got.ProjectID+`"}`))
+	if !listed.OK {
+		t.Fatalf("list = %#v", listed)
+	}
+	body, _ := json.Marshal(listed.Payload)
+	if !strings.Contains(string(body), "你好月汐") {
+		t.Fatalf("ordinary chat missing: %s", body)
+	}
+	if strings.Contains(string(body), boundID) || strings.Contains(string(body), "PPT专家") || strings.Contains(string(body), "Excel") || strings.Contains(string(body), "同事") {
+		t.Fatalf("colleague sessions leaked into 对话: %s", body)
 	}
 }

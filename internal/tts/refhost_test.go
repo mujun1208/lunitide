@@ -123,6 +123,32 @@ func TestRefHostIsLaunchingSkipsDocsOnline(t *testing.T) {
 	h.Stop()
 }
 
+func TestRefHostProcessExitLeavesOfflineWithError(t *testing.T) {
+	if _, err := os.Stat(`C:\Windows\System32\cmd.exe`); err != nil {
+		t.Skip("windows-only spawn test")
+	}
+	dir := t.TempDir()
+	bat := filepath.Join(dir, "die.bat")
+	if err := os.WriteFile(bat, []byte("@echo off\r\nexit /b 1\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := NewRefHost(bat)
+	err := h.EnsureRunning("http://127.0.0.1:1", 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("dead launcher must not look ready")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		state, _ := h.Status("http://127.0.0.1:1")
+		if state == RefHostOffline && h.LastErr() != "" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	state, _ := h.Status("http://127.0.0.1:1")
+	t.Fatalf("state=%s lastErr=%q, want offline with a reason", state, h.LastErr())
+}
+
 func TestRefMetaCarriesHostState(t *testing.T) {
 	// RefPackMeta must embed the host state without panicking on a
 	// not_configured host (no launcher, dead endpoint).

@@ -7,6 +7,25 @@
 // from the registry and continues rendering the live reply.
 import type { ChatStream, StreamArtifact, StreamEvent } from '../bridge/client'
 
+const LOCAL_CANCEL_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAZ'
+const CANCEL_WAIT_MS = 800
+
+function localCancelledEvent(streamId: string): StreamEvent {
+  return {
+    v: '1.0',
+    kind: 'event',
+    id: LOCAL_CANCEL_ID,
+    streamId: streamId || LOCAL_CANCEL_ID,
+    sequence: 1,
+    type: 'cancelled',
+  }
+}
+
+function retireAsCancelled(entry: LiveChatEntry): void {
+  if (entry.terminal) return
+  applyLiveChatEvent(entry, localCancelledEvent(entry.stream?.streamId ?? entry.turnId))
+}
+
 export interface LiveToolActivity { callId: string; name: string; argsDigest: string; status: string; summary?: string; artifact?: StreamArtifact }
 
 export interface LiveChatState {
@@ -97,14 +116,19 @@ export function startLiveChat(sessionId: string, turnId = '_current', activity?:
 export async function cancelLiveChatTurn(sessionId: string, turnId?: string): Promise<void> {
   const cancelEntry = async (entry: LiveChatEntry) => {
     const stream = entry.stream
-    if (!stream || cancellingStreams.has(stream)) return
-    cancellingStreams.add(stream)
-    try {
-      await stream.cancel()
-    } catch { /* best effort */ }
-    finally {
-      cancellingStreams.delete(stream)
+    if (stream && !cancellingStreams.has(stream)) {
+      cancellingStreams.add(stream)
+      try {
+        await Promise.race([
+          stream.cancel().then(() => undefined),
+          new Promise<void>(resolve => setTimeout(resolve, CANCEL_WAIT_MS)),
+        ])
+      } catch { /* best effort */ }
+      finally {
+        cancellingStreams.delete(stream)
+      }
     }
+    retireAsCancelled(entry)
   }
   if (turnId) {
     const entry = entries.get(liveTurnKey(sessionId, turnId))
@@ -114,8 +138,11 @@ export async function cancelLiveChatTurn(sessionId: string, turnId?: string): Pr
   const seen = new WeakSet<ChatStream>()
   for (const entry of listActiveTurns(sessionId)) {
     const stream = entry.stream
-    if (!stream || seen.has(stream)) continue
-    seen.add(stream)
+    if (stream && seen.has(stream)) {
+      retireAsCancelled(entry)
+      continue
+    }
+    if (stream) seen.add(stream)
     await cancelEntry(entry)
   }
 }

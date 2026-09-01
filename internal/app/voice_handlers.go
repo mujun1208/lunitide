@@ -405,15 +405,9 @@ func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, 
 	if p.Protocol != provider.ProtocolVolcSpeech {
 		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", "所选供应商不是火山语音", false)
 	}
-	modelID := ""
-	for _, m := range p.Models {
-		if m.IsDefault {
-			modelID = m.ModelID
-			break
-		}
-	}
-	if modelID == "" && len(p.Models) > 0 {
-		modelID = p.Models[0].ModelID
+	modelID := volcListenModelID(p)
+	if modelID == "" {
+		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", "没有可用的火山听写模型", false)
 	}
 	var session voice.Session
 	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {

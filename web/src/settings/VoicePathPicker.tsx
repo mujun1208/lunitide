@@ -18,7 +18,7 @@ export function VoicePathPicker({
   return (
     <div className="voice-path-section">
       <p className="voice-path-lead">
-        月伴听写与朗读走哪条通道，和对话模型不是一回事。云端默认晓晓；火山听写 seed-asr、朗读 seed-tts 官方音色；本机用 sherpa 听写、GPT-SoVITS 克隆音色。豆包 App 里的温柔桃子是另一份角色库，不能拿来冒充这里的官方 speaker。
+        月伴听写与朗读走哪条通道，和对话模型不是一回事。云端：系统识别 + 晓晓，不能插话。火山听写 seed-asr、朗读 seed-tts 官方音色。本机用 sherpa 听写、GPT-SoVITS 克隆音色。豆包 App 里的温柔桃子是另一份角色库，不能拿来冒充这里的官方 speaker。
       </p>
       {volcTtsReady && shown === 'cloud' && (
         <p className="voice-path-hint" role="status">

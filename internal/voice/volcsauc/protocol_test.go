@@ -3,6 +3,7 @@ package volcsauc
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,35 @@ func TestEncodeDecodeAudioLastUsesNegativeSequence(t *testing.T) {
 	}
 	if !bytes.Equal(frame.Raw, pcm) {
 		t.Fatalf("pcm round-trip failed: %d vs %d", len(frame.Raw), len(pcm))
+	}
+}
+
+func TestTranscriptFromJSONAcceptsArrayAndPayloadMsg(t *testing.T) {
+	array := []byte(`{"result":[{"text":"打开网络。","utterances":[{"text":"打开网络。","definite":true}]}]}`)
+	text, final, ok := TranscriptFromJSON(array)
+	if !ok || text != "打开网络。" || !final {
+		t.Fatalf("array: %q %v %v", text, final, ok)
+	}
+	wrapped := []byte(`{"payload_msg":{"result":{"text":"月汐","utterances":[{"text":"月汐","definite":false}]}}}`)
+	text, final, ok = TranscriptFromJSON(wrapped)
+	if !ok || text != "月汐" || final {
+		t.Fatalf("payload_msg: %q %v %v", text, final, ok)
+	}
+	empty := []byte(`{"result":null}`)
+	if _, _, ok = TranscriptFromJSON(empty); ok {
+		t.Fatal("null result must not look like a transcript")
+	}
+}
+
+func TestDialogContextJSONIsOfficialShape(t *testing.T) {
+	got := dialogContextJSON([]string{"月汐", "月伴"})
+	if !strings.Contains(got, `"context_type":"dialog_ctx"`) || !strings.Contains(got, `"text":"月汐"`) {
+		t.Fatalf("context = %s", got)
+	}
+	req := fullClientRequest(Config{})
+	inner, _ := req["request"].(map[string]any)
+	if inner["result_type"] != "full" {
+		t.Fatalf("result_type = %v", inner["result_type"])
 	}
 }
 

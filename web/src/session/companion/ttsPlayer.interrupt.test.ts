@@ -120,6 +120,27 @@ describe('TtsPlayer interruption (MC-04: silence within 100ms, receipt delayed 3
     expect(playEvents).toHaveLength(0) // never audibly started
     expect(finished).toHaveLength(0) // speak() returned via generation guard
   })
+
+  test('flush does not fire onFinished after dispose or interrupt', async () => {
+    let releaseSynthesis: (value: TtsSynthesizeResult) => void = () => {}
+    bridge.synthesize.mockReturnValue(
+      new Promise<TtsSynthesizeResult>(resolve => {
+        releaseSynthesis = resolve
+      }),
+    )
+    const player = new TtsPlayer()
+    const finished: string[] = []
+    const speaking = player.speak(['还在合成'], defaultCompanionSettings(), {})
+    await vi.waitFor(() => expect(bridge.synthesize).toHaveBeenCalledTimes(1))
+    expect(player.isBusy()).toBe(true)
+    const flushing = player.flush({ onFinished: reason => finished.push(reason) })
+    player.dispose()
+    releaseSynthesis(okResult())
+    await vi.advanceTimersByTimeAsync(200)
+    await flushing
+    await speaking
+    expect(finished).toEqual([])
+  })
 })
 
 describe('TtsPlayer engine-unavailable degradation (MC-05 player side, M95-001)', () => {

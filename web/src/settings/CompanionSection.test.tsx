@@ -188,6 +188,27 @@ describe('CompanionSection voice path', () => {
     expect(tts.synthesize).not.toHaveBeenCalled()
   })
 
+  test('local preview is clickable after the host dies', async () => {
+    tts.voices.mockResolvedValue({
+      voices: [{ voice_id: 'refpack:温暖御姐.wav', display_name: '温暖御姐', lang: 'zh-CN', gender: 'female', group: '温柔御姐' }],
+      ref_meta: {
+        endpoint: 'http://127.0.0.1:9880',
+        pack_dir: 'pack',
+        server_online: false,
+        pack_exists: true,
+        missing_files: [],
+        host_state: 'offline',
+        host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat',
+        host_last_err: 'jieba_fast dict.txt missing',
+      },
+    })
+    const user = userEvent.setup()
+    render(<CompanionSection />)
+    await user.click(await screen.findByRole('radio', { name: /本地/ }))
+    expect(await screen.findByText(/jieba_fast/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '试听' })).toBeEnabled()
+  })
+
   test('local path keeps three cards and shows GPT-SoVITS extras', async () => {
     const user = userEvent.setup()
     render(<CompanionSection />)

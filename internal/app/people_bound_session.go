@@ -104,3 +104,43 @@ func peopleBoundSessionTitle(hint string) string {
 	}
 	return hint
 }
+
+func isColleagueChatTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	if t == "同事对话" {
+		return true
+	}
+	return strings.HasPrefix(t, "同事 · ") || strings.HasPrefix(t, "同事·")
+}
+
+func (e *Engine) peopleBoundSessionSet(ctx context.Context) map[string]struct{} {
+	out := map[string]struct{}{}
+	if e == nil || e.people == nil {
+		return out
+	}
+	ids, err := e.people.ListBoundSessionIDs(ctx)
+	if err != nil {
+		return out
+	}
+	for _, id := range ids {
+		if id != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}
+
+func (e *Engine) ordinaryChatSessions(ctx context.Context, items []session.Session) []session.Session {
+	bound := e.peopleBoundSessionSet(ctx)
+	out := make([]session.Session, 0, len(items))
+	for _, item := range items {
+		if _, ok := bound[item.ID]; ok {
+			continue
+		}
+		if isColleagueChatTitle(item.Title) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}

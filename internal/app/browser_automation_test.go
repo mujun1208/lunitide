@@ -47,9 +47,15 @@ func TestBrowserActNeedsSnapshotRing(t *testing.T) {
 
 func TestInvokeBrowserActViaPlaywrightRefusesEmptySuccess(t *testing.T) {
 	e := NewEngine(nil, "test")
-	_, err := e.invokeBrowserActViaPlaywright(context.Background(), browserActCall{Op: "click", Selector: "e12"})
+	out, err := e.invokeBrowserActViaPlaywright(context.Background(), browserActCall{Op: "click", Selector: "e12"})
 	if !errors.Is(err, errBrowserMCPNotReady) && (err == nil || !strings.Contains(err.Error(), "BROWSER_MCP_NOT_READY")) {
 		t.Fatalf("unready act must be a typed error, got %v", err)
+	}
+	if strings.TrimSpace(out.Output) != "" {
+		t.Fatalf("click must not empty-succeed: %+v", out)
+	}
+	if browserActMayEnsureMCP("click") || browserActMayEnsureMCP("type") || !browserActMayEnsureMCP("navigate") {
+		t.Fatal("only navigate may auto-install Playwright")
 	}
 }
 

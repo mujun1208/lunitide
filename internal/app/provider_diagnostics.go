@@ -55,10 +55,14 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 	}
 	modelID := payload.ModelID
 	if modelID == "" {
-		for _, m := range p.Models {
-			if m.IsDefault {
-				modelID = m.ModelID
-				break
+		if p.Protocol == provider.ProtocolVolcSpeech {
+			modelID = volcListenModelID(p)
+		} else {
+			for _, m := range p.Models {
+				if m.IsDefault {
+					modelID = m.ModelID
+					break
+				}
 			}
 		}
 	} else if !storedModel(p, modelID) {

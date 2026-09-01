@@ -62,6 +62,9 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "不要原样复读") {
 		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
+	if !strings.Contains(system, "一次") || !strings.Contains(system, "不要 web.fetch") {
+		t.Fatalf("companion weather must be one search: %q", system)
+	}
 	if strings.Contains(system, "可用技能目录") {
 		t.Fatalf("idle companion injected skill catalog: %q", system)
 	}
@@ -222,6 +225,37 @@ func TestCompanionOpeningAck(t *testing.T) {
 	}
 	if got := companionOpeningAck("你好"); got != "嗨，我在呢。" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestShouldInjectCompanionToolLeadIn(t *testing.T) {
+	if !shouldInjectCompanionToolLeadIn("", false) {
+		t.Fatal("empty first step should inject")
+	}
+	if shouldInjectCompanionToolLeadIn("我就帮你查一下今天的天气哈！", false) {
+		t.Fatal("model already spoke — do not inject")
+	}
+	if shouldInjectCompanionToolLeadIn("", true) {
+		t.Fatal("second tool step must not replay the pad")
+	}
+}
+
+func TestCompanionRedundantWebSkip(t *testing.T) {
+	msg, skip := companionRedundantWebSkip(true, []string{"web.search"}, "web.search", "今天天气怎么样", false)
+	if !skip || !strings.Contains(msg, "已经有搜索摘要") {
+		t.Fatalf("second search: %q skip=%v", msg, skip)
+	}
+	if _, skip := companionRedundantWebSkip(true, nil, "web.fetch", "今天天气怎么样", true); !skip {
+		t.Fatal("fetch after search without a URL must skip")
+	}
+	if _, skip := companionRedundantWebSkip(true, []string{"web.search"}, "web.fetch", "打开 https://example.com/weather", false); skip {
+		t.Fatal("user-supplied URL fetch must run")
+	}
+	if _, skip := companionRedundantWebSkip(true, nil, "web.search", "今天天气怎么样", false); skip {
+		t.Fatal("first search must run")
+	}
+	if _, skip := companionRedundantWebSkip(false, []string{"web.search"}, "web.fetch", "今天天气怎么样", false); skip {
+		t.Fatal("typed chat must not skip fetch")
 	}
 }
 

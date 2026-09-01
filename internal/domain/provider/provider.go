@@ -16,7 +16,15 @@ import (
 // OriginFingerprint binds a credential to its protocol and canonical origin.
 // The URL path deliberately does not participate in this security boundary.
 func OriginFingerprint(protocol Protocol, rawBaseURL string) (string, error) {
-	origin, err := NormalizeOrigin(rawBaseURL)
+	bound := rawBaseURL
+	if protocol == ProtocolVolcSpeech {
+		canon, err := CanonicalVolcSpeechURL(rawBaseURL)
+		if err != nil {
+			return "", err
+		}
+		bound = canon
+	}
+	origin, err := NormalizeOrigin(bound)
 	if err != nil {
 		return "", err
 	}

@@ -1,4 +1,5 @@
 import type { ProviderProtocol } from '../generated/bridge'
+import { canonicalizeVolcSpeechUrl } from '../session/companion/volcVoices'
 export function normalizeOrigin(raw: string): string {
   const input = raw.trim()
   if (/[^\x20-\x7e]/.test(input) || input.includes('\\')) throw new Error('地址只能使用 ASCII 字符，且不能包含反斜杠')
@@ -31,5 +32,9 @@ export function isLocalTrustedOrigin(raw: string): boolean {
   return false
 }
 export function originBindingChanged(protocolA: ProviderProtocol, urlA: string, protocolB: ProviderProtocol, urlB: string): boolean {
-  try { return protocolA !== protocolB || normalizeOrigin(urlA) !== normalizeOrigin(urlB) } catch { return false }
+  try {
+    const left = protocolA === 'volc_speech' ? canonicalizeVolcSpeechUrl(urlA) : urlA
+    const right = protocolB === 'volc_speech' ? canonicalizeVolcSpeechUrl(urlB) : urlB
+    return protocolA !== protocolB || normalizeOrigin(left) !== normalizeOrigin(right)
+  } catch { return false }
 }

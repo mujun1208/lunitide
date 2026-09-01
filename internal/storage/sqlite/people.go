@@ -338,6 +338,25 @@ func (s *Store) ClearThreadSession(ctx context.Context, threadID string) error {
 	return err
 }
 
+func (s *Store) ListBoundSessionIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT session_id FROM people_thread_session`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, rows.Err()
+}
+
 func isDirectPair(members []string, a, b string) bool {
 	if a == b {
 		return len(members) == 1 && members[0] == a

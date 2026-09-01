@@ -82,6 +82,7 @@ func handleSessionList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return sessionFailure(r, err)
 	}
+	items = e.ordinaryChatSessions(ctx, items)
 	dtos := make([]sessionDTO, len(items))
 	for i := range items {
 		dtos[i] = newSessionDTO(items[i])

@@ -33,6 +33,7 @@ const tts = vi.hoisted(() => ({
   speakCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
   enqueueCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
   playing: false,
+  disposed: false,
 }))
 
 const automation = vi.hoisted(() => ({
@@ -105,16 +106,25 @@ vi.mock('./ttsPlayer', () => ({
       tts.playing = true
     }
     async flush(callbacks: TtsPlayerCallbacks) {
+      if (tts.disposed) return
       if (!tts.playing) {
         callbacks.onFinished?.('completed')
         return
       }
       await new Promise<void>(resolve => {
         const finish = () => {
+          if (tts.disposed) {
+            resolve()
+            return
+          }
           callbacks.onFinished?.('completed')
           resolve()
         }
         const check = () => {
+          if (tts.disposed) {
+            resolve()
+            return
+          }
           if (!tts.playing) finish()
           else setTimeout(check, 40)
         }
@@ -127,7 +137,10 @@ vi.mock('./ttsPlayer', () => ({
     interrupt(_options?: { cancelEngine?: boolean }): void {
       tts.playing = false
     }
-    dispose(): void {}
+    dispose(): void {
+      tts.disposed = true
+      tts.playing = false
+    }
   },
 }))
 
@@ -168,6 +181,8 @@ beforeEach(() => {
   speech.start.mockRejectedValue(new Error('麦克风不可用'))
   tts.speakCalls = []
   tts.enqueueCalls = []
+  tts.playing = false
+  tts.disposed = false
   automation.runs = []
   localStorage.clear()
 })

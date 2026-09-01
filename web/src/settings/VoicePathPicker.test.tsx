@@ -20,6 +20,7 @@ describe('VoicePathPicker', () => {
     expect(screen.getByText('火山听 · 晓晓读（未配朗读）')).toBeInTheDocument()
     expect(screen.getByText('sherpa + GPT-SoVITS')).toBeInTheDocument()
     expect(screen.getByText(/豆包 App 里的温柔桃子/)).toBeInTheDocument()
+    expect(screen.getAllByText(/不能插话/).length).toBeGreaterThanOrEqual(1)
     expect(document.querySelectorAll('.voice-path-card')).toHaveLength(3)
     expect(document.querySelectorAll('.voice-path-card.on')).toHaveLength(1)
   })

@@ -20,9 +20,9 @@ import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
 import{ProfilePanel}from'./ProfilePanel'
 import{useZh}from'../i18n/language'
-import{leftoverArchivedMcp}from'./leftoverMcp'
+import{leftoverArchivedNames}from'./leftoverMcp'
 import { detectImWebhookKind } from './imWebhook'
-import { refPreviewButtonLabel, refPreviewReady, refPreviewStatus } from './refEnginePreview'
+import { refEngineCaption, refLaunchPollStatus, refPreviewButtonLabel, refPreviewReady, refPreviewStatus } from './refEnginePreview'
 
 
 interface GeneralSettings {
@@ -548,12 +548,12 @@ export function CompanionSection():React.JSX.Element{
  // health in ref_meta.
  const refEndpointPayload=companion.engine==='ref'&&companion.refEndpoint?companion.refEndpoint:undefined
  const[showForeignEdgeVoices,setShowForeignEdgeVoices]=useState(false)
- useEffect(()=>{let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);let available=r.voices.length>0;if(companion.engine==='ref'&&r.ref_meta&&!r.ref_meta.pack_exists){available=false}setEngineState(available?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,companion.voicePath,refEndpointPayload])
+ useEffect(()=>{let cancelled=false;setEngineState('probing');getTtsBridge().voices({engine:companion.engine,refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;setVoices(r.voices);setRefMeta(r.ref_meta);let available=r.voices.length>0;if(companion.engine==='ref'){const online=r.ref_meta?.server_online===true||r.ref_meta?.host_state==='online';available=online&&!(r.ref_meta&&r.ref_meta.pack_exists===false)}setEngineState(available?'available':'unavailable')}).catch(()=>{if(!cancelled){setVoices([]);setRefMeta(undefined);setEngineState('unavailable')}});return()=>{cancelled=true}},[companion.engine,companion.voicePath,refEndpointPayload])
  // Auto-host launcher: when the ref engine is selected but the service
  // is down, kick the backend ensureRefEngine (non-blocking spawn) once
  // and poll the voices probe until /docs answers or the budget runs out.
  const hostLaunching=refMeta?.host_state==='launching'
- useEffect(()=>{if(companion.engine!=='ref'||!refMeta||refMeta.server_online||!refMeta.host_script)return;let cancelled=false;void getTtsBridge().ensureRefEngine({refEndpoint:refEndpointPayload}).catch(()=>{});let tries=0;const poll=()=>{if(cancelled)return;tries++;getTtsBridge().voices({engine:'ref',refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;if(r.ref_meta){setRefMeta(r.ref_meta);if(r.ref_meta.server_online){setStatus('语音引擎已就绪，50 种音色可直接试听。');return}}if(tries<40)setTimeout(poll,3000)}).catch(()=>{if(!cancelled&&tries<40)setTimeout(poll,3000)})};const timer=setTimeout(poll,3000);return()=>{cancelled=true;clearTimeout(timer)}},[companion.engine,refMeta?.server_online,refMeta?.host_script,refEndpointPayload])
+ useEffect(()=>{if(companion.engine!=='ref'||!refMeta||refMeta.server_online||!refMeta.host_script)return;let cancelled=false;void getTtsBridge().ensureRefEngine({refEndpoint:refEndpointPayload}).catch(()=>{});let tries=0;const poll=()=>{if(cancelled)return;tries++;getTtsBridge().voices({engine:'ref',refEndpoint:refEndpointPayload}).then(r=>{if(cancelled)return;if(r.ref_meta){setRefMeta(r.ref_meta);if(r.ref_meta.server_online){setStatus('语音引擎已就绪，50 种音色可直接试听。');return}}if(tries<40)setTimeout(poll,3000);else{const msg=refLaunchPollStatus(tries,40,r.ref_meta?.host_last_err);if(msg)setStatus(msg)}}).catch(()=>{if(!cancelled&&tries<40)setTimeout(poll,3000);else if(!cancelled){const msg=refLaunchPollStatus(tries,40);if(msg)setStatus(msg)}})};const timer=setTimeout(poll,3000);return()=>{cancelled=true;clearTimeout(timer)}},[companion.engine,refMeta?.server_online,refMeta?.host_script,refEndpointPayload])
  const save=(next:CompanionSettings)=>{setCompanion(next);saveCompanionSettings(next);setStatus('设置已保存，立即生效。')}
  const preview=async()=>{
   setBusy(true);setStatus('正在合成试听…')
@@ -568,7 +568,7 @@ export function CompanionSection():React.JSX.Element{
    setStatus(result.notice==='TTS_VOICE_NOT_FOUND'?'所选音色不可用，已回退默认音色（M95-004）。':'试听播放中…')
   }catch(e){setStatus(refPreviewStatus(e))}finally{setBusy(false)}
  }
- const refDesc=refMeta?(refMeta.server_online?(refMeta.pack_exists?(refMeta.missing_files&&refMeta.missing_files.length>0?`音色 ${voices.length} 个，但 ${refMeta.missing_files.length} 个参考音频缺失（${refMeta.missing_files.slice(0,3).join('、')}${refMeta.missing_files.length>3?'…':''}），请检查音色包目录`:`音色 ${voices.length} 个（GPT-SoVITS 本地克隆，引擎在线，按风格分组）`):`引擎在线，但音色包目录缺失（${refMeta.pack_dir}），请检查音色文件`):refMeta.host_script?(hostLaunching?'语音引擎启动中…（首次加载模型约 30-90 秒，就绪后 50 种音色自动可用）':`检测到本机 GPT-SoVITS，服务未运行——已自动在后台启动语音引擎（首次加载模型约 30-90 秒）`):`未检测到 GPT-SoVITS 启动脚本（E:\GPT-SoVITS\start-api-cpu.bat）——请手动启动 api_v2 服务（默认端口 9880；WebUI 的 9874 端口不提供合成 API）`):'正在检测 GPT-SoVITS 服务…'
+ const refDesc=refEngineCaption(refMeta,voices.length)
  const zhVoices=voices.filter(v=>(v.lang||'').toLowerCase()==='zh-cn')
  const zhMale=zhVoices.filter(v=>v.gender==='male').length
  const zhFemale=zhVoices.filter(v=>v.gender==='female').length
@@ -623,11 +623,7 @@ export function McpPresetsSection({ bridge = getMcpBridge(), onOpenMcp }: { brid
   useEffect(() => {
     bridge.list().catch(() => ({ endpoints: [] }))
       .then(listed => {
-        const names = new Set<string>()
-        for (const ep of listed?.endpoints ?? []) {
-          leftoverArchivedMcp(ep.args).forEach(name => names.add(name))
-        }
-        setLeftover([...names])
+        setLeftover(leftoverArchivedNames(listed?.endpoints ?? []))
         setStatus('')
       })
       .catch(e => setStatus(e instanceof Error ? e.message : 'MCP 清单加载失败'))
@@ -789,7 +785,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div>
           <div className="setting-label">本机浏览器自动化</div>
-          <div className="setting-desc">对话里的填表/点击走托管 Playwright（首次自动安装）。操作前 snapshot，动作后会带回新页面树。登录墙、验证码、文件选择请你本地完成，月汐不会代点。个人 Chrome/Edge 仅在你选择对应连接模式时使用，不会拷贝 Cookie。</div>
+          <div className="setting-desc">对话里的填表/点击走托管 Playwright。打开网页（navigate）可以在首次预置；click/type 未就绪会报 BROWSER_MCP_NOT_READY，不会空成功。登录墙、验证码、文件选择请你本地完成。个人 Chrome/Edge 仅在你选择对应连接模式时使用，不是默认电脑控制，也不会拷贝 Cookie。Chrome DevTools / Browser MCP 要人在 MCP 页安装。</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           <button disabled={busy} onClick={() => void detectModes()}>重新探测</button>

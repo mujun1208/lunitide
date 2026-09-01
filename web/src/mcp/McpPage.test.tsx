@@ -124,6 +124,34 @@ it('reconnects an installed MCP', async () => {
   await waitFor(() => expect(bridge.health).toHaveBeenCalledWith({ endpointId: memoryEndpoint.endpointId }))
 })
 
+it('uninstalls an installed market card without switching tabs', async () => {
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: memoryEndpoint.endpointId, state: 'revoked' })
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({
+      items: [{
+        id: 'playwright', name: 'Playwright', description: '浏览器自动化',
+        transport: 'stdio' as const, command: 'npx' as const, args: ['-y', '@playwright/mcp'],
+        needsArgs: false, category: '浏览器',
+      }],
+    }),
+    list: vi.fn().mockResolvedValue({
+      endpoints: [{
+        ...memoryEndpoint,
+        displayName: 'Playwright',
+        args: ['-y', '@playwright/mcp'],
+      }],
+    }),
+  })
+  render(<McpPage bridge={bridge} />)
+  expect(await screen.findByRole('tab', { name: /MCP 市场/ })).toHaveAttribute('aria-selected', 'true')
+  fireEvent.click(await screen.findByRole('button', { name: '卸载 Playwright' }))
+  fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
+  await waitFor(() => expect(uninstall).toHaveBeenCalledOnce())
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
 it('deletes an installed MCP after confirm', async () => {
   const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
   const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: memoryEndpoint.endpointId, state: 'revoked' })
@@ -153,6 +181,21 @@ it('saves Cursor-style mcpServers JSON from the create dialog', async () => {
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-memory'],
   })
+})
+
+it('opens installed view and marks leftover archived MCP', async () => {
+  const leftover = {
+    ...memoryEndpoint,
+    endpointId: 'mcp-old-github',
+    displayName: '@modelcontextprotocol/server-github',
+    args: ['-y', '@modelcontextprotocol/server-github'],
+  }
+  const bridge = api({ list: vi.fn().mockResolvedValue({ endpoints: [memoryEndpoint, leftover] }) })
+  render(<McpPage bridge={bridge} />)
+  expect(await screen.findByText(/已下架 MCP（GitHub）/)).toBeInTheDocument()
+  expect(await screen.findByText(/已下架 · GitHub/)).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /已安装/ })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByText('Memory')).toBeInTheDocument()
 })
 
 it('warns that Chrome attach presets are not default computer control', async () => {

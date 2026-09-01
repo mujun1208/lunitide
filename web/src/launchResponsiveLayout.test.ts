@@ -16,6 +16,9 @@ describe('launch responsive layout',()=>{
   expect(css).toMatch(/html\[data-theme="light"\] \.launch-content:has\(\.launch-main\)\{background:transparent\}/)
   expect(css).toMatch(/html\[data-theme="light"\] \.atmosphere\[data-aurora="webgl"\] \.sky\{background:#f7f8fc\}/)
  })
+ it('keeps both meeting columns on the light pane background',()=>{
+  expect(css).toMatch(/html\[data-theme="light"\] \.meeting-shell,html\[data-theme="light"\] \.meeting-list,html\[data-theme="light"\] \.meeting-main\{background:var\(--bg2\)\}/)
+ })
  it('gives collapsed sidebar space back to the chat content',()=>{
   expect(css).toMatch(/\.launch-shell\{--sidebar-width:var\(--sidebar-expanded-width,288px\)/)
   expect(css).toMatch(/\.launch-shell\.sidebar-collapsed\{--sidebar-width:0px\}/)

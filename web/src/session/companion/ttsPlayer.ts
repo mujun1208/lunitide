@@ -647,12 +647,21 @@ export class TtsPlayer {
     if (!this.queueProcessing && this.pendingSegments.length > 0) {
       void this.processQueue(callbacks)
     }
+    const generation = this.generation
     return new Promise(resolve => {
       const finish = () => {
+        if (this.generation !== generation) {
+          resolve()
+          return
+        }
         callbacks.onFinished?.('completed')
         resolve()
       }
       const check = () => {
+        if (this.generation !== generation) {
+          resolve()
+          return
+        }
         if (!this.isBusy()) finish()
         else setTimeout(check, 40)
       }

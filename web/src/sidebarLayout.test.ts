@@ -18,6 +18,8 @@ describe('sidebar scrolling layout',()=>{
   expect(css).toMatch(/\.conversation-list\{[^}]*touch-action:pan-y/)
   expect(css).toMatch(/\.conversation-list\{[^}]*height:100%/)
   expect(css).toMatch(/\.conversation-group\.is-closed\{[^}]*flex:none/)
+  expect(css).toMatch(/\.conversation-group\.is-empty\{[^}]*flex:none/)
+  expect(css).toMatch(/\.conversation-group\.is-empty \.conversation-list\{[^}]*flex:none/)
   expect(css).toMatch(/\.conversation-row:nth-last-child\(-n\+4\) \.conversation-menu\{[^}]*bottom:calc\(100% \+ 4px\)/)
   expect(readFileSync(resolve(process.cwd(),'src/App.tsx'),'utf8')).not.toContain('<details className="conversation-directory"')
   expect(css).toMatch(/\.launch-bottom\{[^}]*flex:none/)

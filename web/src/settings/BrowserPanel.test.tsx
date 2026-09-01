@@ -60,6 +60,8 @@ it('switches the connection mode through a card', async () => {
 it('surfaces mode detection availability', async () => {
   render(<BrowserPanel bridge={brApi()} />)
   expect(await screen.findByText('就绪检查')).toBeInTheDocument()
+  expect(screen.getByText(/BROWSER_MCP_NOT_READY/)).toBeInTheDocument()
+  expect(screen.getByText(/不是默认电脑控制/)).toBeInTheDocument()
   expect(await screen.findByText(/Chrome 可用/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '重新探测' }))
   expect(await screen.findByText(/Chrome ✓/)).toBeInTheDocument()

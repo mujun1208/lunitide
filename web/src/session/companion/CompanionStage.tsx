@@ -16,6 +16,7 @@ import { BridgeClientError, getProviderBridge, getTtsBridge, type TtsVoice } fro
 import type { CompanionEngine, CompanionSettings } from './companionSettings'
 import {
   companionEngineProbeOrder,
+  companionPlaybackSettings,
   defaultCompanionSettings,
   formatInterruptHotkey,
   loadCompanionSettings,
@@ -58,6 +59,8 @@ import { ToolTrajectory, type ToolTrajectoryItem } from '../ToolTrajectory'
 import { useZh } from '../../i18n/language'
 
 const RECOGNIZER_DEAF_MS = 2500
+/** Room echo after she finishes a clip. Separate from ECHO_GUARD_MS (300–600). */
+const POST_SPEAK_ECHO_MS = 900
 
 export interface CompanionStageProps {
   chatStatus: 'idle' | 'streaming' | 'done' | 'failed' | 'cancelled'
@@ -195,6 +198,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   assistantTextRef.current = assistantText
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  const speakReadyRef = useRef(true)
+  const playbackExtras = (voiceId = '') => {
+    const extras = companionPlaybackSettings(settingsRef.current, speakReadyRef.current)
+    const id = extras.voicePath === 'local' && extras.engine === 'edge' ? '' : (voiceId || extras.voiceId)
+    return { ...extras, voiceId: id }
+  }
 
   const dropCompanionPad = () => {
     padActiveRef.current = false
@@ -218,11 +227,9 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
     lastSpokenRef.current = `${lastSpokenRef.current}${line}`.slice(-1200)
     const player = playerRef.current ?? new TtsPlayer()
     playerRef.current = player
-    player.configure(stored.voiceId || '', stored.rate, stored.volume, {
-      engine: stored.engine,
-      refEndpoint: stored.refEndpoint,
-    })
-    player.enqueue([line], { ...stored, voiceId: stored.voiceId || '' }, {
+    const extras = playbackExtras(stored.voiceId || '')
+    player.configure(extras.voiceId, stored.rate, stored.volume, extras)
+    player.enqueue([line], extras, {
       onFinished: () => {
         if (gen !== padGenRef.current) return
         padActiveRef.current = false
@@ -248,6 +255,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   const listenQueuedRef = useRef(false)
   const [recognizerLive, setRecognizerLive] = useState(false)
   const exitedRef = useRef(false)
+  const stageAliveRef = useRef(true)
   const silentRestartsRef = useRef(0)
   /** Streaming TTS: track how much of assistantText has been spoken. */
   const spokenUpToRef = useRef(0)
@@ -277,6 +285,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   const ttsAvailableRef = useRef(ttsAvailable)
   ttsAvailableRef.current = ttsAvailable
   const pendingSendRef = useRef<string | null>(null)
+  const sentThisUtteranceRef = useRef('')
   const speechSyncRef = useRef<{ commitPaused: boolean; playback: boolean; echoGuardMs: number; listenThrough: boolean } | undefined>(undefined)
   const onSendRef = useRef(onSend)
   onSendRef.current = onSend
@@ -300,7 +309,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   }, [])
 
   const transcriptAcceptance = useCallback(
-    (text: string) => {
+    (text: string, opts?: { commit?: boolean }) => {
       const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
       return shouldAcceptUserTranscript({
         state: stateRef.current,
@@ -308,6 +317,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
         lastSpoken: lastSpokenRef.current,
         lastAssistant,
         assistantBusy: assistantTurnBusy(),
+        echoGuardActive: opts?.commit === true && performance.now() < echoUntilRef.current,
       })
     },
     [assistantTurnBusy],
@@ -338,6 +348,18 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   }, [applyEvent])
 
   const handleEngineFallback = useCallback((engine: CompanionEngine) => {
+    if (settingsRef.current.voicePath === 'local') {
+      setEntryLights(lights => lights.map(light => (
+        light.key === 'speak'
+          ? { ...light, label: '晓晓（本机朗读未就绪）', state: 'warn' as const }
+          : light
+      )) as typeof lights)
+      setEngineHint('本机朗读未就绪，这轮先用晓晓读给你听。')
+      setTtsAvailable(true)
+      setDegraded(false)
+      setCircuitBroken(false)
+      return
+    }
     setSettings(current => {
       const voiceId = voiceIdForEngineSwitch(current.engine, engine, current.voiceId)
       const next = { ...current, engine, voiceId }
@@ -377,7 +399,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
     setTtsAvailable(true)
     const deferTtsWarmup = window.setTimeout(() => {
       if (cancelled) return
-      const probeEngines = companionEngineProbeOrder(stored.engine)
+      const probeEngines = stored.voicePath === 'local' ? (['ref'] as const) : companionEngineProbeOrder(stored.engine)
       void (async () => {
         for (const engine of [...new Set(probeEngines)]) {
           if (cancelled) return
@@ -387,7 +409,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
             if (result.voices.length) {
               setVoices(result.voices)
               setTtsAvailable(true)
-              if (engine !== stored.engine) setSettings(current => ({ ...current, engine }))
+              if (engine !== stored.engine && stored.voicePath !== 'local') setSettings(current => ({ ...current, engine }))
               return
             }
           } catch {
@@ -435,6 +457,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
     }, 0)
     return () => {
       cancelled = true
+      stageAliveRef.current = false
+      exitedRef.current = true
       window.clearInterval(audioPoll)
       window.clearTimeout(deferTtsWarmup)
       window.removeEventListener('pointerdown', unlock)
@@ -557,12 +581,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       speakingRef.current = true
       setAssistantAloud(true)
       syncSpeechModesRef.current()
-      player.enqueue([cleaned], { ...settings, voiceId }, {
+      player.enqueue([cleaned], playbackExtras(voiceId), {
         onEngineFallback: handleEngineFallback,
         onGain: value => setGain(speakingGain(value)),
         onFinished: reason => {
           setGain(0)
-          echoUntilRef.current = performance.now() + ECHO_GUARD_MS
+          echoUntilRef.current = performance.now() + POST_SPEAK_ECHO_MS
           setStreamTick(t => t + 1)
           const busy = playerRef.current?.isBusy() === true
           if (reason !== 'completed' || !busy) {
@@ -689,12 +713,13 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
         speakingRef.current = true
         setAssistantAloud(true)
         syncSpeechModesRef.current()
-        if (opening) player.enqueue([opening], { ...settings, voiceId }, callbacks)
-        player.enqueue([opening ? spoken.slice(opening.length) : spoken], { ...settings, voiceId }, callbacks)
+        if (opening) player.enqueue([opening], playbackExtras(voiceId), callbacks)
+        player.enqueue([opening ? spoken.slice(opening.length) : spoken], playbackExtras(voiceId), callbacks)
         void player.flush({
           onFinished: () => {
+            if (!stageAliveRef.current) return
             setGain(0)
-            echoUntilRef.current = performance.now() + ECHO_GUARD_MS
+            echoUntilRef.current = performance.now() + POST_SPEAK_ECHO_MS
             speakingRef.current = false
             setAssistantAloud(false)
             if (stateRef.current === 'speaking') applyEvent({ type: 'PLAYBACK_ENDED' })
@@ -706,6 +731,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
         const player = ensurePlayer()
         void player.flush({
           onFinished: () => {
+            if (!stageAliveRef.current) return
             setGain(0)
             speakingRef.current = false
             setAssistantAloud(false)
@@ -852,7 +878,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
     speakingRef.current = true
     setAssistantAloud(true)
     syncSpeechModesRef.current()
-    player.enqueue([spoken], { ...settings, voiceId }, {
+    player.enqueue([spoken], playbackExtras(voiceId), {
       onEngineFallback: handleEngineFallback,
       onGain: value => setGain(speakingGain(value)),
       onFinished: () => {
@@ -880,7 +906,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       speakingRef.current = true
       setAssistantAloud(true)
       syncSpeechModesRef.current()
-      player.enqueue([spoken], { ...settings, voiceId }, {
+      player.enqueue([spoken], playbackExtras(voiceId), {
         onEngineFallback: handleEngineFallback,
         onGain: value => setGain(speakingGain(value)),
         onFinished: () => {
@@ -910,7 +936,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       setAssistantAloud(true)
       syncSpeechModesRef.current()
       setCircuitBroken(false)
-      void player.speak(segments, { ...settings, voiceId }, {
+      void player.speak(segments, playbackExtras(voiceId), {
         onEngineFallback: handleEngineFallback,
         onSegmentStart: index => {
           setRounds(current => {
@@ -953,7 +979,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       setAssistantAloud(true)
       syncSpeechModesRef.current()
       setCircuitBroken(false)
-      void player.speak(segments, { ...settings, voiceId }, {
+      void player.speak(segments, playbackExtras(voiceId), {
         onEngineFallback: handleEngineFallback,
         onSegmentStart: index => {
           setRounds(current => {
@@ -1132,7 +1158,10 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   const beginUserTurn = useCallback(
     (transcript: string) => {
       const text = clipCompanionPrompt(cleanUserTranscript(transcript))
-      if (!transcriptAcceptance(text) && !userInterruptedRef.current) {
+      if (text && sentThisUtteranceRef.current === text && !userInterruptedRef.current) {
+        return
+      }
+      if (!transcriptAcceptance(text, { commit: true }) && !userInterruptedRef.current) {
         const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
         if (shouldQueueBusyUserTranscript({
           state: stateRef.current,
@@ -1150,6 +1179,7 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       }
       cancelCaptionFade()
       userInterruptedRef.current = false
+      sentThisUtteranceRef.current = text
       handledReplyRef.current = false
       staleReplyRef.current = assistantTextRef.current
       silentRestartsRef.current = 0
@@ -1180,6 +1210,12 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       syncSpeechModes()
       void Promise.resolve(sent).then(ok => {
         if (ok !== false) return
+        if (userInterruptedRef.current) {
+          pendingSendRef.current = null
+          setEngineHint('')
+          if (stateRef.current === 'thinking') applyEvent({ type: 'REPLY_TERMINAL' })
+          return
+        }
         pendingSendRef.current = text
         setEngineHint('上一句还在发送，这轮说完再回')
         dropCompanionPad()
@@ -1204,6 +1240,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
     let attempts = 0
     const flush = () => {
       if (cancelled || !chatReadyRef.current || !pendingSendRef.current) return
+      if (userInterruptedRef.current) {
+        pendingSendRef.current = null
+        setEngineHint('')
+        return
+      }
       if (stateRef.current === 'thinking' || stateRef.current === 'speaking') return
       const text = pendingSendRef.current
       pendingSendRef.current = null
@@ -1211,6 +1252,11 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
       void Promise.resolve(sent).then(ok => {
         if (cancelled) return
         if (ok === false) {
+          if (userInterruptedRef.current) {
+            pendingSendRef.current = null
+            setEngineHint('')
+            return
+          }
           pendingSendRef.current = text
           setEngineHint('上一句还在发送，这轮说完再回')
           if (attempts++ >= 6) return
@@ -1677,27 +1723,29 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
   }, [machine.state, settings.fullDuplex, heardThisVisit])
 
   useEffect(() => {
+    if (machine.state === 'idle') sentThisUtteranceRef.current = ''
+  }, [machine.state])
+
+  useEffect(() => () => {
+    exitedRef.current = true
+    pendingSendRef.current = null
+    sentThisUtteranceRef.current = ''
+  }, [])
+
+  useEffect(() => {
     if (machine.state !== 'listening' || !interimText.trim()) return
-    let interval = 0
-    const kick = () => {
+    const timer = window.setTimeout(() => {
       if (stateRef.current !== 'listening' || exitedRef.current) return
       const caption = interimTextRef.current.trim()
-      if (!caption) return
+      if (!caption || sentThisUtteranceRef.current === clipCompanionPrompt(cleanUserTranscript(caption))) return
       const committed =
         speechHandleRef.current?.forceCommit(caption) === true ||
         captionHandleRef.current?.forceCommit(caption) === true
       if (!committed && stateRef.current === 'listening') {
         beginUserTurn(caption)
       }
-    }
-    const timer = window.setTimeout(() => {
-      kick()
-      interval = window.setInterval(kick, 400)
     }, FORCE_COMMIT_MS)
-    return () => {
-      window.clearTimeout(timer)
-      window.clearInterval(interval)
-    }
+    return () => window.clearTimeout(timer)
   }, [machine.state, interimText, beginUserTurn])
 
   useEffect(() => {
@@ -1780,8 +1828,15 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
         }
         autoStartTriedRef.current = true
         setLocalError(undefined)
+        speakReadyRef.current = prepared.speakReady
         if (!prepared.speakReady && prepared.settings.voicePath === 'local') {
-          setEngineHint('本机朗读未就绪，先听和看字幕。')
+          const launching = prepared.lights.some(light => light.key === 'speak' && light.label.includes('启动中'))
+          setEngineHint(launching ? '本机朗读还在启动，这轮先用晓晓读。' : '本机朗读未就绪，这轮先用晓晓读给你听。')
+          setEntryLights(current => current.map(light => (
+            light.key === 'speak'
+              ? { ...light, label: '晓晓（本机朗读未就绪）', state: 'warn' as const }
+              : light
+          )) as typeof current)
         }
         if (stateRef.current === 'idle' && !speechHandleRef.current) startListeningRef.current(true)
       })
@@ -1798,6 +1853,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
     if (state !== 'thinking' && state !== 'speaking') return
     userInterruptedRef.current = true
     handledReplyRef.current = true
+    pendingSendRef.current = null
+    setEngineHint('')
     onCancel?.()
     spokenUpToRef.current = 0
     dropCompanionPad()
@@ -1844,6 +1901,8 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
 
   const exit = useCallback(() => {
     exitedRef.current = true
+    pendingSendRef.current = null
+    sentThisUtteranceRef.current = ''
     setListenLoop(false)
     openingListenRef.current = false
     speechHandleRef.current?.stop()
@@ -2189,11 +2248,21 @@ export function CompanionStage({ chatStatus, assistantText, activityStatus, tool
         <button
           type="button"
           className="companion-pause"
-          aria-label={zh ? '暂停聆听' : 'Pause listening'}
-          disabled={machine.state !== 'listening'}
-          onClick={pauseListening}
+          aria-label={
+            machine.state === 'thinking' || machine.state === 'speaking'
+              ? (zh ? '停止这一轮' : 'Stop this turn')
+              : (zh ? '暂停聆听' : 'Pause listening')
+          }
+          disabled={machine.state === 'idle'}
+          onClick={() => {
+            if (machine.state === 'thinking' || machine.state === 'speaking') {
+              interruptAssistant()
+              return
+            }
+            pauseListening()
+          }}
         >
-          {zh ? '暂停' : 'Pause'}
+          {machine.state === 'thinking' || machine.state === 'speaking' ? (zh ? '停止' : 'Stop') : (zh ? '暂停' : 'Pause')}
         </button>
         <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       </div>

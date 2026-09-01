@@ -12,6 +12,7 @@ describe('embedded 50-life catalogue', () => {
     expect(VOICE_PATHS).toHaveLength(3)
     expect(VOICE_PATHS.map(p => p.value)).toEqual(['cloud', 'volc', 'local'])
     expect(VOICE_PATHS[0]).toMatchObject({ label: '云端', badge: '默认', meta: expect.stringContaining('晓晓') })
+    expect(VOICE_PATHS[0].desc).toMatch(/不能插话/)
     expect(VOICE_PATHS[1]).toMatchObject({ label: '火山', meta: expect.stringContaining('晓晓读（未配朗读）') })
     expect(VOICE_PATHS[1].desc).toMatch(/豆包/)
     expect(VOICE_PATHS[1].desc).toMatch(/加一行类型为朗读/)

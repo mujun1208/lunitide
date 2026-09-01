@@ -156,39 +156,89 @@ func DecodeFrame(raw []byte) (Frame, error) {
 	return frame, nil
 }
 
-type serverResult struct {
-	Result *struct {
-		Text       string `json:"text"`
-		Utterances []struct {
-			Text     string `json:"text"`
-			Definite bool   `json:"definite"`
-		} `json:"utterances"`
-	} `json:"result"`
+type utteranceBit struct {
+	Text     string `json:"text"`
+	Definite bool   `json:"definite"`
 }
 
-// TranscriptFromJSON maps a SAUC result body onto text + endpoint.
-func TranscriptFromJSON(raw []byte) (text string, final bool, ok bool) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 {
-		return "", false, false
-	}
-	var body serverResult
-	if json.Unmarshal(raw, &body) != nil || body.Result == nil {
-		return "", false, false
-	}
-	text = strings.TrimSpace(body.Result.Text)
-	for _, u := range body.Result.Utterances {
+type resultBit struct {
+	Text       string         `json:"text"`
+	Utterances []utteranceBit `json:"utterances"`
+}
+
+func pickResultText(text string, utterances []utteranceBit) (string, bool) {
+	out := strings.TrimSpace(text)
+	final := false
+	for _, u := range utterances {
 		if strings.TrimSpace(u.Text) != "" {
-			if text == "" {
-				text = strings.TrimSpace(u.Text)
+			if out == "" {
+				out = strings.TrimSpace(u.Text)
 			}
 			if u.Definite {
 				final = true
 			}
 		}
 	}
+	return out, final
+}
+
+func transcriptFromResult(result json.RawMessage) (text string, final bool, ok bool) {
+	result = bytes.TrimSpace(result)
+	if len(result) == 0 || bytes.Equal(result, []byte("null")) {
+		return "", false, false
+	}
+	if result[0] == '[' {
+		var items []resultBit
+		if json.Unmarshal(result, &items) != nil {
+			return "", false, false
+		}
+		for _, item := range items {
+			t, f := pickResultText(item.Text, item.Utterances)
+			if t != "" {
+				text = t
+				if f {
+					final = true
+				}
+			}
+		}
+		if text == "" {
+			return "", false, false
+		}
+		return text, final, true
+	}
+	var item resultBit
+	if json.Unmarshal(result, &item) != nil {
+		return "", false, false
+	}
+	text, final = pickResultText(item.Text, item.Utterances)
 	if text == "" {
 		return "", false, false
 	}
 	return text, final, true
+}
+
+// TranscriptFromJSON maps a SAUC result body onto text + endpoint.
+// Official payloads may wrap the body in payload_msg, and result may be
+// either an object or a list.
+func TranscriptFromJSON(raw []byte) (text string, final bool, ok bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return "", false, false
+	}
+	var wrap struct {
+		PayloadMsg json.RawMessage `json:"payload_msg"`
+		Result     json.RawMessage `json:"result"`
+	}
+	if json.Unmarshal(raw, &wrap) != nil {
+		return "", false, false
+	}
+	if len(bytes.TrimSpace(wrap.PayloadMsg)) > 0 && !bytes.Equal(bytes.TrimSpace(wrap.PayloadMsg), raw) {
+		if text, final, ok = TranscriptFromJSON(wrap.PayloadMsg); ok {
+			return text, final, true
+		}
+	}
+	if len(wrap.Result) > 0 {
+		return transcriptFromResult(wrap.Result)
+	}
+	return "", false, false
 }

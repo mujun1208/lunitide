@@ -152,7 +152,23 @@ func handleMessageSearch(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if result.Items == nil {
 		result.Items = []messageapp.SearchHit{}
 	}
+	result.Items = e.ordinaryChatSearchHits(ctx, result.Items)
 	return bridge.Success(r.ID, result)
+}
+
+func (e *Engine) ordinaryChatSearchHits(ctx context.Context, items []messageapp.SearchHit) []messageapp.SearchHit {
+	bound := e.peopleBoundSessionSet(ctx)
+	out := make([]messageapp.SearchHit, 0, len(items))
+	for _, item := range items {
+		if _, ok := bound[item.SessionID]; ok {
+			continue
+		}
+		if isColleagueChatTitle(item.SessionTitle) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 func messageFailure(r bridge.Request, err error) bridge.Response {
 	switch {

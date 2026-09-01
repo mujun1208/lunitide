@@ -14,7 +14,15 @@ export function isRenameableChatTitle(title: string): boolean {
 export function displaySessionTitle(title: string): string {
   const trimmed = title.trim()
   if (trimmed.startsWith('同事 · ')) return trimmed.slice('同事 · '.length).trim() || trimmed
+  if (trimmed.startsWith('同事·')) return trimmed.slice('同事·'.length).trim() || trimmed
   return trimmed
+}
+
+/** Bound colleague threads belong in 同事聊天, not the ordinary 对话 list. */
+export function isColleagueChatTitle(title: string): boolean {
+  const trimmed = title.trim()
+  if (trimmed === '同事对话') return true
+  return trimmed.startsWith('同事 · ') || trimmed.startsWith('同事·')
 }
 
 export function titleFromFirstTurn(text: string, max = 80): string {

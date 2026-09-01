@@ -84,7 +84,7 @@ const CLOUD_PATH: VoicePathOption = {
   badge: '默认',
   kicker: '即开即用',
   meta: '晓晓 · 微软 Neural',
-  desc: '免密钥。听写与朗读走现有云端通道，适合大多数对话。',
+  desc: '免密钥。听=系统识别，说=微软晓晓，不能插话。适合大多数对话。',
 }
 
 const LOCAL_PATH: VoicePathOption = {

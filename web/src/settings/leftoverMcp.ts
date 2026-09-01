@@ -4,6 +4,7 @@ const ARCHIVED: Array<{ marker: string; label: string }> = [
   { marker: 'server-sqlite', label: 'SQLite' },
   { marker: 'server-git', label: 'Git' },
 ]
+// Playwright (@playwright/mcp) is the current browser.act backend, not leftover.
 
 export function leftoverArchivedMcp(args: readonly string[] | undefined): string[] {
   const blob = (args ?? []).join(' ')
@@ -16,4 +17,13 @@ export function leftoverArchivedMcp(args: readonly string[] | undefined): string
     if (blob.includes(item.marker)) hits.push(item.label)
   }
   return hits
+}
+
+export function leftoverArchivedNames(endpoints: ReadonlyArray<{ args?: readonly string[]; state?: string }>): string[] {
+  const names = new Set<string>()
+  for (const ep of endpoints) {
+    if (ep.state === 'revoked') continue
+    leftoverArchivedMcp(ep.args).forEach(name => names.add(name))
+  }
+  return [...names]
 }

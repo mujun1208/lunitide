@@ -118,11 +118,14 @@ it('queues a PPT supplement without clearing prior mermaid/thinking', async () =
 
 it('pivots to a new task: cancels in-flight work, refreshes history, starts a new stream', async () => {
   let onEvent!: (event: StreamEvent) => void
+  let firstOnEvent: ((event: StreamEvent) => void) | undefined
   const cancel = vi.fn().mockResolvedValue(true)
-  const stream: ChatStream = { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel, dispose: vi.fn() }
+  const firstStream: ChatStream = { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel, dispose: vi.fn() }
+  const nextStream: ChatStream = { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FB1', cancel: vi.fn().mockResolvedValue(true), dispose: vi.fn() }
   const start = vi.fn().mockImplementation(async (_payload, onStreamEvent) => {
     onEvent = onStreamEvent
-    return stream
+    if (!firstOnEvent) firstOnEvent = onStreamEvent
+    return start.mock.calls.length > 1 ? nextStream : firstStream
   })
   const list = vi.fn()
     .mockResolvedValueOnce({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 })
@@ -147,18 +150,18 @@ it('pivots to a new task: cancels in-flight work, refreshes history, starts a ne
   fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'), { target: { value: '请 PPT专家做一份介绍' } })
   await user.click(screen.getByRole('button', { name: '↑ 发送并对话' }))
   await waitFor(() => expect(start).toHaveBeenCalledOnce())
-  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAE', streamId: stream.streamId, sequence: 1, type: 'thinking', thinking: { text: '先定受众和页序，再动手做幻灯片。' } }))
+  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAE', streamId: firstStream.streamId, sequence: 1, type: 'thinking', thinking: { text: '先定受众和页序，再动手做幻灯片。' } }))
   await user.click(screen.getByText('任务过程'))
   expect(document.querySelector('.thinking-live-text')?.textContent ?? '').toContain('先定受众和页序')
   fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'), { target: { value: '别做PPT了帮我查天气' } })
   await user.click(screen.getByRole('button', { name: '↑ 发送' }))
   await waitFor(() => expect(cancel).toHaveBeenCalledOnce())
-  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAF', streamId: stream.streamId, sequence: 2, type: 'cancelled' }))
+  await act(async () => firstOnEvent?.({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAF', streamId: firstStream.streamId, sequence: 2, type: 'cancelled' }))
   await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
   expect(await screen.findByText(/先定受众和页序/)).toBeInTheDocument()
   expect(start.mock.calls[1][0]).toMatchObject({ sessionId: S })
   expect(append).toHaveBeenLastCalledWith(expect.objectContaining({ text: '别做PPT了帮我查天气' }), expect.anything())
-  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FB0', streamId: stream.streamId, sequence: 1, type: 'thinking', thinking: { text: '正在查天气…' } }))
+  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FB0', streamId: nextStream.streamId, sequence: 1, type: 'thinking', thinking: { text: '正在查天气…' } }))
   await user.click(screen.getByText('任务过程'))
   const live = document.querySelector('.thinking-live-text')?.textContent ?? ''
   expect(live).toContain('正在查天气')

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 import {
   applyVoicePath,
   companionEngineProbeOrder,
+  companionPlaybackSettings,
   defaultCompanionSettings,
   formatInterruptHotkey,
   interruptHotkeyFromEvent,
@@ -160,6 +161,11 @@ describe('companion engine fallback helpers', () => {
     expect(companionEngineProbeOrder('edge')).not.toContain('sapi')
     expect(companionEngineProbeOrder('ref')).not.toContain('sapi')
     expect(companionEngineProbeOrder('volc')).not.toContain('edge')
+    const localReady = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), true)
+    expect(localReady).toMatchObject({ engine: 'ref', lockEngine: true, voicePath: 'local' })
+    const localDown = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), false)
+    expect(localDown).toMatchObject({ engine: 'edge', lockEngine: true, voiceId: '', voicePath: 'local' })
+    expect(companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'volc'), true).lockEngine).toBe(true)
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('cloud')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').engine).toBe('edge')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc').voicePath).toBe('volc')
