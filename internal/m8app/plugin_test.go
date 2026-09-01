@@ -1,4 +1,4 @@
-﻿// M8 FR-18 service tests (T-8.9.x): the install verification chain
+// M8 FR-18 service tests (T-8.9.x): the install verification chain
 // (M8-035~038 zero registration), hot-registration bindings, toggle
 // revocation, upgrade expansion quarantine (M8-039), the binding
 // pre-check (M8-040), the one-transaction uninstall chain (M8-041) and

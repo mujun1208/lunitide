@@ -1,4 +1,4 @@
-﻿//go:build !windows
+//go:build !windows
 
 // T-5.2.1 handle layer fallback: non-Windows hosts delegate containment to
 // os.Root, whose Open rejects ".." traversal and refuses to cross symlinks
