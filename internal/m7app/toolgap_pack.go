@@ -146,7 +146,7 @@ func packArchive(roots []string, dest, workspaceRoot, format string, maxEntries,
 				return nil
 			})
 			if err != nil {
-				zw.Close()
+				_ = zw.Close()
 				closeAll()
 				return PackResult{}, err
 			}
@@ -204,7 +204,7 @@ func packArchive(roots []string, dest, workspaceRoot, format string, maxEntries,
 				return nil
 			})
 			if err != nil {
-				tw.Close()
+				_ = tw.Close()
 				closeAll()
 				return PackResult{}, err
 			}

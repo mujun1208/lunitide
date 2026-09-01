@@ -33,3 +33,7 @@ coverage.out
 .coverage
 htmlcov/
 .vitest/
+# Transient lint/analysis reports written during local gate runs.
+lint-report.txt
+lint-full.txt
+errcheck-*.txt

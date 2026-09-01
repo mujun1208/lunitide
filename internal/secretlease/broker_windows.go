@@ -321,7 +321,9 @@ func decodeRequest(raw, key []byte) (Request, error) {
 		return r, io.ErrUnexpectedEOF
 	}
 	r.Deadline = time.UnixMilli(millis)
-	io.ReadFull(b, r.Nonce[:])
+	if _, err := io.ReadFull(b, r.Nonce[:]); err != nil {
+		return r, io.ErrUnexpectedEOF
+	}
 	var operation string
 	fields := []*string{&r.ProviderID, &r.CredentialRef, &r.Origin, &r.Protocol, &operation}
 	for _, target := range fields {

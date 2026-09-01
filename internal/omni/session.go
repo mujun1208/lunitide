@@ -175,7 +175,9 @@ func (s *Session) round(ctx context.Context, pcm []byte) (Turn, error) {
 	if err != nil {
 		return Turn{}, err
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	// Drain the (bounded) body so the connection can be reused; a read error
+	// here only costs that reuse, so it is deliberately ignored.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		return Turn{}, fmt.Errorf("prefill: HTTP %d", resp.StatusCode)
@@ -287,7 +289,7 @@ func (s *Session) Close() {
 	defer cancel()
 	resp, err := s.postJSON(ctx, "/v1/stream/break", map[string]any{})
 	if err == nil {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 		resp.Body.Close()
 	}
 	_ = os.RemoveAll(dir)

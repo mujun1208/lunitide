@@ -294,7 +294,9 @@ func (m *Manager) monitor(r *Run) {
 		r.waitErr = waitErr
 		r.mu.Unlock()
 		_ = r.proc.kill()
-		m.journal.Append(JournalRecord{
+		// The journal is best-effort progress telemetry; emitAudit below is the
+		// authoritative record, so a failed append must not derail finalization.
+		_ = m.journal.Append(JournalRecord{
 			RunID: r.ID, SpecID: r.Spec.SpecID, Endpoint: r.Spec.EndpointID,
 			SpecDigest: r.SpecDigest, Pid: r.proc.pid, State: state,
 			Detail: detail, AtMS: m.now().UnixMilli(),
@@ -400,7 +402,8 @@ func (m *Manager) Revoke(runID, reason string) error {
 	code, _ := r.proc.wait(ctx)
 	cancel()
 	close(r.waitCh)
-	m.journal.Append(JournalRecord{
+	// Best-effort telemetry; emitAudit below is the authoritative record.
+	_ = m.journal.Append(JournalRecord{
 		RunID: r.ID, SpecID: r.Spec.SpecID, Endpoint: r.Spec.EndpointID,
 		SpecDigest: r.SpecDigest, Pid: r.proc.pid, State: StateRevoked,
 		Detail: reason, AtMS: m.now().UnixMilli(),
