@@ -214,6 +214,9 @@ type Engine struct {
 	m8automation *m8app.AutomationService
 	// M8 FR-18: unified plugin bundle runtime.
 	m8plugin *m8app.PluginService
+	// W6: process-local single-use nonce store for the plugin.uninstall
+	// confirm handshake (plugin.confirmToken issues, plugin.uninstall consumes).
+	pluginConfirm pluginConfirmVault
 	// M8 FR-19: expert center and project-phase mounting.
 	m8expert *m8app.ExpertService
 	// Session-scoped expert collaboration pack (durable mounts).
@@ -610,6 +613,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodPluginToggle:                  handlePluginToggle,
 	bridge.MethodPluginUpgrade:                 handlePluginUpgrade,
 	bridge.MethodPluginUninstall:               handlePluginUninstall,
+	bridge.MethodPluginConfirmToken:            handlePluginConfirmToken,
 	bridge.MethodPluginDevCreate:               handlePluginDevCreate,
 	bridge.MethodPluginMarketSearch:            handlePluginMarketSearch,
 	bridge.MethodPluginMarketDetail:            handlePluginMarketDetail,

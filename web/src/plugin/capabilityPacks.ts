@@ -336,11 +336,6 @@ export async function installCapabilityPack(
   return { ok: !failed, notes, record }
 }
 
-async function pluginUninstallToken(installId: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`plugin.uninstall|${installId}`))
-  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
 export async function uninstallCapabilityPack(
   pack: CapabilityPackSpec,
   deps: { mcp?: McpBridge; plugins?: PluginBridge; listedPlugins?: Array<{ pluginId: string; installId: string; state: string }> },
@@ -379,9 +374,13 @@ export async function uninstallCapabilityPack(
       }
     }
   }
-  if (row && deps.plugins?.uninstall) {
+  if (row && deps.plugins?.uninstall && deps.plugins?.confirmToken) {
     try {
-      await deps.plugins.uninstall({ installId: row.installId, confirmToken: await pluginUninstallToken(row.installId) })
+      // W6: the confirm token is now a server-issued single-use nonce, so we
+      // must fetch a fresh one immediately before the destructive uninstall
+      // rather than deriving it client-side from a public formula.
+      const { confirmToken } = await deps.plugins.confirmToken({ installId: row.installId })
+      await deps.plugins.uninstall({ installId: row.installId, confirmToken })
       notes.push('已从插件行撤下本包')
     } catch (error) {
       notes.push(`插件行未撤：${error instanceof Error ? error.message : '失败'}`)

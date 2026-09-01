@@ -299,6 +299,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'plan.run.start',
   'plan.run.tree',
   'plan.todo.create',
+  'plugin.confirmToken',
   'plugin.dev.create',
   'plugin.install',
   'plugin.list',

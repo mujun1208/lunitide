@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
@@ -127,6 +128,12 @@ func handlePluginUninstall(e *Engine, ctx context.Context, r bridge.Request) bri
 	if e.m8plugin == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
+	// W6: the confirm token must be a live, server-issued single-use nonce
+	// (see handlePluginConfirmToken). Consuming here rejects forged/replayed
+	// tokens and burns the nonce so the destructive uninstall cannot repeat.
+	if !e.pluginConfirm.consume(p.ConfirmToken, p.InstallID, time.Now().UTC()) {
+		return r.Fail("PLUGIN_CONFIRM_REJECTED", "卸载确认令牌无效或已过期，请重新发起卸载", false)
+	}
 	res, err := e.m8plugin.Uninstall(ctx, m8app.UninstallInput{
 		InstallID: p.InstallID, ConfirmToken: p.ConfirmToken, Actor: p.Actor,
 	})
@@ -134,6 +141,30 @@ func handlePluginUninstall(e *Engine, ctx context.Context, r bridge.Request) bri
 		return m8PluginFailure(r, err)
 	}
 	return r.Ok(res)
+}
+
+// handlePluginConfirmToken (W6) issues a process-local single-use nonce that
+// plugin.uninstall must present. It replaces the previously client-derived
+// confirm token — which was forgeable and replayable — with a server-minted
+// 256-bit random token bound to one installId and expiring after
+// pluginConfirmTTL. The token is consumed exactly once in handlePluginUninstall.
+func handlePluginConfirmToken(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	_ = ctx
+	var p struct {
+		InstallID string `json:"installId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InstallID) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.confirmToken 参数无效", false)
+	}
+	if e.m8plugin == nil {
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+	}
+	now := time.Now().UTC()
+	token, expires, err := e.pluginConfirm.issue(p.InstallID, now)
+	if err != nil {
+		return r.Fail("STORAGE_UNAVAILABLE", "确认令牌暂时不可用", true)
+	}
+	return r.Ok(map[string]any{"confirmToken": token, "expiresAt": expires.Format(time.RFC3339)})
 }
 
 func handlePluginDevCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
