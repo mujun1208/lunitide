@@ -57,6 +57,8 @@ it('renders the plugin market and enables a catalog card', async () => {
   expect(await screen.findByRole('heading', { name: '能力包' })).toBeInTheDocument()
   expect(await screen.findByText('网页搜索')).toBeInTheDocument()
   expect(screen.getAllByText(/不会执行外部脚本/).length).toBeGreaterThan(0)
+  expect(screen.getByText(/本机捆绑目录/)).toBeInTheDocument()
+  expect(screen.getByText(/不是在线商店/)).toBeInTheDocument()
   expect(screen.getByText(/要连服务器去 MCP/)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '安装 浏览器工作包' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '启用 网页搜索' }))

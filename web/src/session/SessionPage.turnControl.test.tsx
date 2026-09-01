@@ -45,7 +45,7 @@ function chatHarness() {
   return { onEvent: () => onEvent, cancel, start, chat, stream }
 }
 
-it('morphs the primary composer button to 停止 for a single in-flight turn', async () => {
+it('shows a labeled 停止 chip for a single in-flight turn', async () => {
   const { onEvent, cancel, start, chat } = chatHarness()
   const user = userEvent.setup()
   render(<SessionPage project={project} bridge={sessionBridge} personal initialSession={session} providers={providers} messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({ id: USER_MSG }) } as MessageBridge} chat={chat} onBack={vi.fn()} />)
@@ -55,10 +55,9 @@ it('morphs the primary composer button to 停止 for a single in-flight turn', a
   await act(async () => onEvent()({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAE', streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', sequence: 1, type: 'thinking', thinking: { text: '列目录…' } }))
   const stopButton = screen.getByRole('button', { name: '停止' })
   expect(stopButton).toBeInTheDocument()
-  expect(stopButton.querySelector('svg')).toBeTruthy()
-  expect(stopButton).not.toHaveTextContent('停止')
-  expect(screen.queryByRole('button', { name: '↑ 发送并对话' })).toBeNull()
-  await user.click(screen.getByRole('button', { name: '停止' }))
+  expect(stopButton).toHaveTextContent('停止')
+  expect(stopButton).toHaveClass('is-labeled')
+  await user.click(stopButton)
   expect(cancel).toHaveBeenCalledOnce()
 })
 

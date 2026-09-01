@@ -6,8 +6,8 @@ import {
   showSegmentStopControl,
 } from './turnControl'
 
-it('morphs primary button to stop for a single in-flight turn with empty composer', () => {
-  expect(composerPrimaryAction({ streaming: true, activeTurnCount: 1, composerHasText: false })).toBe('stop')
+it('keeps primary as send while a dedicated stop chip handles cancel', () => {
+  expect(composerPrimaryAction({ streaming: true, activeTurnCount: 1, composerHasText: false })).toBe('send')
   expect(composerPrimaryLabel('stop')).toBe('停止')
 })
 
@@ -21,10 +21,11 @@ it('sends follow-ups while streaming instead of stopping', () => {
   expect(composerPrimaryLabel('follow-up-send')).toBe('↑ 发送')
 })
 
-it('shows composer stop only when multiple turns are active', () => {
-  expect(showComposerStopButton(true, 1)).toBe(false)
+it('shows a dedicated composer stop for any in-flight turn', () => {
+  expect(showComposerStopButton(true, 1)).toBe(true)
   expect(showComposerStopButton(true, 2)).toBe(true)
   expect(showComposerStopButton(false, 2)).toBe(false)
+  expect(showComposerStopButton(false, 0)).toBe(false)
 })
 
 it('shows per-segment stop for any active turn', () => {
@@ -34,5 +35,5 @@ it('shows per-segment stop for any active turn', () => {
 })
 
 it('keeps composer send when multiple actives and empty composer', () => {
-  expect(composerPrimaryAction({ streaming: true, activeTurnCount: 2, composerHasText: false })).toBe('follow-up-send')
+  expect(composerPrimaryAction({ streaming: true, activeTurnCount: 2, composerHasText: false })).toBe('send')
 })

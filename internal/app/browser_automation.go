@@ -130,6 +130,10 @@ func (e *Engine) ensurePlaywrightMCP(ctx context.Context) bool {
 	return false
 }
 
+func browserActMayEnsureMCP(op string) bool {
+	return strings.TrimSpace(op) == "navigate"
+}
+
 func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browserActCall) (toolruntime.Result, error) {
 	op := strings.TrimSpace(call.Op)
 	if op == "scroll" {
@@ -143,12 +147,12 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 	}
 	endpointID, tool, ok := e.findPlaywrightTool(op)
 	if !ok {
-		if !e.ensurePlaywrightMCP(ctx) {
+		if !browserActMayEnsureMCP(op) || !e.ensurePlaywrightMCP(ctx) {
 			return toolruntime.Result{}, errBrowserMCPNotReady
 		}
 		endpointID, tool, ok = e.findPlaywrightTool(op)
 		if !ok {
-			return toolruntime.Result{}, errBrowserToolMissing
+			return toolruntime.Result{}, errBrowserMCPNotReady
 		}
 	}
 	args, skip := playwrightArgs(call)
@@ -326,7 +330,8 @@ func appendPostActSnapshot(op, primary, snapshot string) string {
 }
 
 // SeedPlaywrightMcp registers the bundled Playwright MCP server when missing
-// so browser.act click/type/snapshot works without manual setup.
+// so a later navigate can ensure the first download. click/type still fail
+// closed with BROWSER_MCP_NOT_READY if the endpoint is not ready.
 func (e *Engine) SeedPlaywrightMcp(ctx context.Context) {
 	if e == nil || e.m7mcp == nil {
 		return

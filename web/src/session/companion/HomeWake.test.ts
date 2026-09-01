@@ -24,6 +24,10 @@ describe('homeWakeStatus', () => {
     expect(homeWakeStatus('error', true)).toMatch(/点下方/)
   })
 
+  test('tells the user when Windows refused the microphone', () => {
+    expect(homeWakeStatus('denied', true)).toMatch(/麦克风权限被拒绝/)
+  })
+
   test('says it is deaf when energy arrived without glyphs', () => {
     expect(homeWakeStatus('error', true, { deaf: true })).toMatch(/没有听出字/)
   })

@@ -344,6 +344,12 @@ export function isCompanionLeadInOnly(text: string): boolean {
   return Array.from(t).length <= 6 && (t.includes('等') || t.includes('好'))
 }
 
+/** Exact host pad only — do not use the short 好/等 heuristic on user transcripts. */
+export function looksLikeInjectedLeadIn(text: string): boolean {
+  const t = text.trim().replace(/[。.!！\s]+$/g, '')
+  return COMPANION_LEAD_IN_ONLY.has(t)
+}
+
 /** Drop machine self-reports. The user asked not to hear 「我做完了」. */
 export function stripTaskDonePhrases(raw: string): string {
   const trimmed = raw
@@ -424,7 +430,29 @@ export function accumulateSpeakableCaption(previous: string, incoming: string): 
 
 /** Live chat caption: strip machine phrases and drop nudge-loop replays. */
 export function companionCaptionFromStream(assistantText: string): string {
-  return collapseRepeatedCaptionBlocks(stripTaskDonePhrases(assistantText))
+  return collapseAdjacentRepeatedClauses(collapseRepeatedCaptionBlocks(stripTaskDonePhrases(assistantText)))
+}
+
+function clauseKey(text: string): string {
+  const compact = compactSpeech(text)
+  if (!compact) return ''
+  if (/帮你查一下|我来查一下|马上帮你查|马上查一下/.test(compact)) return 'lookup-leadin'
+  return compact
+}
+
+/** Collapse consecutive identical clauses, including「好，我帮你查一下」variants. */
+export function collapseAdjacentRepeatedClauses(text: string): string {
+  const parts = text.split(/(?<=[。！？!?])/)
+  if (parts.length <= 1) return text
+  const out: string[] = []
+  let lastKey = ''
+  for (const part of parts) {
+    const key = clauseKey(part)
+    if (key && key === lastKey) continue
+    out.push(part)
+    if (key) lastKey = key
+  }
+  return out.join('')
 }
 
 /** Collapse exact consecutive repeats (companion nudge loops replay whole answers). */
@@ -460,13 +488,17 @@ export function shouldAcceptUserTranscript(input: {
   lastAssistant: string
   /** True while TTS plays, the model thinks, or tools run — mic captions must not commit. */
   assistantBusy?: boolean
+  /** True in the post-playback room-echo window. */
+  echoGuardActive?: boolean
 }): boolean {
   if (input.assistantBusy || input.state === 'speaking' || input.state === 'thinking') return false
   if (!input.text.trim()) return false
+  if (looksLikeInjectedLeadIn(input.text)) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false
   if (looksLikeOmniUnavailable(input.text)) return false
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
+  if (input.echoGuardActive && compactSpeech(input.text).length < 6 && looksIncompleteUtterance(input.text)) return false
   return true
 }
 

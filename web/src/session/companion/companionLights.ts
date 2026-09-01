@@ -30,7 +30,7 @@ export type CompanionEntryReport = {
 export type CompanionLightProbes = {
   listProviders?: () => Promise<{ items: ProviderDTO[] }>
   localAsr?: () => Promise<{ supported?: boolean; ready?: boolean } | undefined>
-  refEngine?: (endpoint?: string) => Promise<{ state: string }>
+  refEngine?: (endpoint?: string) => Promise<{ state: string; last_error?: string }>
 }
 
 export const COMPANION_ENTRY_PROBE_MS = 800
@@ -126,6 +126,8 @@ export async function inspectCompanionEntry(
     } else {
       speakReady = false
       speakState = 'off'
+      const err = ref.value.last_error?.trim()
+      speakLabel = err ? `本地朗读未就绪（${err.slice(0, 40)}）` : 'GPT-SoVITS 未就绪'
     }
   }
 

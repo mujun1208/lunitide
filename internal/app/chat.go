@@ -691,7 +691,7 @@ func companionPersonaInstruction() string {
 		"- 闲聊立刻回答，不要先调工具\n" +
 		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
-		"- 搜网页/查火车/查航班/查天气：必须 web.search，再用一两句把结果说出来（气温、阴晴），不要只说等一下就停\n" +
+		"- 搜网页/查火车/查航班/查天气：必须 web.search 一次，用摘要直接说气温和阴晴；不要第二次 web.search，不要 web.fetch，除非用户给了网址。不要只说等一下就停\n" +
 		"- 打开页面：用 browser.act，不要猜 command.run 或系统 start\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」。做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
@@ -736,6 +736,49 @@ func companionOpeningAck(userText string) string {
 }
 
 // companionToolLeadIn gives a speakable line before a tool runs without model text.
+// shouldInjectCompanionToolLeadIn is once per voice turn. A second
+// empty-text tool step used to replay「好，我帮你查一下。」after the model
+// had already opened its mouth.
+func shouldInjectCompanionToolLeadIn(assistantAll string, alreadyInjected bool) bool {
+	if alreadyInjected {
+		return false
+	}
+	return strings.TrimSpace(assistantAll) == ""
+}
+
+const companionRedundantWebSkipMsg = "ok:true\n已经有搜索摘要。不要再搜、不要打开网页，用现有结果用一两句说出气温和阴晴。"
+
+// companionRedundantWebSkip drops a second weather-style lookup. One
+// successful web.search is enough; fetch stays only when the user pasted a URL.
+func companionRedundantWebSkip(companion bool, lastTools []string, next, userText string, searchSeen bool) (string, bool) {
+	if !companion {
+		return "", false
+	}
+	if next != "web.search" && next != "web.fetch" {
+		return "", false
+	}
+	hadSearch := searchSeen
+	if !hadSearch {
+		for _, t := range lastTools {
+			if t == "web.search" {
+				hadSearch = true
+				break
+			}
+		}
+	}
+	if !hadSearch {
+		return "", false
+	}
+	if next == "web.search" {
+		return companionRedundantWebSkipMsg, true
+	}
+	lower := strings.ToLower(userText)
+	if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") {
+		return "", false
+	}
+	return companionRedundantWebSkipMsg, true
+}
+
 func companionToolLeadIn(toolName string) string {
 	switch toolName {
 	case "web.search", "web.fetch":
@@ -2155,7 +2198,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: note}})
 			if len(req.Messages) > 0 && req.Messages[0].Role == gateway.RoleSystem {
-				req.Messages[0].Content = note + req.Messages[0].Content
+				req.Messages[0].Content = localBrainFallbackLockHint(note) + req.Messages[0].Content
 			}
 		}
 	}
@@ -2192,6 +2235,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			autoDesktopTypeDone := false
 			nudges := 0
 			skillDraftOffered := false
+			leadInInjected := false
+			webSearchSeen := false
 			if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
 				turn.Goal = prev.Goal
 				turn.Injected = append(turn.Injected, prev.Injected...)
@@ -2385,9 +2430,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						break
 					}
 				}
-				if state.companion && assistantText.Len() == stepTextStart && len(result.Message.ToolCalls) > 0 {
+				if state.companion && shouldInjectCompanionToolLeadIn(assistantText.String(), leadInInjected) && len(result.Message.ToolCalls) > 0 {
 					lead := companionToolLeadIn(result.Message.ToolCalls[0].Name)
 					assistantText.WriteString(lead)
+					leadInInjected = true
 					if err := sendDeltaChunks(send, lead); err != nil {
 						return err
 					}
@@ -2451,6 +2497,27 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
+					}
+					if skipSummary, skip := companionRedundantWebSkip(state.companion, turn.LastTools, call.Name, turn.Goal, webSearchSeen); skip {
+						if future, ok := parallelFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(parallelFutures, call.ID)
+						}
+						if future, ok := subagentFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(subagentFutures, call.ID)
+						}
+						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+						continue
+					}
+					if call.Name == "web.search" {
+						webSearchSeen = true
 					}
 					if skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests); skip {
 						if future, ok := parallelFutures[call.ID]; ok {

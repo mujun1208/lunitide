@@ -18,10 +18,10 @@ export function refPreviewReady(input: {
   hostState?: string
   serverOnline?: boolean
 }): boolean {
-  if (input.engineState !== 'available') return false
   if (input.hostState === 'launching') return false
   if (input.serverOnline === true || input.hostState === 'online') return true
-  return false
+  if (input.hostState === 'offline') return true
+  return input.engineState === 'available'
 }
 
 export function refPreviewButtonLabel(input: { busy: boolean; launching: boolean }): string {

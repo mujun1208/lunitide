@@ -9,4 +9,8 @@ describe('credential origin parity',()=>{
   expect(originBindingChanged('openai_compatible','http://127.0.0.1:1234/v1','openai_compatible','http://192.168.31.100:1234')).toBe(true)
   expect(originBindingChanged('openai_compatible','http://192.168.31.100:1234/v1','openai_compatible','http://192.168.31.100:1234')).toBe(false)
  })
+ it('treats official volc wss/http paths as the same speech origin',()=>{
+  expect(originBindingChanged('volc_speech','https://openspeech.bytedance.com','volc_speech','wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async')).toBe(false)
+  expect(originBindingChanged('volc_speech','https://openspeech.bytedance.com','volc_speech','wss://openspeech.bytedance.com/api/v3/plan/tts/bidirection')).toBe(false)
+ })
 })

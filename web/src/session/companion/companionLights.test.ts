@@ -66,6 +66,16 @@ describe('inspectCompanionEntry', () => {
     expect(report.allowListen).toBe(true)
     expect(report.speakReady).toBe(false)
     expect(report.lights[1].state).toBe('off')
+    expect(report.lights[1].label).toMatch(/未就绪/)
+  })
+
+  test('surfaces the hosted engine last_error on the speak light', async () => {
+    const report = await inspectCompanionEntry('local', '', {
+      listProviders: async () => ({ items: [chat] }),
+      localAsr: async () => ({ supported: true, ready: true }),
+      refEngine: async () => ({ state: 'offline', last_error: 'jieba_fast dict.txt missing' }),
+    })
+    expect(report.lights[1].label).toMatch(/jieba_fast/)
   })
 
   test('allows local entry when sherpa and SoVITS are both ready', async () => {

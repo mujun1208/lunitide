@@ -41,6 +41,11 @@ export function homeWakeStatus(
   if (state === 'listening') {
     return zh ? '正在听：说「你好月汐」进入月伴' : 'Listening: say “你好月汐” to open companion talk'
   }
+  if (state === 'denied') {
+    return zh
+      ? '麦克风权限被拒绝。请在 Windows 设置里允许月汐使用麦克风，或点下方进入月伴。'
+      : 'Microphone permission was denied. Allow Lunitide to use the mic in Windows settings, or tap Companion talk below.'
+  }
   if (state === 'error') {
     if (extra?.deaf) {
       return zh

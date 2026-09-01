@@ -106,6 +106,7 @@ func dial(ctx context.Context, cfg Config, optimized bool) (*websocket.Conn, err
 	header := http.Header{}
 	header.Set("X-Api-Resource-Id", cfg.resourceID())
 	header.Set("X-Api-Connect-Id", newConnectID())
+	header.Set("X-Api-Request-Id", newConnectID())
 	if cfg.AppKey != "" {
 		header.Set("X-Api-App-Key", cfg.AppKey)
 		header.Set("X-Api-Access-Key", cfg.AccessKey)
@@ -152,7 +153,43 @@ func writeFullClient(conn *websocket.Conn, cfg Config, seq int32) error {
 	return conn.WriteMessage(websocket.BinaryMessage, EncodeFullClient(seq, body))
 }
 
+func dialogContextJSON(words []string) string {
+	type item struct {
+		Text string `json:"text"`
+	}
+	data := make([]item, 0, len(words))
+	for _, w := range words {
+		w = strings.TrimSpace(w)
+		if w != "" {
+			data = append(data, item{Text: w})
+		}
+	}
+	if len(data) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(map[string]any{
+		"context_type": "dialog_ctx",
+		"context_data": data,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 func fullClientRequest(cfg Config) map[string]any {
+	req := map[string]any{
+		"model_name":      DefaultModelName,
+		"enable_itn":      true,
+		"enable_punc":     true,
+		"enable_ddc":      true,
+		"show_utterances": true,
+		"result_type":     "full",
+		"end_window_size": cfg.endWindowMS(),
+	}
+	if ctx := dialogContextJSON(DefaultHotwords); ctx != "" {
+		req["corpus"] = map[string]any{"context": ctx}
+	}
 	return map[string]any{
 		"user": map[string]any{"uid": cfg.uid()},
 		"audio": map[string]any{
@@ -162,18 +199,7 @@ func fullClientRequest(cfg Config) map[string]any {
 			"bits":    16,
 			"channel": voice.Channels,
 		},
-		"request": map[string]any{
-			"model_name":      DefaultModelName,
-			"enable_itn":      true,
-			"enable_punc":     true,
-			"enable_ddc":      true,
-			"show_utterances": true,
-			"result_type":     "single",
-			"end_window_size": cfg.endWindowMS(),
-			"corpus": map[string]any{
-				"context": strings.Join(DefaultHotwords, "\n"),
-			},
-		},
+		"request": req,
 	}
 }
 
@@ -306,6 +332,9 @@ func (s *session) readLoop() {
 		}
 		frame, decErr := DecodeFrame(payload)
 		if decErr != nil {
+			if text, final, ok := TranscriptFromJSON(payload); ok {
+				s.applyTranscript(text, final)
+			}
 			continue
 		}
 		if frame.Type == msgErrorServer {
@@ -317,10 +346,18 @@ func (s *session) readLoop() {
 }
 
 func (s *session) applyFrame(frame Frame) {
-	text, final, ok := TranscriptFromJSON(frame.JSON)
+	body := frame.JSON
+	if len(body) == 0 {
+		body = frame.Raw
+	}
+	text, final, ok := TranscriptFromJSON(body)
 	if !ok {
 		return
 	}
+	s.applyTranscript(text, final)
+}
+
+func (s *session) applyTranscript(text string, final bool) {
 	s.mu.Lock()
 	s.latest, s.latestFinal = text, final
 	s.mu.Unlock()

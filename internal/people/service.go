@@ -204,6 +204,7 @@ type Store interface {
 	ThreadSession(ctx context.Context, threadID string) (string, bool, error)
 	BindThreadSession(ctx context.Context, threadID, sessionID, createdAt string) error
 	ClearThreadSession(ctx context.Context, threadID string) error
+	ListBoundSessionIDs(ctx context.Context) ([]string, error)
 }
 
 type Identity interface {
@@ -1214,6 +1215,13 @@ func (s *Service) ClearThreadSession(ctx context.Context, threadID string) error
 		return ErrInvalid
 	}
 	return s.store.ClearThreadSession(ctx, threadID)
+}
+
+func (s *Service) ListBoundSessionIDs(ctx context.Context) ([]string, error) {
+	if s == nil || s.store == nil {
+		return nil, ErrUnavailable
+	}
+	return s.store.ListBoundSessionIDs(ctx)
 }
 
 func canonicalPeopleULID(v string) bool {

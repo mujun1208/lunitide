@@ -424,7 +424,10 @@ test('force-commits the stage caption when the recognizer buffer is empty', asyn
   expect(utils.container.textContent).toMatch(/气氛对于音乐已经/)
   await flush(1800)
   expect(onSend).toHaveBeenCalledWith('气氛对于音乐已经')
+  expect(onSend).toHaveBeenCalledTimes(1)
   expect(stateOf(utils.container)).toBe('thinking')
+  await flush(2000)
+  expect(onSend).toHaveBeenCalledTimes(1)
 })
 
 test('caption fade does not wipe an uncommitted user line', async () => {

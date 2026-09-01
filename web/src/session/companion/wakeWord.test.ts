@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CompanionSpeechHandle, CompanionSpeechOptions } from './speech'
-import { HOME_WAKE_DEAF_MS, matchWakeWord, useWakeWord } from './wakeWord'
+import { HOME_WAKE_DEAF_MS, isMicPermissionError, matchWakeWord, useWakeWord } from './wakeWord'
 
 const speech = vi.hoisted(() => ({
   start: vi.fn(),
@@ -102,6 +102,12 @@ it('matches 月伴 entry phrases', () => {
   expect(matchWakeWord('打开月伴模式搜周杰伦')).toEqual({ hit: true, prompt: '搜周杰伦', kind: 'phrase' })
 })
 
+it('detects microphone permission denials', () => {
+  expect(isMicPermissionError({ name: 'NotAllowedError', message: 'denied' })).toBe(true)
+  expect(isMicPermissionError({ code: 'MICROPHONE_PERMISSION_DENIED', message: '麦克风权限被拒绝' })).toBe(true)
+  expect(isMicPermissionError({ code: 'network', message: 'network' })).toBe(false)
+})
+
 it('does not match ordinary speech or look-alike phrases', () => {
   for (const phrase of ['今天天气不错', '你好，世界', '再见月汐', '你好月']) {
     expect(matchWakeWord(phrase)).toEqual({ hit: false, prompt: '', kind: 'none' })
@@ -113,7 +119,8 @@ it('matches common ASR homophone transcribes of the wake name', () => {
   for (const phrase of ['你好月希', '你好，月西', '嗨月溪', '您好月熙', '你好月惜', '你好悦汐', 'hello月希', '你好我是月汐', '您好，我是月希', '你好月昔', '嗨月兮']) {
     expect(matchWakeWord(phrase).hit).toBe(true)
   }
-  expect(matchWakeWord('月希今天天气')).toEqual({ hit: true, prompt: '今天天气', kind: 'name' })
+  expect(matchWakeWord('月汐打开网页')).toEqual({ hit: true, prompt: '打开网页', kind: 'name' })
+  expect(matchWakeWord('月希今天天气')).toEqual({ hit: false, prompt: '', kind: 'none' })
 })
 
 it('reports unsupported when the runtime has no microphone', () => {
@@ -193,6 +200,15 @@ it('keeps listening across a silent recognizer restart', async () => {
   })
   expect(view.result.current).toBe('listening')
   expect(handle.resumeCapture).toHaveBeenCalled()
+})
+
+it('surfaces a denied state when the microphone permission is refused', async () => {
+  const view = renderHook(() => useWakeWord({ enabled: true, onWake: vi.fn() }))
+  await act(async () => {})
+  act(() => {
+    speech.options?.onError?.({ name: 'NotAllowedError', code: 'not-allowed', message: '麦克风权限被拒绝', retryable: false, source: 'renderer' } as never)
+  })
+  expect(view.result.current).toBe('denied')
 })
 
 it('surfaces an error from the shared ASR path instead of spinning as fake listening', async () => {

@@ -93,7 +93,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
 
  return <main className="skill-center plugin-page">
   <header className="skill-center-header">
-   <div><h1>能力包</h1><p>组合包 {shelfPacks.length} 个 · 已启用门闸 {enabled} 个 · 失败 {failed} 个</p><small>组合包会安装技能和 MCP、打开门闸，不会执行外部脚本。要可调用技能去技能中心；要连服务器去 MCP。</small></div>
+   <div><h1>能力包</h1><p>组合包 {shelfPacks.length} 个 · 已启用门闸 {enabled} 个 · 失败 {failed} 个</p><small>能力包市场是本机捆绑目录，不是在线商店。组合包会安装技能和 MCP、打开门闸，不会执行外部脚本。要可调用技能去技能中心；要连服务器去 MCP。</small></div>
    <div className="view-actions"><button type="button" className="ui-btn" onClick={()=>{const raw=window.prompt('粘贴能力包 JSON');if(!raw)return;try{const pack=parseCapabilityPackJSON(raw);setImportedPacks(current=>[...current.filter(item=>item.id!==pack.id),pack]);setNotice(`已读入「${pack.name}」，不会执行脚本。`);setView('market')}catch(e){setError(e instanceof Error?e.message:'能力包 JSON 无效')}}}>导入 JSON</button><button type="button" className="ui-btn" onClick={()=>setManualOpen(true)}>手动填写</button>{onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建能力包</button>}</div>
   </header>
   <section className="skill-center-toolbar">

@@ -12,6 +12,27 @@ export function inFlightLiveChat(entry: { terminal?: boolean } | undefined, chat
   return Boolean((entry && !entry.terminal) || chatActive)
 }
 
+/** Same user sentence while a companion turn is live: queue/drop, never reset+restart. */
+export function companionShouldDeferInFlight(incoming: string, activeGoal: string): boolean {
+  const next = incoming.trim()
+  return next !== '' && next === activeGoal.trim()
+}
+
+/**
+ * Companion enters without loading history, so `items` stays []. Deleting on
+ * exit used to wipe a turn that had already been appended.
+ */
+export function companionShouldDiscardOnExit(input: {
+  initialCompanion: boolean
+  itemsLength: number
+  chatActive: boolean
+  sessionEngaged: boolean
+}): boolean {
+  if (!input.initialCompanion) return false
+  if (input.chatActive || input.sessionEngaged) return false
+  return input.itemsLength === 0
+}
+
 /** Progress check while a job is live or just failed. Must attach, not wipe. */
 export function isStatusFollowUp(text: string): boolean {
   const t = text.trim().replace(/[？?。.!！~…\s]+$/u, '')

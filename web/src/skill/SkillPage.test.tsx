@@ -87,6 +87,17 @@ it('states the market is a bundled catalog not an online store', async () => {
   expect(screen.getAllByText(/捆绑目录/).length).toBeGreaterThanOrEqual(2)
 })
 
+it('keeps bundled catalog cards when a later catalog refresh fails', async () => {
+  const catalogList = vi.fn()
+    .mockResolvedValueOnce({ items: [catalogEntry] })
+    .mockRejectedValueOnce(new Error('远程索引超时'))
+  render(<SkillPage bridge={api({ catalogList })} />)
+  expect(await screen.findByText('会议纪要助手')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '刷新市场' }))
+  expect(await screen.findByText(/仍显示捆绑目录 1 个/)).toBeInTheDocument()
+  expect(screen.getByText('会议纪要助手')).toBeInTheDocument()
+})
+
 it('shows the market catalog and installs a template', async () => {
   const catalogList = vi.fn().mockResolvedValue({ items: [catalogEntry] })
   const install = vi.fn().mockResolvedValue({ skillId: '01ARZ3NDEKTSV4RRFFQ69G5FBB', name: 'tpl-meeting-minutes', status: 'published' })

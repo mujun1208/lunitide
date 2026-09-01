@@ -154,6 +154,39 @@ it('canonicalizes official Agent Plan URLs and model aliases on save',async()=>{
  ])
 })
 
+it('saves an existing asr-only volc provider after pasting the official wss URL and fills TTS',async()=>{
+ const volc:ProviderDTO={
+  ...provider,
+  name:'volc.seedasr.sauc.duration',
+  protocol:'volc_speech',
+  baseUrl:'https://openspeech.bytedance.com',
+  models:[{modelId:'volc.seedasr.sauc.duration',displayName:'seed-asr 2.0',isDefault:true,kind:'asr',kindDefault:true}],
+  credentialState:'configured',
+  version:8,
+ }
+ const update=vi.fn().mockImplementation(async payload=>({...volc,baseUrl:payload.baseUrl,models:payload.models,version:9}))
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[volc]}),get:vi.fn().mockResolvedValue(volc),update})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('tab',{name:'语音模型'}))
+ await user.click(await screen.findByRole('button',{name:/volc\.seedasr/}))
+ await user.click(screen.getByRole('button',{name:'编辑'}))
+ expect(screen.getByLabelText('基础 URL')).toHaveValue('https://openspeech.bytedance.com')
+ expect(screen.getByLabelText('模型 2 ID')).toHaveValue('seed-tts-2.0')
+ const url=screen.getByLabelText('基础 URL')
+ await user.clear(url)
+ await user.type(url,'wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(update).toHaveBeenCalledOnce())
+ expect(bridge.submitCredential).not.toHaveBeenCalled()
+ const saved=vi.mocked(update).mock.calls[0][0]
+ expect(saved.baseUrl).toBe('https://openspeech.bytedance.com')
+ expect(saved.models).toEqual([
+  expect.objectContaining({modelId:'volc.seedasr.sauc.duration',kind:'asr',isDefault:true}),
+  expect.objectContaining({modelId:'seed-tts-2.0',kind:'tts'}),
+ ])
+})
+
 it('lets one volc provider hang listen and speak rows',async()=>{
  const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,protocol:payload.protocol,baseUrl:payload.baseUrl,models:payload.models,version:1}))
  const bridge=api({create}),user=userEvent.setup()

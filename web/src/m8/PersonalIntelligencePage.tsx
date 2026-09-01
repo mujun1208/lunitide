@@ -12,7 +12,7 @@ export function PersonalIntelligencePage({onNavigateExpert:_onNavigateExpert}:{o
  useEffect(()=>{try{projectBridge.list().then(result=>{const visible=result.items.filter(item=>!item.name.startsWith('⁣'));setProjects(visible);setProjectId(current=>current||visible[0]?.id||'')}).catch(()=>{})}catch{/* bridge unavailable outside WebView2 */}},[])
  return <main className="pi-page">
   <header className="pi-head">
-   <div><h1>个人智能</h1><p>确认记忆、管理隐私。项目本体由对话自动检索和维护，不再单独占用一个配置页。</p></div>
+   <div><h1>个人智能</h1><p>确认记忆、管理隐私。专家跨会话工作摘要要你点确认才进长期记忆。项目本体由对话自动检索和维护，不再单独占用一个配置页。</p></div>
    <div className="pi-tabs" role="tablist" aria-label="个人智能">
     <button type="button" role="tab" aria-selected={tab==='memory'} className={tab==='memory'?'on':''} onClick={()=>setTab('memory')}>记忆确认</button>
     <button type="button" role="tab" aria-selected={tab==='privacy'} className={tab==='privacy'?'on':''} onClick={()=>setTab('privacy')}>隐私</button>

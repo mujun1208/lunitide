@@ -78,11 +78,20 @@ func TestPeopleAgentReplyStaleAndCollision(t *testing.T) {
 }
 
 func TestLocalBrainUserErrorAndPrefix(t *testing.T) {
-	if !strings.Contains(localBrainUserError(BrainCodex, errLocalBrainMissing), "PATH") {
+	if !strings.Contains(localBrainUserError(BrainCodex, errLocalBrainMissing), "未在 PATH") {
 		t.Fatal("PATH miss must be visible")
 	}
-	if note := localBrainFallbackNotice(BrainCodex, errLocalBrainMissing); !strings.Contains(note, "已改用月汐引擎") || !strings.Contains(note, "不是本机 Codex") {
+	note := localBrainFallbackNotice(BrainCodex, errLocalBrainMissing)
+	if !strings.HasPrefix(strings.TrimSpace(note), "已回落月汐") || !strings.Contains(note, "已改用月汐引擎") || !strings.Contains(note, "不是本机 Codex") {
 		t.Fatalf("fallback = %q", note)
+	}
+	rewritten := lockLocalBrainFallback(note, "我还在用 Codex 完成了")
+	if !strings.HasPrefix(strings.TrimSpace(rewritten), "已回落月汐") || !strings.Contains(rewritten, "我还在用 Codex") {
+		t.Fatalf("locked = %q", rewritten)
+	}
+	hint := localBrainFallbackLockHint(note)
+	if !strings.Contains(hint, "不得改写") || !strings.HasPrefix(strings.TrimSpace(hint), "已回落月汐") {
+		t.Fatalf("hint = %q", hint)
 	}
 	if localBrainPrefix(BrainCodex) != "【本机 Codex】\n" {
 		t.Fatal(localBrainPrefix(BrainCodex))

@@ -149,7 +149,12 @@ func (h *RefHost) Status(endpoint string) (state, script string) {
 	defer h.mu.Unlock()
 	switch h.state {
 	case RefHostLaunching:
-		// still loading — keep reporting launching
+		if !h.startedAt.IsZero() && time.Since(h.startedAt) > 3*time.Minute {
+			h.state = RefHostOffline
+			if h.lastErr == "" {
+				h.lastErr = "launch timed out"
+			}
+		}
 		state = h.state
 	case RefHostOnline:
 		// we thought it was up but /docs is gone: the tree died
@@ -264,7 +269,56 @@ func (h *RefHost) spawnLocked(script string) error {
 		return err
 	}
 	h.cmd = cmd
+	go h.watch(cmd)
 	return nil
+}
+
+func (h *RefHost) watch(cmd *exec.Cmd) {
+	waitErr := cmd.Wait()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cmd != cmd {
+		return
+	}
+	if h.state == RefHostOnline {
+		return
+	}
+	h.state = RefHostOffline
+	if tail := h.logTailLocked(); tail != "" {
+		h.lastErr = tail
+	} else if waitErr != nil {
+		h.lastErr = waitErr.Error()
+	} else {
+		h.lastErr = "launcher exited before /docs answered"
+	}
+	h.cmd = nil
+}
+
+func (h *RefHost) logTailLocked() string {
+	if h.logFile == nil {
+		return ""
+	}
+	_ = h.logFile.Sync()
+	data, err := os.ReadFile(h.logFile.Name())
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	text := string(data)
+	if len(text) > 800 {
+		text = text[len(text)-800:]
+	}
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if len(line) > 240 {
+			line = line[len(line)-240:]
+		}
+		return line
+	}
+	return ""
 }
 
 // awaitReady polls /docs until the model answers or the budget is gone.
@@ -278,6 +332,12 @@ func (h *RefHost) awaitReady(endpoint string, wait time.Duration) error {
 			h.lastErr = ""
 			h.mu.Unlock()
 			return nil
+		}
+		h.mu.Lock()
+		state, lastErr := h.state, h.lastErr
+		h.mu.Unlock()
+		if state == RefHostOffline {
+			return fmt.Errorf("%w: %s", ErrRefEngineStarting, lastErr)
 		}
 	}
 	h.mu.Lock()

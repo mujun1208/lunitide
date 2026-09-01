@@ -117,6 +117,27 @@ export function hasExplicitCompanionVoicePath(): boolean {
  *  voice the picker used to offer as 本机语音, and it is gone. */
 const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['edge']
 
+/**
+ * What this turn actually synthesizes. Local + SoVITS down may speak 晓晓
+ * for this clip only — the caller must relabel the speak light. Never persist
+ * that as the local card's engine.
+ */
+export function companionPlaybackSettings(
+  settings: CompanionSettings,
+  speakReady: boolean,
+): CompanionSettings & { lockEngine?: boolean } {
+  if (settings.voicePath === 'local') {
+    if (speakReady) {
+      return { ...settings, engine: 'ref', lockEngine: true }
+    }
+    return { ...settings, engine: 'edge', voiceId: '', lockEngine: true }
+  }
+  if (settings.engine === 'volc') {
+    return { ...settings, lockEngine: true }
+  }
+  return settings
+}
+
 export function companionEngineProbeOrder(primary: CompanionEngine): CompanionEngine[] {
   const start = primary === 'sapi' || primary === 'natural' ? 'edge' : primary
   if (start === 'volc') return ['volc']

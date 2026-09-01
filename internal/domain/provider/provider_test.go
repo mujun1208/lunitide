@@ -139,6 +139,23 @@ func TestCatalogForKindVoiceIncludesAsrAndTts(t *testing.T) {
 	}
 }
 
+func TestOriginFingerprintTreatsVolcDocPathsAsSameOrigin(t *testing.T) {
+	origin, err := OriginFingerprint(ProtocolVolcSpeech, VolcSpeechOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		"wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async",
+		"wss://openspeech.bytedance.com/api/v3/plan/tts/bidirection",
+		"https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional",
+	} {
+		got, err := OriginFingerprint(ProtocolVolcSpeech, raw)
+		if err != nil || got != origin {
+			t.Fatalf("OriginFingerprint(%q)=%q,%v want %q", raw, got, err, origin)
+		}
+	}
+}
+
 func TestCanonicalVolcSpeechURLAcceptsOfficialFullPaths(t *testing.T) {
 	cases := []string{
 		"https://openspeech.bytedance.com",

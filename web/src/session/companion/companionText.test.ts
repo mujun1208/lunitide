@@ -44,6 +44,7 @@ import {
   takeSpeakableChunk,
   accumulateSpeakableCaption,
   collapseRepeatedCaptionBlocks,
+  collapseAdjacentRepeatedClauses,
   companionCaptionFromStream,
   repairOpenCommandTranscript,
 } from './companionText'
@@ -416,6 +417,14 @@ describe('companionCaptionFromStream', () => {
     expect(companionCaptionFromStream(weather.repeat(8))).toBe(weather)
     expect(collapseRepeatedCaptionBlocks(weather.repeat(3))).toBe(weather)
   })
+
+  test('collapses repeated 好，我帮你查一下 lead-ins from extra tool steps', () => {
+    const repeated = '好，我马上帮你查一下天气。好，我帮你查一下。好，我帮你查一下。今天南山27度。'
+    expect(collapseAdjacentRepeatedClauses(repeated)).toBe('好，我马上帮你查一下天气。今天南山27度。')
+    expect(companionCaptionFromStream(repeated)).toBe('好，我马上帮你查一下天气。今天南山27度。')
+    expect(companionCaptionFromStream('我就帮你查一下今天的天气哈！好，我帮你查一下。好，我帮你查一下。告诉我城市。'))
+      .toBe('我就帮你查一下今天的天气哈！告诉我城市。')
+  })
 })
 
 describe('shouldAcceptUserTranscript', () => {
@@ -428,6 +437,12 @@ describe('shouldAcceptUserTranscript', () => {
 
   test('accepts a new question while listening', () => {
     expect(shouldAcceptUserTranscript(base)).toBe(true)
+  })
+
+  test('rejects her tool pad and the post-speak echo window', () => {
+    expect(shouldAcceptUserTranscript({ ...base, text: '好，我帮你查一下' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, echoGuardActive: true, text: '南山' })).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, echoGuardActive: true, text: '那明天呢' })).toBe(true)
   })
 
   test('never treats her reply as the next user turn', () => {

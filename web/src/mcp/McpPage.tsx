@@ -1,6 +1,7 @@
-import React,{useCallback,useEffect,useMemo,useState}from'react'
+import React,{useCallback,useEffect,useMemo,useRef,useState}from'react'
 import{mcBridge,mcpBridge,type McpBridge}from'../bridge/client'
 import type{Mcp6PresetsListResult,McpListResult}from'../generated/bridge'
+import{leftoverArchivedMcp,leftoverArchivedNames}from'../settings/leftoverMcp'
 import{Dialog}from'../ui/Dialog'
 
 type Preset=Mcp6PresetsListResult['items'][number]
@@ -62,19 +63,25 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
  const[riskConfirmed,setRiskConfirmed]=useState(false)
  const[argDraft,setArgDraft]=useState<{id:string;value:string}|null>(null)
  const[removeTarget,setRemoveTarget]=useState<Endpoint|null>(null)
+ const leftoverRedirected=useRef(false)
 
  const load=useCallback(async()=>{
   try{
    const[presetResult,list]=await Promise.all([bridge.presets(),bridge.list({})])
    setPresets(presetResult.items);setEndpoints(list.endpoints)
+   if(!leftoverRedirected.current&&leftoverArchivedNames(list.endpoints).length){
+    leftoverRedirected.current=true
+    setView('installed')
+   }
   }catch(e){setError(e instanceof Error?e.message:'MCP 清单加载失败')}
  },[bridge])
  useEffect(()=>{void load()},[load])
 
+ const leftoverNames=useMemo(()=>leftoverArchivedNames(endpoints),[endpoints])
  const installedKeys=useMemo(()=>new Set(endpoints.filter(item=>item.state!=='revoked').map(installedKey)),[endpoints])
  const categories=useMemo(()=>{const map=new Map<string,number>();for(const preset of presets)map.set(preset.category,(map.get(preset.category)??0)+1);return[...map.entries()]},[presets])
  const visiblePresets=useMemo(()=>{const q=query.trim().toLowerCase();return presets.filter(preset=>(!category||preset.category===category)&&(!q||`${preset.name} ${preset.description} ${preset.category} ${preset.args.join(' ')}`.toLowerCase().includes(q)))},[category,presets,query])
- const visibleInstalled=useMemo(()=>{const q=query.trim().toLowerCase();return endpoints.filter(item=>item.state!=='revoked'&&(!q||`${item.displayName??''} ${item.command??''} ${item.endpointId}`.toLowerCase().includes(q)))},[endpoints,query])
+ const visibleInstalled=useMemo(()=>{const q=query.trim().toLowerCase();return endpoints.filter(item=>item.state!=='revoked'&&(!q||`${item.displayName??''} ${item.command??''} ${item.endpointId} ${leftoverArchivedMcp(item.args).join(' ')}`.toLowerCase().includes(q))).sort((a,b)=>(leftoverArchivedMcp(a.args).length?0:1)-(leftoverArchivedMcp(b.args).length?0:1))},[endpoints,query])
  const connected=visibleInstalled.filter(item=>item.enabled&&item.state==='ready').length
  const failed=visibleInstalled.filter(item=>item.state==='quarantined'||item.state==='degraded').length
 
@@ -141,6 +148,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    <button aria-label="刷新 MCP" onClick={()=>void load()}>↻</button>
   </section>
   {error&&<p className="skill-center-error" role="alert">{error}</p>}
+  {leftoverNames.length>0&&<p role="status" className="notice" style={{color:'var(--err)'}}>检测到已下架 MCP（{leftoverNames.join('、')}）。请在本页卸载，设置里不再做第二套卸载。</p>}
   {notice&&<p role="status">{notice}</p>}
   {view==='market'?<>
    <nav className="skill-market-cats" aria-label="MCP 分类">
@@ -154,7 +162,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
       <header>
        <span className="skill-market-glyph" aria-hidden="true">{preset.name.slice(0,1)}</span>
        <div><b>{preset.name}</b><small>{preset.category} · {preset.command}</small></div>
-       {installed?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>void installPreset(preset)}>{busy===preset.id?'…':'＋'}</button>}
+       {installed?<span className="skill-market-installed-row"><span className="skill-market-installed">已安装</span><button type="button" className="skill-market-remove" aria-label={`卸载 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>{const item=endpoints.find(endpoint=>endpoint.state!=='revoked'&&installedKey(endpoint)===presetKey(preset));if(item)setRemoveTarget(item)}}>卸载</button></span>:<button type="button" className="skill-market-add" aria-label={`安装 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>void installPreset(preset)}>{busy===preset.id?'…':'＋'}</button>}
       </header>
       <p>{preset.description}</p>
       {CHROME_ATTACH_PRESETS.has(preset.id)&&<p className="setting-desc">{chromeAttachNote}</p>}
@@ -164,9 +172,10 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     })}</div>:<div className="empty"><b>没有匹配的 MCP</b><span>换个分类或关键字再试。</span></div>}
    </section>
   </>:<section className="expert-card-list" aria-label="已安装 MCP">
-   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);return <article className="expert-card mcp-card" key={item.endpointId}>
+   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);const leftover=leftoverArchivedMcp(item.args);return <article className="expert-card mcp-card" key={item.endpointId}>
     <div className="expert-card-main">
      <b>{item.displayName||packageName(item.args)||item.endpointId}</b>
+     {leftover.length>0&&<small>已下架 · {leftover.join('、')}</small>}
      <small>{item.transport==='https'?'远程 HTTPS':'本地 stdio'} · {presetId?`策展预置 ${presetId}`:(item.origin==='market'?'市场':'手动')} · {item.command?`${item.command} ${item.args?.join(' ')??''}`:item.url}</small>
     </div>
     <i className={`skill-status status-${status.id==='ready'?'published':status.id==='off'||status.id==='degraded'?'disabled':status.id==='quarantined'?'deprecated':'draft'}`}>{status.label}</i>

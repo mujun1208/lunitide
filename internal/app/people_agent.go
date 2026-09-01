@@ -345,11 +345,11 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 		note := localBrainFallbackNotice(eq.Brain, err)
 		if e.tools != nil && sessionID != "" {
 			if out, tErr := e.completePeopleAgentWithTools(ctx, agent, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
-				return note + out, nil
+				return lockLocalBrainFallback(note, out), nil
 			}
 		}
 		if out, tErr := e.completePeopleAgentText(ctx, agent, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
-			return note + out, nil
+			return lockLocalBrainFallback(note, out), nil
 		}
 		if e.people != nil && threadID != "" {
 			_, _ = e.people.SendSystem(ctx, threadID, strings.TrimSpace(note))

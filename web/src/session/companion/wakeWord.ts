@@ -17,7 +17,7 @@ import { unlockTtsAudio } from './ttsPlayer'
 import { startVolcCompanionSpeech } from './volc/volcSpeech'
 import { shouldAcceptWake, type WakeMatchKind, type WakeVadSnapshot } from './wakeVad'
 
-export type WakeWordState = 'idle' | 'probing' | 'listening' | 'unsupported' | 'error'
+export type WakeWordState = 'idle' | 'probing' | 'listening' | 'unsupported' | 'error' | 'denied'
 export type { WakeMatchKind }
 
 export interface WakeWordMatch {
@@ -36,8 +36,20 @@ const WAKE_PHRASES = WAKE_GREETINGS.flatMap(g => WAKE_NAMES.map(n => g + n))
 WAKE_PHRASES.push('进入月伴', '打开月伴', '进入月伴模式', '打开月伴模式', '进入月伴对话', '打开月伴对话')
 WAKE_PHRASES.sort((a, b) => b.length - a.length)
 const NAME_ONLY = [...WAKE_NAMES].sort((a, b) => b.length - a.length)
+const NAME_FOLLOW_CUES = ['帮', '打开', '进入', '搜', '查', '看', '写', '关', '播', '请', '你好', '您好', '嗨']
 
 const normalize = (value: string) => value.replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase()
+
+function nameOnlyFollows(rest: string): boolean {
+  if (!rest) return true
+  return NAME_FOLLOW_CUES.some(cue => rest.startsWith(cue))
+}
+
+export function isMicPermissionError(err: unknown): boolean {
+  if (!err) return false
+  const rec = err as { name?: string; code?: string; message?: string }
+  return /NotAllowed|SecurityError|permission|PERMISSION_DENIED|权限被拒绝|麦克风权限/i.test(`${rec.name ?? ''} ${rec.code ?? ''} ${rec.message ?? ''} ${String(err)}`)
+}
 
 export function matchWakeWord(transcript: string): WakeWordMatch {
   const normalized = normalize(transcript)
@@ -63,7 +75,11 @@ export function matchWakeWord(transcript: string): WakeWordMatch {
   }
   for (const name of NAME_ONLY) {
     if (normalized === name) return { hit: true, prompt: '', kind: 'name' }
-    if (normalized.startsWith(name)) return { hit: true, prompt: normalized.slice(name.length), kind: 'name' }
+    if (normalized.startsWith(name)) {
+      const rest = normalized.slice(name.length)
+      if (!nameOnlyFollows(rest)) continue
+      return { hit: true, prompt: rest, kind: 'name' }
+    }
   }
   return { hit: false, prompt: '', kind: 'none' }
 }
@@ -148,8 +164,8 @@ export function useWakeWord({
           setState('error')
         }, HOME_WAKE_DEAF_MS)
       },
-      onError: () => {
-        if (!bag.stopped) setState('error')
+      onError: err => {
+        if (!bag.stopped) setState(isMicPermissionError(err) ? 'denied' : 'error')
       },
       onEndWithoutFinal: () => {
         if (bag.stopped) return
@@ -194,8 +210,12 @@ export function useWakeWord({
           return
         }
         adopt(await startCompanionSpeech(speechOptions))
-      } catch {
+      } catch (err) {
         if (bag.stopped) return
+        if (isMicPermissionError(err)) {
+          setState('denied')
+          return
+        }
         const kind = companionListenKind(loadCompanionSettings().voicePath, loadCompanionSettings().recognizer)
         if (kind === 'volc' || kind === 'local') {
           setState('error')
@@ -203,8 +223,8 @@ export function useWakeWord({
         }
         try {
           adopt(await startCompanionSpeech(speechOptions))
-        } catch {
-          if (!bag.stopped) setState('error')
+        } catch (err) {
+          if (!bag.stopped) setState(isMicPermissionError(err) ? 'denied' : 'error')
         }
       }
     })()

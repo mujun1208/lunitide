@@ -250,6 +250,44 @@ it('interrupt then a new spoken line starts a fresh companion chat.start', async
   expect(start.mock.calls[1][0]).toMatchObject({ companion: true, messages: [{ role: 'user', content: '有没有打开协议' }] })
 })
 
+it('does not restart companion chat.start for the same in-flight sentence', async () => {
+  const start = vi.fn().mockImplementation(() => new Promise(() => {}))
+  const append = vi.fn().mockResolvedValue({})
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={messages}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('打开记事本')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  await act(async () => {
+    speech.callbacks!.onFinal('打开记事本')
+  })
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 80))
+  })
+  expect(start).toHaveBeenCalledOnce()
+  expect(append).toHaveBeenCalledOnce()
+})
+
 it('retries companion chat.start after HOST_BUSY without speaking 无法执行', async () => {
   const busy = new BridgeClientError('桌面主机正忙，请稍后重试', 'HOST_BUSY', true, 'host')
   const start = vi.fn()
@@ -452,4 +490,38 @@ it('keeps the pending preference banner above the companion stage', async () => 
     confirmationToken: 'tok',
     action: 'confirm',
   })))
+})
+
+it('does not delete a companion session after a spoken turn on exit', async () => {
+  const del = vi.fn().mockResolvedValue(undefined)
+  const update = vi.fn().mockImplementation(async (payload: { title?: string }) => ({
+    ...session, title: payload.title ?? session.title, version: session.version + 1,
+  }))
+  const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel: vi.fn(), dispose: vi.fn() })
+  render(
+    <SessionPage
+      project={project}
+      bridge={{ ...sessionBridge, delete: del, update }}
+      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) } as MessageBridge}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      chat={{ start, approve: vi.fn(), dispose: vi.fn() }}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('今天天气怎么样')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalled())
+  fireEvent.click(screen.getByRole('button', { name: /退出月伴对话/ }))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)) })
+  expect(del).not.toHaveBeenCalled()
 })

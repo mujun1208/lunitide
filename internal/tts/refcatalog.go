@@ -215,8 +215,8 @@ func RefPackMeta(endpoint string) RefMeta {
 	// 未检测到 GPT-SoVITS") — the 50-preset list stays selectable in
 	// every state.
 	meta.HostState, meta.HostScript = DefaultRefHost.Status(endpoint)
-	if meta.HostState == RefHostOffline || meta.HostState == RefHostNotConfigured {
-		meta.HostLastErr = DefaultRefHost.LastErr()
+	if err := DefaultRefHost.LastErr(); err != "" {
+		meta.HostLastErr = err
 	}
 	meta.PackExists = true
 	for _, p := range refPresets {

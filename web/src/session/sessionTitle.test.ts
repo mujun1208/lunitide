@@ -1,10 +1,18 @@
 import { expect, it } from 'vitest'
-import { displaySessionTitle, isRenameableChatTitle, titleFromFirstTurn } from './sessionTitle'
+import { displaySessionTitle, isColleagueChatTitle, isRenameableChatTitle, titleFromFirstTurn } from './sessionTitle'
 
 it('strips the leftover 同事 · prefix from bound colleague session titles', () => {
   expect(displaySessionTitle('同事 · PPT专家')).toBe('PPT专家')
   expect(displaySessionTitle('写周报')).toBe('写周报')
   expect(displaySessionTitle('同事对话')).toBe('同事对话')
+})
+
+it('treats leftover colleague titles as 同事聊天, not ordinary chats', () => {
+  expect(isColleagueChatTitle('同事 · PPT专家')).toBe(true)
+  expect(isColleagueChatTitle('同事·Excel表格制作专家')).toBe(true)
+  expect(isColleagueChatTitle('同事对话')).toBe(true)
+  expect(isColleagueChatTitle('你好月汐')).toBe(false)
+  expect(isColleagueChatTitle('写周报')).toBe(false)
 })
 
 it('renames placeholder and companion titles from the first turn', () => {

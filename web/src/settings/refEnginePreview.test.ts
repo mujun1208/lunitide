@@ -11,8 +11,8 @@ import {
 describe('refPreviewReady', () => {
   test('blocks preview while the hosted engine is still loading', () => {
     expect(refPreviewReady({ engineState: 'available', hostState: 'launching', serverOnline: false })).toBe(false)
-    expect(refPreviewReady({ engineState: 'available', hostState: 'offline', serverOnline: false })).toBe(false)
-    expect(refPreviewReady({ engineState: 'available' })).toBe(false)
+    expect(refPreviewReady({ engineState: 'unavailable', hostState: 'offline', serverOnline: false })).toBe(true)
+    expect(refPreviewReady({ engineState: 'available' })).toBe(true)
     expect(refPreviewReady({ engineState: 'probing' })).toBe(false)
     expect(refPreviewReady({ engineState: 'available', hostState: 'online', serverOnline: true })).toBe(true)
   })

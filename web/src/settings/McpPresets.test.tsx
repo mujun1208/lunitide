@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { McpBridge } from '../bridge/client'
 import { McpPresetsSection } from './SettingsPage'
@@ -48,4 +48,22 @@ it('marks leftover archived endpoints and still links to the MCP page', async ()
   expect(screen.getByRole('status')).toHaveTextContent(/GitHub/)
   fireEvent.click(screen.getByRole('button', { name: '去 MCP 页' }))
   expect(onOpenMcp).toHaveBeenCalledOnce()
+})
+
+it('hides leftover notice after MCP-page uninstall leaves only revoked rows', async () => {
+  const bridge = api({
+    list: vi.fn().mockResolvedValue({
+      endpoints: [{
+        endpointId: 'mcp-old',
+        transport: 'stdio' as const,
+        state: 'revoked' as const,
+        enabled: false,
+        args: ['-y', '@modelcontextprotocol/server-github'],
+      }],
+    }),
+  })
+  render(<McpPresetsSection bridge={bridge} onOpenMcp={vi.fn()} />)
+  expect(await screen.findByText(/设置里不再安装第二套/)).toBeInTheDocument()
+  await waitFor(() => expect(bridge.list).toHaveBeenCalled())
+  expect(screen.queryByText(/已下架 MCP/)).not.toBeInTheDocument()
 })

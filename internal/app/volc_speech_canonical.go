@@ -18,6 +18,33 @@ func prepareVolcSpeechFields(protocol provider.Protocol, baseURL string, models 
 	return canon, models, nil
 }
 
+// volcListenModelID picks the ASR row for SAUC. TTS speakers marked
+// IsDefault must not win the listen handshake.
+func volcListenModelID(p provider.Provider) string {
+	var kindDefault, isDefault, first string
+	for _, m := range p.Models {
+		if m.EffectiveKind() != provider.KindASR {
+			continue
+		}
+		if first == "" {
+			first = m.ModelID
+		}
+		if m.KindDefault && kindDefault == "" {
+			kindDefault = m.ModelID
+		}
+		if m.IsDefault && isDefault == "" {
+			isDefault = m.ModelID
+		}
+	}
+	if kindDefault != "" {
+		return kindDefault
+	}
+	if isDefault != "" {
+		return isDefault
+	}
+	return first
+}
+
 func canonicalizeVolcSpeechModels(protocol provider.Protocol, models []provider.Model) []provider.Model {
 	if protocol != provider.ProtocolVolcSpeech || len(models) == 0 {
 		return models
