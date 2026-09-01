@@ -3,7 +3,11 @@
 // edge (free Microsoft cloud neural voices) or ref (local GPT-SoVITS).
 package tts
 
-import "fmt"
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+)
 
 // RouterEngine fan-out over the engines.
 type RouterEngine struct {
@@ -111,4 +115,54 @@ func (r *RouterEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, e
 		}
 		return r.sapi.Synthesize(in)
 	}
+}
+
+func (r *RouterEngine) SynthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
+	res, fb, err := r.synthesizeStream(ctx, in, emit)
+	if err != nil || emit == nil {
+		return res, fb, err
+	}
+	return res, fb, nil
+}
+
+func (r *RouterEngine) synthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
+	switch in.Engine {
+	case EngineVolc:
+		if r.volc == nil {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 火山语音引擎未装配", ErrEngineUnavailable)
+		}
+		if s, ok := r.volc.(ChunkStreamer); ok {
+			return s.SynthesizeStream(ctx, in, emit)
+		}
+		return emitWhole(r.volc, in, emit)
+	case EngineEdge:
+		if r.edge == nil {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音引擎未装配", ErrEngineUnavailable)
+		}
+		if s, ok := r.edge.(ChunkStreamer); ok {
+			return s.SynthesizeStream(ctx, in, emit)
+		}
+		return emitWhole(r.edge, in, emit)
+	default:
+		eng := r.sapi
+		if in.Engine == EngineRef {
+			eng = r.ref
+		}
+		if eng == nil {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 语音引擎未装配", ErrEngineUnavailable)
+		}
+		return emitWhole(eng, in, emit)
+	}
+}
+
+func emitWhole(eng Engine, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
+	res, fb, err := eng.Synthesize(in)
+	if err != nil || emit == nil || res.WavBase64 == "" {
+		return res, fb, err
+	}
+	raw, decErr := base64.StdEncoding.DecodeString(res.WavBase64)
+	if decErr != nil || len(raw) == 0 {
+		return res, fb, err
+	}
+	return res, fb, emit(raw)
 }

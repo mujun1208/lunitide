@@ -58,11 +58,42 @@ func TestCreateTurnClosingNotice(t *testing.T) {
 }
 
 func TestCompanionPersonaForbidsTaskDonePhrases(t *testing.T) {
-	got := companionPersonaInstruction()
-	for _, phrase := range []string{"我做完了", "我已经做完了", "任务已完成", "禁止内部思考", "我想想", "无法执行", "想聊点什么", "desktop.type"} {
+	got := companionPersonaChatInstruction()
+	for _, phrase := range []string{"我做完了", "我已经做完了", "任务已完成", "禁止内部思考", "我想想", "无法执行", "想聊点什么"} {
 		if !strings.Contains(got, phrase) {
-			t.Fatalf("persona must mention %q", phrase)
+			t.Fatalf("chat persona must mention %q", phrase)
 		}
+	}
+	if strings.Contains(got, "desktop.open") || strings.Contains(got, "desktop.type") {
+		t.Fatal("idle chat persona must not inject the desktop cookbook")
+	}
+	tools := companionPersonaToolsInstruction()
+	for _, phrase := range []string{"desktop.type", "desktop.open", "media.play"} {
+		if !strings.Contains(tools, phrase) {
+			t.Fatalf("tools persona must mention %q", phrase)
+		}
+	}
+}
+
+func TestCompanionIdleChatOmitsDesktopCookbook(t *testing.T) {
+	got := companionPersonaChatInstruction()
+	if !strings.Contains(got, "闲聊立刻回答") {
+		t.Fatal("idle chat must still say to answer immediately")
+	}
+	if strings.Contains(got, "desktop.open") {
+		t.Fatal("你好-style idle chat must not carry desktop.open instructions")
+	}
+}
+
+func TestClipCancelledCompanionPersist(t *testing.T) {
+	if got := clipCancelledCompanionPersist("今晚月色很好，适合出门。后半句还没读"); got != "今晚月色很好，适合出门。" {
+		t.Fatalf("clip = %q", got)
+	}
+	if got := clipCancelledCompanionPersist("还没有标点"); got != "" {
+		t.Fatalf("unspoken stream must not persist: %q", got)
+	}
+	if got := clipCancelledCompanionPersistToSpoken("今晚月色很好，适合出门。后半句还没读", "今晚月色很好，"); got != "今晚月色很好，" {
+		t.Fatalf("spoken prefix clip = %q", got)
 	}
 }
 

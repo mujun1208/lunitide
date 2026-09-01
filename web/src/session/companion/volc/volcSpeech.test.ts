@@ -63,12 +63,34 @@ describe('startVolcCompanionSpeech', () => {
 
     onTranscript('今天天气很好', false)
     expect(stage.onInterim).toHaveBeenCalledWith('今天天气很好')
-    await vi.advanceTimersByTimeAsync(350)
+    await vi.advanceTimersByTimeAsync(200)
     expect(stage.onFinal).not.toHaveBeenCalled()
 
     onTranscript('今天天气很好', true)
-    await vi.advanceTimersByTimeAsync(1400)
+    await vi.advanceTimersByTimeAsync(220)
     expect(stage.onFinal).toHaveBeenCalledWith('今天天气很好')
+  })
+
+  it('commits a complete greeting within 400ms', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('你好')
+    await startVolcCompanionSpeech(stage.options, PROVIDER)
+
+    onTranscript('你好', false)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(220)
+    expect(stage.onFinal).toHaveBeenCalledWith('你好')
+  })
+
+  it('does not commit「打开网」within 500ms', async () => {
+    const stage = harness()
+    asr.commit.mockResolvedValue('打开网')
+    await startVolcCompanionSpeech(stage.options, PROVIDER)
+
+    onTranscript('打开网', false)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(stage.onFinal).not.toHaveBeenCalled()
   })
 
   it('hard-commits a frozen incomplete caption', async () => {

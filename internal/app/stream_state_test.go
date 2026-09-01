@@ -88,6 +88,20 @@ func (a streamTestAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request
 	return gateway.Response{Usage: usage}, nil
 }
 
+func TestCancelStreamSpokenStoresPrefix(t *testing.T) {
+	e := NewEngine(nil, "test")
+	_, cancel := context.WithCancel(context.Background())
+	id := "stream"
+	state := &streamState{cancel: cancel, state: streamRunning, companion: true}
+	e.streams[id] = state
+	if !e.cancelStreamSpoken(id, "今晚月色很好，") {
+		t.Fatal("running spoken cancel lost")
+	}
+	if state.spokenPersist != "今晚月色很好，" {
+		t.Fatalf("spokenPersist=%q", state.spokenPersist)
+	}
+}
+
 func TestStreamCancellationTerminalArbitration(t *testing.T) {
 	e := NewEngine(nil, "test")
 	ctx, cancel := context.WithCancel(context.Background())

@@ -148,7 +148,8 @@ import {
   type MeetingsLoopbackPollPayload, type MeetingsLoopbackPollResult,
   type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
-  type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
+  type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsStreamPayload,type TtsStreamResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
+  type TalkStartPayload,type TalkStartResult,type TalkAppendPayload,type TalkAppendResult,type TalkCancelPayload,type TalkCancelResult,
   type VoiceStatusResult,type VoiceInstallPayload,type VoiceInstallResult,type VoiceSelectPayload,type VoiceSelectResult,type VoiceStartPayload,type VoiceStartResult,type VoiceAppendPayload,type VoiceAppendResult,type VoiceFinishPayload,type VoiceFinishResult,type VoiceStopPayload,type VoiceStopResult,
   type OmniStatusResult,type OmniInstallResult,type OmniEnsureResult,type OmniStartPayload,type OmniStartResult,type OmniAppendPayload,type OmniAppendResult,type OmniStopPayload,type OmniStopResult,
   type SubagentSpawnPayload,type SubagentSpawnResult,type SubagentJoinPayload,type SubagentJoinResult,type SubagentTreePayload,type SubagentTreeResult,
@@ -931,7 +932,7 @@ export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'cancelled'}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'failed';error:{code:string;message:string;retryable:boolean}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'guidance';guidance:{labels:string[];digest:string}}
-export interface ChatStream { readonly streamId:string; cancel():Promise<boolean>; dispose():void }
+export interface ChatStream { readonly streamId:string; cancel(opts?:{spokenText?:string}):Promise<boolean>; dispose():void }
 export interface ChatBridge { start(payload:ChatStartPayload,onEvent:(event:StreamEvent)=>void):Promise<ChatStream>; approve?(payload:ChatToolApprovePayload):Promise<ChatToolApproveResult>; inspectTurn?(payload:ChatTurnGetPayload):Promise<ChatTurnGetResult>; prefer?(payload:ChatPreferPayload):Promise<ChatPreferResult>; dispose():void }
 const nonnegativeInt=(v:unknown)=>Number.isInteger(v)&&Number(v)>=0
 const validArtifactPath=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
@@ -974,7 +975,7 @@ export function createChatBridge(transport:WebViewTransport,deadlineMs=30_000):C
  transport.addEventListener('message',route)
  const request=<T>(method:BridgeMethod,payload:object)=>new Promise<T>((resolve,reject)=>{if(disposed){reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer'));return}const id=ulid(),traceId=ulid(),ms=Math.min(30_000,Math.max(1,deadlineMs)),timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},ms+250);pending.set(id,{resolve,reject,timer});try{transport.postMessage({v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload,deadlineMs:ms})}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})
  const cancelLocal=(id:string)=>{if(!active.has(id)&&!early.has(id))return;failStream(id);try{void request<StreamCancelResult>('stream.cancel',{streamId:id}).catch(()=>{})}catch{/* best effort */}}
- return {async start(payload,onEvent){const result=await request<ChatStartResult>('chat.start',payload);if(!isObj(result)||!exact(result,['streamId'])||!isULID(result.streamId))throw new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,'renderer');if(disposed){try{void request('stream.cancel',{streamId:result.streamId})}catch{}throw new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer')}const state:Active={listener:onEvent,next:1,terminal:false};active.set(result.streamId,state);if(tombstones.has(result.streamId)){failActive(result.streamId,state,'BRIDGE_EARLY_EVENT_INVALID','流在建立前收到无效事件，已安全终止')}else{const buffered=early.get(result.streamId)??[];early.delete(result.streamId);for(const event of buffered){if(!active.has(result.streamId))break;deliver(state,event)}}return{streamId:result.streamId,cancel:async()=>{if(!active.has(result.streamId))return false;const r=await request<StreamCancelResult>('stream.cancel',{streamId:result.streamId});return isObj(r)&&exact(r,['cancelled'])&&r.cancelled===true},dispose:()=>cancelLocal(result.streamId)}},approve:p=>request<ChatToolApproveResult>('chat.tool.approve',p),inspectTurn:p=>request<ChatTurnGetResult>('chat.turn.get',p),prefer:p=>request<ChatPreferResult>('chat.prefer',p),dispose(){if(disposed)return;for(const id of [...active.keys()])cancelLocal(id);disposed=true;early.clear();for(const [id,p]of pending){clearTimeout(p.timer);p.reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,id))}pending.clear();transport.removeEventListener('message',route)}}
+ return {async start(payload,onEvent){const result=await request<ChatStartResult>('chat.start',payload);if(!isObj(result)||!exact(result,['streamId'])||!isULID(result.streamId))throw new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,'renderer');if(disposed){try{void request('stream.cancel',{streamId:result.streamId})}catch{}throw new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer')}const state:Active={listener:onEvent,next:1,terminal:false};active.set(result.streamId,state);if(tombstones.has(result.streamId)){failActive(result.streamId,state,'BRIDGE_EARLY_EVENT_INVALID','流在建立前收到无效事件，已安全终止')}else{const buffered=early.get(result.streamId)??[];early.delete(result.streamId);for(const event of buffered){if(!active.has(result.streamId))break;deliver(state,event)}}return{streamId:result.streamId,cancel:async(opts?:{spokenText?:string})=>{if(!active.has(result.streamId))return false;const spoken=typeof opts?.spokenText==='string'?opts.spokenText.slice(0,8000):undefined;const r=await request<StreamCancelResult>('stream.cancel',spoken?{streamId:result.streamId,spokenText:spoken}:{streamId:result.streamId});return isObj(r)&&exact(r,['cancelled'])&&r.cancelled===true},dispose:()=>cancelLocal(result.streamId)}},approve:p=>request<ChatToolApproveResult>('chat.tool.approve',p),inspectTurn:p=>request<ChatTurnGetResult>('chat.turn.get',p),prefer:p=>request<ChatPreferResult>('chat.prefer',p),dispose(){if(disposed)return;for(const id of [...active.keys()])cancelLocal(id);disposed=true;early.clear();for(const [id,p]of pending){clearTimeout(p.timer);p.reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,id))}pending.clear();transport.removeEventListener('message',route)}}
 }
 
 export interface ContextBridge {
@@ -1222,11 +1223,124 @@ export function createLocalWorkspaceBridge(transport:WebViewTransport=webview())
 // local service, so tts.synthesize gets its own 40s core.
 export type TtsVoice=TtsVoicesResult['voices'][number]
 export type TtsRefMeta=NonNullable<TtsVoicesResult['ref_meta']>
-export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult,TtsEnsureRefEnginePayload,TtsEnsureRefEngineResult}
-export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>;ensureRefEngine(payload?:TtsEnsureRefEnginePayload):Promise<TtsEnsureRefEngineResult>}
-export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir}),ensureRefEngine:payload=>core.request('tts.ensureRefEngine',payload??{})}}
+export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsStreamPayload,TtsStreamResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult,TtsEnsureRefEnginePayload,TtsEnsureRefEngineResult}
+export type TtsChunk={audioBase64:string;mime:string;index:number}
+export interface TtsStreamHandle{readonly streamId:string;readonly done:Promise<void>;cancel():Promise<void>}
+export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;stream(payload:TtsStreamPayload,onChunk:(chunk:TtsChunk)=>void):Promise<TtsStreamHandle>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>;ensureRefEngine(payload?:TtsEnsureRefEnginePayload):Promise<TtsEnsureRefEngineResult>}
+function startTtsStream(transport:WebViewTransport,payload:TtsStreamPayload,onChunk:(chunk:TtsChunk)=>void,deadlineMs=40_000):Promise<TtsStreamHandle>{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return core.request<TtsStreamResult>('tts.stream',payload).then(result=>{
+    if(!isObj(result)||!isULID(result.streamId))throw new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,'renderer')
+    const streamId=result.streamId
+    let settled=false
+    let finish!:(err?:Error)=>void
+    const done=new Promise<void>((resolve,reject)=>{finish=(err?:Error)=>{if(settled)return;settled=true;transport.removeEventListener('message',route);if(err)reject(err);else resolve()}})
+    const route=(event:MessageEvent)=>{
+      const value:unknown=event.data
+      if(!isObj(value)||value.v!==BRIDGE_VERSION||value.kind!=='event'||value.streamId!==streamId||typeof value.type!=='string')return
+      if(value.type==='tts_chunk'&&isObj(value.tts)&&typeof value.tts.audioBase64==='string'&&value.tts.audioBase64.length>0){
+        onChunk({audioBase64:value.tts.audioBase64,mime:typeof value.tts.mime==='string'?value.tts.mime:'audio/mpeg',index:typeof value.tts.index==='number'?value.tts.index:0})
+        return
+      }
+      if(value.type==='completed'||value.type==='cancelled'){finish();return}
+      if(value.type==='failed'){
+        const err=isObj(value.error)&&typeof value.error.message==='string'?new BridgeClientError(value.error.message,typeof value.error.code==='string'?value.error.code:'M95-002',false,streamId):new BridgeClientError('语音流失败','M95-002',false,streamId)
+        finish(err)
+      }
+    }
+    transport.addEventListener('message',route)
+    return{streamId,done,cancel:async()=>{try{await Promise.all([core.request<StreamCancelResult>('stream.cancel',{streamId}).catch(()=>{}),core.request('tts.cancel',{}).catch(()=>{})])}finally{finish()}}}
+  })
+}
+export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),stream:(payload,onChunk)=>startTtsStream(transport,payload,onChunk),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir}),ensureRefEngine:payload=>core.request('tts.ensureRefEngine',payload??{})}}
 let ttsSingleton:TtsBridge|undefined
 export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()}
+
+export type{TalkStartPayload,TalkStartResult,TalkAppendPayload,TalkAppendResult,TalkCancelPayload,TalkCancelResult}
+export type TalkStreamEvent=
+  |{type:'audio';audioBase64:string;mime:string}
+  |{type:'transcript';text:string;role:'user'|'assistant'}
+  |{type:'tool';name:string;text:string}
+  |{type:'error';code:string;message:string}
+  |{type:'ended'}
+export interface TalkStreamHandle{
+  readonly talkId:string
+  readonly streamId:string
+  readonly sessionId:string
+  readonly done:Promise<void>
+  append(pcm:string):Promise<boolean>
+  cancel(mode:'output'|'all'):Promise<void>
+}
+export interface TalkBridge{
+  start(payload:TalkStartPayload,onEvent:(event:TalkStreamEvent)=>void):Promise<TalkStreamHandle>
+  append(payload:TalkAppendPayload):Promise<TalkAppendResult>
+  cancel(payload:TalkCancelPayload):Promise<TalkCancelResult>
+}
+function startTalkStream(transport:WebViewTransport,payload:TalkStartPayload,onEvent:(event:TalkStreamEvent)=>void,deadlineMs=15_000):Promise<TalkStreamHandle>{
+  const core=createSimpleBridge(transport,{},deadlineMs)
+  return core.request<TalkStartResult>('talk.start',payload).then(result=>{
+    if(!isObj(result)||typeof result.talkId!=='string'||!isULID(result.streamId))throw new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,'renderer')
+    const streamId=result.streamId
+    const sessionId=payload.sessionId
+    let settled=false
+    let finish!:(err?:Error)=>void
+    const done=new Promise<void>((resolve,reject)=>{finish=(err?:Error)=>{if(settled)return;settled=true;transport.removeEventListener('message',route);if(err)reject(err);else resolve()}})
+    const route=(event:MessageEvent)=>{
+      const value:unknown=event.data
+      if(!isObj(value)||value.v!==BRIDGE_VERSION||value.kind!=='event'||value.streamId!==streamId||typeof value.type!=='string')return
+      const talk=isObj(value.talk)?value.talk:undefined
+      if(value.type==='talk_audio'&&talk&&typeof talk.audioBase64==='string'&&talk.audioBase64.length>0){
+        onEvent({type:'audio',audioBase64:talk.audioBase64,mime:typeof talk.mime==='string'?talk.mime:'audio/pcm'})
+        return
+      }
+      if(value.type==='talk_transcript'&&talk&&typeof talk.text==='string'&&talk.text.length>0){
+        onEvent({type:'transcript',text:talk.text,role:talk.role==='user'?'user':'assistant'})
+        return
+      }
+      if(value.type==='talk_tool'&&talk&&typeof talk.name==='string'){
+        onEvent({type:'tool',name:talk.name,text:typeof talk.text==='string'?talk.text:''})
+        return
+      }
+      if(value.type==='talk_error'&&talk){
+        onEvent({type:'error',code:typeof talk.code==='string'?talk.code:'TALK_SESSION_FAILED',message:typeof talk.message==='string'?talk.message:'通话核失败'})
+        return
+      }
+      if(value.type==='talk_ended'||value.type==='completed'||value.type==='cancelled'){onEvent({type:'ended'});finish();return}
+      if(value.type==='failed'){
+        const err=isObj(value.error)&&typeof value.error.message==='string'?new BridgeClientError(value.error.message,typeof value.error.code==='string'?value.error.code:'TALK_SESSION_FAILED',true,streamId):new BridgeClientError('通话核失败','TALK_SESSION_FAILED',true,streamId)
+        onEvent({type:'error',code:err.code,message:err.message})
+        finish(err)
+      }
+    }
+    transport.addEventListener('message',route)
+    return{
+      talkId:result.talkId,
+      streamId,
+      sessionId,
+      done,
+      append:async pcm=>{
+        try{
+          const accepted=await core.request<TalkAppendResult>('talk.append',{sessionId,pcm})
+          return accepted.accepted===true
+        }catch{return false}
+      },
+      cancel:async mode=>{
+        try{await core.request<TalkCancelResult>('talk.cancel',{sessionId,mode})}catch{/* session already gone */}
+        if(mode==='all')finish()
+      },
+    }
+  })
+}
+export function createTalkBridge(transport:WebViewTransport=webview()):TalkBridge{
+  const core=createSimpleBridge(transport,{},8_000)
+  return{
+    start:(payload,onEvent)=>startTalkStream(transport,payload,onEvent),
+    append:payload=>core.request('talk.append',payload),
+    cancel:payload=>core.request('talk.cancel',payload),
+  }
+}
+let talkSingleton:TalkBridge|undefined
+export function getTalkBridge():TalkBridge{return talkSingleton??=createTalkBridge()}
 
 // Local speech recognition — voice.status / install / start / append /
 // finish / stop. Audio goes up a frame at a time and each reply carries the

@@ -7,6 +7,8 @@
 package tts
 
 import (
+	"context"
+	"encoding/base64"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -122,4 +124,78 @@ func (s *Service) Synthesize(in SynthesizeInput) (SynthesizeResultOut, error) {
 		s.order = s.order[1:]
 	}
 	return SynthesizeResultOut{Result: res, VoiceFallback: voiceFallback}, nil
+}
+
+// Stream synthesizes one segment and emits audio slices as they arrive.
+// Cancel / epoch changes drop the rest. Cache hits emit one whole clip.
+func (s *Service) Stream(ctx context.Context, in SynthesizeInput, emit func([]byte, string) error) (SynthesizeResultOut, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	key := cacheKey(in)
+	startEpoch := s.epoch.Load()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.epoch.Load() != startEpoch || ctx.Err() != nil {
+		return SynthesizeResultOut{Discarded: true}, nil
+	}
+	if hit, ok := s.cache[key]; ok {
+		if err := emitCached(hit, emit); err != nil {
+			return SynthesizeResultOut{}, err
+		}
+		return SynthesizeResultOut{Result: hit}, nil
+	}
+	mime := "audio/mpeg"
+	if in.Engine != EngineEdge && in.Engine != EngineVolc {
+		mime = "audio/wav"
+	}
+	guarded := func(chunk []byte) error {
+		if s.epoch.Load() != startEpoch || ctx.Err() != nil {
+			return context.Canceled
+		}
+		if emit == nil || len(chunk) == 0 {
+			return nil
+		}
+		return emit(chunk, mime)
+	}
+	var res SynthesizeResult
+	var voiceFallback bool
+	var err error
+	if streamer, ok := s.engine.(ChunkStreamer); ok {
+		res, voiceFallback, err = streamer.SynthesizeStream(ctx, in, guarded)
+	} else {
+		res, voiceFallback, err = s.engine.Synthesize(in)
+		if err == nil && res.WavBase64 != "" {
+			if raw, decErr := base64.StdEncoding.DecodeString(res.WavBase64); decErr == nil {
+				err = guarded(raw)
+			}
+		}
+	}
+	if err != nil {
+		if s.epoch.Load() != startEpoch || ctx.Err() != nil {
+			return SynthesizeResultOut{Discarded: true}, nil
+		}
+		return SynthesizeResultOut{}, err
+	}
+	if s.epoch.Load() != startEpoch || ctx.Err() != nil {
+		return SynthesizeResultOut{Discarded: true}, nil
+	}
+	s.cache[key] = res
+	s.order = append(s.order, key)
+	for len(s.order) > cacheCapacity {
+		delete(s.cache, s.order[0])
+		s.order = s.order[1:]
+	}
+	return SynthesizeResultOut{Result: res, VoiceFallback: voiceFallback}, nil
+}
+
+func emitCached(hit SynthesizeResult, emit func([]byte, string) error) error {
+	if emit == nil || hit.WavBase64 == "" {
+		return nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(hit.WavBase64)
+	if err != nil || len(raw) == 0 {
+		return err
+	}
+	return emit(raw, "audio/mpeg")
 }

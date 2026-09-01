@@ -6,8 +6,9 @@
 // (GPT-SoVITS local cloning), or "volc" (Ark Agent Plan seed-tts).
 // Saved SAPI/OneCore installs move onto Edge; the local clone path stays.
 // rev < 2 OneCore defaults are moved onto the cloud engine once.
-import type { VoicePath } from './voicePersonas'
+import { useEffect, useState } from 'react'
 
+import type { VoicePath } from './voicePersonas'
 import { VOLC_DEFAULT_VOICE_ID, isVolcSpeakerId } from './volcVoices'
 
 export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref' | 'volc'
@@ -44,7 +45,7 @@ export interface InterruptHotkey {
 export interface CompanionSettings {
   enabled: boolean
   autoSpeak: boolean
-  /** Home-page “你好月汐” listener. Off = enter companion only by tapping the button. */
+  /** Retired home-page “你好月汐” listener. Forced off; enter companion from the card. */
   wakeWord: boolean
   /**
    * On the home wake mic, reject matches that look like speaker playback.
@@ -85,7 +86,7 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 11
+const SETTINGS_REV = 12
 
 /** True only when the user (or a previous save) wrote an explicit voicePath. */
 export function hasExplicitCompanionVoicePath(): boolean {
@@ -125,9 +126,10 @@ const ENGINE_PROBE_FALLBACK: CompanionEngine[] = ['edge']
 export function companionPlaybackSettings(
   settings: CompanionSettings,
   speakReady: boolean,
+  preferEdge = false,
 ): CompanionSettings & { lockEngine?: boolean } {
   if (settings.voicePath === 'local') {
-    if (speakReady) {
+    if (speakReady && !preferEdge) {
       return { ...settings, engine: 'ref', lockEngine: true }
     }
     return { ...settings, engine: 'edge', voiceId: '', lockEngine: true }
@@ -170,7 +172,7 @@ export const DEFAULT_INTERRUPT_HOTKEY: InterruptHotkey = {
 export const defaultCompanionSettings = (): CompanionSettings => ({
   enabled: true,
   autoSpeak: true,
-  wakeWord: true,
+  wakeWord: false,
   wakeVad: true,
   fullDuplex: true,
   instantAck: false,
@@ -200,11 +202,11 @@ export function loadCompanionSettings(): CompanionSettings {
     let engine: CompanionEngine = isEngine(parsed.engine) ? parsed.engine : fallback.engine
     let voiceId = typeof parsed.voiceId === 'string' ? parsed.voiceId : ''
     const rev = typeof parsed.rev === 'number' ? parsed.rev : 0
-    // rev < 10 force-cleared wakeWord every load because the home listener
-    // was not wired. Now that it is, restore the product default once.
+    // rev < 12 shipped home-page 「你好月汐」 listening. That kept the mic
+    // open on launch and minted empty 月伴对话 sessions until the 100 cap.
     let wakeWord = typeof parsed.wakeWord === 'boolean' ? parsed.wakeWord : fallback.wakeWord
-    if (rev < 10) {
-      wakeWord = true
+    if (rev < 12) {
+      wakeWord = false
     }
     let persist = rev < SETTINGS_REV
     // rev < 11 shipped instantAck on. The pad echoed through the mic and
@@ -308,6 +310,11 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
   return fallback
 }
 
+/** Path-forced barge-in. Stored voiceBargeIn is ignored so cloud/local cannot open Web Speech duplex. */
+export function companionVoiceBargeInEnabled(settings: Pick<CompanionSettings, 'voicePath'>): boolean {
+  return settings.voicePath === 'volc'
+}
+
 export function applyVoicePath(settings: CompanionSettings, path: VoicePath, opts?: { volcTtsReady?: boolean }): CompanionSettings {
   if (path === 'local') {
     const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
@@ -386,4 +393,21 @@ function displayHotkeyKey(key: string): string {
   if (key === 'Enter') return 'Enter'
   if (key.length === 1) return key.toUpperCase()
   return key
+}
+
+export function useCompanionSettings(): CompanionSettings {
+  const [settings, setSettings] = useState(loadCompanionSettings)
+  useEffect(() => {
+    const refresh = () => setSettings(loadCompanionSettings())
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) refresh()
+    }
+    window.addEventListener('lunitide:companion-settings', refresh)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('lunitide:companion-settings', refresh)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+  return settings
 }

@@ -63,34 +63,20 @@ describe('CompanionSection voice path', () => {
     expect(document.querySelectorAll('.voice-path-card')).toHaveLength(3)
   })
 
-  test('home wake word is on by default and can be turned off', async () => {
-    const user = userEvent.setup()
+  test('home wake controls are gone from settings', async () => {
     render(<CompanionSection />)
-    const toggle = await screen.findByRole('switch', { name: '首页语音唤醒' })
-    expect(toggle).toHaveAttribute('aria-checked', 'true')
-    await user.click(toggle)
-    expect(toggle).toHaveAttribute('aria-checked', 'false')
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').wakeWord).toBe(false)
+    expect(screen.queryByRole('switch', { name: '首页语音唤醒' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '挡扬声器误唤醒' })).not.toBeInTheDocument()
   })
 
-  test('speaker-bleed wake gate is on by default and can be turned off', async () => {
-    const user = userEvent.setup()
-    render(<CompanionSection />)
-    const toggle = await screen.findByRole('switch', { name: '挡扬声器误唤醒' })
-    expect(toggle).toHaveAttribute('aria-checked', 'true')
-    await user.click(toggle)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').wakeVad).toBe(false)
-  })
-
-  test('instant pad is off by default and barge-in is off', async () => {
+  test('instant pad is off by default and cloud explains button interrupt', async () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     const pad = await screen.findByRole('switch', { name: '先应一声' })
     expect(pad).toHaveAttribute('aria-checked', 'false')
-    const barge = screen.getByRole('switch', { name: '语音插话' })
-    expect(barge).toHaveAttribute('aria-checked', 'false')
-    await user.click(barge)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').voiceBargeIn).toBe(true)
+    expect(screen.queryByRole('switch', { name: '语音插话' })).not.toBeInTheDocument()
+    expect(screen.getByRole('note')).toHaveTextContent(/打断/)
+    expect(screen.getByRole('note')).toHaveTextContent(/不能对着麦自动插话/)
     await user.click(pad)
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').instantAck).toBe(true)
   })

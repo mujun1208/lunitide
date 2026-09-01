@@ -44,11 +44,18 @@ func (e *volcEngine) Voices() ([]Voice, error) {
 }
 
 func (e *volcEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
+	return e.SynthesizeStream(context.Background(), in, nil)
+}
+
+func (e *volcEngine) SynthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
 	if strings.TrimSpace(in.VolcAPIKey) == "" {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 未配火山语音密钥", ErrEngineUnavailable)
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	speaker, fallback := volcResolveSpeaker(in.VoiceID)
-	audio, err := e.postUnidirectional(context.Background(), in, speaker)
+	audio, err := e.postUnidirectional(ctx, in, speaker, emit)
 	if err != nil {
 		return SynthesizeResult{}, fallback, err
 	}
@@ -61,7 +68,7 @@ func (e *volcEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, err
 	}, fallback, nil
 }
 
-func (e *volcEngine) postUnidirectional(ctx context.Context, in SynthesizeInput, speaker string) ([]byte, error) {
+func (e *volcEngine) postUnidirectional(ctx context.Context, in SynthesizeInput, speaker string, emit func([]byte) error) ([]byte, error) {
 	if e.client == nil {
 		return nil, fmt.Errorf("%w: 火山语音客户端未装配", ErrEngineUnavailable)
 	}
@@ -95,17 +102,15 @@ func (e *volcEngine) postUnidirectional(ctx context.Context, in SynthesizeInput,
 	}
 	defer resp.Body.Close()
 	logid := resp.Header.Get("X-Tt-Logid")
-	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, volcMaxBody))
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 		return nil, fmt.Errorf("%w: 火山语音鉴权失败（请用 Agent Plan 专属 API Key）logid=%s", ErrEngineUnavailable, logid)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 		return nil, fmt.Errorf("%w: 火山语音 HTTP %d logid=%s", ErrSynthesisFailed, resp.StatusCode, logid)
 	}
-	if readErr != nil {
-		return nil, fmt.Errorf("%w: %v", ErrSynthesisFailed, readErr)
-	}
-	audio, parseErr := parseVolcNDJSON(raw)
+	audio, parseErr := parseVolcNDJSONReader(io.LimitReader(resp.Body, volcMaxBody), emit)
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %v logid=%s", ErrSynthesisFailed, parseErr, logid)
 	}
@@ -200,10 +205,22 @@ type volcLine struct {
 }
 
 func parseVolcNDJSON(raw []byte) ([]byte, error) {
+	return parseVolcNDJSONReader(bytes.NewReader(raw), nil)
+}
+
+func parseVolcNDJSONReader(r io.Reader, emit func([]byte) error) ([]byte, error) {
+	var rawBuf bytes.Buffer
 	audio := make([]byte, 0, 4096)
-	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	scanner := bufio.NewScanner(io.TeeReader(r, &rawBuf))
 	scanner.Buffer(make([]byte, 0, 64*1024), volcMaxBody)
 	sawLine := false
+	appendChunk := func(chunk []byte) error {
+		audio = append(audio, chunk...)
+		if emit != nil && len(chunk) > 0 {
+			return emit(chunk)
+		}
+		return nil
+	}
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -234,11 +251,14 @@ func parseVolcNDJSON(raw []byte) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("音频不是 base64: %v", err)
 		}
-		audio = append(audio, chunk...)
+		if err := appendChunk(chunk); err != nil {
+			return nil, err
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	raw := rawBuf.Bytes()
 	if !sawLine && len(bytes.TrimSpace(raw)) > 0 {
 		var row volcLine
 		if err := json.Unmarshal(raw, &row); err != nil {
@@ -256,7 +276,9 @@ func parseVolcNDJSON(raw []byte) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			audio = append(audio, chunk...)
+			if err := appendChunk(chunk); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return audio, nil

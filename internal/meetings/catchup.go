@@ -38,11 +38,22 @@ func liveCaptionRunes(transcript string) int {
 	return utf8.RuneCountInString(strings.TrimSpace(transcript))
 }
 
+func captionCoverageRunes(segs []Segment, transcript string) int {
+	n := 0
+	for _, seg := range segs {
+		n += utf8.RuneCountInString(strings.TrimSpace(seg.Text))
+	}
+	if n > 0 {
+		return n
+	}
+	return liveCaptionRunes(transcript)
+}
+
 // shouldReplaceLiveCaptions drops scraps only when they kept pace with the
 // clock. A large audio gap still needs append-only catch-up so earlier live
 // lines are kept. Do not wipe a usable transcript to re-decode the whole WAV.
-func shouldReplaceLiveCaptions(audioMS, lastSegmentMS int64, transcript string) bool {
-	if liveCaptionRunes(transcript) >= minKeepLiveCaptions {
+func shouldReplaceLiveCaptions(audioMS, lastSegmentMS int64, coverRunes int) bool {
+	if coverRunes >= minKeepLiveCaptions {
 		return false
 	}
 	return audioMS-lastSegmentMS <= catchupSlackMS
@@ -50,6 +61,10 @@ func shouldReplaceLiveCaptions(audioMS, lastSegmentMS int64, transcript string) 
 
 // NeedsCatchup reports whether leftover audio should be transcribed after stop.
 func NeedsCatchup(audioMS, lastSegmentMS int64, hasTranscript bool, transcript string) bool {
+	return needsCatchupRunes(audioMS, lastSegmentMS, hasTranscript, liveCaptionRunes(transcript))
+}
+
+func needsCatchupRunes(audioMS, lastSegmentMS int64, hasTranscript bool, coverRunes int) bool {
 	if audioMS <= 3_000 {
 		return false
 	}
@@ -59,7 +74,7 @@ func NeedsCatchup(audioMS, lastSegmentMS int64, hasTranscript bool, transcript s
 	if audioMS-lastSegmentMS > catchupSlackMS {
 		return true
 	}
-	return liveCaptionRunes(transcript) < minKeepLiveCaptions
+	return coverRunes < minKeepLiveCaptions
 }
 
 func lastSegmentWatermark(segs []Segment, transcript string) (int64, bool) {
@@ -83,7 +98,7 @@ func (s *Service) CatchUp(ctx context.Context, meetingID string) (Meeting, error
 	}
 	audioMS := s.audioDurationMS(meetingID)
 	lastMS, hasText := lastSegmentWatermark(m.Segments, m.Transcript)
-	if !NeedsCatchup(audioMS, lastMS, hasText, m.Transcript) {
+	if !needsCatchupRunes(audioMS, lastMS, hasText, captionCoverageRunes(m.Segments, m.Transcript)) {
 		return m, nil
 	}
 	// A long session whose live ASR died mid-way can leave large audio gaps.
@@ -104,10 +119,11 @@ func (s *Service) catchUpOnce(ctx context.Context, meetingID string) (Meeting, e
 	}
 	audioMS := s.audioDurationMS(meetingID)
 	lastMS, hasText := lastSegmentWatermark(m.Segments, m.Transcript)
-	if !NeedsCatchup(audioMS, lastMS, hasText, m.Transcript) {
+	cover := captionCoverageRunes(m.Segments, m.Transcript)
+	if !needsCatchupRunes(audioMS, lastMS, hasText, cover) {
 		return m, nil
 	}
-	replaceLive := shouldReplaceLiveCaptions(audioMS, lastMS, m.Transcript)
+	replaceLive := shouldReplaceLiveCaptions(audioMS, lastMS, cover)
 	fromMS := int64(0)
 	if hasText && lastMS > 0 && !replaceLive {
 		fromMS = lastMS + catchupOverlapMS
@@ -181,6 +197,19 @@ func (s *Service) appendCatchup(ctx context.Context, meetingID, text string, sta
 	if text == "" || utf8.RuneCountInString(text) > maxSegment {
 		return Segment{}, ErrInvalid
 	}
+	if last, lastErr := s.store.ListSegments(ctx, meetingID); lastErr == nil && len(last) > 0 {
+		prev := strings.TrimSpace(last[len(last)-1].Text)
+		if text != prev {
+			if rest, skip := peelMeetingPrefix(prev, text); skip {
+				return last[len(last)-1], nil
+			} else {
+				text = rest
+				if text == "" {
+					return last[len(last)-1], nil
+				}
+			}
+		}
+	}
 	n, err := s.store.CountSegments(ctx, meetingID)
 	if err != nil {
 		return Segment{}, err
@@ -225,14 +254,36 @@ func (s *Service) rebuildTranscript(ctx context.Context, meetingID string) (Meet
 }
 
 func assembleTranscript(segs []Segment) string {
-	var b strings.Builder
-	for i, seg := range segs {
-		if i > 0 {
-			b.WriteByte('\n')
+	var lines []string
+	for _, seg := range segs {
+		text := strings.TrimSpace(seg.Text)
+		if text == "" {
+			continue
 		}
-		b.WriteString(seg.Text)
+		if len(lines) == 0 {
+			lines = append(lines, text)
+			continue
+		}
+		last := lines[len(lines)-1]
+		if text == last || strings.HasPrefix(last, text) && utf8.RuneCountInString(text) >= 4 {
+			continue
+		}
+		if strings.HasPrefix(text, last) && utf8.RuneCountInString(last) >= 4 {
+			lines[len(lines)-1] = text
+			continue
+		}
+		if rest, skip := peelMeetingPrefix(last, text); skip {
+			continue
+		} else if rest != text {
+			if rest == "" {
+				continue
+			}
+			lines = append(lines, rest)
+			continue
+		}
+		lines = append(lines, text)
 	}
-	transcript := b.String()
+	transcript := strings.Join(lines, "\n")
 	if utf8.RuneCountInString(transcript) > maxTranscript {
 		transcript = string([]rune(transcript)[:maxTranscript])
 	}

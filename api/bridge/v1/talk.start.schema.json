@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/talk.start.schema.json",
+  "title": "talk.start payload",
+  "x-method": "talk.start",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "providerId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "modelId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["providerId", "modelId", "sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "talkId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "streamId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": ["talkId", "streamId"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "gpt-4o-realtime-preview",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+      }
+    ],
+    "negative": [
+      {
+        "modelId": "glm-4-air"
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "glm-4-air",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "unexpected": 1
+      }
+    ]
+  }
+}

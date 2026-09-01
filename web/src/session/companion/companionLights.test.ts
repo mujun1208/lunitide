@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { COMPANION_ENTRY_PROBE_MS, inspectCompanionEntry } from './companionLights'
+import { companionTalkLiveLights, COMPANION_ENTRY_PROBE_MS, inspectCompanionEntry } from './companionLights'
 import type { ProviderDTO } from '../../generated/bridge'
 
 const chat: ProviderDTO = {
@@ -30,7 +30,7 @@ describe('inspectCompanionEntry', () => {
     })
     expect(report.allowListen).toBe(true)
     expect(report.lights.map(light => light.title)).toEqual(['听', '说', '想'])
-    expect(report.lights[0]).toMatchObject({ label: '系统识别', state: 'on' })
+    expect(report.lights[0]).toMatchObject({ label: '系统识别 · 说完再答 · 打断用按钮', state: 'on' })
     expect(report.lights[1]).toMatchObject({ label: '晓晓', state: 'on' })
     expect(report.lights[2]).toMatchObject({ label: 'qwen-plus', state: 'on' })
   })
@@ -101,9 +101,29 @@ describe('inspectCompanionEntry', () => {
       listProviders: async () => ({ items: [chat, volc] }),
     })
     expect(report.allowListen).toBe(true)
-    expect(report.lights[0]).toMatchObject({ label: '火山 seed-asr', state: 'on' })
+    expect(report.lights[0]).toMatchObject({ label: '火山 seed-asr · 可对着麦打断', state: 'on' })
     expect(report.lights[1]).toMatchObject({ label: '晓晓（未配朗读）', state: 'on' })
     expect(report.hasVolcTts).toBe(false)
+    expect(report.hasTalkModel).toBe(false)
+  })
+
+  test('flags a listed realtime model without switching the listen light', async () => {
+    const withTalk = {
+      ...chat,
+      models: [
+        ...chat.models,
+        { modelId: 'gpt-4o-realtime-preview', displayName: 'Realtime', isDefault: false, kind: 'llm' as const },
+      ],
+    }
+    const report = await inspectCompanionEntry('volc', '', {
+      listProviders: async () => ({ items: [withTalk, volc] }),
+    })
+    expect(report.hasTalkModel).toBe(true)
+    expect(report.lights[0].label).toMatch(/seed-asr/)
+    expect(report.lights[0].label).not.toMatch(/通话核/)
+    const live = companionTalkLiveLights(report.lights)
+    expect(live[0].label).toMatch(/通话核/)
+    expect(live[1].label).toBe('通话核')
   })
 
   test('volc speak light is seed-tts only after a tts row exists', async () => {

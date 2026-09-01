@@ -62,8 +62,8 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "不要原样复读") {
 		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
-	if !strings.Contains(system, "一次") || !strings.Contains(system, "不要 web.fetch") {
-		t.Fatalf("companion weather must be one search: %q", system)
+	if strings.Contains(system, "不要 web.fetch") {
+		t.Fatalf("idle weather talk must not ship the tools weather clause: %q", system)
 	}
 	if strings.Contains(system, "可用技能目录") {
 		t.Fatalf("idle companion injected skill catalog: %q", system)
@@ -201,6 +201,18 @@ func TestUseExplicitChatFallback(t *testing.T) {
 func TestCompanionWantsTools(t *testing.T) {
 	if companionWantsTools("今晚月色如何") || companionWantsTools("你好") {
 		t.Fatal("idle chat must not request tools")
+	}
+	if companionWantsTools("继续聊") || companionWantsTools("我随便说说") || companionWantsTools("后面那个更好听") {
+		t.Fatal("idle fillers must not request tools")
+	}
+	if companionWantsTools("查一下天气") == false {
+		t.Fatal("weather lookup must request tools")
+	}
+	if companionWantsTools("今晚天气") {
+		t.Fatal("bare weather chat must stay idle")
+	}
+	if !companionWantsTools("帮我做手册解析") {
+		t.Fatal("skill-shaped 帮我做 must request tools")
 	}
 	if !companionWantsTools("打开网页") || !companionWantsTools("搜一下今天新闻") {
 		t.Fatal("action chat must request tools")

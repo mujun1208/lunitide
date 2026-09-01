@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +51,7 @@ import (
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/stageapp"
+	"github.com/lunitide/lunitide/internal/talk"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/lunitide/lunitide/internal/tts"
@@ -232,6 +234,11 @@ type Engine struct {
 	// MiniCPM-o 4.5 duplex. Isolated from TTS and ASR; nil until wired.
 	omni *OmniService
 
+	// Volcano idle talk.* realtime session. Separate from omni.* and volc SAUC.
+	talkDialer talk.Dialer
+	talkMu     sync.Mutex
+	talks      map[string]*talkSession
+
 	// This-PC person identity + LAN people messenger (identity.* / people.*).
 	identity          *identity.Service
 	people            *people.Service
@@ -279,6 +286,9 @@ type streamState struct {
 	cancel         context.CancelFunc
 	state          streamLifecycle
 	companion      bool
+	spokenPersist  string
+	tts            bool
+	talk           bool
 	subagentPolicy subagentChatPolicy
 	council        *expertCouncilConfig
 	mcpRestrict    bool
@@ -623,6 +633,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodCollabGateConfirm:             handleCollabGateConfirm,
 	bridge.MethodTtsVoices:                     handleTtsVoices,
 	bridge.MethodTtsSynthesize:                 handleTtsSynthesize,
+	bridge.MethodTtsStream:                     handleTtsStream,
 	bridge.MethodTtsCancel:                     handleTtsCancel,
 	bridge.MethodTtsRefAudios:                  handleTtsRefAudios,
 	bridge.MethodTtsEnsureRefEngine:            handleTtsEnsureRefEngine,
@@ -639,6 +650,9 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodOmniStart:                     handleOmniStart,
 	bridge.MethodOmniAppend:                    handleOmniAppend,
 	bridge.MethodOmniStop:                      handleOmniStop,
+	bridge.MethodTalkStart:                     handleTalkStart,
+	bridge.MethodTalkAppend:                    handleTalkAppend,
+	bridge.MethodTalkCancel:                    handleTalkCancel,
 	bridge.MethodOrgSummary:                    handleOrgSummary,
 	bridge.MethodOrgCreate:                     handleOrgCreate,
 	bridge.MethodOrgSwitch:                     handleOrgSwitch,
@@ -1292,12 +1306,30 @@ func (e *Engine) CancelAllStreams() {
 	}
 }
 
+func (e *Engine) cancelTtsStreams() {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	for _, stream := range e.streams {
+		if stream.tts && stream.state == streamRunning {
+			stream.state = streamCancelling
+			stream.cancel()
+		}
+	}
+}
+
 func (e *Engine) cancelStream(id string) bool {
+	return e.cancelStreamSpoken(id, "")
+}
+
+func (e *Engine) cancelStreamSpoken(id, spoken string) bool {
 	e.streamsMu.Lock()
 	defer e.streamsMu.Unlock()
 	stream, ok := e.streams[id]
 	if !ok || stream.state != streamRunning {
 		return false
+	}
+	if spoken = strings.TrimSpace(spoken); spoken != "" {
+		stream.spokenPersist = spoken
 	}
 	stream.state = streamCancelling
 	stream.cancel()
@@ -1341,6 +1373,11 @@ func (e *Engine) finishTerminal(id string, state *streamState) {
 // SetAdapterFactoryForTest injects an adapter at the production Engine.Handle boundary.
 func (e *Engine) SetAdapterFactoryForTest(factory func(context.Context, provider.Provider) (gateway.Adapter, error)) {
 	e.adapterFactory = factory
+}
+
+// SetTalkDialerForTest injects the realtime websocket dialer used by talk.start.
+func (e *Engine) SetTalkDialerForTest(dialer talk.Dialer) {
+	e.talkDialer = dialer
 }
 
 func (e *Engine) SetAgentCoordinator(c *agentorchestration.Coordinator) { e.coordinator = c }

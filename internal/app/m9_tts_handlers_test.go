@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/tts"
 )
 
@@ -37,6 +39,7 @@ func TestTtsWindowsNServiceNotWired(t *testing.T) {
 	cases := []struct{ method, payload string }{
 		{"tts.voices", `{}`},
 		{"tts.synthesize", `{"text":"段"}`},
+		{"tts.stream", `{"text":"段","engine":"edge"}`},
 		{"tts.cancel", `{}`},
 	}
 	for _, tc := range cases {
@@ -394,6 +397,54 @@ func TestTtsSynthesizeVolcWithoutKeyIsM95_001(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error.Message, "火山") {
 		t.Fatalf("message = %q, want 火山", resp.Error.Message)
+	}
+}
+
+type chunkEdgeEngine struct{}
+
+func (chunkEdgeEngine) Voices() ([]tts.Voice, error) {
+	return okEdgeEngine{}.Voices()
+}
+func (chunkEdgeEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResult, bool, error) {
+	return okEdgeEngine{}.Synthesize(in)
+}
+func (chunkEdgeEngine) SynthesizeStream(_ context.Context, _ tts.SynthesizeInput, emit func([]byte) error) (tts.SynthesizeResult, bool, error) {
+	if emit != nil {
+		if err := emit([]byte("ID3first")); err != nil {
+			return tts.SynthesizeResult{}, false, err
+		}
+	}
+	return tts.SynthesizeResult{WavBase64: "ZGE=", DurationHint: 1}, false, nil
+}
+
+func TestTtsStreamEmitsFirstChunk(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetM9TtsService(tts.NewService(tts.NewRouterEngineWithAll(&failingSynthEngine{}, nil, chunkEdgeEngine{})))
+	chunks := 0
+	done := make(chan struct{})
+	resp := e.HandleStreaming(context.Background(), validRequest("tts.stream", `{"text":"段","engine":"edge"}`), func(ev bridge.Event) error {
+		if ev.Type == bridge.EventTtsChunk {
+			chunks++
+		}
+		if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed || ev.Type == bridge.EventCancelled {
+			select {
+			case <-done:
+			default:
+				close(done)
+			}
+		}
+		return nil
+	})
+	if !resp.OK {
+		t.Fatalf("tts.stream = %+v, want ok", resp)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tts.stream produced no terminal event")
+	}
+	if chunks < 1 {
+		t.Fatalf("tts.stream chunks = %d, want first audio before complete", chunks)
 	}
 }
 

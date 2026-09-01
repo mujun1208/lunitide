@@ -24,6 +24,9 @@ import {
   shouldShowSpeechSetupHint,
   STALL_RESTART_AFTER_MS,
   overlayTranscript,
+  recognitionResultStart,
+  absorbRecognitionFinal,
+  collapseTandemRepeats,
   pickRecognitionTranscript,
   shouldCommitIncomplete,
   INCOMPLETE_HOLD_MS,
@@ -39,6 +42,8 @@ import {
   FORCE_COMMIT_MS,
   STUCK_TRANSCRIPT_MS,
   shouldForceCommitUtterance,
+  shouldCommitHeardUtterance,
+  stageForceCommitMayBeginTurn,
 } from './speech'
 import { looksIncompleteUtterance } from './companionText'
 
@@ -58,6 +63,45 @@ describe('shouldCommitUtterance', () => {
   test('accepts a tighter window for mid-utterance checks', () => {
     expect(shouldCommitUtterance(true, 620, 620)).toBe(true)
     expect(shouldCommitUtterance(true, 619, 620)).toBe(false)
+  })
+})
+
+describe('stageForceCommitMayBeginTurn', () => {
+  test('never opens a turn from the 1.4s stage kick', () => {
+    expect(stageForceCommitMayBeginTurn(false)).toBe(false)
+    expect(stageForceCommitMayBeginTurn(true)).toBe(false)
+  })
+})
+
+describe('shouldCommitHeardUtterance', () => {
+  test('commits a complete greeting after 220ms stable and 280ms quiet', () => {
+    expect(shouldCommitHeardUtterance({
+      speechActive: false,
+      silentForMs: 200,
+      textStableForMs: 220,
+      incomplete: false,
+    })).toBe(false)
+    expect(shouldCommitHeardUtterance({
+      speechActive: false,
+      silentForMs: 280,
+      textStableForMs: 220,
+      incomplete: false,
+    })).toBe(true)
+    expect(shouldCommitHeardUtterance({
+      speechActive: true,
+      silentForMs: undefined,
+      textStableForMs: 280,
+      incomplete: false,
+    })).toBe(true)
+  })
+
+  test('keeps「打开网」on the long incomplete window', () => {
+    expect(shouldCommitHeardUtterance({
+      speechActive: false,
+      silentForMs: 400,
+      textStableForMs: 400,
+      incomplete: true,
+    })).toBe(false)
   })
 })
 
@@ -237,6 +281,29 @@ describe('shouldShowSpeechSetupHint', () => {
     expect(shouldShowSpeechSetupHint({
       listening: true, hasInterim: true, listenSeconds: 25, heardThisVisit: false, hasUserRound: false,
     })).toBe(false)
+  })
+})
+
+describe('recognitionResultStart', () => {
+  test('skips finals already consumed when Windows re-sends the whole session', () => {
+    expect(recognitionResultStart(2, 0, 3)).toBe(2)
+    expect(recognitionResultStart(2, 2, 4)).toBe(2)
+    expect(recognitionResultStart(5, 0, 3)).toBe(0)
+  })
+})
+
+describe('absorbRecognitionFinal', () => {
+  const clause = '针对一个场景的业务逻辑设计要把项目和专家包对齐'
+
+  test('keeps a growing revision instead of concatenating it', () => {
+    expect(absorbRecognitionFinal('针对一个场景', clause)).toBe(clause)
+    expect(absorbRecognitionFinal(clause, clause)).toBe(clause)
+    expect(absorbRecognitionFinal(clause, clause + clause)).toBe(clause)
+  })
+
+  test('collapses a tandem dump of the same spoken sentence', () => {
+    expect(collapseTandemRepeats(clause + clause + clause)).toBe(clause)
+    expect(collapseTandemRepeats(`${clause}${clause}。`)).toBe(`${clause}。`)
   })
 })
 

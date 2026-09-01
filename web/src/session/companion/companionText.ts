@@ -10,8 +10,12 @@ export const MAX_SEGMENT_CHARS = 1200
 export const MAX_SEGMENTS = 20
 /** First unpunctuated flush: greetings may speak immediately; other first clips wait for a phrase. */
 export const FIRST_SPEAK_CHARS = 16
+/** First-clip force flush (W2): 8 chars, not the old 16. */
+export const FIRST_FORCE_SPEAK_CHARS = 8
 /** Later stalled tails may flush a shorter leftover so the turn does not hang. */
 export const FOLLOW_SPEAK_CHARS = 8
+/** Streaming stall before we force-flush an unpunctuated first clause. */
+export const FIRST_SPEAK_STALL_MS = 350
 /**
  * First-token watchdog. sendAndChat marks the turn `streaming` before
  * chat.start returns, so 5–6s used to cancel a live DeepSeek V4 request
@@ -199,6 +203,26 @@ const INCOMPLETE_TAIL =
 /** Waiting for the value after a field name — 「文档的身份证号码」. */
 const INCOMPLETE_FIELD_WAIT =
   /(?:身份证号码|证件号码|手机号|电话号码|联系电话|电话|文档的|文件里的|表格中的|这一栏的|那一格的)$/u
+
+/** True when a comma lead is still waiting for an ID / phone / path slot. */
+export function looksLikeIncompleteFieldWait(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, '').replace(/[，,。？！.!?]+$/u, '')
+  return INCOMPLETE_FIELD_WAIT.test(compact)
+}
+
+/** Closeout text already covered by streaming TTS — do not speak() it again. */
+export function alreadySpokenCloseout(spoken: string, caption: string, spokenUpTo: number): boolean {
+  if (spokenUpTo <= 0) return false
+  const next = compactSpeech(spoken)
+  if (!next) return false
+  return compactSpeech(caption.slice(0, spokenUpTo)).includes(next)
+}
+
+/** Interrupt persist / history: keep only what was read aloud. */
+export function clipAssistantToSpoken(full: string, spokenUpTo: number): string {
+  if (spokenUpTo <= 0) return ''
+  return full.slice(0, Math.min(spokenUpTo, full.length)).trim()
+}
 
 /**
  * Sentence-final particles and question words. 「我知道了」「你在干什么」
@@ -638,12 +662,22 @@ export function takeSpeakableChunk(pending: string, isFirst: boolean, force = fa
   if (sentences && sentences[1].replace(/\s/g, '').length > 0) {
     return { text: sentences[1], consumed: sentences[1].length }
   }
+  if (isFirst) {
+    const comma = /^(?:[\s\S]*?[，,])/.exec(pending)
+    if (comma) {
+      const lead = comma[0]
+      const body = lead.replace(/[，,\s]/g, '')
+      if (Array.from(body).length >= 8 && !looksLikeIncompleteFieldWait(lead)) {
+        return { text: lead, consumed: lead.length }
+      }
+    }
+  }
   if (!force) return null
   const trimmed = pending.trim()
   if (isFirst && COMPLETE_SHORT_UTTERANCE.test(trimmed)) {
     return { text: pending, consumed: pending.length }
   }
-  const minChars = isFirst ? FIRST_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
+  const minChars = isFirst ? FIRST_FORCE_SPEAK_CHARS : FOLLOW_SPEAK_CHARS
   if (Array.from(pending).length < minChars) return null
   return { text: pending, consumed: pending.length }
 }

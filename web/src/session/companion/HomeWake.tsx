@@ -6,25 +6,8 @@ import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { Language } from '../../i18n/language'
-import { loadCompanionSettings, type CompanionSettings } from './companionSettings'
+import { useCompanionSettings } from './companionSettings'
 import { useWakeWord, type WakeWordState } from './wakeWord'
-
-export function useCompanionSettings(): CompanionSettings {
-  const [settings, setSettings] = useState(loadCompanionSettings)
-  useEffect(() => {
-    const refresh = () => setSettings(loadCompanionSettings())
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === 'lunitide:companion') refresh()
-    }
-    window.addEventListener('lunitide:companion-settings', refresh)
-    window.addEventListener('storage', onStorage)
-    return () => {
-      window.removeEventListener('lunitide:companion-settings', refresh)
-      window.removeEventListener('storage', onStorage)
-    }
-  }, [])
-  return settings
-}
 
 export function homeWakeStatus(
   state: WakeWordState,

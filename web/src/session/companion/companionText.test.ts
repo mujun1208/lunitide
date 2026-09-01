@@ -42,6 +42,8 @@ import {
   companionToolCloseoutSpeech,
   isCompanionLeadInOnly,
   takeSpeakableChunk,
+  alreadySpokenCloseout,
+  clipAssistantToSpoken,
   accumulateSpeakableCaption,
   collapseRepeatedCaptionBlocks,
   collapseAdjacentRepeatedClauses,
@@ -121,7 +123,16 @@ describe('takeSpeakableChunk', () => {
     expect(takeSpeakableChunk('你好', true)).toBeNull()
     expect(takeSpeakableChunk('你好月汐', true)).toBeNull()
     expect(takeSpeakableChunk('今晚，', true)).toBeNull()
-    expect(takeSpeakableChunk('今晚月色真的很好，', true)).toBeNull()
+    expect(takeSpeakableChunk('号码，', true)).toBeNull()
+    expect(takeSpeakableChunk('身份证号码，', true)).toBeNull()
+    expect(takeSpeakableChunk('今晚月色真的很好，', true)).toEqual({
+      text: '今晚月色真的很好，',
+      consumed: '今晚月色真的很好，'.length,
+    })
+    expect(takeSpeakableChunk('好呀，今晚月色不错。', true)).toEqual({
+      text: '好呀，今晚月色不错。',
+      consumed: '好呀，今晚月色不错。'.length,
+    })
   })
 
   test('speaks a whole sentence in one clip, including commas', () => {
@@ -163,6 +174,20 @@ describe('takeSpeakableChunk', () => {
       text: '然后我再给你一些建议明天再看',
       consumed: '然后我再给你一些建议明天再看'.length,
     })
+  })
+})
+
+describe('alreadySpokenCloseout', () => {
+  test('skips a closeout that streaming already read', () => {
+    const caption = '今晚月色真的很好，适合出门走走。'
+    expect(alreadySpokenCloseout('今晚月色真的很好，适合出门走走。', caption, caption.length)).toBe(true)
+    expect(alreadySpokenCloseout('还在处理。', caption, caption.length)).toBe(false)
+    expect(alreadySpokenCloseout(caption, caption, 0)).toBe(false)
+  })
+
+  test('clips persist history to the spoken prefix', () => {
+    expect(clipAssistantToSpoken('前半句。后半句还没读。', '前半句。'.length)).toBe('前半句。')
+    expect(clipAssistantToSpoken('前半句。后半句还没读。', 0)).toBe('')
   })
 })
 

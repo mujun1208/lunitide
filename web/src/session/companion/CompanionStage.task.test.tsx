@@ -67,6 +67,7 @@ vi.mock('../../bridge/client', async importOriginal => {
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 90,
   FORCE_COMMIT_MS: 1800,
+  stageForceCommitMayBeginTurn: () => false,
   INTERRUPT_ECHO_MS: 80,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {
@@ -89,6 +90,7 @@ vi.mock('./localAsr', async importOriginal => {
 
 vi.mock('./ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  playCompanionAckPcm: vi.fn(),
   getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure(): void {}

@@ -13,11 +13,13 @@ describe('companionAsrPathLabel', () => {
   })
 
   test('an explicit cloud choice is just 系统识别', () => {
-    expect(companionAsrPathLabel('cloud', 'cloud')).toBe('系统识别')
+    expect(companionAsrPathLabel('cloud', 'cloud')).toMatch(/系统识别/)
+    expect(companionAsrPathLabel('cloud', 'cloud')).toMatch(/打断用按钮/)
   })
 
   test('volc is seed-asr, not 系统识别', () => {
-    expect(companionAsrPathLabel('volc', 'auto')).toBe('火山听写 · seed-asr')
+    expect(companionAsrPathLabel('volc', 'auto')).toMatch(/火山听写 · seed-asr/)
+    expect(companionAsrPathLabel('volc', 'auto')).toMatch(/可对着麦打断/)
     expect(companionAsrPathLabel('volc', 'cloud')).not.toMatch(/离开本机/)
   })
 })

@@ -5,7 +5,7 @@
 // against the failure circuit breaker, and the whole turn went silent.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { TtsBridge, TtsSynthesizePayload, TtsSynthesizeResult } from '../../bridge/client'
-import { ENGINE_MAX_CHARS, TtsPlayer, splitForEngine } from './ttsPlayer'
+import { ENGINE_MAX_CHARS, REF_ENGINE_START_BUDGET_MS, REF_ENGINE_START_RETRIES, TtsPlayer, splitForEngine } from './ttsPlayer'
 import { defaultCompanionSettings } from './companionSettings'
 
 const bridge = {
@@ -14,6 +14,7 @@ const bridge = {
   cancel: vi.fn(),
   refAudios: vi.fn(),
   ensureRefEngine: vi.fn(),
+  stream: vi.fn(),
 } satisfies Record<keyof TtsBridge, ReturnType<typeof vi.fn>>
 
 vi.mock('../../bridge/client', () => ({ getTtsBridge: () => bridge }))
@@ -97,5 +98,10 @@ describe('TtsPlayer keeps every request within the bridge schema', () => {
       expect(runes((call[0] as TtsSynthesizePayload).text)).toBeLessThanOrEqual(ENGINE_MAX_CHARS)
     }
     player.dispose()
+  })
+
+  test('companion SoVITS starting budget is 10s not two minutes', () => {
+    expect(REF_ENGINE_START_RETRIES).toBe(2)
+    expect(REF_ENGINE_START_BUDGET_MS).toBe(10_000)
   })
 })

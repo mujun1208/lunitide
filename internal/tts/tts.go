@@ -5,7 +5,10 @@
 // non-Windows fallback (M95-001 semantics, subtitle-only degradation).
 package tts
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // Voice is one speech token exposed via tts.voices. SAPI engines leave
 // Group empty; the GPT-SoVITS preset catalogue fills it so the settings
@@ -40,6 +43,9 @@ type SynthesizeInput struct {
 	// volc_speech provider lease. The renderer never sends them.
 	VolcAPIKey  string
 	VolcBaseURL string
+	// TryStreaming asks GPT-SoVITS for streaming_mode=true. Banned after a
+	// non-RIFF or failed probe so the next segment falls back immediately.
+	TryStreaming bool
 }
 
 // Engine selector values carried by tts.synthesize payloads.
@@ -85,6 +91,12 @@ type Engine interface {
 	// The second return marks that the requested voice was missing and
 	// the default voice was used instead (M95-004 notice semantics).
 	Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error)
+}
+
+// ChunkStreamer emits audio as soon as the engine has a playable slice.
+// Synthesize stays the whole-clip path for SAPI / ref / cache hits.
+type ChunkStreamer interface {
+	SynthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error)
 }
 
 // MaxSegmentChars is the per-segment character cap enforced by the

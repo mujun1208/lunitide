@@ -738,12 +738,11 @@ it('prefixes only selected PM chips on rethink and never the conversation catalo
  const ppt={...ai,expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',name:'PPT专家',division:'product' as const}
  const experts={list:vi.fn().mockResolvedValue({experts:[ai,ppt]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[ai.expertId]}),sessionMountSet:vi.fn().mockResolvedValue({expertIds:[ai.expertId]}),detail:vi.fn(),create:vi.fn(),update:vi.fn(),toggle:vi.fn(),archive:vi.fn(),mount:vi.fn(),mountingGet:vi.fn(),scenarioCreate:vi.fn(),scenarioList:vi.fn(),scenarioDelete:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
  const append=vi.fn().mockResolvedValue({}),start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
- const user=userEvent.setup()
  render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge} onBack={vi.fn()} initialSession={session} homeChat experts={experts} providers={providers} chat={{start,approve:vi.fn(),dispose:vi.fn()}} projectPhase={1} projectPhaseLabel="需求架构规范"/>)
  await screen.findByText('还没有消息')
  await waitFor(()=>expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('AI 工程师'))
  fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'重新思考，给出一个新的方案。'}})
- await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ fireEvent.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(append).toHaveBeenCalled())
  const sent=String(vi.mocked(append).mock.calls[0][0].text)
  expect(sent).toContain(`[引用专家 AI 工程师|${ai.expertId}]`)

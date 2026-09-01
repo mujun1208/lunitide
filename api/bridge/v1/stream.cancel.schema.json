@@ -10,6 +10,10 @@
   "properties": {
     "streamId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "spokenText": {
+      "type": "string",
+      "maxLength": 8000
     }
   },
   "required": [
@@ -31,6 +35,10 @@
     "positive": [
       {
         "streamId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      },
+      {
+        "streamId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "spokenText": "今晚月色很好，"
       }
     ],
     "negative": [

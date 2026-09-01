@@ -8,11 +8,13 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/tts"
+	"github.com/oklog/ulid/v2"
 )
 
 func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -118,6 +121,165 @@ func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridg
 	return ttsSynthResponse(r, out, err)
 }
 
+func handleTtsStream(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		Text          string `json:"text"`
+		VoiceID       string `json:"voiceId"`
+		Rate          *int   `json:"rate"`
+		Volume        *int   `json:"volume"`
+		Engine        string `json:"engine"`
+		RefEndpoint   string `json:"refEndpoint"`
+		RefWavPath    string `json:"refWavPath"`
+		RefPromptText string `json:"refPromptText"`
+		Style         string `json:"style"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.stream 参数无效", false)
+	}
+	if p.Text == "" || utf8.RuneCountInString(p.Text) > tts.MaxSegmentChars {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "text 必须为 1-500 字符", false)
+	}
+	if !tts.ValidEngine(p.Engine) {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "engine 必须为 sapi/natural/edge/ref/volc", false)
+	}
+	if p.Engine == tts.EngineVolc && p.VoiceID == "" {
+		p.VoiceID = tts.VolcDefaultVoiceID()
+	}
+	if p.Engine == tts.EngineRef {
+		if p.VoiceID == "" {
+			p.VoiceID = tts.RefDefaultVoiceID()
+		}
+		if p.RefEndpoint != "" && !strings.HasPrefix(p.RefEndpoint, "http://") && !strings.HasPrefix(p.RefEndpoint, "https://") {
+			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音色服务地址必须以 http(s):// 开头", false)
+		}
+		if !tts.IsRefPresetVoiceID(p.VoiceID) {
+			if strings.TrimSpace(p.RefWavPath) == "" {
+				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "必须选择参考音频文件", false)
+			}
+			if _, err := os.Stat(p.RefWavPath); err != nil {
+				return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参考音频文件不存在，请在设置中重新选择", false)
+			}
+		}
+	}
+	if e.m9tts == nil {
+		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
+	}
+	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
+	if !ok || emit == nil {
+		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tts.stream 需要流通道", false)
+	}
+	rate, volume := tts.DefaultRate, tts.DefaultVolume
+	if p.Rate != nil {
+		rate = *p.Rate
+	}
+	if p.Volume != nil {
+		volume = *p.Volume
+	}
+	input := tts.SynthesizeInput{
+		Text: p.Text, VoiceID: p.VoiceID, Rate: rate, Volume: volume,
+		Engine: p.Engine, RefEndpoint: p.RefEndpoint,
+		RefWavPath: p.RefWavPath, RefPromptText: p.RefPromptText, Style: p.Style,
+	}
+	e.streamsMu.Lock()
+	if len(e.streams) >= e.maxStreams {
+		e.streamsMu.Unlock()
+		return bridge.Failure(r.ID, r.TraceID, "STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
+	}
+	streamID := ulid.Make().String()
+	parent, _ := ctx.Value(streamParentKey{}).(context.Context)
+	if parent == nil {
+		parent = ctx
+	}
+	streamCtx, cancel := context.WithCancel(parent)
+	state := &streamState{cancel: cancel, tts: true}
+	e.streams[streamID] = state
+	e.streamsMu.Unlock()
+	go e.runTtsStream(streamCtx, streamID, state, input, emit)
+	return bridge.Success(r.ID, map[string]any{"streamId": streamID})
+}
+
+func (e *Engine) runTtsStream(ctx context.Context, streamID string, state *streamState, input tts.SynthesizeInput, emit EventEmitter) {
+	var sendMu sync.Mutex
+	var seq uint64
+	send := func(event bridge.Event) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		seq++
+		event.Version = bridge.Version
+		event.Kind = "event"
+		event.ID = ulid.Make().String()
+		event.StreamID = streamID
+		event.Sequence = seq
+		return emit(event)
+	}
+	defer func() {
+		e.finishTerminal(streamID, state)
+	}()
+	var out tts.SynthesizeResultOut
+	var err error
+	if input.Engine == tts.EngineVolc {
+		out, err = e.streamVolc(ctx, input, func(chunk []byte, mime string) error {
+			return sendTtsChunk(send, chunk, mime)
+		})
+	} else {
+		out, err = e.m9tts.Stream(ctx, input, func(chunk []byte, mime string) error {
+			return sendTtsChunk(send, chunk, mime)
+		})
+	}
+	term := e.selectTerminal(streamID, state, err)
+	if out.Discarded {
+		term = bridge.EventCancelled
+	}
+	if term == bridge.EventFailed {
+		_ = send(bridge.Event{Type: term, Error: &bridge.StreamError{Code: "M95-002", Message: "该段语音合成失败", Retryable: false}})
+		return
+	}
+	_ = send(bridge.Event{Type: term})
+}
+
+func sendTtsChunk(send func(bridge.Event) error, chunk []byte, mime string) error {
+	if mime == "" {
+		mime = "audio/mpeg"
+	}
+	const maxRaw = 48 * 1024
+	index := 0
+	for len(chunk) > 0 {
+		n := len(chunk)
+		if n > maxRaw {
+			n = maxRaw
+		}
+		if err := send(bridge.Event{Type: bridge.EventTtsChunk, Tts: &bridge.TtsChunkEvent{
+			AudioBase64: base64.StdEncoding.EncodeToString(chunk[:n]),
+			Mime:        mime,
+			Index:       index,
+		}}); err != nil {
+			return err
+		}
+		index++
+		chunk = chunk[n:]
+	}
+	return nil
+}
+
+func (e *Engine) streamVolc(ctx context.Context, input tts.SynthesizeInput, emit func([]byte, string) error) (tts.SynthesizeResultOut, error) {
+	p, err := e.firstReadyVolcSpeech(ctx)
+	if err != nil {
+		return tts.SynthesizeResultOut{}, err
+	}
+	var out tts.SynthesizeResultOut
+	err = e.withProviderLease(ctx, p, secretlease.OperationChat, func(_ context.Context, secret []byte) error {
+		input.VolcAPIKey = string(secret)
+		input.VolcBaseURL = p.BaseURL
+		var synthErr error
+		out, synthErr = e.m9tts.Stream(ctx, input, emit)
+		return synthErr
+	})
+	if err != nil {
+		return tts.SynthesizeResultOut{}, err
+	}
+	return out, nil
+}
+
 func synthesizeVolc(e *Engine, ctx context.Context, r bridge.Request, text, voiceID string, rate, volume *int) bridge.Response {
 	input := tts.SynthesizeInput{
 		Text: text, VoiceID: voiceID, Rate: tts.DefaultRate, Volume: tts.DefaultVolume, Engine: tts.EngineVolc,
@@ -197,6 +359,7 @@ func handleTtsCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return bridge.Failure(r.ID, r.TraceID, "M95-001", "本机无可用语音合成引擎", true)
 	}
 	e.m9tts.Cancel() // idempotent: a no-op when idle
+	e.cancelTtsStreams()
 	return bridge.Success(r.ID, map[string]any{"notice": "TTS_CANCELLED"})
 }
 

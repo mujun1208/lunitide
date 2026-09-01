@@ -335,6 +335,25 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 		valid  bool
 	}{
 		{"delta", func(e *bridge.Event) { e.Type = bridge.EventDelta; e.Delta = &bridge.DeltaEvent{Text: "x"} }, true},
+		{"tts chunk", func(e *bridge.Event) {
+			e.Type = bridge.EventTtsChunk
+			e.Tts = &bridge.TtsChunkEvent{AudioBase64: "SUQz", Mime: "audio/mpeg", Index: 0}
+		}, true},
+		{"tts chunk empty", func(e *bridge.Event) { e.Type = bridge.EventTtsChunk; e.Tts = &bridge.TtsChunkEvent{Mime: "audio/mpeg"} }, false},
+		{"talk audio", func(e *bridge.Event) {
+			e.Type = bridge.EventTalkAudio
+			e.Talk = &bridge.TalkEvent{AudioBase64: "AAAA", Mime: "audio/pcm"}
+		}, true},
+		{"talk audio empty", func(e *bridge.Event) { e.Type = bridge.EventTalkAudio; e.Talk = &bridge.TalkEvent{Mime: "audio/pcm"} }, false},
+		{"talk transcript", func(e *bridge.Event) {
+			e.Type = bridge.EventTalkTranscript
+			e.Talk = &bridge.TalkEvent{Text: "今晚月色如何", Role: "user"}
+		}, true},
+		{"talk transcript no role", func(e *bridge.Event) {
+			e.Type = bridge.EventTalkTranscript
+			e.Talk = &bridge.TalkEvent{Text: "x"}
+		}, false},
+		{"talk ended", func(e *bridge.Event) { e.Type = bridge.EventTalkEnded }, true},
 		{"thinking", func(e *bridge.Event) { e.Type = bridge.EventThinking; e.Thinking = &bridge.ThinkingEvent{Text: "x"} }, true},
 		{"empty thinking", func(e *bridge.Event) { e.Type = bridge.EventThinking; e.Thinking = &bridge.ThinkingEvent{} }, false},
 		{"thinking with delta", func(e *bridge.Event) {
