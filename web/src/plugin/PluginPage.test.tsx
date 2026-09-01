@@ -43,6 +43,7 @@ function api(overrides: Partial<PluginBridge> = {}): PluginBridge {
     install: vi.fn(),
     toggle: vi.fn().mockResolvedValue({ installId: webSearch.installId, state: 'enabled', bindings: [] }),
     uninstall: vi.fn().mockResolvedValue({ installId: webSearch.installId, state: 'uninstalled', revokedBindings: 0, tombstoneId: '01ARZ3NDEKTSV4RRFFQ69G5FAD' }),
+    confirmToken: vi.fn().mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: now }),
     upgrade: vi.fn(),
     marketSearch: vi.fn(),
     marketDetail: vi.fn(),

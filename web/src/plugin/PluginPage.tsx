@@ -9,7 +9,6 @@ type Plugin=PluginListResult['plugins'][number]
 type View='installed'|'market'
 const KIND_LABEL:Record<string,string>={mcp:'MCP',skill:'技能',workflow:'工作流',template:'模板',tool:'工具','agent-pack':'AgentPack'}
 const STATE_LABEL:Record<Plugin['state'],string>={installed:'已安装未启用',enabled:'已安装',disabled:'未启用',quarantined:'安装失败',uninstalled:'已卸载'}
-const sha256Hex=async(value:string)=>{const digest=await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return Array.from(new Uint8Array(digest)).map(byte=>byte.toString(16).padStart(2,'0')).join('')}
 const isFiller=(pluginId:string)=>FILLER_PLUGIN.test(pluginId)
 
 export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge,onCreateInChat,highlightId}:{bridge?:PluginBridge;skills?:SkillBridge;mcp?:McpBridge;onCreateInChat?:()=>void;highlightId?:string}):React.JSX.Element{
@@ -66,7 +65,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
   if(!removeTarget)return
   setBusy(removeTarget.installId);setError('');setNotice('')
   try{
-   const confirmToken=await sha256Hex(`plugin.uninstall|${removeTarget.installId}`)
+   const {confirmToken}=await bridge.confirmToken({installId:removeTarget.installId})
    await bridge.uninstall({installId:removeTarget.installId,confirmToken})
    setNotice(`已删除「${pluginTitle(removeTarget.pluginId)}」`);setRemoveTarget(null);await load()
   }catch(e){setError(e instanceof Error?e.message:'删除失败')}finally{setBusy('')}
