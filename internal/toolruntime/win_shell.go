@@ -301,17 +301,3 @@ func commandFailure(output string) error {
 	return fmt.Errorf("%s", formatCommandOutput(false, output))
 }
 
-func fileURL(path string) string {
-	clean := filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		slash := strings.ReplaceAll(clean, `\`, "/")
-		if filepath.IsAbs(clean) {
-			return "file:///" + slash
-		}
-		return slash
-	}
-	if filepath.IsAbs(clean) {
-		return "file://" + clean
-	}
-	return clean
-}

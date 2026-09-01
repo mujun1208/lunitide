@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -362,20 +361,8 @@ type edgeHandshakeError struct {
 
 func (e *edgeHandshakeError) Error() string { return e.msg }
 
-func parseHTTPStatus(statusLine string) int {
-	parts := strings.Fields(strings.TrimSpace(statusLine))
-	if len(parts) < 2 {
-		return 0
-	}
-	code, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return 0
-	}
-	return code
-}
-
 func (e *edgeEngine) adjustClockSkew(serverDate time.Time) {
 	e.mu.Lock()
-	e.clockSkew = serverDate.Sub(time.Now())
+	e.clockSkew = time.Until(serverDate)
 	e.mu.Unlock()
 }

@@ -385,10 +385,6 @@ type GitOutput struct {
 	ExitCode int
 }
 
-func (g *GitExec) run(ctx context.Context, dir string, args []string) (GitOutput, error) {
-	return g.runStdin(ctx, dir, args, nil)
-}
-
 // runOk is run for commands whose only good outcome is exit 0: a non-zero
 // exit is surfaced as an error (with stderr) instead of a silent empty
 // result. Commands that treat non-zero exits as data (apply --check)

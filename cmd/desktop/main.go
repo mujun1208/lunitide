@@ -338,7 +338,7 @@ func run() error {
 		return err
 	}
 	if !response.OK {
-		return errors.New("Engine health check failed")
+		return errors.New("engine health check failed")
 	}
 	rendererDir, err := webviewhost.DefaultRendererFolder()
 	if err != nil {
@@ -437,7 +437,7 @@ func runRPCHealth(pipe string) error {
 		return err
 	}
 	if !response.OK {
-		return errors.New("Engine health check failed")
+		return errors.New("engine health check failed")
 	}
 	raw, err := json.Marshal(response.Payload)
 	if err != nil || len(raw) == 0 || string(raw) == "null" {

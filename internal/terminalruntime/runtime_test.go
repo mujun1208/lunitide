@@ -1,6 +1,7 @@
 package terminalruntime
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,17 +16,17 @@ func TestConfigurationAndBounds(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = r.Start(nil, "bad/id", 80, 24); !errors.Is(e, ErrInvalid) {
+	if e = r.Start(context.Background(), "bad/id", 80, 24); !errors.Is(e, ErrInvalid) {
 		t.Fatalf("invalid id: %v", e)
 	}
-	if e = r.Start(nil, "x", 0, 24); !errors.Is(e, ErrInvalid) {
+	if e = r.Start(context.Background(), "x", 0, 24); !errors.Is(e, ErrInvalid) {
 		t.Fatalf("invalid dimensions: %v", e)
 	}
 	if e = r.Write("x", []byte("1234")); !errors.Is(e, ErrInvalid) {
 		t.Fatalf("input bound: %v", e)
 	}
 	if runtime.GOOS != "windows" {
-		if e = r.Start(nil, "x", 80, 24); !errors.Is(e, ErrUnsupported) {
+		if e = r.Start(context.Background(), "x", 80, 24); !errors.Is(e, ErrUnsupported) {
 			t.Fatalf("unsupported: %v", e)
 		}
 	}
@@ -82,7 +83,7 @@ func TestSessionAndOutputBounds(t *testing.T) {
 	}
 	s := &session{id: "one"}
 	r.sessions[s.id] = s
-	if err := r.Start(nil, "two", 80, 24); !errors.Is(err, ErrLimit) {
+	if err := r.Start(context.Background(), "two", 80, 24); !errors.Is(err, ErrLimit) {
 		t.Fatalf("session limit: %v", err)
 	}
 	r.output(s, []byte("123456"))

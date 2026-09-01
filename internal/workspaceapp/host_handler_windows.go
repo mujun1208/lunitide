@@ -84,7 +84,12 @@ func (h *Handler) HandleHost(ctx context.Context, r bridge.Request) bridge.Respo
 		if err != nil {
 			return failure(r, "WORKSPACE_PATH_DENIED", "目录不在所选工作区内", false)
 		}
-		defer closeHandles(handles)
+		// A closure, not defer closeHandles(handles): a deferred call fixes its
+		// argument at the defer line, so it would close the whole slice —
+		// including the handle whose ownership moves to os.NewFile below and is
+		// closed by dir.Close. Reading handles at return time closes only what
+		// is left after the reslice, so final is closed once, not twice.
+		defer func() { closeHandles(handles) }()
 		final := handles[len(handles)-1]
 		dir := os.NewFile(uintptr(final), target)
 		handles = handles[:len(handles)-1]
@@ -133,7 +138,10 @@ func (h *Handler) HandleHost(ctx context.Context, r bridge.Request) bridge.Respo
 		if err != nil {
 			return failure(r, "WORKSPACE_PATH_DENIED", "文件不在所选工作区内", false)
 		}
-		defer closeHandles(handles)
+		// See MethodWorkspaceList above: the closure defers closing whatever
+		// remains after final's ownership moves to os.NewFile, so the file
+		// handle is not closed twice.
+		defer func() { closeHandles(handles) }()
 		final := handles[len(handles)-1]
 		var info windows.ByHandleFileInformation
 		if windows.GetFileInformationByHandle(final, &info) != nil || info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || info.NumberOfLinks != 1 {

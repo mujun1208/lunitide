@@ -136,7 +136,3 @@ func (e *Engine) rememberChatModel(providerID, modelID string) {
 	e.preferredChat.Store(pref)
 	e.persistPreferredChatModel(pref)
 }
-
-func preferredLLMFromList(items []provider.Provider) (provider.CatalogEntry, bool) {
-	return resolveChatModel(items, "", "")
-}

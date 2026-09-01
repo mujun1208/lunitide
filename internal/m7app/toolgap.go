@@ -9,16 +9,13 @@ package m7app
 import (
 	"archive/zip"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -806,11 +803,6 @@ func (LocalGitRunner) Read(ctx context.Context, repoPath, op, ref string, maxOut
 	return out, nil
 }
 
-// urlOK is a small helper used by tests of the default doer.
-func urlOK(raw string) bool { _, err := url.Parse(raw); return err == nil }
-
-// sha256Hex is exported for storage/helpers reuse.
-func sha256Hex(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToString(sum[:]) }
 func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

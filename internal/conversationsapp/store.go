@@ -14,8 +14,6 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-const configFileName = "conversations-root.json"
-
 type rootConfig struct {
 	Path string `json:"path"`
 }

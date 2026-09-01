@@ -33,11 +33,6 @@ const (
 // EdgeDefaultVoiceID is the first-listen Chinese neural voice.
 func EdgeDefaultVoiceID() string { return edgeDefaultVoice }
 
-func edgeVoiceToLocal(voiceID string) string {
-	_ = voiceID
-	return ""
-}
-
 type edgeEngine struct {
 	client    *http.Client
 	voicesURL string

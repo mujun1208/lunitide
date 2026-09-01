@@ -1105,10 +1105,7 @@ func (s *ExpertService) MountingGet(ctx context.Context, in MountingGetInput) (M
 			}
 			mounted := map[string]bool{}
 			for _, m := range mountings {
-				row.Mountings = append(row.Mountings, ExpertMountingDTO{
-					MountingID: m.MountingID, ExpertID: m.ExpertID, VersionID: m.VersionID,
-					Semver: m.Semver, State: m.State, ExpertState: m.ExpertState,
-				})
+				row.Mountings = append(row.Mountings, ExpertMountingDTO(m))
 				if m.State == m8core.MountingMounted {
 					mounted[m.ExpertID] = true
 				}

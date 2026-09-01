@@ -273,21 +273,6 @@ func (t *agentRuntimeTx) LatestGateEvaluation(stageRunID, gateKey string) (m7flo
 	return g, t.fail(err)
 }
 
-const checkpointColumns = `id,stage_run_id,snapshot_digest,trace_root,sequence,created_at`
-
-func scanCheckpoint(s interface{ Scan(...any) error }) (m7flow.Checkpoint, error) {
-	var c m7flow.Checkpoint
-	var created string
-	if err := s.Scan(&c.ID, &c.StageRunID, &c.SnapshotDigest, &c.TraceRoot, &c.Sequence, &created); err != nil {
-		return c, err
-	}
-	var err error
-	if c.CreatedAt, err = parseRFC(created); err != nil {
-		return c, err
-	}
-	return c, nil
-}
-
 func (t *agentRuntimeTx) PutCheckpoint(c m7flow.Checkpoint) error {
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO checkpoints
 		(id,stage_run_id,snapshot_digest,trace_root,sequence,created_at)

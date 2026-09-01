@@ -27,7 +27,7 @@ func projectAttachmentStoreAvailable(store ProjectAttachmentStore) bool {
 		return false
 	}
 	v := reflect.ValueOf(store)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 type projectAttachmentDTO struct {

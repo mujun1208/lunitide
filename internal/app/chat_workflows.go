@@ -176,8 +176,8 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 	if phase <= 0 || label == "" {
 		return ""
 	}
-	switch {
-	case label == "开发":
+	switch label {
+	case "开发":
 		pm := "pm-phase-5"
 		if phase == 4 {
 			pm = "pm-phase-4"
@@ -185,11 +185,11 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"当前处于项目开发阶段。编码、实现、改代码、补测试、审查 diff 时，必须优先 skill.invoke：implement、tdd-loop、code-reviewer、" + pm + "。\n" +
 			"拆任务用 to-tickets；写规格用 to-spec；架构问题用 improve-architecture。完成实现后主动 code-reviewer 并口头总结结果。\n"
-	case label == "需求架构规范" || label == "方案和UI设计":
+	case "需求架构规范", "方案和UI设计":
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"对齐需求与边界时优先 skill.invoke：grill-me、to-spec；拆票用 to-tickets；架构审视用 improve-architecture。\n" +
 			"范围、选型、是否继续等拍板必须调用 user.ask（每题 2–5 个选项；界面提供「其他」）。一次只推进一题，不要用长文代替决策。\n"
-	case label == "测试":
+	case "测试":
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"测试阶段优先 skill.invoke：test-writer、code-reviewer、pm-phase-6（或 pm-phase-5 运维型项目）。\n"
 	default:

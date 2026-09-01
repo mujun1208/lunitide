@@ -1,0 +1,47 @@
+version: "2"
+
+# The enforced gate is the correctness and dead-code linters: govet catches
+# suspicious constructs, ineffassign catches writes that are never read,
+# staticcheck catches bugs and misuse, and unused catches dead declarations.
+# A warning from any of these is something worth fixing, not a matter of taste,
+# so the gate stays zero-warning.
+#
+# errcheck is intentionally NOT enabled yet. A full scan reports ~1000 ignored
+# error returns, almost all of them deliberate best-effort patterns — deferred
+# Close, Windows syscall .Call, fmt.Fprint to stdout, cleanup in tests. Turning
+# it on as a hard gate would mean a thousand blind `_ =` edits that bury the
+# handful of returns actually worth checking. It gets its own pass with a tuned
+# exclude-functions list once the rest of the gate is green and staying green.
+# Style-only and security linters (gofumpt, gosec, revive) are likewise left
+# for separate, triaged passes.
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      # staticcheck's defaults, minus QF1001. QF1001 rewrites boolean guards
+      # via De Morgan's law — a pure style opinion that, applied to the
+      # character-range checks in this tree's hex/id validators, trades an
+      # obvious "not (a digit or a-f)" for a less legible conjunction with no
+      # correctness gain. Every other check (SA bugs, ST style, S/QF
+      # simplifications) stays on.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1001
+
+# Report every finding rather than the default first-50-per-linter / first-3
+# of a kind. A gate that hides its own tail lets issues accumulate behind the
+# cap; showing all of them keeps the true count honest.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

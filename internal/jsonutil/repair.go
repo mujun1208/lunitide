@@ -49,8 +49,10 @@ func extractJSON(s string) string {
 	}
 	obj := strings.IndexByte(s, '{')
 	arr := strings.IndexByte(s, '[')
-	start := -1
-	endCh := byte(0)
+	var (
+		start int
+		endCh byte
+	)
 	switch {
 	case obj >= 0 && (arr < 0 || obj < arr):
 		start, endCh = obj, '}'

@@ -323,9 +323,7 @@ func (s *PluginService) CreateAndMount(ctx context.Context, in DevCreateInput) (
 			}); err != nil {
 				return err
 			}
-			views = append(views, InstallBindingView{
-				TargetType: spec.TargetType, TargetID: spec.TargetID, CapabilityDigest: spec.CapabilityDigest,
-			})
+			views = append(views, InstallBindingView(spec))
 		}
 		if _, err := tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "plugin.create.mount",

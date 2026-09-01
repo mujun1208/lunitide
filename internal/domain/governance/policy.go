@@ -11,10 +11,10 @@ import (
 type ReviewStatus string
 
 const (
-	ReviewStatusPending           ReviewStatus = "pending"
-	ReviewStatusApproved          ReviewStatus = "approved"
-	ReviewStatusRejected          ReviewStatus = "rejected"
-	ReviewStatusExpired           ReviewStatus = "expired"
+	ReviewStatusPending              ReviewStatus = "pending"
+	ReviewStatusApproved             ReviewStatus = "approved"
+	ReviewStatusRejected             ReviewStatus = "rejected"
+	ReviewStatusExpired              ReviewStatus = "expired"
 	ReviewStatusChangedAfterApproval ReviewStatus = "changed_after_approval"
 )
 
@@ -27,18 +27,18 @@ func (s ReviewStatus) IsTerminal() bool {
 type ActionType string
 
 const (
-	ActionPush           ActionType = "push"
-	ActionPublish        ActionType = "publish"
-	ActionDeploy         ActionType = "deploy"
-	ActionDestructiveDB  ActionType = "destructive_db"
-	ActionDestructiveFS  ActionType = "destructive_fs"
+	ActionPush             ActionType = "push"
+	ActionPublish          ActionType = "publish"
+	ActionDeploy           ActionType = "deploy"
+	ActionDestructiveDB    ActionType = "destructive_db"
+	ActionDestructiveFS    ActionType = "destructive_fs"
 	ActionCredentialExport ActionType = "credential_export"
-	ActionCrossDomainSend ActionType = "cross_domain_send"
-	ActionUntrustedCode  ActionType = "untrusted_code"
-	ActionSkillExpand    ActionType = "skill_expand"
-	ActionSecurityPolicy ActionType = "security_policy"
-	ActionAuditChange    ActionType = "audit_change"
-	ActionTrustRoot      ActionType = "trust_root"
+	ActionCrossDomainSend  ActionType = "cross_domain_send"
+	ActionUntrustedCode    ActionType = "untrusted_code"
+	ActionSkillExpand      ActionType = "skill_expand"
+	ActionSecurityPolicy   ActionType = "security_policy"
+	ActionAuditChange      ActionType = "audit_change"
+	ActionTrustRoot        ActionType = "trust_root"
 )
 
 // AlwaysRequiresReview returns true if this action type always requires human review,
@@ -59,20 +59,20 @@ func (a ActionType) AlwaysRequiresReview() bool {
 // Review is an approval record for an immutable operation digest.
 // Reviews are bound to exact action/input/state digests to prevent replay.
 type Review struct {
-	ID              string       `json:"id"`
-	PlanID          *string      `json:"planId,omitempty"`
-	NodeID          *string      `json:"nodeId,omitempty"`
-	ActionType      ActionType   `json:"actionType"`
-	ActionDigest    string       `json:"actionDigest"`
-	InputDigest     string       `json:"inputDigest"`
-	StateDigest     string       `json:"stateDigest"`
-	PolicyVersion   int64        `json:"policyVersion"`
-	RiskLevel       string       `json:"riskLevel"`
-	Status          ReviewStatus `json:"status"`
-	ReviewerNote    string       `json:"reviewerNote"`
-	ExpiresAt       *time.Time   `json:"expiresAt,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	ReviewedAt      *time.Time   `json:"reviewedAt,omitempty"`
+	ID            string       `json:"id"`
+	PlanID        *string      `json:"planId,omitempty"`
+	NodeID        *string      `json:"nodeId,omitempty"`
+	ActionType    ActionType   `json:"actionType"`
+	ActionDigest  string       `json:"actionDigest"`
+	InputDigest   string       `json:"inputDigest"`
+	StateDigest   string       `json:"stateDigest"`
+	PolicyVersion int64        `json:"policyVersion"`
+	RiskLevel     string       `json:"riskLevel"`
+	Status        ReviewStatus `json:"status"`
+	ReviewerNote  string       `json:"reviewerNote"`
+	ExpiresAt     *time.Time   `json:"expiresAt,omitempty"`
+	CreatedAt     time.Time    `json:"createdAt"`
+	ReviewedAt    *time.Time   `json:"reviewedAt,omitempty"`
 }
 
 // Validate checks invariants for a review.

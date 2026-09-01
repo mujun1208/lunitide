@@ -11,7 +11,14 @@ import (
 var shellExecuteW = syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW")
 
 func openSystemBrowser(url string) error {
-	operation, target := syscall.StringToUTF16Ptr("open"), syscall.StringToUTF16Ptr(url)
+	operation, err := syscall.UTF16PtrFromString("open")
+	if err != nil {
+		return err
+	}
+	target, err := syscall.UTF16PtrFromString(url)
+	if err != nil {
+		return err
+	}
 	result, _, callErr := shellExecuteW.Call(0, uintptr(unsafe.Pointer(operation)), uintptr(unsafe.Pointer(target)), 0, 0, 1)
 	if result <= 32 {
 		return fmt.Errorf("ShellExecuteW failed: result=%d: %w", result, callErr)

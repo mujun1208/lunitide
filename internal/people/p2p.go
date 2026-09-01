@@ -40,7 +40,6 @@ type incomingFile struct {
 	path   string
 	size   int64
 	got    int64
-	sha    []byte
 	msg    Message
 	thread wireThread
 }

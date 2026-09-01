@@ -301,7 +301,7 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 	if s == nil || s.uow == nil {
 		return ConfirmResult{}, ErrServiceUnavailable
 	}
-	if len(in.CandidateID) != 26 || len(in.Token) != m8core.DigestHexLen || m8core.ValidHexDigest(in.Token) == false {
+	if len(in.CandidateID) != 26 || len(in.Token) != m8core.DigestHexLen || !m8core.ValidHexDigest(in.Token) {
 		return ConfirmResult{}, fmt.Errorf("%w: candidateId/token malformed", ErrConfirmTokenInvalid)
 	}
 	if in.Action != "confirm" && in.Action != "reject" {

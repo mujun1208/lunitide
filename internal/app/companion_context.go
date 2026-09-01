@@ -281,10 +281,7 @@ func companionMusicQueryFollowUp(text string) bool {
 			return false
 		}
 	}
-	if strings.ContainsAny(t, "？?！!。，,；;：:") {
-		return false
-	}
-	return true
+	return !strings.ContainsAny(t, "？?！!。，,；;：:")
 }
 
 func (e *Engine) companionWantsToolsForTurn(sessionID, text string) bool {

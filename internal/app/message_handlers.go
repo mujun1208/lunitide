@@ -19,7 +19,7 @@ func messageServiceAvailable(service MessageService) bool {
 		return false
 	}
 	v := reflect.ValueOf(service)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 type sessionProjectResolver interface {

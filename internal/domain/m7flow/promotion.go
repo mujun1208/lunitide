@@ -67,10 +67,10 @@ const (
 
 // RollbackAttempt states.
 const (
-	RbkPending  = "pending"
-	RbkRunning  = "running"
+	RbkPending   = "pending"
+	RbkRunning   = "running"
 	RbkSucceeded = "succeeded"
-	RbkFailed   = "failed"
+	RbkFailed    = "failed"
 )
 
 // Rollback dimensions.
@@ -197,8 +197,8 @@ func LegalPromotionEdge(from, to string) bool {
 	if EnvRank(to) <= EnvRank(from) {
 		return false
 	}
-	switch {
-	case from == EnvNone:
+	switch from {
+	case EnvNone:
 		return to == EnvDev
 	}
 	return true

@@ -2412,10 +2412,6 @@ func nullString(s string) any {
 	return s
 }
 
-func (s *Store) listModels(ctx context.Context, id string) ([]provider.Model, error) {
-	return listModelsWith(ctx, s.db, id)
-}
-
 func listModelsWith(ctx context.Context, q sqlRunner, id string) ([]provider.Model, error) {
 	rows, err := q.QueryContext(ctx, `SELECT model_id, display_name, is_default, context_window, kind, supports_vision, kind_default FROM provider_models WHERE provider_id = ? ORDER BY position, model_id`, id)
 	if err != nil {

@@ -67,7 +67,7 @@ func validateAndJoin(rawBase, apiPath string, policy Policy) (*url.URL, error) {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
 		return nil, &Error{Code: CodeSSRFBlocked, Op: "validate endpoint"}
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && policy.AllowHTTP) {
+	if u.Scheme != "https" && (u.Scheme != "http" || !policy.AllowHTTP) {
 		return nil, &Error{Code: CodeSSRFBlocked, Op: "validate endpoint"}
 	}
 	p, err := url.Parse(apiPath)

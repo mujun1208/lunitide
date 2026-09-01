@@ -27,7 +27,7 @@ func assetStoreAvailable(store AssetTemplateStore) bool {
 		return false
 	}
 	v := reflect.ValueOf(store)
-	return v.Kind() != reflect.Ptr || !v.IsNil()
+	return v.Kind() != reflect.Pointer || !v.IsNil()
 }
 
 type assetTemplateDTO struct {

@@ -406,8 +406,6 @@ type Service struct {
 	clock                                Clock
 	host                                 Host
 	limit                                rateWindow
-	emuMu                                sync.Mutex
-	emuAt                                time.Time
 	capMu                                sync.Mutex
 	capVisW, capVisH, capDeskW, capDeskH int
 	capOriginX, capOriginY               int
@@ -620,18 +618,6 @@ func (s *Service) GetConfig(ctx context.Context) (Settings, error) {
 		return e
 	})
 	return out, err
-}
-
-func defaultSettings(now string) Settings {
-	return Settings{
-		Enabled:              false,
-		SecurityLevel:        LevelStandard,
-		AllowCritical:        false,
-		ProcessBlocklist:     append([]string(nil), DefaultProcessBlocklist...),
-		MaxActionsPerMinute:  CcDefaultMaxActionsPerMinute,
-		ConfirmTimeoutSecond: 60,
-		UpdatedAt:            now,
-	}
 }
 
 // ValidateSettings checks one settings document (shared by update and

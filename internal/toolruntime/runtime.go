@@ -1360,9 +1360,10 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			}
 		}
 		fallbackHTML := "世界杯点球大战.html"
-		if a.Template == "timer" {
+		switch a.Template {
+		case "timer":
 			fallbackHTML = "计时器.html"
-		} else if a.Template == "checklist" {
+		case "checklist":
 			fallbackHTML = "清单.html"
 		}
 		outPath, de := r.desktopWritePath(a.Path, fallbackHTML, ".html", a.Desktop, unconfined)
@@ -1895,7 +1896,7 @@ func hunksFromJSON(oldText, newText string, replaceAll bool, edits []workspaceEd
 		}
 		hunks := make([]editHunk, 0, len(edits))
 		for _, h := range edits {
-			hunks = append(hunks, editHunk{OldText: h.OldText, NewText: h.NewText, ReplaceAll: h.ReplaceAll})
+			hunks = append(hunks, editHunk(h))
 		}
 		return hunks, nil
 	}

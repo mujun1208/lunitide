@@ -14,9 +14,7 @@ var typeAfterWriteRe = regexp.MustCompile(`(?:.*?(?:在|对))?([^，,。！？]+
 func normalizeTypeAfterLabel(after string) string {
 	after = strings.TrimSpace(after)
 	for _, prefix := range []string{"文档的", "文件里的", "表格中的", "这一栏的", "那一格的"} {
-		if strings.HasPrefix(after, prefix) {
-			after = strings.TrimPrefix(after, prefix)
-		}
+		after = strings.TrimPrefix(after, prefix)
 	}
 	return strings.TrimSpace(after)
 }
@@ -50,12 +48,6 @@ func fallbackDesktopTypeArgs(goal string) json.RawMessage {
 // files onto the Desktop. It must never appear in assistant deltas,
 // 无法执行 banners, or mid-markdown fences.
 const officeGenInternalHint = "写到桌面请用对应 *.gen 工具并设 desktop=true，不要用 command.run。"
-
-// followUpIntent classifies queued input during an in-flight turn for the engine.
-// Returns progress, supplement, or task_change (see followUpIntent in chat_turn.go).
-func classifyFollowUpIntent(text string) string {
-	return followUpIntent(text)
-}
 
 func looksLikePlayOrOpenTurn(text string) bool {
 	t := strings.TrimSpace(text)
@@ -199,26 +191,6 @@ func usedCommandRun(tools []string) bool {
 		}
 	}
 	return false
-}
-
-func closeOpenMarkdownFences(text string) string {
-	if text == "" {
-		return text
-	}
-	n := 0
-	for _, line := range strings.Split(text, "\n") {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "```") {
-			n++
-		}
-	}
-	if n%2 == 0 {
-		return text
-	}
-	if !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	return text + "```\n"
 }
 
 func clipOfficeTitle(goal string, fallback string) string {
