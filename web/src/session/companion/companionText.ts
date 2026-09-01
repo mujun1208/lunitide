@@ -396,8 +396,31 @@ export function companionToolsExecuting(chatStatus: string, activityStatus?: str
 }
 
 export function companionExecutingSpeech(activity?: string): string {
+  if (/无法执行/.test(activity ?? '')) return ''
   const cleaned = (activity ?? '').replace(/中[….…]+$/u, '').trim()
   return cleaned ? `${cleaned}。` : '正在执行。'
+}
+
+/** Last user + last assistant only. The glass bar is this visit's current turn. */
+export function seedCompanionCaptionRounds(items: ReadonlyArray<{ role: string; text: string }>): Array<{ role: 'user' | 'assistant'; text: string }> {
+  let user = ''
+  let assistant = ''
+  for (const item of items) {
+    if (item.role === 'user') {
+      const text = item.text.replace(/\s+/g, ' ').trim()
+      if (text) user = text
+    }
+    if (item.role === 'assistant') {
+      const raw = item.text.trim()
+      if (!raw) continue
+      const stripped = raw.replace(/^【思考过程】[\s\S]*?\n\n/, '').trim() || raw
+      assistant = stripped.replace(/\s+/g, ' ').trim()
+    }
+  }
+  const rounds: Array<{ role: 'user' | 'assistant'; text: string }> = []
+  if (user) rounds.push({ role: 'user', text: user })
+  if (assistant) rounds.push({ role: 'assistant', text: assistant })
+  return rounds
 }
 
 export const COMPANION_BROWSER_MCP_SPEECH = '浏览器没就绪。请到设置里安装 Playwright MCP，这次没有点到页面。'

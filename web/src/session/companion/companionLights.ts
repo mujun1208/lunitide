@@ -132,7 +132,7 @@ export async function inspectCompanionEntry(
     } else if (ref.value.state === 'launching') {
       speakReady = false
       speakState = 'warn'
-      speakLabel = 'GPT-SoVITS 启动中'
+      speakLabel = ref.value.last_error?.trim() ? '晓晓（克隆未就绪）' : 'GPT-SoVITS 启动中'
     } else {
       speakReady = false
       speakState = 'off'

@@ -344,7 +344,7 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	}
 	b.WriteString("。")
 	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
-		b.WriteString("这是音乐类软件：用户只说「播放/播歌/来一首/随便放一首/歌手或歌名」时，必须用 media.play（target=foreground，query=歌名或歌手；没说具体歌时用 query=热门），在该已打开软件里搜索并播放；禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
+		b.WriteString("这是音乐类软件：点名歌手/歌名时 media.play target=foreground query=歌名；要随机或没说歌时 query=热门；暂停后再继续或只说「播放」且不换歌时 media.play action=play，不要带 query，不要 computer.act。禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
 	} else {
 		b.WriteString("用户后续要在该软件里继续操作时，优先在该前台窗口内完成，不要另开网页或无关程序。")
 	}
@@ -352,6 +352,20 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 		b.WriteString(" 当前这句话是续播/搜索指令，直接 media.play target=foreground，不要 desktop.open 或打开浏览器。")
 	}
 	return b.String()
+}
+
+// mediaPlayQueryKeepsResume leaves action=play with an empty query empty so
+// media.play hits the media key (pause-then-continue). open_and_play with no
+// song still searches 热门 — that is a first play, not a resume.
+func mediaPlayQueryKeepsResume(action, query string) string {
+	q := strings.TrimSpace(query)
+	if q != "" {
+		return q
+	}
+	if strings.EqualFold(strings.TrimSpace(action), "open_and_play") {
+		return "热门"
+	}
+	return ""
 }
 
 func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) json.RawMessage {
@@ -380,10 +394,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 		return args
 	}
 	if target == "netease" || target == "163" || target == "cloudmusic" {
-		query := strings.TrimSpace(a.Query)
-		if query == "" {
-			query = "热门"
-		}
+		query := mediaPlayQueryKeepsResume(action, a.Query)
 		out, err := json.Marshal(map[string]string{
 			"action": action, "query": query, "target": "foreground", "app": "网易云音乐",
 		})
@@ -393,10 +404,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 		return out
 	}
 	if target == "qq" || target == "qqmusic" {
-		query := strings.TrimSpace(a.Query)
-		if query == "" {
-			query = "热门"
-		}
+		query := mediaPlayQueryKeepsResume(action, a.Query)
 		out, err := json.Marshal(map[string]string{
 			"action": action, "query": query, "target": "foreground", "app": "QQ音乐",
 		})
@@ -423,10 +431,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 	if !useForeground {
 		return args
 	}
-	query := strings.TrimSpace(a.Query)
-	if query == "" {
-		query = "热门"
-	}
+	query := mediaPlayQueryKeepsResume(action, a.Query)
 	app := strings.TrimSpace(a.App)
 	if app == "" {
 		app = ctx.ActiveAppName

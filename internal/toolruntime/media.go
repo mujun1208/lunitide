@@ -27,6 +27,10 @@ func openHTTPURL(raw string) error {
 	return exec.Command("xdg-open", u).Start()
 }
 
+func queryIsKnownMusicApp(query string) bool {
+	return CanonicalMusicApp(strings.TrimSpace(query)) != ""
+}
+
 func mediaPlayUsesDesktop(target, url string) bool {
 	if strings.TrimSpace(url) != "" {
 		return false
@@ -96,7 +100,7 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 	switch action {
 	case "play", "open_and_play":
 		q := strings.TrimSpace(a.Query)
-		if mediaPlayUsesDesktop(target, a.URL) && q != "" {
+		if mediaPlayUsesDesktop(target, a.URL) && q != "" && !queryIsKnownMusicApp(q) {
 			app := resolveDesktopPlayApp(target, a.App)
 			if app == "" {
 				return Result{}, errors.New("没有找到本机桌面播放器，无法搜索播放")

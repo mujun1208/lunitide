@@ -12,6 +12,15 @@ import (
 	"github.com/lunitide/lunitide/internal/winexec"
 )
 
+func TestQueryIsKnownMusicAppResumesPlay(t *testing.T) {
+	if !queryIsKnownMusicApp("汽水音乐") || !queryIsKnownMusicApp("汽水") || !queryIsKnownMusicApp("网易云") {
+		t.Fatal("player names must resume with the media key")
+	}
+	if queryIsKnownMusicApp("复古公路歌") || queryIsKnownMusicApp("热门") || queryIsKnownMusicApp("周杰伦") {
+		t.Fatal("song or generic queries must stay on foreground search")
+	}
+}
+
 func TestBuildMediaSearchURLTargets(t *testing.T) {
 	cases := []struct {
 		target string

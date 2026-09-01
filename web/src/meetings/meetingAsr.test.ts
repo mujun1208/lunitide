@@ -32,7 +32,7 @@ vi.mock('./meetingCapture', async importOriginal => {
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -176,8 +176,21 @@ describe('prepareMeetingCapture', () => {
     const dead = { getAudioTracks: () => [{ readyState: 'ended' }], getTracks: () => [] } as unknown as MediaStream
     expect(captureStateNotice({ extraStreams: [dead], audioSource: 'microphone_and_system', notice: '' })).toMatch(/轨道已中断/)
     expect(captureStateNotice({ extraStreams: [], audioSource: 'microphone', notice: NO_SYSTEM_AUDIO_NOTICE })).toBe(NO_SYSTEM_AUDIO_NOTICE)
-    expect(planHasLiveSystemAudio({ extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true })).toBe(true)
+    expect(planHasLiveSystemAudio({ extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true })).toBe(false)
     expect(captureStateNotice({ extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true })).toBe('')
+  })
+
+  test('three silent loopback frames flip the live label to mic-only', () => {
+    let state = { hits: 0, zeros: 0 }
+    let heard: boolean | undefined
+    for (let i = 0; i < 3; i++) {
+      const next = noteLoopbackEnergy(state, 0)
+      state = { hits: next.hits, zeros: next.zeros }
+      heard = next.heard
+    }
+    expect(heard).toBe(false)
+    const live = noteLoopbackEnergy({ hits: 2, zeros: 0 }, 0.2)
+    expect(live.heard).toBe(true)
   })
 
   test('mixes 16-bit PCM without overflowing', () => {
@@ -192,6 +205,14 @@ describe('prepareMeetingCapture', () => {
     const next = await recoverMeetingSystemAudio({ extraStreams: [], audioSource: 'microphone', notice: NO_SYSTEM_AUDIO_NOTICE }, { interactive: false })
     expect(next.audioSource).toBe('microphone_and_system')
     expect(next.extraStreams).toEqual([extra])
+  })
+
+  test('engine-owned loopback survives a failed browser recover', async () => {
+    asr.capture.mockRejectedValue(new Error(NO_SYSTEM_AUDIO_NOTICE))
+    const current = { extraStreams: [], audioSource: 'microphone_and_system' as const, notice: '', engineOwned: true }
+    const next = await recoverMeetingSystemAudio(current, { interactive: false })
+    expect(next).toBe(current)
+    expect(next.engineOwned).toBe(true)
   })
 })
 

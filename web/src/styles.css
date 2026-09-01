@@ -818,6 +818,12 @@ html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .nebula,html[data-theme
 .launch-content{position:relative;z-index:1;width:calc(100% - var(--sidebar-width,288px));min-width:0;height:100%;margin-left:var(--sidebar-width,288px);padding:0;overflow:auto;background:#000;transition:width .18s,margin-left .18s}
 .sidebar-collapsed>.launch-content{width:100%;margin-left:0}
 .panel-resizer{position:relative;z-index:62;width:5px;min-width:5px;height:100%;padding:0;border:0;border-radius:0;background:transparent;cursor:col-resize;touch-action:none}.panel-resizer::after{content:"";position:absolute;inset:0 2px;background:var(--rule);transition:inset .12s,background .12s}.panel-resizer:hover::after,.panel-resizer:active::after{inset:0 1px;background:var(--glow)}.sidebar-resizer{position:fixed;inset:0 auto 0 var(--sidebar-width,288px)}.sidebar-collapsed>.sidebar-resizer{display:none}
+.launch-sidebar>.sidebar-row-resizer,.launch-nav>.sidebar-row-resizer{flex:none;width:100%;min-width:0;height:8px;min-height:8px;cursor:row-resize}
+.launch-sidebar>.sidebar-row-resizer::after,.launch-nav>.sidebar-row-resizer::after{inset:3px 18%;background:var(--rule)}
+.launch-sidebar>.sidebar-row-resizer:hover::after,.launch-nav>.sidebar-row-resizer:hover::after,.launch-sidebar>.sidebar-row-resizer:active::after,.launch-nav>.sidebar-row-resizer:active::after{inset:2px 12%;background:var(--glow)}
+.sidebar-top-gap{flex:none;width:100%}
+.people-nav-slot{flex:none;min-height:var(--sidebar-people-height,44px);display:flex;align-items:center}
+.conversation-group.is-open:not(.is-empty){flex:1 1 var(--sidebar-chats-height,220px);max-height:var(--sidebar-chats-height,220px)}
 .launch-brand{display:flex;align-items:center;gap:13px;width:100%;padding:0 0 27px;border:0;background:transparent;text-align:left;overflow:visible}
 .launch-brand:hover{border-color:transparent}.launch-brand>span{display:flex;align-items:baseline;gap:1px}.launch-brand b{font-size:19px;font-weight:700;letter-spacing:.025em;color:#fff}.launch-brand em{font-size:18px;font-style:normal;font-family:var(--serif);color:#e2eaf6}
 .primary-actions{display:grid;gap:3px;margin-bottom:22px}.primary-actions>button{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:38px;padding:0 11px;border:0;border-radius:8px;background:transparent;color:#d9e3f2;text-align:left;font-size:13.5px}.primary-actions>button:hover:not(:disabled){background:rgba(121,160,224,.09)}.primary-actions kbd{font:11px var(--sans);color:#74849c}.primary-actions button:disabled{opacity:.55}

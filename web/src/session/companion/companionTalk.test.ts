@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { BridgeClientError, type TalkStreamEvent } from '../../bridge/client'
 import type { ProviderDTO } from '../../generated/bridge'
 import {
+  companionCascadeSpeechBlocked,
   isCompanionIdleChat,
   shouldOfferCompanionTalk,
   startCompanionTalk,
@@ -45,6 +46,14 @@ describe('companionTalk helpers', () => {
 
   test('fallback banner is honest', () => {
     expect(TALK_FALLBACK_BANNER).toMatch(/用语模型/)
+  })
+
+  test('cascade TTS stays off while talk owns the speaker', () => {
+    expect(companionCascadeSpeechBlocked({ talkLive: true, talkPending: false })).toBe(true)
+    expect(companionCascadeSpeechBlocked({ talkLive: false, talkPending: true })).toBe(true)
+    expect(companionCascadeSpeechBlocked({ talkLive: false, talkPending: false })).toBe(false)
+    expect(companionCascadeSpeechBlocked({ talkLive: true, talkPending: false, talkSuppressPlay: true })).toBe(false)
+    expect(companionCascadeSpeechBlocked({ talkLive: false, talkPending: true, talkSuppressPlay: true })).toBe(false)
   })
 })
 

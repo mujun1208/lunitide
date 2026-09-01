@@ -250,6 +250,9 @@ func TestShouldInjectCompanionToolLeadIn(t *testing.T) {
 	if shouldInjectCompanionToolLeadIn("", true) {
 		t.Fatal("second tool step must not replay the pad")
 	}
+	if shouldInjectCompanionToolLeadIn("无法执行。桌面被拦住了", false) {
+		t.Fatal("failure text must not get a lead-in")
+	}
 }
 
 func TestCompanionRedundantWebSkip(t *testing.T) {

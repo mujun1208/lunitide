@@ -62,6 +62,19 @@ func TestAssistantTurnPersistText(t *testing.T) {
 	if got := assistantTurnPersistText("无法执行。模型结果不完整，请重试。", "只有思考", true); got != "【思考过程】\n只有思考\n\n无法执行。模型结果不完整，请重试。" {
 		t.Fatalf("thinking+notice persist = %q", got)
 	}
+	hello := "你好，我是月汐，可以帮你处理音乐、搜索、工作和电脑自动化。"
+	if got := assistantTurnPersistText(hello, hello, true); got != hello {
+		t.Fatalf("duplicate greeting persist = %q", got)
+	}
+}
+
+func TestIsShortIdleGreeting(t *testing.T) {
+	if !isShortIdleGreeting("你好") || !isShortIdleGreeting("在吗？") {
+		t.Fatal("plain greetings must skip reasoning")
+	}
+	if isShortIdleGreeting("你好，帮我打开汽水") || isShortIdleGreeting("打开桌面汽水音乐") {
+		t.Fatal("tool-shaped greetings must keep reasoning")
+	}
 }
 
 func TestPersistFailureOnlyKeepsCompleted(t *testing.T) {

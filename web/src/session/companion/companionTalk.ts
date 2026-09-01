@@ -13,6 +13,18 @@ export function shouldOfferCompanionTalk(voicePath: VoicePath, hasTalkModel: boo
   return voicePath === 'volc' && hasTalkModel && !!sessionId
 }
 
+/** Cascade TTS must stay off while talk owns the speaker. Tool handoff
+ *  sets talkSuppressPlay so the tool-result cascade can talk after
+ *  cancelOutput; a live talk session alone is not enough to unmute it. */
+export function companionCascadeSpeechBlocked(input: {
+  talkLive: boolean
+  talkPending: boolean
+  talkSuppressPlay?: boolean
+}): boolean {
+  if (input.talkSuppressPlay) return false
+  return input.talkLive || input.talkPending
+}
+
 export function isCompanionIdleChat(text: string): boolean {
   const t = text.replace(/\s+/g, '')
   return /^(你好|你好月汐|今晚月色如何|继续聊|我随便说说|后面那个更好听)[。.?？!！]*$/.test(t)

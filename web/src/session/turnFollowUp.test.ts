@@ -43,6 +43,9 @@ it('keeps a spoken companion session when exiting with empty local items', () =>
     initialCompanion: true, itemsLength: 0, chatActive: false, sessionEngaged: true,
   })).toBe(false)
   expect(companionShouldDiscardOnExit({
+    initialCompanion: true, itemsLength: 2, chatActive: false, sessionEngaged: false,
+  })).toBe(false)
+  expect(companionShouldDiscardOnExit({
     initialCompanion: true, itemsLength: 0, chatActive: true, sessionEngaged: false,
   })).toBe(false)
   expect(companionShouldDiscardOnExit({
