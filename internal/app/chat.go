@@ -44,6 +44,58 @@ func (e *Engine) HandleStreaming(ctx context.Context, request bridge.Request, em
 
 type eventEmitterKey struct{}
 type streamParentKey struct{}
+type unattendedKey struct{}
+
+// unattended reports whether the turn runs with no interactive approver on the
+// other end of the event stream — IM inbound auto-run and colleague auto-reply
+// both drive chat.start with a noop emitter. Such a turn must never emit an
+// approval request and pause: nothing carries the event and DecideScoped is
+// never called, so the tool loop would abandon the turn mid-flight. The caller
+// sets this flag so the approval gate can deny in place instead.
+func unattended(ctx context.Context) bool {
+	v, _ := ctx.Value(unattendedKey{}).(bool)
+	return v
+}
+
+// withUnattended marks ctx as an unattended (headless) turn.
+func withUnattended(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unattendedKey{}, true)
+}
+
+type approvalOutcome int
+
+const (
+	// approvalEmit sends an EventApprovalRequired and pauses for a human.
+	approvalEmit approvalOutcome = iota
+	// approvalPreapproved auto-approves (companion pre-approved tool).
+	approvalPreapproved
+	// approvalDenyUnattended refuses the tool in place because no approver
+	// exists for this turn, letting the loop continue to a coherent answer.
+	approvalDenyUnattended
+)
+
+// decideApprovalOutcome resolves what to do when a tool reports
+// ErrApprovalRequired. Companion pre-approval wins; an unattended turn denies in
+// place (there is no emitter to carry an approval, and no one to grant it);
+// everything else emits an approval request and pauses.
+func decideApprovalOutcome(companionPreapproved, isUnattended bool) approvalOutcome {
+	switch {
+	case companionPreapproved:
+		return approvalPreapproved
+	case isUnattended:
+		return approvalDenyUnattended
+	default:
+		return approvalEmit
+	}
+}
+
+// unattendedApprovalDenial is the tool result recorded when a gated tool is
+// refused because the turn has no approver. It is shaped like every other
+// failed tool result (ok:false + reason) so the model treats it as a normal
+// refusal and continues.
+func unattendedApprovalDenial(toolName string) string {
+	return "ok:false\n此操作需要人工审批，但当前会话无人值守，已跳过：" + toolName + "。请在有人值守的对话里再执行。"
+}
 
 type executionMode string
 
@@ -2787,7 +2839,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, nil, state.companion)
 					}()
 					if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
-						if state.companion && companionToolPreapproved(call.Name, e.fullDiskChat(mode)) {
+						switch decideApprovalOutcome(state.companion && companionToolPreapproved(call.Name, e.fullDiskChat(mode)), unattended(op)) {
+						case approvalPreapproved:
 							if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 								return prepareErr
 							}
@@ -2799,7 +2852,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 								e.persistApprovedToolResult(op, sessionID, call.ID, digest, r)
 								toolErr = nil
 							}
-						} else {
+						case approvalDenyUnattended:
+							// Headless turn: refuse in place and let the loop
+							// continue, instead of emitting an approval that the
+							// noop emitter drops and no one can ever grant.
+							r = toolruntime.Result{}
+							toolErr = errors.New(unattendedApprovalDenial(call.Name))
+						default:
 							if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 								return prepareErr
 							}

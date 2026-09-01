@@ -200,6 +200,23 @@ func (e *Engine) noteInboundReplyFailure(sessionID string, kind imapp.Kind, err 
 	}, message.Message{SessionID: sessionID, Text: norm})
 }
 
+// inboundSessionTitleFor keeps each colleague's inbound thread separate. Keying
+// the session only by channel put every sender's messages in one conversation:
+// history bled across people and one sender's text could steer a reply meant
+// for another. The sender is bounded so the combined title stays inside
+// NormalizeTitle's 200-rune ceiling.
+func inboundSessionTitleFor(kind imapp.Kind, sender string) string {
+	base := imapp.InboundSessionTitle(kind)
+	s := strings.TrimSpace(sender)
+	if s == "" {
+		return base
+	}
+	if r := []rune(s); len(r) > 80 {
+		s = string(r[:80])
+	}
+	return base + " · " + s
+}
+
 func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, ch imapp.Channel, sender, text, conversationID string) (string, error) {
 	if !projectServiceAvailable(e.projects) || !sessionServiceAvailable(e.sessions) || !messageServiceAvailable(e.messages) {
 		return "", errors.New("im inbound storage unavailable")
@@ -208,7 +225,7 @@ func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, 
 	if err != nil {
 		return "", err
 	}
-	title, err := session.NormalizeTitle(imapp.InboundSessionTitle(ch.Kind))
+	title, err := session.NormalizeTitle(inboundSessionTitleFor(ch.Kind, sender))
 	if err != nil {
 		return "", err
 	}
@@ -308,6 +325,10 @@ func (e *Engine) kickInboundChat(sessionID, text string) bool {
 		defer cancel()
 		runCtx = context.WithValue(runCtx, streamParentKey{}, runCtx)
 		runCtx = context.WithValue(runCtx, eventEmitterKey{}, EventEmitter(func(bridge.Event) error { return nil }))
+		// No human is watching this turn: the emitter above is a noop, so a tool
+		// that needs approval must be denied in place rather than pausing the
+		// loop for a decision that can never arrive (see decideApprovalOutcome).
+		runCtx = withUnattended(runCtx)
 		req := bridge.Request{
 			Version: bridge.Version, Kind: "request",
 			ID: ulid.Make().String(), TraceID: ulid.Make().String(),

@@ -33,7 +33,7 @@ interface GeneralSettings {
   timezone: string
   enterToSend: boolean
   autoTitle: boolean
-  defaultMode: 'auto' | 'collab' | 'code' | 'full-access'
+  defaultMode: 'approval' | 'auto-edit' | 'full-access'
   toolProfile: '' | 'minimal' | 'coding' | 'colleague'
   replyStyle: 'default' | 'assistant' | 'support' | 'teacher' | 'npc'
   structuredTemplate: 'off' | 'event' | 'form' | 'kv'
@@ -337,12 +337,11 @@ function GeneralPanel({ settings, onChange }: { settings: GeneralSettings; onCha
         />
         <SelectRow
           label="默认工作模式"
-          desc="自动模式会根据任务选择协作或代码工具。"
+          desc="新会话的默认审批模式；单个会话仍可临时切换。"
           value={settings.defaultMode}
           options={[
-            { value: 'auto', label: '自动模式' },
-            { value: 'collab', label: '协作' },
-            { value: 'code', label: '代码' },
+            { value: 'approval', label: '手动审批' },
+            { value: 'auto-edit', label: '自动审批' },
             { value: 'full-access', label: '完全访问' },
           ]}
           onChange={v => onChange('defaultMode', v as GeneralSettings['defaultMode'])}

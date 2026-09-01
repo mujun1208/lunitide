@@ -65,7 +65,12 @@ const modeKey=(sessionId:string)=>`lunitide:execution-mode:${sessionId}`
 // Legacy "plan" values stored in localStorage or older sessions are mapped
 // to "approval" (plan mode is now system-automatic via complexity routing).
 export const isExecutionMode=(value:unknown):value is ExecutionMode=>value==='approval'||value==='auto-edit'||value==='full-access'
-export const persistedExecutionMode=(value:unknown):ExecutionMode=>isExecutionMode(value)?value:value==='plan'?'approval':value==null||value===undefined?'full-access':'approval'
+// generalDefaultExecutionMode reads the "默认工作模式" setting so a brand-new
+// session opens in the mode the user picked. Only a valid ExecutionMode counts;
+// anything else (unset, or a legacy auto/collab/code value) means full-access —
+// the historical default when nothing read this setting at all.
+export const generalDefaultExecutionMode=():ExecutionMode=>{try{const raw=localStorage.getItem('lunitide:general');if(raw){const m=(JSON.parse(raw) as {defaultMode?:unknown}).defaultMode;if(isExecutionMode(m))return m}}catch{}return 'full-access'}
+export const persistedExecutionMode=(value:unknown):ExecutionMode=>isExecutionMode(value)?value:value==='plan'?'approval':value==null||value===undefined?generalDefaultExecutionMode():'approval'
 export const MODE_INFO:Record<ExecutionMode,{label:string;description:string}>={approval:{label:'手动审批',description:'工具和命令需要你逐项批准后执行。'},'auto-edit':{label:'自动审批',description:'自动执行常规操作，高风险操作仍需你确认。'},'full-access':{label:'完全访问',description:'免审批，直接操作电脑文件、命令和工具。'}}
 export const MODE_INFO_EN:Record<ExecutionMode,{label:string;description:string}>={approval:{label:'Ask first',description:'Tools and commands wait for your approval.'},'auto-edit':{label:'Auto-approve',description:'Routine actions run automatically; high-risk ones still need you.'},'full-access':{label:'Full access',description:'No approval gate; files, commands, and tools run directly.'}}
 export const modeInfoFor=(zh:boolean)=>zh?MODE_INFO:MODE_INFO_EN

@@ -543,6 +543,9 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 	if !peopleAgentAllowedTool(call.Name) {
 		return "ok:false\n同事聊天不能用这个工具。"
 	}
+	if reason, deny := unattendedMcpDenied(call.Name, call.Arguments); deny {
+		return reason
+	}
 	eq := e.equipmentForNames(ctx, []string{agent.Nickname})
 	var r toolruntime.Result
 	var err error

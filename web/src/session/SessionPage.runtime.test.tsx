@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
-import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
+import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, generalDefaultExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { rememberAttachmentPreview } from './attachments'
 import { resetLiveChatForTests } from './liveChat'
 import { RootErrorBoundary } from '../RootErrorBoundary'
@@ -73,6 +73,17 @@ it('falls back for invalid persisted execution modes',()=>{
  expect(persistedExecutionMode('plan')).toBe('approval')
  expect(persistedExecutionMode('corrupted')).toBe('approval')
  expect(persistedExecutionMode(null)).toBe('full-access')
+})
+it('new sessions honor the general default mode setting',()=>{
+ try{
+  localStorage.setItem('lunitide:general',JSON.stringify({defaultMode:'approval'}))
+  expect(generalDefaultExecutionMode()).toBe('approval')
+  expect(persistedExecutionMode(null)).toBe('approval')
+  // An explicit per-session mode still wins over the default.
+  expect(persistedExecutionMode('full-access')).toBe('full-access')
+  localStorage.setItem('lunitide:general',JSON.stringify({defaultMode:'legacy-junk'}))
+  expect(generalDefaultExecutionMode()).toBe('full-access')
+ } finally { localStorage.removeItem('lunitide:general') }
 })
 
 it('blocks Enter re-entry after chat.start resolves, retains one stream, and cancels it',async()=>{
