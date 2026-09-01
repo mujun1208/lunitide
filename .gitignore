@@ -29,6 +29,7 @@ smoke-*/
 .env.*
 !.env.example
 coverage/
+coverage.out
 .coverage
 htmlcov/
 .vitest/
