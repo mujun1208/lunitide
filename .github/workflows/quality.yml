@@ -26,13 +26,16 @@ jobs:
       - name: Reject MiniCPM-o / Comni in Setup layout
         shell: pwsh
         run: ./release/Test-OmniExcluded.ps1
-      - name: Test Go
-        # The per-package default is 10 minutes. internal/storage/sqlite alone
-        # runs two minutes on a developer machine because most of its tests
-        # open a fresh database and replay every migration, and a hosted runner
-        # is several times slower than that. An explicit budget keeps a slow
-        # runner from being reported as a hang.
-        run: go test -timeout 20m ./...
+      - name: Test Go with coverage floor
+        shell: pwsh
+        # One instrumented run both exercises the suite and enforces the
+        # coverage ratchet (see release/Check-Coverage.ps1). The 25m budget is
+        # generous because the per-package default is 10 minutes and
+        # internal/storage/sqlite alone runs a couple of minutes on a developer
+        # machine — most of its tests open a fresh database and replay every
+        # migration — and a hosted runner is several times slower. An explicit
+        # budget keeps a slow runner from being reported as a hang.
+        run: ./release/Check-Coverage.ps1 -Floor 49 -Timeout 25m
       - name: Vet Go
         run: go vet ./...
       - name: Build Go without CGO
