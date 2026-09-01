@@ -1,4 +1,4 @@
-﻿// approval.go implements the M9 slice-2 SoD + N-of-M approval state machine
+// approval.go implements the M9 slice-2 SoD + N-of-M approval state machine
 // (T-9.2.2, ADR-013 decision 3 + 02 技术设计 · PolicyCenter 与审批):
 //
 //   - 禁止自批: the request initiator may never appear in the frozen

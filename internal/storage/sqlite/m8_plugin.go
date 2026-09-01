@@ -1,4 +1,4 @@
-﻿// M8 FR-18 storage (T-8.9.x): plugin_bundles / plugin_installs /
+// M8 FR-18 storage (T-8.9.x): plugin_bundles / plugin_installs /
 // plugin_capability_bindings on the agent-runtime single-writer
 // transaction. The install uninstall chain (binding revocation + recursive
 // tombstone + audit) commits on this one transaction - any failure rolls
