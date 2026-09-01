@@ -19,7 +19,7 @@
 | I4 | 回程 | 自动跑完后原 IM 会话看得到回复（先验收私聊） | 未勾：通道全关 |
 | I3 | 微信入站 | 设置 | 2026-08-31 mu：`im.channels.get` 微信 inboundEnabled=false；Normalize 强制关掉；设置文案「不能收消息」 |
 | B1 | 浏览器未就绪 | 卸 Playwright MCP 后 `browser.act` click | 错误，不是空成功： |
-| R0 | 包装 | 干净树 + 批准身份签名 | 陌生机安装能连引擎：本机 2026-09-01 已从 0.4.44 升到 0.4.45（`DisplayVersion` / `--rpc-health` version=0.4.45 engine=ready）。**不是**干净 Win10/Win11 双机 R0 |
+| R0 | 包装 | 干净树 + 批准身份签名 | 陌生机安装能连引擎：本机 2026-09-01 已从 0.4.44 升到 0.4.45。**0.4.46 包已打**（`release/out/Lunitide-Setup-0.4.46-x64.exe`），官方目录未升前不能用 0.4.45 勾语音 / 「打断后灯稳」。**不是**干净 Win10/Win11 双机 R0 |
 
 ---
 
