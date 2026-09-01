@@ -1158,8 +1158,7 @@ func (t *agentRuntimeTx) PutIdempotency(r providerapp.Record) error {
 }
 
 func (t *agentRuntimeTx) PutAudit(a providerapp.Audit) error {
-	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO audit_events(id,action,aggregate_id,actor,metadata_json,created_at) VALUES(?,?,?,?,?,?)`, a.ID, a.Action, a.AggregateID, a.Actor, string(a.Metadata), rfc(a.CreatedAt))
-	return t.fail(err)
+	return t.fail(appendAuditChained(t.ctx, t.tx, a.ID, a.Action, a.AggregateID, a.Actor, string(a.Metadata), rfc(a.CreatedAt)))
 }
 
 // TransactAgentRuntime runs an agentrunapp use case in the same single-writer

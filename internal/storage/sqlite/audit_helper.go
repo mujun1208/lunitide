@@ -27,14 +27,12 @@ func (s *Store) appendAuditTx(ctx context.Context, tx *sql.Tx, action, aggregate
 	} else {
 		metaJSON = "{}"
 	}
-	id, err := s.newULID(time.Now().UTC())
+	now := time.Now().UTC()
+	id, err := s.newULID(now)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO audit_events(id,action,aggregate_id,actor,metadata_json,created_at) VALUES(?,?,?,?,?,?)`,
-		id, action, aggregateID, actor, metaJSON, formatTime(time.Now().UTC()))
-	return err
+	return appendAuditChained(ctx, tx, id, action, aggregateID, actor, metaJSON, formatTime(now))
 }
 
 // execWithAudit runs one business write and its audit row in a single

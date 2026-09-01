@@ -51,6 +51,23 @@ CREATE INDEX ix_token_ledger_identity ON token_ledger(subject_type, subject_id, 
 CREATE INDEX ix_token_ledger_invalidation ON token_ledger(tokenizer_id, invalidated_at);
 CREATE UNIQUE INDEX ux_token_ledger_subject_identity_revision
     ON token_ledger(subject_type, subject_id, tokenizer_id, provider, model, tokenizer_revision);
+DROP TRIGGER IF EXISTS trg_audit_append_only;
+DROP TRIGGER IF EXISTS trg_audit_nodelete;
+DROP INDEX IF EXISTS ux_audit_seq;
+DROP INDEX ix_audit_aggregate_created;
+ALTER TABLE audit_events RENAME TO audit_events_v26_old;
+CREATE TABLE audit_events (
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),
+    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'session.created', 'session.updated', 'message.appended', 'stage.created', 'stage.updated', 'message.assistant.appended')),
+    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),
+    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),
+    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),
+    created_at TEXT NOT NULL
+);
+INSERT INTO audit_events (id,action,aggregate_id,actor,metadata_json,created_at)
+    SELECT id,action,aggregate_id,actor,metadata_json,created_at FROM audit_events_v26_old;
+DROP TABLE audit_events_v26_old;
+CREATE INDEX ix_audit_aggregate_created ON audit_events(aggregate_id, created_at DESC);
 DROP TABLE agent_plan_run_events;
 DROP TABLE agent_plan_runs;
 DROP TABLE run_review;

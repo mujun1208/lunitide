@@ -736,8 +736,7 @@ func (t *txAdapter) ReleaseIdempotencyClaim(ctx context.Context, op, key, owner 
 	return err
 }
 func (t *txAdapter) PutAudit(ctx context.Context, a providerapp.Audit) error {
-	_, err := t.q.ExecContext(ctx, `INSERT INTO audit_events(id,action,aggregate_id,actor,metadata_json,created_at) VALUES(?,?,?,?,?,?)`, a.ID, a.Action, a.AggregateID, a.Actor, string(a.Metadata), formatTime(a.CreatedAt))
-	return err
+	return appendAuditChained(ctx, t.q, a.ID, a.Action, a.AggregateID, a.Actor, string(a.Metadata), formatTime(a.CreatedAt))
 }
 func (t *txAdapter) PutTokenLedgerEntry(ctx context.Context, entry token.LedgerEntry) error {
 	if err := entry.Validate(); err != nil {
