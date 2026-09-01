@@ -265,72 +265,67 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 		return fmt.Errorf("delete project workspace usage invariant violation")
 	}
 
-	// Get all session IDs for this project
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM sessions WHERE project_id=?`, id)
-	if err != nil {
-		return fmt.Errorf("list sessions for project: %w", err)
+	// Record tombstones for fail-closed readability (ADR-005 §7), then delete
+	// every session and its dependents in FK-respecting child-first order.
+	// These are project-scoped set operations rather than a per-session loop, so
+	// deleting a project with many sessions costs a fixed number of round-trips
+	// instead of the ~10 statements per session the loop used to issue. The
+	// deletes read `sessions` through the subquery and sessions themselves are
+	// removed afterwards, so every subquery still resolves while it runs.
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	const inProject = `IN (SELECT id FROM sessions WHERE project_id=?)`
+
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status)
+		SELECT 'session', id, ?, 'pending' FROM sessions WHERE project_id=?`, now, id); err != nil {
+		return fmt.Errorf("record session tombstones: %w", err)
 	}
-	var sessionIDs []string
-	for rows.Next() {
-		var sid string
-		if err := rows.Scan(&sid); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan session id: %w", err)
-		}
-		sessionIDs = append(sessionIDs, sid)
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status)
+		SELECT 'checkpoint', id, ?, 'pending' FROM compaction_checkpoints WHERE session_id `+inProject, now, id); err != nil {
+		return fmt.Errorf("record checkpoint tombstones: %w", err)
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate sessions: %w", err)
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deletion_tombstones(owner_type,owner_id,deleted_at,propagation_status)
+		SELECT 'capsule', id, ?, 'pending' FROM handoff_capsules WHERE source_session_id `+inProject+` OR dest_session_id `+inProject, now, id, id); err != nil {
+		return fmt.Errorf("record capsule tombstones: %w", err)
 	}
 
-	// Record tombstones and delete all sessions and their dependencies
-	// in FK-respecting order (child-first): handoff_imports → handoff_capsules
-	// → compaction_activations → compaction_checkpoints → message_parts → token_ledger → messages
-	// → message_session_state. Sessions are deleted after the loop.
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, sid := range sessionIDs {
-		if err := recordTombstonesForSessionTx(ctx, tx, now, sid); err != nil {
-			return err
-		}
-		// 1. handoff_imports (FK to handoff_capsules)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_imports WHERE capsule_id IN (SELECT id FROM handoff_capsules WHERE source_session_id=? OR dest_session_id=?)`, sid, sid); err != nil {
-			return fmt.Errorf("delete handoff_imports for session %s: %w", sid, err)
-		}
-		// 2. handoff_capsules (FK to sessions, compaction_checkpoints)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE source_session_id=? OR dest_session_id=?`, sid, sid); err != nil {
-			return fmt.Errorf("delete handoff_capsules for session %s: %w", sid, err)
-		}
-		// 3. compaction_activations (FK to sessions and compaction_checkpoints)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_activations WHERE session_id=?`, sid); err != nil {
-			return fmt.Errorf("delete compaction_activations for session %s: %w", sid, err)
-		}
-		// 4. compaction_checkpoints (FK to sessions, messages; ON DELETE RESTRICT)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, sid); err != nil {
-			return fmt.Errorf("delete compaction_checkpoints for session %s: %w", sid, err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN ('message.append','message.append-assistant') AND json_extract(response_json,'$.sessionId')=?`, sid); err != nil {
-			return fmt.Errorf("delete message idempotency records for session %s: %w", sid, err)
-		}
-		// 4. message_parts (FK to messages)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, sid); err != nil {
-			return fmt.Errorf("delete message_parts for session %s: %w", sid, err)
-		}
-		// 5. token_ledger (FK to messages)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM token_ledger WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`, sid); err != nil {
-			return fmt.Errorf("delete token_ledger for session %s: %w", sid, err)
-		}
-		// 6. messages
-		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE session_id=?`, sid); err != nil {
-			return fmt.Errorf("delete messages for session %s: %w", sid, err)
-		}
-		// 7. message_session_state (FK to sessions)
-		if _, err := tx.ExecContext(ctx, `DELETE FROM message_session_state WHERE session_id=?`, sid); err != nil {
-			return fmt.Errorf("delete message_session_state for session %s: %w", sid, err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM session_expert_mounts WHERE session_id=?`, sid); err != nil {
-			return fmt.Errorf("delete session_expert_mounts for session %s: %w", sid, err)
-		}
+	// 1. handoff_imports (FK to handoff_capsules)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_imports WHERE capsule_id IN (SELECT id FROM handoff_capsules WHERE source_session_id `+inProject+` OR dest_session_id `+inProject+`)`, id, id); err != nil {
+		return fmt.Errorf("delete handoff_imports: %w", err)
+	}
+	// 2. handoff_capsules (FK to sessions, compaction_checkpoints)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM handoff_capsules WHERE source_session_id `+inProject+` OR dest_session_id `+inProject, id, id); err != nil {
+		return fmt.Errorf("delete handoff_capsules: %w", err)
+	}
+	// 3. compaction_activations (FK to sessions and compaction_checkpoints)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_activations WHERE session_id `+inProject, id); err != nil {
+		return fmt.Errorf("delete compaction_activations: %w", err)
+	}
+	// 4. compaction_checkpoints (FK to sessions, messages; ON DELETE RESTRICT)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id `+inProject, id); err != nil {
+		return fmt.Errorf("delete compaction_checkpoints: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN ('message.append','message.append-assistant') AND json_extract(response_json,'$.sessionId') `+inProject, id); err != nil {
+		return fmt.Errorf("delete message idempotency records: %w", err)
+	}
+	// 5. message_parts (FK to messages)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_parts WHERE message_id IN (SELECT id FROM messages WHERE session_id `+inProject+`)`, id); err != nil {
+		return fmt.Errorf("delete message_parts: %w", err)
+	}
+	// 6. token_ledger (FK to messages)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM token_ledger WHERE message_id IN (SELECT id FROM messages WHERE session_id `+inProject+`)`, id); err != nil {
+		return fmt.Errorf("delete token_ledger: %w", err)
+	}
+	// 7. messages
+	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE session_id `+inProject, id); err != nil {
+		return fmt.Errorf("delete messages: %w", err)
+	}
+	// 8. message_session_state (FK to sessions)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_session_state WHERE session_id `+inProject, id); err != nil {
+		return fmt.Errorf("delete message_session_state: %w", err)
+	}
+	// 9. session_expert_mounts (FK to sessions)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_expert_mounts WHERE session_id `+inProject, id); err != nil {
+		return fmt.Errorf("delete session_expert_mounts: %w", err)
 	}
 
 	// Delete all sessions (dependencies already deleted in the loop).
