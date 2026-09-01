@@ -225,8 +225,8 @@ func TestRunPlanPutValidationAndStateGuard(t *testing.T) {
 		t.Fatalf("noKey=%#v", noKey)
 	}
 	for name, payload := range map[string]string{
-		"bad run id":        `{"runId":"not-a-ulid","expectedVersion":0,"plan":{"goal":"g"}}`,
-		"negative version":  `{"runId":"` + run.ID + `","expectedVersion":-1,"plan":{"goal":"g"}}`,
+		"bad run id":         `{"runId":"not-a-ulid","expectedVersion":0,"plan":{"goal":"g"}}`,
+		"negative version":   `{"runId":"` + run.ID + `","expectedVersion":-1,"plan":{"goal":"g"}}`,
 		"plan not an object": `{"runId":"` + run.ID + `","expectedVersion":0,"plan":"text"}`,
 		"plan array":         `{"runId":"` + run.ID + `","expectedVersion":0,"plan":[1,2]}`,
 		"missing plan":       `{"runId":"` + run.ID + `","expectedVersion":0}`,

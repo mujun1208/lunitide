@@ -39,12 +39,12 @@ func handleOpenapiParse(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.Spec) < 100 || len(p.Spec) > 5242880 ||
 		len(p.Name) > 256 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "openapi.parse 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "openapi.parse 参数无效", false)
 	}
 	switch p.ContentEncoding {
 	case "", "identity", "gzip", "deflate":
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "openapi.parse 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "openapi.parse 参数无效", false)
 	}
 	spec, err := openapi.ParseEncoded([]byte(p.Spec), p.ContentEncoding)
 	if err != nil {
@@ -54,7 +54,7 @@ func handleOpenapiParse(e *Engine, ctx context.Context, r bridge.Request) bridge
 	for _, at := range spec.AuthTypes {
 		authTypes = append(authTypes, string(at))
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Digest         string   `json:"digest"`
 		OpenAPI        string   `json:"openapi"`
 		SpecVersion    string   `json:"specVersion"`
@@ -68,39 +68,39 @@ func handleOpenapiParse(e *Engine, ctx context.Context, r bridge.Request) bridge
 func openapiFailure(r bridge.Request, err error) bridge.Response {
 	var oasErr *openapi.Error
 	if errors.As(err, &oasErr) {
-		return bridge.Failure(r.ID, r.TraceID, oasErr.Code, "OpenAPI 文档被拒绝："+oasErr.Message, false)
+		return r.Fail(oasErr.Code, "OpenAPI 文档被拒绝："+oasErr.Message, false)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "OpenAPI 文档无法解析", false)
+	return r.Fail("BRIDGE_SCHEMA_INVALID", "OpenAPI 文档无法解析", false)
 }
 
 // handleComplexityDecide routes one conversation snapshot through the
 // complexity router. Identical signal digests replay the stored decision.
 func handleComplexityDecide(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SessionID string                  `json:"sessionId"`
+		SessionID string                         `json:"sessionId"`
 		Signals   complexity.ConversationSignals `json:"signals"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.SessionID) < 1 || len(p.SessionID) > 256 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "complexity.decide 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "complexity.decide 参数无效", false)
 	}
 	if p.Signals.MessageCount < 0 || p.Signals.DelegationHints < 0 || p.Signals.EstTokens < 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "complexity.decide 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "complexity.decide 参数无效", false)
 	}
 	if e.m6routing == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "复杂度路由服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "复杂度路由服务暂时不可用", true)
 	}
 	decision, err := e.m6routing.Decide(ctx, p.SessionID, p.Signals)
 	if err != nil {
 		if errors.Is(err, m6app.ErrServiceUnavailable) {
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "复杂度路由服务暂时不可用", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "复杂度路由服务暂时不可用", true)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "复杂度决策无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "复杂度决策无效", false)
 	}
 	var reasons []string
 	if err := json.Unmarshal([]byte(decision.ReasonCodes), &reasons); err != nil || reasons == nil {
 		reasons = []string{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		DecisionID  string   `json:"decisionId"`
 		Tier        string   `json:"tier"`
 		RoutedPath  string   `json:"routedPath"`
@@ -130,10 +130,10 @@ func handleSkillImportDiscover(e *Engine, ctx context.Context, r bridge.Request)
 		len(p.NoticeRef) > 512 ||
 		len(p.Publisher) < 1 || len(p.Publisher) > 256 ||
 		len(p.Signature) > 8192 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.import.discover 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.discover 参数无效", false)
 	}
 	if e.m6skills == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	}
 	c, err := e.m6skills.Discover(ctx, m6app.DiscoverInput{
 		AssetType: p.AssetType, SourceURL: p.SourceURL, ImmutableCommit: p.ImmutableCommit,
@@ -152,10 +152,10 @@ func handleSkillImportInspect(e *Engine, ctx context.Context, r bridge.Request) 
 	var p skillImportStepPayload
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CandidateID) || p.ExpectedVersion < 1 ||
 		len(p.NoticeRef) > 512 || len(p.Signature) > 8192 || len(p.SourceAttestation) > 16384 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.import.inspect 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.inspect 参数无效", false)
 	}
 	if e.m6skills == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	}
 	c, err := e.m6skills.Pin(ctx, p.CandidateID, p.ExpectedVersion, m6supply.ImportEvidence{})
 	if err != nil {
@@ -190,10 +190,10 @@ func handleSkillImportSubmit(e *Engine, ctx context.Context, r bridge.Request) b
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CandidateID) || p.ExpectedVersion < 1 ||
 		!jsonArrayString(p.ScanRefs, 16384) || !jsonObjectString(p.InjectionScan, 16384) ||
 		len(p.EvaluationID) < 1 || len(p.EvaluationID) > 256 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.import.submit 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.submit 参数无效", false)
 	}
 	if e.m6skills == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	}
 	c, err := e.m6skills.Scan(ctx, p.CandidateID, p.ExpectedVersion, m6supply.ImportEvidence{
 		ScanRefs: p.ScanRefs, InjectionScan: p.InjectionScan,
@@ -227,10 +227,10 @@ func handleSkillImportApprove(e *Engine, ctx context.Context, r bridge.Request) 
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CandidateID) || p.ExpectedVersion < 1 ||
 		len(p.Approval) < 3 || len(p.Approval) > 65536 || len(p.Manifest) > 262144 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.import.approve 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.approve 参数无效", false)
 	}
 	if e.m6skills == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	}
 	c, err := e.m6skills.Approve(ctx, m6app.ApproveInput{
 		CandidateID: p.CandidateID, ExpectedVersion: p.ExpectedVersion,
@@ -257,10 +257,10 @@ func skillImportTerminalStep(e *Engine, ctx context.Context, r bridge.Request, o
 	var p skillImportStepPayload
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CandidateID) || p.ExpectedVersion < 1 ||
 		len(p.Reason) < 1 || len(p.Reason) > 2048 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "skill.import."+op+" 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import."+op+" 参数无效", false)
 	}
 	if e.m6skills == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	}
 	evidence := m6supply.ImportEvidence{
 		Approval: `{"reason":` + jsonString(p.Reason) + `}`,
@@ -281,7 +281,7 @@ func skillImportTerminalStep(e *Engine, ctx context.Context, r bridge.Request, o
 }
 
 func skillCandidateSuccess(r bridge.Request, c m6supply.ImportCandidate) bridge.Response {
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		CandidateID string `json:"candidateId"`
 		State       string `json:"state"`
 		Version     int64  `json:"version"`
@@ -292,23 +292,23 @@ func skillCandidateSuccess(r bridge.Request, c m6supply.ImportCandidate) bridge.
 func skillImportFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m6app.ErrCandidateNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_CANDIDATE_NOT_FOUND", "导入候选不存在", false)
+		return r.Fail("SKILL_CANDIDATE_NOT_FOUND", "导入候选不存在", false)
 	case errors.Is(err, m6app.ErrCandidateExists):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_CANDIDATE_EXISTS", "同源同提交的候选已存在", false)
+		return r.Fail("SKILL_CANDIDATE_EXISTS", "同源同提交的候选已存在", false)
 	case errors.Is(err, m6supply.ErrVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_VERSION_CONFLICT", "候选版本已变化，请刷新后重试", false)
+		return r.Fail("SKILL_VERSION_CONFLICT", "候选版本已变化，请刷新后重试", false)
 	case errors.Is(err, m6supply.ErrInvalidTransition):
-		return bridge.Failure(r.ID, r.TraceID, "SKILL_INVALID_TRANSITION", "候选状态不支持该操作", false)
+		return r.Fail("SKILL_INVALID_TRANSITION", "候选状态不支持该操作", false)
 	case errors.Is(err, m6app.ErrSkillVersionExists):
-		return bridge.Failure(r.ID, r.TraceID, "M6-SKL-001", "技能版本已存在或清单校验失败", false)
+		return r.Fail("M6-SKL-001", "技能版本已存在或清单校验失败", false)
 	case errors.Is(err, m6app.ErrPromptBundleVersionExists):
-		return bridge.Failure(r.ID, r.TraceID, "M6-SKL-001", "提示词包版本已存在或清单校验失败", false)
+		return r.Fail("M6-SKL-001", "提示词包版本已存在或清单校验失败", false)
 	case isManifestError(err):
-		return bridge.Failure(r.ID, r.TraceID, "M6-SKL-001", "技能清单缺失字段或校验失败", false)
+		return r.Fail("M6-SKL-001", "技能清单缺失字段或校验失败", false)
 	case errors.Is(err, m6app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
 	}
 }
 

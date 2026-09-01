@@ -200,14 +200,14 @@ func (e *Engine) SetVoiceService(svc *VoiceService) { e.voice = svc }
 
 func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.voice == nil {
-		return bridge.Success(r.ID, map[string]any{
+		return r.Ok(map[string]any{
 			"supported": false, "ready": false, "modelId": "", "modelTitle": "",
 			"downloadBytes": 0, "backend": "",
 		})
 	}
 	model, err := voice.LookupBundle(e.voice.modelID)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-001", "本地识别模型未知", false)
+		return r.Fail("VOICE-001", "本地识别模型未知", false)
 	}
 	// Deliberately does not warm the engines.
 	//
@@ -242,7 +242,7 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 			"installed": e.voice.installer.Installed(bundle),
 		})
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"supported":  true,
 		"ready":      ready,
 		"modelId":    model.ID,
@@ -264,24 +264,24 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 // progress, which is also exactly what a progress bar needs.
 func handleVoiceInstall(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.voice == nil {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-002", "本地识别不可用", true)
+		return r.Fail("VOICE-002", "本地识别不可用", true)
 	}
 	var p struct {
 		ModelID string `json:"modelId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.install 参数无效", false)
 	}
 	modelID := p.ModelID
 	if modelID == "" {
 		modelID = e.voice.modelID
 	}
 	if _, err := voice.LookupBundle(modelID); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-001", "本地识别模型未知", false)
+		return r.Fail("VOICE-001", "本地识别模型未知", false)
 	}
 
 	e.voice.begin(modelID)
-	return bridge.Success(r.ID, e.voice.snapshot())
+	return r.Ok(e.voice.snapshot())
 }
 
 // begin launches the download unless one is already running or everything is
@@ -367,7 +367,7 @@ func (s *VoiceService) snapshot() map[string]any {
 
 func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.voice == nil {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-002", "本地识别不可用", true)
+		return r.Fail("VOICE-002", "本地识别不可用", true)
 	}
 	var p struct {
 		Language   string `json:"language"`
@@ -375,7 +375,7 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		ProviderID string `json:"providerId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
 	}
 	if p.Backend == "volc" {
 		return startVolcVoice(e, ctx, r, p.Language, p.ProviderID)
@@ -384,9 +384,9 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	session, err := e.voice.backend.Start(ctx, voice.SessionOptions{Language: p.Language})
 	if err != nil {
 		if errors.Is(err, voice.ErrModelMissing) {
-			return bridge.Failure(r.ID, r.TraceID, "VOICE-003", "本地识别模型尚未下载", true)
+			return r.Fail("VOICE-003", "本地识别模型尚未下载", true)
 		}
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", "本地识别引擎启动失败："+truncate(err.Error(), 256), true)
+		return r.Fail("VOICE-004", "本地识别引擎启动失败："+truncate(err.Error(), 256), true)
 	}
 
 	// Load the refiner's model while the user is still talking. It is not
@@ -398,12 +398,12 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	e.voice.mu.Lock()
 	e.voice.sessions[id] = session
 	e.voice.mu.Unlock()
-	return bridge.Success(r.ID, map[string]any{"sessionId": id})
+	return r.Ok(map[string]any{"sessionId": id})
 }
 
 func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, providerID string) bridge.Response {
 	if providerID == "" || e.providers == nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
 	}
 	p, err := e.providers.Get(ctx, providerID)
 	if err != nil {
@@ -413,11 +413,11 @@ func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, 
 		return *failure
 	}
 	if p.Protocol != provider.ProtocolVolcSpeech {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", "所选供应商不是火山语音", false)
+		return r.Fail("VOICE-004", "所选供应商不是火山语音", false)
 	}
 	modelID := volcListenModelID(p)
 	if modelID == "" {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", "没有可用的火山听写模型", false)
+		return r.Fail("VOICE-004", "没有可用的火山听写模型", false)
 	}
 	var session voice.Session
 	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
@@ -434,13 +434,13 @@ func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, 
 		if msg == "" {
 			msg = "火山语音启动失败"
 		}
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-004", msg, true)
+		return r.Fail("VOICE-004", msg, true)
 	}
 	id := fmt.Sprintf("v%d", e.voice.counter.Add(1))
 	e.voice.mu.Lock()
 	e.voice.sessions[id] = session
 	e.voice.mu.Unlock()
-	return bridge.Success(r.ID, map[string]any{"sessionId": id})
+	return r.Ok(map[string]any{"sessionId": id})
 }
 
 func handleVoiceAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -449,25 +449,25 @@ func handleVoiceAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		PCM       string `json:"pcm"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.SessionID == "" || p.PCM == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.append 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.append 参数无效", false)
 	}
 	pcm, err := base64.StdEncoding.DecodeString(p.PCM)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.append 音频编码无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.append 音频编码无效", false)
 	}
 	session, ok := e.voiceSession(p.SessionID)
 	if !ok {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-005", "识别会话不存在", false)
+		return r.Fail("VOICE-005", "识别会话不存在", false)
 	}
 	if err := session.Append(ctx, pcm); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-006", "音频写入失败："+truncate(err.Error(), 256), true)
+		return r.Fail("VOICE-006", "音频写入失败："+truncate(err.Error(), 256), true)
 	}
 	// Partials ride back on the reply rather than through a second channel.
 	text, final := "", false
 	if reader, ok := session.(interface{ Latest() (string, bool) }); ok {
 		text, final = reader.Latest()
 	}
-	return bridge.Success(r.ID, map[string]any{"text": text, "final": final})
+	return r.Ok(map[string]any{"text": text, "final": final})
 }
 
 func handleVoiceFinish(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -475,11 +475,11 @@ func handleVoiceFinish(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.SessionID == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.finish 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.finish 参数无效", false)
 	}
 	session, ok := e.voiceSession(p.SessionID)
 	if !ok {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-005", "识别会话不存在", false)
+		return r.Fail("VOICE-005", "识别会话不存在", false)
 	}
 	text, err := session.Finish(ctx)
 	e.dropVoiceSession(p.SessionID)
@@ -488,9 +488,9 @@ func handleVoiceFinish(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	// user actually said is worth more to them than an empty box, and the
 	// renderer decides whether it is enough to send.
 	if err != nil && text == "" {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-007", "识别失败："+truncate(err.Error(), 256), true)
+		return r.Fail("VOICE-007", "识别失败："+truncate(err.Error(), 256), true)
 	}
-	return bridge.Success(r.ID, map[string]any{"text": text})
+	return r.Ok(map[string]any{"text": text})
 }
 
 // handleVoiceSelect switches which model draws the caption.
@@ -505,16 +505,16 @@ func handleVoiceSelect(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		ModelID string `json:"modelId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.ModelID == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.select 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.select 参数无效", false)
 	}
 	if e.voice == nil {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-002", "本地识别不可用", false)
+		return r.Fail("VOICE-002", "本地识别不可用", false)
 	}
 	if !voice.IsStreamingModel(p.ModelID) {
-		return bridge.Failure(r.ID, r.TraceID, "VOICE-001", "本地识别模型未知", false)
+		return r.Fail("VOICE-001", "本地识别模型未知", false)
 	}
 	e.voice.selectModel(p.ModelID)
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"modelId": p.ModelID,
 		"ready":   e.voice.ready(ctx),
 	})
@@ -525,7 +525,7 @@ func handleVoiceStop(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "voice.stop 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.stop 参数无效", false)
 	}
 	if p.SessionID != "" {
 		e.dropVoiceSession(p.SessionID)
@@ -534,7 +534,7 @@ func handleVoiceStop(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		// a mode switch wants.
 		e.voice.Close()
 	}
-	return bridge.Success(r.ID, map[string]any{"notice": "VOICE_SESSION_CLOSED"})
+	return r.Ok(map[string]any{"notice": "VOICE_SESSION_CLOSED"})
 }
 
 func (e *Engine) voiceSession(id string) (voice.Session, bool) {

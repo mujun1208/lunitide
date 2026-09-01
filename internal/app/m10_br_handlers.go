@@ -17,16 +17,16 @@ import (
 func handleBrSettingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.settings.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.settings.get 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	settings, err := e.brmulti.GetSettings(ctx)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, settings)
+	return r.Ok(settings)
 }
 
 func handleBrSettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -41,10 +41,10 @@ func handleBrSettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) br
 		Actor               string    `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.settings.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.settings.update 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	settings, err := e.brmulti.UpdateSettings(ctx, brapp.SettingsPatch{
 		Mode: p.Mode, ChromePath: p.ChromePath, EdgePath: p.EdgePath,
@@ -55,22 +55,22 @@ func handleBrSettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, settings)
+	return r.Ok(settings)
 }
 
 func handleBrModeDetect(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.mode.detect 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.mode.detect 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	report, err := e.brmulti.DetectModes(ctx)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, report)
+	return r.Ok(report)
 }
 
 func handleBrSessionConnect(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -80,25 +80,25 @@ func handleBrSessionConnect(e *Engine, ctx context.Context, r bridge.Request) br
 		Actor     string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.session.connect 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.session.connect 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	sess, err := e.brmulti.Connect(ctx, p.SessionID, p.Mode, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, sess)
+	return r.Ok(sess)
 }
 
 func handleBrSessionList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.session.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.session.list 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	sessions, err := e.brmulti.ListSessions(ctx)
 	if err != nil {
@@ -107,7 +107,7 @@ func handleBrSessionList(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if sessions == nil {
 		sessions = []brapp.Session{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Sessions []brapp.Session `json:"sessions"`
 	}{Sessions: sessions})
 }
@@ -118,16 +118,16 @@ func handleBrSessionDisconnect(e *Engine, ctx context.Context, r bridge.Request)
 		Actor     string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.SessionID) < 1 || len(p.SessionID) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.session.disconnect 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.session.disconnect 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	sess, err := e.brmulti.Disconnect(ctx, p.SessionID, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, sess)
+	return r.Ok(sess)
 }
 
 func handleBrNavigate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -138,16 +138,16 @@ func handleBrNavigate(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.SessionID) < 1 || len(p.SessionID) > 64 ||
 		len(p.URL) < 1 || len(p.URL) > 2048 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.navigate 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.navigate 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	out, err := e.brmulti.Navigate(ctx, p.SessionID, p.URL, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 func handleBrDataUsage(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -155,10 +155,10 @@ func handleBrDataUsage(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.data.usage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.data.usage 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	usage, err := e.brmulti.DataUsage(ctx, p.SessionID)
 	if err != nil {
@@ -167,7 +167,7 @@ func handleBrDataUsage(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if usage == nil {
 		usage = []brapp.DataUsage{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Usage []brapp.DataUsage `json:"usage"`
 	}{Usage: usage})
 }
@@ -178,16 +178,16 @@ func handleBrDataClear(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		Actor     string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.data.clear 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.data.clear 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	out, err := e.brmulti.ClearData(ctx, p.SessionID, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 func handleBrPermissionList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -195,10 +195,10 @@ func handleBrPermissionList(e *Engine, ctx context.Context, r bridge.Request) br
 		State string `json:"state"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.permission.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.permission.list 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	perms, err := e.brmulti.ListPermissions(ctx, p.State)
 	if err != nil {
@@ -207,7 +207,7 @@ func handleBrPermissionList(e *Engine, ctx context.Context, r bridge.Request) br
 	if perms == nil {
 		perms = []brapp.Permission{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Permissions []brapp.Permission `json:"permissions"`
 	}{Permissions: perms})
 }
@@ -220,16 +220,16 @@ func handleBrPermissionRequest(e *Engine, ctx context.Context, r bridge.Request)
 		Actor      string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.Origin) < 1 || len(p.Origin) > 512 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.permission.request 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.permission.request 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	perm, err := e.brmulti.RequestPermission(ctx, p.Origin, p.Permission, p.SessionID, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, perm)
+	return r.Ok(perm)
 }
 
 func handleBrPermissionDecide(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -239,16 +239,16 @@ func handleBrPermissionDecide(e *Engine, ctx context.Context, r bridge.Request) 
 		Actor        string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.PermissionID) < 1 || len(p.PermissionID) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.permission.decide 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.permission.decide 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	perm, err := e.brmulti.DecidePermission(ctx, p.PermissionID, p.Decision, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, perm)
+	return r.Ok(perm)
 }
 
 func handleBrPermissionPolicy(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -259,33 +259,33 @@ func handleBrPermissionPolicy(e *Engine, ctx context.Context, r bridge.Request) 
 		Actor      string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.Origin) < 1 || len(p.Origin) > 512 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "br.permission.policy 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "br.permission.policy 参数无效", false)
 	}
 	if e.brmulti == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式服务暂时不可用", true)
 	}
 	perm, err := e.brmulti.SetPermissionPolicy(ctx, p.Origin, p.Permission, p.Policy, p.Actor)
 	if err != nil {
 		return brFailure(r, err)
 	}
-	return bridge.Success(r.ID, perm)
+	return r.Ok(perm)
 }
 
 // brFailure maps brapp errors onto M10-BR-001~006.
 func brFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, brapp.ErrBrSchema):
-		return bridge.Failure(r.ID, r.TraceID, "M10-BR-001", "浏览器参数或配置无效", false)
+		return r.Fail("M10-BR-001", "浏览器参数或配置无效", false)
 	case errors.Is(err, brapp.ErrBrState):
-		return bridge.Failure(r.ID, r.TraceID, "M10-BR-002", "CDP 会话状态机迁移非法", false)
+		return r.Fail("M10-BR-002", "CDP 会话状态机迁移非法", false)
 	case errors.Is(err, brapp.ErrBrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M10-BR-003", "浏览器会话或权限不存在", false)
+		return r.Fail("M10-BR-003", "浏览器会话或权限不存在", false)
 	case errors.Is(err, brapp.ErrBrURLPolicy):
-		return bridge.Failure(r.ID, r.TraceID, "M10-BR-004", "导航 URL 被策略拒绝（白名单/私网/端口）", false)
+		return r.Fail("M10-BR-004", "导航 URL 被策略拒绝（白名单/私网/端口）", false)
 	case errors.Is(err, brapp.ErrBrMode):
-		return bridge.Failure(r.ID, r.TraceID, "M10-BR-005", "浏览器模式不可用", false)
+		return r.Fail("M10-BR-005", "浏览器模式不可用", false)
 	case errors.Is(err, brapp.ErrBrRateLimited):
-		return bridge.Failure(r.ID, r.TraceID, "M10-BR-006", "浏览器操作频率超限", false)
+		return r.Fail("M10-BR-006", "浏览器操作频率超限", false)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "浏览器多模式存储暂时不可用", true)
+	return r.Fail("STORAGE_UNAVAILABLE", "浏览器多模式存储暂时不可用", true)
 }

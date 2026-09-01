@@ -152,3 +152,17 @@ func Success(requestID string, payload any) Response {
 func Failure(requestID, traceID, code, message string, retryable bool) Response {
 	return Response{Version: Version, Kind: "response", ID: ulid.Make().String(), RequestID: requestID, OK: false, Error: &Error{Code: code, Message: message, Retryable: retryable, CorrelationID: traceID}}
 }
+
+// Fail is the request-scoped form of Failure. Handlers otherwise repeat
+// `bridge.Failure(request.ID, request.TraceID, …)` on every early return;
+// `request.Fail(code, message, retryable)` threads the same id and trace id
+// from the request that is already in scope, so a call site can never pair the
+// wrong id with the wrong trace.
+func (r Request) Fail(code, message string, retryable bool) Response {
+	return Failure(r.ID, r.TraceID, code, message, retryable)
+}
+
+// Ok is the request-scoped form of Success.
+func (r Request) Ok(payload any) Response {
+	return Success(r.ID, payload)
+}

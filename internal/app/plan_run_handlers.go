@@ -48,7 +48,7 @@ func orchestrationFailure(req bridge.Request, err error) bridge.Response {
 	} else if errors.Is(err, agentorchestration.ErrInvalidTransition) || errors.Is(err, agentorchestration.ErrNoChildren) {
 		code, msg = "COORDINATION_CONFLICT", "协调状态冲突"
 	}
-	return bridge.Failure(req.ID, req.TraceID, code, msg, false)
+	return req.Fail(code, msg, false)
 }
 func validRunText(p *struct{ Role, Title, Description string }) bool {
 	return strings.TrimSpace(p.Role) != "" && len(p.Role) <= 128 && strings.TrimSpace(p.Title) != "" && len(p.Title) <= 200 && len(p.Description) <= 4096
@@ -62,13 +62,13 @@ func handlePlanTodoCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 		Description *string `json:"description"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Description == nil || !validCanonicalULID(p.PlanID) || !validCanonicalULID(p.NodeID) || !validRunText(&struct{ Role, Title, Description string }{p.Role, p.Title, *p.Description}) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "参数无效", false)
 	}
 	run, err := e.coordinator.CreateRoot(ctx, p.PlanID, p.NodeID, p.Role, agentorchestration.Todo{ID: ulid.Make().String(), Title: p.Title, Description: *p.Description})
 	if err != nil {
 		return orchestrationFailure(r, err)
 	}
-	return bridge.Success(r.ID, coordinationResult(run))
+	return r.Ok(coordinationResult(run))
 }
 func handlePlanRunStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	return runIDMutation(e, ctx, r, e.coordinator.Start)
@@ -81,20 +81,20 @@ func runIDMutation(e *Engine, ctx context.Context, r bridge.Request, fn func(con
 		RunID string `json:"runId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "参数无效", false)
 	}
 	run, err := fn(ctx, p.RunID)
 	if err != nil {
 		return orchestrationFailure(r, err)
 	}
-	return bridge.Success(r.ID, coordinationResult(run))
+	return r.Ok(coordinationResult(run))
 }
 func handlePlanRunTree(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		PlanID string `json:"planId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.PlanID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "参数无效", false)
 	}
 	runs, err := e.coordinator.ListPlanRuns(ctx, p.PlanID)
 	if err != nil {
@@ -104,7 +104,7 @@ func handlePlanRunTree(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	for i, x := range runs {
 		items[i] = runDTO(x)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []planRunDTO `json:"items"`
 	}{items})
 }
@@ -117,13 +117,13 @@ func handlePlanRunSpawn(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Description *string `json:"description"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Description == nil || !validCanonicalULID(p.ParentRunID) || !validCanonicalULID(p.NodeID) || !validRunText(&struct{ Role, Title, Description string }{p.Role, p.Title, *p.Description}) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "参数无效", false)
 	}
 	run, err := e.coordinator.SpawnChild(ctx, p.ParentRunID, p.NodeID, p.Role, agentorchestration.Todo{ID: ulid.Make().String(), Title: p.Title, Description: *p.Description})
 	if err != nil {
 		return orchestrationFailure(r, err)
 	}
-	return bridge.Success(r.ID, coordinationResult(run))
+	return r.Ok(coordinationResult(run))
 }
 func handlePlanRunJoin(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -131,11 +131,11 @@ func handlePlanRunJoin(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		Mode  agentorchestration.JoinMode `json:"mode"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || (p.Mode != agentorchestration.JoinAll && p.Mode != agentorchestration.JoinAny) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "参数无效", false)
 	}
 	run, err := e.coordinator.JoinChildren(ctx, p.RunID, p.Mode)
 	if err != nil {
 		return orchestrationFailure(r, err)
 	}
-	return bridge.Success(r.ID, coordinationResult(run))
+	return r.Ok(coordinationResult(run))
 }

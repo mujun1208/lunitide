@@ -48,10 +48,10 @@ func handleHttpRequest(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if decodePayload(r.Payload, &p) != nil || len(p.RunIDStr) < 1 || len(p.RunIDStr) > 128 ||
 		len(p.URL) < 8 || len(p.URL) > 2048 || p.TimeoutMS < 1 || p.MaxResponseBytes < 1 ||
 		len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "http.request 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "http.request 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -70,7 +70,7 @@ func handleHttpRequest(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return m7ToolgapFailure(r, err, "http.request")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Status     int    `json:"status"`
 		Body       string `json:"body,omitempty"`
 		BodyDigest string `json:"bodyDigest"`
@@ -81,20 +81,20 @@ func handleHttpRequest(e *Engine, ctx context.Context, r bridge.Request) bridge.
 
 func handleDbQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		RunID       string   `json:"runId"`
-		Target      string   `json:"target"`
-		SQL         string   `json:"sql"`
-		Params      []any    `json:"params"`
-		MaxRows     int64    `json:"maxRows"`
-		TimeoutMS   int64    `json:"timeoutMs"`
+		RunID     string `json:"runId"`
+		Target    string `json:"target"`
+		SQL       string `json:"sql"`
+		Params    []any  `json:"params"`
+		MaxRows   int64  `json:"maxRows"`
+		TimeoutMS int64  `json:"timeoutMs"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.RunID) < 1 || len(p.RunID) > 128 ||
 		len(p.SQL) < 1 || len(p.SQL) > 16384 || p.MaxRows < 1 || p.TimeoutMS < 1 ||
 		len(p.Target) > 512 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "db.query 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "db.query 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	// target: "sqlite" keeps the legacy default file, "external:<id>" is the
 	// registered connection, any other value is a workspace-relative sqlite
@@ -125,7 +125,7 @@ func handleDbQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	if cols == nil {
 		cols = []string{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Columns      []string `json:"columns"`
 		Rows         [][]any  `json:"rows"`
 		RowCount     int      `json:"rowCount"`
@@ -147,20 +147,20 @@ func handleDocumentParse(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if decodePayload(r.Payload, &p) != nil || len(p.RunID) < 1 || len(p.RunID) > 128 ||
 		len(p.FileRef) < 1 || len(p.FileRef) > 512 || len(p.PageRange) > 32 ||
 		p.MaxOutputBytes < 1 || (p.ExpectedDigest != "" && len(p.ExpectedDigest) != 64) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "document.parse 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "document.parse 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	root, ok := m7WorkspaceRoot(p.WorkspaceRoot)
 	if !ok {
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_ROOT_INVALID", "工作区根必须是存在的本地目录绝对路径", false)
+		return r.Fail("WORKSPACE_ROOT_INVALID", "工作区根必须是存在的本地目录绝对路径", false)
 	}
 	path := p.FileRef
 	if root != "" {
 		confined, cerr := m7flow.ToolConfinePath(root, p.FileRef)
 		if cerr != nil {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fileRef 越界工作区", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "fileRef 越界工作区", false)
 		}
 		path = confined
 	}
@@ -175,7 +175,7 @@ func handleDocumentParse(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return m7ToolgapFailure(r, err, "document.parse")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		PageCount    int               `json:"pageCount"`
 		Blocks       []m7ParseBlockDTO `json:"blocks"`
 		OutputDigest string            `json:"outputDigest"`
@@ -197,14 +197,14 @@ func handleHttpDownload(e *Engine, ctx context.Context, r bridge.Request) bridge
 		len(p.URL) < 8 || len(p.URL) > 2048 || len(p.DestPath) < 1 || len(p.DestPath) > 512 ||
 		p.MaxBytes < 1 || len(p.RequestID) < 1 || len(p.RequestID) > 128 ||
 		(p.ExpectedSha != "" && len(p.ExpectedSha) != 64) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "http.download 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "http.download 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	root, ok := m7WorkspaceRoot(p.WorkspaceRoot)
 	if !ok || root == "" {
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_ROOT_INVALID", "http.download 需要有效工作区根", false)
+		return r.Fail("WORKSPACE_ROOT_INVALID", "http.download 需要有效工作区根", false)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -221,7 +221,7 @@ func handleHttpDownload(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return m7ToolgapFailure(r, err, "http.download")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		TaskID string `json:"taskId"`
 		State  string `json:"state"`
 		SHA256 string `json:"sha256"`
@@ -243,14 +243,14 @@ func handleArchivePack(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if decodePayload(r.Payload, &p) != nil || len(p.RunID) < 1 || len(p.RunID) > 128 ||
 		len(p.Sources) < 1 || len(p.Sources) > 1000 || len(p.DestPath) < 1 || len(p.DestPath) > 512 ||
 		(p.MaxEntries < 1) || (p.MaxBytes < 1) || len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "archive.pack 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "archive.pack 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	root, ok := m7WorkspaceRoot(p.WorkspaceRoot)
 	if !ok || root == "" {
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_ROOT_INVALID", "archive.pack 需要有效工作区根", false)
+		return r.Fail("WORKSPACE_ROOT_INVALID", "archive.pack 需要有效工作区根", false)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -268,7 +268,7 @@ func handleArchivePack(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return m7ToolgapFailure(r, err, "archive.pack")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		ArchivePath string `json:"archivePath"`
 		EntryCount  int    `json:"entryCount"`
 		SHA256      string `json:"sha256"`
@@ -289,14 +289,14 @@ func handleArchiveUnpack(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if decodePayload(r.Payload, &p) != nil || len(p.RunID) < 1 || len(p.RunID) > 128 ||
 		len(p.ArchivePath) < 1 || len(p.ArchivePath) > 512 || len(p.DestDir) < 1 || len(p.DestDir) > 512 ||
 		p.MaxEntries < 1 || p.MaxBytes < 1 || len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "archive.unpack 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "archive.unpack 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	root, ok := m7WorkspaceRoot(p.WorkspaceRoot)
 	if !ok || root == "" {
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_ROOT_INVALID", "archive.unpack 需要有效工作区根", false)
+		return r.Fail("WORKSPACE_ROOT_INVALID", "archive.unpack 需要有效工作区根", false)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -313,11 +313,11 @@ func handleArchiveUnpack(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return m7ToolgapFailure(r, err, "archive.unpack")
 	}
-	return bridge.Success(r.ID, struct {
-		EntryCount  int      `json:"entryCount"`
-		TotalBytes  int64    `json:"totalBytes"`
-		DestDir     string   `json:"destDir,omitempty"`
-		Rejected    []string `json:"rejectedEntries,omitempty"`
+	return r.Ok(struct {
+		EntryCount int      `json:"entryCount"`
+		TotalBytes int64    `json:"totalBytes"`
+		DestDir    string   `json:"destDir,omitempty"`
+		Rejected   []string `json:"rejectedEntries,omitempty"`
 	}{res.EntryCount, res.TotalBytes, res.DestDir, nil})
 }
 
@@ -334,31 +334,31 @@ func handleGitRead(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	if decodePayload(r.Payload, &p) != nil || len(p.RunID) < 1 || len(p.RunID) > 128 ||
 		len(p.RepoPath) < 1 || len(p.RepoPath) > 512 || len(p.Ref) > 256 ||
 		p.MaxOutputBytes < 1 || len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "git.read 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "git.read 参数无效", false)
 	}
 	if e.m7toolgap == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
 	root, ok := m7WorkspaceRoot(p.WorkspaceRoot)
 	if !ok || root == "" {
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_ROOT_INVALID", "git.read 需要有效工作区根", false)
+		return r.Fail("WORKSPACE_ROOT_INVALID", "git.read 需要有效工作区根", false)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
 	res, err := e.m7toolgap.GitRead(ctx, m7app.GitReadInput{
-		RunID:           p.RunID,
-		RepoPath:        p.RepoPath,
-		WorkspaceRoot:   root,
-		Op:              p.Op,
-		Ref:             p.Ref,
-		MaxOutputBytes:  p.MaxOutputBytes,
-		IdempotencyKey:  p.RequestID,
+		RunID:          p.RunID,
+		RepoPath:       p.RepoPath,
+		WorkspaceRoot:  root,
+		Op:             p.Op,
+		Ref:            p.Ref,
+		MaxOutputBytes: p.MaxOutputBytes,
+		IdempotencyKey: p.RequestID,
 	})
 	if err != nil {
 		return m7ToolgapFailure(r, err, "git.read")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Output       string `json:"output"`
 		OutputDigest string `json:"outputDigest"`
 		Bytes        int64  `json:"bytes"`
@@ -389,31 +389,31 @@ func m7ParseBlocks(blocks []m7flow.ParseBlock) []m7ParseBlockDTO {
 func m7ToolgapFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
 	case errors.Is(err, m7app.ErrToolSSRF):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-001", "SSRF 合同拒绝该网络目标", false)
+		return r.Fail("M7-TOOL-001", "SSRF 合同拒绝该网络目标", false)
 	case errors.Is(err, m7app.ErrToolResponseOverLimit):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-002", "响应超过 maxResponseBytes 已截断", false)
+		return r.Fail("M7-TOOL-002", "响应超过 maxResponseBytes 已截断", false)
 	case errors.Is(err, m7app.ErrToolSQL):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-003", "语句未过只读白名单解析器", false)
+		return r.Fail("M7-TOOL-003", "语句未过只读白名单解析器", false)
 	case errors.Is(err, m7app.ErrToolDBConn):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-004", "外部连接未登记或只读探针失败", false)
+		return r.Fail("M7-TOOL-004", "外部连接未登记或只读探针失败", false)
 	case errors.Is(err, m7app.ErrToolParse):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-005", "格式不支持、摘要不匹配或输出超限", false)
+		return r.Fail("M7-TOOL-005", "格式不支持、摘要不匹配或输出超限", false)
 	case errors.Is(err, m7app.ErrToolTimeout):
-		return bridge.Failure(r.ID, r.TraceID, "M7-TOOL-006", "工具执行超时", true)
+		return r.Fail("M7-TOOL-006", "工具执行超时", true)
 	case errors.Is(err, m7app.ErrToolSchema):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", method+" 参数或路径越界", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", method+" 参数或路径越界", false)
 	case errors.Is(err, m7app.ErrToolPolicy):
-		return bridge.Failure(r.ID, r.TraceID, "FORBIDDEN_BY_POLICY", method+" 写语义未过审批", false)
+		return r.Fail("FORBIDDEN_BY_POLICY", method+" 写语义未过审批", false)
 	case errors.Is(err, m7app.ErrToolQuota):
-		return bridge.Failure(r.ID, r.TraceID, "RATE_LIMITED", "同 Run 工具配额或并发超限", true)
+		return r.Fail("RATE_LIMITED", "同 Run 工具配额或并发超限", true)
 	case errors.Is(err, m7app.ErrToolUnreachable):
-		return bridge.Failure(r.ID, r.TraceID, "UPSTREAM_UNAVAILABLE", "下游目标不可达", true)
+		return r.Fail("UPSTREAM_UNAVAILABLE", "下游目标不可达", true)
 	case errors.Is(err, m7app.ErrToolNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "引用的资源不存在", false)
+		return r.Fail("NOT_FOUND", "引用的资源不存在", false)
 	case errors.Is(err, m7app.ErrToolNotInManifest):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "工具不在冻结 manifest 中", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "工具不在冻结 manifest 中", false)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工具运行时暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

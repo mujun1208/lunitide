@@ -247,7 +247,7 @@ func handleChatTurnGet(e *Engine, ctx context.Context, request bridge.Request) b
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.SessionID) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.turn.get 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.turn.get 参数无效", false)
 	}
 	cp := e.loadTurnCheckpoint(p.SessionID)
 	draft := clipRunes(strings.TrimSpace(cp.PersistDraft), 8192)
@@ -262,7 +262,7 @@ func handleChatTurnGet(e *Engine, ctx context.Context, request bridge.Request) b
 	default:
 		status = ""
 	}
-	return bridge.Success(request.ID, map[string]any{
+	return request.Ok(map[string]any{
 		"status":        status,
 		"persistFailed": persistFailed,
 		"persistDraft":  draft,

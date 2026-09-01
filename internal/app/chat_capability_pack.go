@@ -13,9 +13,9 @@ import (
 )
 
 type capabilityPackSpec struct {
-	Skills        []string
-	McpPresetIDs  []string
-	ToolGates     []string
+	Skills       []string
+	McpPresetIDs []string
+	ToolGates    []string
 }
 
 func packSpecFromManifest(manifest map[string]any) capabilityPackSpec {

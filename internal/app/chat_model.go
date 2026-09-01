@@ -117,10 +117,10 @@ func handleChatPrefer(e *Engine, ctx context.Context, request bridge.Request) br
 		ModelID    string `json:"modelId"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.prefer 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.prefer 参数无效", false)
 	}
 	e.rememberChatModel(p.ProviderID, p.ModelID)
-	return bridge.Success(request.ID, map[string]any{"providerId": p.ProviderID, "modelId": p.ModelID})
+	return request.Ok(map[string]any{"providerId": p.ProviderID, "modelId": p.ModelID})
 }
 
 func (e *Engine) rememberChatModel(providerID, modelID string) {

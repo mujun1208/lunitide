@@ -72,16 +72,16 @@ func handleMemoryGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.get 参数无效", false)
 	}
 	if !memoryServiceAvailable(e.memories) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 	m, err := e.memories.Get(ctx, p.ID)
 	if err != nil {
 		return memoryFailure(r, err)
 	}
-	return bridge.Success(r.ID, newMemoryDTO(*m))
+	return r.Ok(newMemoryDTO(*m))
 }
 
 func handleMemoryCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -95,10 +95,10 @@ func handleMemoryCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 		ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Key) == "" || strings.TrimSpace(p.Content) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.create 参数无效", false)
 	}
 	if !memoryServiceAvailable(e.memories) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 	m, err := e.memories.Create(ctx, memory.Memory{
 		ProjectID:  p.ProjectID,
@@ -112,7 +112,7 @@ func handleMemoryCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return memoryFailure(r, err)
 	}
-	return bridge.Success(r.ID, newMemoryDTO(m))
+	return r.Ok(newMemoryDTO(m))
 }
 
 func handleMemoryList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -121,13 +121,13 @@ func handleMemoryList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		Layer     memory.Layer `json:"layer"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.list 参数无效", false)
 	}
 	if p.Layer != "" && p.Layer != memory.LayerWorking && p.Layer != memory.LayerEpisodic && p.Layer != memory.LayerSemantic && p.Layer != memory.LayerProcedural {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.list 参数无效", false)
 	}
 	if !memoryServiceAvailable(e.memories) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 	items, err := e.memories.ListByProject(ctx, p.ProjectID, p.Layer)
 	if err != nil {
@@ -137,7 +137,7 @@ func handleMemoryList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	for i := range items {
 		dtos[i] = newMemoryDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []memoryDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -148,10 +148,10 @@ func handleMemorySearch(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Query     string `json:"query"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Query) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.search 参数无效", false)
 	}
 	if !memoryServiceAvailable(e.memories) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 	items, err := e.memories.Search(ctx, p.ProjectID, p.Query)
 	if err != nil {
@@ -161,7 +161,7 @@ func handleMemorySearch(e *Engine, ctx context.Context, r bridge.Request) bridge
 	for i := range items {
 		dtos[i] = newMemoryDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []memoryDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -172,15 +172,15 @@ func handleMemoryUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Content string `json:"content"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || strings.TrimSpace(p.Content) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.update 参数无效", false)
 	}
 	if !memoryServiceAvailable(e.memories) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 	if err := e.memories.UpdateContent(ctx, p.ID, p.Content); err != nil {
 		return memoryFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"updated": true})
+	return r.Ok(map[string]any{"updated": true})
 }
 
 func handleMemoryDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -188,22 +188,22 @@ func handleMemoryDelete(e *Engine, ctx context.Context, r bridge.Request) bridge
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "memory.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.delete 参数无效", false)
 	}
 	if !memoryServiceAvailable(e.memories) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 	if err := e.memories.Delete(ctx, p.ID); err != nil {
 		return memoryFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true})
+	return r.Ok(map[string]any{"deleted": true})
 }
 
 func memoryFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, memoryapp.ErrMemoryNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "MEMORY_NOT_FOUND", "记忆不存在", false)
+		return r.Fail("MEMORY_NOT_FOUND", "记忆不存在", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆数据暂时不可用", true)
 	}
 }

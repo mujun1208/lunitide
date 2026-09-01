@@ -4,9 +4,9 @@ import "testing"
 
 func TestPackSpecFromManifest(t *testing.T) {
 	spec := packSpecFromManifest(map[string]any{
-		"skills":        []any{"browser-automation", "e2e-browser"},
-		"mcpPresetIds":  []any{"playwright"},
-		"toolGates":     []any{"browser", "web-fetch"},
+		"skills":       []any{"browser-automation", "e2e-browser"},
+		"mcpPresetIds": []any{"playwright"},
+		"toolGates":    []any{"browser", "web-fetch"},
 	})
 	if len(spec.Skills) != 2 || spec.McpPresetIDs[0] != "playwright" || len(spec.ToolGates) != 2 {
 		t.Fatalf("spec = %#v", spec)

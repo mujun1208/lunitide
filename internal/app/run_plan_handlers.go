@@ -46,14 +46,14 @@ func handleRunPlanPut(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		Plan            json.RawMessage `json:"plan"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || p.ExpectedVersion < 0 || len(p.Plan) == 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "run.plan.put 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "run.plan.put 参数无效", false)
 	}
 	var plan any
 	if err := json.Unmarshal(p.Plan, &plan); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "run.plan.put 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "run.plan.put 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -66,7 +66,7 @@ func handleRunPlanPut(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if err != nil {
 		return agentRunFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Plan runPlanDTO `json:"plan"`
 	}{newRunPlanDTO(result.Plan)})
 }
@@ -76,10 +76,10 @@ func handleEvidenceList(e *Engine, ctx context.Context, r bridge.Request) bridge
 		RunID string `json:"runId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "evidence.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "evidence.list 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.EvidenceList(ctx, p.RunID)
 	if err != nil {
@@ -89,7 +89,7 @@ func handleEvidenceList(e *Engine, ctx context.Context, r bridge.Request) bridge
 	for _, ev := range result.Evidence {
 		items = append(items, newEvidenceDTO(ev))
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		RunID    string        `json:"runId"`
 		Evidence []evidenceDTO `json:"evidence"`
 	}{result.RunID, items})

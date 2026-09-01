@@ -66,10 +66,10 @@ func handleReviewList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		PlanID string `json:"planId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.PlanID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "review.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "review.list 参数无效", false)
 	}
 	if !governanceServiceAvailable(e.governance) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
 	}
 	items, err := e.governance.ListReviewsByPlan(ctx, p.PlanID)
 	if err != nil {
@@ -79,7 +79,7 @@ func handleReviewList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	for i := range items {
 		dtos[i] = newReviewDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []reviewDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -90,15 +90,15 @@ func handleReviewApprove(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Note     string `json:"reviewerNote"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ReviewID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "review.approve 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "review.approve 参数无效", false)
 	}
 	if !governanceServiceAvailable(e.governance) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
 	}
 	if err := e.governance.ApproveReview(ctx, p.ReviewID, p.Note); err != nil {
 		return reviewFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"approved": true})
+	return r.Ok(map[string]any{"approved": true})
 }
 
 func handleReviewReject(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -107,26 +107,26 @@ func handleReviewReject(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Note     string `json:"reviewerNote"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ReviewID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "review.reject 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "review.reject 参数无效", false)
 	}
 	if !governanceServiceAvailable(e.governance) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
 	}
 	if err := e.governance.RejectReview(ctx, p.ReviewID, p.Note); err != nil {
 		return reviewFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"rejected": true})
+	return r.Ok(map[string]any{"rejected": true})
 }
 
 func reviewFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, governanceapp.ErrReviewNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "REVIEW_NOT_FOUND", "审批记录不存在", false)
+		return r.Fail("REVIEW_NOT_FOUND", "审批记录不存在", false)
 	case errors.Is(err, governanceapp.ErrReviewNotPending):
-		return bridge.Failure(r.ID, r.TraceID, "REVIEW_NOT_PENDING", "审批记录不在待处理状态", false)
+		return r.Fail("REVIEW_NOT_PENDING", "审批记录不在待处理状态", false)
 	case errors.Is(err, governanceapp.ErrReviewExpired):
-		return bridge.Failure(r.ID, r.TraceID, "REVIEW_EXPIRED", "审批记录已过期", false)
+		return r.Fail("REVIEW_EXPIRED", "审批记录已过期", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "审批数据暂时不可用", true)
 	}
 }

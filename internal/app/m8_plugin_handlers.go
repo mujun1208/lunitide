@@ -33,10 +33,10 @@ func handlePluginInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if decodePayload(r.Payload, &p) != nil ||
 		(p.Origin != "market" && p.Origin != "local" && p.Origin != "dev") ||
 		len(p.Source) < 1 || len(p.Source) > 512 || len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.install 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	res, err := e.m8plugin.Install(ctx, m8app.InstallInput{
 		Origin: p.Origin, Source: p.Source, PermissionGrant: p.PermissionGrant,
@@ -45,7 +45,7 @@ func handlePluginInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return m8PluginFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handlePluginList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -57,16 +57,16 @@ func handlePluginList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		(p.Kind != "" && p.Kind != "mcp" && p.Kind != "skill" && p.Kind != "workflow" &&
 			p.Kind != "template" && p.Kind != "tool" && p.Kind != "agent-pack") ||
 		(p.State != "" && (len(p.State) < 1 || len(p.State) > 32)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.list 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	res, err := e.m8plugin.List(ctx, p.Kind, p.State)
 	if err != nil {
 		return m8PluginFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handlePluginToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -76,10 +76,10 @@ func handlePluginToggle(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Actor     string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InstallID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.toggle 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.toggle 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	res, err := e.m8plugin.Toggle(ctx, m8app.ToggleInput{
 		InstallID: p.InstallID, Enabled: p.Enabled, Actor: p.Actor,
@@ -87,7 +87,7 @@ func handlePluginToggle(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return m8PluginFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handlePluginUpgrade(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -99,10 +99,10 @@ func handlePluginUpgrade(e *Engine, ctx context.Context, r bridge.Request) bridg
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InstallID) ||
 		(p.TargetSemver != "" && (len(p.TargetSemver) < 1 || len(p.TargetSemver) > 32)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.upgrade 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.upgrade 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	res, err := e.m8plugin.Upgrade(ctx, m8app.UpgradeInput{
 		InstallID: p.InstallID, TargetSemver: p.TargetSemver,
@@ -111,7 +111,7 @@ func handlePluginUpgrade(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return m8PluginFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handlePluginUninstall(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -122,10 +122,10 @@ func handlePluginUninstall(e *Engine, ctx context.Context, r bridge.Request) bri
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.InstallID) ||
 		len(p.ConfirmToken) != 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.uninstall 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.uninstall 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	res, err := e.m8plugin.Uninstall(ctx, m8app.UninstallInput{
 		InstallID: p.InstallID, ConfirmToken: p.ConfirmToken, Actor: p.Actor,
@@ -133,7 +133,7 @@ func handlePluginUninstall(e *Engine, ctx context.Context, r bridge.Request) bri
 	if err != nil {
 		return m8PluginFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handlePluginDevCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -144,10 +144,10 @@ func handlePluginDevCreate(e *Engine, ctx context.Context, r bridge.Request) bri
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.WorkspaceID) < 1 || len(p.WorkspaceID) > 128 ||
 		p.Manifest == nil || len(p.Entrypoint) < 1 || len(p.Entrypoint) > 512 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.dev.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.dev.create 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	res, err := e.m8plugin.DevCreate(ctx, m8app.DevCreateInput{
 		WorkspaceID: p.WorkspaceID, Manifest: p.Manifest, Entrypoint: p.Entrypoint,
@@ -155,7 +155,7 @@ func handlePluginDevCreate(e *Engine, ctx context.Context, r bridge.Request) bri
 	if err != nil {
 		return m8PluginFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handlePluginMarketSearch(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -167,10 +167,10 @@ func handlePluginMarketSearch(e *Engine, ctx context.Context, r bridge.Request) 
 	if decodePayload(r.Payload, &p) != nil || len(p.Query) < 1 || len(p.Query) > 200 ||
 		(p.Cursor != "" && len(p.Cursor) > 256) ||
 		(p.Kind != "" && !m8core.ValidPluginKind(p.Kind)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.market.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.market.search 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	list, err := e.m8plugin.List(ctx, p.Kind, "")
 	if err != nil {
@@ -206,7 +206,7 @@ func handlePluginMarketSearch(e *Engine, ctx context.Context, r bridge.Request) 
 			break
 		}
 	}
-	return bridge.Success(r.ID, map[string]any{"items": items})
+	return r.Ok(map[string]any{"items": items})
 }
 
 func handlePluginMarketDetail(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -214,10 +214,10 @@ func handlePluginMarketDetail(e *Engine, ctx context.Context, r bridge.Request) 
 		ItemID string `json:"itemId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ItemID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "plugin.market.detail 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "plugin.market.detail 参数无效", false)
 	}
 	if e.m8plugin == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 	list, err := e.m8plugin.List(ctx, "", "")
 	if err != nil {
@@ -233,7 +233,7 @@ func handlePluginMarketDetail(e *Engine, ctx context.Context, r bridge.Request) 
 		if publisher == "" {
 			publisher = "local"
 		}
-		return bridge.Success(r.ID, map[string]any{
+		return r.Ok(map[string]any{
 			"manifest": map[string]any{
 				"pluginId":  plugin.PluginID,
 				"semver":    plugin.Semver,
@@ -247,7 +247,7 @@ func handlePluginMarketDetail(e *Engine, ctx context.Context, r bridge.Request) 
 			"downloads":   0,
 		})
 	}
-	return bridge.Failure(r.ID, r.TraceID, "BRIDGE_NOT_FOUND", "市场条目不存在或市场源未接入", false)
+	return r.Fail("BRIDGE_NOT_FOUND", "市场条目不存在或市场源未接入", false)
 }
 
 // m8PluginFailure maps the FR-18 error family onto the M8 code matrix
@@ -255,27 +255,27 @@ func handlePluginMarketDetail(e *Engine, ctx context.Context, r bridge.Request) 
 func m8PluginFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m8app.ErrPluginSignatureInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M8-035", "签名或包校验无效，已隔离零注册", false)
+		return r.Fail("M8-035", "签名或包校验无效，已隔离零注册", false)
 	case errors.Is(err, m8app.ErrPluginManifestInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M8-036", "插件 manifest 非法", false)
+		return r.Fail("M8-036", "插件 manifest 非法", false)
 	case errors.Is(err, m8app.ErrPluginPermissionDenied):
-		return bridge.Failure(r.ID, r.TraceID, "M8-037", "插件权限超出授权白名单", false)
+		return r.Fail("M8-037", "插件权限超出授权白名单", false)
 	case errors.Is(err, m8app.ErrPluginProbeFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M8-038", "插件探活失败，可重试", true)
+		return r.Fail("M8-038", "插件探活失败，可重试", true)
 	case errors.Is(err, m8app.ErrPluginPermissionExpansion):
-		return bridge.Failure(r.ID, r.TraceID, "M8-039", "升级权限扩张，已隔离待审查", false)
+		return r.Fail("M8-039", "升级权限扩张，已隔离待审查", false)
 	case errors.Is(err, m8app.ErrBindingInactive):
-		return bridge.Failure(r.ID, r.TraceID, "M8-040", "能力绑定非 active，拒绝且零副作用", false)
+		return r.Fail("M8-040", "能力绑定非 active，拒绝且零副作用", false)
 	case errors.Is(err, m8app.ErrPluginUninstallConflict):
-		return bridge.Failure(r.ID, r.TraceID, "M8-041", "卸载链失败，整体回滚", false)
+		return r.Fail("M8-041", "卸载链失败，整体回滚", false)
 	case errors.Is(err, m8app.ErrInstallNotFound),
 		errors.Is(err, m8app.ErrBundleNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_NOT_FOUND", "插件资源不存在", false)
+		return r.Fail("BRIDGE_NOT_FOUND", "插件资源不存在", false)
 	case errors.Is(err, m8app.ErrInstallStateInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "PLUGIN_STATE_INVALID", "插件安装状态不允许该操作", false)
+		return r.Fail("PLUGIN_STATE_INVALID", "插件安装状态不允许该操作", false)
 	case errors.Is(err, m8app.ErrPayloadInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "载荷非法", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "载荷非法", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "插件服务暂时不可用", true)
 	}
 }

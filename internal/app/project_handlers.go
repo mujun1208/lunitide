@@ -98,17 +98,17 @@ func clampText(raw string, max int) string {
 func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p projectCreatePayload
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.create 参数无效", false)
 	}
 	if !projectServiceAvailable(e.projects) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
 	name, err := project.NormalizeName(p.Name)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.create 参数无效", false)
 	}
 	candidate := project.Project{
 		Name: name, Type: project.Type(p.Type),
@@ -119,13 +119,13 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Status: project.StatusCreated, OrgID: e.boundOrgID(ctx),
 	}
 	if err := project.ValidateCreateBusinessFields(candidate); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", err.Error(), false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
 	}
 	created, err := e.projects.Create(ctx, r.IdempotencyKey, projectMutationActor, p, candidate)
 	if err != nil {
 		return projectFailure(r, err)
 	}
-	return bridge.Success(r.ID, newProjectDTO(created))
+	return r.Ok(newProjectDTO(created))
 }
 
 func handleProjectList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -134,14 +134,14 @@ func handleProjectList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		Type   string `json:"type"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.list 参数无效", false)
 	}
 	if !projectServiceAvailable(e.projects) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}
 	for _, s := range []string{p.Status, p.Type} {
 		if s != "" && !validProjectEnum(s) {
-			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.list 参数无效", false)
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "project.list 参数无效", false)
 		}
 	}
 	items, err := e.projects.List(ctx, project.Filter{Status: project.Status(p.Status), Type: project.Type(p.Type), OrgID: e.boundOrgID(ctx)})
@@ -156,9 +156,9 @@ func handleProjectList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		dtos = append(dtos, newProjectDTO(items[i]))
 	}
 	if len(dtos) > 100 {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", false)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", false)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []projectDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -209,10 +209,10 @@ type projectUpdatePayload struct {
 
 func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, action, id string, version int64, reason string, apply func(*project.Project) error) bridge.Response {
 	if !validCanonicalULID(id) || version < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", action+" 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", action+" 参数无效", false)
 	}
 	if !projectServiceAvailable(e.projects) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -272,13 +272,13 @@ func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, actio
 	if err != nil {
 		return projectFailure(r, err)
 	}
-	return bridge.Success(r.ID, newProjectDTO(result))
+	return r.Ok(newProjectDTO(result))
 }
 
 func handleProjectUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var body projectUpdatePayload
 	if decodePayload(r.Payload, &body) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.update 参数无效", false)
 	}
 	return handleProjectMutate(e, ctx, r, "project.update", body.ID, body.Version, "", func(cur *project.Project) error {
 		if cur.CanEditIdentity() {
@@ -309,7 +309,7 @@ func handleProjectUpdate(e *Engine, ctx context.Context, r bridge.Request) bridg
 func handleProjectPublish(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p projectMutationMeta
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.publish 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.publish 参数无效", false)
 	}
 	return handleProjectMutate(e, ctx, r, "project.publish", p.ID, p.Version, "", func(*project.Project) error { return nil })
 }
@@ -317,7 +317,7 @@ func handleProjectPublish(e *Engine, ctx context.Context, r bridge.Request) brid
 func handleProjectClose(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p projectMutationMeta
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.close 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.close 参数无效", false)
 	}
 	return handleProjectMutate(e, ctx, r, "project.close", p.ID, p.Version, p.Reason, func(*project.Project) error { return nil })
 }
@@ -325,7 +325,7 @@ func handleProjectClose(e *Engine, ctx context.Context, r bridge.Request) bridge
 func handleProjectReopen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p projectMutationMeta
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.reopen 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.reopen 参数无效", false)
 	}
 	return handleProjectMutate(e, ctx, r, "project.reopen", p.ID, p.Version, p.Reason, func(*project.Project) error { return nil })
 }
@@ -333,7 +333,7 @@ func handleProjectReopen(e *Engine, ctx context.Context, r bridge.Request) bridg
 func handleProjectAdvanceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p projectAdvancePayload
 	if decodePayload(r.Payload, &p) != nil || p.Phase < 1 || p.Phase > 9 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.advanceStatus 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.advanceStatus 参数无效", false)
 	}
 	return handleProjectMutate(e, ctx, r, "project.advanceStatus", p.ID, p.Version, "", func(cur *project.Project) error {
 		next, ok := project.AdvanceTarget(cur.Type, p.Phase)
@@ -348,17 +348,17 @@ func handleProjectAdvanceStatus(e *Engine, ctx context.Context, r bridge.Request
 func projectFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, projectapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, projectapp.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, projectapp.ErrProjectCapacityReached):
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_CAPACITY_REACHED", "项目数量已达到上限", false)
+		return r.Fail("PROJECT_CAPACITY_REACHED", "项目数量已达到上限", false)
 	case errors.Is(err, projectapp.ErrProjectVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_VERSION_CONFLICT", "项目已被其他操作修改，请刷新后重试", false)
+		return r.Fail("PROJECT_VERSION_CONFLICT", "项目已被其他操作修改，请刷新后重试", false)
 	case errors.Is(err, projectapp.ErrInvalidTransition), errors.Is(err, project.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_INVALID_TRANSITION", "项目状态门禁不允许该操作", false)
+		return r.Fail("PROJECT_INVALID_TRANSITION", "项目状态门禁不允许该操作", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}
 }
 
@@ -367,10 +367,10 @@ func handleProjectDelete(e *Engine, ctx context.Context, r bridge.Request) bridg
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "project.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.delete 参数无效", false)
 	}
 	if !projectServiceAvailable(e.projects) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -381,12 +381,12 @@ func handleProjectDelete(e *Engine, ctx context.Context, r bridge.Request) bridg
 	}
 	cur.Status = project.NormalizeStatus(cur.Status)
 	if !cur.CanDeleteOnlyCreated() {
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_INVALID_TRANSITION", "仅创建态且无产出的项目可删除", false)
+		return r.Fail("PROJECT_INVALID_TRANSITION", "仅创建态且无产出的项目可删除", false)
 	}
 	if has, err := e.projects.HasArtifacts(ctx, p.ID); err != nil {
 		return projectFailure(r, err)
 	} else if has {
-		return bridge.Failure(r.ID, r.TraceID, "PROJECT_INVALID_TRANSITION", "项目已有产出，不允许删除", false)
+		return r.Fail("PROJECT_INVALID_TRANSITION", "项目已有产出，不允许删除", false)
 	}
 	_, err = e.projects.Mutate(ctx, r.IdempotencyKey, projectMutationActor, "project.delete", p.ID, cur.Version, func(proj *project.Project) error {
 		proj.Status = project.StatusArchived
@@ -395,5 +395,5 @@ func handleProjectDelete(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return projectFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true, "id": p.ID})
+	return r.Ok(map[string]any{"deleted": true, "id": p.ID})
 }

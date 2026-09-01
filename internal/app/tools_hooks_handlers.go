@@ -16,18 +16,18 @@ import (
 
 func handleToolsHooksPolicyGet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	raw, err := e.tools.HooksPolicyJSON()
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Hooks 策略读取失败", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Hooks 策略读取失败", true)
 	}
-	return bridge.Success(r.ID, json.RawMessage(raw))
+	return r.Ok(json.RawMessage(raw))
 }
 
 func handleToolsHooksPolicySet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var doc struct {
 		Hooks []struct {
@@ -39,37 +39,37 @@ func handleToolsHooksPolicySet(e *Engine, _ context.Context, r bridge.Request) b
 		} `json:"hooks"`
 	}
 	if decodePayload(r.Payload, &doc) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tools.hooksPolicy.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tools.hooksPolicy.set 参数无效", false)
 	}
 	if err := e.tools.SetHooksPolicyJSON(r.Payload); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "HOOKS_POLICY_INVALID", err.Error(), false)
+		return r.Fail("HOOKS_POLICY_INVALID", err.Error(), false)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Applied int `json:"applied"`
 	}{len(doc.Hooks)})
 }
 
 func handleToolsHooksEventsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
-		return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "工具运行时未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var doc struct {
 		Limit int `json:"limit"`
 	}
 	if decodePayload(r.Payload, &doc) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "tools.hooksEvents.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "tools.hooksEvents.list 参数无效", false)
 	}
 	if doc.Limit == 0 {
 		doc.Limit = 50
 	}
 	events, err := e.tools.ListHookEvents(ctx, doc.Limit)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Hooks 审计读取失败", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Hooks 审计读取失败", true)
 	}
 	if events == nil {
 		events = []toolruntime.HookEvent{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Events []toolruntime.HookEvent `json:"events"`
 	}{events})
 }

@@ -26,22 +26,22 @@ func handleFeedbackRecord(e *Engine, ctx context.Context, r bridge.Request) brid
 		Actor      string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "feedback.record 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "feedback.record 参数无效", false)
 	}
 	switch p.Action {
 	case m8app.FeedbackAccept, m8app.FeedbackReject, m8app.FeedbackCorrect:
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "feedback.record action 无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "feedback.record action 无效", false)
 	}
 	if len(p.TargetType) < 1 || len(p.TargetType) > 64 || len(p.TargetID) < 1 || len(p.TargetID) > 128 ||
 		len(p.Text) > 2048 || len(p.Actor) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "feedback.record 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "feedback.record 参数无效", false)
 	}
 	if p.Action == m8app.FeedbackCorrect && strings.TrimSpace(p.Text) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "纠正反馈需要填写偏好内容", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "纠正反馈需要填写偏好内容", false)
 	}
 	if e.m8memory == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "学习闭环服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "学习闭环服务暂时不可用", true)
 	}
 	res, err := e.m8memory.RecordFeedback(ctx, m8app.FeedbackRecordInput{
 		Action:     p.Action,
@@ -62,7 +62,7 @@ func handleFeedbackRecord(e *Engine, ctx context.Context, r bridge.Request) brid
 		out.CandidateID = res.CandidateID
 		out.ConfirmationToken = res.ConfirmationToken
 	}
-	return bridge.Success(r.ID, out)
+	return r.Ok(out)
 }
 
 // handleFeedbackCandidates answers pending preference candidates for the
@@ -72,16 +72,16 @@ func handleFeedbackCandidates(e *Engine, ctx context.Context, r bridge.Request) 
 		Limit int `json:"limit"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Limit < 0 || p.Limit > 100 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "feedback.candidates 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "feedback.candidates 参数无效", false)
 	}
 	if e.m8memory == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "学习闭环服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "学习闭环服务暂时不可用", true)
 	}
 	items, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), p.Limit)
 	if err != nil {
 		return m8MemoryFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []m8app.PendingCandidateView `json:"items"`
 	}{Items: items})
 }

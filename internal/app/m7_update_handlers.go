@@ -28,16 +28,16 @@ func handleAppUpdateCheck(e *Engine, ctx context.Context, r bridge.Request) brid
 		(p.Channel != "stable" && p.Channel != "beta") ||
 		len(p.CurrentVersion) < 1 || len(p.CurrentVersion) > 32 ||
 		strings.ContainsAny(p.CurrentVersion, " ,;/\\") {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "appUpdate.check 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "appUpdate.check 参数无效", false)
 	}
 	if e.m7update == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "更新服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "更新服务暂时不可用", true)
 	}
 	res, err := e.m7update.Check(ctx, p.Channel, p.CurrentVersion)
 	if err != nil {
 		return m7UpdateFailure(r, err, "appUpdate.check")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		UpdateID  string `json:"updateId"`
 		Version   string `json:"version"`
 		Digest    string `json:"digest"`
@@ -54,10 +54,10 @@ func handleAppUpdateInstall(e *Engine, ctx context.Context, r bridge.Request) br
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.UpdateID) ||
 		len(p.ExpectedDigest) != 64 || strings.ContainsAny(p.ExpectedDigest, "ghijklmnopqrstuvwxyz") ||
 		len(p.DeviceID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "appUpdate.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "appUpdate.install 参数无效", false)
 	}
 	if e.m7update == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "更新服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "更新服务暂时不可用", true)
 	}
 	// Install mutates device state - idempotency key is mandatory.
 	if failure := requireIdempotency(r); failure != nil {
@@ -71,7 +71,7 @@ func handleAppUpdateInstall(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return m7UpdateFailure(r, err, "appUpdate.install")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		State string `json:"state"`
 	}{state})
 }
@@ -84,10 +84,10 @@ func m7AuditGuard(e *Engine, ctx context.Context, r bridge.Request) *bridge.Resp
 	}
 	if err := e.m7update.VerifyAuditChain(ctx); err != nil {
 		if errors.Is(err, audit.ErrChainBroken) {
-			resp := bridge.Failure(r.ID, r.TraceID, "M7-DR-001", "审计链断裂，生产晋级已冻结", false)
+			resp := r.Fail("M7-DR-001", "审计链断裂，生产晋级已冻结", false)
 			return &resp
 		}
-		resp := bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "审计账本暂时不可读", true)
+		resp := r.Fail("STORAGE_UNAVAILABLE", "审计账本暂时不可读", true)
 		return &resp
 	}
 	return nil
@@ -97,26 +97,26 @@ func m7AuditGuard(e *Engine, ctx context.Context, r bridge.Request) *bridge.Resp
 func m7UpdateFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
 	case errors.Is(err, m7app.ErrUpdateNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "更新包不存在", false)
+		return r.Fail("NOT_FOUND", "更新包不存在", false)
 	case errors.Is(err, m7app.ErrUpdateSignature):
-		return bridge.Failure(r.ID, r.TraceID, "M7-UPD-001", "更新签名或摘要校验失败，禁止安装", false)
+		return r.Fail("M7-UPD-001", "更新签名或摘要校验失败，禁止安装", false)
 	case errors.Is(err, m7app.ErrUpdateWindowClosed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-UPD-001", "更新不在可信时间窗内，禁止安装", false)
+		return r.Fail("M7-UPD-001", "更新不在可信时间窗内，禁止安装", false)
 	case errors.Is(err, m7app.ErrUpdateDowngrade):
-		return bridge.Failure(r.ID, r.TraceID, "M7-UPD-001", "目标版本低于当前版本或最低版本，禁止降级", false)
+		return r.Fail("M7-UPD-001", "目标版本低于当前版本或最低版本，禁止降级", false)
 	case errors.Is(err, m7app.ErrNonceReplayed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-UPD-001", "更新 nonce 已消费，拒绝重放", false)
+		return r.Fail("M7-UPD-001", "更新 nonce 已消费，拒绝重放", false)
 	case errors.Is(err, m7app.ErrUpdateNotPublished):
-		return bridge.Failure(r.ID, r.TraceID, "M7-UPD-001", "更新包未发布，禁止安装", false)
+		return r.Fail("M7-UPD-001", "更新包未发布，禁止安装", false)
 	case errors.Is(err, m7app.ErrUpdateInstallFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-DEP-001", "更新安装失败，已自动回退", false)
+		return r.Fail("M7-DEP-001", "更新安装失败，已自动回退", false)
 	case errors.Is(err, m7app.ErrUpdateRollbackFailed):
-		return bridge.Failure(r.ID, r.TraceID, "M7-RBK-001", "更新回退失败，安装已冻结并告警", false)
+		return r.Fail("M7-RBK-001", "更新回退失败，安装已冻结并告警", false)
 	case errors.Is(err, m7app.ErrUpdateChannelInvalid),
 		errors.Is(err, m7app.ErrIllegalInstallationTransition):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "更新轨道参数或状态非法", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "更新轨道参数或状态非法", false)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "更新服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "更新服务暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

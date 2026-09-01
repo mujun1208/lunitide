@@ -81,32 +81,32 @@ func newAgentRunDTO(r agentrun.AgentRun) agentRunDTO {
 func agentRunFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, agentrunapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, agentrunapp.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, agentrun.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "AGENT_RUN_NOT_FOUND", "Agent 运行不存在", false)
+		return r.Fail("AGENT_RUN_NOT_FOUND", "Agent 运行不存在", false)
 	case errors.Is(err, agentrun.ErrVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "RUN_VERSION_CONFLICT", "Agent 运行版本冲突", false)
+		return r.Fail("RUN_VERSION_CONFLICT", "Agent 运行版本冲突", false)
 	case errors.Is(err, agentrun.ErrTerminal):
-		return bridge.Failure(r.ID, r.TraceID, "AGENT_RUN_TERMINAL", "Agent 运行已终结", false)
+		return r.Fail("AGENT_RUN_TERMINAL", "Agent 运行已终结", false)
 	case errors.Is(err, agentrun.ErrInvalidTransition):
-		return bridge.Failure(r.ID, r.TraceID, "AGENT_RUN_TRANSITION_INVALID", "Agent 运行状态迁移非法", false)
+		return r.Fail("AGENT_RUN_TRANSITION_INVALID", "Agent 运行状态迁移非法", false)
 	case errors.Is(err, agentrun.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "Agent 运行参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "Agent 运行参数无效", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 }
 
 func handleCapabilityList(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if !emptyObject(r.Payload) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "capability.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "capability.list 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Manifest agentrunapp.CapabilityManifest `json:"manifest"`
 	}{e.agentRuns.Capability()})
 }
@@ -117,10 +117,10 @@ func handleAgentRunStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Budget    agentRunBudgetDTO `json:"budget"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "agent.run.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "agent.run.start 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -140,7 +140,7 @@ func handleAgentRunStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return agentRunFailure(r, err)
 	}
-	return bridge.Success(r.ID, newAgentRunDTO(run))
+	return r.Ok(newAgentRunDTO(run))
 }
 
 func handleAgentRunGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -148,16 +148,16 @@ func handleAgentRunGet(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		RunID string `json:"runId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "agent.run.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "agent.run.get 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	run, err := e.agentRuns.Get(ctx, p.RunID)
 	if err != nil {
 		return agentRunFailure(r, err)
 	}
-	return bridge.Success(r.ID, newAgentRunDTO(run))
+	return r.Ok(newAgentRunDTO(run))
 }
 
 type agentRunMutationPayload struct {
@@ -195,10 +195,10 @@ func handleAgentRunCancel(e *Engine, ctx context.Context, r bridge.Request) brid
 func agentRunTransition(e *Engine, ctx context.Context, r bridge.Request, method string, fn func(*agentrunapp.Service, string, agentRunMutationPayload) (agentrun.AgentRun, error)) bridge.Response {
 	var p agentRunMutationPayload
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || p.ExpectedVersion < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", method+" 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", method+" 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -207,16 +207,16 @@ func agentRunTransition(e *Engine, ctx context.Context, r bridge.Request, method
 	if err != nil {
 		return agentRunFailure(r, err)
 	}
-	return bridge.Success(r.ID, newAgentRunDTO(run))
+	return r.Ok(newAgentRunDTO(run))
 }
 
 func handleAgentRunReconcile(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p agentRunMutationPayload
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || p.ExpectedVersion < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "agent.run.reconcile 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "agent.run.reconcile 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -225,7 +225,7 @@ func handleAgentRunReconcile(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return agentRunFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Run               agentRunDTO `json:"run"`
 		ReconciledEffects int         `json:"reconciledEffects"`
 	}{newAgentRunDTO(result.Run), result.ReconciledEffects})

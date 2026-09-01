@@ -27,10 +27,10 @@ func handleReleaseCreateRevision(e *Engine, ctx context.Context, r bridge.Reques
 	if decodePayload(r.Payload, &p) != nil || len(p.CRID) < 1 || len(p.CRID) > 128 ||
 		len(p.Manifest) < 2 || len(p.Manifest) > 64 ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.createRevision 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.createRevision 参数无效", false)
 	}
 	if e.m7release == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -39,7 +39,7 @@ func handleReleaseCreateRevision(e *Engine, ctx context.Context, r bridge.Reques
 	if err != nil {
 		return m7ReleaseFailure(r, err, "release.createRevision")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		CRRevisionID string `json:"crRevisionId"`
 		RevisionNo   int64  `json:"revisionNo"`
 		Digest       string `json:"digest"`
@@ -52,10 +52,10 @@ func handleReleaseBuildPackage(e *Engine, ctx context.Context, r bridge.Request)
 		ExpectedDigest string `json:"expectedDigest"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CRRevisionID) || !m7TraceDigest(p.ExpectedDigest) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.buildPackage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.buildPackage 参数无效", false)
 	}
 	if e.m7release == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -64,7 +64,7 @@ func handleReleaseBuildPackage(e *Engine, ctx context.Context, r bridge.Request)
 	if err != nil {
 		return m7ReleaseFailure(r, err, "release.buildPackage")
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		PackageID      string `json:"packageId"`
 		ManifestDigest string `json:"manifestDigest"`
 		BlobDigest     string `json:"blobDigest"`
@@ -77,10 +77,10 @@ func handleReleaseGetRevision(e *Engine, ctx context.Context, r bridge.Request) 
 		RevisionNo int64  `json:"revisionNo"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.CRID) < 1 || len(p.CRID) > 128 || p.RevisionNo < 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.getRevision 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.getRevision 参数无效", false)
 	}
 	if e.m7release == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
 	}
 	view, err := e.m7release.GetRevision(ctx, p.CRID, p.RevisionNo)
 	if err != nil {
@@ -99,7 +99,7 @@ func handleReleaseGetRevision(e *Engine, ctx context.Context, r bridge.Request) 
 			CreatedAt: rv.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		})
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Revisions []m7app.RevisionSummary `json:"revisions"`
 		Manifest  map[string]any          `json:"manifest"`
 		Reviews   []m7ReviewDTO           `json:"reviews"`
@@ -135,10 +135,10 @@ func handleReleaseGetPackage(e *Engine, ctx context.Context, r bridge.Request) b
 		PackageID string `json:"packageId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.PackageID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "release.getPackage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "release.getPackage 参数无效", false)
 	}
 	if e.m7release == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
 	}
 	view, err := e.m7release.GetPackage(ctx, p.PackageID)
 	if err != nil {
@@ -155,7 +155,7 @@ func handleReleaseGetPackage(e *Engine, ctx context.Context, r bridge.Request) b
 		Verified: view.Verified, SealedAt: view.SealedAt,
 		MemberDigests: members,
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Package releasePackageDTO `json:"package"`
 		SBOM    *m7flow.SBOMRef   `json:"sbom,omitempty"`
 	}{pkg, view.SBOM})
@@ -165,19 +165,19 @@ func handleReleaseGetPackage(e *Engine, ctx context.Context, r bridge.Request) b
 func m7ReleaseFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
 	case errors.Is(err, m7app.ErrRevisionNotFound), errors.Is(err, m7app.ErrPackageNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "NOT_FOUND", "发行对象不存在", false)
+		return r.Fail("NOT_FOUND", "发行对象不存在", false)
 	case errors.Is(err, m7app.ErrDigestMismatch), errors.Is(err, m7app.ErrEvidenceMissing):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PKG-002", "摘要校验失败，发行包已被隔离", false)
+		return r.Fail("M7-PKG-002", "摘要校验失败，发行包已被隔离", false)
 	case errors.Is(err, m7app.ErrPackageInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PKG-003", "发行清单或 SBOM 不合规，禁止晋级", false)
+		return r.Fail("M7-PKG-003", "发行清单或 SBOM 不合规，禁止晋级", false)
 	case errors.Is(err, m7app.ErrSignatureInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M7-PKG-003", "发行包签名校验失败，禁止晋级", false)
+		return r.Fail("M7-PKG-003", "发行包签名校验失败，禁止晋级", false)
 	case errors.Is(err, m7app.ErrRevisionFrozen), errors.Is(err, m7app.ErrIllegalRevisionTransition):
-		return bridge.Failure(r.ID, r.TraceID, "M7-REV-002", "修订已关闭不可变更，请新建修订", false)
+		return r.Fail("M7-REV-002", "修订已关闭不可变更，请新建修订", false)
 	case errors.Is(err, m7app.ErrAuthorMismatch):
-		return bridge.Failure(r.ID, r.TraceID, "M7-REV-001", "评审作者与修订作者不匹配", false)
+		return r.Fail("M7-REV-001", "评审作者与修订作者不匹配", false)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "发行服务暂时不可用", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "INTERNAL_ERROR", method+" 执行失败", false)
+	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

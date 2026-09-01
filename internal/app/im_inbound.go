@@ -35,18 +35,18 @@ func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) br
 		ConversationID string `json:"conversationId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "im.inbound.deliver 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "im.inbound.deliver 参数无效", false)
 	}
 	kind, err := imapp.ParseKind(p.Kind)
 	if err != nil || !imappInboundKind(kind) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "im.inbound.deliver 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "im.inbound.deliver 参数无效", false)
 	}
 	if e.imChannels == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "消息通道暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "消息通道暂时不可用", true)
 	}
 	ch, err := e.imChannels.Lookup(ctx, kind)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "无法读取消息通道", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "无法读取消息通道", true)
 	}
 	if err := imapp.AdmitInbound(ch, p.Sender, p.Text); err != nil {
 		return inboundAdmitFailure(r, err)
@@ -58,13 +58,13 @@ func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) br
 	}
 	sessionID, err := e.parkInboundMessage(ctx, r.IdempotencyKey, ch, p.Sender, p.Text, p.ConversationID)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "无法写入入站会话", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "无法写入入站会话", true)
 	}
 	ran := false
 	if auto {
 		ran = e.kickInboundChat(sessionID, p.Text)
 	}
-	return bridge.Success(r.ID, map[string]any{
+	return r.Ok(map[string]any{
 		"accepted":  true,
 		"sessionId": sessionID,
 		"autoRun":   ran,
@@ -74,13 +74,13 @@ func handleImInboundDeliver(e *Engine, ctx context.Context, r bridge.Request) br
 func inboundAdmitFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, imapp.ErrInboundOff):
-		return bridge.Failure(r.ID, r.TraceID, "IM_INBOUND_OFF", "入站未启用", false)
+		return r.Fail("IM_INBOUND_OFF", "入站未启用", false)
 	case errors.Is(err, imapp.ErrInboundDenied):
-		return bridge.Failure(r.ID, r.TraceID, "IM_INBOUND_DENIED", "发送者不在白名单", false)
+		return r.Fail("IM_INBOUND_DENIED", "发送者不在白名单", false)
 	case errors.Is(err, imapp.ErrInboundKind):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "仅飞书、企业微信和钉钉支持入站", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "仅飞书、企业微信和钉钉支持入站", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "入站消息无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "入站消息无效", false)
 	}
 }
 

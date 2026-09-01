@@ -190,4 +190,3 @@ func sessionArtifactFromTool(callID, toolName, kind, path string) SessionArtifac
 		ToolName: toolName,
 	}
 }
-

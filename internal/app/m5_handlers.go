@@ -15,7 +15,7 @@ import (
 // contract test keeps the dispatch table in sync with the schemas.
 
 func m5FeatureDisabled(r bridge.Request) bridge.Response {
-	return bridge.Failure(r.ID, r.TraceID, "FEATURE_DISABLED", "该能力尚未开放", false)
+	return r.Fail("FEATURE_DISABLED", "该能力尚未开放", false)
 }
 
 func handleRunSend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

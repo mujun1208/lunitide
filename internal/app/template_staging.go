@@ -60,18 +60,18 @@ func handleTemplateFileStage(e *Engine, ctx context.Context, r bridge.Request) b
 		ContentBase64 string `json:"contentBase64"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
 	}
 	if !validCanonicalULID(p.UploadID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
 	}
 	raw, err := decodeTemplateStageChunk(p.ContentBase64)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
 	}
 	dir, err := templateStageDir()
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板分片暂存不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "模板分片暂存不可用", true)
 	}
 	state := e.templateStage()
 	state.mu.Lock()
@@ -81,7 +81,7 @@ func handleTemplateFileStage(e *Engine, ctx context.Context, r bridge.Request) b
 		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if openErr != nil {
 			state.mu.Unlock()
-			return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板分片暂存不可用", true)
+			return r.Fail("STORAGE_UNAVAILABLE", "模板分片暂存不可用", true)
 		}
 		up = &templateStageUpload{name: p.FileName, path: path, file: f}
 		state.uploads[p.UploadID] = up
@@ -92,26 +92,26 @@ func handleTemplateFileStage(e *Engine, ctx context.Context, r bridge.Request) b
 	defer up.mu.Unlock()
 	if up.file == nil {
 		if p.Last {
-			return bridge.Success(r.ID, map[string]any{"ready": true, "uploadId": p.UploadID, "bytes": up.size})
+			return r.Ok(map[string]any{"ready": true, "uploadId": p.UploadID, "bytes": up.size})
 		}
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.file.stage 参数无效", false)
 	}
 	if up.size+int64(len(raw)) > attachmentapp.MaxFileSize {
-		return bridge.Failure(r.ID, r.TraceID, "TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
+		return r.Fail("TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
 	}
 	if _, err := up.file.Write(raw); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板分片暂存失败", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "模板分片暂存失败", true)
 	}
 	up.size += int64(len(raw))
 	_ = ctx // staging is synchronous; ctx reserved for future cancellation hooks
 	if !p.Last {
-		return bridge.Success(r.ID, map[string]any{"ready": false, "uploadId": p.UploadID, "bytes": up.size})
+		return r.Ok(map[string]any{"ready": false, "uploadId": p.UploadID, "bytes": up.size})
 	}
 	if err := up.file.Close(); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "模板分片暂存失败", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "模板分片暂存失败", true)
 	}
 	up.file = nil
-	return bridge.Success(r.ID, map[string]any{"ready": true, "uploadId": p.UploadID, "bytes": up.size})
+	return r.Ok(map[string]any{"ready": true, "uploadId": p.UploadID, "bytes": up.size})
 }
 
 func (e *Engine) consumeTemplateStage(uploadID string) ([]byte, error) {

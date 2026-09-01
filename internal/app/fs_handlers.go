@@ -16,23 +16,23 @@ import (
 func fsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, agentrunapp.ErrFsLeaseInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "FS_LEASE_INVALID", "工作区租约不存在或已过期", false)
+		return r.Fail("FS_LEASE_INVALID", "工作区租约不存在或已过期", false)
 	case errors.Is(err, agentrunapp.ErrFsFencingStale):
-		return bridge.Failure(r.ID, r.TraceID, "FS_FENCING_STALE", "租约 fencing token 已失效，请重新获取租约", false)
+		return r.Fail("FS_FENCING_STALE", "租约 fencing token 已失效，请重新获取租约", false)
 	case errors.Is(err, agentrunapp.ErrFsScopeDenied):
-		return bridge.Failure(r.ID, r.TraceID, "FS_SCOPE_DENIED", "路径不在工作区授权范围内", false)
+		return r.Fail("FS_SCOPE_DENIED", "路径不在工作区授权范围内", false)
 	case errors.Is(err, agentrunapp.ErrFsPathInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "FS_PATH_INVALID", "路径或匹配模式无效", false)
+		return r.Fail("FS_PATH_INVALID", "路径或匹配模式无效", false)
 	case errors.Is(err, agentrunapp.ErrFsNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "FS_NOT_FOUND", "路径不存在", false)
+		return r.Fail("FS_NOT_FOUND", "路径不存在", false)
 	case errors.Is(err, agentrunapp.ErrFsNotAFile):
-		return bridge.Failure(r.ID, r.TraceID, "FS_NOT_A_FILE", "目标不是常规文件", false)
+		return r.Fail("FS_NOT_A_FILE", "目标不是常规文件", false)
 	case errors.Is(err, agentrunapp.ErrFsBinary):
-		return bridge.Failure(r.ID, r.TraceID, "FS_BINARY", "文件不是 UTF-8 文本", false)
+		return r.Fail("FS_BINARY", "文件不是 UTF-8 文本", false)
 	case errors.Is(err, agentrunapp.ErrFsTooLarge):
-		return bridge.Failure(r.ID, r.TraceID, "FS_TOO_LARGE", "文件超出可读取大小上限", false)
+		return r.Fail("FS_TOO_LARGE", "文件超出可读取大小上限", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "FS_READ_FAILED", "文件系统读取暂时不可用", true)
+		return r.Fail("FS_READ_FAILED", "文件系统读取暂时不可用", true)
 	}
 }
 
@@ -51,16 +51,16 @@ func handleFsTree(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	}
 	if decodePayload(r.Payload, &p) != nil || !validFsLease(p.LeaseID, p.FencingToken) ||
 		p.MaxDepth > 8 || p.MaxEntries > 2048 || p.MaxDepth < 0 || p.MaxEntries < 0 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fs.tree 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "fs.tree 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.FsTree(ctx, p.LeaseID, p.FencingToken, p.Path, p.MaxDepth, p.MaxEntries)
 	if err != nil {
 		return fsFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 
 func handleFsStat(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -70,16 +70,16 @@ func handleFsStat(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		Path         string `json:"path"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validFsLease(p.LeaseID, p.FencingToken) || p.Path == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fs.stat 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "fs.stat 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.FsStat(ctx, p.LeaseID, p.FencingToken, p.Path)
 	if err != nil {
 		return fsFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 
 func handleFsRead(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -91,16 +91,16 @@ func handleFsRead(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	}
 	if decodePayload(r.Payload, &p) != nil || !validFsLease(p.LeaseID, p.FencingToken) ||
 		p.Path == "" || p.MaxBytes < 0 || p.MaxBytes > 1048576 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fs.read 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "fs.read 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.FsRead(ctx, p.LeaseID, p.FencingToken, p.Path, p.MaxBytes)
 	if err != nil {
 		return fsFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 
 func handleFsReadMany(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -112,16 +112,16 @@ func handleFsReadMany(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	if decodePayload(r.Payload, &p) != nil || !validFsLease(p.LeaseID, p.FencingToken) ||
 		len(p.Paths) < 1 || len(p.Paths) > 32 || p.MaxBytes < 0 || p.MaxBytes > 1048576 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fs.readMany 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "fs.readMany 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.FsReadMany(ctx, p.LeaseID, p.FencingToken, p.Paths, p.MaxBytes)
 	if err != nil {
 		return fsFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 
 func handleFsGlob(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -133,16 +133,16 @@ func handleFsGlob(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	}
 	if decodePayload(r.Payload, &p) != nil || !validFsLease(p.LeaseID, p.FencingToken) ||
 		p.Pattern == "" || p.MaxResults < 0 || p.MaxResults > 1024 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fs.glob 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "fs.glob 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.FsGlob(ctx, p.LeaseID, p.FencingToken, p.Pattern, p.MaxResults)
 	if err != nil {
 		return fsFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }
 
 func handleFsGrep(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -155,14 +155,14 @@ func handleFsGrep(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	}
 	if decodePayload(r.Payload, &p) != nil || !validFsLease(p.LeaseID, p.FencingToken) ||
 		p.Pattern == "" || len(p.Pattern) > 256 || p.MaxResults < 0 || p.MaxResults > 500 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "fs.grep 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "fs.grep 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	result, err := e.agentRuns.FsGrep(ctx, p.LeaseID, p.FencingToken, p.Pattern, p.Path, p.MaxResults)
 	if err != nil {
 		return fsFailure(r, err)
 	}
-	return bridge.Success(r.ID, result)
+	return r.Ok(result)
 }

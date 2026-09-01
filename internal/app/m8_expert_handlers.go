@@ -38,10 +38,10 @@ func handleExpertCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Source != m8core.ExpertSourceLocal ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 || len(p.SkillKeys) > 32 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.create 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.Create(ctx, m8app.CreateInput{
 		Source: p.Source,
@@ -61,13 +61,13 @@ func handleExpertCreate(e *Engine, ctx context.Context, r bridge.Request) bridge
 		return m8ExpertFailure(r, err)
 	}
 	e.registerAgentContactForExpert(ctx, res.ExpertID, p.Frontmatter.Name, p.Frontmatter.Division, string(res.State), "")
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertCatalogList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	catalog := m8app.AgencyAgentsCatalog()
 	if len(catalog) == 0 {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家市场目录不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家市场目录不可用", true)
 	}
 	expertNames := map[string]bool{}
 	if e.m8expert != nil {
@@ -99,7 +99,7 @@ func handleExpertCatalogList(e *Engine, ctx context.Context, r bridge.Request) b
 		}
 		items = append(items, item.Summary(installed))
 	}
-	return bridge.Success(r.ID, map[string]any{"items": items})
+	return r.Ok(map[string]any{"items": items})
 }
 
 func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -107,7 +107,7 @@ func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.ID) < 1 || len(p.ID) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.install 参数无效", false)
 	}
 	var skills m8app.CatalogSkillStore
 	if store, ok := e.skills.(m8app.CatalogSkillStore); ok {
@@ -120,7 +120,7 @@ func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if item, ok := m8app.LookupCatalogItem(p.ID); ok && res.ExpertID != "" {
 		e.registerAgentContactForExpert(ctx, res.ExpertID, item.Name, item.Division, m8core.ExpertEnabled, item.ID)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -131,10 +131,10 @@ func handleExpertList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		ProjectID string `json:"projectId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.list 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.List(ctx, m8app.ExpertFilter{
 		Division: p.Division, Source: p.Source, State: p.State, ProjectID: p.ProjectID,
@@ -142,7 +142,7 @@ func handleExpertList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertDetail(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -152,16 +152,16 @@ func handleExpertDetail(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) ||
 		(p.VersionID != "" && !validCanonicalULID(p.VersionID)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.detail 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.detail 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: p.ExpertID, VersionID: p.VersionID})
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -174,10 +174,10 @@ func handleExpertUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) ||
 		!validCanonicalULID(p.ExpectedVersionID) || len(p.SixSection) < 1 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.update 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.Update(ctx, m8app.UpdateInput{
 		ExpertID: p.ExpertID, ExpectedVersionID: p.ExpectedVersionID,
@@ -186,7 +186,7 @@ func handleExpertUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -196,10 +196,10 @@ func handleExpertToggle(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Actor    string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.toggle 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.toggle 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.Toggle(ctx, m8app.ExpertToggleInput{
 		ExpertID: p.ExpertID, Enabled: p.Enabled, Actor: p.Actor,
@@ -207,7 +207,7 @@ func handleExpertToggle(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertArchive(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -218,10 +218,10 @@ func handleExpertArchive(e *Engine, ctx context.Context, r bridge.Request) bridg
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) ||
 		!m8core.ValidHexDigest(p.ConfirmToken) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.archive 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.archive 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.Archive(ctx, m8app.ArchiveInput{
 		ExpertID: p.ExpertID, ConfirmToken: p.ConfirmToken, Actor: p.Actor,
@@ -229,7 +229,7 @@ func handleExpertArchive(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertMount(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -243,10 +243,10 @@ func handleExpertMount(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) ||
 		!validCanonicalULID(p.ExpertID) || !m8core.ValidPhaseKey(p.PhaseKey) ||
 		(p.Action != "mount" && p.Action != "unmount" && p.Action != "updateVersion") {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.mount 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.mount 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.Mount(ctx, m8app.MountInput{
 		ProjectID: p.ProjectID, PhaseKey: p.PhaseKey, ExpertID: p.ExpertID,
@@ -255,7 +255,7 @@ func handleExpertMount(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertMountingGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -266,10 +266,10 @@ func handleExpertMountingGet(e *Engine, ctx context.Context, r bridge.Request) b
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) ||
 		(p.PhaseKey != "" && !m8core.ValidPhaseKey(p.PhaseKey)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.mounting.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.mounting.get 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.MountingGet(ctx, m8app.MountingGetInput{
 		ProjectID: p.ProjectID, PhaseKey: p.PhaseKey,
@@ -277,7 +277,7 @@ func handleExpertMountingGet(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	return bridge.Success(r.ID, res)
+	return r.Ok(res)
 }
 
 func handleExpertSkillsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -285,10 +285,10 @@ func handleExpertSkillsGet(e *Engine, ctx context.Context, r bridge.Request) bri
 		ExpertID string `json:"expertId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.skills.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.skills.get 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	keys, err := e.m8expert.ListBoundSkills(ctx, p.ExpertID)
 	if err != nil {
@@ -297,7 +297,7 @@ func handleExpertSkillsGet(e *Engine, ctx context.Context, r bridge.Request) bri
 	if keys == nil {
 		keys = []string{}
 	}
-	return bridge.Success(r.ID, map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
+	return r.Ok(map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
 }
 
 func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -306,10 +306,10 @@ func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bri
 		SkillKeys []string `json:"skillKeys"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || p.SkillKeys == nil || len(p.SkillKeys) > 32 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "expert.skills.set 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.skills.set 参数无效", false)
 	}
 	if e.m8expert == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -321,7 +321,7 @@ func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bri
 	if keys == nil {
 		keys = []string{}
 	}
-	return bridge.Success(r.ID, map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
+	return r.Ok(map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
 }
 
 // m8ExpertFailure maps the FR-19 error family onto the M8 code matrix
@@ -329,30 +329,30 @@ func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bri
 func m8ExpertFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, m8app.ErrExpertSixSectionInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "M8-042", "六段式校验失败，零落库", false)
+		return r.Fail("M8-042", "六段式校验失败，零落库", false)
 	case errors.Is(err, m8app.ErrExpertVersionConflict):
-		return bridge.Failure(r.ID, r.TraceID, "M8-043", "版本乐观锁冲突，请刷新后重试", false)
+		return r.Fail("M8-043", "版本乐观锁冲突，请刷新后重试", false)
 	case errors.Is(err, m8app.ErrMountLimitExceeded):
-		return bridge.Failure(r.ID, r.TraceID, "M8-044", "该阶段挂载专家已达上限 4", false)
+		return r.Fail("M8-044", "该阶段挂载专家已达上限 4", false)
 	case errors.Is(err, m8app.ErrExpertNotMountable):
-		return bridge.Failure(r.ID, r.TraceID, "M8-045", "专家已停用或归档，禁止挂载", false)
+		return r.Fail("M8-045", "专家已停用或归档，禁止挂载", false)
 	case errors.Is(err, m8app.ErrExpertArchiveMounted):
-		return bridge.Failure(r.ID, r.TraceID, "M8-048", "存在活跃挂载，须先全部解除再归档", false)
+		return r.Fail("M8-048", "存在活跃挂载，须先全部解除再归档", false)
 	case errors.Is(err, m8app.ErrExpertBuiltinProtected):
-		return bridge.Failure(r.ID, r.TraceID, "EXPERT_BUILTIN_PROTECTED", "内置专家禁止归档", false)
+		return r.Fail("EXPERT_BUILTIN_PROTECTED", "内置专家禁止归档", false)
 	case errors.Is(err, m8app.ErrExpertNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_NOT_FOUND", "专家资源不存在", false)
+		return r.Fail("BRIDGE_NOT_FOUND", "专家资源不存在", false)
 	case errors.Is(err, m8app.ErrExpertStateInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "EXPERT_STATE_INVALID", "专家状态不允许该操作", false)
+		return r.Fail("EXPERT_STATE_INVALID", "专家状态不允许该操作", false)
 	case errors.Is(err, m8app.ErrCatalogUnknown):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_NOT_FOUND", "目录中没有该专家", false)
+		return r.Fail("BRIDGE_NOT_FOUND", "目录中没有该专家", false)
 	case errors.Is(err, m8app.ErrCatalogInstalled):
-		return bridge.Failure(r.ID, r.TraceID, "EXPERT_DUPLICATE", "该目录项已安装", false)
+		return r.Fail("EXPERT_DUPLICATE", "该目录项已安装", false)
 	case errors.Is(err, m8app.ErrExpertDuplicate):
-		return bridge.Failure(r.ID, r.TraceID, "EXPERT_DUPLICATE", "同名专家已存在", false)
+		return r.Fail("EXPERT_DUPLICATE", "同名专家已存在", false)
 	case errors.Is(err, m8app.ErrPayloadInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "载荷非法", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "载荷非法", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 }

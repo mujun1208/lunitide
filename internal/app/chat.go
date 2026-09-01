@@ -152,22 +152,22 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		ToolProfile        string          `json:"toolProfile"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
 	}
 	hasSession := ulidValid(p.SessionID)
 	hasMessages := len(p.Messages) > 0
 	if !hasSession && !hasMessages {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 需要提供 sessionId 或 messages", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 需要提供 sessionId 或 messages", false)
 	}
 	if !validChatMessages(p.ModelID, p.Messages) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
 	}
 	ident := e.conversationIdentityForSession(ctx, p.SessionID, p.Companion)
 	boundSessionID := ident.sessionKey(p.SessionID)
 	if isPersistRetryTurn(p.Messages) {
 		emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 		if !ok {
-			return bridge.Failure(request.ID, request.TraceID, "STREAM_UNAVAILABLE", "流事件通道不可用", true)
+			return request.Fail("STREAM_UNAVAILABLE", "流事件通道不可用", true)
 		}
 		return e.handlePersistRetryStart(ctx, request, boundSessionID, emit)
 	}
@@ -176,15 +176,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	for _, ref := range p.ContextRefs {
 		if !validCanonicalULID(ref.ID) || (ref.Type != "attachment" && ref.Type != "skillResult") {
-			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start contextRefs 无效", false)
+			return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start contextRefs 无效", false)
 		}
 	}
 	if p.ProjectID != "" && !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start projectId 无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start projectId 无效", false)
 	}
 	mode, validMode := normalizeExecutionMode(p.ExecutionMode)
 	if !validMode {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
 	}
 
 	// Moon Companion: low-risk tools stay full-access. Dangerous names
@@ -366,13 +366,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		return *failure
 	}
 	if !storedModel(item, p.ModelID) {
-		return bridge.Failure(request.ID, request.TraceID, "MODEL_NOT_FOUND", "模型不属于该供应商", false)
+		return request.Fail("MODEL_NOT_FOUND", "模型不属于该供应商", false)
 	}
 	e.rememberChatModel(p.ProviderID, p.ModelID)
 
 	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 	if !ok {
-		return bridge.Failure(request.ID, request.TraceID, "STREAM_UNAVAILABLE", "流事件通道不可用", true)
+		return request.Fail("STREAM_UNAVAILABLE", "流事件通道不可用", true)
 	}
 
 	var messages []gateway.Message
@@ -419,7 +419,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			compactionResult := e.TriggerPreTurnCompaction(ctx, boundSessionID, item.ID, p.ModelID, tokenizerRevision, providerInfo.ContextWindow)
 			if compactionResult.Err != nil {
 				if errors.Is(compactionResult.Err, context.Canceled) || errors.Is(compactionResult.Err, context.DeadlineExceeded) {
-					return bridge.Failure(request.ID, request.TraceID, "REQUEST_CANCELLED", "请求已取消", false)
+					return request.Fail("REQUEST_CANCELLED", "请求已取消", false)
 				}
 				return internalBridgeFailure(request, "COMPACTION_TRIGGER_FAILED", "上下文压缩检查失败", true, compactionResult.Err)
 			}
@@ -513,19 +513,19 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			candidate, getErr := e.GetAttachment(ctx, refID)
 			if getErr != nil {
 				if errors.Is(getErr, attachmentapp.ErrAttachmentNotFound) {
-					return bridge.Failure(request.ID, request.TraceID, "CONTEXT_REF_NOT_FOUND", "显式上下文引用不存在或已删除", false)
+					return request.Fail("CONTEXT_REF_NOT_FOUND", "显式上下文引用不存在或已删除", false)
 				}
 				return internalBridgeFailure(request, "ATTACHMENT_CONTEXT_READ_FAILED", "附件上下文暂时不可用", true, getErr)
 			}
 			if candidate.SessionID != boundSessionID {
-				return bridge.Failure(request.ID, request.TraceID, "CONTEXT_REF_SCOPE_MISMATCH", "显式上下文引用不属于当前会话", false)
+				return request.Fail("CONTEXT_REF_SCOPE_MISMATCH", "显式上下文引用不属于当前会话", false)
 			}
 			if strings.HasPrefix(candidate.MIME, "image/") {
 				imageRefs = append(imageRefs, candidate.ID)
 				continue
 			}
 			if !candidate.IsReadable() || candidate.ParsedText == "" {
-				return bridge.Failure(request.ID, request.TraceID, "CONTEXT_REF_NOT_READABLE", "显式上下文引用尚未解析成功", false)
+				return request.Fail("CONTEXT_REF_NOT_READABLE", "显式上下文引用尚未解析成功", false)
 			}
 			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: candidate.ID, Authority: contextapp.AuthorityEvidence, Content: candidate.OriginalName + "\n" + candidate.ParsedText, Provenance: "attachment:" + candidate.ID + ":project:" + candidate.ProjectID})
 		}
@@ -552,7 +552,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					messages = trustedMessages
 					assembled = false
 				} else if errors.Is(combineErr, errCombinedContextOverBudget) {
-					return bridge.Failure(request.ID, request.TraceID, "CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
+					return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
 				} else {
 					return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, combineErr)
 				}
@@ -572,7 +572,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			// referenced images enter the multimodal request.
 			if len(imageRefs) > 0 {
 				if len(imageRefs) > attachmentapp.MaxVisionImages {
-					return bridge.Failure(request.ID, request.TraceID, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+					return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
 				}
 				total := 0
 				for _, imageID := range imageRefs {
@@ -583,7 +583,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					}
 					total += len(image.Data)
 					if total > attachmentapp.MaxVisionBatchBytes {
-						return bridge.Failure(request.ID, request.TraceID, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
 					}
 					images = append(images, gateway.Image{MIME: image.MIME, Data: image.Data})
 				}
@@ -592,19 +592,19 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	} else {
 		// Legacy path: use directly provided messages.
 		if !hasMessages {
-			return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息（Session 上下文装配器不可用，需提供 messages）", false)
+			return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息（Session 上下文装配器不可用，需提供 messages）", false)
 		}
 		messages = trustedMessages
 	}
 
 	if len(messages) == 0 {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息", false)
 	}
 
 	e.streamsMu.Lock()
 	if len(e.streams) >= e.maxStreams {
 		e.streamsMu.Unlock()
-		return bridge.Failure(request.ID, request.TraceID, "STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
+		return request.Fail("STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
 	}
 	streamID := ulid.Make().String()
 	parent, _ := ctx.Value(streamParentKey{}).(context.Context)
@@ -651,7 +651,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, boundSessionID, mode)
-	return bridge.Success(request.ID, map[string]any{"streamId": streamID})
+	return request.Ok(map[string]any{"streamId": streamID})
 }
 
 // gatewayRole converts a contextapp role string to a gateway.Role.
@@ -1772,10 +1772,10 @@ func handleStreamCancel(e *Engine, _ context.Context, request bridge.Request) br
 		SpokenText string `json:"spokenText"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.StreamID) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "stream.cancel 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "stream.cancel 参数无效", false)
 	}
 	ok := e.cancelStreamSpoken(p.StreamID, p.SpokenText)
-	return bridge.Success(request.ID, map[string]any{"cancelled": ok})
+	return request.Ok(map[string]any{"cancelled": ok})
 }
 
 func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
@@ -1787,13 +1787,13 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		Scope      string `json:"scope"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.SessionID) || p.CallID == "" || len(p.CallID) > 128 || len(p.ArgsDigest) != 64 || e.tools == nil {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.tool.approve 参数无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.tool.approve 参数无效", false)
 	}
 	if p.Scope == "" {
 		p.Scope = toolruntime.ApprovalScopeOnce
 	}
 	if !toolruntime.ApprovalScopeValid(p.Scope) {
-		return bridge.Failure(request.ID, request.TraceID, "BRIDGE_SCHEMA_INVALID", "chat.tool.approve scope 无效", false)
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.tool.approve scope 无效", false)
 	}
 	r, err := e.tools.DecideScoped(ctx, p.SessionID, p.CallID, p.ArgsDigest, p.Approved, p.Scope)
 	if err != nil {
@@ -1801,7 +1801,7 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		// and instead just let the frontend know the approval state is invalid
 		// so it can retry silently if needed, or we just ignore it.
 		// Wait, if it's already consumed, the frontend doesn't need to crash.
-		return bridge.Failure(request.ID, request.TraceID, "TOOL_APPROVAL_CONSUMED", err.Error(), false)
+		return request.Fail("TOOL_APPROVAL_CONSUMED", err.Error(), false)
 	}
 	if p.Approved {
 		e.persistApprovedToolResult(ctx, p.SessionID, p.CallID, p.ArgsDigest, r)
@@ -1820,7 +1820,7 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 			result["artifact"] = map[string]string{"kind": k, "path": r.Artifact.Path, "content": ""}
 		}
 	}
-	return bridge.Success(request.ID, result)
+	return request.Ok(result)
 }
 
 // persistApprovedToolResult durably records an executed approval-gated tool

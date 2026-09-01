@@ -61,10 +61,10 @@ func handleReviewDecide(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.RunID) || p.ExpectedVersion < 1 ||
 		!validLowerHexDigest(p.ApprovalDigest) ||
 		(p.Decision != string(agentrun.ReviewApproved) && p.Decision != string(agentrun.ReviewRejected)) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "review.decide 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "review.decide 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "Agent 运行数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -72,12 +72,12 @@ func handleReviewDecide(e *Engine, ctx context.Context, r bridge.Request) bridge
 	result, err := e.agentRuns.ReviewDecide(ctx, r.IdempotencyKey, agentRunMutationActor, p, p.RunID, p.ExpectedVersion, p.ApprovalDigest, agentrun.ReviewDecision(p.Decision))
 	if err != nil {
 		if errors.Is(err, agentrun.ErrReviewDigestMismatch) {
-			return bridge.Failure(r.ID, r.TraceID, "REVIEW_DIGEST_MISMATCH", "审批摘要与待审摘要不一致", false)
+			return r.Fail("REVIEW_DIGEST_MISMATCH", "审批摘要与待审摘要不一致", false)
 		}
 		return agentRunFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
-		Run    agentRunDTO `json:"run"`
+	return r.Ok(struct {
+		Run    agentRunDTO  `json:"run"`
 		Review runReviewDTO `json:"review"`
 	}{newAgentRunDTO(result.Run), newRunReviewDTO(result.Review)})
 }
@@ -120,17 +120,17 @@ type workspaceLeaseDTO struct {
 func workspaceFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, agentrunapp.ErrIdempotencyKeyRequired):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
+		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, agentrunapp.ErrIdempotencyConflict):
-		return bridge.Failure(r.ID, r.TraceID, "IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
+		return r.Fail("IDEMPOTENCY_CONFLICT", "幂等键已用于不同请求", false)
 	case errors.Is(err, agentrun.ErrNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_NOT_FOUND", "工作区注册或授权不存在", false)
+		return r.Fail("WORKSPACE_NOT_FOUND", "工作区注册或授权不存在", false)
 	case errors.Is(err, agentrun.ErrWorkspaceInactive):
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_INACTIVE", "工作区注册或授权已失效", false)
+		return r.Fail("WORKSPACE_INACTIVE", "工作区注册或授权已失效", false)
 	case errors.Is(err, agentrun.ErrInvalid):
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "工作区参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "工作区参数无效", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 }
 
@@ -157,23 +157,23 @@ func handleWorkspaceRegister(e *Engine, ctx context.Context, r bridge.Request) b
 		RootPath string `json:"rootPath"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.register 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.register 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
 	root, err := canonicalWorkspaceRoot(p.RootPath)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_ROOT_INVALID", "工作区根必须是存在的本地目录绝对路径", false)
+		return r.Fail("WORKSPACE_ROOT_INVALID", "工作区根必须是存在的本地目录绝对路径", false)
 	}
 	registration, err := e.agentRuns.WorkspaceRegister(ctx, r.IdempotencyKey, agentRunMutationActor, p, root)
 	if err != nil {
 		return workspaceFailure(r, err)
 	}
-	return bridge.Success(r.ID, workspaceRegistrationDTO{
+	return r.Ok(workspaceRegistrationDTO{
 		ID:            registration.ID,
 		CanonicalRoot: registration.CanonicalRoot,
 		RootDigest:    registration.RootDigest,
@@ -207,7 +207,7 @@ func validScopeOperation(op string) bool {
 
 func handleWorkspaceGrant(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		RegistrationID string   `json:"registrationId"`
+		RegistrationID string `json:"registrationId"`
 		Scope          struct {
 			Paths      []string `json:"paths"`
 			Operations []string `json:"operations"`
@@ -218,22 +218,22 @@ func handleWorkspaceGrant(e *Engine, ctx context.Context, r bridge.Request) brid
 		p.TTLSeconds < 60 || p.TTLSeconds > 86400 ||
 		len(p.Scope.Paths) < 1 || len(p.Scope.Paths) > 64 ||
 		len(p.Scope.Operations) < 1 || len(p.Scope.Operations) > 3 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.grant 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.grant 参数无效", false)
 	}
 	seen := map[string]bool{}
 	for _, path := range p.Scope.Paths {
 		if !validScopePath(path) {
-			return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_SCOPE_INVALID", "授权范围路径必须是工作区内相对路径", false)
+			return r.Fail("WORKSPACE_SCOPE_INVALID", "授权范围路径必须是工作区内相对路径", false)
 		}
 	}
 	for _, op := range p.Scope.Operations {
 		if !validScopeOperation(op) || seen[op] {
-			return bridge.Failure(r.ID, r.TraceID, "WORKSPACE_SCOPE_INVALID", "授权范围操作无效或重复", false)
+			return r.Fail("WORKSPACE_SCOPE_INVALID", "授权范围操作无效或重复", false)
 		}
 		seen[op] = true
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -241,13 +241,13 @@ func handleWorkspaceGrant(e *Engine, ctx context.Context, r bridge.Request) brid
 	// Canonical scope JSON: sorted keys, no whitespace (map marshal).
 	scope, err := json.Marshal(map[string]any{"operations": p.Scope.Operations, "paths": p.Scope.Paths})
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.grant 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.grant 参数无效", false)
 	}
 	grant, err := e.agentRuns.WorkspaceGrant(ctx, r.IdempotencyKey, agentRunMutationActor, p, p.RegistrationID, scope, p.TTLSeconds)
 	if err != nil {
 		return workspaceFailure(r, err)
 	}
-	return bridge.Success(r.ID, workspaceGrantDTO{
+	return r.Ok(workspaceGrantDTO{
 		ID:             grant.ID,
 		RegistrationID: grant.RegistrationID,
 		Scope:          workspaceScopeDTO{Paths: p.Scope.Paths, Operations: p.Scope.Operations},
@@ -264,10 +264,10 @@ func handleWorkspaceLease(e *Engine, ctx context.Context, r bridge.Request) brid
 		TTLSeconds int64  `json:"ttlSeconds"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.GrantID) || p.TTLSeconds < 60 || p.TTLSeconds > 3600 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "workspace.lease 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.lease 参数无效", false)
 	}
 	if e.agentRuns == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "工作区数据暂时不可用", true)
 	}
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
@@ -276,7 +276,7 @@ func handleWorkspaceLease(e *Engine, ctx context.Context, r bridge.Request) brid
 	if err != nil {
 		return workspaceFailure(r, err)
 	}
-	return bridge.Success(r.ID, workspaceLeaseDTO{
+	return r.Ok(workspaceLeaseDTO{
 		ID:           lease.ID,
 		GrantID:      lease.GrantID,
 		FencingToken: lease.FencingToken,

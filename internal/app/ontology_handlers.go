@@ -96,16 +96,16 @@ func handleOntologyNodeGet(e *Engine, ctx context.Context, r bridge.Request) bri
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.get 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.node.get 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	node, err := e.ontology.GetNode(ctx, p.ID)
 	if err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, newOntologyNodeDTO(*node))
+	return r.Ok(newOntologyNodeDTO(*node))
 }
 
 func handleOntologyNodeCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -118,10 +118,10 @@ func handleOntologyNodeCreate(e *Engine, ctx context.Context, r bridge.Request) 
 		MetadataJSON string `json:"metadataJson"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Type) == "" || strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.FullPath) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.node.create 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	node, err := e.ontology.CreateNode(ctx, ontology.Node{
 		ProjectID:    p.ProjectID,
@@ -134,7 +134,7 @@ func handleOntologyNodeCreate(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, newOntologyNodeDTO(node))
+	return r.Ok(newOntologyNodeDTO(node))
 }
 
 func handleOntologyNodeUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -144,10 +144,10 @@ func handleOntologyNodeUpdate(e *Engine, ctx context.Context, r bridge.Request) 
 		MetadataJSON string `json:"metadataJson"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.node.update 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	if err := e.ontology.UpdateNode(ctx, p.ID, p.Description, p.MetadataJSON); err != nil {
 		return ontologyFailure(r, err)
@@ -156,7 +156,7 @@ func handleOntologyNodeUpdate(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, newOntologyNodeDTO(*node))
+	return r.Ok(newOntologyNodeDTO(*node))
 }
 
 func handleOntologyNodeDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -164,15 +164,15 @@ func handleOntologyNodeDelete(e *Engine, ctx context.Context, r bridge.Request) 
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.node.delete 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	if err := e.ontology.DeleteNode(ctx, p.ID); err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true})
+	return r.Ok(map[string]any{"deleted": true})
 }
 
 func handleOntologyNodeList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -181,10 +181,10 @@ func handleOntologyNodeList(e *Engine, ctx context.Context, r bridge.Request) br
 		Type      ontology.NodeType `json:"type"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.node.list 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	items, err := e.ontology.ListNodesByProject(ctx, p.ProjectID, p.Type)
 	if err != nil {
@@ -194,7 +194,7 @@ func handleOntologyNodeList(e *Engine, ctx context.Context, r bridge.Request) br
 	for i := range items {
 		dtos[i] = newOntologyNodeDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []ontologyNodeDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -205,10 +205,10 @@ func handleOntologyNodeSearch(e *Engine, ctx context.Context, r bridge.Request) 
 		Query     string `json:"query"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Query) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.node.search 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.node.search 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	items, err := e.ontology.SearchNodes(ctx, p.ProjectID, p.Query)
 	if err != nil {
@@ -218,7 +218,7 @@ func handleOntologyNodeSearch(e *Engine, ctx context.Context, r bridge.Request) 
 	for i := range items {
 		dtos[i] = newOntologyNodeDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []ontologyNodeDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -229,13 +229,13 @@ func handleOntologyEdgeList(e *Engine, ctx context.Context, r bridge.Request) br
 		Direction string `json:"direction"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.NodeID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.edge.list 参数无效", false)
 	}
 	if p.Direction != "" && p.Direction != "outgoing" && p.Direction != "incoming" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.edge.list 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	direction := p.Direction
 	if direction == "" {
@@ -255,7 +255,7 @@ func handleOntologyEdgeList(e *Engine, ctx context.Context, r bridge.Request) br
 	for i := range items {
 		dtos[i] = newOntologyEdgeDTO(items[i])
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items []ontologyEdgeDTO `json:"items"`
 	}{Items: dtos})
 }
@@ -270,10 +270,10 @@ func handleOntologyEdgeCreate(e *Engine, ctx context.Context, r bridge.Request) 
 		Weight         float64 `json:"weight"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SourceNodeID) || !validCanonicalULID(p.TargetNodeID) || strings.TrimSpace(p.Type) == "" || strings.TrimSpace(p.Label) == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.create 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.edge.create 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	edge, err := e.ontology.CreateEdge(ctx, ontology.Edge{
 		SourceNodeID:   p.SourceNodeID,
@@ -286,7 +286,7 @@ func handleOntologyEdgeCreate(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, newOntologyEdgeDTO(edge))
+	return r.Ok(newOntologyEdgeDTO(edge))
 }
 
 func handleOntologyEdgeUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -297,10 +297,10 @@ func handleOntologyEdgeUpdate(e *Engine, ctx context.Context, r bridge.Request) 
 		Weight         *float64 `json:"weight,omitempty"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.edge.update 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	if p.Weight != nil {
 		if err := e.ontology.UpdateEdge(ctx, p.ID, *p.Weight); err != nil {
@@ -311,7 +311,7 @@ func handleOntologyEdgeUpdate(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, newOntologyEdgeDTO(*edge))
+	return r.Ok(newOntologyEdgeDTO(*edge))
 }
 
 func handleOntologyEdgeDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -319,24 +319,24 @@ func handleOntologyEdgeDelete(e *Engine, ctx context.Context, r bridge.Request) 
 		ID string `json:"id"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "ontology.edge.delete 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "ontology.edge.delete 参数无效", false)
 	}
 	if !ontologyServiceAvailable(e.ontology) {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 	if err := e.ontology.DeleteEdge(ctx, p.ID); err != nil {
 		return ontologyFailure(r, err)
 	}
-	return bridge.Success(r.ID, map[string]any{"deleted": true})
+	return r.Ok(map[string]any{"deleted": true})
 }
 
 func ontologyFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, ontologyapp.ErrNodeNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "ONTOLOGY_NODE_NOT_FOUND", "本体节点不存在", false)
+		return r.Fail("ONTOLOGY_NODE_NOT_FOUND", "本体节点不存在", false)
 	case errors.Is(err, ontologyapp.ErrEdgeNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "ONTOLOGY_EDGE_NOT_FOUND", "本体边不存在", false)
+		return r.Fail("ONTOLOGY_EDGE_NOT_FOUND", "本体边不存在", false)
 	default:
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "本体数据暂时不可用", true)
 	}
 }

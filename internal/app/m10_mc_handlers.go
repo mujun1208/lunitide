@@ -36,16 +36,16 @@ func handleMcMarketList(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Limit         int    `json:"limit"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.market.list 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.market.list 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	items, fresh, next, err := e.mcmarket.MarketList(ctx, p.Query, p.TransportHint, p.Cursor, p.Limit)
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Items      []mcapp.MarketItemDTO `json:"items"`
 		Fresh      bool                  `json:"fresh"`
 		NextCursor string                `json:"nextCursor,omitempty"`
@@ -57,19 +57,19 @@ func handleMcMarketDetail(e *Engine, ctx context.Context, r bridge.Request) brid
 		ItemID string `json:"itemId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.ItemID) < 1 || len(p.ItemID) > 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.market.detail 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.market.detail 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	item, cfg, res, err := e.mcmarket.MarketDetail(ctx, p.ItemID)
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
-		Item   mcapp.MarketItemDTO        `json:"item"`
-		Config mcapp.ConfigInput          `json:"config"`
-		Checks []mcValidationCheckDTO     `json:"checks"`
+	return r.Ok(struct {
+		Item   mcapp.MarketItemDTO    `json:"item"`
+		Config mcapp.ConfigInput      `json:"config"`
+		Checks []mcValidationCheckDTO `json:"checks"`
 	}{
 		Item: mcapp.MarketItemDTO{
 			ID: item.ID, Name: item.Name, Publisher: item.Publisher, Description: item.Description,
@@ -83,18 +83,18 @@ func handleMcMarketDetail(e *Engine, ctx context.Context, r bridge.Request) brid
 func handleMcConfigValidate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p mcapp.ConfigInput
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.config.validate 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.config.validate 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	res, err := e.mcmarket.ValidateConfig(ctx, p)
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
-		Valid  bool                    `json:"valid"`
-		Checks []mcValidationCheckDTO  `json:"checks"`
+	return r.Ok(struct {
+		Valid  bool                   `json:"valid"`
+		Checks []mcValidationCheckDTO `json:"checks"`
 	}{Valid: res.Valid, Checks: mcCheckDTOs(res)})
 }
 
@@ -105,16 +105,16 @@ func handleMcConfirmToken(e *Engine, ctx context.Context, r bridge.Request) brid
 		Digest string `json:"digest"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.Target) < 1 || len(p.Target) > 256 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.confirm.token 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.confirm.token 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	token, expiresAt, err := e.mcmarket.IssueConfirmToken(ctx, p.Method, p.Target, p.Digest)
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		ConfirmToken string `json:"confirmToken"`
 		ExpiresAt    string `json:"expiresAt"`
 	}{ConfirmToken: token, ExpiresAt: expiresAt})
@@ -134,10 +134,10 @@ func handleMcConnectorInstall(e *Engine, ctx context.Context, r bridge.Request) 
 		Actor         string            `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.ConfirmToken) != 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.connector.install 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.connector.install 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	out, res, err := e.mcmarket.Install(ctx, mcapp.InstallInput{
 		Origin: p.Origin, Transport: p.Transport, Command: p.Command, Args: p.Args,
@@ -147,7 +147,7 @@ func handleMcConnectorInstall(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID       string                 `json:"endpointId"`
 		State            string                 `json:"state"`
 		CapabilityDigest string                 `json:"capabilityDigest,omitempty"`
@@ -165,16 +165,16 @@ func handleMcConnectorUninstall(e *Engine, ctx context.Context, r bridge.Request
 		Actor        string `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.EndpointID) < 1 || len(p.EndpointID) > 128 || len(p.ConfirmToken) != 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.connector.uninstall 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.connector.uninstall 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	state, err := e.mcmarket.Uninstall(ctx, p.EndpointID, p.ConfirmToken, p.Actor)
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID string `json:"endpointId"`
 		State      string `json:"state"`
 	}{EndpointID: p.EndpointID, State: state})
@@ -189,10 +189,10 @@ func handleMcConnectorUpdate(e *Engine, ctx context.Context, r bridge.Request) b
 		Actor        string   `json:"actor"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.EndpointID) < 1 || len(p.EndpointID) > 128 || len(p.ConfirmToken) != 64 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.connector.update 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.connector.update 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	out, res, err := e.mcmarket.Update(ctx, mcapp.UpdateInput{
 		EndpointID: p.EndpointID, URL: p.URL, Args: p.Args,
@@ -201,7 +201,7 @@ func handleMcConnectorUpdate(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		EndpointID       string                 `json:"endpointId"`
 		State            string                 `json:"state"`
 		CapabilityDigest string                 `json:"capabilityDigest,omitempty"`
@@ -217,10 +217,10 @@ func handleMcConnectorUsage(e *Engine, ctx context.Context, r bridge.Request) br
 		EndpointID string `json:"endpointId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.connector.usage 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.connector.usage 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	stats, err := e.mcmarket.Usage(ctx, p.EndpointID)
 	if err != nil {
@@ -229,7 +229,7 @@ func handleMcConnectorUsage(e *Engine, ctx context.Context, r bridge.Request) br
 	if stats == nil {
 		stats = []mcapp.EndpointUsage{}
 	}
-	return bridge.Success(r.ID, struct {
+	return r.Ok(struct {
 		Stats []mcapp.EndpointUsage `json:"stats"`
 	}{Stats: stats})
 }
@@ -237,35 +237,35 @@ func handleMcConnectorUsage(e *Engine, ctx context.Context, r bridge.Request) br
 func handleMcTombstoneCheck(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "mc.tombstone.check 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "mc.tombstone.check 参数无效", false)
 	}
 	if e.mcmarket == nil {
-		return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
+		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
 	report, err := e.mcmarket.TombstoneCheck(ctx)
 	if err != nil {
 		return mcFailure(r, err)
 	}
-	return bridge.Success(r.ID, report)
+	return r.Ok(report)
 }
 
 // mcFailure maps mcapp errors onto M10-MC-001~007.
 func mcFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, mcapp.ErrMcSchema):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-001", "连接器配置未通过校验链（MC-VR-01~08）", false)
+		return r.Fail("M10-MC-001", "连接器配置未通过校验链（MC-VR-01~08）", false)
 	case errors.Is(err, mcapp.ErrMcConfirm):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-002", "确认令牌缺失、过期、已使用或不匹配", false)
+		return r.Fail("M10-MC-002", "确认令牌缺失、过期、已使用或不匹配", false)
 	case errors.Is(err, mcapp.ErrMcSource):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-003", "市场来源签名或摘要校验失败", false)
+		return r.Fail("M10-MC-003", "市场来源签名或摘要校验失败", false)
 	case errors.Is(err, mcapp.ErrMcNotFound):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-004", "市场条目或端点不存在", false)
+		return r.Fail("M10-MC-004", "市场条目或端点不存在", false)
 	case errors.Is(err, mcapp.ErrMcQuota):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-005", "端点配额已满或指纹重复", false)
+		return r.Fail("M10-MC-005", "端点配额已满或指纹重复", false)
 	case errors.Is(err, mcapp.ErrMcRateLimited):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-006", "市场操作频率超限（每分钟 11 次）", false)
+		return r.Fail("M10-MC-006", "市场操作频率超限（每分钟 11 次）", false)
 	case errors.Is(err, mcapp.ErrMcRegistry):
-		return bridge.Failure(r.ID, r.TraceID, "M10-MC-007", "市场目录不可达且本地缓存为空", true)
+		return r.Fail("M10-MC-007", "市场目录不可达且本地缓存为空", true)
 	}
-	return bridge.Failure(r.ID, r.TraceID, "STORAGE_UNAVAILABLE", "MCP 市场存储暂时不可用", true)
+	return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场存储暂时不可用", true)
 }

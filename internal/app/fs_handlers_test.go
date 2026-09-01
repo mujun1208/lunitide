@@ -71,8 +71,8 @@ func TestFsTreeScopeFiltering(t *testing.T) {
 	p := fsLeasePayload(lease)
 	res := fsCall(e, bridge.MethodFsTree, p)
 	out := decodePayloadInto[struct {
-		Path      string `json:"path"`
-		Entries   []struct {
+		Path    string `json:"path"`
+		Entries []struct {
 			Path string `json:"path"`
 			Kind string `json:"kind"`
 		} `json:"entries"`

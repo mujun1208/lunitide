@@ -24,37 +24,37 @@ func handleTalkStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		SessionID  string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !ulidValid(p.ProviderID) || !ulidValid(p.SessionID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "talk.start 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "talk.start 参数无效", false)
 	}
 	if e.providers == nil {
-		return bridge.Failure(r.ID, r.TraceID, talkModelUnsupportedCode, "没有可通话的 realtime/live 模型，这轮用语模型", false)
+		return r.Fail(talkModelUnsupportedCode, "没有可通话的 realtime/live 模型，这轮用语模型", false)
 	}
 	item, err := e.providers.Get(ctx, p.ProviderID)
 	if err != nil {
 		if err == provider.ErrNotFound {
-			return bridge.Failure(r.ID, r.TraceID, talkModelUnsupportedCode, "供应商不存在，无法开通话核", false)
+			return r.Fail(talkModelUnsupportedCode, "供应商不存在，无法开通话核", false)
 		}
-		return bridge.Failure(r.ID, r.TraceID, talkModelUnsupportedCode, "无法读取供应商", false)
+		return r.Fail(talkModelUnsupportedCode, "无法读取供应商", false)
 	}
 	if _, ok := resolveTalkModel(item, p.ModelID); !ok {
-		return bridge.Failure(r.ID, r.TraceID, talkModelUnsupportedCode, "模型不是已列出的 realtime/live，这轮用语模型", false)
+		return r.Fail(talkModelUnsupportedCode, "模型不是已列出的 realtime/live，这轮用语模型", false)
 	}
 	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 	if !ok || emit == nil {
-		return bridge.Failure(r.ID, r.TraceID, talkAdapterUnreadyCode, "通话核适配还没接通，这轮用语模型", true)
+		return r.Fail(talkAdapterUnreadyCode, "通话核适配还没接通，这轮用语模型", true)
 	}
 	if e.leases == nil {
-		return bridge.Failure(r.ID, r.TraceID, talkAdapterUnreadyCode, "通话核密钥不可用，这轮用语模型", true)
+		return r.Fail(talkAdapterUnreadyCode, "通话核密钥不可用，这轮用语模型", true)
 	}
 	wsURL, err := talk.RealtimeWebSocketURL(item.BaseURL, p.ModelID)
 	if err != nil {
-		return bridge.Failure(r.ID, r.TraceID, talkAdapterUnreadyCode, "通话核地址无效，这轮用语模型", true)
+		return r.Fail(talkAdapterUnreadyCode, "通话核地址无效，这轮用语模型", true)
 	}
 
 	e.streamsMu.Lock()
 	if len(e.streams) >= e.maxStreams {
 		e.streamsMu.Unlock()
-		return bridge.Failure(r.ID, r.TraceID, "STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
+		return r.Fail("STREAM_LIMIT_REACHED", "并发流数量已达上限", true)
 	}
 	talkID, streamID := newTalkIDs()
 	parent, _ := ctx.Value(streamParentKey{}).(context.Context)
@@ -98,12 +98,12 @@ func handleTalkStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return nil
 	})
 	if leaseErr != nil {
-		return bridge.Failure(r.ID, r.TraceID, talkAdapterUnreadyCode, "通话核适配还没接通，这轮用语模型", true)
+		return r.Fail(talkAdapterUnreadyCode, "通话核适配还没接通，这轮用语模型", true)
 	}
 	e.putTalk(session)
 	connected = true
 	go e.runTalkStream(streamCtx, session, state, emit)
-	return bridge.Success(r.ID, map[string]any{"talkId": talkID, "streamId": streamID})
+	return r.Ok(map[string]any{"talkId": talkID, "streamId": streamID})
 }
 
 func (s *talkSession) writePrep(conn talk.Conn, raw []byte) error {
@@ -119,16 +119,16 @@ func handleTalkAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		PCM       string `json:"pcm"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !ulidValid(p.SessionID) || p.PCM == "" {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "talk.append 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "talk.append 参数无效", false)
 	}
 	session := e.talkBySession(p.SessionID)
 	if session == nil {
-		return bridge.Failure(r.ID, r.TraceID, talkSessionMissingCode, "没有通话核会话", false)
+		return r.Fail(talkSessionMissingCode, "没有通话核会话", false)
 	}
 	if err := session.write(talk.AppendAudioMessage(p.PCM)); err != nil {
-		return bridge.Failure(r.ID, r.TraceID, talkSessionMissingCode, "通话核会话已结束", true)
+		return r.Fail(talkSessionMissingCode, "通话核会话已结束", true)
 	}
-	return bridge.Success(r.ID, map[string]any{"accepted": true})
+	return r.Ok(map[string]any{"accepted": true})
 }
 
 func handleTalkCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -137,19 +137,19 @@ func handleTalkCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		Mode      string `json:"mode"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !ulidValid(p.SessionID) || (p.Mode != "output" && p.Mode != "all") {
-		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "talk.cancel 参数无效", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "talk.cancel 参数无效", false)
 	}
 	session := e.talkBySession(p.SessionID)
 	if session == nil {
-		return bridge.Failure(r.ID, r.TraceID, talkSessionMissingCode, "没有通话核会话", false)
+		return r.Fail(talkSessionMissingCode, "没有通话核会话", false)
 	}
 	if p.Mode == "output" {
 		_ = session.write(talk.CancelOutputMessage())
-		return bridge.Success(r.ID, map[string]any{"cancelled": true})
+		return r.Ok(map[string]any{"cancelled": true})
 	}
 	e.dropTalk(p.SessionID, session.talkID)
 	e.cancelStream(session.streamID)
-	return bridge.Success(r.ID, map[string]any{"cancelled": true})
+	return r.Ok(map[string]any{"cancelled": true})
 }
 
 func (e *Engine) runTalkStream(ctx context.Context, session *talkSession, state *streamState, emit EventEmitter) {
