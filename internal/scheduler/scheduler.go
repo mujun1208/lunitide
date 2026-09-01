@@ -399,8 +399,10 @@ func (s *Store) saveRuns(runs []Run) error {
 			f.Close()
 			return err
 		}
-		w.Write(b)
-		w.WriteByte('\n')
+		// bufio records the first write error and returns it from Flush below,
+		// so the intermediate writes are intentionally unchecked.
+		_, _ = w.Write(b)
+		_ = w.WriteByte('\n')
 	}
 	if err := w.Flush(); err != nil {
 		f.Close()

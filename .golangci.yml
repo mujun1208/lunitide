@@ -1,27 +1,80 @@
 version: "2"
 
-# The enforced gate is the correctness and dead-code linters: govet catches
-# suspicious constructs, ineffassign catches writes that are never read,
-# staticcheck catches bugs and misuse, and unused catches dead declarations.
-# A warning from any of these is something worth fixing, not a matter of taste,
-# so the gate stays zero-warning.
+# The enforced gate is the correctness and dead-code linters plus errcheck:
+# govet catches suspicious constructs, ineffassign catches writes that are
+# never read, staticcheck catches bugs and misuse, unused catches dead
+# declarations, and errcheck catches unchecked error returns. A warning from
+# any of these is something worth fixing, not a matter of taste, so the gate
+# stays zero-warning.
 #
-# errcheck is intentionally NOT enabled yet. A full scan reports ~1000 ignored
-# error returns, almost all of them deliberate best-effort patterns — deferred
-# Close, Windows syscall .Call, fmt.Fprint to stdout, cleanup in tests. Turning
-# it on as a hard gate would mean a thousand blind `_ =` edits that bury the
-# handful of returns actually worth checking. It gets its own pass with a tuned
-# exclude-functions list once the rest of the gate is green and staying green.
-# Style-only and security linters (gofumpt, gosec, revive) are likewise left
-# for separate, triaged passes.
+# errcheck's exclude-functions list below whitelists the returns that are
+# genuinely fire-and-forget — Close on a read path, best-effort process/handle
+# teardown, Windows GDI/user32 syscalls whose failure has no recovery — so the
+# gate flags the returns that actually matter (a DB write, a journal append, a
+# buffered flush) instead of drowning in a thousand deferred Close calls. The
+# excludes are listed by concrete type so the whitelist can't accidentally hide
+# a meaningful error on some other type with a same-named method.
+#
+# Style-only and security linters (gofumpt, gosec, revive) are left for
+# separate, triaged passes.
 linters:
   default: none
   enable:
+    - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
   settings:
+    errcheck:
+      exclude-functions:
+        # Closing a handle we are done with: a failed Close has nothing left to
+        # recover, and on a read path nothing was even at risk.
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Conn).Close
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (net.Listener).Close
+        - (net.Conn).Close
+        # A rollback in a defer after the happy path has already committed is a
+        # documented no-op; the error is expected and uninteresting.
+        - (*database/sql.Tx).Rollback
+        # Best-effort teardown of a process or the environment.
+        - (*os.Process).Kill
+        - os.Remove
+        - os.RemoveAll
+        - os.Unsetenv
+        # Windows syscalls with no meaningful failure path: LazyProc.Call for
+        # GDI/user32/COM, and the handle-teardown helpers. Failure means the OS
+        # already tore the object down or is exiting; there is nothing to do.
+        - (*golang.org/x/sys/windows.LazyProc).Call
+        - (*syscall.LazyProc).Call
+        - golang.org/x/sys/windows.CloseHandle
+        - golang.org/x/sys/windows.WaitForSingleObject
+        - (*os.Root).Close
+        # Fprintf/Fprint/Fprintln here go to os.Stderr / os.Stdout as diagnostics
+        # and CLI output; a failed write to the console has no recovery and is the
+        # textbook fire-and-forget print.
+        - fmt.Fprintf
+        - fmt.Fprint
+        - fmt.Fprintln
+        # Best-effort teardown on internal handle/process types. Each releases an
+        # OS resource on an error or shutdown path where the real error is already
+        # being returned (or the process is exiting); a failed release has nothing
+        # left to recover. Listed by concrete type so a same-named method on some
+        # other type still gets checked.
+        - (*github.com/lunitide/lunitide/internal/engineclient.Client).poison
+        - (*github.com/lunitide/lunitide/internal/stdiopoc.Proc).Kill
+        - (*github.com/lunitide/lunitide/internal/stdioworker.engineProc).kill
+        - (*github.com/lunitide/lunitide/internal/terminalruntime.Runtime).Shutdown
+        - (*github.com/lunitide/lunitide/internal/agentrunapp.changeSetPathGuard).Close
+        - (*github.com/lunitide/lunitide/internal/workspace.parentGuard).Close
+        # A parked/streaming websocket closed on a teardown path, and a registry
+        # key opened only to read values: the close error is uninteresting.
+        - (*github.com/gorilla/websocket.Conn).Close
+        - (golang.org/x/sys/windows/registry.Key).Close
     staticcheck:
       # staticcheck's defaults, minus QF1001. QF1001 rewrites boolean guards
       # via De Morgan's law — a pure style opinion that, applied to the
@@ -38,6 +91,33 @@ linters:
         - -ST1021
         - -ST1022
         - -QF1001
+  exclusions:
+    rules:
+      # A deferred Close is best-effort cleanup on scope exit by construction:
+      # the work is already done and there is nothing to recover if the release
+      # fails. This covers the internal handle types (stores, runtimes, guards,
+      # os.Root sandboxes) uniformly without naming each one. A non-deferred
+      # Close — notably on a writer, where the flush happens at close — stays
+      # checked, because there the error can mean lost data.
+      - linters: [errcheck]
+        source: 'defer .*\.Close\(\)'
+      # A deferred ExecContext(...ROLLBACK) is the connection-level analog of the
+      # excluded Tx.Rollback: after the happy path COMMITs it is a documented
+      # no-op, and on the error path the real error is already being returned.
+      - linters: [errcheck]
+        source: 'defer .*ExecContext\(.*ROLLBACK'
+      # webviewhost is the Win32 / WebView2 / COM host shim. Its calls
+      # (controller/core event unsubscribes, GDI and user32 syscalls, window
+      # teardown) are fire-and-forget against an OS that is either already
+      # tearing the object down or exiting; there is no recovery path, and
+      # threading error checks through the shim would only add noise.
+      - linters: [errcheck]
+        path: internal/webviewhost/
+      # Test code ignoring an error on setup, teardown, or a helper is fine:
+      # a test that mishandles one fails on its own assertions, so errcheck adds
+      # no safety there. Production code keeps the full check.
+      - linters: [errcheck]
+        path: _test\.go
 
 # Report every finding rather than the default first-50-per-linter / first-3
 # of a kind. A gate that hides its own tail lets issues accumulate behind the

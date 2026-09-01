@@ -220,7 +220,7 @@ func (h *Harness) readReport(p *Proc, probe string) (*probeReport, error) {
 
 // finish waits for a clean exit (probe exits on its own after reporting).
 func (h *Harness) finish(a *Assumption, p *Proc, blockedWanted bool) {
-	p.Stdin.Close()
+	_ = p.Stdin.Close()
 	code, err := p.Wait(context.Background())
 	a.EndedAt = h.now().UTC()
 	clean := err == nil && code == 0
@@ -575,7 +575,8 @@ func countSpawned(as []Attack) int {
 		return 0
 	}
 	var n int
-	fmt.Sscanf(as[0].Detail, "spawned=%d", &n)
+	// A malformed detail simply leaves the count at zero.
+	_, _ = fmt.Sscanf(as[0].Detail, "spawned=%d", &n)
 	return n
 }
 
