@@ -39,6 +39,9 @@
 
 ## 安装包
 
-- `release/out/Lunitide-Setup-0.4.46-x64.exe`（打包后填写签名与 SHA-256）
+- `release/out/Lunitide-Setup-0.4.46-x64.exe`（Authenticode `Valid`：`CN=Yy.MJ`，RFC3161 时间戳。仅当前 Windows 账户信任该证书；其他电脑仍可能提示未知发布者）
+- SHA-256：`390d0bf227318949b7da7cf4dd5e3e08cc52cbce60ce8986b24ff665043f462d`
 - `release/out/SHA256SUMS.txt`
+- `Verify-Release.ps1` 对 0.4.46 stage + installer 通过
 - `release/out` 只保留 0.4.46 安装包与 stage
+- 从 0.4.45 升级；不要用 next 旁路覆盖官方目录
