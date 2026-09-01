@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -98,6 +99,20 @@ func recordTombstonesForSessionTx(ctx context.Context, tx *sql.Tx, now, sessionI
 // a no-op (idempotent delete). Tombstones are recorded for fail-closed
 // readability checks before physical deletion.
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
+	return s.deleteSession(ctx, id, "system")
+}
+
+// DeleteSessionAudited hard-deletes a session and attributes the deletion to
+// actor in the same transaction. A blank actor falls back to "system" so the
+// audit row always names someone.
+func (s *Store) DeleteSessionAudited(ctx context.Context, id, actor string) error {
+	if strings.TrimSpace(actor) == "" {
+		actor = "system"
+	}
+	return s.deleteSession(ctx, id, actor)
+}
+
+func (s *Store) deleteSession(ctx context.Context, id, actor string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin delete session tx: %w", err)
@@ -201,6 +216,11 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 		return fmt.Errorf("delete session: %w", err)
 	}
 
+	// Audit lands on the same transaction as the physical delete: a hard delete
+	// of a real session either records why it happened or does not commit.
+	if err := s.appendAuditTx(ctx, tx, "session.deleted", id, actor, map[string]any{"projectId": projectID}); err != nil {
+		return fmt.Errorf("audit session delete: %w", err)
+	}
 	return tx.Commit()
 }
 

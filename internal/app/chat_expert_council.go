@@ -280,7 +280,12 @@ func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, se
 	out := make([]gateway.Message, len(calls))
 	for i, call := range calls {
 		summary := "refused: tool not allowed for expert.deliberate"
-		if reason, deny := e.denyRestrictedMCP(call.Name, call.Arguments, true, eq.McpIDs); deny {
+		if reason, deny := ungatedEngineToolDenied(mode, false, call.Name, call.Arguments); deny {
+			// Same gate the main chat loop applies before dispatch: in approval
+			// mode a council specialist cannot reach out through mcp.call / mcp_*
+			// or actuate the browser either — this path has no approval prompt.
+			summary = reason
+		} else if reason, deny := e.denyRestrictedMCP(call.Name, call.Arguments, true, eq.McpIDs); deny {
 			summary = reason
 		} else if call.Name == "mcp.search" {
 			outText, err := e.searchMcpToolsFiltered(call.Arguments, eq.McpIDs, true)

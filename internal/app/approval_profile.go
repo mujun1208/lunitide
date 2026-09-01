@@ -53,6 +53,31 @@ func ungatedEngineToolDenied(mode executionMode, companion bool, name string, ar
 	return "", false
 }
 
+// unattendedMcpDenied is the same idea as ungatedEngineToolDenied applied to a
+// turn that has no human approver at all — a colleague auto-reply. Even under
+// auto-edit authority (which the people agent uses for workspace writes), a
+// message from outside must not reach a third-party MCP server or actuate the
+// signed-in browser without someone present to allow it. Discovery (mcp.search)
+// and read-only browser ops stay open; anything that calls out or drives is
+// refused with an ok:false result the model can relay.
+func unattendedMcpDenied(name string, args json.RawMessage) (string, bool) {
+	switch strings.TrimSpace(name) {
+	case "mcp.install", "plugin.install":
+		return "ok:false\n这条消息来自外部同事、身边没有人确认，不能给本机装新的 MCP 服务端或插件。", true
+	case "mcp.call":
+		return "ok:false\nmcp.call 会调到本机之外的服务，这是一条无人值守的同事消息，本轮不执行。", true
+	case "browser.act":
+		if browserActActuates(args) {
+			return "ok:false\nbrowser.act 的点击/输入会动到已登录的浏览器，无人值守的同事消息不做这类操作。", true
+		}
+		return "", false
+	}
+	if _, _, isMcp := parseMcpToolName(name); isMcp {
+		return "ok:false\n" + name + " 会调到本机之外的服务，这是一条无人值守的同事消息，本轮不执行。", true
+	}
+	return "", false
+}
+
 // browserActActuates separates driving the page from reading it. Navigating
 // and snapshotting are how the model finds out what is there; clicking and
 // typing land inside whatever session the browser is already signed into.
