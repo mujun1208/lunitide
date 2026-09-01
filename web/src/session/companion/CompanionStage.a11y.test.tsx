@@ -80,6 +80,7 @@ vi.mock('../../bridge/client', async importOriginal => {
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 700,
   FORCE_COMMIT_MS: 1800,
+  stageForceCommitMayBeginTurn: () => false,
   INTERRUPT_ECHO_MS: 160,
   shouldShowSpeechSetupHint: (input: {
     listening: boolean
@@ -101,6 +102,7 @@ vi.mock('./speech', () => ({
 
 vi.mock('./ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  playCompanionAckPcm: vi.fn(),
   getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure(voiceId: string) {
@@ -295,7 +297,7 @@ describe('MC-06 hands-free auto conversation', () => {
       return found
     }, { timeout: 3000 })
     expect(hint.getAttribute('aria-live')).toBe('polite')
-    expect(hint.textContent).toContain('轻点月亮或按空格，开始和月汐说话')
+    expect(hint.textContent).toContain('轻点月亮或按空格开始说话')
     expect(container.querySelector('.companion-banner.error')).toBeNull()
     expect(stateOf(container)).toBe('idle')
   })

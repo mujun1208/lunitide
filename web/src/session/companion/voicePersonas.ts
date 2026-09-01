@@ -84,7 +84,7 @@ const CLOUD_PATH: VoicePathOption = {
   badge: '默认',
   kicker: '即开即用',
   meta: '晓晓 · 微软 Neural',
-  desc: '免密钥。听=系统识别，说=微软晓晓，不能插话。适合大多数对话。',
+  desc: '免密钥。听=系统识别，说=微软晓晓。说完再答，答完再说；打断用按钮，不能对着麦自动插话。',
 }
 
 const LOCAL_PATH: VoicePathOption = {
@@ -93,7 +93,7 @@ const LOCAL_PATH: VoicePathOption = {
   badge: '本机',
   kicker: '离线克隆',
   meta: 'sherpa + GPT-SoVITS',
-  desc: '本机 sherpa 听写，GPT-SoVITS 克隆 50 种人生音色。音频不出设备。',
+  desc: '本机 sherpa 听写，GPT-SoVITS 克隆 50 种人生音色。音频不出设备。说完再答；打断用按钮，不能对着麦自动插话。',
 }
 
 /** Card copy: only write 火山读 when a tts row is actually configured. */
@@ -107,7 +107,7 @@ export function voicePathOptions(volcTtsReady = false): VoicePathOption[] {
           badge: '听+读',
           kicker: 'seed-asr + tts',
           meta: '火山听 · 火山读',
-          desc: '听写走 seed-asr 2.0，朗读走 seed-tts 2.0 官方音色。不是本机 50 种人生，也不是豆包 App 温柔桃子。密钥配在供应商「语音模型」。',
+          desc: '听写走 seed-asr 2.0，朗读走 seed-tts 2.0 官方音色。说话时可以对着麦打断，「打断」按钮同样可用。不是本机 50 种人生，也不是豆包 App 温柔桃子。密钥配在供应商「语音模型」。',
         }
       : {
           value: 'volc',
@@ -115,7 +115,7 @@ export function voicePathOptions(volcTtsReady = false): VoicePathOption[] {
           badge: '听',
           kicker: 'seed-asr',
           meta: '火山听 · 晓晓读（未配朗读）',
-          desc: '听写走 seed-asr 2.0。还没配朗读模型，朗读先走晓晓。在供应商「语音模型」加一行类型为朗读。不是本机 50 种人生，也不是豆包 App 温柔桃子。',
+          desc: '听写走 seed-asr 2.0。还没配朗读模型，朗读先走晓晓。说话时可以对着麦打断。在供应商「语音模型」加一行类型为朗读。不是本机 50 种人生，也不是豆包 App 温柔桃子。',
         },
     LOCAL_PATH,
   ]

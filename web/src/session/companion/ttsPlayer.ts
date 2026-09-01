@@ -35,6 +35,9 @@ let sharedAudioContext: AudioContext | null = null
  * lost. The player owns the engine contract, so it splits here.
  */
 export const ENGINE_MAX_CHARS = 480
+/** Companion SoVITS starting-state retries: ≤2 times / 10s, then honest fail. */
+export const REF_ENGINE_START_RETRIES = 2
+export const REF_ENGINE_START_BUDGET_MS = 10_000
 
 /**
  * How much of the sounding clip must remain before the tail is handed to the
@@ -44,6 +47,17 @@ export const ENGINE_MAX_CHARS = 480
 const SYNTH_LEAD_SECONDS = 1.5
 
 /** Split on clause boundaries so an over-long reply still sounds natural. */
+function base64ToBytes(value: string): Uint8Array {
+  try {
+    const bin = atob(value)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+  } catch {
+    return new Uint8Array(0)
+  }
+}
+
 export function splitForEngine(text: string): string[] {
   if (Array.from(text).length <= ENGINE_MAX_CHARS) return text.trim() ? [text] : []
   const out: string[] = []
@@ -101,6 +115,7 @@ function buildSynthPayload(
 interface ReadySegment {
   wavBase64: string
   buffer: AudioBuffer | null
+  streamed?: boolean
 }
 
 export class TtsPlayer {
@@ -122,6 +137,7 @@ export class TtsPlayer {
   private lastGainAt = 0
   /** P0-2: Prefetch queue — up to 3 segments ahead, decoded. */
   private prefetchQueue: Array<{ index: number; promise: Promise<ReadySegment | null> }> = []
+  private streamCancels = new Set<() => void>()
   /** P0-1: Streaming enqueue — segments queued while current playback is
    *  ongoing, processed FIFO without interrupting the active segment. */
   private pendingSegments: Array<{ text: string; index: number }> = []
@@ -263,6 +279,14 @@ export class TtsPlayer {
       const engine = engines[attempt]!
       const voiceId = attempt === 0 ? this.currentVoiceId : ''
       try {
+        if (this.canLiveStream(engine)) {
+          try {
+            const live = await this.playStreamingSegment(text, engine, voiceId, callbacks)
+            if (live) return live
+          } catch {
+            /* first-packet stream failed — same engine still has the whole-clip path */
+          }
+        }
         const result = await bridge.synthesize(
           buildSynthPayload(text, voiceId, this.currentRate, this.currentVolume, {
             engine,
@@ -495,7 +519,90 @@ export class TtsPlayer {
   // ------------------------------------------------------------------
 
   /** Play one prepared segment. Returns false when both paths fail. */
+  private canLiveStream(engine: string): boolean {
+    if (engine !== 'edge' && engine !== 'volc') return false
+    if (typeof getTtsBridge().stream !== 'function') return false
+    return this.ensureGraph() != null
+  }
+
+  private decodeBytes(bytes: Uint8Array): Promise<AudioBuffer | null> {
+    const ctx = this.ensureGraph()
+    if (!ctx || bytes.byteLength < 32) return Promise.resolve(null)
+    const copy = new ArrayBuffer(bytes.byteLength)
+    new Uint8Array(copy).set(bytes)
+    try {
+      return ctx.decodeAudioData(copy).catch(() => null)
+    } catch {
+      return Promise.resolve(null)
+    }
+  }
+
+  private sliceBuffer(buf: AudioBuffer, start: number): AudioBuffer | null {
+    const ctx = this.ensureGraph()
+    if (!ctx || start >= buf.length) return null
+    const out = ctx.createBuffer(buf.numberOfChannels, buf.length - start, buf.sampleRate)
+    for (let channel = 0; channel < buf.numberOfChannels; channel++) {
+      out.getChannelData(channel).set(buf.getChannelData(channel).subarray(start))
+    }
+    return out
+  }
+
+  private async playStreamingSegment(
+    text: string,
+    engine: CompanionEngine,
+    voiceId: string,
+    callbacks: TtsPlayerCallbacks,
+  ): Promise<ReadySegment | null> {
+    const generation = this.generation
+    let acc = new Uint8Array(0)
+    let played = 0
+    let scheduled = false
+    let inflight = 0
+    let drain: (() => void) | undefined
+    const handle = await getTtsBridge().stream(
+      buildSynthPayload(text, voiceId, this.currentRate, this.currentVolume, {
+        engine,
+        refEndpoint: engine === 'ref' ? this.currentExtras.refEndpoint : '',
+      }),
+      chunk => {
+        if (generation !== this.generation) return
+        const raw = base64ToBytes(chunk.audioBase64)
+        if (!raw.length) return
+        const next = new Uint8Array(acc.length + raw.length)
+        next.set(acc, 0)
+        next.set(raw, acc.length)
+        acc = next
+        inflight++
+        void this.decodeBytes(acc).then(buf => {
+          if (!buf || generation !== this.generation || buf.length <= played) return
+          const slice = this.sliceBuffer(buf, played)
+          if (!slice) return
+          if (this.scheduleBuffer(slice, callbacks)) {
+            played = buf.length
+            scheduled = true
+          }
+        }).finally(() => {
+          inflight--
+          if (inflight === 0) drain?.()
+        })
+      },
+    )
+    const cancel = () => { void handle.cancel() }
+    this.streamCancels.add(cancel)
+    try {
+      await handle.done
+      if (inflight > 0) await new Promise<void>(resolve => { drain = resolve })
+    } catch {
+      if (!scheduled) return null
+    } finally {
+      this.streamCancels.delete(cancel)
+    }
+    if (generation !== this.generation) return { wavBase64: '', buffer: null, streamed: true }
+    return scheduled ? { wavBase64: '', buffer: null, streamed: true } : null
+  }
+
   private async playSegment(seg: ReadySegment, generation: number, queueGeneration: number | undefined, callbacks: TtsPlayerCallbacks): Promise<boolean> {
+    if (seg.streamed) return true
     void unlockTtsAudio()
     const ctx = this.ensureGraph()
     if (ctx?.state === 'suspended') void ctx.resume().catch(() => {})
@@ -519,6 +626,7 @@ export class TtsPlayer {
     const generation = ++this.generation
     let consecutiveFailures = 0
     let startingRetries = 0
+    let startingWaitMs = 0
     let scheduledAny = false
 
     for (let index = 0; index < segments.length; index++) {
@@ -535,15 +643,18 @@ export class TtsPlayer {
           if (generation !== this.generation) return
         } catch (error) {
           if (generation !== this.generation) return
-          if (isRefEngineStarting(error) && startingRetries < 24) {
-            // Auto-hosted model still loading: wait and retry THIS
-            // segment (no failure count, no circuit break) for up to
-            // ~2 minutes while the backend brings the service up.
+          if (isRefEngineStarting(error) && startingRetries < REF_ENGINE_START_RETRIES && startingWaitMs < REF_ENGINE_START_BUDGET_MS) {
             startingRetries++
+            startingWaitMs += 5000
             await sleep(5000)
             if (generation !== this.generation) return
             index--
             continue
+          }
+          if (isRefEngineStarting(error)) {
+            callbacks.onEngineUnavailable?.()
+            callbacks.onFinished?.('engine-unavailable')
+            return
           }
           if (isEngineUnavailable(error)) {
             callbacks.onEngineUnavailable?.()
@@ -675,6 +786,7 @@ export class TtsPlayer {
     const gen = ++this.queueGeneration
     let consecutiveFailures = 0
     let startingRetries = 0
+    let startingWaitMs = 0
     let scheduledAny = false
 
     while (true) {
@@ -695,12 +807,19 @@ export class TtsPlayer {
             if (gen !== this.queueGeneration) return
           } catch (error) {
             if (gen !== this.queueGeneration) return
-            if (isRefEngineStarting(error) && startingRetries < 24) {
+            if (isRefEngineStarting(error) && startingRetries < REF_ENGINE_START_RETRIES && startingWaitMs < REF_ENGINE_START_BUDGET_MS) {
               startingRetries++
+              startingWaitMs += 5000
               this.pendingSegments.unshift({ text, index })
               await sleep(5000)
               if (gen !== this.queueGeneration) return
               continue
+            }
+            if (isRefEngineStarting(error)) {
+              callbacks.onEngineUnavailable?.()
+              callbacks.onFinished?.('engine-unavailable')
+              this.queueProcessing = false
+              return
             }
             if (isEngineUnavailable(error)) {
               callbacks.onEngineUnavailable?.()
@@ -808,6 +927,8 @@ export class TtsPlayer {
   interrupt(options?: { cancelEngine?: boolean }): void {
     this.interruptLocal()
     if (options?.cancelEngine === false) return
+    for (const cancel of this.streamCancels) cancel()
+    this.streamCancels.clear()
     // Fire-and-forget per the design: no retry, no error surface when
     // the receipt times out — the renderer is already muted.
     getTtsBridge().cancel().catch(() => {})
@@ -876,6 +997,20 @@ export class TtsPlayer {
     callbacks.onGain?.(0)
   }
 
+  /** Play 16-bit little-endian PCM from talk.audio. Default 24 kHz (OpenAI realtime). */
+  enqueueTalkPcm(audioBase64: string, sampleRate = 24_000): boolean {
+    const ctx = this.ensureGraph()
+    if (!ctx || ctx.state !== 'running' || !Number.isFinite(sampleRate) || sampleRate < 8_000) return false
+    const bytes = base64ToBytes(audioBase64)
+    if (bytes.byteLength < 2) return false
+    const samples = Math.floor(bytes.byteLength / 2)
+    const buffer = ctx.createBuffer(1, samples, sampleRate)
+    const channel = buffer.getChannelData(0)
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    for (let i = 0; i < samples; i++) channel[i] = view.getInt16(i * 2, true) / 32768
+    return this.scheduleBuffer(buffer, {})
+  }
+
   dispose(): void {
     this.interruptLocal()
     this.stopGainLoop({ onGain: () => {} })
@@ -920,6 +1055,26 @@ export function unlockTtsAudio(): Promise<void> {
 }
 
 /** The Web Audio graph unlocked by a user gesture — reuse it for the mic meter. */
+/** Local ~80ms pad. Must not call tts.synthesize (instantAck used to echo through the cloud). */
+export function playCompanionAckPcm(): void {
+  try {
+    sharedAudioContext = sharedAudioContext ?? new AudioContext()
+    const ctx = sharedAudioContext
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.frequency.value = 180
+    gain.gain.setValueAtTime(0.07, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.08)
+  } catch {
+    /* jsdom / locked autoplay — pad is optional */
+  }
+}
+
 export function sharedTtsAudioContext(): AudioContext | null {
   try {
     if (!sharedAudioContext || sharedAudioContext.state === 'closed') return null

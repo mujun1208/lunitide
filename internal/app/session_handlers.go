@@ -14,6 +14,10 @@ import (
 
 const sessionMutationActor = "desktop-host"
 
+type sessionDraftReclaimer interface {
+	ReclaimEmptyDrafts(ctx context.Context, projectID string, need int) (int, error)
+}
+
 type sessionDTO struct {
 	ID        string         `json:"id"`
 	ProjectID string         `json:"projectId"`
@@ -59,6 +63,13 @@ func handleSessionCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "session.create 参数无效", false)
 	}
 	created, err := e.sessions.Create(ctx, r.IdempotencyKey, sessionMutationActor, p, session.Session{ProjectID: p.ProjectID, Title: title})
+	if errors.Is(err, sessionapp.ErrSessionCapacityReached) {
+		if reclaimer, ok := e.sessions.(sessionDraftReclaimer); ok {
+			if n, recErr := reclaimer.ReclaimEmptyDrafts(ctx, p.ProjectID, 100); recErr == nil && n > 0 {
+				created, err = e.sessions.Create(ctx, r.IdempotencyKey, sessionMutationActor, p, session.Session{ProjectID: p.ProjectID, Title: title})
+			}
+		}
+	}
 	if err != nil {
 		return sessionFailure(r, err)
 	}

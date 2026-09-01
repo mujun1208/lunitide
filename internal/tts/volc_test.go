@@ -82,6 +82,25 @@ func TestVolcSynthesizeHTTP(t *testing.T) {
 	}
 }
 
+func TestParseVolcNDJSONReaderEmitsFirstAudio(t *testing.T) {
+	chunk := base64.StdEncoding.EncodeToString([]byte("ID3first"))
+	raw := []byte(`{"code":0,"data":"` + chunk + `"}` + "\n" + `{"code":20000000}` + "\n")
+	var got [][]byte
+	audio, err := parseVolcNDJSONReader(strings.NewReader(string(raw)), func(b []byte) error {
+		got = append(got, append([]byte(nil), b...))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if string(audio) != "ID3first" {
+		t.Fatalf("audio = %q", audio)
+	}
+	if len(got) != 1 || string(got[0]) != "ID3first" {
+		t.Fatalf("emits = %q", got)
+	}
+}
+
 func TestVolcSynthesizeMissingKeyIsM95_001(t *testing.T) {
 	eng := NewVolcEngine()
 	_, _, err := eng.Synthesize(SynthesizeInput{Text: "你好", Engine: EngineVolc})

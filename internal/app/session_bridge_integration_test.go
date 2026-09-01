@@ -148,6 +148,23 @@ func TestSessionBridgeCapacityReached(t *testing.T) {
 	}
 }
 
+func TestSessionBridgeReclaimsEmptyDraftsAtCapacity(t *testing.T) {
+	e, parent, _ := sessionEngine(t)
+	for i := 0; i < 100; i++ {
+		r := validRequest("session.create", `{"projectId":"`+parent+`","title":"新对话"}`)
+		r.IdempotencyKey = "draft-" + fmt.Sprint(i)
+		if response := e.Handle(context.Background(), r); !response.OK {
+			t.Fatalf("draft %d: %#v", i, response)
+		}
+	}
+	r := validRequest("session.create", `{"projectId":"`+parent+`","title":"今晚月色如何"}`)
+	r.IdempotencyKey = "draft-reclaim"
+	response := e.Handle(context.Background(), r)
+	if !response.OK {
+		t.Fatalf("reclaim should free a leftover 新对话: %#v", response)
+	}
+}
+
 func TestSessionBridgeConcurrentSameKeyCreatesExactlyOneMutation(t *testing.T) {
 	e, parent, path := sessionEngine(t)
 	r := validRequest("session.create", `{"projectId":"`+parent+`","title":"Concurrent"}`)

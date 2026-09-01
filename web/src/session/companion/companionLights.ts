@@ -1,6 +1,6 @@
 import { getProviderBridge, getTtsBridge } from '../../bridge/client'
 import type { ProviderDTO } from '../../generated/bridge'
-import { hasConfiguredVolcTts, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice } from '../../provider/modelKind'
+import { hasConfiguredVolcTts, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice, pickTalkRealtimeModel } from '../../provider/modelKind'
 import { VOLC_OFFICIAL_SPEAKERS } from './volcVoices'
 import { localAsrStatus } from './localAsr'
 import { shownVoicePath, type VoicePath } from './voicePersonas'
@@ -21,6 +21,7 @@ export type CompanionEntryReport = {
   speakReady: boolean
   hasVolc: boolean
   hasVolcTts: boolean
+  hasTalkModel: boolean
   /** Official speaker id when a TTS row exists. Never the seed-tts resource id. */
   speakVoiceId?: string
   allowListen: boolean
@@ -57,6 +58,14 @@ function withBudget<T>(work: Promise<T>, fallback: T, ms = COMPANION_ENTRY_PROBE
   })
 }
 
+export function companionTalkLiveLights(lights: CompanionEntryReport['lights']): CompanionEntryReport['lights'] {
+  return [
+    { ...lights[0], label: '通话核 · 可对着麦打断', state: 'on' },
+    { ...lights[1], label: '通话核', state: 'on' },
+    lights[2],
+  ]
+}
+
 export function pendingCompanionLights(): CompanionEntryReport['lights'] {
   return [
     { key: 'listen', title: '听', label: '检测中', state: 'warn' },
@@ -81,17 +90,18 @@ export async function inspectCompanionEntry(
   const volc = pickDefaultVoice(items)
   const hasVolc = !!volc
   const hasVolcTts = hasConfiguredVolcTts(items)
+  const hasTalkModel = !!pickTalkRealtimeModel(items)
   const ttsPick = hasVolcTts ? pickDefaultTTS(items) : undefined
   const speakVoiceId = ttsPick?.modelId
   const speakerName = speakVoiceId ? VOLC_OFFICIAL_SPEAKERS.find(s => s.id === speakVoiceId)?.name : undefined
 
   let listenReady = true
-  let listenLabel = '系统识别'
+  let listenLabel = '系统识别 · 说完再答 · 打断用按钮'
   if (path === 'volc') {
-    listenLabel = '火山 seed-asr'
+    listenLabel = '火山 seed-asr · 可对着麦打断'
     listenReady = hasVolc
   } else if (path === 'local') {
-    listenLabel = '本机 sherpa'
+    listenLabel = '本机 sherpa · 说完再答 · 打断用按钮'
     const asr = await withBudget(
       (probes.localAsr ?? localAsrStatus)(),
       undefined,
@@ -155,6 +165,7 @@ export async function inspectCompanionEntry(
     speakReady,
     hasVolc,
     hasVolcTts,
+    hasTalkModel,
     speakVoiceId,
     allowListen,
     blockReason,

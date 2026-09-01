@@ -67,6 +67,34 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 	return s.deleter.DeleteSession(ctx, id)
 }
+
+type emptyDraftFinder interface {
+	ListEmptyDraftSessionIDs(ctx context.Context, projectID string, titles []string, limit int) ([]string, error)
+}
+
+// ReclaimEmptyDrafts deletes leftover empty launch/companion shells so a
+// personal project that looks empty in the sidebar can create a new chat.
+func (s *Service) ReclaimEmptyDrafts(ctx context.Context, projectID string, need int) (int, error) {
+	if s == nil || s.deleter == nil || need < 1 {
+		return 0, nil
+	}
+	finder, ok := s.read.(emptyDraftFinder)
+	if !ok {
+		return 0, nil
+	}
+	ids, err := finder.ListEmptyDraftSessionIDs(ctx, projectID, nil, need)
+	if err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	freed := 0
+	for _, id := range ids {
+		if delErr := s.deleter.DeleteSession(ctx, id); delErr != nil {
+			return freed, delErr
+		}
+		freed++
+	}
+	return freed, nil
+}
 func (s *Service) List(ctx context.Context, f session.Filter) ([]session.Session, error) {
 	if s == nil || s.read == nil {
 		return nil, errors.New("session reader unavailable")

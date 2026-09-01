@@ -79,6 +79,68 @@ func TestRefSynthesizeViaLocalService(t *testing.T) {
 	}
 }
 
+func TestRefTTSBodyBothModesParse(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		raw, err := refTTSBody("你好", `E:\ref.wav`, "提示", 0, streaming)
+		if err != nil {
+			t.Fatalf("streaming=%v: %v", streaming, err)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("streaming=%v unmarshal: %v", streaming, err)
+		}
+		got, ok := body["streaming_mode"].(bool)
+		if !ok || got != streaming {
+			t.Fatalf("streaming_mode=%v ok=%v, want %v", body["streaming_mode"], ok, streaming)
+		}
+		if body["text"] != "你好" || body["media_type"] != "wav" {
+			t.Fatalf("body = %#v", body)
+		}
+	}
+}
+
+func TestRefStreamingFallsBackToWholeClip(t *testing.T) {
+	resetRefStreamingBanForTest()
+	t.Cleanup(resetRefStreamingBanForTest)
+	wav := wavFixture(16000, 1600)
+	var modes []bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		streaming, _ := body["streaming_mode"].(bool)
+		modes = append(modes, streaming)
+		if streaming {
+			http.Error(w, "no stream", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write(wav)
+	}))
+	defer srv.Close()
+	ref := filepath.Join(t.TempDir(), "reference.wav")
+	if err := os.WriteFile(ref, wav, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewRefEngine()
+	res, fallback, err := engine.Synthesize(SynthesizeInput{
+		Text: "段", Engine: EngineRef, RefEndpoint: srv.URL, RefWavPath: ref, TryStreaming: true,
+	})
+	if err != nil || fallback {
+		t.Fatalf("synthesize err=%v fallback=%v", err, fallback)
+	}
+	if len(modes) != 2 || !modes[0] || modes[1] {
+		t.Fatalf("modes = %v, want [true false]", modes)
+	}
+	if !strings.HasPrefix(res.WavBase64, "UklGR") {
+		t.Fatalf("fallback result is not RIFF")
+	}
+	if !refStreamingBanned() {
+		t.Fatal("failed stream probe must ban the next try")
+	}
+}
+
 func TestRefSynthesizeValidation(t *testing.T) {
 	engine := NewRefEngine()
 	cases := []struct {

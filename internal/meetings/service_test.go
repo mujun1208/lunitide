@@ -3,6 +3,7 @@ package meetings_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -257,7 +258,7 @@ func TestSummarizeLargeTranscriptSucceedsChunked(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 800; i++ {
-		line := "这一段把下周发布和安装包范围对齐清楚，并且把验收标准写进纪要。"
+		line := fmt.Sprintf("第%d段把下周发布和安装包范围对齐清楚，并且把验收标准写进纪要。", i)
 		if _, err := svc.Append(ctx, started.MeetingID, line, int64(i*1500)); err != nil {
 			t.Fatal(err)
 		}

@@ -281,9 +281,10 @@ describe('startCompanionSpeech capture graph', () => {
       resultIndex: 0,
       results: Object.assign([{ 0: { transcript: '下一句你好吗', confidence: 0.9 }, length: 1, isFinal: true }], { length: 1 }),
     })
-    await new Promise(resolve => setTimeout(resolve, 400))
+    await new Promise(resolve => setTimeout(resolve, 200))
     expect(onFinal).not.toHaveBeenCalled()
-    await new Promise(resolve => setTimeout(resolve, 1100))
+    // Post-TTS echo guard (450ms) plus complete-utterance silence (~280ms).
+    await new Promise(resolve => setTimeout(resolve, 800))
     expect(onFinal).toHaveBeenCalledWith('下一句你好吗')
     handle.stop()
   })
@@ -311,9 +312,9 @@ describe('startCompanionSpeech capture graph', () => {
       results: Object.assign([{ 0: { transcript: '今天合肥天气怎么样', confidence: 0.92 }, length: 1, isFinal: true }], { length: 1 }),
     })
     recognition.stop.mockClear()
-    await new Promise(resolve => setTimeout(resolve, 400))
+    await new Promise(resolve => setTimeout(resolve, 200))
     expect(onFinal).not.toHaveBeenCalled()
-    await new Promise(resolve => setTimeout(resolve, 1100))
+    await new Promise(resolve => setTimeout(resolve, 220))
     expect(onFinal).toHaveBeenCalledWith('今天合肥天气怎么样')
     expect(recognition.stop).not.toHaveBeenCalled()
     handle.stop()

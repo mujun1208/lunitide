@@ -67,6 +67,7 @@ vi.mock('./session/companion/ensureCompanionCapabilities', () => ({
 vi.mock('./session/companion/speech', () => ({
   ECHO_GUARD_MS: 700,
   FORCE_COMMIT_MS: 1800,
+  stageForceCommitMayBeginTurn: () => false,
   INTERRUPT_ECHO_MS: 160,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (options: { onFinal: (transcript: string) => void }) => {
@@ -77,6 +78,7 @@ vi.mock('./session/companion/speech', () => ({
 
 vi.mock('./session/companion/ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  playCompanionAckPcm: vi.fn(),
   getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure() {}
@@ -155,11 +157,7 @@ it('uses the home-page model when opening companion talk', async () => {
   expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: provider.id, modelId: 'm-two' })
 })
 
-it('opens companion talk from the home wake phrase', async () => {
-  Object.defineProperty(navigator, 'mediaDevices', {
-    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) },
-    configurable: true,
-  })
+it('does not listen for a wake phrase on the launch home', async () => {
   const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })
   const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
   const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
@@ -176,12 +174,8 @@ it('opens companion talk from the home wake phrase', async () => {
   const sessions: SessionBridge = { list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn().mockResolvedValue(session), update: vi.fn(), delete: vi.fn() }
   const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
   render(<App projects={projects} sessions={sessions} providers={providers} messages={messages} chat={chat} />)
-  await waitFor(() => expect(speech.start).toHaveBeenCalled())
-  await waitFor(() => expect(document.querySelector('.launch-wake')?.textContent).toMatch(/你好月汐|接通麦克风|听到/))
-  await act(async () => {
-    speech.callbacks!.onFinal('你好月汐帮我查天气')
-  })
-  await waitFor(() => expect(document.querySelector('.companion-stage')).toBeTruthy())
-  expect(sessions.create).toHaveBeenCalled()
-  delete (navigator as { mediaDevices?: unknown }).mediaDevices
+  await screen.findByRole('heading', { name: /今天想聊什么|What would you like to do/ })
+  expect(document.querySelector('.launch-wake')).toBeNull()
+  expect(document.body.textContent ?? '').not.toMatch(/正在听[：:].*你好月汐/)
+  expect(speech.start).not.toHaveBeenCalled()
 })

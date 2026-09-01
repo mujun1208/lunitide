@@ -58,6 +58,12 @@ const (
 	EventTerminalOutput   EventType = "terminal_output"
 	EventTerminalExit     EventType = "terminal_exit"
 	EventGuidance         EventType = "guidance"
+	EventTtsChunk         EventType = "tts_chunk"
+	EventTalkAudio        EventType = "talk_audio"
+	EventTalkTranscript   EventType = "talk_transcript"
+	EventTalkTool         EventType = "talk_tool"
+	EventTalkError        EventType = "talk_error"
+	EventTalkEnded        EventType = "talk_ended"
 )
 
 type Event struct {
@@ -75,6 +81,20 @@ type Event struct {
 	Tool      *ToolEvent      `json:"tool,omitempty"`
 	Terminal  *TerminalEvent  `json:"terminal,omitempty"`
 	Guidance  *GuidanceEvent  `json:"guidance,omitempty"`
+	Tts       *TtsChunkEvent  `json:"tts,omitempty"`
+	Talk      *TalkEvent      `json:"talk,omitempty"`
+}
+
+// TalkEvent is one talk.* stream frame. Contract names talk.audio /
+// talk.transcript / talk.tool / talk.error / talk.ended map to talk_*.
+type TalkEvent struct {
+	AudioBase64 string `json:"audioBase64,omitempty"`
+	Mime        string `json:"mime,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Role        string `json:"role,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Code        string `json:"code,omitempty"`
+	Message     string `json:"message,omitempty"`
 }
 type TerminalEvent struct {
 	Data     string `json:"data,omitempty"`
@@ -83,6 +103,12 @@ type TerminalEvent struct {
 type GuidanceEvent struct {
 	Labels []string `json:"labels"`
 	Digest string   `json:"digest"`
+}
+
+type TtsChunkEvent struct {
+	AudioBase64 string `json:"audioBase64"`
+	Mime        string `json:"mime"`
+	Index       int    `json:"index"`
 }
 type DeltaEvent struct {
 	Text string `json:"text"`

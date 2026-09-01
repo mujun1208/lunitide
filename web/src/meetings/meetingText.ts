@@ -1,4 +1,5 @@
 import { cleanUserTranscript } from '../session/companion/companionText'
+import { collapseTandemRepeats } from '../session/companion/speech'
 
 /** Glue sherpa/Web Speech chops that arrive this close together. */
 export const MEETING_MERGE_GAP_MS = 1000
@@ -111,8 +112,74 @@ export type MeetingLineBuffer = {
   flush: () => void
 }
 
+export function compactMeetingText(raw: string): string {
+  return raw.replace(/[。！？!?，,、；;：:\s]+/gu, '')
+}
+
+function sliceAfterCompactPrefix(next: string, prevCompact: string): string {
+  if (!prevCompact) return next
+  const chars = Array.from(next)
+  let compact = ''
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!
+    if (/[。！？!?，,、；;：:\s]/u.test(ch)) continue
+    compact += ch
+    if (compact === prevCompact) {
+      return chars.slice(i + 1).join('').replace(/^[，,、。.!！？?\s]+/u, '').trim()
+    }
+  }
+  return next
+}
+
+/** Keep only the new clause when ASR re-sends the whole history as one final. */
+export function meetingLineDelta(prior: string, incoming: string): string {
+  const prev = prior.trim()
+  const next = collapseTandemRepeats(incoming.trim())
+  if (!next) return ''
+  if (!prev) return next
+  if (next === prev) return ''
+  const prevC = compactMeetingText(prev)
+  const nextC = compactMeetingText(next)
+  if (!nextC || nextC === prevC) return ''
+  if (prevC.startsWith(nextC) && nextC.length >= 4) return ''
+  if (nextC.startsWith(prevC) && prevC.length >= 4) {
+    return collapseTandemRepeats(sliceAfterCompactPrefix(next, prevC))
+  }
+  if (prev.includes(next) && Array.from(next).length < Array.from(prev).length * 0.6) return ''
+  const overlap = suffixPrefixOverlap(prevC, nextC)
+  if (overlap >= Math.min(8, Math.floor(prevC.length / 2))) {
+    return collapseTandemRepeats(sliceAfterCompactPrefix(next, prevC.slice(0, overlap)))
+  }
+  return next
+}
+
+/** Live captions: drop exact/prefix replays and intra-line tandem copies. */
+export function collapseLiveTranscriptLines(lines: string[]): string[] {
+  const out: string[] = []
+  for (const raw of lines) {
+    const text = collapseTandemRepeats(raw.trim())
+    if (!text) continue
+    if (out.length === 0) {
+      out.push(text)
+      continue
+    }
+    const last = out[out.length - 1]!
+    const delta = meetingLineDelta(last, text)
+    if (!delta) continue
+    const lastC = compactMeetingText(last)
+    const nextC = compactMeetingText(text)
+    if (nextC.startsWith(lastC) && lastC.length >= 4) {
+      out[out.length - 1] = text
+      continue
+    }
+    out.push(delta)
+  }
+  return out
+}
+
 export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLineBuffer {
   let pending = ''
+  let lastEmitted = ''
   let lastAt = 0
   let timer = 0
 
@@ -122,12 +189,18 @@ export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLi
     const line = pending.trim()
     pending = ''
     lastAt = 0
-    if (line) emit(line)
+    if (!line) return
+    const delta = meetingLineDelta(lastEmitted, line)
+    if (!delta) return
+    lastEmitted = lastEmitted && compactMeetingText(line).startsWith(compactMeetingText(lastEmitted))
+      ? line
+      : lastEmitted ? `${lastEmitted}${delta}` : delta
+    emit(delta)
   }
 
   return {
     push(raw: string) {
-      const cleaned = cleanMeetingTranscript(raw)
+      const cleaned = meetingLineDelta(lastEmitted, cleanMeetingTranscript(raw))
       if (!cleaned) return
       const now = Date.now()
       const gap = lastAt ? now - lastAt : Number.POSITIVE_INFINITY
@@ -137,7 +210,13 @@ export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLi
         if (pending) {
           const prev = pending
           pending = ''
-          emit(prev)
+          const delta = meetingLineDelta(lastEmitted, prev)
+          if (delta) {
+            lastEmitted = lastEmitted && compactMeetingText(prev).startsWith(compactMeetingText(lastEmitted))
+              ? prev
+              : lastEmitted ? `${lastEmitted}${delta}` : delta
+            emit(delta)
+          }
         }
         pending = cleaned
       }

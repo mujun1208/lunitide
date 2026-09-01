@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 import {
   applyVoicePath,
   companionEngineProbeOrder,
+  companionVoiceBargeInEnabled,
   companionPlaybackSettings,
   defaultCompanionSettings,
   formatInterruptHotkey,
@@ -41,8 +42,8 @@ describe('companionSettings voice default', () => {
     }))
     const loaded = loadCompanionSettings()
     expect(loaded.engine).toBe('edge')
-    expect(loaded.wakeWord).toBe(true)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(11)
+    expect(loaded.wakeWord).toBe(false)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(12)
   })
 
   test('an install left on OneCore is moved off it, voice id and all', () => {
@@ -81,7 +82,7 @@ describe('companionSettings voice default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.fullDuplex).toBe(true)
     expect(loaded.interruptHotkey).toEqual({ key: 'Tab', ctrl: false, alt: false, shift: false })
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(11)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(12)
   })
 
   test('even a deliberate OneCore choice is moved, because it cannot work', () => {
@@ -91,12 +92,12 @@ describe('companionSettings voice default', () => {
     expect(loaded.voiceId).toBe('')
   })
 
-  test('new installs default wake word on', () => {
-    expect(defaultCompanionSettings().wakeWord).toBe(true)
+  test('new installs keep home wake off', () => {
+    expect(defaultCompanionSettings().wakeWord).toBe(false)
     expect(defaultCompanionSettings().wakeVad).toBe(true)
     expect(defaultCompanionSettings().instantAck).toBe(false)
     expect(defaultCompanionSettings().voiceBargeIn).toBe(false)
-    expect(loadCompanionSettings().wakeWord).toBe(true)
+    expect(loadCompanionSettings().wakeWord).toBe(false)
     expect(loadCompanionSettings().wakeVad).toBe(true)
     expect(loadCompanionSettings().instantAck).toBe(false)
     expect(loadCompanionSettings().voiceBargeIn).toBe(false)
@@ -120,7 +121,7 @@ describe('companionSettings voice default', () => {
       rev: 10,
     }))
     expect(loadCompanionSettings().instantAck).toBe(false)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(11)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(12)
   })
 
   test('a current-rev on choice for the pad stays on', () => {
@@ -137,13 +138,13 @@ describe('companionSettings voice default', () => {
     expect(loadCompanionSettings().wakeVad).toBe(true)
   })
 
-  test('rev-9 saves that had wake forced off are restored once the listener is wired', () => {
+  test('older saves that still had home wake on are migrated off', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       ...defaultCompanionSettings(),
-      wakeWord: false,
-      rev: 9,
+      wakeWord: true,
+      rev: 11,
     }))
-    expect(loadCompanionSettings().wakeWord).toBe(true)
+    expect(loadCompanionSettings().wakeWord).toBe(false)
   })
 
   test('a current-rev off choice stays off', () => {
@@ -165,6 +166,8 @@ describe('companion engine fallback helpers', () => {
     expect(localReady).toMatchObject({ engine: 'ref', lockEngine: true, voicePath: 'local' })
     const localDown = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), false)
     expect(localDown).toMatchObject({ engine: 'edge', lockEngine: true, voiceId: '', voicePath: 'local' })
+    const localSlow = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), true, true)
+    expect(localSlow).toMatchObject({ engine: 'edge', lockEngine: true, voiceId: '', voicePath: 'local' })
     expect(companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'volc'), true).lockEngine).toBe(true)
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').voicePath).toBe('cloud')
     expect(applyVoicePath(defaultCompanionSettings(), 'omni').engine).toBe('edge')
@@ -174,7 +177,9 @@ describe('companion engine fallback helpers', () => {
     expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).engine).toBe('edge')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).voicePath).toBe('volc')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceBargeIn).toBe(false)
-    expect(applyVoicePath({ ...defaultCompanionSettings(), voiceBargeIn: true }, 'volc').voiceBargeIn).toBe(true)
+    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'volc'))).toBe(true)
+    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'cloud'))).toBe(false)
+    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'local'))).toBe(false)
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'zh_female_vv_uranus_bigtts' }, 'cloud').voiceId).toBe('')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')

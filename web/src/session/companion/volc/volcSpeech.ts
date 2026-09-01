@@ -11,6 +11,7 @@ import {
   ECHO_GUARD_MS,
   TURN_END_SILENCE_MS,
   shouldDeferCommit,
+  shouldCommitHeardUtterance,
   shouldForceCommitUtterance,
   speechProfile,
   turnEndWindows,
@@ -175,11 +176,12 @@ export async function startVolcCompanionSpeech(
     if (shouldDeferCommit(trimmed, now - textSince)) return
     const textStableForMs = lastTextAt ? now - lastTextAt : 0
     if (
-      !shouldForceCommitUtterance({
+      !shouldCommitHeardUtterance({
         speechActive,
         silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
         textStableForMs,
         incomplete: looksIncompleteUtterance(trimmed),
+        holdUtterance,
         silenceMs: windows.silenceMs,
         incompleteSilenceMs: windows.incompleteSilenceMs,
       })
@@ -314,23 +316,25 @@ export async function startVolcCompanionSpeech(
       const fromBuffer = text.trim()
       const trimmed = fromBuffer || (fallback ?? '').trim()
       if (!trimmed) return false
-      if (fromBuffer) {
-        const now = Date.now()
-        if (
-          !shouldForceCommitUtterance({
-            speechActive,
-            silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
-            textStableForMs: lastTextAt ? now - lastTextAt : 0,
-            incomplete: looksIncompleteUtterance(fromBuffer),
-            silenceMs: windows.silenceMs,
-            incompleteSilenceMs: windows.incompleteSilenceMs,
-          })
-        ) {
-          return false
-        }
-      } else {
+      if (!fromBuffer) {
+        if (looksIncompleteUtterance(trimmed)) return false
         text = trimmed
         lastTextAt = Date.now()
+        void recycle('final')
+        return true
+      }
+      const now = Date.now()
+      if (
+        !shouldForceCommitUtterance({
+          speechActive,
+          silentForMs: lastVoiceAt ? now - lastVoiceAt : undefined,
+          textStableForMs: lastTextAt ? now - lastTextAt : 0,
+          incomplete: looksIncompleteUtterance(fromBuffer),
+          silenceMs: windows.silenceMs,
+          incompleteSilenceMs: windows.incompleteSilenceMs,
+        })
+      ) {
+        return false
       }
       void recycle('final')
       return true

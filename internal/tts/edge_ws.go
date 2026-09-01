@@ -50,6 +50,22 @@ func edgeMUID() string {
 }
 
 func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (SynthesizeResult, bool, error) {
+	return e.synthesizeWSChunks(ctx, in, nil)
+}
+
+func (e *edgeEngine) SynthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
+	edgeApplyStyleVoice(&in)
+	res, fb, err := e.synthesizeWSChunks(ctx, in, emit)
+	if err != nil {
+		return res, fb, err
+	}
+	if strings.HasPrefix(in.VoiceID, "HKEY_") {
+		fb = true
+	}
+	return res, fb, nil
+}
+
+func (e *edgeEngine) synthesizeWSChunks(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -66,7 +82,7 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 		e.mu.Unlock()
 		adjusted := false
 		for _, target := range targets {
-			res, fb, err := e.synthesizeWSHost(ctx, target.host, target.path, in, edgeSecMSGEC(time.Now().Add(skew)))
+			res, fb, err := e.synthesizeWSHost(ctx, target.host, target.path, in, edgeSecMSGEC(time.Now().Add(skew)), emit)
 			if err == nil {
 				return res, fb, nil
 			}
@@ -86,6 +102,13 @@ func (e *edgeEngine) synthesizeWS(ctx context.Context, in SynthesizeInput) (Synt
 		lastErr = fmt.Errorf("%w: 云端语音合成失败", ErrSynthesisFailed)
 	}
 	if res, fb, err := edgeSynthesizePython(ctx, in); err == nil {
+		if emit != nil && res.WavBase64 != "" {
+			if raw, decErr := base64.StdEncoding.DecodeString(res.WavBase64); decErr == nil && len(raw) > 0 {
+				if emitErr := emit(raw); emitErr != nil {
+					return SynthesizeResult{}, fb, emitErr
+				}
+			}
+		}
 		return res, fb, nil
 	}
 	return SynthesizeResult{}, false, lastErr
@@ -127,7 +150,7 @@ func (e *edgeEngine) keepConn(c *edgeConn) {
 	e.conn = c
 }
 
-func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in SynthesizeInput, gec string) (SynthesizeResult, bool, error) {
+func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in SynthesizeInput, gec string, emit func([]byte) error) (SynthesizeResult, bool, error) {
 	e.connMu.Lock()
 	defer e.connMu.Unlock()
 
@@ -135,7 +158,7 @@ func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in
 	// until the 25s request deadline, so its first frame gets a short
 	// leash and a failure just falls through to a fresh dial below.
 	if warm := e.takeWarmConn(host, path); warm != nil {
-		res, fb, err := edgeSynthesizeTurn(ctx, warm, in, edgeWarmFirstFrameTimeout)
+		res, fb, err := edgeSynthesizeTurn(ctx, warm, in, edgeWarmFirstFrameTimeout, emit)
 		if err == nil {
 			e.keepConn(warm)
 			return res, fb, nil
@@ -148,7 +171,7 @@ func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in
 		return SynthesizeResult{}, false, err
 	}
 	fresh := &edgeConn{conn: conn, host: host, path: path, createdAt: time.Now()}
-	res, fb, err := edgeSynthesizeTurn(ctx, fresh, in, 0)
+	res, fb, err := edgeSynthesizeTurn(ctx, fresh, in, 0, emit)
 	if err != nil {
 		conn.Close()
 		return SynthesizeResult{}, false, err
@@ -159,7 +182,7 @@ func (e *edgeEngine) synthesizeWSHost(ctx context.Context, host, path string, in
 
 // edgeSynthesizeTurn runs one request/response turn on an open socket.
 // firstFrameTimeout caps the wait for the first reply (0 = request deadline).
-func edgeSynthesizeTurn(ctx context.Context, c *edgeConn, in SynthesizeInput, firstFrameTimeout time.Duration) (SynthesizeResult, bool, error) {
+func edgeSynthesizeTurn(ctx context.Context, c *edgeConn, in SynthesizeInput, firstFrameTimeout time.Duration, emit func([]byte) error) (SynthesizeResult, bool, error) {
 	conn := c.conn
 	deadline, hasDeadline := ctx.Deadline()
 	if hasDeadline {
@@ -226,6 +249,9 @@ func edgeSynthesizeTurn(ctx context.Context, c *edgeConn, in SynthesizeInput, fi
 				return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音合成被拒绝", ErrSynthesisFailed)
 			}
 		case websocket.BinaryMessage:
+			if ctx.Err() != nil {
+				return SynthesizeResult{}, false, ctx.Err()
+			}
 			chunk := edgeAudioPayload(payload)
 			if len(chunk) == 0 {
 				continue
@@ -234,6 +260,11 @@ func edgeSynthesizeTurn(ctx context.Context, c *edgeConn, in SynthesizeInput, fi
 				return SynthesizeResult{}, false, fmt.Errorf("%w: 云端音频过大", ErrSynthesisFailed)
 			}
 			audio = append(audio, chunk...)
+			if emit != nil {
+				if err := emit(chunk); err != nil {
+					return SynthesizeResult{}, false, err
+				}
+			}
 		}
 	}
 }

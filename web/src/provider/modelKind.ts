@@ -114,6 +114,51 @@ export function preferredLLMOf(provider: ProviderDTO): { providerId: string; mod
   return { providerId: provider.id, modelId: marked.modelId }
 }
 
+const COMPANION_FLASH_RE = /(?:flash|air|lite|mini|haiku)/i
+const COMPANION_REALTIME_RE = /realtime(?:-preview)?|(?:^|[^A-Za-z0-9])live(?:[^A-Za-z0-9]|$)/i
+
+export function isCompanionFlashModelId(modelId: string): boolean {
+  const id = modelId.trim()
+  if (!id) return false
+  if (isTalkRealtimeModelId(id)) return false
+  return COMPANION_FLASH_RE.test(id)
+}
+
+/** Contract T0-2: id or display name matches realtime / live / realtime-preview. */
+export function isTalkRealtimeModelId(modelId: string, displayName = ''): boolean {
+  const blob = `${modelId} ${displayName}`.trim()
+  return blob !== '' && COMPANION_REALTIME_RE.test(blob)
+}
+
+/** First listed openai_compatible realtime/live model. Does not invent ids. */
+export function pickTalkRealtimeModel(items: readonly ProviderDTO[]): { providerId: string; modelId: string } | undefined {
+  for (const provider of items) {
+    if (provider.protocol !== 'openai_compatible') continue
+    if (provider.status !== 'enabled' || provider.credentialState !== 'configured') continue
+    const hit = provider.models.find(model => model.modelId && isTalkRealtimeModelId(model.modelId, model.displayName))
+    if (hit?.modelId) return { providerId: provider.id, modelId: hit.modelId }
+  }
+  return undefined
+}
+
+/** Same provider only. Prefer an already-picked flash id; else first flash/air/lite/mini/haiku; else keep current. */
+export function pickCompanionFlashModel(
+  items: readonly ProviderDTO[],
+  providerId: string,
+  currentModelId: string,
+): { providerId: string; modelId: string } {
+  const fallback = { providerId, modelId: currentModelId }
+  const provider = items.find(item => item.id === providerId)
+  if (!provider) return fallback
+  const llms = provider.models.filter(m => modelKind(m) === 'llm' && m.modelId)
+  if (currentModelId && isCompanionFlashModelId(currentModelId) && llms.some(m => m.modelId === currentModelId)) {
+    return fallback
+  }
+  const flash = llms.find(m => isCompanionFlashModelId(m.modelId))
+  if (flash?.modelId) return { providerId, modelId: flash.modelId }
+  return fallback
+}
+
 export function pickDefaultLLM(items: readonly ProviderDTO[]): { provider: ProviderDTO; modelId: string } | undefined {
   const ready = llmReadyProviders(items)
   for (const p of ready) {

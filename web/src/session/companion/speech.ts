@@ -305,6 +305,36 @@ export function endpointingForText(text: string, profile: SpeechProfile): { stab
   return { stableMs: profile.utteranceStableMs, silenceMs: profile.utteranceSilenceMs }
 }
 
+/** Stage 1.4s kick may only ask forceCommit. Never open a turn from the caption. */
+export function stageForceCommitMayBeginTurn(_committed: boolean): boolean {
+  return false
+}
+
+/**
+ * Product endpoint for a heard caption.
+ * Complete greetings/clauses: 220ms stable + 280ms silence (「你好」 under 400ms).
+ * Incomplete commands stay on the 1.2s / 1.5s / 2.2s force-commit windows.
+ * Meeting notes keep the long hold via holdUtterance.
+ */
+export function shouldCommitHeardUtterance(input: {
+  speechActive: boolean
+  silentForMs: number | undefined
+  textStableForMs: number
+  incomplete: boolean
+  holdUtterance?: boolean
+  silenceMs?: number
+  incompleteSilenceMs?: number
+}): boolean {
+  if (input.holdUtterance) return shouldForceCommitUtterance(input)
+  if (input.incomplete) return shouldForceCommitUtterance(input)
+  if (input.textStableForMs < UTTERANCE_STABLE_MS) return false
+  if (input.silentForMs === undefined) {
+    return input.textStableForMs >= Math.max(UTTERANCE_STABLE_MS, UTTERANCE_SILENCE_MS)
+  }
+  if (input.speechActive && input.silentForMs < UTTERANCE_SILENCE_MS) return false
+  return input.silentForMs >= UTTERANCE_SILENCE_MS
+}
+
 export function shouldDeferCommit(text: string, textSinceMs: number): boolean {
   const trimmed = text.trim()
   if (!trimmed) return true
@@ -341,7 +371,115 @@ export function companionRecognitionLang(navigatorLanguage = typeof navigator !=
   return lang
 }
 
-/** Prefer a longer interim overlay so Windows revisions replace, not duplicate, the caption. */
+/** Skip finals already consumed so a continuous Windows session cannot replay history. */
+export function recognitionResultStart(consumed: number, resultIndex: number, resultCount: number): number {
+  if (!Number.isFinite(resultCount) || resultCount < 0) return 0
+  if (consumed > resultCount) return Math.max(0, resultIndex)
+  const index = Number.isFinite(resultIndex) ? resultIndex : 0
+  return Math.max(0, consumed, index)
+}
+
+const MIN_TANDEM_UNIT = 12
+
+function runeIndexOf(hay: string[], needle: string[], from = 0): number {
+  outer: for (let i = from; i <= hay.length - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (hay[i + j] !== needle[j]) continue outer
+    }
+    return i
+  }
+  return -1
+}
+
+function trailingSentenceMark(s: string): string {
+  for (const mark of ['。', '！', '？', '!', '?']) {
+    if (s.endsWith(mark)) return mark
+  }
+  return ''
+}
+
+function collapseTandemBody(raw: string): string {
+  let s = raw
+  let chars = Array.from(s)
+  let n = chars.length
+  if (n < MIN_TANDEM_UNIT * 2) return s
+  while (n >= MIN_TANDEM_UNIT * 2 && n % 2 === 0) {
+    const mid = n / 2
+    const a = chars.slice(0, mid).join('')
+    const b = chars.slice(mid).join('')
+    if (a !== b) break
+    s = a
+    chars = Array.from(s)
+    n = chars.length
+  }
+  if (n < MIN_TANDEM_UNIT * 2) return s
+  const head = chars.slice(0, MIN_TANDEM_UNIT)
+  const idx = runeIndexOf(chars, head, MIN_TANDEM_UNIT)
+  if (idx < 0) return s
+  const period = idx
+  if (period < MIN_TANDEM_UNIT || n < period * 2) return s
+  const unit = chars.slice(0, period).join('')
+  let i = 0
+  let copies = 0
+  while (i + period <= n && chars.slice(i, i + period).join('') === unit) {
+    i += period
+    copies++
+  }
+  if (copies >= 2 && (i === n || unit.startsWith(chars.slice(i).join('')))) return unit
+  return s
+}
+
+function collapseRepeatedSentences(raw: string): string {
+  const parts = raw.split(/([。！？!?\n]+)/u)
+  const out: string[] = []
+  for (let i = 0; i < parts.length; i += 2) {
+    const text = (parts[i] ?? '').trim()
+    const delim = parts[i + 1] ?? ''
+    if (!text) continue
+    const compact = text.replace(/\s+/g, '')
+    const prev = out.length ? out[out.length - 1]! : ''
+    const prevText = prev.replace(/[。！？!?\n]+$/u, '').replace(/\s+/g, '')
+    if (prevText && compact === prevText) continue
+    if (prevText && prevText.startsWith(compact) && compact.length >= 8) continue
+    if (prevText && compact.startsWith(prevText) && prevText.length >= 8) {
+      out[out.length - 1] = text + delim
+      continue
+    }
+    out.push(text + delim)
+  }
+  return out.join('').trim()
+}
+
+/** Collapse AAA+AAA(+AAA…) from a continuous recognizer that re-emits the whole clause. */
+export function collapseTandemRepeats(raw: string): string {
+  const sentences = collapseRepeatedSentences(raw.trim())
+  const mark = trailingSentenceMark(sentences)
+  const body = mark ? sentences.slice(0, sentences.length - mark.length) : sentences
+  const collapsed = collapseTandemBody(body)
+  if (collapsed === body) return sentences
+  if (mark && !collapsed.endsWith(mark)) return collapsed + mark
+  return collapsed
+}
+
+/**
+ * Windows Speech often reports the same clause as another isFinal, or as a
+ * growing revision of the whole utterance. Concatenating those pieces is
+ * what turned one spoken sentence into a meeting paragraph of repeats.
+ */
+export function absorbRecognitionFinal(prior: string, piece: string): string {
+  const next = piece.trim()
+  if (!next) return prior
+  if (!prior) return collapseTandemRepeats(next)
+  if (next === prior) return prior
+  if (next.startsWith(prior)) return collapseTandemRepeats(next)
+  if (prior.startsWith(next) && Array.from(next).length >= 4) return prior
+  const priorChars = Array.from(prior)
+  const nextChars = Array.from(next)
+  if (prior.includes(next) && nextChars.length < priorChars.length * 0.6) return prior
+  if (next.includes(prior)) return collapseTandemRepeats(next)
+  return collapseTandemRepeats(prior + next)
+}
+
 export function overlayTranscript(finals: string, interim: string): string {
   const f = finals.trim()
   const i = interim.trim()
@@ -489,6 +627,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     let recycleAfterPlayback = false
     let lastPlaybackEndedAt = 0
     let recGeneration = 0
+    let consumedResultCount = 0
   /**
    * Silences the streams this module owns: the analyser feed and the meter.
    *
@@ -606,6 +745,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     }
     const discardRecognizer = () => {
       recGeneration += 1
+      consumedResultCount = 0
       recognitionAlive = false
       lastStartAt = 0
       const old = recognition
@@ -692,8 +832,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (compact === lastCommittedCompact && now - lastCommittedAt < 1500) return
       lastCommittedCompact = compact
       lastCommittedAt = now
+      const spoken = collapseTandemRepeats(text)
       if (duplex) {
-        callbacks.onFinal(text)
+        callbacks.onFinal(spoken)
         finals = ''
         interim = ''
         utteranceVoiceSince = 0
@@ -707,7 +848,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       finished = true
       recognition?.stop()
       teardown()
-      callbacks.onFinal(text)
+      callbacks.onFinal(spoken)
     }
     /**
      * Her turn is hers until the 打断 button ends it or she finishes.
@@ -747,11 +888,12 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       const silentForMs = meterless ? undefined : voiceAt ? performance.now() - voiceAt : undefined
       const textStableForMs = performance.now() - lastTextChangeAt
       if (
-        shouldForceCommitUtterance({
+        shouldCommitHeardUtterance({
           speechActive: meterless ? false : speechActive,
           silentForMs,
           textStableForMs,
           incomplete,
+          holdUtterance,
           silenceMs: windows.silenceMs,
           incompleteSilenceMs: windows.incompleteSilenceMs,
         })
@@ -854,11 +996,13 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         if (gen !== recGeneration) return
         const held = recognitionHeld()
         const before = assembled()
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        const start = recognitionResultStart(consumedResultCount, event.resultIndex, event.results.length)
+        for (let i = start; i < event.results.length; i++) {
           const piece = pickRecognitionTranscript(event.results[i])
           if (event.results[i].isFinal) {
-            finals += piece
+            finals = absorbRecognitionFinal(finals, piece)
             interim = ''
+            consumedResultCount = i + 1
           } else {
             interim = piece
           }
@@ -1119,20 +1263,23 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         const fromBuffer = assembled().trim()
         const text = fromBuffer || (fallback ?? '').trim()
         if (!text) return false
-        if (fromBuffer) {
-          const now = performance.now()
-          if (
-            !shouldForceCommitUtterance({
-              speechActive: meterless ? false : speechActive,
-              silentForMs: meterless ? undefined : lastVoiceAt ? now - lastVoiceAt : undefined,
-              textStableForMs: now - lastTextChangeAt,
-              incomplete: looksIncompleteUtterance(fromBuffer),
-              silenceMs: windows.silenceMs,
-              incompleteSilenceMs: windows.incompleteSilenceMs,
-            })
-          ) {
-            return false
-          }
+        if (!fromBuffer) {
+          if (looksIncompleteUtterance(text)) return false
+          commit(text)
+          return true
+        }
+        const now = performance.now()
+        if (
+          !shouldForceCommitUtterance({
+            speechActive: meterless ? false : speechActive,
+            silentForMs: meterless ? undefined : lastVoiceAt ? now - lastVoiceAt : undefined,
+            textStableForMs: now - lastTextChangeAt,
+            incomplete: looksIncompleteUtterance(fromBuffer),
+            silenceMs: windows.silenceMs,
+            incompleteSilenceMs: windows.incompleteSilenceMs,
+          })
+        ) {
+          return false
         }
         commit(text)
         return true

@@ -27,7 +27,13 @@ const speech = vi.hoisted(() => ({
     setAssistantPlayback: speech.setAssistantPlayback,
     setCommitPaused: vi.fn(),
     pulseRecognition: vi.fn(),
-    forceCommit: vi.fn(),
+    forceCommit: vi.fn((fallback?: string) => {
+      const text = (fallback ?? '').trim()
+      if (!text) return false
+      if (/^(?:帮我|你能|你可以|打开网)$/.test(text) || text.length <= 2) return false
+      speech.callbacks?.onFinal(text)
+      return true
+    }),
     resumeCapture: vi.fn(),
   }),
 }))
@@ -69,6 +75,7 @@ vi.mock('../../bridge/client', async importOriginal => {
 vi.mock('./speech', () => ({
   ECHO_GUARD_MS: 90,
   FORCE_COMMIT_MS: 1800,
+  stageForceCommitMayBeginTurn: () => false,
   INTERRUPT_ECHO_MS: 80,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (callbacks: CapturedSpeech) => {
@@ -79,6 +86,7 @@ vi.mock('./speech', () => ({
 
 vi.mock('./ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  playCompanionAckPcm: vi.fn(),
   getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure(): void {}
@@ -344,12 +352,8 @@ test('the pad finishing does not end her turn while the model is still writing',
   })
   await flush(0)
   expect(stateOf(utils.container)).toBe('thinking')
-  expect(tts.enqueueCalls[0]?.segments.join('')).toBe(COMPANION_PAD_SPEECH)
+  expect(tts.enqueueCalls.some(call => call.segments.join('') === COMPANION_PAD_SPEECH)).toBe(false)
 
-  await act(async () => {
-    tts.playing = false
-    tts.enqueueCalls[0].callbacks.onFinished?.('completed')
-  })
   await flush(400)
   expect(stateOf(utils.container)).toBe('thinking')
   expect(onSend).toHaveBeenCalledTimes(1)
@@ -430,6 +434,20 @@ test('force-commits the stage caption when the recognizer buffer is empty', asyn
   expect(onSend).toHaveBeenCalledTimes(1)
 })
 
+test('does not begin a turn when forceCommit rejects an incomplete caption', async () => {
+  const onSend = vi.fn()
+  const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onInterim?.('帮我')
+  })
+  await flush(0)
+  expect(utils.container.textContent).toMatch(/帮我/)
+  await flush(1800)
+  expect(onSend).toHaveBeenCalledTimes(0)
+  expect(stateOf(utils.container)).toBe('listening')
+})
+
 test('caption fade does not wipe an uncommitted user line', async () => {
   const onSend = vi.fn()
   const props = { ...baseProps, onSend }
@@ -480,4 +498,41 @@ test('reply stall does not cancel while userAsk is open', async () => {
   await flush(13_000)
   expect(onCancel).not.toHaveBeenCalled()
   expect(utils.container.textContent).not.toMatch(/没有及时回应/)
+})
+
+test('interrupt keeps the subtitle on what was already spoken', async () => {
+  const onCancel = vi.fn()
+  const props = { ...baseProps, onCancel }
+  const utils = render(<CompanionStage {...props} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('今晚月色如何')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="今晚月色很好。" />)
+  })
+  await flush(200)
+  expect(spokenReply()).toContain('今晚月色很好。')
+
+  fireEvent.click(utils.container.querySelector('.companion-interrupt') as HTMLButtonElement)
+  await flush(0)
+  expect(onCancel).toHaveBeenCalled()
+
+  await act(async () => {
+    utils.rerender(
+      <CompanionStage {...props} chatStatus="streaming" assistantText="今晚月色很好。后半句还没读。" />,
+    )
+  })
+  await flush(200)
+  await act(async () => {
+    utils.rerender(
+      <CompanionStage {...props} chatStatus="done" assistantText="今晚月色很好。后半句还没读。又多了一句。" />,
+    )
+  })
+  await flush(0)
+  const log = utils.container.querySelector('.companion-subtitle-list')?.textContent ?? ''
+  expect(log).toContain('今晚月色很好。')
+  expect(log).not.toContain('后半句还没读')
+  expect(log).not.toContain('又多了一句')
 })

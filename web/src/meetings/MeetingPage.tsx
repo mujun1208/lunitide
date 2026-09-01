@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
+import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 
@@ -146,7 +147,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     setCurrent(view)
     setDraftSummary(view.summary || '')
     setDraftActions(view.actions || '')
-    setDraftTranscript(view.transcript || '')
+    setDraftTranscript(collapseLiveTranscriptLines((view.transcript || '').split('\n')).join('\n'))
     setItems(values => {
       const rest = values.filter(item => item.meetingId !== view.meetingId)
       return [view, ...rest]
@@ -684,7 +685,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
 
   const recording = current?.status === 'recording' && !stopping
   const segments: MeetingSegmentDTO[] = current?.segments ?? []
-  const liveLines = segments.map(seg => seg.text)
+  const liveLines = collapseLiveTranscriptLines(segments.map(seg => seg.text))
   if (current?.transcript && liveLines.length === 0) liveLines.push(...current.transcript.split('\n').filter(Boolean))
   const source = current?.audioSource ?? 'microphone_and_system'
 

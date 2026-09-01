@@ -46,6 +46,7 @@ vi.mock('./companion/ensureCompanionCapabilities', () => ({
 vi.mock('./companion/speech', () => ({
   ECHO_GUARD_MS: 700,
   FORCE_COMMIT_MS: 1800,
+  stageForceCommitMayBeginTurn: () => false,
   INTERRUPT_ECHO_MS: 160,
   shouldShowSpeechSetupHint: () => false,
   startCompanionSpeech: (options: { onFinal: (transcript: string) => void }) => {
@@ -56,6 +57,7 @@ vi.mock('./companion/speech', () => ({
 
 vi.mock('./companion/ttsPlayer', () => ({
   unlockTtsAudio: vi.fn(() => Promise.resolve()),
+  playCompanionAckPcm: vi.fn(),
   getTtsAudioState: () => 'running' as const,
   TtsPlayer: class {
     configure() {}
@@ -102,7 +104,7 @@ const provider: ProviderDTO = {
   version: 1,
 }
 
-it('does not start companion chat when the user turn fails to persist', async () => {
+it('starts companion chat even when persist append fails, and keeps the persist banner', async () => {
   const start = vi.fn()
   const append = vi.fn().mockRejectedValue(new BridgeClientError('write failed', 'WRITE_FAILED', true, 'engine'))
   const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
@@ -130,7 +132,8 @@ it('does not start companion chat when the user turn fails to persist', async ()
     speech.callbacks!.onFinal('今晚月色如何')
   })
   await waitFor(() => expect(append).toHaveBeenCalled())
-  expect(start).not.toHaveBeenCalled()
+  await waitFor(() => expect(start).toHaveBeenCalled())
+  expect(start.mock.calls[0][0].messages?.[0]?.content).toBe('今晚月色如何')
   expect(await screen.findByRole('alert')).toHaveTextContent('这句话没记下')
 })
 
@@ -207,6 +210,45 @@ it('starts companion turns with the model selected on the home page', async () =
   })
   await waitFor(() => expect(start).toHaveBeenCalledOnce())
   expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'm-two' })
+})
+
+it('companion idle chat silently prefers a flash model already on that provider', async () => {
+  const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
+  const chosen: ProviderDTO = {
+    ...provider,
+    models: [
+      { modelId: 'glm-4-plus', displayName: 'Plus', isDefault: true, kind: 'llm' },
+      { modelId: 'glm-4-flash', displayName: 'Flash', isDefault: false, kind: 'llm' },
+    ],
+  }
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      messages={messages}
+      onBack={vi.fn()}
+      personal
+      initialSession={session}
+      initialCompanion
+      initialProviderId={chosen.id}
+      initialModelId="glm-4-plus"
+      chat={chat}
+      providers={{ list: vi.fn().mockResolvedValue({ items: [chosen] }) } as unknown as ProviderBridge}
+    />,
+  )
+  const stage = await waitFor(() => {
+    const node = document.querySelector('.companion-stage') as HTMLElement | null
+    expect(node).toBeTruthy()
+    return node!
+  })
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'), { timeout: 3000 })
+  await act(async () => {
+    speech.callbacks!.onFinal('今晚月色如何')
+  })
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'glm-4-flash' })
 })
 
 it('interrupt then a new spoken line starts a fresh companion chat.start', async () => {

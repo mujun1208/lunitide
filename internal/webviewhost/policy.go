@@ -83,7 +83,7 @@ func Dispatch(ctx context.Context, gateway *hostbridge.Gateway, generation uint6
 			var request struct {
 				Method string `json:"method"`
 			}
-			if json.Unmarshal(message.JSON, &request) != nil || (request.Method != "chat.start" && request.Method != "terminal.start") {
+			if json.Unmarshal(message.JSON, &request) != nil || (request.Method != "chat.start" && request.Method != "terminal.start" && request.Method != "tts.stream" && request.Method != "talk.start") {
 				return
 			}
 			payload, _ := json.Marshal(response.Payload)

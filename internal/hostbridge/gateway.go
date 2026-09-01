@@ -212,7 +212,7 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 			return failureFor(request, "TERMINAL_NOT_OWNED", "终端不属于当前页面", false), true
 		}
 	}
-	isStart := bridge.Method(request.Method) == bridge.MethodChatStart || bridge.Method(request.Method) == bridge.MethodTerminalStart
+	isStart := bridge.Method(request.Method) == bridge.MethodChatStart || bridge.Method(request.Method) == bridge.MethodTerminalStart || bridge.Method(request.Method) == bridge.MethodTtsStream || bridge.Method(request.Method) == bridge.MethodTalkStart
 	if isStart {
 		g.streamsMu.Lock()
 		if g.eventSourceClosed || g.consumerStopped {

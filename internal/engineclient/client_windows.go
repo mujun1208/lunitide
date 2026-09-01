@@ -316,6 +316,7 @@ func (c *Client) decodeEngineEvent(raw []byte) (bridge.Event, bool, error) {
 		event.Completed = nil
 		event.Tool = nil
 		event.Terminal = nil
+		event.Tts = nil
 		event.Error = &bridge.StreamError{Code: "ENGINE_EVENT_INVALID", Message: "流事件无效", Retryable: true}
 		return event, false, nil
 	}
@@ -461,12 +462,27 @@ func validRendererArtifact(a *bridge.ArtifactEvent) error {
 	return nil
 }
 
+func talkEventType(t bridge.EventType) bool {
+	switch t {
+	case bridge.EventTalkAudio, bridge.EventTalkTranscript, bridge.EventTalkTool, bridge.EventTalkError, bridge.EventTalkEnded:
+		return true
+	default:
+		return false
+	}
+}
+
 func validateEvent(e bridge.Event) error {
 	if e.Version != bridge.Version || e.Kind != "event" || !ulidValid(e.ID) || !ulidValid(e.StreamID) || e.Sequence < 1 {
 		return errors.New("event envelope mismatch")
 	}
 	if e.Type != bridge.EventThinking && e.Thinking != nil {
 		return errors.New("thinking payload on non-thinking event")
+	}
+	if e.Type != bridge.EventTtsChunk && e.Tts != nil {
+		return errors.New("tts payload on non-tts event")
+	}
+	if !talkEventType(e.Type) && e.Talk != nil {
+		return errors.New("talk payload on non-talk event")
 	}
 	if e.Type != bridge.EventToolStarted && e.Type != bridge.EventToolCompleted && e.Type != bridge.EventApprovalRequired && e.Type != bridge.EventToolOutput && e.Tool != nil {
 		return errors.New("tool payload on non-tool event")
@@ -540,6 +556,51 @@ func validateEvent(e bridge.Event) error {
 	case bridge.EventFailed:
 		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Error == nil || len(e.Error.Code) == 0 || len(e.Error.Code) > 128 || len(e.Error.Message) == 0 || len(e.Error.Message) > maxText {
 			return errors.New("invalid failed event")
+		}
+	case bridge.EventTtsChunk:
+		const maxAudio = 96 * 1024
+		if e.Tts == nil || e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil {
+			return errors.New("invalid tts chunk event")
+		}
+		if e.Tts.AudioBase64 == "" || len(e.Tts.AudioBase64) > maxAudio || e.Tts.Index < 0 {
+			return errors.New("invalid tts chunk fields")
+		}
+		switch e.Tts.Mime {
+		case "audio/mpeg", "audio/wav", "audio/pcm":
+		default:
+			return errors.New("invalid tts chunk mime")
+		}
+	case bridge.EventTalkAudio:
+		const maxAudio = 96 * 1024
+		if e.Talk == nil || e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Tts != nil {
+			return errors.New("invalid talk audio event")
+		}
+		if e.Talk.AudioBase64 == "" || len(e.Talk.AudioBase64) > maxAudio {
+			return errors.New("invalid talk audio fields")
+		}
+		switch e.Talk.Mime {
+		case "audio/mpeg", "audio/wav", "audio/pcm":
+		default:
+			return errors.New("invalid talk audio mime")
+		}
+	case bridge.EventTalkTranscript:
+		if e.Talk == nil || e.Talk.Text == "" || len(e.Talk.Text) > maxText || e.Delta != nil || e.Tts != nil {
+			return errors.New("invalid talk transcript event")
+		}
+		if e.Talk.Role != "user" && e.Talk.Role != "assistant" {
+			return errors.New("invalid talk transcript role")
+		}
+	case bridge.EventTalkTool:
+		if e.Talk == nil || e.Talk.Name == "" || len(e.Talk.Name) > 128 || e.Delta != nil || e.Tts != nil {
+			return errors.New("invalid talk tool event")
+		}
+	case bridge.EventTalkError:
+		if e.Talk == nil || e.Talk.Code == "" || e.Talk.Message == "" || len(e.Talk.Code) > 128 || len(e.Talk.Message) > maxText {
+			return errors.New("invalid talk error event")
+		}
+	case bridge.EventTalkEnded:
+		if e.Delta != nil || e.Tts != nil || e.Error != nil {
+			return errors.New("invalid talk ended event")
 		}
 	default:
 		return errors.New("unknown event type")

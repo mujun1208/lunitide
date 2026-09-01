@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/talk.cancel.schema.json",
+  "title": "talk.cancel payload",
+  "x-method": "talk.cancel",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["output", "all"]
+    }
+  },
+  "required": ["sessionId", "mode"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cancelled": {
+        "type": "boolean"
+      }
+    },
+    "required": ["cancelled"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "mode": "output"
+      },
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "mode": "all"
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "mode": "session"
+      },
+      {
+        "unexpected": 1
+      }
+    ]
+  }
+}

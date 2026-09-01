@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { ProviderDTO } from '../generated/bridge'
-import { blankVoiceModels, extraVoiceModel, hasConfiguredVolcTts, isAsrVoiceModel, isTtsVoiceModel, kindLabel, llmReadyProviders, modelKind, nextVoiceRole, persistKind, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice, preferredLLMOf, voiceReadyProviders } from './modelKind'
+import { blankVoiceModels, extraVoiceModel, hasConfiguredVolcTts, isAsrVoiceModel, isCompanionFlashModelId, isTalkRealtimeModelId, isTtsVoiceModel, kindLabel, llmReadyProviders, modelKind, nextVoiceRole, persistKind, pickCompanionFlashModel, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice, pickTalkRealtimeModel, preferredLLMOf, voiceReadyProviders } from './modelKind'
 
 const now = '2026-01-01T00:00:00Z'
 const base = (over: Partial<ProviderDTO> & Pick<ProviderDTO, 'id' | 'name' | 'models'>): ProviderDTO => ({
@@ -140,5 +140,44 @@ describe('modelKind helpers', () => {
     ])
     expect(extraVoiceModel(seeded)).toMatchObject({ modelId: 'zh_female_xiaohe_uranus_bigtts', kind: 'tts', displayName: '小何' })
     expect(extraVoiceModel([])).toMatchObject({ modelId: 'volc.seedasr.sauc.duration', kind: 'asr' })
+  })
+
+  test('companion flash pick stays on the current provider and does not invent ids', () => {
+    const provider = base({
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      name: 'Chat',
+      models: [
+        { modelId: 'glm-4-plus', displayName: 'Plus', isDefault: true, kind: 'llm' },
+        { modelId: 'glm-4-flash', displayName: 'Flash', isDefault: false, kind: 'llm' },
+        { modelId: 'gpt-4o-realtime-preview', displayName: 'Realtime', isDefault: false, kind: 'llm' },
+      ],
+    })
+    expect(isCompanionFlashModelId('glm-4-flash')).toBe(true)
+    expect(isCompanionFlashModelId('gpt-4o-realtime-preview')).toBe(false)
+    expect(isTalkRealtimeModelId('gpt-4o-realtime-preview')).toBe(true)
+    expect(isTalkRealtimeModelId('glm-4-air')).toBe(false)
+    expect(isTalkRealtimeModelId('olive-chat')).toBe(false)
+    expect(pickTalkRealtimeModel([provider])).toEqual({
+      providerId: provider.id,
+      modelId: 'gpt-4o-realtime-preview',
+    })
+    expect(pickCompanionFlashModel([provider], provider.id, 'glm-4-plus')).toEqual({
+      providerId: provider.id,
+      modelId: 'glm-4-flash',
+    })
+    expect(pickCompanionFlashModel([provider], provider.id, 'glm-4-flash')).toEqual({
+      providerId: provider.id,
+      modelId: 'glm-4-flash',
+    })
+    const onlyPlus = base({
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+      name: 'Slow',
+      models: [{ modelId: 'm-two', displayName: 'Two', isDefault: true, kind: 'llm' }],
+    })
+    expect(pickCompanionFlashModel([onlyPlus], onlyPlus.id, 'm-two')).toEqual({
+      providerId: onlyPlus.id,
+      modelId: 'm-two',
+    })
+    expect(pickTalkRealtimeModel([onlyPlus])).toBeUndefined()
   })
 })

@@ -29,3 +29,22 @@ func TestCleanTranscriptStripsFillersAndAcronyms(t *testing.T) {
 		t.Fatalf("not stable: %q vs %q", got, got2)
 	}
 }
+
+func TestCleanTranscriptCollapsesRepeatedHistory(t *testing.T) {
+	raw := "今天天气不错。\n今天天气不错。\n今天天气不错。我们开会。"
+	got := meetings.CleanTranscript(raw)
+	if strings.Count(got, "今天天气不错") != 1 {
+		t.Fatalf("repeat survived = %q", got)
+	}
+	if !strings.Contains(got, "我们开会") {
+		t.Fatalf("new clause lost = %q", got)
+	}
+}
+
+func TestCleanTranscriptCollapsesConcatenatedSentence(t *testing.T) {
+	clause := "针对一个场景的业务逻辑设计要把项目和专家包对齐"
+	got := meetings.CleanTranscript(clause + clause + clause)
+	if strings.Count(got, clause) != 1 {
+		t.Fatalf("tandem survived = %q", got)
+	}
+}

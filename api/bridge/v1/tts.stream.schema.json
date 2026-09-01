@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/tts.stream.schema.json",
+  "title": "tts.stream payload",
+  "x-method": "tts.stream",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "voiceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "rate": {
+      "type": "integer",
+      "minimum": -10,
+      "maximum": 10
+    },
+    "volume": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "engine": {
+      "type": "string",
+      "enum": ["sapi", "natural", "edge", "ref", "volc"]
+    },
+    "refEndpoint": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "refWavPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "refPromptText": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 500
+    },
+    "style": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": ["text"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "streamId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    },
+    "required": ["streamId"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "text": "你好，月伴。",
+        "engine": "edge"
+      },
+      {
+        "text": "火山朗读",
+        "engine": "volc",
+        "voiceId": "zh_female_xiaohe_uranus_bigtts"
+      }
+    ],
+    "negative": [
+      {
+        "text": ""
+      },
+      {
+        "text": "x",
+        "unexpected": 1
+      },
+      {
+        "text": "x",
+        "engine": "bogus"
+      }
+    ]
+  }
+}

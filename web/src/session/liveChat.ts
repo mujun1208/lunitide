@@ -113,14 +113,15 @@ export function startLiveChat(sessionId: string, turnId = '_current', activity?:
   return entry
 }
 
-export async function cancelLiveChatTurn(sessionId: string, turnId?: string): Promise<void> {
+export async function cancelLiveChatTurn(sessionId: string, turnId?: string, spokenText?: string): Promise<void> {
+  const spoken = typeof spokenText === 'string' ? spokenText.slice(0, 8000) : undefined
   const cancelEntry = async (entry: LiveChatEntry) => {
     const stream = entry.stream
     if (stream && !cancellingStreams.has(stream)) {
       cancellingStreams.add(stream)
       try {
         await Promise.race([
-          stream.cancel().then(() => undefined),
+          stream.cancel(spoken ? { spokenText: spoken } : undefined).then(() => undefined),
           new Promise<void>(resolve => setTimeout(resolve, CANCEL_WAIT_MS)),
         ])
       } catch { /* best effort */ }

@@ -20,7 +20,9 @@ describe('VoicePathPicker', () => {
     expect(screen.getByText('火山听 · 晓晓读（未配朗读）')).toBeInTheDocument()
     expect(screen.getByText('sherpa + GPT-SoVITS')).toBeInTheDocument()
     expect(screen.getByText(/豆包 App 里的温柔桃子/)).toBeInTheDocument()
-    expect(screen.getAllByText(/不能插话/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/打断用按钮/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/说完再答/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText(/不能打断/)).not.toBeInTheDocument()
     expect(document.querySelectorAll('.voice-path-card')).toHaveLength(3)
     expect(document.querySelectorAll('.voice-path-card.on')).toHaveLength(1)
   })
@@ -30,6 +32,12 @@ describe('VoicePathPicker', () => {
     expect(screen.getByText('火山听 · 火山读')).toBeInTheDocument()
     expect(screen.queryByText('晓晓读（未配朗读）')).not.toBeInTheDocument()
     expect(screen.queryByText(/已配火山朗读/)).not.toBeInTheDocument()
+  })
+
+  test('shows a talk-nucleus hint when a realtime model is already listed', () => {
+    render(<VoicePathPicker value="volc" talkReady onChange={() => undefined} />)
+    expect(screen.getByRole('status')).toHaveTextContent(/闲聊可走通话核/)
+    expect(screen.getByRole('status')).toHaveTextContent(/没接通仍用语模型/)
   })
 
   test('tells the user to click 火山 when TTS is ready but the path is still 云端', () => {

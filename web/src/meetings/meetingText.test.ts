@@ -4,6 +4,8 @@ import {
   cleanMeetingTranscript,
   createMeetingLineBuffer,
   joinMeetingLines,
+  collapseLiveTranscriptLines,
+  meetingLineDelta,
   MEETING_MERGE_GAP_MS,
   pickMeetingFinalText,
   shouldMergeMeetingLines,
@@ -78,6 +80,27 @@ describe('joinMeetingLines', () => {
   })
 })
 
+describe('meetingLineDelta', () => {
+  test('keeps only the new clause when ASR repeats the history', () => {
+    expect(meetingLineDelta('今天天气不错。', '今天天气不错。我们开会。')).toBe('我们开会。')
+    expect(meetingLineDelta('今天天气不错。我们开会。', '今天天气不错。我们开会。')).toBe('')
+    expect(meetingLineDelta('', '今天天气不错。')).toBe('今天天气不错。')
+  })
+
+  test('ignores the period cleanMeetingTranscript adds when ASR concatenates the same sentence', () => {
+    const clause = '针对一个场景的业务逻辑设计要把项目和专家包对齐'
+    expect(meetingLineDelta(`${clause}。`, clause + clause)).toBe('')
+    expect(meetingLineDelta(`${clause}。`, `${clause}。${clause}。`)).toBe('')
+  })
+})
+
+describe('collapseLiveTranscriptLines', () => {
+  test('drops prefix replays so the transcript is not one growing paragraph', () => {
+    const clause = '针对一个场景的业务逻辑设计要把项目和专家包对齐。'
+    expect(collapseLiveTranscriptLines([clause, clause + clause, clause])).toEqual([clause])
+  })
+})
+
 describe('createMeetingLineBuffer', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -96,5 +119,19 @@ describe('createMeetingLineBuffer', () => {
     expect(line).toMatch(/BRD/)
     expect(line).toMatch(/第二步/)
     expect(line).not.toMatch(/呃/)
+  })
+
+  test('does not emit the same spoken line twice when ASR repeats history', () => {
+    vi.useFakeTimers()
+    const emit = vi.fn()
+    const buffer = createMeetingLineBuffer(emit)
+    buffer.push('今天天气不错')
+    buffer.flush()
+    buffer.push('今天天气不错')
+    buffer.flush()
+    buffer.push('今天天气不错我们开会')
+    buffer.flush()
+    expect(emit.mock.calls.map(call => call[0]).join(' ')).not.toMatch(/今天天气不错.*今天天气不错/)
+    expect(emit).toHaveBeenCalledTimes(2)
   })
 })

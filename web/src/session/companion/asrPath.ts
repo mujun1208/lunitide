@@ -63,10 +63,10 @@ export function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
  * even when the sidecar was missing and Web Speech had taken over.
  */
 export function companionAsrPathLabel(route: AsrRoute, preference: SpeechRecognizer): string {
-  if (route === 'local') return '本机识别 · 音频留在这台电脑'
-  if (route === 'volc') return '火山听写 · seed-asr'
-  if (preference === 'cloud') return '系统识别'
-  return '系统识别 · 本机模型未就绪，语音会离开本机'
+  if (route === 'local') return '本机识别 · 说完再答 · 打断用按钮'
+  if (route === 'volc') return '火山听写 · seed-asr · 可对着麦打断'
+  if (preference === 'cloud') return '系统识别 · 说完再答 · 打断用按钮'
+  return '系统识别 · 本机模型未就绪，语音会离开本机 · 说完再答 · 打断用按钮'
 }
 
 /** Short 听-light copy for the live route, not the card the user saved. */

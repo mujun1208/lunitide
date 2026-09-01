@@ -405,7 +405,7 @@ W4  仅当书面确认「独立 Agent 办公室」——先改文案
 | W-VOICE-2 | 火山：只挑 ASR；`result` 对象/数组；`result_type=full`；合法 dialog_ctx | 代码已合；真机须新包勾 V-VOLC-ASR |
 | W-VOICE-3 | RefHost 进程死 → offline + lastErr；设置页超时文案 | 代码已合；真机须新包勾 V-LOC-HOST；不改 bat |
 | W-VOICE-4 | 云端走完一轮（依赖 1） | 代码已合（文案+去重）；真机须新包勾 V-CLOUD |
-| W-VOICE-5 | 打新包装勾专项 §7 | 包已打 0.4.46（签名 + Verify-Release 通过）。官方目录仍是 0.4.45 时须先跑 Setup。用 0.4.44 / 0.4.45 勾语音 / 「打断后灯稳」= 无效 |
+| W-VOICE-5 | 打新包装勾专项 §7 | 包已打 0.4.47（签名 + Verify-Release 通过）。官方目录未升前须先跑 Setup。用 0.4.44 / 0.4.45 / 0.4.46 勾本波 F-* / 会议复读 = 无效 |
 
 ### W1 — 真机（语音以外几乎不改代码）
 

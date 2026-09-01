@@ -21,8 +21,35 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// refStreamingOff is set after a streaming_mode=true probe returns non-RIFF
+// or HTTP failure. Companion may TryStreaming; production Synthesize stays off.
+var refStreamingOff atomic.Bool
+
+func refStreamingBanned() bool { return refStreamingOff.Load() }
+
+func banRefStreaming() { refStreamingOff.Store(true) }
+
+func resetRefStreamingBanForTest() { refStreamingOff.Store(false) }
+
+// refTTSBody is the GPT-SoVITS api_v2 JSON. Both streaming modes must parse;
+// the bat and port stay untouched.
+func refTTSBody(text, refWav, prompt string, rate int, streaming bool) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"text":              text,
+		"text_lang":         "zh",
+		"ref_audio_path":    refWav,
+		"prompt_text":       prompt,
+		"prompt_lang":       "zh",
+		"text_split_method": "cut0",
+		"media_type":        "wav",
+		"streaming_mode":    streaming,
+		"speed_factor":      refSpeedFactor(rate),
+	})
+}
 
 // RefAudioEntry is one row of the tts.refAudios directory listing.
 type RefAudioEntry struct {
@@ -112,17 +139,12 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 	// A narration sample running to a minute is a perfectly good timbre and
 	// an impossible prompt; trimmed to the window rather than refused.
 	refWav = refPromptClip(refWav)
-	body, _ := json.Marshal(map[string]any{
-		"text":              in.Text,
-		"text_lang":         "zh",
-		"ref_audio_path":    refWav,
-		"prompt_text":       in.RefPromptText,
-		"prompt_lang":       "zh",
-		"text_split_method": "cut0", // segments are already split upstream
-		"media_type":        "wav",
-		"streaming_mode":    false,
-		"speed_factor":      refSpeedFactor(in.Rate),
-	})
+	// L-2: both JSON modes must parse. Default stays false until a companion
+	// probe proves streaming clips stay ≤200ms — untested default-on jams CPU.
+	body, err := refTTSBody(in.Text, refWav, in.RefPromptText, in.Rate, in.TryStreaming && !refStreamingBanned())
+	if err != nil {
+		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色请求无效", ErrSynthesisFailed)
+	}
 	resp, err := r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
 	if err != nil {
 		// Connection refused on the default local endpoint → auto-host
@@ -153,6 +175,12 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 读取合成结果失败", ErrSynthesisFailed)
 	}
 	if resp.StatusCode != http.StatusOK || len(wav) < 44 || string(wav[:4]) != "RIFF" {
+		if in.TryStreaming && !refStreamingBanned() {
+			banRefStreaming()
+			retry := in
+			retry.TryStreaming = false
+			return r.Synthesize(retry)
+		}
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务返回异常（%s）", ErrSynthesisFailed, refServiceErrorDetail(resp.StatusCode, wav))
 	}
 	return SynthesizeResult{
