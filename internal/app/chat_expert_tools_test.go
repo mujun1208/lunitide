@@ -226,7 +226,7 @@ func TestDeliberateExpertOffersSpecialistTools(t *testing.T) {
 	e.SetToolRuntime(tools)
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused", `{}`)}}
 	adapter := &deliberateToolsAdapter{}
-	op := e.deliberateExpert(context.Background(), adapter, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", false, executionModeFullAccess, subTestSession)
+	op := e.deliberateExpert(context.Background(), adapter, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", "", false, executionModeFullAccess, subTestSession)
 	if op.Text != "独立意见" {
 		t.Fatalf("opinion = %+v adapter=%+v", op, adapter)
 	}

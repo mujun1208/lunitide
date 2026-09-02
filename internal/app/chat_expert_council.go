@@ -204,7 +204,7 @@ func expertDeliberateSystemPrompt(name, body string) string {
 	return fmt.Sprintf("你是专家「%s」。请严格以该岗位说明书的专业视角独立作答，不要模拟其他角色，也不要替用户做最终拍板。\n\n岗位说明书：\n%s\n\n%s\n\n输出格式（中文，简洁）：\n【立场】一句话\n【建议】3-6 条要点\n【风险】主要风险或反对点\n【前提】关键假设\n需要事实或素材时先调用 web.search（必要时 web.fetch）；需要成文时调用对应 *.gen（桌面 desktop=true）；结构图用 mermaid；匹配技能立刻 skill.invoke。不要倾倒 200 页全书。", name, body, specialistPersonaCapabilityLine())
 }
 
-func expertDeliberateUserPrompt(question, phaseLabel string) string {
+func expertDeliberateUserPrompt(question, phaseLabel, priorFindings string) string {
 	var b strings.Builder
 	b.WriteString("用户问题：\n")
 	b.WriteString(strings.TrimSpace(question))
@@ -212,11 +212,15 @@ func expertDeliberateUserPrompt(question, phaseLabel string) string {
 		b.WriteString("\n\n当前项目阶段：")
 		b.WriteString(phaseLabel)
 	}
+	if strings.TrimSpace(priorFindings) != "" {
+		b.WriteString("\n\n")
+		b.WriteString(strings.TrimSpace(priorFindings))
+	}
 	b.WriteString("\n\n请给出你的独立专业意见。")
 	return b.String()
 }
 
-func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel string, companion bool, mode executionMode, sessionID string) councilOpinion {
+func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel, priorFindings string, companion bool, mode executionMode, sessionID string) councilOpinion {
 	op := councilOpinion{ExpertID: expert.ID, ExpertName: expert.Name}
 	eq := e.equipmentForNames(ctx, []string{expert.Name})
 	tools := specialistToolDefinitions(e.engineToolDefinitionsFor(mode))
@@ -236,7 +240,7 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 		Tools:            tools,
 		Messages: []gateway.Message{
 			{Role: gateway.RoleSystem, Content: expertDeliberateSystemPrompt(expert.Name, expert.Body)},
-			{Role: gateway.RoleUser, Content: expertDeliberateUserPrompt(question, phaseLabel)},
+			{Role: gateway.RoleUser, Content: expertDeliberateUserPrompt(question, phaseLabel, priorFindings)},
 		},
 	}
 	allowed := toolNameSet(tools)
@@ -375,6 +379,13 @@ func (e *Engine) runExpertCouncil(ctx context.Context, a gateway.Adapter, creden
 		return "", nil
 	}
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: fmt.Sprintf("正在召开专家理事会（%d 位专家）…\n", len(cfg.Experts))}})
+	// M2 (default-off): when the shared working-memory bus is armed, run the
+	// specialists sequentially so each one can read and build on the earlier
+	// contributions. This stays on the single engine — it only adds prior
+	// findings to the next prompt, no independent runtime.
+	if e.governanceFlags().ExpertSharedBus() {
+		return e.runExpertCouncilShared(ctx, a, credential, model, cfg, send)
+	}
 	opinions := make([]councilOpinion, len(cfg.Experts))
 	for start := 0; start < len(cfg.Experts); start += councilParallelExperts {
 		end := start + councilParallelExperts
@@ -393,7 +404,7 @@ func (e *Engine) runExpertCouncil(ctx context.Context, a gateway.Adapter, creden
 					Type: bridge.EventToolStarted,
 					Tool: &bridge.ToolEvent{CallID: callID, Name: "expert.deliberate", ArgsDigest: digest, Summary: "专家「" + expert.Name + "」发言中…"},
 				})
-				opinions[idx] = e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, cfg.Companion, cfg.Mode, cfg.SessionID)
+				opinions[idx] = e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, "", cfg.Companion, cfg.Mode, cfg.SessionID)
 				summary := truncateUTF8Bytes(opinions[idx].Text, 480)
 				if opinions[idx].Err != nil {
 					summary = opinions[idx].Text
@@ -405,6 +416,40 @@ func (e *Engine) runExpertCouncil(ctx context.Context, a gateway.Adapter, creden
 			}(i)
 		}
 		wg.Wait()
+	}
+	brief := formatCouncilBrief(cfg.Question, opinions)
+	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "专家征询完成，月汐正在综合最优方案…\n"}})
+	return brief, nil
+}
+
+// runExpertCouncilShared is the M2 shared-bus variant: specialists speak in
+// order, each seeing a bounded digest of the prior speakers' opinions via
+// the shared working-memory bus. It produces the same council brief shape
+// as the parallel path so the chair synthesis is unchanged.
+func (e *Engine) runExpertCouncilShared(ctx context.Context, a gateway.Adapter, credential []byte, model string, cfg expertCouncilConfig, send func(bridge.Event) error) (string, error) {
+	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "专家共享工作记忆已启用：专家将依次发言、相互补充…\n"}})
+	bus := newExpertSharedBus()
+	opinions := make([]councilOpinion, len(cfg.Experts))
+	for idx, expert := range cfg.Experts {
+		callID := ulid.Make().String()
+		digest := expertDeliberateDigest(expert.ID, cfg.Question)
+		_ = send(bridge.Event{
+			Type: bridge.EventToolStarted,
+			Tool: &bridge.ToolEvent{CallID: callID, Name: "expert.deliberate", ArgsDigest: digest, Summary: "专家「" + expert.Name + "」发言中…"},
+		})
+		op := e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, bus.render(), cfg.Companion, cfg.Mode, cfg.SessionID)
+		opinions[idx] = op
+		if op.Err == nil {
+			bus.append(op.ExpertName, op.Text)
+		}
+		summary := truncateUTF8Bytes(op.Text, 480)
+		if op.Err != nil {
+			summary = op.Text
+		}
+		_ = send(bridge.Event{
+			Type: bridge.EventToolCompleted,
+			Tool: &bridge.ToolEvent{CallID: callID, Name: "expert.deliberate", ArgsDigest: digest, Summary: "专家「" + expert.Name + "」：" + summary},
+		})
 	}
 	brief := formatCouncilBrief(cfg.Question, opinions)
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "专家征询完成，月汐正在综合最优方案…\n"}})

@@ -25,6 +25,7 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
+	"github.com/lunitide/lunitide/internal/config"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
@@ -214,6 +215,9 @@ func main() {
 	memorySvc := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")
 	memorySvc.SetFTS(store)
 	engine.SetM8MemoryServices(memorySvc)
+	// Phase-3 governance switches (M1/M2/S2), armed only by explicit env
+	// override; unset keeps every frozen default in force.
+	engine.SetGovernanceFlags(config.LoadGovernanceFlagsFromEnv())
 	engine.SetPersistDir(dataRoot.Path())
 	// M10: the memory nomination workflow over the slice-1 core.
 	engine.SetM10NominationService(m8app.NewNominationService(store.AgentRuntimeRepository(), memorySvc))

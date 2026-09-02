@@ -633,7 +633,7 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 		if pref {
 			reason = preferenceNominationReason
 		}
-		_, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
+		res, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
 			SubjectID:       e.memorySubjectID(),
 			Doc:             doc,
 			Reason:          reason,
@@ -643,13 +643,15 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 		})
 		if err != nil {
 			log.Printf("chat memory: auto-nominate skipped: %v", err)
+			return err
 		}
-		return err
+		e.maybeAutoAcceptCandidate(ctx, res.CandidateID)
+		return nil
 	}
 	if e.m8memory == nil {
 		return nil
 	}
-	_, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
+	prop, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
 		SubjectID: e.memorySubjectID(),
 		Doc:       doc,
 		Inferred:  true,
@@ -658,8 +660,36 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 	})
 	if err != nil {
 		log.Printf("chat memory: auto-propose skipped: %v", err)
+		return err
 	}
-	return err
+	e.maybeAutoAcceptCandidate(ctx, prop.Candidate.CandidateID)
+	return nil
+}
+
+// maybeAutoAcceptCandidate applies the M1 governed low-risk auto-accept
+// when its default-off switch is armed. It is a no-op when the switch is
+// off (the freeze default: every candidate stays pending for explicit
+// human confirmation). High-risk candidates are held for the human even
+// when the switch is on; ErrExplicitConfirmationRequired is the expected
+// hold signal, not an error to surface.
+func (e *Engine) maybeAutoAcceptCandidate(ctx context.Context, candidateID string) {
+	if e == nil || e.m8memory == nil || candidateID == "" {
+		return
+	}
+	if !e.governanceFlags().MemoryAutoAccept() {
+		return
+	}
+	res, err := e.m8memory.AutoAcceptCandidate(ctx, candidateID, "chat.auto")
+	if err != nil {
+		if errors.Is(err, m8app.ErrExplicitConfirmationRequired) {
+			return // high-risk held for human; expected
+		}
+		log.Printf("chat memory: auto-accept skipped: %v", err)
+		return
+	}
+	if res.Accepted {
+		log.Printf("chat memory: auto-accepted low-risk candidate %s", candidateID)
+	}
 }
 
 func expertOwnedMemoryKey(expertID, kind string) string {
