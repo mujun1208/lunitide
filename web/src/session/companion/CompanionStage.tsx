@@ -159,7 +159,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const onEngagedRef = useRef(onEngaged)
   onEngagedRef.current = onEngaged
   const cascadeSpeechBlocked = () => companionCascadeSpeechBlocked({
-    talkLive: talkLiveRef.current,
+    // talkHandleRef is set synchronously in adoptTalk, before setTalkLive's
+    // render commits talkLiveRef. Reading the handle here closes the window
+    // where cascade seed-tts would speak the same reply the talk PCM is
+    // already streaming (the "two mouths, one reply" doubling).
+    talkLive: talkLiveRef.current || talkHandleRef.current != null,
     talkPending: talkPendingRef.current,
     talkSuppressPlay: talkSuppressPlayRef.current,
   })
