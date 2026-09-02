@@ -33,6 +33,7 @@ vi.mock('../../bridge/client', async importOriginal => {
       synthesize: vi.fn(),
       cancel: vi.fn(),
       ensureRefEngine: vi.fn().mockResolvedValue({ state: 'online' }),
+      installOnnxEngine: vi.fn().mockResolvedValue({ state: 'ready', percent: 100, doneBytes: 0, totalBytes: 0 }),
     }),
     getProviderBridge: () => ({
       list: () => Promise.resolve({ items: [] }),

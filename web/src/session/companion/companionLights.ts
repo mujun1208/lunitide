@@ -32,6 +32,8 @@ export type CompanionLightProbes = {
   listProviders?: () => Promise<{ items: ProviderDTO[] }>
   localAsr?: () => Promise<{ supported?: boolean; ready?: boolean } | undefined>
   refEngine?: (endpoint?: string) => Promise<{ state: string; last_error?: string }>
+  /** Read-only ONNX install probe (never starts a download). */
+  onnxEngine?: () => Promise<{ state: string }>
 }
 
 export const COMPANION_ENTRY_PROBE_MS = 800
@@ -78,6 +80,7 @@ export async function inspectCompanionEntry(
   voicePath: VoicePath,
   refEndpoint = '',
   probes: CompanionLightProbes = {},
+  localEngine: 'onnx' | 'ref' = 'onnx',
 ): Promise<CompanionEntryReport> {
   const path = shownVoicePath(voicePath)
   const listed = await withBudget(
@@ -116,6 +119,30 @@ export async function inspectCompanionEntry(
     speakLabel = hasVolcTts ? (speakerName ? `火山 · ${speakerName}` : '火山 seed-tts') : '晓晓（未配朗读）'
     speakReady = true
     speakState = 'on'
+  } else if (path === 'local' && localEngine === 'onnx') {
+    // Bundled offline Kokoro: readiness is purely "are both bundles on disk".
+    // The probe is read-only — it must not kick off the 350 MB download.
+    speakLabel = 'Kokoro 本地'
+    const onnx = await withBudget(
+      (probes.onnxEngine ?? (() => getTtsBridge().installOnnxEngine()))(),
+      { state: 'idle' },
+    )
+    if (onnx.timedOut) {
+      speakReady = false
+      speakState = 'warn'
+      speakLabel = 'Kokoro 检测中'
+    } else if (onnx.value.state === 'ready') {
+      speakReady = true
+      speakState = 'on'
+    } else if (onnx.value.state === 'downloading') {
+      speakReady = false
+      speakState = 'warn'
+      speakLabel = 'Kokoro 下载中'
+    } else {
+      speakReady = false
+      speakState = 'off'
+      speakLabel = 'Kokoro 未安装（设置内下载）'
+    }
   } else if (path === 'local') {
     speakLabel = 'GPT-SoVITS'
     const ref = await withBudget(

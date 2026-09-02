@@ -160,6 +160,11 @@ func main() {
 	// when a manifest points at one, where the ref launcher discovers it.
 	engine.SetRefEngineInstall(app.NewRefEngineInstall())
 
+	// On-demand offline ONNX voice download (sherpa-onnx + Kokoro): two
+	// digest-pinned bundles pulled into %LOCALAPPDATA%\Lunitide so the local
+	// path is install-and-use with no Python and no reference audio.
+	engine.SetOnnxEngineInstall(app.NewOnnxEngineInstall())
+
 	// M7 slice 1: the nine-stage versioned workflow backbone.
 	engine.SetM7WorkflowServices(m7app.NewWorkflowService(store.AgentRuntimeRepository()))
 

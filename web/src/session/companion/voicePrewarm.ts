@@ -37,9 +37,11 @@ export function setVoicePrewarmPref(pref: PrewarmPref): void {
   }
 }
 
-/** Only the cold-start engines benefit; edge/sapi are already warm-pooled. */
+/** Only the cold-start engines benefit; edge/sapi are already warm-pooled.
+ *  ONNX spawns a fresh process per synthesis, so a prewarm pulls the ~330 MB
+ *  Kokoro model into the OS page cache and the real reply reads it from RAM. */
 export function shouldPrewarmEngine(engine: CompanionSettings['engine']): boolean {
-  return engine === 'ref' || engine === 'volc'
+  return engine === 'ref' || engine === 'volc' || engine === 'onnx'
 }
 
 /**
@@ -49,7 +51,7 @@ export function shouldPrewarmEngine(engine: CompanionSettings['engine']): boolea
  * because a warmup synth spends Agent Plan quota.
  */
 export function prewarmDefaultForEngine(engine: CompanionSettings['engine']): boolean {
-  return engine === 'ref'
+  return engine === 'ref' || engine === 'onnx'
 }
 
 /** Effective on/off for one engine — what the settings toggle should show. */

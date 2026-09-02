@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import {
+  applyLocalEngine,
   applyVoicePath,
   companionEngineProbeOrder,
   companionVoiceBargeInEnabled,
@@ -43,7 +44,7 @@ describe('companionSettings voice default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.engine).toBe('edge')
     expect(loaded.wakeWord).toBe(false)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(12)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(13)
   })
 
   test('an install left on OneCore is moved off it, voice id and all', () => {
@@ -82,7 +83,7 @@ describe('companionSettings voice default', () => {
     const loaded = loadCompanionSettings()
     expect(loaded.fullDuplex).toBe(true)
     expect(loaded.interruptHotkey).toEqual({ key: 'Tab', ctrl: false, alt: false, shift: false })
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(12)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(13)
   })
 
   test('even a deliberate OneCore choice is moved, because it cannot work', () => {
@@ -121,7 +122,7 @@ describe('companionSettings voice default', () => {
       rev: 10,
     }))
     expect(loadCompanionSettings().instantAck).toBe(false)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(12)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(13)
   })
 
   test('a current-rev on choice for the pad stays on', () => {
@@ -163,7 +164,7 @@ describe('companion engine fallback helpers', () => {
     expect(companionEngineProbeOrder('ref')).not.toContain('sapi')
     expect(companionEngineProbeOrder('volc')).not.toContain('edge')
     const localReady = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), true)
-    expect(localReady).toMatchObject({ engine: 'ref', lockEngine: true, voicePath: 'local' })
+    expect(localReady).toMatchObject({ engine: 'onnx', lockEngine: true, voicePath: 'local' })
     const localDown = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), false)
     expect(localDown).toMatchObject({ engine: 'edge', lockEngine: true, voiceId: '', voicePath: 'local' })
     const localSlow = companionPlaybackSettings(applyVoicePath(defaultCompanionSettings(), 'local'), true, true)
@@ -190,15 +191,36 @@ describe('companion engine fallback helpers', () => {
     ).toBe(false)
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'zh_female_vv_uranus_bigtts' }, 'cloud').voiceId).toBe('')
-    expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')
-    expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('refpack:优质台湾腔.wav')
+    // 本地 now defaults to the bundled offline Kokoro (onnx) engine.
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('onnx')
+    expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceId).toBe('onnx-zf-xiaoxiao')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').voiceBargeIn).toBe(false)
     expect(applyVoicePath(defaultCompanionSettings(), 'local').recognizer).toBe('local')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'cloud').voiceId).toBe('')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'omni').voicePath).toBe('cloud')
   })
 
-  test('keeps a saved local clone path', () => {
+  test('keeps a current-rev explicit GPT-SoVITS clone path', () => {
+    // rev 13 = the user re-picked GPT-SoVITS after the Kokoro default landed,
+    // so the ref choice and its refpack voice must survive untouched.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      enabled: true,
+      voicePath: 'local',
+      engine: 'ref',
+      voiceId: 'refpack:甜心少女.wav',
+      rev: 13,
+    }))
+    const loaded = loadCompanionSettings()
+    expect(loaded.voicePath).toBe('local')
+    expect(loaded.engine).toBe('ref')
+    expect(loaded.voiceId).toBe('refpack:甜心少女.wav')
+    expect(loaded.voiceBargeIn).toBe(false)
+  })
+
+  test('migrates a legacy GPT-SoVITS local save onto bundled Kokoro once', () => {
+    // rev < 13 pinned 本地 to GPT-SoVITS, whose models lived on a hardcoded
+    // external drive. The one-time migration moves it to the install-and-use
+    // offline Kokoro engine and normalizes the voice id.
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       enabled: true,
       voicePath: 'local',
@@ -207,9 +229,9 @@ describe('companion engine fallback helpers', () => {
     }))
     const loaded = loadCompanionSettings()
     expect(loaded.voicePath).toBe('local')
-    expect(loaded.engine).toBe('ref')
-    expect(loaded.voiceId).toBe('refpack:甜心少女.wav')
-    expect(loaded.voiceBargeIn).toBe(false)
+    expect(loaded.engine).toBe('onnx')
+    expect(loaded.voiceId).toBe('onnx-zf-xiaoxiao')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').rev).toBe(13)
   })
 
   test('migrates a saved volc listen path onto seed-tts', () => {
@@ -238,7 +260,9 @@ describe('companion engine fallback helpers', () => {
     expect(loaded.voiceId).toBe('')
   })
 
-  test('migrates leftover ref engine without a path onto local', () => {
+  test('migrates leftover ref engine without a path onto local Kokoro', () => {
+    // A legacy ref save with no voicePath is inferred as 本地, then the rev<13
+    // migration moves the timbre engine onto the bundled offline Kokoro.
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       enabled: true,
       engine: 'ref',
@@ -246,8 +270,8 @@ describe('companion engine fallback helpers', () => {
     }))
     const loaded = loadCompanionSettings()
     expect(loaded.voicePath).toBe('local')
-    expect(loaded.engine).toBe('ref')
-    expect(loaded.voiceId).toBe('refpack:优质台湾腔.wav')
+    expect(loaded.engine).toBe('onnx')
+    expect(loaded.voiceId).toBe('onnx-zf-xiaoxiao')
   })
 
   test('migrates leftover MiniCPM-o / FLM saves onto 云端', () => {
@@ -272,6 +296,35 @@ describe('companion engine fallback helpers', () => {
   test('drops cloud voice ids when falling back to OneCore', () => {
     expect(voiceIdForEngineSwitch('edge', 'natural', 'zh-CN-XiaoxiaoNeural::chat')).toBe('')
     expect(voiceIdForEngineSwitch('natural', 'edge', 'HKEY_LOCAL_MACHINE\\x')).toBe('')
+  })
+
+  test('onnx voice ids only survive an onnx↔onnx switch', () => {
+    // Kokoro ids are meaningless to every other engine and vice versa.
+    expect(voiceIdForEngineSwitch('onnx', 'onnx', 'onnx-zm-yunxi')).toBe('onnx-zm-yunxi')
+    expect(voiceIdForEngineSwitch('edge', 'onnx', 'zh-CN-XiaoxiaoNeural')).toBe('')
+    expect(voiceIdForEngineSwitch('onnx', 'edge', 'onnx-zf-xiaoxiao')).toBe('')
+    expect(voiceIdForEngineSwitch('onnx', 'ref', 'onnx-zf-xiaoxiao')).toBe('')
+  })
+
+  test('applyLocalEngine swaps between Kokoro and GPT-SoVITS and keeps the local recognizer', () => {
+    const base = defaultCompanionSettings()
+    const onnx = applyLocalEngine(base, 'onnx')
+    expect(onnx).toMatchObject({ voicePath: 'local', engine: 'onnx', recognizer: 'local' })
+    expect(onnx.voiceId).toBe('onnx-zf-xiaoxiao')
+
+    // onnx → ref falls back to the saved omni persona (a refpack clone).
+    const ref = applyLocalEngine(onnx, 'ref')
+    expect(ref).toMatchObject({ voicePath: 'local', engine: 'ref', recognizer: 'local' })
+    expect(ref.voiceId).toBe(base.omniPersonaId)
+
+    // ref → onnx normalizes the incompatible refpack id back to the default.
+    const backToOnnx = applyLocalEngine(ref, 'onnx')
+    expect(backToOnnx.engine).toBe('onnx')
+    expect(backToOnnx.voiceId).toBe('onnx-zf-xiaoxiao')
+
+    // An explicit onnx voice id is preserved across an onnx re-apply.
+    const chosen = applyLocalEngine({ ...onnx, voiceId: 'onnx-zm-yunxi' }, 'onnx')
+    expect(chosen.voiceId).toBe('onnx-zm-yunxi')
   })
 })
 

@@ -48,6 +48,7 @@ vi.mock('./bridge/client', async importOriginal => {
       voices: () => Promise.resolve({ voices: [{ voice_id: 'zh-female', display_name: '月汐温柔女声', gender: 'female' as const, lang: 'zh-CN' }] }),
       synthesize: vi.fn(),
       cancel: vi.fn(),
+      installOnnxEngine: () => Promise.resolve({ state: 'ready', percent: 100, doneBytes: 0, totalBytes: 0 }),
     }),
     automationBridge: { listRuns: () => Promise.resolve({ runs: [] }) },
     sessionFolderBridge: { get: vi.fn().mockResolvedValue({ path: '' }), list: vi.fn(), open: vi.fn() },

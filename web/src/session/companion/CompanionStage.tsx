@@ -454,7 +454,10 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     setTtsAvailable(true)
     const deferTtsWarmup = window.setTimeout(() => {
       if (cancelled) return
-      const probeEngines = stored.voicePath === 'local' ? (['ref'] as const) : companionEngineProbeOrder(stored.engine)
+      const probeEngines =
+        stored.voicePath === 'local'
+          ? ([stored.engine === 'ref' ? 'ref' : 'onnx'] as const)
+          : companionEngineProbeOrder(stored.engine)
       void (async () => {
         for (const engine of [...new Set(probeEngines)]) {
           if (cancelled) return

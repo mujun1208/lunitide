@@ -15,6 +15,7 @@ type RouterEngine struct {
 	ref  Engine
 	edge Engine
 	volc Engine
+	onnx Engine
 }
 
 type naturalVoiceCatalog interface {
@@ -24,7 +25,7 @@ type naturalVoiceCatalog interface {
 // NewRouterEngine wraps the platform (SAPI) engine with the cloud Edge
 // engine and the local reference-timbre engine.
 func NewRouterEngine(platform Engine) *RouterEngine {
-	return &RouterEngine{sapi: platform, ref: NewRefEngine(), edge: NewEdgeEngine(), volc: NewVolcEngine()}
+	return &RouterEngine{sapi: platform, ref: NewRefEngine(), edge: NewEdgeEngine(), volc: NewVolcEngine(), onnx: NewOnnxEngine()}
 }
 
 // NewRouterEngineWithEngines wires explicit SAPI and ref implementations
@@ -42,6 +43,11 @@ func NewRouterEngineWithAll(sapi, ref, edge Engine) *RouterEngine {
 // NewRouterEngineWithVolc wires a fake or real Volc engine for tests.
 func NewRouterEngineWithVolc(sapi, ref, edge, volc Engine) *RouterEngine {
 	return &RouterEngine{sapi: sapi, ref: ref, edge: edge, volc: volc}
+}
+
+// NewRouterEngineWithOnnx wires a fake or real ONNX engine for tests.
+func NewRouterEngineWithOnnx(sapi, ref, edge, volc, onnx Engine) *RouterEngine {
+	return &RouterEngine{sapi: sapi, ref: ref, edge: edge, volc: volc, onnx: onnx}
 }
 
 // Voices enumerates the platform engine catalogue (OneCore natural
@@ -68,6 +74,11 @@ func (r *RouterEngine) VoicesFor(engine string) ([]Voice, error) {
 			return nil, fmt.Errorf("%w: 参考音色引擎未装配", ErrEngineUnavailable)
 		}
 		return r.ref.Voices()
+	case EngineOnnx:
+		if r.onnx == nil {
+			return nil, fmt.Errorf("%w: 本地语音引擎未装配", ErrEngineUnavailable)
+		}
+		return r.onnx.Voices()
 	case EngineNatural:
 		if r.sapi == nil {
 			return nil, fmt.Errorf("%w: SAPI 引擎未装配", ErrEngineUnavailable)
@@ -98,6 +109,11 @@ func (r *RouterEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, e
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色引擎未装配", ErrEngineUnavailable)
 		}
 		return r.ref.Synthesize(in)
+	case EngineOnnx:
+		if r.onnx == nil {
+			return SynthesizeResult{}, false, fmt.Errorf("%w: 本地语音引擎未装配", ErrEngineUnavailable)
+		}
+		return r.onnx.Synthesize(in)
 	case EngineEdge:
 		if r.edge == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音引擎未装配", ErrEngineUnavailable)
@@ -147,6 +163,9 @@ func (r *RouterEngine) synthesizeStream(ctx context.Context, in SynthesizeInput,
 		eng := r.sapi
 		if in.Engine == EngineRef {
 			eng = r.ref
+		}
+		if in.Engine == EngineOnnx {
+			eng = r.onnx
 		}
 		if eng == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 语音引擎未装配", ErrEngineUnavailable)

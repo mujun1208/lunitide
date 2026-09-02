@@ -11,7 +11,18 @@ import { useEffect, useState } from 'react'
 import type { VoicePath } from './voicePersonas'
 import { VOLC_DEFAULT_VOICE_ID, isVolcSpeakerId } from './volcVoices'
 
-export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref' | 'volc'
+export type CompanionEngine = 'edge' | 'natural' | 'sapi' | 'ref' | 'volc' | 'onnx'
+
+/**
+ * Default local voice id for the bundled offline ONNX (Kokoro) engine. Mirrors
+ * the backend tts.OnnxDefaultVoiceID (a natural Mandarin female, sid 47).
+ */
+export const ONNX_DEFAULT_VOICE_ID = 'onnx-zf-xiaoxiao'
+
+/** True for the bundled offline Kokoro voice ids exposed by the picker. */
+export function isOnnxVoiceId(voiceId: string): boolean {
+  return voiceId.startsWith('onnx-')
+}
 /** Product-level voice channel. MiniCPM-o is not a TTS engine. */
 export type { VoicePath }
 /** normal = default endpointing; noisy = tighter mic gate for cafes / shared rooms. */
@@ -93,7 +104,7 @@ export interface CompanionSettings {
 }
 
 const STORAGE_KEY = 'lunitide:companion'
-const SETTINGS_REV = 12
+const SETTINGS_REV = 13
 
 /** True only when the user (or a previous save) wrote an explicit voicePath. */
 export function hasExplicitCompanionVoicePath(): boolean {
@@ -137,7 +148,12 @@ export function companionPlaybackSettings(
 ): CompanionSettings & { lockEngine?: boolean } {
   if (settings.voicePath === 'local') {
     if (speakReady && !preferEdge) {
-      return { ...settings, engine: 'ref', lockEngine: true }
+      // The local path defaults to the bundled offline ONNX (Kokoro) engine;
+      // GPT-SoVITS (ref) stays reachable only when the user explicitly chose
+      // it. Either way the engine is locked so a caption-only fallback never
+      // silently swaps the local timbre for a cloud one.
+      const localEngine: CompanionEngine = settings.engine === 'ref' ? 'ref' : 'onnx'
+      return { ...settings, engine: localEngine, lockEngine: true }
     }
     return { ...settings, engine: 'edge', voiceId: '', lockEngine: true }
   }
@@ -162,6 +178,10 @@ export function voiceIdForEngineSwitch(from: CompanionEngine, to: CompanionEngin
   if (!voiceId || from === to) return voiceId
   if (to === 'volc') return isVolcSpeakerId(voiceId) ? voiceId : ''
   if (from === 'volc') return ''
+  // Offline ONNX ids (onnx-*) are meaningless to any other engine and vice
+  // versa, so a switch in or out of onnx always drops the incompatible id.
+  if (to === 'onnx') return isOnnxVoiceId(voiceId) ? voiceId : ''
+  if (from === 'onnx') return ''
   if (from === 'edge' && (to === 'natural' || to === 'sapi')) {
     if (/Neural|::|^zh-CN-/i.test(voiceId)) return ''
   }
@@ -227,7 +247,22 @@ export function loadCompanionSettings(): CompanionSettings {
     const voicePath = readVoicePath(parsed.voicePath, engine)
     if (parsed.voicePath === 'omni' || parsed.voicePath === 'flm') persist = true
     if (voicePath === 'local') {
-      engine = 'ref'
+      // rev < 13 shipped the local path pinned to GPT-SoVITS (ref), whose
+      // models lived on a hardcoded external drive. The bundled offline ONNX
+      // (Kokoro) engine is now the install-and-use local default: migrate
+      // legacy ref saves onto it once, and normalize the voice id. A user who
+      // wants GPT-SoVITS back can re-pick it (engine stays 'ref' thereafter).
+      if (engine !== 'onnx' && engine !== 'ref') {
+        engine = 'onnx'
+      }
+      if (rev < 13 && engine === 'ref') {
+        engine = 'onnx'
+        persist = true
+      }
+      if (engine === 'onnx' && !isOnnxVoiceId(voiceId)) {
+        voiceId = ONNX_DEFAULT_VOICE_ID
+        persist = true
+      }
     } else if (voicePath === 'volc') {
       if (engine !== 'volc') persist = true
       engine = 'volc'
@@ -297,7 +332,7 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 }
 
 function isEngine(value: unknown): value is CompanionEngine {
-  return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref' || value === 'volc'
+  return value === 'edge' || value === 'natural' || value === 'sapi' || value === 'ref' || value === 'volc' || value === 'onnx'
 }
 
 function isVoicePath(value: unknown): value is VoicePath {
@@ -310,7 +345,7 @@ function readVoicePath(value: unknown, engine: CompanionEngine): VoicePath {
   // engine that truncated captions and trapped 说话中.
   if (value === 'flm' || value === 'omni') return 'cloud'
   if (isVoicePath(value)) return value
-  return engine === 'ref' ? 'local' : 'cloud'
+  return engine === 'ref' || engine === 'onnx' ? 'local' : 'cloud'
 }
 
 function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback: string): string {
@@ -345,8 +380,9 @@ export function companionVoiceBargeInEnabled(_settings: Pick<CompanionSettings, 
 
 export function applyVoicePath(settings: CompanionSettings, path: VoicePath, opts?: { volcTtsReady?: boolean }): CompanionSettings {
   if (path === 'local') {
-    const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
-    return { ...settings, voicePath: 'local', engine: 'ref', voiceId, recognizer: 'local' }
+    // The local path defaults to the bundled offline ONNX (Kokoro) engine;
+    // an explicit prior GPT-SoVITS (ref) choice is preserved.
+    return applyLocalEngine(settings, settings.engine === 'ref' ? 'ref' : 'onnx')
   }
   if (path === 'volc') {
     if (opts?.volcTtsReady === false) {
@@ -356,8 +392,23 @@ export function applyVoicePath(settings: CompanionSettings, path: VoicePath, opt
     const voiceId = isVolcSpeakerId(settings.voiceId) ? settings.voiceId : VOLC_DEFAULT_VOICE_ID
     return { ...settings, voicePath: 'volc', engine: 'volc', voiceId }
   }
-  const voiceId = settings.voiceId.startsWith('refpack:') || isVolcSpeakerId(settings.voiceId) ? '' : settings.voiceId
+  const voiceId = settings.voiceId.startsWith('refpack:') || isVolcSpeakerId(settings.voiceId) || isOnnxVoiceId(settings.voiceId) ? '' : settings.voiceId
   return { ...settings, voicePath: 'cloud', engine: 'edge', voiceId }
+}
+
+/**
+ * Choose which engine backs the 本地 path: the bundled offline ONNX (Kokoro,
+ * install-and-use, the default) or GPT-SoVITS (ref, an optional cloning
+ * engine). Swaps the voice id onto one the target engine understands and keeps
+ * the local recognizer.
+ */
+export function applyLocalEngine(settings: CompanionSettings, engine: 'onnx' | 'ref'): CompanionSettings {
+  if (engine === 'ref') {
+    const voiceId = settings.voiceId.startsWith('refpack:') ? settings.voiceId : settings.omniPersonaId
+    return { ...settings, voicePath: 'local', engine: 'ref', voiceId, recognizer: 'local' }
+  }
+  const voiceId = isOnnxVoiceId(settings.voiceId) ? settings.voiceId : ONNX_DEFAULT_VOICE_ID
+  return { ...settings, voicePath: 'local', engine: 'onnx', voiceId, recognizer: 'local' }
 }
 
 function isRecognizer(value: unknown): value is SpeechRecognizer {
