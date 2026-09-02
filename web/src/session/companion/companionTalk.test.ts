@@ -4,10 +4,35 @@ import type { ProviderDTO } from '../../generated/bridge'
 import {
   companionCascadeSpeechBlocked,
   isCompanionIdleChat,
+  newTalkRetryState,
+  noteTalkFailure,
   shouldOfferCompanionTalk,
   startCompanionTalk,
   TALK_FALLBACK_BANNER,
+  TALK_MAX_FAILURES,
+  TALK_RETRY_COOLDOWN_MS,
+  talkRetryBlocked,
 } from './companionTalk'
+
+describe('talk retry backoff', () => {
+  test('a fresh state offers talk', () => {
+    expect(talkRetryBlocked(newTalkRetryState(), 1_000)).toBe(false)
+  })
+
+  test('a single failure backs off during the cooldown, then re-offers', () => {
+    const after = noteTalkFailure(newTalkRetryState(), 1_000)
+    expect(talkRetryBlocked(after, 1_000 + TALK_RETRY_COOLDOWN_MS - 1)).toBe(true)
+    expect(talkRetryBlocked(after, 1_000 + TALK_RETRY_COOLDOWN_MS + 1)).toBe(false)
+  })
+
+  test('a run of failures latches for the session', () => {
+    let state = newTalkRetryState()
+    for (let i = 0; i < TALK_MAX_FAILURES; i += 1) state = noteTalkFailure(state, i * 1_000_000)
+    expect(state.failures).toBe(TALK_MAX_FAILURES)
+    // Even far past the cooldown, a latched state stays blocked.
+    expect(talkRetryBlocked(state, 9_999_999_999)).toBe(true)
+  })
+})
 
 const sessionId = '01ARZ3NDEKTSV4RRFFQ69G5FAW'
 const realtime: ProviderDTO = {

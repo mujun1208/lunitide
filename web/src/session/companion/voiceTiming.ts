@@ -76,3 +76,75 @@ export function resetVoiceTimings(): void {
   ring.length = 0
   current = undefined
 }
+
+// Latency budgets in milliseconds. These are the "出字快 / 回答快 / 不卡壳"
+// service levels a turn must meet to feel real-time. They are diagnostic only:
+// nothing in the product path reads them, but a turn that breaches one is what
+// a regression guard should catch before it ships.
+export const VOICE_LATENCY_BUDGETS = {
+  /** Silence detected → recognizer returns the first partial. */
+  endpointMs: 1500,
+  /** User stopped → first LLM token (time-to-first-byte of the reply). */
+  ttfbMs: 1200,
+  /** User stopped → first audible speech sample from the synthesizer. */
+  firstAudioMs: 1500,
+} as const
+
+export type VoiceLatencyBudgetField = keyof typeof VOICE_LATENCY_BUDGETS
+
+const BUDGET_TO_RECORD: Record<VoiceLatencyBudgetField, keyof VoiceTurnRecord> = {
+  endpointMs: 'endpointMs',
+  ttfbMs: 'ttfbMs',
+  firstAudioMs: 'firstAudioMs',
+}
+
+export type VoiceLatencyBreach = {
+  field: VoiceLatencyBudgetField
+  actualMs: number
+  budgetMs: number
+}
+
+/** Which SLA budgets a single turn blew past. A stall counts as a breach of
+ * every measured budget so a hung turn never looks fast. */
+export function voiceTurnBreaches(record: VoiceTurnRecord): VoiceLatencyBreach[] {
+  const breaches: VoiceLatencyBreach[] = []
+  for (const field of Object.keys(VOICE_LATENCY_BUDGETS) as VoiceLatencyBudgetField[]) {
+    const budgetMs = VOICE_LATENCY_BUDGETS[field]
+    const actual = record[BUDGET_TO_RECORD[field]]
+    if (typeof actual !== 'number') continue
+    if (record.outcome === 'stall' || actual > budgetMs) {
+      breaches.push({ field, actualMs: actual, budgetMs })
+    }
+  }
+  return breaches
+}
+
+export type VoiceLatencyStat = { p50?: number; p95?: number; max?: number; count: number }
+
+function percentile(sorted: number[], p: number): number | undefined {
+  if (sorted.length === 0) return undefined
+  const rank = Math.ceil((p / 100) * sorted.length) - 1
+  return sorted[Math.min(sorted.length - 1, Math.max(0, rank))]
+}
+
+/** p50/p95/max per latency field across the retained ring. Used by the
+ * diagnostics panel and by tests that assert the pipeline stays within SLA. */
+export function voiceTimingSummary(
+  records: readonly VoiceTurnRecord[] = ring,
+): Record<VoiceLatencyBudgetField, VoiceLatencyStat> {
+  const out = {} as Record<VoiceLatencyBudgetField, VoiceLatencyStat>
+  for (const field of Object.keys(VOICE_LATENCY_BUDGETS) as VoiceLatencyBudgetField[]) {
+    const key = BUDGET_TO_RECORD[field]
+    const values = records
+      .map(r => r[key])
+      .filter((v): v is number => typeof v === 'number')
+      .sort((a, b) => a - b)
+    out[field] = {
+      p50: percentile(values, 50),
+      p95: percentile(values, 95),
+      max: values.length ? values[values.length - 1] : undefined,
+      count: values.length,
+    }
+  }
+  return out
+}

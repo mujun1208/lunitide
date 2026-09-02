@@ -58,10 +58,14 @@ import { companionTalkLiveLights, type CompanionEntryReport, type EntryLight } f
 import {
   companionCascadeSpeechBlocked,
   isCompanionIdleChat,
+  newTalkRetryState,
+  noteTalkFailure,
   shouldOfferCompanionTalk,
   startCompanionTalk,
   TALK_FALLBACK_BANNER,
   TALK_FIRST_AUDIO_MS,
+  TALK_MAX_FAILURES,
+  talkRetryBlocked,
   type CompanionTalkHandle,
 } from './companionTalk'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
@@ -144,7 +148,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const hasTalkModelRef = useRef(false)
   const talkHandleRef = useRef<CompanionTalkHandle | undefined>(undefined)
   const talkPendingRef = useRef(false)
-  const talkFailedRef = useRef(false)
+  const talkRetryRef = useRef(newTalkRetryState())
   const talkHandoffRef = useRef(false)
   const talkSuppressPlayRef = useRef(false)
   const preparedLightsRef = useRef<CompanionEntryReport['lights']>(pendingCompanionLights())
@@ -1682,7 +1686,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
       }
 
-      if (shouldOfferCompanionTalk(settingsRef.current.voicePath, hasTalkModelRef.current, sessionIdRef.current) && !talkFailedRef.current) {
+      if (shouldOfferCompanionTalk(settingsRef.current.voicePath, hasTalkModelRef.current, sessionIdRef.current) && !talkRetryBlocked(talkRetryRef.current, Date.now())) {
         talkPendingRef.current = true
         try {
           const handle = await startCompanionTalk({
@@ -1773,11 +1777,15 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         } catch {
           /* cascade below */
         }
-        talkFailedRef.current = true
+        talkRetryRef.current = noteTalkFailure(talkRetryRef.current, Date.now())
         talkPendingRef.current = false
         talkLiveRef.current = false
         setTalkLive(false)
-        setEngineHint('通话核未就绪。已选火山卡，不会改用本机或系统识别。VOICE-004')
+        setEngineHint(
+          talkRetryRef.current.failures >= TALK_MAX_FAILURES
+            ? '通话核未就绪。已选火山卡，不会改用本机或系统识别。VOICE-004'
+            : '通话核连接不稳，本轮先用语模型，稍后自动重试通话。',
+        )
       }
 
       if (listenKind === 'volc') {
@@ -2085,7 +2093,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         hasTalkModelRef.current = prepared.hasTalkModel
         preparedLightsRef.current = prepared.lights
         setEntryReady(true)
-        talkPendingRef.current = shouldOfferCompanionTalk(prepared.settings.voicePath, prepared.hasTalkModel, sessionIdRef.current) && !talkFailedRef.current
+        talkPendingRef.current = shouldOfferCompanionTalk(prepared.settings.voicePath, prepared.hasTalkModel, sessionIdRef.current) && !talkRetryBlocked(talkRetryRef.current, Date.now())
         if (!prepared.allowListen) {
           autoStartTriedRef.current = false
           setLocalError(new BridgeClientError(prepared.blockReason || '听、说、想还没齐，不会空听。', 'CHAT_CONFIG_MISSING', false, 'engine'))
