@@ -9,6 +9,31 @@ import type { VoicePath } from './voicePersonas'
 export const TALK_FIRST_AUDIO_MS = 8_000
 export const TALK_FALLBACK_BANNER = '通话核未就绪，这轮用语模型'
 
+// A single talk connection failure used to latch for the whole stage session,
+// trapping the user on the slower cascade even after the network recovered.
+// Instead, back off for a cooldown and re-offer talk; only a run of failures
+// latches, so a flaky link is retried without thrashing the connect path.
+export const TALK_MAX_FAILURES = 3
+export const TALK_RETRY_COOLDOWN_MS = 20_000
+
+export type TalkRetryState = { failures: number; lastFailAt: number }
+
+export function newTalkRetryState(): TalkRetryState {
+  return { failures: 0, lastFailAt: 0 }
+}
+
+/** Whether a fresh talk connection should be withheld right now. */
+export function talkRetryBlocked(state: TalkRetryState, now: number): boolean {
+  if (state.failures >= TALK_MAX_FAILURES) return true
+  if (state.failures > 0 && now - state.lastFailAt < TALK_RETRY_COOLDOWN_MS) return true
+  return false
+}
+
+/** Record a failed attempt and return the next state. */
+export function noteTalkFailure(state: TalkRetryState, now: number): TalkRetryState {
+  return { failures: state.failures + 1, lastFailAt: now }
+}
+
 export function shouldOfferCompanionTalk(voicePath: VoicePath, hasTalkModel: boolean, sessionId?: string): boolean {
   return voicePath === 'volc' && hasTalkModel && !!sessionId
 }
