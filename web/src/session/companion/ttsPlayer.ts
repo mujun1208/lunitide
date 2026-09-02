@@ -372,21 +372,25 @@ export class TtsPlayer {
     }
   }
 
-  /** Schedule a decoded buffer on the gapless timeline. Leading/trailing
-   *  engine padding is trimmed, then the next clip overlaps 28ms so the
-   *  join sounds like one take rather than two readings. */
-  private scheduleBuffer(buffer: AudioBuffer, callbacks: TtsPlayerCallbacks): boolean {
+  /** Schedule a decoded buffer on the gapless timeline. For joined TTS
+   *  clips (join=true, the default) leading/trailing engine padding is
+   *  trimmed and the next clip overlaps 140ms so two sentence readings
+   *  sound like one take. Continuous realtime PCM (join=false) must NOT be
+   *  trimmed or overlapped: it already streams as one waveform, and the
+   *  140ms cross-fade would replay ~140ms of every chunk, doubling the
+   *  voice into an echo. */
+  private scheduleBuffer(buffer: AudioBuffer, callbacks: TtsPlayerCallbacks, join = true): boolean {
     const ctx = this.ensureGraph()
     // A suspended context "plays" without sound. Voice wake never grants a
     // click gesture, so skip Web Audio until resume() actually succeeds.
     if (!ctx || ctx.state !== 'running' || !this.gainNode) return false
-    const playable = trimSilence(ctx, buffer) ?? buffer
+    const playable = join ? (trimSilence(ctx, buffer) ?? buffer) : buffer
     const source = ctx.createBufferSource()
     source.buffer = playable
     source.connect(this.gainNode)
-    const overlap = this.timelineEnd > ctx.currentTime + 0.08 ? 0.14 : 0
-    const startAt = this.timelineEnd > ctx.currentTime ? this.timelineEnd - overlap : ctx.currentTime
-    this.timelineEnd = startAt + playable.duration
+    const window = timelineWindow(this.timelineEnd, ctx.currentTime, playable.duration, join)
+    const startAt = window.startAt
+    this.timelineEnd = window.timelineEnd
     this.activeSources.add(source)
     source.onended = () => {
       this.activeSources.delete(source)
@@ -1008,7 +1012,8 @@ export class TtsPlayer {
     const channel = buffer.getChannelData(0)
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     for (let i = 0; i < samples; i++) channel[i] = view.getInt16(i * 2, true) / 32768
-    return this.scheduleBuffer(buffer, {})
+    // join=false: contiguous realtime PCM, no silence trim, no cross-fade.
+    return this.scheduleBuffer(buffer, {}, false)
   }
 
   dispose(): void {
@@ -1106,6 +1111,24 @@ function isRefEngineStarting(error: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** Compute where the next decoded buffer starts on the gapless timeline.
+ *  Joined TTS clips (join=true) overlap the running timeline by 140ms so
+ *  two sentence readings cross-fade into one take. Continuous realtime PCM
+ *  (join=false) must be strictly contiguous — no overlap — otherwise every
+ *  streamed chunk replays ~140ms of the previous one and the voice doubles
+ *  into an echo. When the timeline has already drained the buffer starts at
+ *  the current clock instead of the stale end. */
+export function timelineWindow(
+  timelineEnd: number,
+  currentTime: number,
+  duration: number,
+  join = true,
+): { startAt: number; timelineEnd: number } {
+  const overlap = join && timelineEnd > currentTime + 0.08 ? 0.14 : 0
+  const startAt = timelineEnd > currentTime ? timelineEnd - overlap : currentTime
+  return { startAt, timelineEnd: startAt + duration }
 }
 
 /** Find the audible span of a mono/first channel, keeping 18ms of pad so

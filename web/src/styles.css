@@ -821,8 +821,6 @@ html[data-theme="dark"] .atmosphere[data-aurora="webgl"] .nebula,html[data-theme
 .launch-sidebar>.sidebar-row-resizer,.launch-nav>.sidebar-row-resizer{flex:none;width:100%;min-width:0;height:8px;min-height:8px;cursor:row-resize}
 .launch-sidebar>.sidebar-row-resizer::after,.launch-nav>.sidebar-row-resizer::after{inset:3px 18%;background:var(--rule)}
 .launch-sidebar>.sidebar-row-resizer:hover::after,.launch-nav>.sidebar-row-resizer:hover::after,.launch-sidebar>.sidebar-row-resizer:active::after,.launch-nav>.sidebar-row-resizer:active::after{inset:2px 12%;background:var(--glow)}
-.sidebar-top-gap{flex:none;width:100%}
-.people-nav-slot{flex:none;min-height:var(--sidebar-people-height,44px);display:flex;align-items:center}
 .conversation-group.is-open:not(.is-empty){flex:1 1 var(--sidebar-chats-height,220px);max-height:var(--sidebar-chats-height,220px)}
 .launch-brand{display:flex;align-items:center;gap:13px;width:100%;padding:0 0 27px;border:0;background:transparent;text-align:left;overflow:visible}
 .launch-brand:hover{border-color:transparent}.launch-brand>span{display:flex;align-items:baseline;gap:1px}.launch-brand b{font-size:19px;font-weight:700;letter-spacing:.025em;color:#fff}.launch-brand em{font-size:18px;font-style:normal;font-family:var(--serif);color:#e2eaf6}
@@ -2136,9 +2134,6 @@ html[data-theme="light"] .voice-path-card:hover,html[data-theme="light"] .voice-
 .people-blocked{margin-left:6px;color:var(--err);font-size:10px;font-style:normal}
 .people-modal{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.45);z-index:20}
 .people-modal form{width:min(420px,92vw);display:grid;gap:12px;padding:20px;border:1px solid var(--rule);border-radius:16px;background:var(--bg2);color:var(--ink)}
-.people-nav{position:relative}
-.launch-nav .people-nav{flex:none;width:calc(100% - 16px);margin:0 8px 8px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:0;border-radius:10px;background:transparent;color:var(--ink)}
-.launch-nav .people-nav:hover,.launch-nav .people-nav.active{background:color-mix(in srgb,var(--tide1) 12%,transparent)}
 html[data-theme="light"] .people-shell,html[data-theme="light"] .people-mid,html[data-theme="light"] .people-rail,html[data-theme="light"] .people-thread{background:var(--bg2)}
 html[data-theme="light"] .people-thread{background:var(--bg)}
 html[data-theme="light"] .people-expert-home,html[data-theme="light"] .people-card,html[data-theme="light"] .people-modal form,html[data-theme="light"] .people-mention-list,html[data-theme="light"] .people-member-drawer{background:#fff;border-color:var(--rule)}

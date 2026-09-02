@@ -193,3 +193,29 @@ export function voiceTimingRows(records: readonly VoiceTurnRecord[] = ring): Voi
 export function voiceStallCount(records: readonly VoiceTurnRecord[] = ring): number {
   return records.reduce((n, r) => (r.outcome === 'stall' ? n + 1 : n), 0)
 }
+
+/** A self-describing snapshot of the timing ring for hand-off: budgets, the
+ *  per-stage p50/p95/max summary, stall count and the raw turns. Serialised
+ *  so the user can copy real-machine numbers out of the diagnostics panel
+ *  instead of transcribing them. */
+export function voiceTimingExport(records: readonly VoiceTurnRecord[] = ring): {
+  capturedAt: string
+  turns: number
+  stalls: number
+  budgets: typeof VOICE_LATENCY_BUDGETS
+  summary: ReturnType<typeof voiceTimingRows>
+  records: readonly VoiceTurnRecord[]
+} {
+  return {
+    capturedAt: new Date().toISOString(),
+    turns: records.length,
+    stalls: voiceStallCount(records),
+    budgets: VOICE_LATENCY_BUDGETS,
+    summary: voiceTimingRows(records),
+    records: records.map(r => ({ ...r })),
+  }
+}
+
+export function voiceTimingExportJSON(records: readonly VoiceTurnRecord[] = ring): string {
+  return JSON.stringify(voiceTimingExport(records), null, 2)
+}

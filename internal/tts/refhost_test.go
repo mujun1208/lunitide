@@ -16,6 +16,42 @@ import (
 	"time"
 )
 
+func TestRefHostScriptCandidatesPrefersOverrideAndPortableOverLegacy(t *testing.T) {
+	t.Setenv("LUNITIDE_REF_HOST_SCRIPT", `C:\custom\start-api-cpu.bat`)
+	t.Setenv("LOCALAPPDATA", `C:\Users\demo\AppData\Local`)
+	got := refHostScriptCandidates()
+	if len(got) == 0 || got[0] != `C:\custom\start-api-cpu.bat` {
+		t.Fatalf("override must be probed first; got %v", got)
+	}
+	legacy := `E:\GPT-SoVITS\` + refHostScriptBasename
+	if got[len(got)-1] != legacy {
+		t.Fatalf("legacy E:\\ path must stay last; got %v", got)
+	}
+	wantLocalAppData := filepath.Join(`C:\Users\demo\AppData\Local`, "Lunitide", "gpt-sovits", refHostScriptBasename)
+	found := false
+	for _, c := range got {
+		if c == wantLocalAppData {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("per-user drop-in %q must be a candidate; got %v", wantLocalAppData, got)
+	}
+}
+
+func TestRefHostScriptCandidatesSkipsEmptyOverride(t *testing.T) {
+	t.Setenv("LUNITIDE_REF_HOST_SCRIPT", "")
+	got := refHostScriptCandidates()
+	for _, c := range got {
+		if strings.TrimSpace(c) == "" {
+			t.Fatalf("no empty candidate expected; got %v", got)
+		}
+	}
+	if got[len(got)-1] != `E:\GPT-SoVITS\`+refHostScriptBasename {
+		t.Fatalf("legacy fallback must remain; got %v", got)
+	}
+}
+
 func TestRefHostNotConfiguredWhenScriptMissing(t *testing.T) {
 	h := NewRefHost(filepath.Join(t.TempDir(), "missing.bat"))
 	if state, script := h.Status("http://127.0.0.1:1"); state != RefHostNotConfigured || script != "" {
