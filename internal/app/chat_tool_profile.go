@@ -92,7 +92,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 		return map[string]bool{
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
 			"workspace.search": true, "workspace.edit": true,
-			"command.run": true,
+			"command.run": true, "run_terminal_cmd": true,
 			"web.search":  true, "web.fetch": true,
 			"memory.search": true, "memory.get": true,
 			"skill.invoke": true, "skill.view": true,
@@ -128,7 +128,7 @@ func companionDefaultDeniedTool(name string) bool {
 		return true
 	}
 	switch n {
-	case "command.run", "im.send":
+	case "command.run", "run_terminal_cmd", "im.send":
 		return true
 	default:
 		return false

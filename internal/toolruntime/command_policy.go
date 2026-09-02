@@ -204,6 +204,81 @@ func (r *Runtime) FullDiskEnabled() bool {
 	return r.fullDisk
 }
 
+// terminalCommandToArgv converts the run_terminal_cmd {command:"..."} payload
+// (E1) into the command.run {argv:[...]} shape. Execution never goes through a
+// shell — argv is exec'd directly — so shell metacharacters that would imply
+// piping, redirection, chaining or substitution are rejected with a clear
+// message rather than silently mis-run. Single/double quotes group one
+// argument. The result flows through the identical allowlist + approval path.
+func terminalCommandToArgv(args json.RawMessage) (json.RawMessage, error) {
+	var a struct {
+		Command string `json:"command"`
+	}
+	if strict(args, &a) != nil {
+		return nil, errors.New("run_terminal_cmd requires a command string")
+	}
+	cmd := strings.TrimSpace(a.Command)
+	if cmd == "" {
+		return nil, errors.New("empty command")
+	}
+	if strings.IndexAny(cmd, "|&;<>`$\n\r") >= 0 {
+		return nil, errors.New("shell operators (| & ; < > ` $) are not supported: run a single program with its arguments; for piping/redirection enable full-disk and use separate steps")
+	}
+	argv, err := lexArgv(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if len(argv) == 0 {
+		return nil, errors.New("empty command")
+	}
+	if len(argv) > commandMaxArgv {
+		return nil, errors.New("too many arguments")
+	}
+	return json.Marshal(struct {
+		Argv []string `json:"argv"`
+	}{argv})
+}
+
+// lexArgv splits a command line into argv tokens, honoring single and double
+// quotes. It performs no shell expansion (no globs, no variable substitution);
+// tokens are passed to exec verbatim.
+func lexArgv(s string) ([]string, error) {
+	var out []string
+	var cur strings.Builder
+	inTok := false
+	var quote rune
+	for _, ch := range s {
+		switch {
+		case quote != 0:
+			if ch == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(ch)
+			}
+			inTok = true
+		case ch == '\'' || ch == '"':
+			quote = ch
+			inTok = true
+		case ch == ' ' || ch == '\t':
+			if inTok {
+				out = append(out, cur.String())
+				cur.Reset()
+				inTok = false
+			}
+		default:
+			cur.WriteRune(ch)
+			inTok = true
+		}
+	}
+	if quote != 0 {
+		return nil, errors.New("unterminated quote in command")
+	}
+	if inTok {
+		out = append(out, cur.String())
+	}
+	return out, nil
+}
+
 // matchCommandRule finds the first allowlist entry whose prefix matches the
 // argv head and whose total length stays within maxArgs. Longer argv lists
 // are denied even when the prefix matches, so one entry cannot become a

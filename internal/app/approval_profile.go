@@ -109,7 +109,7 @@ func approvalProfileDangerous(name string) bool {
 		return true
 	}
 	switch n {
-	case "command.run", "im.send", "computer.act":
+	case "command.run", "run_terminal_cmd", "im.send", "computer.act":
 		return true
 	default:
 		return false

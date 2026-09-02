@@ -3,6 +3,8 @@ import { companionMayAutoApprove, isDangerousCompanionTool, isFullDiskCompanionW
 
 it('keeps low-risk companion tools auto and dangerous ones confirmed', () => {
   expect(isDangerousCompanionTool('command.run')).toBe(true)
+  expect(isDangerousCompanionTool('run_terminal_cmd')).toBe(true)
+  expect(companionMayAutoApprove('run_terminal_cmd')).toBe(false)
   expect(isDangerousCompanionTool('cc.mouse_click')).toBe(true)
   expect(isDangerousCompanionTool('workspace.read')).toBe(false)
   expect(companionMayAutoApprove('workspace.read')).toBe(true)

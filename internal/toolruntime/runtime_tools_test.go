@@ -49,6 +49,49 @@ func TestMatchCommandRuleBuiltinSet(t *testing.T) {
 	}
 }
 
+func TestTerminalCommandToArgv(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{`{"command":"go test ./..."}`, []string{"go", "test", "./..."}},
+		{`{"command":"git --no-pager status"}`, []string{"git", "--no-pager", "status"}},
+		{`{"command":"git commit -m \"hello world\""}`, []string{"git", "commit", "-m", "hello world"}},
+		{`{"command":"  npm   run   build  "}`, []string{"npm", "run", "build"}},
+	}
+	for _, c := range cases {
+		raw, err := terminalCommandToArgv(json.RawMessage(c.in))
+		if err != nil {
+			t.Fatalf("terminalCommandToArgv(%s) err: %v", c.in, err)
+		}
+		var got struct {
+			Argv []string `json:"argv"`
+		}
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if strings.Join(got.Argv, "\x00") != strings.Join(c.want, "\x00") {
+			t.Fatalf("argv = %v, want %v", got.Argv, c.want)
+		}
+	}
+
+	// Shell operators are rejected (execution is argv-direct, no shell).
+	for _, bad := range []string{
+		`{"command":"ls | grep x"}`,
+		`{"command":"a && b"}`,
+		`{"command":"echo $HOME"}`,
+		`{"command":"cat < f"}`,
+		`{"command":"a > out.txt"}`,
+		`{"command":"echo ` + "`whoami`" + `"}`,
+		`{"command":""}`,
+		`{"command":"git commit -m \"unterminated"}`,
+	} {
+		if _, err := terminalCommandToArgv(json.RawMessage(bad)); err == nil {
+			t.Fatalf("expected rejection for %s", bad)
+		}
+	}
+}
+
 func TestUserCommandPolicyLoadAndEnforce(t *testing.T) {
 	root := t.TempDir()
 	policy := `{"commands":[{"prefix":["go","test"],"maxArgs":8,"timeoutMs":120000},{"prefix":["node","--version"]}]}`
