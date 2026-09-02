@@ -23,8 +23,45 @@ import (
 // DefaultRefHostScripts are probed in order for a launcher that can
 // bring the local GPT-SoVITS api_v2 service up (first hit wins). A var
 // (not const) so tests can point it at fixtures.
-var DefaultRefHostScripts = []string{
-	`E:\GPT-SoVITS\start-api-cpu.bat`,
+//
+// The list is resolved at startup (see refHostScriptCandidates) so the
+// engine is no longer pinned to one developer's E:\ layout: an explicit
+// LUNITIDE_REF_HOST_SCRIPT wins, then a portable copy dropped next to the
+// app or under %LOCALAPPDATA%\Lunitide\gpt-sovits, and finally the legacy
+// E:\GPT-SoVITS fallback so existing setups keep working.
+var DefaultRefHostScripts = refHostScriptCandidates()
+
+// refHostScriptBasename is the launcher every candidate location must
+// contain to be usable.
+const refHostScriptBasename = "start-api-cpu.bat"
+
+// refHostScriptCandidates builds the ordered probe list from the
+// environment, the running executable's directory and the per-user data
+// root, ending with the legacy developer path. Missing locations are
+// simply skipped by resolveScript's os.Stat check.
+func refHostScriptCandidates() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	// 1. Explicit override wins (points straight at a .bat).
+	add(strings.TrimSpace(os.Getenv("LUNITIDE_REF_HOST_SCRIPT")))
+	// 2. Portable copy shipped/placed next to the executable.
+	if exe, err := os.Executable(); err == nil {
+		add(filepath.Join(filepath.Dir(exe), "gpt-sovits", refHostScriptBasename))
+	}
+	// 3. Per-user drop-in under %LOCALAPPDATA%\Lunitide\gpt-sovits.
+	if base := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); base != "" {
+		add(filepath.Join(base, "Lunitide", "gpt-sovits", refHostScriptBasename))
+	}
+	// 4. Legacy developer layout (kept last so existing machines still work).
+	add(`E:\GPT-SoVITS\` + refHostScriptBasename)
+	return out
 }
 
 // Ref host states surfaced through tts.voices ref_meta and
