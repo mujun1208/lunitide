@@ -32,14 +32,45 @@ func IsDefaultRefEndpoint(endpoint string) bool {
 	return CanonicalRefEndpoint(endpoint) == strings.TrimRight(DefaultRefEndpoint, "/")
 }
 
-// DefaultRefPackDir points at the shipped character-voice collection
-// (role-play voices). A var (not const) so tests can point it at fixtures.
-var DefaultRefPackDir = `E:\AI电影漫剧\800+音色合集\逗哥音色整理合集\角色扮演`
+// DefaultRefPackDir / DefaultRefPackDirHot point at the optional GPT-SoVITS
+// character-voice collections (role-play + popular timbres). These feed only
+// the *optional* cloning engine; the default 本地 voice is the bundled
+// sherpa-onnx ONNX engine, which needs none of these packs.
+//
+// They are resolved without a hard dependency on any developer's E: drive:
+// an explicit env override wins, else the on-demand pack location under
+// %LOCALAPPDATA%\Lunitide\gpt-sovits\refpacks, else the legacy dev-machine
+// path only when it still exists on disk. Vars (not consts) so tests can
+// point them at fixtures.
+var (
+	DefaultRefPackDir    = resolveRefPackDir("LUNITIDE_REF_PACK_DIR", "角色扮演", `E:\AI电影漫剧\800+音色合集\逗哥音色整理合集\角色扮演`)
+	DefaultRefPackDirHot = resolveRefPackDir("LUNITIDE_REF_PACK_DIR_HOT", "热门音色", `E:\AI电影漫剧\800+音色合集\不同年龄人群音色\热门音色`)
+)
 
-// DefaultRefPackDirHot is the second voice pack directory (popular timbres
-// across age groups). Bundled presets from this directory use hotPackDir
-// as their implicit base.
-var DefaultRefPackDirHot = `E:\AI电影漫剧\800+音色合集\不同年龄人群音色\热门音色`
+// resolveRefPackDir chooses a reference-WAV pack directory that never
+// hardcodes a developer's E: drive on an end-user machine. Order: env
+// override → %LOCALAPPDATA%\Lunitide\gpt-sovits\refpacks\<leaf> (bundled or
+// on-demand) → legacy path only if present → the LOCALAPPDATA path as a sane
+// non-E: default even when absent.
+func resolveRefPackDir(env, leaf, legacy string) string {
+	if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+		return v
+	}
+	var localDefault string
+	if root := RefEngineDataRoot(); root != "" {
+		localDefault = filepath.Join(root, RefEngineBundleID, "refpacks", leaf)
+		if info, err := os.Stat(localDefault); err == nil && info.IsDir() {
+			return localDefault
+		}
+	}
+	if info, err := os.Stat(legacy); err == nil && info.IsDir() {
+		return legacy
+	}
+	if localDefault != "" {
+		return localDefault
+	}
+	return leaf
+}
 
 // RefPresetVoiceIDPrefix marks catalog voice IDs ("refpack:甜心少女.wav").
 const RefPresetVoiceIDPrefix = "refpack:"

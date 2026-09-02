@@ -177,14 +177,14 @@ describe('companion engine fallback helpers', () => {
     expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).engine).toBe('edge')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).voicePath).toBe('volc')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceBargeIn).toBe(false)
-    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'volc'))).toBe(true)
+    // Unified half-duplex: client-side barge-in is retired on every path.
+    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'volc'))).toBe(false)
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'cloud'))).toBe(false)
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'local'))).toBe(false)
-    // V1 flag (default off): local barge-in turns on only when the user opts in.
+    // The legacy voiceBargeIn flag is inert now — it never opens a live mic.
     expect(
       companionVoiceBargeInEnabled({ ...applyVoicePath(defaultCompanionSettings(), 'local'), voiceBargeIn: true }),
-    ).toBe(true)
-    // The flag never opens duplex on cloud (Web Speech echo).
+    ).toBe(false)
     expect(
       companionVoiceBargeInEnabled({ ...applyVoicePath(defaultCompanionSettings(), 'cloud'), voiceBargeIn: true }),
     ).toBe(false)

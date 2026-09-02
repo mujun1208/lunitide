@@ -111,7 +111,7 @@ describe('inspectCompanionEntry', () => {
       listProviders: async () => ({ items: [chat, volc] }),
     })
     expect(report.allowListen).toBe(true)
-    expect(report.lights[0]).toMatchObject({ label: '火山 seed-asr · 可对着麦打断', state: 'on' })
+    expect(report.lights[0]).toMatchObject({ label: '火山 seed-asr · 说完再答 · 打断用按钮', state: 'on' })
     expect(report.lights[1]).toMatchObject({ label: '晓晓（未配朗读）', state: 'on' })
     expect(report.hasVolcTts).toBe(false)
     expect(report.hasTalkModel).toBe(false)

@@ -82,6 +82,13 @@ export interface CompanionSettings {
   refEndpoint: string
   /** cloud = Edge ASR/TTS; local = GPT-SoVITS 50 人生. omni is leftover-only and migrates to cloud. */
   voicePath: VoicePath
+  /**
+   * 火山 only, opt-in (default off). When off, 火山 runs the robust single-voice
+   * cascade pipeline (seed-asr → LLM → seed-tts) with 打断-button turn control.
+   * When on, offer the realtime full-duplex talk core when a realtime model +
+   * session exist. Default cascade guarantees no double-voice out of the box.
+   */
+  talkRealtime: boolean
   omniPersonaId: string
 }
 
@@ -186,6 +193,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   engine: 'edge',
   refEndpoint: '',
   voicePath: 'cloud',
+  talkRealtime: false,
   omniPersonaId: 'refpack:优质台湾腔.wav',
 })
 
@@ -258,6 +266,7 @@ export function loadCompanionSettings(): CompanionSettings {
       engine,
       refEndpoint: typeof parsed.refEndpoint === 'string' ? parsed.refEndpoint : '',
       voicePath,
+      talkRealtime: typeof parsed.talkRealtime === 'boolean' ? parsed.talkRealtime : fallback.talkRealtime,
       omniPersonaId,
     }
     if (persist) saveCompanionSettings(next)
@@ -311,18 +320,26 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
 }
 
 /**
- * Whether the assistant keeps listening while she speaks (full-duplex barge-in).
+ * Whether the assistant keeps her microphone open while she speaks
+ * (client-side, VAD-driven barge-in over the PCM/Web Speech recognizer).
  *
- * - 火山 (volc): always on — server VAD + AEC handle the echo.
- * - 本地 (local): honors the opt-in `voiceBargeIn` setting (default off). The
- *   PCM path has echo cancellation on and a non-echo transcript gate, so this
- *   is the V1 full-duplex flag the user toggles per machine.
- * - 云端 (cloud): always off. Web Speech captures the speaker independently and
- *   cannot be muted from here, so duplex would transcribe her own replies.
+ * Unified turn model (all client-recognizer paths are half-duplex): her turn
+ * is hers start-to-end and the only ways back to the user are the 打断
+ * button/hotkey or her finishing. This retires client-side voice barge-in for
+ * every mode, because an open mic during playback is a window her own voice
+ * comes back through — the source of the 本地 "插话即打断 + 闪烁跳频 + 卡壳断链"
+ * thrash and of accidental interrupts.
+ *
+ * - 云端 (cloud): half-duplex (Web Speech cannot be muted mid-flight anyway).
+ * - 本地 (local): half-duplex, 打断 button only.
+ * - 火山 cascade (default): half-duplex, 打断 button only.
+ * - 火山 talk-realtime (opt-in): full-duplex is handled server-side (server VAD
+ *   + AEC) over the independent talk uplink, not through this client flag.
+ *
+ * The legacy `voiceBargeIn` field is kept for storage compatibility but is now
+ * inert; it no longer opens a live mic on any path.
  */
-export function companionVoiceBargeInEnabled(settings: Pick<CompanionSettings, 'voicePath' | 'voiceBargeIn'>): boolean {
-  if (settings.voicePath === 'volc') return true
-  if (settings.voicePath === 'local') return settings.voiceBargeIn === true
+export function companionVoiceBargeInEnabled(_settings: Pick<CompanionSettings, 'voicePath' | 'voiceBargeIn'>): boolean {
   return false
 }
 

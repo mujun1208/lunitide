@@ -98,7 +98,7 @@ export async function inspectCompanionEntry(
   let listenReady = true
   let listenLabel = '系统识别 · 说完再答 · 打断用按钮'
   if (path === 'volc') {
-    listenLabel = '火山 seed-asr · 可对着麦打断'
+    listenLabel = '火山 seed-asr · 说完再答 · 打断用按钮'
     listenReady = hasVolc
   } else if (path === 'local') {
     listenLabel = '本机 sherpa · 说完再答 · 打断用按钮'
