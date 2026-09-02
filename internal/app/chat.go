@@ -666,6 +666,27 @@ func gatewayRole(role string) gateway.Role {
 	}
 }
 
+// foldHistoricalToolResult turns a persisted tool-result row into plain context
+// text safe to replay as a user-role message. It drops the internal
+// "[tool-result callId=... argsDigest=... resultDigest=...]" bookkeeping header
+// (which only mattered for idempotent persistence) and guarantees a non-empty
+// body so the message still satisfies provider content requirements.
+func foldHistoricalToolResult(text string) string {
+	s := text
+	if strings.HasPrefix(s, "[tool-result ") {
+		if nl := strings.IndexByte(s, '\n'); nl >= 0 {
+			s = s[nl+1:]
+		} else {
+			s = ""
+		}
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		s = "(工具无输出)"
+	}
+	return "（历史工具结果）" + s
+}
+
 var errCombinedContextOverBudget = errors.New("combined provider context exceeds effective input budget")
 
 func lastUserChatText(messages []gateway.Message) string {
@@ -786,7 +807,23 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []gat
 		}
 	}
 	for _, m := range history {
-		combined = append(combined, gateway.Message{Role: gatewayRole(m.Role), Content: m.Content})
+		role := gatewayRole(m.Role)
+		content := m.Content
+		if role == gateway.RoleTool {
+			// The message store keeps only role+text — no tool_call_id and no
+			// assistant tool_calls linkage. Replaying a persisted role:"tool"
+			// message as-is produces an orphan tool message (empty tool_call_id,
+			// no matching assistant tool_calls), which strict OpenAI-compatible
+			// providers (e.g. glm/Zhipu) reject for the WHOLE request with
+			// "missing messages.tool_call_id parameter". This surfaced once 月伴
+			// became one long-lived singleton that accumulates tool-result rows.
+			// Fold historical tool results into a plain user-role context note so
+			// the linkage-free record still informs the model without ever
+			// emitting an invalid tool message.
+			role = gateway.RoleUser
+			content = foldHistoricalToolResult(m.Content)
+		}
+		combined = append(combined, gateway.Message{Role: role, Content: content})
 	}
 	for _, m := range explicit {
 		if m.Role != gateway.RoleSystem {

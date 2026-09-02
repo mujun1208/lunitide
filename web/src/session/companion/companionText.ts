@@ -475,9 +475,18 @@ export function accumulateSpeakableCaption(previous: string, incoming: string): 
   return `${prev}${next}`
 }
 
+/**
+ * Strip the backend "（系统提示：…）" degradation notice (appended when a model
+ * rejects tool definitions). It is a text-UI-only record and must never be read
+ * aloud nor drive the spoken caption in the companion voice stage.
+ */
+export function stripCompanionSystemNotice(text: string): string {
+  return text.replace(/（系统提示：[\s\S]*?）\s*/g, '').trim()
+}
+
 /** Live chat caption: strip machine phrases and drop nudge-loop replays. */
 export function companionCaptionFromStream(assistantText: string): string {
-  return collapseAdjacentRepeatedClauses(collapseRepeatedCaptionBlocks(stripTaskDonePhrases(assistantText)))
+  return collapseAdjacentRepeatedClauses(collapseRepeatedCaptionBlocks(stripCompanionSystemNotice(stripTaskDonePhrases(assistantText))))
 }
 
 function clauseKey(text: string): string {

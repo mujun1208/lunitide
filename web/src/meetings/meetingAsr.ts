@@ -78,6 +78,32 @@ export function planOwnsEngineLoopback(plan: MeetingCapturePlan | undefined): bo
   return plan?.engineOwned === true
 }
 
+/**
+ * True only when a mic+系统声 recording has a STRUCTURAL absence of any system
+ * source — never on momentary silence. Two capture shapes:
+ *   • engine-owned WASAPI loopback: there is no browser track to inspect, so the
+ *     truth is whether the engine opened a loopback session (active). A live but
+ *     quiet session (nobody talking / paused media) is present, not missing.
+ *   • browser-owned (getDisplayMedia fallback): missing when no live system-audio
+ *     track exists, or the meter confirmed three silent frames on that track.
+ * This is what stops the false "只在录麦克风" banner from firing while a song is
+ * plainly being transcribed through the engine loopback.
+ */
+export function meetingSystemAudioMissing(input: {
+  recording: boolean
+  audioSource: string | undefined
+  plan: MeetingCapturePlan | undefined
+  engineLoopbackActive: boolean | undefined
+  systemHeard: boolean | undefined
+}): boolean {
+  if (!input.recording) return false
+  if ((input.audioSource ?? 'microphone_and_system') !== 'microphone_and_system') return false
+  if (planOwnsEngineLoopback(input.plan)) {
+    return input.engineLoopbackActive === false
+  }
+  return input.systemHeard === false || (input.plan !== undefined && !planHasLiveSystemAudio(input.plan))
+}
+
 /** Three energy frames vs three silent frames. Undefined = keep the last label. */
 export function noteLoopbackEnergy(prev: { hits: number; zeros: number }, peak: number): { hits: number; zeros: number; heard?: boolean } {
   if (peak > 0) {
