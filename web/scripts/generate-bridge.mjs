@@ -413,6 +413,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'trace.resolveStale',
   'tts.cancel',
   'tts.ensureRefEngine',
+  'tts.installRefEngine',
   'tts.refAudios',
   'tts.stream',
   'tts.synthesize',

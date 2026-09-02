@@ -154,6 +154,10 @@ func main() {
 	engine.SetAgentCoordinator(coordinator)
 	agentRuns := agentrunapp.New(store.AgentRuntimeRepository())
 	engine.SetAgentRunService(agentRuns)
+	// On-demand GPT-SoVITS engine download (nothing large ships in the
+	// package): the pack is pulled into %LOCALAPPDATA%\Lunitide\gpt-sovits
+	// when a manifest points at one, where the ref launcher discovers it.
+	engine.SetRefEngineInstall(app.NewRefEngineInstall())
 
 	// M7 slice 1: the nine-stage versioned workflow backbone.
 	engine.SetM7WorkflowServices(m7app.NewWorkflowService(store.AgentRuntimeRepository()))

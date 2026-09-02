@@ -148,7 +148,7 @@ import {
   type MeetingsLoopbackPollPayload, type MeetingsLoopbackPollResult,
   type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
-  type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsStreamPayload,type TtsStreamResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,
+  type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsStreamPayload,type TtsStreamResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,type TtsInstallRefEnginePayload,type TtsInstallRefEngineResult,
   type TalkStartPayload,type TalkStartResult,type TalkAppendPayload,type TalkAppendResult,type TalkCancelPayload,type TalkCancelResult,
   type VoiceStatusResult,type VoiceInstallPayload,type VoiceInstallResult,type VoiceSelectPayload,type VoiceSelectResult,type VoiceStartPayload,type VoiceStartResult,type VoiceAppendPayload,type VoiceAppendResult,type VoiceFinishPayload,type VoiceFinishResult,type VoiceStopPayload,type VoiceStopResult,
   type OmniStatusResult,type OmniInstallResult,type OmniEnsureResult,type OmniStartPayload,type OmniStartResult,type OmniAppendPayload,type OmniAppendResult,type OmniStopPayload,type OmniStopResult,
@@ -1231,10 +1231,10 @@ export function createLocalWorkspaceBridge(transport:WebViewTransport=webview())
 // local service, so tts.synthesize gets its own 40s core.
 export type TtsVoice=TtsVoicesResult['voices'][number]
 export type TtsRefMeta=NonNullable<TtsVoicesResult['ref_meta']>
-export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsStreamPayload,TtsStreamResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult,TtsEnsureRefEnginePayload,TtsEnsureRefEngineResult}
+export type{TtsSynthesizePayload,TtsSynthesizeResult,TtsStreamPayload,TtsStreamResult,TtsVoicesPayload,TtsVoicesResult,TtsRefAudiosPayload,TtsRefAudiosResult,TtsEnsureRefEnginePayload,TtsEnsureRefEngineResult,TtsInstallRefEnginePayload,TtsInstallRefEngineResult}
 export type TtsChunk={audioBase64:string;mime:string;index:number}
 export interface TtsStreamHandle{readonly streamId:string;readonly done:Promise<void>;cancel():Promise<void>}
-export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;stream(payload:TtsStreamPayload,onChunk:(chunk:TtsChunk)=>void):Promise<TtsStreamHandle>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>;ensureRefEngine(payload?:TtsEnsureRefEnginePayload):Promise<TtsEnsureRefEngineResult>}
+export interface TtsBridge{voices(payload?:TtsVoicesPayload):Promise<TtsVoicesResult>;synthesize(payload:TtsSynthesizePayload):Promise<TtsSynthesizeResult>;stream(payload:TtsStreamPayload,onChunk:(chunk:TtsChunk)=>void):Promise<TtsStreamHandle>;cancel():Promise<TtsCancelResult>;refAudios(dir:string):Promise<TtsRefAudiosResult>;ensureRefEngine(payload?:TtsEnsureRefEnginePayload):Promise<TtsEnsureRefEngineResult>;installRefEngine(payload?:TtsInstallRefEnginePayload):Promise<TtsInstallRefEngineResult>}
 function startTtsStream(transport:WebViewTransport,payload:TtsStreamPayload,onChunk:(chunk:TtsChunk)=>void,deadlineMs=40_000):Promise<TtsStreamHandle>{
   const core=createSimpleBridge(transport,{},deadlineMs)
   return core.request<TtsStreamResult>('tts.stream',payload).then(result=>{
@@ -1260,7 +1260,7 @@ function startTtsStream(transport:WebViewTransport,payload:TtsStreamPayload,onCh
     return{streamId,done,cancel:async()=>{try{await Promise.all([core.request<StreamCancelResult>('stream.cancel',{streamId}).catch(()=>{}),core.request('tts.cancel',{}).catch(()=>{})])}finally{finish()}}}
   })
 }
-export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),stream:(payload,onChunk)=>startTtsStream(transport,payload,onChunk),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir}),ensureRefEngine:payload=>core.request('tts.ensureRefEngine',payload??{})}}
+export function createTtsBridge(transport:WebViewTransport=webview()):TtsBridge{const core=createSimpleBridge(transport,{},15_000);const synthCore=createSimpleBridge(transport,{},40_000);return{voices:payload=>core.request('tts.voices',payload??{}),synthesize:payload=>synthCore.request('tts.synthesize',payload),stream:(payload,onChunk)=>startTtsStream(transport,payload,onChunk),cancel:()=>core.request('tts.cancel',{}),refAudios:dir=>core.request('tts.refAudios',{dir}),ensureRefEngine:payload=>core.request('tts.ensureRefEngine',payload??{}),installRefEngine:payload=>core.request('tts.installRefEngine',payload??{})}}
 let ttsSingleton:TtsBridge|undefined
 export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()}
 

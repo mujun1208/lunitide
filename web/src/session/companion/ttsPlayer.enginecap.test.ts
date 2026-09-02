@@ -14,6 +14,7 @@ const bridge = {
   cancel: vi.fn(),
   refAudios: vi.fn(),
   ensureRefEngine: vi.fn(),
+  installRefEngine: vi.fn(),
   stream: vi.fn(),
 } satisfies Record<keyof TtsBridge, ReturnType<typeof vi.fn>>
 
