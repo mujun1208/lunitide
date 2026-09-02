@@ -61,6 +61,38 @@ func TestResolveSubagentProfileCustom(t *testing.T) {
 	}
 }
 
+func TestImplementerProfileWriteGate(t *testing.T) {
+	// Under approval / plan mode the implementer degrades to read-only.
+	for _, mode := range []executionMode{executionModeApproval, executionModePlan, ""} {
+		policy := defaultSubagentChatPolicy()
+		policy.ParentMode = mode
+		def, _, ok := resolveSubagentProfile(policy, "implementer")
+		if !ok || def.ID != "implementer" {
+			t.Fatalf("implementer missing under %q: %+v", mode, def)
+		}
+		if len(def.WriteTools) != 0 {
+			t.Fatalf("implementer must be read-only under %q, got %v", mode, def.WriteTools)
+		}
+	}
+	// Under a write-capable parent turn it carries exactly the file writers.
+	for _, mode := range []executionMode{executionModeAutoEdit, executionModeFullAccess} {
+		policy := defaultSubagentChatPolicy()
+		policy.ParentMode = mode
+		def, _, ok := resolveSubagentProfile(policy, "implementer")
+		if !ok {
+			t.Fatalf("implementer missing under %q", mode)
+		}
+		if len(def.WriteTools) != 2 {
+			t.Fatalf("implementer writers under %q = %v, want workspace.write/edit", mode, def.WriteTools)
+		}
+		for _, name := range def.WriteTools {
+			if name != "workspace.write" && name != "workspace.edit" {
+				t.Fatalf("unexpected implementer write tool %q under %q", name, mode)
+			}
+		}
+	}
+}
+
 func TestResolveSubagentProfileUnknownFallsBack(t *testing.T) {
 	def, _, ok := resolveSubagentProfile(defaultSubagentChatPolicy(), "does-not-exist")
 	if !ok || def.ID != "general-purpose" {

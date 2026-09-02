@@ -29,9 +29,18 @@ const (
 	toolProgressMaxChunks = 40
 )
 
-// builtinCommandRules is the fixed read-only observation set. git runs only
-// through --no-pager explicit flags (pagers/filters disabled both via the
-// flag and the sanitized environment set in runCommand).
+// builtinCommandRules is the fixed observation + reversible-write set. git
+// runs only through --no-pager explicit flags (pagers/filters disabled both
+// via the flag and the sanitized environment set in runCommand).
+//
+// The write entries (add / commit / stash) are deliberately NON-destructive:
+// they only stage, snapshot or shelve work, all reversible. command.run is a
+// mutating tool, so in approval / auto-edit mode these still require an
+// explicit per-call user approval ("git write behind confirmation", E2);
+// full-access runs them unattended. Destructive git verbs (checkout / reset /
+// clean / restore / rm / push) are intentionally NOT here — they can silently
+// discard uncommitted work or mutate the remote, so they stay opt-in through
+// command-policy.json where the operator accepts that risk explicitly.
 func builtinCommandRules() []commandRule {
 	return []commandRule{
 		{prefix: []string{"go", "version"}, maxArgs: 2, deadline: 10 * time.Second},
@@ -40,6 +49,10 @@ func builtinCommandRules() []commandRule {
 		{prefix: []string{"git", "--no-pager", "diff"}, maxArgs: 6, deadline: 10 * time.Second},
 		{prefix: []string{"git", "--no-pager", "show"}, maxArgs: 6, deadline: 10 * time.Second},
 		{prefix: []string{"git", "--no-pager", "branch"}, maxArgs: 4, deadline: 10 * time.Second},
+		// Reversible writes (E2): gated by the mutating-tool approval flow.
+		{prefix: []string{"git", "--no-pager", "add"}, maxArgs: 12, deadline: 15 * time.Second},
+		{prefix: []string{"git", "--no-pager", "commit"}, maxArgs: 12, deadline: 20 * time.Second},
+		{prefix: []string{"git", "--no-pager", "stash"}, maxArgs: 8, deadline: 15 * time.Second},
 	}
 }
 

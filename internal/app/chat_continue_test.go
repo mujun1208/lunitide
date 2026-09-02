@@ -13,6 +13,27 @@ import (
 	"github.com/lunitide/lunitide/internal/gateway"
 )
 
+func TestExtendToolLoopLimit(t *testing.T) {
+	// Far from the ceiling: no extension.
+	if got := extendToolLoopLimit(24, 5); got != 24 {
+		t.Fatalf("early step extended: got %d want 24", got)
+	}
+	// Within two steps of the ceiling and still productive: extend by a chunk.
+	if got := extendToolLoopLimit(24, 23); got != 24+toolLoopExtendChunk {
+		t.Fatalf("near ceiling not extended: got %d want %d", got, 24+toolLoopExtendChunk)
+	}
+	if got := extendToolLoopLimit(24, 22); got != 24+toolLoopExtendChunk {
+		t.Fatalf("two-from-ceiling not extended: got %d want %d", got, 24+toolLoopExtendChunk)
+	}
+	// Never exceed the hard cap.
+	if got := extendToolLoopLimit(maxToolLoopStepsHard, maxToolLoopStepsHard-1); got != maxToolLoopStepsHard {
+		t.Fatalf("exceeded hard cap: got %d want %d", got, maxToolLoopStepsHard)
+	}
+	if got := extendToolLoopLimit(maxToolLoopStepsHard-4, maxToolLoopStepsHard-4); got != maxToolLoopStepsHard {
+		t.Fatalf("extension overshot cap: got %d want %d", got, maxToolLoopStepsHard)
+	}
+}
+
 func TestAssistantPausedMidTask(t *testing.T) {
 	paused := []string{
 		"找到 59 个技能目录，请确认是否继续安装。",

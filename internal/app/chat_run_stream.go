@@ -364,6 +364,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					break
 				}
 				usedTools = true
+				// E4 adaptive ceiling: a non-companion turn that keeps making
+				// real tool calls near its limit gets more room instead of a
+				// silent mid-batch truncation. Companion (voice) turns keep
+				// their fixed budget so a spoken reply never runs long.
+				if !state.companion {
+					toolLoopLimit = extendToolLoopLimit(toolLoopLimit, step)
+				}
 				for _, call := range result.Message.ToolCalls {
 					if isDesktopControlTool(call.Name) {
 						usedDesktopTools = true
