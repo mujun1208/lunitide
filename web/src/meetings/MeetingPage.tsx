@@ -5,7 +5,7 @@ import { pickDefaultVoice } from '../provider/modelKind'
 import { loadMeetingSettings, MEETING_SETTINGS_EVENT, type MeetingSettings } from './meetingSettings'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
@@ -118,6 +118,11 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
   const loopbackEnergyRef = useRef({ hits: 0, zeros: 0 })
   const [systemHeard, setSystemHeard] = useState<boolean | undefined>()
+  // For engine-owned WASAPI capture there is no browser track to inspect, so the
+  // only trustworthy "system audio present" signal is whether the engine actually
+  // opened a loopback session (active === true). Energy silence is normal in a
+  // meeting and must never be read as "missing".
+  const [engineLoopbackActive, setEngineLoopbackActive] = useState<boolean | undefined>()
   const summarizePollRef = useRef<number>(0)
   const unwatchRef = useRef<() => void>(() => undefined)
   const speechGen = useRef(0)
@@ -145,6 +150,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     if (currentIdRef.current !== next.meetingId) {
       loopbackEnergyRef.current = { hits: 0, zeros: 0 }
       setSystemHeard(undefined)
+      setEngineLoopbackActive(undefined)
     }
     currentIdRef.current = next.meetingId
     const view = next.status === 'recording' && next.segments
@@ -394,6 +400,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const pulse = () => {
       void meetings.loopbackPoll({ meetingId: id }).then(next => {
         if (currentIdRef.current !== id) return
+        setEngineLoopbackActive(next.active)
         if (!next.active) {
           loopbackHoldRef.current = undefined
           return
@@ -711,14 +718,24 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   }
 
   const recording = current?.status === 'recording' && !stopping
-  // Loud, honest state: the meeting asked for mic+系统声, but no live system
-  // audio track is present (WASAPI loopback unavailable) or three energy frames
-  // came back silent. Never degrade to mic-only quietly — the whole point of
-  // meeting notes is收全电脑内部声音 (腾讯会议/飞书/微信/音乐/视频). The WAV +
-  // 停止后本机补转写 still capture系统声 whenever the track is actually live.
-  const systemAudioMissing = recording
-    && (current?.audioSource ?? 'microphone_and_system') === 'microphone_and_system'
-    && (systemHeard === false || (captureRef.current !== undefined && !planHasLiveSystemAudio(captureRef.current)))
+  // Loud, honest state — but only fire on a STRUCTURAL absence of any system
+  // source, never on momentary silence. There are two capture shapes:
+  //   • engine-owned WASAPI loopback (Windows): no browser track exists, so the
+  //     truth is the engine's loopback session — active === false means the
+  //     device never opened (mic only). A live session that is merely quiet
+  //     (nobody talking / paused media) is NOT missing.
+  //   • browser-owned (getDisplayMedia fallback): warn when there is no live
+  //     system-audio track at all.
+  // The earlier version also warned on `systemHeard === false`, which produced
+  // a false alarm whenever the loopback was live but momentarily silent — the
+  // exact case the user hit while a song was clearly being transcribed.
+  const systemAudioMissing = meetingSystemAudioMissing({
+    recording,
+    audioSource: current?.audioSource,
+    plan: captureRef.current,
+    engineLoopbackActive,
+    systemHeard,
+  })
   const segments: MeetingSegmentDTO[] = current?.segments ?? []
   const liveLines = collapseLiveTranscriptLines(segments.map(seg => seg.text))
   if (current?.transcript && liveLines.length === 0) liveLines.push(...current.transcript.split('\n').filter(Boolean))
@@ -770,7 +787,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
             : !current || stopping
               ? <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>
               : <button type="button" className="meeting-new-inline" onClick={composeNew}>新纪要</button>}
-          <span>{recording ? audioSourceLabel(systemHeard === false ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
+          <span>{recording ? audioSourceLabel(systemAudioMissing ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
           {onOpenSettings && <button type="button" className="meeting-settings-link" onClick={onOpenSettings}>听写与纪要设置</button>}
         </div>
         {systemAudioMissing && (

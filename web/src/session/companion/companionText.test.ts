@@ -49,6 +49,7 @@ import {
   collapseRepeatedCaptionBlocks,
   collapseAdjacentRepeatedClauses,
   companionCaptionFromStream,
+  stripCompanionSystemNotice,
   repairOpenCommandTranscript,
 } from './companionText'
 
@@ -451,6 +452,13 @@ describe('companionCaptionFromStream', () => {
     expect(companionCaptionFromStream(repeated)).toBe('好，我马上帮你查一下天气。今天南山27度。')
     expect(companionCaptionFromStream('我就帮你查一下今天的天气哈！好，我帮你查一下。好，我帮你查一下。告诉我城市。'))
       .toBe('我就帮你查一下今天的天气哈！告诉我城市。')
+  })
+
+  test('drops the backend 系统提示 degradation notice so it is never spoken', () => {
+    const notice =
+      '无法执行。（系统提示：当前模型拒绝了工具定义，原因：missing tool_call_id，本轮已自动切换为纯对话模式。）\n\n今晚是满月。'
+    expect(companionCaptionFromStream(notice)).toBe('无法执行。今晚是满月。')
+    expect(stripCompanionSystemNotice('前文。（系统提示：xxx）后文。')).toBe('前文。后文。')
   })
 })
 

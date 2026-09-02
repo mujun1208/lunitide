@@ -32,7 +32,7 @@ vi.mock('./meetingCapture', async importOriginal => {
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -225,6 +225,32 @@ describe('prepareMeetingCapture', () => {
     const next = await recoverMeetingSystemAudio(current, { interactive: false })
     expect(next).toBe(current)
     expect(next.engineOwned).toBe(true)
+  })
+})
+
+describe('meetingSystemAudioMissing', () => {
+  const enginePlan = { extraStreams: [], audioSource: 'microphone_and_system' as const, notice: '', engineOwned: true }
+
+  test('engine loopback that is live but momentarily silent is NOT missing', () => {
+    // The exact false-alarm case: a song is being transcribed through the engine
+    // loopback (active) even though the energy meter saw silent frames.
+    expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone_and_system', plan: enginePlan, engineLoopbackActive: true, systemHeard: false })).toBe(false)
+    // Still unknown at startup: do not warn before the first poll returns.
+    expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone_and_system', plan: enginePlan, engineLoopbackActive: undefined, systemHeard: undefined })).toBe(false)
+  })
+
+  test('engine loopback that never opened (active === false) IS missing', () => {
+    expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone_and_system', plan: enginePlan, engineLoopbackActive: false, systemHeard: undefined })).toBe(true)
+  })
+
+  test('browser fallback with no live system track is missing; a live track is not', () => {
+    expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone_and_system', plan: { extraStreams: [], audioSource: 'microphone_and_system', notice: '' }, engineLoopbackActive: undefined, systemHeard: undefined })).toBe(true)
+    expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone_and_system', plan: { extraStreams: [extra], audioSource: 'microphone_and_system', notice: '' }, engineLoopbackActive: undefined, systemHeard: true })).toBe(false)
+  })
+
+  test('never warns when not recording or when mic-only was chosen', () => {
+    expect(meetingSystemAudioMissing({ recording: false, audioSource: 'microphone_and_system', plan: enginePlan, engineLoopbackActive: false, systemHeard: false })).toBe(false)
+    expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone', plan: undefined, engineLoopbackActive: false, systemHeard: false })).toBe(false)
   })
 })
 

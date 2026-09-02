@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -235,6 +236,57 @@ func TestCombineDurableProviderMessagesOrdersAndValidatesFinalSequence(t *testin
 	)
 	if err == nil {
 		t.Fatal("final combined sequence was not validated")
+	}
+}
+
+func TestCombineDurableProviderMessagesFoldsHistoricalToolResults(t *testing.T) {
+	// A persisted role:"tool" row (no tool_call_id in the store) must never be
+	// replayed as an orphan tool message — strict providers (glm/Zhipu) reject
+	// the whole request with "missing messages.tool_call_id". It becomes a plain
+	// user-role note with the internal bookkeeping header stripped.
+	history := []contextapp.Message{
+		{Role: "user", Content: "打开记事本", TokenCount: 2},
+		{Role: "assistant", Content: "好的，正在打开。", TokenCount: 2},
+		{Role: "tool", Content: "[tool-result callId=abc argsDigest=d1 resultDigest=d2]\nok:true 记事本已打开", TokenCount: 3},
+		{Role: "assistant", Content: "已打开记事本。", TokenCount: 2},
+	}
+	explicit := []gateway.Message{{Role: gateway.RoleUser, Content: "再帮我写一行字"}}
+	got, err := combineDurableProviderMessages(history, explicit, contextapp.ProviderInfo{ContextWindow: 1000, SafetyCeiling: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, m := range got {
+		if m.Role == gateway.RoleTool {
+			t.Fatalf("orphan tool message survived at %d: %#v", i, got)
+		}
+		if m.ToolCallID != "" {
+			t.Fatalf("unexpected tool_call_id at %d: %#v", i, got)
+		}
+	}
+	// The folded tool row is a user note without the bookkeeping header.
+	var folded string
+	for _, m := range got {
+		if strings.Contains(m.Content, "记事本已打开") {
+			folded = m.Content
+		}
+	}
+	if folded == "" {
+		t.Fatalf("tool result content dropped: %#v", got)
+	}
+	if strings.Contains(folded, "[tool-result ") {
+		t.Fatalf("internal header leaked into provider message: %q", folded)
+	}
+}
+
+func TestFoldHistoricalToolResultStripsHeaderAndNeverEmpty(t *testing.T) {
+	if got := foldHistoricalToolResult("[tool-result callId=x argsDigest=y resultDigest=z]\nreal output"); got != "（历史工具结果）real output" {
+		t.Fatalf("fold with header = %q", got)
+	}
+	if got := foldHistoricalToolResult("[tool-result callId=x]\n   "); got != "（历史工具结果）(工具无输出)" {
+		t.Fatalf("fold empty body = %q", got)
+	}
+	if got := foldHistoricalToolResult("plain text no header"); got != "（历史工具结果）plain text no header" {
+		t.Fatalf("fold without header = %q", got)
 	}
 }
 
