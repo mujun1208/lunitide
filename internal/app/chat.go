@@ -621,6 +621,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	if e.tools != nil && wantsTools {
 		profile := parseToolProfile(p.ToolProfile)
+		if profile == toolProfileDefault && !p.Companion {
+			// S1: a short, high-confidence pure-chat turn drops the full tool +
+			// MCP + skill + expert schema it will never use. Any task intent
+			// keeps the full surface (autoToolProfile is precision-biased).
+			profile = autoToolProfile(intent.Text)
+		}
 		req.Tools = applyToolProfile(append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode, subagentPolicy)...), profile)
 		switch profile {
 		case toolProfileDefault:
