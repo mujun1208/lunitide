@@ -153,6 +153,23 @@ func handleTalkCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 }
 
 func (e *Engine) runTalkStream(ctx context.Context, session *talkSession, state *streamState, emit EventEmitter) {
+	// The read loop below blocks on conn.ReadMessage() with no deadline.
+	// cancelStream / CancelAllStreams / host stream.cancel only cancel the
+	// stream context; they do not close the socket, so on page navigation the
+	// reader would hang until the provider sends a frame or the TCP connection
+	// dies — leaking this goroutine and holding the stream slot. Close the
+	// socket on ctx cancel so the read returns promptly. shutdown() is
+	// once-guarded, so the normal-exit path (dropTalk) stays safe.
+	watchDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			session.shutdown()
+		case <-watchDone:
+		}
+	}()
+	defer close(watchDone)
+
 	var sendMu sync.Mutex
 	var seq uint64
 	send := func(event bridge.Event) error {

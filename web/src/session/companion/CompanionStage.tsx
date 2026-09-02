@@ -1625,6 +1625,15 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     }
 
     const adoptHandle = (handle: CompanionSpeechHandle) => {
+      // begin() is fire-and-forget: startCompanionSpeech / startLocal / openCloud
+      // can resolve after exit() or unmount. Without this guard the mic + ASR
+      // graph reopens with no owner (same leak class as the talk handle).
+      if (exitedRef.current || !stageAliveRef.current) {
+        void handle.stop()
+        openingListenRef.current = false
+        listenQueuedRef.current = false
+        return
+      }
       openingListenRef.current = false
       listenQueuedRef.current = false
       if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
@@ -1642,7 +1651,10 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       setRecognizerLive(false)
       if (listenQueuedRef.current && !exitedRef.current) {
         listenQueuedRef.current = false
-        window.setTimeout(() => startListeningRef.current(auto), 80)
+        window.setTimeout(() => {
+          if (exitedRef.current || !stageAliveRef.current) return
+          startListeningRef.current(auto)
+        }, 80)
       }
       if (!shouldKeepHandsFreeLoop({ exited: exitedRef.current, userPausedMic: false, errorCode: issue.code })) {
         setListenLoop(false)
@@ -1685,6 +1697,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
 
       const adoptTalk = (handle: CompanionTalkHandle) => {
+        if (exitedRef.current || !stageAliveRef.current) {
+          void handle.stop()
+          openingListenRef.current = false
+          talkPendingRef.current = false
+          return
+        }
         talkHandleRef.current = handle
         talkPendingRef.current = false
         setTalkLive(true)
@@ -1718,6 +1736,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               markVoiceTiming('firstAudio')
             },
             onUserTranscript: transcript => {
+              if (exitedRef.current || !stageAliveRef.current) return
               const next = cleanUserTranscript(transcript)
               if (!next) return
               onEngagedRef.current?.()
@@ -1733,6 +1752,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               if (stateRef.current === 'listening' || stateRef.current === 'idle') applyEvent({ type: 'RECOGNIZED_FINAL' })
             },
             onAssistantTranscript: transcript => {
+              if (exitedRef.current || !stageAliveRef.current) return
               const piece = transcript.trim()
               if (!piece) return
               setRounds(current => {
@@ -1743,6 +1763,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               })
             },
             onBarge: () => {
+              if (exitedRef.current || !stageAliveRef.current) return
               const spoken = clipSpokenCaption()
               onCancel?.(spoken)
               playerRef.current?.interrupt()
@@ -1754,6 +1775,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               }
             },
             onToolHandoff: text => {
+              if (exitedRef.current || !stageAliveRef.current) return
               talkSuppressPlayRef.current = true
               talkHandoffRef.current = true
               void talkHandleRef.current?.cancelOutput()
@@ -1765,9 +1787,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               setEngineHint(issue.message || TALK_FALLBACK_BANNER)
             },
             onEnded: () => {
-              playerRef.current?.interrupt()
               talkHandleRef.current = undefined
               talkLiveRef.current = false
+              // Unmount cleanup already stopped/cleared talk and disposed the
+              // player; skip the UI updates to avoid setState after unmount.
+              if (exitedRef.current || !stageAliveRef.current) return
+              playerRef.current?.interrupt()
               setTalkLive(false)
               setEntryLights(preparedLightsRef.current)
               const caption = assistantTextRef.current.trim()
