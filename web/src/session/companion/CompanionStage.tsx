@@ -1717,7 +1717,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
       }
 
-      if (shouldOfferCompanionTalk(settingsRef.current.voicePath, hasTalkModelRef.current, sessionIdRef.current) && !talkRetryBlocked(talkRetryRef.current, Date.now())) {
+      if (shouldOfferCompanionTalk(settingsRef.current.voicePath, hasTalkModelRef.current, sessionIdRef.current, settingsRef.current.talkRealtime) && !talkRetryBlocked(talkRetryRef.current, Date.now())) {
         talkPendingRef.current = true
         try {
           const handle = await startCompanionTalk({
@@ -2131,7 +2131,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         hasTalkModelRef.current = prepared.hasTalkModel
         preparedLightsRef.current = prepared.lights
         setEntryReady(true)
-        talkPendingRef.current = shouldOfferCompanionTalk(prepared.settings.voicePath, prepared.hasTalkModel, sessionIdRef.current) && !talkRetryBlocked(talkRetryRef.current, Date.now())
+        talkPendingRef.current = shouldOfferCompanionTalk(prepared.settings.voicePath, prepared.hasTalkModel, sessionIdRef.current, prepared.settings.talkRealtime) && !talkRetryBlocked(talkRetryRef.current, Date.now())
         if (!prepared.allowListen) {
           autoStartTriedRef.current = false
           setLocalError(new BridgeClientError(prepared.blockReason || '听、说、想还没齐，不会空听。', 'CHAT_CONFIG_MISSING', false, 'engine'))
@@ -2504,9 +2504,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       {hintVisible && machine.state === 'idle' && (
         <p className="companion-hint" aria-live="polite">
           {zh
-            ? settings.voicePath === 'volc'
-              ? `轻点月亮或按空格开始说话；她说话时可以对着麦打断，或点「打断」/ ${formatInterruptHotkey(settings.interruptHotkey)}`
-              : `轻点月亮或按空格开始说话；说完再答。不想听完点「打断」或按 ${formatInterruptHotkey(settings.interruptHotkey)}`
+            ? `轻点月亮或按空格开始说话；说完再答。不想听完点「打断」或按 ${formatInterruptHotkey(settings.interruptHotkey)}`
             : `Tap the moon or press Space to talk; tap Interrupt or ${formatInterruptHotkey(settings.interruptHotkey)} while she is speaking`}
         </p>
       )}

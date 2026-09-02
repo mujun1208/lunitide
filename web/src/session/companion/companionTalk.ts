@@ -34,8 +34,19 @@ export function noteTalkFailure(state: TalkRetryState, now: number): TalkRetrySt
   return { failures: state.failures + 1, lastFailAt: now }
 }
 
-export function shouldOfferCompanionTalk(voicePath: VoicePath, hasTalkModel: boolean, sessionId?: string): boolean {
-  return voicePath === 'volc' && hasTalkModel && !!sessionId
+/**
+ * Talk-realtime is opt-in. Default 火山 runs the single-voice cascade pipeline;
+ * only when the user explicitly enables the realtime talk core (optIn) and a
+ * realtime model + session exist do we offer the full-duplex talk connection.
+ * This keeps the out-of-the-box 火山 experience to exactly one voice.
+ */
+export function shouldOfferCompanionTalk(
+  voicePath: VoicePath,
+  hasTalkModel: boolean,
+  sessionId?: string,
+  optIn?: boolean,
+): boolean {
+  return optIn === true && voicePath === 'volc' && hasTalkModel && !!sessionId
 }
 
 /** Cascade TTS must stay off while talk owns the speaker. Tool handoff

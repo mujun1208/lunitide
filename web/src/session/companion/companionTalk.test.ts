@@ -54,12 +54,15 @@ const airOnly: ProviderDTO = {
 }
 
 describe('companionTalk helpers', () => {
-  test('offers talk only on volc with a listed model and a session', () => {
-    expect(shouldOfferCompanionTalk('volc', true, sessionId)).toBe(true)
-    expect(shouldOfferCompanionTalk('cloud', true, sessionId)).toBe(false)
-    expect(shouldOfferCompanionTalk('local', true, sessionId)).toBe(false)
-    expect(shouldOfferCompanionTalk('volc', false, sessionId)).toBe(false)
-    expect(shouldOfferCompanionTalk('volc', true, '')).toBe(false)
+  test('offers talk only on volc with a listed model, a session, and the opt-in on', () => {
+    // Talk-realtime is opt-in: default (no opt-in) always stays on cascade.
+    expect(shouldOfferCompanionTalk('volc', true, sessionId)).toBe(false)
+    expect(shouldOfferCompanionTalk('volc', true, sessionId, false)).toBe(false)
+    expect(shouldOfferCompanionTalk('volc', true, sessionId, true)).toBe(true)
+    expect(shouldOfferCompanionTalk('cloud', true, sessionId, true)).toBe(false)
+    expect(shouldOfferCompanionTalk('local', true, sessionId, true)).toBe(false)
+    expect(shouldOfferCompanionTalk('volc', false, sessionId, true)).toBe(false)
+    expect(shouldOfferCompanionTalk('volc', true, '', true)).toBe(false)
   })
 
   test('idle chat strings skip chat.start', () => {
