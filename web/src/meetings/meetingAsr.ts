@@ -122,14 +122,22 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
   if (listen === 'volc' && !options.volcProviderId) {
     throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
   }
-  const preferLocal = listen === 'local'
-  const extraStreams = preferLocal && !options.externalPcm ? options.extraStreams : undefined
+  // Both PCM-capable recognizers (本机 sherpa, 火山 volc) can take the meeting
+  // recorder's already-mixed mic+系统声 PCM, or open their own capture over the
+  // this-PC extra streams. Only 云端 Web Speech cannot: it captures its own mic
+  // inside the browser engine and exposes no way to inject loopback, so its
+  // live caption is mic-only (系统声 still lands in the WAV and the stop-time
+  // sherpa 补转写). Routing volc through the same path is what finally lets the
+  // 火山 live caption hear the other party, not just the local user.
+  const pcmCapable = listen === 'local' || listen === 'volc'
+  const usesExternalPcm = pcmCapable && options.externalPcm === true
+  const extraStreams = pcmCapable && !usesExternalPcm ? options.extraStreams : undefined
   const buffer = createMeetingLineBuffer(line => options.onFinal(line))
   const speechOptions: CompanionSpeechOptions = {
     ...options,
     extraStreams,
-    externalPcm: preferLocal ? options.externalPcm : undefined,
-    meterless: !preferLocal && listen !== 'volc',
+    externalPcm: usesExternalPcm ? options.externalPcm : undefined,
+    meterless: listen === 'cloud',
     duplex: true,
     holdUtterance: true,
     spokenText: () => '',
@@ -138,7 +146,7 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
   }
   const handle = listen === 'volc'
     ? await startVolcCompanionSpeech(speechOptions, options.volcProviderId!)
-    : await (preferLocal ? startLocalCompanionSpeech : startCompanionSpeech)(speechOptions)
+    : await (listen === 'local' ? startLocalCompanionSpeech : startCompanionSpeech)(speechOptions)
   const origStop = handle.stop.bind(handle)
   return {
     ...handle,

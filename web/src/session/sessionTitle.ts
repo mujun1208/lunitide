@@ -5,9 +5,20 @@ export function isPlaceholderChatTitle(title: string): boolean {
   return PLACEHOLDER_CHAT_TITLES.has(title.trim())
 }
 
+/** The persistent 月伴 singleton keeps this stable title so it is always
+ *  re-findable and never splinters into per-visit dialogues. */
+export function isCompanionChatTitle(title: string): boolean {
+  return COMPANION_CHAT_TITLES.has(title.trim())
+}
+
+/**
+ * Only 新对话/New chat placeholders get auto-renamed to the first sentence.
+ * 月伴对话 is deliberately excluded now that companion talk is one long-lived
+ * singleton dialogue — renaming it to a first utterance would hide the single
+ * home the user returns to and break re-discovery by title.
+ */
 export function isRenameableChatTitle(title: string): boolean {
-  const t = title.trim()
-  return PLACEHOLDER_CHAT_TITLES.has(t) || COMPANION_CHAT_TITLES.has(t)
+  return PLACEHOLDER_CHAT_TITLES.has(title.trim())
 }
 
 /** Sidebar/search label. Bound colleague sessions used to store「同事 · 专家」. */
