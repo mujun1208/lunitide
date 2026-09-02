@@ -104,14 +104,26 @@ describe('startMeetingSpeech', () => {
     expect(onFinal.mock.calls[0][0]).not.toMatch(/呃/)
   })
 
-  test('mixes this-PC loopback into local ASR only', async () => {
+  test('mixes this-PC loopback into both PCM recognizers, never cloud Web Speech', async () => {
     asr.probe.mockResolvedValue({ supported: true, ready: true })
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'local', extraStreams: [extra] })
     expect(asr.local.mock.calls[0][0].extraStreams).toEqual([extra])
-    asr.local.mockClear()
+    // 火山 is PCM-capable too: it must also receive the this-PC loopback so the
+    // live caption hears the other party, not only the local user.
+    asr.volc.mockClear()
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'volc', volcProviderId: 'p1', extraStreams: [extra] })
+    expect(asr.volc.mock.calls[0][0].extraStreams).toEqual([extra])
+    // 云端 Web Speech cannot inject loopback — it stays mic-only.
+    asr.web.mockClear()
     asr.probe.mockResolvedValue(undefined)
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), extraStreams: [extra] })
     expect(asr.web.mock.calls[0][0].extraStreams).toBeUndefined()
+  })
+
+  test('keeps loopback on the meeting recorder when volc ASR is fed external PCM', async () => {
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'volc', volcProviderId: 'p1', extraStreams: [extra], externalPcm: true })
+    expect(asr.volc.mock.calls[0][0].externalPcm).toBe(true)
+    expect(asr.volc.mock.calls[0][0].extraStreams).toBeUndefined()
   })
 
   test('keeps loopback on the meeting recorder when local ASR is fed external PCM', async () => {

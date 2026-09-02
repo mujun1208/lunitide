@@ -711,6 +711,14 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   }
 
   const recording = current?.status === 'recording' && !stopping
+  // Loud, honest state: the meeting asked for mic+系统声, but no live system
+  // audio track is present (WASAPI loopback unavailable) or three energy frames
+  // came back silent. Never degrade to mic-only quietly — the whole point of
+  // meeting notes is收全电脑内部声音 (腾讯会议/飞书/微信/音乐/视频). The WAV +
+  // 停止后本机补转写 still capture系统声 whenever the track is actually live.
+  const systemAudioMissing = recording
+    && (current?.audioSource ?? 'microphone_and_system') === 'microphone_and_system'
+    && (systemHeard === false || (captureRef.current !== undefined && !planHasLiveSystemAudio(captureRef.current)))
   const segments: MeetingSegmentDTO[] = current?.segments ?? []
   const liveLines = collapseLiveTranscriptLines(segments.map(seg => seg.text))
   if (current?.transcript && liveLines.length === 0) liveLines.push(...current.transcript.split('\n').filter(Boolean))
@@ -765,6 +773,11 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           <span>{recording ? audioSourceLabel(systemHeard === false ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
           {onOpenSettings && <button type="button" className="meeting-settings-link" onClick={onOpenSettings}>听写与纪要设置</button>}
         </div>
+        {systemAudioMissing && (
+          <p className="meeting-warn" role="alert">
+            ⚠ 没有收录到系统内部声音，当前只在录麦克风。腾讯会议 / 飞书 / 微信语音 / 音乐视频等对方的声音不会进入这场纪要。请确认 Windows「立体声混音」或系统音频回环可用后重开一场。
+          </p>
+        )}
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">
           {liveLines.length === 0 && !interim && !recording ? <p className="meeting-empty">还没有逐字稿。</p> : null}

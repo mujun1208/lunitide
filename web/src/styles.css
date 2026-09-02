@@ -1933,6 +1933,7 @@ html[data-theme="light"] .subagent-profile-row{background:#fff}
 .meeting-mix{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;cursor:pointer}
 .meeting-mix input{accent-color:var(--tide1)}
 .meeting-notice{margin:0;color:var(--tide3);font-size:13px}
+.meeting-warn{flex:0 0 auto;margin:0;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.5;color:#fff;background:color-mix(in srgb,#e5484d 88%,transparent);border:1px solid color-mix(in srgb,#e5484d 60%,#000)}
 .meeting-transcript{flex:1 1 22%;min-height:72px;max-height:none;overflow:auto;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);display:grid;gap:8px;align-content:start}
 .meeting-transcript p{margin:0;font-size:14px;line-height:1.55}
 .meeting-interim{color:var(--muted)}
