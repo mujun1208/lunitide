@@ -237,6 +237,10 @@ type Engine struct {
 	// a user turns the feature on.
 	voice *VoiceService
 
+	// On-demand download of the local GPT-SoVITS engine pack. Nil until
+	// wired; the download only runs when a manifest points at a hosted pack.
+	refInstall *RefEngineInstall
+
 	// MiniCPM-o 4.5 duplex. Isolated from TTS and ASR; nil until wired.
 	omni *OmniService
 

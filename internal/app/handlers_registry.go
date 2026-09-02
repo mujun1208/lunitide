@@ -332,6 +332,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTtsCancel:                     handleTtsCancel,
 	bridge.MethodTtsRefAudios:                  handleTtsRefAudios,
 	bridge.MethodTtsEnsureRefEngine:            handleTtsEnsureRefEngine,
+	bridge.MethodTtsInstallRefEngine:           handleTtsInstallRefEngine,
 	bridge.MethodVoiceStatus:                   handleVoiceStatus,
 	bridge.MethodVoiceInstall:                  handleVoiceInstall,
 	bridge.MethodVoiceSelect:                   handleVoiceSelect,

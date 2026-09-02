@@ -8,6 +8,7 @@ const tts = vi.hoisted(() => ({
   cancel: vi.fn(),
   refAudios: vi.fn(),
   ensureRefEngine: vi.fn(),
+  installRefEngine: vi.fn(),
 }))
 
 const providers = vi.hoisted(() => ({
@@ -38,6 +39,8 @@ describe('CompanionSection voice path', () => {
     providers.list.mockReset()
     providers.list.mockResolvedValue({ items: [] })
     tts.ensureRefEngine.mockResolvedValue({ state: 'launching', host_script: '', endpoint: 'http://127.0.0.1:9880' })
+    tts.installRefEngine.mockReset()
+    tts.installRefEngine.mockResolvedValue({ state: 'ready', percent: 100, doneBytes: 0, totalBytes: 0 })
     tts.voices.mockImplementation(async (payload?: { engine?: string }) => {
       if (payload?.engine === 'volc') {
         return {

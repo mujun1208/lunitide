@@ -64,6 +64,19 @@ func refHostScriptCandidates() []string {
 	return out
 }
 
+// RefEngineLauncherPresent reports whether any probed launcher script
+// already exists on disk (portable copy, a prior on-demand install, or the
+// legacy developer layout). Used by the download service to skip fetching an
+// engine that is already available locally.
+func RefEngineLauncherPresent() bool {
+	for _, s := range refHostScriptCandidates() {
+		if info, err := os.Stat(s); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
 // Ref host states surfaced through tts.voices ref_meta and
 // tts.ensureRefEngine.
 const (
