@@ -68,6 +68,7 @@ import {
   talkRetryBlocked,
   type CompanionTalkHandle,
 } from './companionTalk'
+import { prewarmVoice } from './voicePrewarm'
 import { useWindowsDefaultMicrophone } from '../../settings/microphone'
 import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, companionEventForDispatch, companionSurfaceState, companionStatusLabel, type CompanionEvent } from './useCompanionMachine'
@@ -2103,6 +2104,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
         autoStartTriedRef.current = true
         setLocalError(undefined)
+        // V3 (opt-in): warm the cold-start synth engine before the first reply.
+        void prewarmVoice(prepared.settings)
         speakReadyRef.current = prepared.speakReady
         if (!prepared.speakReady && prepared.settings.voicePath === 'local') {
           const launching = prepared.lights.some(light => light.key === 'speak' && (light.label.includes('启动中') || light.label.includes('克隆未就绪')))
