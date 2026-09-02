@@ -682,12 +682,19 @@ func (e *Engine) maybeAutoAcceptCandidate(ctx context.Context, candidateID strin
 	res, err := e.m8memory.AutoAcceptCandidate(ctx, candidateID, "chat.auto")
 	if err != nil {
 		if errors.Is(err, m8app.ErrExplicitConfirmationRequired) {
-			return // high-risk held for human; expected
+			return // high-risk held for human; expected, nomination stays open
 		}
 		log.Printf("chat memory: auto-accept skipped: %v", err)
 		return
 	}
 	if res.Accepted {
+		// Settle the wrapping nomination (if any) exactly as the human
+		// confirm handler does, so an auto-accepted candidate never leaves a
+		// dangling pending nomination. Idempotent + no-op for plain
+		// (feedback-origin) candidates that never had a nomination row.
+		if e.m10nomination != nil {
+			_ = e.m10nomination.MarkDecided(ctx, candidateID)
+		}
 		log.Printf("chat memory: auto-accepted low-risk candidate %s", candidateID)
 	}
 }
@@ -827,7 +834,7 @@ func (e *Engine) maybeNominateExpertLast(ctx context.Context, sessionID, expertI
 		}},
 	}
 	if e.m10nomination != nil {
-		_, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
+		res, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
 			SubjectID:       e.memorySubjectID(),
 			Doc:             doc,
 			Reason:          expertLastNominationReason,
@@ -837,13 +844,15 @@ func (e *Engine) maybeNominateExpertLast(ctx context.Context, sessionID, expertI
 		})
 		if err != nil {
 			log.Printf("chat memory: expert last nomination skipped: %v", err)
+			return
 		}
+		e.maybeAutoAcceptCandidate(ctx, res.CandidateID)
 		return
 	}
 	if e.m8memory == nil {
 		return
 	}
-	_, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
+	prop, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
 		SubjectID: e.memorySubjectID(),
 		Doc:       doc,
 		Inferred:  true,
@@ -852,7 +861,9 @@ func (e *Engine) maybeNominateExpertLast(ctx context.Context, sessionID, expertI
 	})
 	if err != nil {
 		log.Printf("chat memory: expert last propose skipped: %v", err)
+		return
 	}
+	e.maybeAutoAcceptCandidate(ctx, prop.Candidate.CandidateID)
 }
 
 func (e *Engine) upsertWorkingMemory(ctx context.Context, projectID, key, content string, sourceID, sourceType *string) error {
