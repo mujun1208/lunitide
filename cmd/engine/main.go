@@ -174,6 +174,8 @@ func main() {
 	// internal to the Promotion aggregate - M7-MIG-001).
 	engine.SetM7PromotionServices(m7app.NewPromotionService(store.AgentRuntimeRepository()))
 	engine.SetM7UpdateServices(m7app.NewUpdateService(store.AgentRuntimeRepository()))
+	// W3: the general audit_events chain shares the M7-DR-001 promotion freeze.
+	engine.SetAuditChainVerifier(store)
 	// M7 slices 6-8: read-only subagent runtime, tool-gap runtime and the
 	// MCP settings plane (invoke stays on mcp6.invoke per the wire
 	// contract). The frozen tool manifest is seeded read-only at startup.

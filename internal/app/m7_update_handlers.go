@@ -76,19 +76,35 @@ func handleAppUpdateInstall(e *Engine, ctx context.Context, r bridge.Request) br
 	}{state})
 }
 
-// m7AuditGuard freezes production promotions while the ledger chain is
-// broken (M7-DR-001). Called by release.promote before the saga starts.
+// auditChainVerifier re-derives a tamper-evident audit hash chain and reports
+// audit.ErrChainBroken on any edit/deletion/reorder/insertion. Both the m7
+// ledger (m7app.UpdateService) and the general audit_events chain (W3,
+// *sqlite.Store) satisfy it; the interface keeps app-layer tests stubbable.
+type auditChainVerifier interface {
+	VerifyAuditChain(ctx context.Context) error
+}
+
+// m7AuditGuard freezes production promotions while any audit chain is broken
+// (M7-DR-001). Called by release.promote before the saga starts. It verifies
+// both the m7 release ledger and — since W3 — the general audit_events chain,
+// so tampering with either integrity log halts promotion.
 func m7AuditGuard(e *Engine, ctx context.Context, r bridge.Request) *bridge.Response {
-	if e.m7update == nil {
-		return nil // no update service wired: nothing to verify
+	verifiers := []auditChainVerifier{}
+	if e.m7update != nil {
+		verifiers = append(verifiers, e.m7update)
 	}
-	if err := e.m7update.VerifyAuditChain(ctx); err != nil {
-		if errors.Is(err, audit.ErrChainBroken) {
-			resp := r.Fail("M7-DR-001", "审计链断裂，生产晋级已冻结", false)
+	if e.auditVerifier != nil {
+		verifiers = append(verifiers, e.auditVerifier)
+	}
+	for _, v := range verifiers {
+		if err := v.VerifyAuditChain(ctx); err != nil {
+			if errors.Is(err, audit.ErrChainBroken) {
+				resp := r.Fail("M7-DR-001", "审计链断裂，生产晋级已冻结", false)
+				return &resp
+			}
+			resp := r.Fail("STORAGE_UNAVAILABLE", "审计账本暂时不可读", true)
 			return &resp
 		}
-		resp := r.Fail("STORAGE_UNAVAILABLE", "审计账本暂时不可读", true)
-		return &resp
 	}
 	return nil
 }
