@@ -166,6 +166,13 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     window.clearInterval(stallWatchRef.current)
     let lastCaptionAt = Date.now()
     let stallRestarting = false
+    // Only one listen() may be between "stopped previous handle" and "installed
+    // new handle" at a time. Stall restart, onError retry (900ms) and
+    // recoverAndRelisten all call listen() and each awaits startMeetingSpeech;
+    // without this guard two could resolve and the second would overwrite
+    // speechRef without stopping the first, leaving an orphan mic + ASR session
+    // running for the rest of a long meeting.
+    let listenInFlight = false
     const bumpCaption = () => { lastCaptionAt = Date.now() }
     const bindSystemWatch = (live: MeetingCapturePlan) => {
       unwatchRef.current()
@@ -199,6 +206,15 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     }
     const listen = async () => {
       if (speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+      if (listenInFlight) return
+      listenInFlight = true
+      try {
+        await listenOnce()
+      } finally {
+        listenInFlight = false
+      }
+    }
+    const listenOnce = async () => {
       let livePlan = captureRef.current ?? plan
       if (!planHasLiveSystemAudio(livePlan)) {
         const recovered = await recoverMeetingSystemAudio(livePlan, { interactive: false })
