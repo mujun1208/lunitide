@@ -130,11 +130,20 @@ func (s *VoiceService) selectModel(modelID string) {
 		_ = session.Close()
 	}
 	if backend, ok := s.backend.(*voice.SherpaBackend); ok {
-		backend.ModelID = modelID
+		backend.SetModelID(modelID)
 		// The child process holds the previous weights and cannot be told
 		// about new ones, so it goes and the next session starts a new one.
 		backend.Shutdown()
 	}
+}
+
+// currentModelID reads the selected model under the lock. selectModel writes
+// it while status polling and install both read it, so the bare field access
+// was a genuine -race violation (torn read / stale bundle list on switch).
+func (s *VoiceService) currentModelID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.modelID
 }
 
 // warmEngines starts both recognizers' processes in the background, detached
@@ -185,11 +194,12 @@ func (s *VoiceService) ready(ctx context.Context) bool {
 // bundles lists everything this service needs on disk: the engine, the
 // streaming model the user chose, and the refiner.
 func (s *VoiceService) bundles() []voice.Bundle {
+	modelID := s.currentModelID()
 	out := []voice.Bundle{voice.Runtime()}
-	if model, err := voice.LookupBundle(s.modelID); err == nil {
+	if model, err := voice.LookupBundle(modelID); err == nil {
 		out = append(out, model)
 	}
-	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil && refiner.ID != s.modelID {
+	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil && refiner.ID != modelID {
 		out = append(out, refiner)
 	}
 	return out
@@ -205,7 +215,7 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 			"downloadBytes": 0, "backend": "",
 		})
 	}
-	model, err := voice.LookupBundle(e.voice.modelID)
+	model, err := voice.LookupBundle(e.voice.currentModelID())
 	if err != nil {
 		return r.Fail("VOICE-001", "本地识别模型未知", false)
 	}
@@ -274,7 +284,7 @@ func handleVoiceInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 	}
 	modelID := p.ModelID
 	if modelID == "" {
-		modelID = e.voice.modelID
+		modelID = e.voice.currentModelID()
 	}
 	if _, err := voice.LookupBundle(modelID); err != nil {
 		return r.Fail("VOICE-001", "本地识别模型未知", false)
@@ -287,11 +297,14 @@ func handleVoiceInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 // begin launches the download unless one is already running or everything is
 // already present.
 func (s *VoiceService) begin(modelID string) {
+	// Fast guard: if a transfer is already running, do nothing.
 	s.mu.Lock()
 	if s.installing {
 		s.mu.Unlock()
 		return
 	}
+	s.mu.Unlock()
+
 	bundles := []voice.Bundle{voice.Runtime()}
 	if model, err := voice.LookupBundle(modelID); err == nil {
 		bundles = append(bundles, model)
@@ -299,19 +312,27 @@ func (s *VoiceService) begin(modelID string) {
 	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil && refiner.ID != modelID {
 		bundles = append(bundles, refiner)
 	}
+	// Installed() re-hashes every file (seconds on multi-GB packs). Do it
+	// before taking the lock so concurrent snapshot() polls (the progress
+	// bar) are not frozen for the whole hash.
 	outstanding := false
 	for _, bundle := range bundles {
 		if !s.installer.Installed(bundle) {
 			outstanding = true
 		}
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.installing {
+		// Another begin() won the race while we were hashing.
+		return
+	}
 	if !outstanding {
 		s.state, s.lastErr = "ready", ""
-		s.mu.Unlock()
 		return
 	}
 	s.installing, s.state, s.lastErr = true, "downloading", ""
-	s.mu.Unlock()
 
 	// Detached from the request that started it: the transfer outlives any
 	// one bridge call, and cancelling it is voice.stop's job, not a

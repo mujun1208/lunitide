@@ -154,9 +154,11 @@ export function PeoplePage({
     el.scrollTop = el.scrollHeight
   }, [messages])
   useEffect(() => {
+    let alive = true
     const tick = async () => {
       if (typeof document !== 'undefined' && document.hidden) return
       const listed = await people.threadList()
+      if (!alive) return
       setThreads(listed.items)
       const id = threadIdRef.current
       if (id && rail !== 'me') {
@@ -168,17 +170,20 @@ export function PeoplePage({
           localLastId: messagesRef.current.at(-1)?.messageId,
         })) {
           const opened = await people.threadOpen({ threadId: id })
+          if (!alive) return
           setThread(opened.thread)
           setMessages(opened.messages)
         }
       }
       const list = await people.list()
+      if (!alive) return
       setContacts(list.items)
     }
     const timer = window.setInterval(() => { void tick().catch(() => {}) }, 1500)
     const onVis = () => { if (typeof document !== 'undefined' && !document.hidden) void tick().catch(() => {}) }
     document.addEventListener('visibilitychange', onVis)
     return () => {
+      alive = false
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVis)
     }

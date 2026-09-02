@@ -72,18 +72,30 @@ func (s *RefEngineInstall) begin() {
 	}
 	bundle := tts.RefEngineBundle(manifest)
 
+	// Fast guard: if a transfer is already running, do nothing.
 	s.mu.Lock()
 	if s.installing {
 		s.mu.Unlock()
 		return
 	}
-	if s.installer.Installed(bundle) {
+	s.mu.Unlock()
+
+	// Installed() re-hashes every file (seconds on a multi-GB pack). Do it
+	// before taking the lock so concurrent snapshot() progress polls are not
+	// frozen for the whole hash.
+	already := s.installer.Installed(bundle)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.installing {
+		// Another begin() won the race while we were hashing.
+		return
+	}
+	if already {
 		s.state, s.lastErr = "ready", ""
-		s.mu.Unlock()
 		return
 	}
 	s.installing, s.state, s.lastErr, s.progress = true, "downloading", "", voice.Progress{}
-	s.mu.Unlock()
 
 	go s.run(bundle)
 }

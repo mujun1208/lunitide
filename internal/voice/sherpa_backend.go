@@ -35,6 +35,13 @@ type SherpaBackend struct {
 	// what a machine with only the small model installed gets.
 	Refiner Transcriber
 
+	// idMu guards ModelID against the model-switch path (VoiceService.selectModel
+	// writes it while Start/Ready read it via modelID()). It is deliberately
+	// separate from mu: ensureServer reads modelID() while holding mu, so a
+	// shared lock would deadlock. ModelID may be set directly at construction,
+	// before any goroutine touches the backend.
+	idMu sync.Mutex
+
 	mu     sync.Mutex
 	server *sherpaServer
 }
@@ -67,10 +74,21 @@ func (b *SherpaBackend) Ready(context.Context) error {
 }
 
 func (b *SherpaBackend) modelID() string {
+	b.idMu.Lock()
+	defer b.idMu.Unlock()
 	if b.ModelID == "" {
 		return DefaultModel
 	}
 	return b.ModelID
+}
+
+// SetModelID points the backend at a different bundle. Callers must Shutdown()
+// afterwards: the child process holds the previous weights and cannot be told
+// about new ones.
+func (b *SherpaBackend) SetModelID(id string) {
+	b.idMu.Lock()
+	b.ModelID = id
+	b.idMu.Unlock()
 }
 
 func (b *SherpaBackend) startup() time.Duration {
