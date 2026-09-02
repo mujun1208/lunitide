@@ -21,6 +21,9 @@ func TestMatchCommandRuleBuiltinSet(t *testing.T) {
 		{"git", "--no-pager", "diff", "--stat"},
 		{"git", "--no-pager", "show", "HEAD"},
 		{"git", "--no-pager", "branch"},
+		{"git", "--no-pager", "add", "-A"},                    // E2 reversible write
+		{"git", "--no-pager", "commit", "-m", "msg"},          // E2 reversible write
+		{"git", "--no-pager", "stash"},                        // E2 reversible write
 	}
 	for _, argv := range allow {
 		if _, ok := matchCommandRule(rules, argv); !ok {
@@ -29,8 +32,12 @@ func TestMatchCommandRuleBuiltinSet(t *testing.T) {
 	}
 	deny := [][]string{
 		{"cmd", "/c", "del", "x"},
-		{"git", "status"},             // pager path not allowed
-		{"git", "--no-pager", "push"}, // mutating git
+		{"git", "status"},                     // pager path not allowed
+		{"git", "--no-pager", "push"},         // network / remote mutation
+		{"git", "--no-pager", "checkout", "."}, // destructive: discards uncommitted work
+		{"git", "--no-pager", "reset", "--hard"}, // destructive
+		{"git", "--no-pager", "clean", "-fdx"},   // destructive
+		{"git", "--no-pager", "restore", "."},    // destructive
 		{"git", "--no-pager", "log", "-n", "1", "-p", "-a", "-b", "-c", "-d", "-e"}, // over maxArgs
 		{"go", "build", "./..."}, // not in builtin set
 		{},

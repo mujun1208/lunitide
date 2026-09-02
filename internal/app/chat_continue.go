@@ -14,7 +14,37 @@ const (
 	maxContinueNudges        = 3
 	maxDesktopContinueNudges = 5
 	continueNudgeText        = "继续执行用户的指令直到完成。不要停下来询问、不要等待确认、不要只做勘查后结束本轮。立刻继续调用工具。仅在任务已完成，或缺少无法推断的必要信息/权限时，才给出最终说明。"
+
+	// maxToolLoopStepsHard caps how far one productive turn may extend its
+	// step budget (E4). A long legitimate batch (install many skills,
+	// multi-file edits, long build→fix loops) used to be silently truncated
+	// at maxToolLoopSteps mid-task; now a turn that keeps making real tool
+	// calls near the ceiling earns more room, up to this hard cap. A turn
+	// that stalls, loops, or stops calling tools never reaches the extension
+	// and stays at the base limit.
+	maxToolLoopStepsHard = 48
+	toolLoopExtendChunk  = 8
 )
+
+// extendToolLoopLimit grows the per-turn step ceiling when the model is still
+// productively calling tools within two steps of the current limit (E4). It
+// never exceeds the hard cap and never shrinks an already-larger limit. This
+// is the "adaptive step limit + checkpoint resume instead of hard truncation"
+// contract: the turn checkpoint is saved every step, so an extension resumes
+// exactly where the batch left off.
+func extendToolLoopLimit(current, step int) int {
+	if step < current-2 {
+		return current
+	}
+	next := current + toolLoopExtendChunk
+	if next > maxToolLoopStepsHard {
+		next = maxToolLoopStepsHard
+	}
+	if next < current {
+		return current
+	}
+	return next
+}
 
 // assistantPausedMidTask reports whether the model clearly stopped to ASK the
 // user (confirm / shall I / waiting for) instead of finishing the job.

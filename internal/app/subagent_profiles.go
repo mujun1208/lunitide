@@ -299,7 +299,51 @@ func builtinSubagentProfiles() map[string]subagentProfileDef {
 			ReadCaps:     []string{"fs.read", "fs.grep", "fs.glob", "fs.tree"},
 			MaxSteps:     8, BudgetTokens: subagentDefaultBudgetTokens,
 		},
+		"implementer": {
+			ID: "implementer", DisplayName: "Implementer", Builtin: true,
+			Description:  "Edits workspace files and runs allowlisted commands to implement a scoped change. Writable ONLY when the spawning turn already holds write authority (auto-edit / full-access); read-only otherwise.",
+			SystemPrompt: "You are the Implementer subagent: implement the assigned scoped change. Read the relevant files first, make the smallest correct edits with workspace.write / workspace.edit, and run allowlisted build/test commands to verify. Do not touch files outside the assigned scope. Return one concise report of what you changed and how you verified it (max 2000 characters).",
+			ReadCaps:     []string{"fs.read", "fs.readMany", "fs.glob", "fs.grep", "fs.tree", "fs.stat"},
+			WriteTools:   implementerWriteTools(),
+			MaxSteps:     subagentMaxSteps, BudgetTokens: subagentDefaultBudgetTokens,
+		},
 	}
+}
+
+// implementerWriteTools is the fixed write surface of the E3 implementer
+// profile. command.run is already in the read-only tool pack (it is gated by
+// the command allowlist + approval flow), so only file writers are listed
+// here. computer.act / desktop.* / cc.* stay out — a delegated agent never
+// drives the machine.
+func implementerWriteTools() []string {
+	return []string{"workspace.write", "workspace.edit"}
+}
+
+var implementerToolAllow = map[string]bool{
+	"workspace.write": true,
+	"workspace.edit":  true,
+}
+
+// parentModeGrantsWrite reports whether the spawning turn already holds file
+// write authority. The implementer subagent's writes are gated on this: a
+// delegated agent must never buy authority the operator did not grant this
+// turn (the same invariant subagentToolMode enforces for execution mode).
+func parentModeGrantsWrite(mode executionMode) bool {
+	return mode == executionModeAutoEdit || mode == executionModeFullAccess
+}
+
+func sanitizeImplementerWriteTools(tools []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(tools))
+	for _, name := range tools {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] || !implementerToolAllow[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func mergeSubagentProfiles(policy subagentChatPolicy) map[string]subagentProfileDef {
@@ -337,6 +381,18 @@ func resolveSubagentProfile(policy subagentChatPolicy, profileID string) (subage
 		filtered = append([]string(nil), defaultSubagentProfileCaps()...)
 	}
 	def.ReadCaps = filtered
+	// E3 governance gate: a writable profile (implementer) keeps its write
+	// tools only when the spawning turn already holds write authority
+	// (auto-edit / full-access). Under approval / plan mode it degrades to
+	// read-only — delegation never escalates. Expert-work spawns re-apply
+	// their own write caps after this via applyExpertSpawnCaps.
+	if len(def.WriteTools) > 0 {
+		if parentModeGrantsWrite(policy.ParentMode) {
+			def.WriteTools = sanitizeImplementerWriteTools(def.WriteTools)
+		} else {
+			def.WriteTools = nil
+		}
+	}
 	if def.MaxSteps < 1 {
 		def.MaxSteps = subagentMaxSteps
 	}
