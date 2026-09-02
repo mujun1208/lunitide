@@ -525,6 +525,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       speechHandleRef.current = undefined
       captionHandleRef.current?.stop()
       captionHandleRef.current = undefined
+      // A live 火山 talk.* session outlives an unmount that skips exit()
+      // (route change / conditional unmount / StrictMode remount): the mic
+      // append loop and realtime socket would keep running and stream audio
+      // into a disposed player. Stop it here so unmount == full teardown.
+      const leakedTalk = talkHandleRef.current
+      talkHandleRef.current = undefined
+      talkPendingRef.current = false
+      void leakedTalk?.stop()
       openingListenRef.current = false
       playerRef.current?.dispose()
       playerRef.current = undefined
