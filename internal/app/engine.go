@@ -183,7 +183,10 @@ type Engine struct {
 	m7release   *m7app.ReleaseService
 	m7promotion *m7app.PromotionService
 	m7update    *m7app.UpdateService
-	m7subagent  *m7app.SubagentService
+	// W3: verifier for the general audit_events tamper-evident chain, checked
+	// alongside the m7 ledger by m7AuditGuard before any production promotion.
+	auditVerifier auditChainVerifier
+	m7subagent    *m7app.SubagentService
 	m7toolgap   *m7app.ToolgapService
 	m7mcp       *m7app.McpRuntimeService
 
@@ -1452,6 +1455,13 @@ func (e *Engine) SetM7PromotionServices(promotionSvc *m7app.PromotionService) {
 // (check/install) and the audit-chain verification behind M7-DR-001.
 func (e *Engine) SetM7UpdateServices(updateSvc *m7app.UpdateService) {
 	e.m7update = updateSvc
+}
+
+// SetAuditChainVerifier wires the general audit_events tamper-evident chain
+// (W3) into the production-promotion guard. Passing a nil-typed verifier is a
+// no-op guard-side, so callers may skip it when no store is available.
+func (e *Engine) SetAuditChainVerifier(v auditChainVerifier) {
+	e.auditVerifier = v
 }
 
 // SetM7RuntimeServices wires the M7 slice 6-8 services: the read-only
