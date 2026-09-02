@@ -148,3 +148,48 @@ export function voiceTimingSummary(
   }
   return out
 }
+
+// ---- Diagnostics panel view model (pure, so it can be unit tested) ----
+
+export type VoiceTimingDisplayRow = {
+  field: VoiceLatencyBudgetField
+  label: string
+  budgetMs: number
+  p50?: number
+  p95?: number
+  max?: number
+  count: number
+  /** p95 within budget → healthy; over → the SLA is being missed. */
+  healthy: boolean
+}
+
+const FIELD_LABELS: Record<VoiceLatencyBudgetField, string> = {
+  endpointMs: '静音→首个识别',
+  ttfbMs: '说完→首字回复',
+  firstAudioMs: '说完→首个语音',
+}
+
+/** Turn the ring summary into display rows for the diagnostics panel. A field
+ * with no samples yet is reported as healthy (nothing has missed its SLA). */
+export function voiceTimingRows(records: readonly VoiceTurnRecord[] = ring): VoiceTimingDisplayRow[] {
+  const summary = voiceTimingSummary(records)
+  return (Object.keys(VOICE_LATENCY_BUDGETS) as VoiceLatencyBudgetField[]).map(field => {
+    const stat = summary[field]
+    const budgetMs = VOICE_LATENCY_BUDGETS[field]
+    return {
+      field,
+      label: FIELD_LABELS[field],
+      budgetMs,
+      p50: stat.p50,
+      p95: stat.p95,
+      max: stat.max,
+      count: stat.count,
+      healthy: stat.p95 == null || stat.p95 <= budgetMs,
+    }
+  })
+}
+
+/** How many retained turns ended in a stall. */
+export function voiceStallCount(records: readonly VoiceTurnRecord[] = ring): number {
+  return records.reduce((n, r) => (r.outcome === 'stall' ? n + 1 : n), 0)
+}
