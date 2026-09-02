@@ -30,7 +30,7 @@
     },
     "engine": {
       "type": "string",
-      "enum": ["sapi", "natural", "edge", "ref", "volc"]
+      "enum": ["sapi", "natural", "edge", "ref", "volc", "onnx"]
     },
     "refEndpoint": {
       "type": "string",

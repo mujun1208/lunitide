@@ -245,6 +245,10 @@ type Engine struct {
 	// wired; the download only runs when a manifest points at a hosted pack.
 	refInstall *RefEngineInstall
 
+	// On-demand download of the offline ONNX voice (sherpa-onnx + Kokoro).
+	// Nil until wired; the two bundles are pinned so it needs no manifest.
+	onnxInstall *OnnxEngineInstall
+
 	// MiniCPM-o 4.5 duplex. Isolated from TTS and ASR; nil until wired.
 	omni *OmniService
 

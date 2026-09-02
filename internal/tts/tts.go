@@ -55,12 +55,13 @@ const (
 	EngineEdge    = "edge"    // free Microsoft cloud neural voices (晓晓等)
 	EngineRef     = "ref"     // zero-shot reference-timbre cloning via local service
 	EngineVolc    = "volc"    // Ark Agent Plan seed-tts (openspeech)
+	EngineOnnx    = "onnx"    // bundled offline sherpa-onnx Kokoro (install-and-use local voice)
 )
 
 // ValidEngine reports whether the payload engine field is accepted.
 func ValidEngine(engine string) bool {
 	switch engine {
-	case "", EngineSapi, EngineNatural, EngineEdge, EngineRef, EngineVolc:
+	case "", EngineSapi, EngineNatural, EngineEdge, EngineRef, EngineVolc, EngineOnnx:
 		return true
 	}
 	return false

@@ -391,6 +391,7 @@
         "trace.resolveStale",
         "tts.cancel",
         "tts.ensureRefEngine",
+        "tts.installOnnxEngine",
         "tts.installRefEngine",
         "tts.refAudios",
         "tts.stream",

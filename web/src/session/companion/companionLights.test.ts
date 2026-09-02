@@ -51,7 +51,7 @@ describe('inspectCompanionEntry', () => {
       listProviders: async () => ({ items: [chat] }),
       localAsr: async () => ({ supported: true, ready: true }),
       refEngine: async () => ({ state: 'launching' }),
-    })
+    }, 'ref')
     expect(report.allowListen).toBe(true)
     expect(report.speakReady).toBe(false)
     expect(report.lights[1]).toMatchObject({ label: 'GPT-SoVITS 启动中', state: 'warn' })
@@ -62,7 +62,7 @@ describe('inspectCompanionEntry', () => {
       listProviders: async () => ({ items: [chat] }),
       localAsr: async () => ({ supported: true, ready: true }),
       refEngine: async () => ({ state: 'launching', last_error: '引擎未就绪：/docs 仍无响应' }),
-    })
+    }, 'ref')
     expect(report.speakReady).toBe(false)
     expect(report.lights[1]).toMatchObject({ label: '晓晓（克隆未就绪）', state: 'warn' })
   })
@@ -72,7 +72,7 @@ describe('inspectCompanionEntry', () => {
       listProviders: async () => ({ items: [chat] }),
       localAsr: async () => ({ supported: true, ready: true }),
       refEngine: async () => ({ state: 'offline' }),
-    })
+    }, 'ref')
     expect(report.allowListen).toBe(true)
     expect(report.speakReady).toBe(false)
     expect(report.lights[1].state).toBe('off')
@@ -84,7 +84,7 @@ describe('inspectCompanionEntry', () => {
       listProviders: async () => ({ items: [chat] }),
       localAsr: async () => ({ supported: true, ready: true }),
       refEngine: async () => ({ state: 'offline', last_error: 'jieba_fast dict.txt missing' }),
-    })
+    }, 'ref')
     expect(report.lights[1].label).toMatch(/jieba_fast/)
   })
 
@@ -96,6 +96,40 @@ describe('inspectCompanionEntry', () => {
     })
     expect(report.allowListen).toBe(true)
     expect(report.blockReason).toBe('')
+  })
+
+  test('local Kokoro speak light is ready when both bundles are installed', async () => {
+    const report = await inspectCompanionEntry('local', '', {
+      listProviders: async () => ({ items: [chat] }),
+      localAsr: async () => ({ supported: true, ready: true }),
+      onnxEngine: async () => ({ state: 'ready' }),
+    })
+    expect(report.allowListen).toBe(true)
+    expect(report.speakReady).toBe(true)
+    expect(report.lights[1]).toMatchObject({ label: 'Kokoro 本地', state: 'on' })
+  })
+
+  test('local Kokoro speak light offers a download when not installed', async () => {
+    const report = await inspectCompanionEntry('local', '', {
+      listProviders: async () => ({ items: [chat] }),
+      localAsr: async () => ({ supported: true, ready: true }),
+      onnxEngine: async () => ({ state: 'idle' }),
+    })
+    // Listen still works (sherpa is ready); only the speak side needs the model.
+    expect(report.allowListen).toBe(true)
+    expect(report.speakReady).toBe(false)
+    expect(report.lights[1].state).toBe('off')
+    expect(report.lights[1].label).toMatch(/未安装/)
+  })
+
+  test('local Kokoro speak light shows downloading progress', async () => {
+    const report = await inspectCompanionEntry('local', '', {
+      listProviders: async () => ({ items: [chat] }),
+      localAsr: async () => ({ supported: true, ready: true }),
+      onnxEngine: async () => ({ state: 'downloading' }),
+    })
+    expect(report.speakReady).toBe(false)
+    expect(report.lights[1]).toMatchObject({ label: 'Kokoro 下载中', state: 'warn' })
   })
 
   test('blocks volc when there is no voice provider', async () => {

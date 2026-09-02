@@ -9,6 +9,7 @@ const tts = vi.hoisted(() => ({
   refAudios: vi.fn(),
   ensureRefEngine: vi.fn(),
   installRefEngine: vi.fn(),
+  installOnnxEngine: vi.fn().mockResolvedValue({ state: 'ready', percent: 100, doneBytes: 0, totalBytes: 0 }),
 }))
 
 const providers = vi.hoisted(() => ({
@@ -173,6 +174,9 @@ describe('CompanionSection voice path', () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     await user.click(await screen.findByRole('radio', { name: /本地/ }))
+    // 本地 now defaults to bundled Kokoro; the GPT-SoVITS host UI is behind
+    // the advanced local-engine option.
+    await user.selectOptions(await screen.findByRole('combobox', { name: '本地语音引擎' }), 'ref')
     expect(await screen.findByText(/语音引擎启动中/)).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '启动中…' })).toBeDisabled()
     expect(tts.synthesize).not.toHaveBeenCalled()
@@ -195,17 +199,27 @@ describe('CompanionSection voice path', () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     await user.click(await screen.findByRole('radio', { name: /本地/ }))
+    await user.selectOptions(await screen.findByRole('combobox', { name: '本地语音引擎' }), 'ref')
     expect(await screen.findByText(/jieba_fast/)).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '试听' })).toBeEnabled()
   })
 
-  test('local path keeps three cards and shows GPT-SoVITS extras', async () => {
+  test('local path defaults to bundled Kokoro and offers GPT-SoVITS as an option', async () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     await user.click(await screen.findByRole('radio', { name: /本地/ }))
     expect(screen.getAllByRole('radio')).toHaveLength(3)
     expect(screen.getByRole('radio', { name: /本地/ })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByLabelText('GPT-SoVITS 服务地址')).toBeInTheDocument()
+    // Default local engine is the bundled offline Kokoro (onnx), not the
+    // hosted GPT-SoVITS — so its endpoint field is absent until re-picked.
+    const engineSelect = await screen.findByRole('combobox', { name: '本地语音引擎' })
+    expect(engineSelect).toHaveValue('onnx')
+    expect(screen.queryByLabelText('GPT-SoVITS 服务地址')).not.toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>
+    expect(stored.engine).toBe('onnx')
+    // Switching to the advanced GPT-SoVITS engine reveals its host controls.
+    await user.selectOptions(engineSelect, 'ref')
+    expect(await screen.findByLabelText('GPT-SoVITS 服务地址')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/50 种人生已内置/)).toBeInTheDocument())
   })
 })

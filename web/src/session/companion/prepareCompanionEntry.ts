@@ -32,12 +32,13 @@ export async function prepareCompanionEntry(
   const explicitPath = hasExplicitCompanionVoicePath()
   let voicePath = await resolveCompanionVoicePath(loaded)
   let settings = voicePath === loaded.voicePath ? loaded : applyVoicePath(loaded, voicePath)
-  let report = await inspectCompanionEntry(voicePath, settings.refEndpoint, probes)
+  const localEngine = (path: CompanionSettings): 'onnx' | 'ref' => (path.engine === 'ref' ? 'ref' : 'onnx')
+  let report = await inspectCompanionEntry(voicePath, settings.refEndpoint, probes, localEngine(settings))
   if (voicePath === 'cloud' && !explicitPath && report.hasVolc) {
     voicePath = 'volc'
     settings = applyVoicePath(loaded, 'volc', { volcTtsReady: report.hasVolcTts })
     saveCompanionSettings(settings)
-    report = await inspectCompanionEntry('volc', settings.refEndpoint, probes)
+    report = await inspectCompanionEntry('volc', settings.refEndpoint, probes, localEngine(settings))
   }
   if (voicePath === 'volc') {
     const priorVoiceId = settings.voiceId
