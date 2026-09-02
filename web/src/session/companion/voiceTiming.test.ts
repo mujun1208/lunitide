@@ -6,6 +6,8 @@ import {
   peekVoiceTimings,
   resetVoiceTimings,
   startVoiceTurn,
+  voiceStallCount,
+  voiceTimingRows,
   voiceTimingSummary,
   voiceTurnBreaches,
   type VoiceTurnRecord,
@@ -65,5 +67,33 @@ describe('voiceTiming SLA guard', () => {
     expect(summary.ttfbMs.max).toBe(900)
     expect(summary.ttfbMs.p50).toBe(300)
     expect(summary.ttfbMs.p95).toBe(900)
+  })
+
+  it('reports empty rows as healthy with zero samples', () => {
+    const rows = voiceTimingRows([])
+    expect(rows).toHaveLength(3)
+    expect(rows.every(r => r.count === 0 && r.healthy)).toBe(true)
+    expect(rows.map(r => r.field)).toEqual(['endpointMs', 'ttfbMs', 'firstAudioMs'])
+  })
+
+  it('marks a field unhealthy once p95 exceeds its budget', () => {
+    const overBudget = VOICE_LATENCY_BUDGETS.ttfbMs + 400
+    const records: VoiceTurnRecord[] = [overBudget, overBudget, overBudget].map(ms => ({
+      path: 'local',
+      ttfbMs: ms,
+      outcome: 'ok' as const,
+    }))
+    const ttfbRow = voiceTimingRows(records).find(r => r.field === 'ttfbMs')
+    expect(ttfbRow?.healthy).toBe(false)
+    expect(ttfbRow?.p95).toBe(overBudget)
+  })
+
+  it('counts stalled turns', () => {
+    const records: VoiceTurnRecord[] = [
+      { path: 'local', outcome: 'ok' },
+      { path: 'volc', outcome: 'stall' },
+      { path: 'local', outcome: 'stall' },
+    ]
+    expect(voiceStallCount(records)).toBe(2)
   })
 })
