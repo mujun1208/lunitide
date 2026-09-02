@@ -1,10 +1,41 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/gateway"
 )
+
+func TestAutoToolProfile(t *testing.T) {
+	// Pure chat with no task hint narrows to minimal.
+	chat := []string{"你好呀", "在吗？", "谢谢你", "hi", "讲个笑话", "你是谁", "good morning"}
+	for _, s := range chat {
+		if got := autoToolProfile(s); got != toolProfileMinimal {
+			t.Fatalf("chat %q -> %q, want minimal", s, got)
+		}
+	}
+	// Any actionable intent keeps the full default surface.
+	task := []string{
+		"帮我打开记事本", "运行测试", "改一下这个文件", "search the web for X",
+		"fix the bug in main.go", "打开浏览器", "查一下今天天气", "git commit",
+	}
+	for _, s := range task {
+		if got := autoToolProfile(s); got != toolProfileDefault {
+			t.Fatalf("task %q -> %q, want default", s, got)
+		}
+	}
+	// Empty and long/ambiguous turns stay on default.
+	if autoToolProfile("") != toolProfileDefault {
+		t.Fatal("empty should be default")
+	}
+	// >40 runes: the length guard keeps the full surface even with a chat hint,
+	// because a long turn is more likely to carry an actionable request.
+	long := strings.Repeat("你好", 21)
+	if autoToolProfile(long) != toolProfileDefault {
+		t.Fatal("long turn should stay default (may carry a task)")
+	}
+}
 
 func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 	all := engineToolDefinitions()
