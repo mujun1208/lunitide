@@ -2,10 +2,12 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   PREWARM_TEXT,
   buildPrewarmPayload,
-  setVoicePrewarmEnabled,
+  prewarmDefaultForEngine,
+  setVoicePrewarmPref,
   shouldPrewarm,
   shouldPrewarmEngine,
-  voicePrewarmEnabled,
+  voicePrewarmEffective,
+  voicePrewarmPref,
   type PrewarmInput,
 } from './voicePrewarm'
 
@@ -15,9 +17,13 @@ describe('voicePrewarm flag + gating', () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => localStorage.clear())
 
-  it('defaults to off', () => {
-    expect(voicePrewarmEnabled()).toBe(false)
-    expect(shouldPrewarm(base)).toBe(false)
+  it('defaults to per-engine: local ref on, volc off', () => {
+    expect(voicePrewarmPref()).toBe('default')
+    expect(prewarmDefaultForEngine('ref')).toBe(true)
+    expect(prewarmDefaultForEngine('volc')).toBe(false)
+    // no explicit choice → follow the engine default
+    expect(shouldPrewarm(base)).toBe(true)
+    expect(shouldPrewarm({ ...base, engine: 'volc' })).toBe(false)
   })
 
   it('is only meaningful for cold-start engines', () => {
@@ -27,12 +33,23 @@ describe('voicePrewarm flag + gating', () => {
     expect(shouldPrewarmEngine('sapi')).toBe(false)
   })
 
-  it('enables only when flag is on AND engine is cold-start', () => {
-    setVoicePrewarmEnabled(true)
+  it('explicit on/off overrides the per-engine default', () => {
+    setVoicePrewarmPref('on')
+    expect(voicePrewarmEffective('ref')).toBe(true)
+    expect(voicePrewarmEffective('volc')).toBe(true)
     expect(shouldPrewarm(base)).toBe(true)
+    expect(shouldPrewarm({ ...base, engine: 'volc' })).toBe(true)
+    // still gated by engine
     expect(shouldPrewarm({ ...base, engine: 'edge' })).toBe(false)
-    setVoicePrewarmEnabled(false)
+
+    setVoicePrewarmPref('off')
+    expect(voicePrewarmEffective('ref')).toBe(false)
     expect(shouldPrewarm(base)).toBe(false)
+
+    // clearing the override restores the per-engine default
+    setVoicePrewarmPref('default')
+    expect(voicePrewarmPref()).toBe('default')
+    expect(shouldPrewarm(base)).toBe(true)
   })
 
   it('builds a silent warmup payload that carries the ref endpoint only for ref', () => {
