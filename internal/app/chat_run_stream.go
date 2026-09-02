@@ -681,10 +681,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
 							return blockedDocxGenResult(msg), nil
 						}
-						if call.Name == "command.run" && (turn.PptActive || turn.DocxActive || wantsOfficeFileOnDesktop(turn.Goal)) {
+						if (call.Name == "command.run" || call.Name == "run_terminal_cmd") && (turn.PptActive || turn.DocxActive || wantsOfficeFileOnDesktop(turn.Goal)) {
 							return toolruntime.Result{Output: "ok:false\n" + officeGenInternalHint + "立刻调用对应 *.gen，不要 command.run。"}, nil
 						}
-						if call.Name == "command.run" {
+						if call.Name == "command.run" || call.Name == "run_terminal_cmd" {
 							progress := func(chunk string) {
 								if chunk == "" {
 									return

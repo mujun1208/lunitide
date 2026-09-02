@@ -2,7 +2,7 @@ export function isDangerousCompanionTool(name: string): boolean {
   const n = name.trim()
   if (!n) return false
   if (n.startsWith('cc.') || n.startsWith('desktop.')) return true
-  return n === 'command.run' || n === 'im.send' || n === 'computer.act'
+  return n === 'command.run' || n === 'run_terminal_cmd' || n === 'im.send' || n === 'computer.act'
 }
 
 export function isFullDiskCompanionWrite(name: string): boolean {

@@ -205,6 +205,21 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return Result{}, errors.New("tools disabled in plan mode")
 	}
 	args = jsonutil.Repair(args)
+	// E1: run_terminal_cmd is the Codex-style terminal tool. It shares
+	// command.run's entire pipeline (built-in + user allowlist, full-disk
+	// lift, hardline floor, approval gate, bounded streaming); only the
+	// argument shape differs ({command:"..."} vs {argv:[...]}). Normalize to
+	// command.run here — before hooks, the mutating gate and the switch — so
+	// gating, audit and execution all stay a single reviewed code path and no
+	// new command-execution surface is introduced.
+	if name == "run_terminal_cmd" {
+		argv, terr := terminalCommandToArgv(args)
+		if terr != nil {
+			return Result{}, commandFailure(terr.Error())
+		}
+		name = "command.run"
+		args = argv
+	}
 	// P3-B hooks: evaluate beforeToolCall rules first (block > gate >
 	// grant priority, fail-closed). A block refuses before anything else;
 	// every matched rule leaves one audit row whatever the outcome.
