@@ -180,6 +180,14 @@ describe('companion engine fallback helpers', () => {
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'volc'))).toBe(true)
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'cloud'))).toBe(false)
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'local'))).toBe(false)
+    // V1 flag (default off): local barge-in turns on only when the user opts in.
+    expect(
+      companionVoiceBargeInEnabled({ ...applyVoicePath(defaultCompanionSettings(), 'local'), voiceBargeIn: true }),
+    ).toBe(true)
+    // The flag never opens duplex on cloud (Web Speech echo).
+    expect(
+      companionVoiceBargeInEnabled({ ...applyVoicePath(defaultCompanionSettings(), 'cloud'), voiceBargeIn: true }),
+    ).toBe(false)
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'refpack:甜心少女.wav' }, 'volc').voiceId).toBe('zh_female_xiaohe_uranus_bigtts')
     expect(applyVoicePath({ ...defaultCompanionSettings(), voiceId: 'zh_female_vv_uranus_bigtts' }, 'cloud').voiceId).toBe('')
     expect(applyVoicePath(defaultCompanionSettings(), 'local').engine).toBe('ref')

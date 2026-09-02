@@ -310,9 +310,20 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
   return fallback
 }
 
-/** Path-forced barge-in. Stored voiceBargeIn is ignored so cloud/local cannot open Web Speech duplex. */
-export function companionVoiceBargeInEnabled(settings: Pick<CompanionSettings, 'voicePath'>): boolean {
-  return settings.voicePath === 'volc'
+/**
+ * Whether the assistant keeps listening while she speaks (full-duplex barge-in).
+ *
+ * - 火山 (volc): always on — server VAD + AEC handle the echo.
+ * - 本地 (local): honors the opt-in `voiceBargeIn` setting (default off). The
+ *   PCM path has echo cancellation on and a non-echo transcript gate, so this
+ *   is the V1 full-duplex flag the user toggles per machine.
+ * - 云端 (cloud): always off. Web Speech captures the speaker independently and
+ *   cannot be muted from here, so duplex would transcribe her own replies.
+ */
+export function companionVoiceBargeInEnabled(settings: Pick<CompanionSettings, 'voicePath' | 'voiceBargeIn'>): boolean {
+  if (settings.voicePath === 'volc') return true
+  if (settings.voicePath === 'local') return settings.voiceBargeIn === true
+  return false
 }
 
 export function applyVoicePath(settings: CompanionSettings, path: VoicePath, opts?: { volcTtsReady?: boolean }): CompanionSettings {
