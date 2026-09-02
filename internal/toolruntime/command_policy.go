@@ -221,7 +221,7 @@ func terminalCommandToArgv(args json.RawMessage) (json.RawMessage, error) {
 	if cmd == "" {
 		return nil, errors.New("empty command")
 	}
-	if strings.IndexAny(cmd, "|&;<>`$\n\r") >= 0 {
+	if strings.ContainsAny(cmd, "|&;<>`$\n\r") {
 		return nil, errors.New("shell operators (| & ; < > ` $) are not supported: run a single program with its arguments; for piping/redirection enable full-disk and use separate steps")
 	}
 	argv, err := lexArgv(cmd)
