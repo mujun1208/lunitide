@@ -20,6 +20,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
+	"github.com/lunitide/lunitide/internal/config"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
@@ -197,6 +198,9 @@ type Engine struct {
 	m8memory *m8app.MemoryService
 	// M10: memory nomination workflow over the slice-1 core.
 	m10nomination *m8app.NominationService
+	// Phase-3 governance switches (M1/M2/S2), default-off. When nil every
+	// switch reads false, so the frozen invariants hold unchanged.
+	govFlags *config.GovernanceFlags
 	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
 	memoryOps *m8app.MemoryOpsService
 	// M10: expert scenario cards over the FR-19 expert core.
@@ -1082,6 +1086,16 @@ func (e *Engine) SetM8MemoryServices(memorySvc *m8app.MemoryService) {
 	e.m8memory = memorySvc
 }
 
+// SetGovernanceFlags installs the phase-3 governance switches (M1/M2/S2).
+// Passing nil (or never calling this) keeps every switch off, so the
+// frozen defaults hold: memory needs explicit confirmation, experts stay
+// isolated, and the collab gate stays disabled.
+func (e *Engine) SetGovernanceFlags(g *config.GovernanceFlags) { e.govFlags = g }
+
+// governanceFlags returns the installed switches (possibly nil). The
+// holder methods are nil-safe, so callers never need to nil-check.
+func (e *Engine) governanceFlags() *config.GovernanceFlags { return e.govFlags }
+
 // SetM10NominationService wires the M10 memory nomination workflow.
 func (e *Engine) SetM10NominationService(nominationSvc *m8app.NominationService) {
 	e.m10nomination = nominationSvc
@@ -1155,6 +1169,21 @@ func (e *Engine) SetExpertClaimStore(store expertClaimStore) {
 // SetM8CollabGateService wires the M8 FR-17 write-collaboration gate.
 func (e *Engine) SetM8CollabGateService(gateSvc *m8app.CollabGateService) {
 	e.m8gate = gateSvc
+}
+
+// PrepareWriteCollabHandoff is the S2 engine entry point. It refuses with
+// ErrGateDisabled unless BOTH the default-off CollabHandoff governance
+// switch is armed AND the collab gate itself is enabled (service
+// preflight). With either off — the shipped default — it is a no-op refusal
+// with no side effects, so the collab-gate freeze holds.
+func (e *Engine) PrepareWriteCollabHandoff(ctx context.Context, in m8app.WriteCollabHandoffInput) (m8app.WriteCollabHandoffTicket, error) {
+	if e == nil || e.m8gate == nil {
+		return m8app.WriteCollabHandoffTicket{}, m8app.ErrGateDisabled
+	}
+	if !e.governanceFlags().CollabHandoff() {
+		return m8app.WriteCollabHandoffTicket{}, m8app.ErrGateDisabled
+	}
+	return e.m8gate.PrepareWriteCollabHandoff(ctx, in)
 }
 
 // SetIdentityPeopleServices wires this-PC identity and the LAN people store.
