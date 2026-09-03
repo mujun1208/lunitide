@@ -104,6 +104,30 @@ export function meetingSystemAudioMissing(input: {
   return input.systemHeard === false || (input.plan !== undefined && !planHasLiveSystemAudio(input.plan))
 }
 
+/**
+ * Live-caption fallback decision (Issue 3). 云端 (browser Web Speech) opens its
+ * own mic and can silently return nothing while the meeting recorder holds the
+ * device; 火山 needs a separate seed-asr provider and can also start yet emit
+ * nothing. When the selected engine produces no caption within the watchdog
+ * window, transparently move the LIVE path to this-PC sherpa (which consumes the
+ * same mixed mic+系统声 PCM). The stop-time 补转写 is unaffected either way.
+ *   • 'local'       — sherpa is ready; switch the live caption to it.
+ *   • 'unavailable' — sherpa not installed; keep trying but tell the user the
+ *                     full transcript still lands after stop (补转写).
+ *   • 'none'        — a caption already arrived, we already fell back, or the
+ *                     engine is already local (its own stall watchdog covers it).
+ */
+export function shouldFallbackLiveCaption(input: {
+  listen: MeetingListen | undefined
+  sawRealCaption: boolean
+  alreadyFellBack: boolean
+  localReady: boolean
+}): 'local' | 'unavailable' | 'none' {
+  if (input.sawRealCaption || input.alreadyFellBack) return 'none'
+  if (input.listen === 'local') return 'none'
+  return input.localReady ? 'local' : 'unavailable'
+}
+
 /** Three energy frames vs three silent frames. Undefined = keep the last label. */
 export function noteLoopbackEnergy(prev: { hits: number; zeros: number }, peak: number): { hits: number; zeros: number; heard?: boolean } {
   if (peak > 0) {

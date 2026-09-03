@@ -122,7 +122,12 @@ export const DELIVERABLE_TEMPLATE_LABEL: Record<string, string> = {
   test_checklist: '单元测试报告',
 }
 
+// Every doc-bearing phase gets the three-gate晋级 (Issue 4c). The release phase
+// (operations 6 / implementation 8) carries no deliverables, so its panel is
+// null and stays ungated regardless. Previously implementation skipped the
+// 数据库/接口/开发 phases (3/4/5), letting those advance with a plain click; they
+// now require the same evidence-then-triple-confirm as every other phase.
 export function gatePhaseForType(type: string): number[] {
-  if (type === 'operations') return [1, 2, 3, 4, 5]
-  return [1, 2, 6, 7, 8]
+  if (type === 'operations') return [1, 2, 3, 4, 5, 6]
+  return [1, 2, 3, 4, 5, 6, 7, 8]
 }

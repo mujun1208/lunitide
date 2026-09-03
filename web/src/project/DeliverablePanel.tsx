@@ -33,6 +33,10 @@ const advanceHint=(project:ProjectDTO,phase:number):string=>{
 }
 
 const confirmPhrase=(phase:number)=>phase===1?'确认需求架构规范':phase===2?'确认方案和UI设计':'确认阶段晋级'
+// Doc types that are legitimately evidence-free (no attachment/template/checklist
+// required to confirm). Empty today — every current交付物 must carry evidence —
+// but kept as the single extension point so future evidence-free docs stay explicit.
+const DELIVERABLE_EVIDENCE_FREE=new Set<string>([])
 
 export function DeliverablePanel({project,phase,bridge,deliverableBridge=defaultDeliverableBridge,projectAttachments=defaultProjectAttachmentBridge,templates=defaultTemplateBridge,stages,stageItems,readOnly=false,onProjectUpdated,onStagesUpdated,onDeliverablesChanged}:{project:ProjectDTO;phase:number;bridge:ProjectBridge;deliverableBridge?:DeliverableBridge;projectAttachments?:ProjectAttachmentBridge;templates?:TemplateBridge;stages?:StageBridge;stageItems?:StageDTO[];readOnly?:boolean;onProjectUpdated?:(project:ProjectDTO)=>void;onStagesUpdated?:(items:StageDTO[])=>void;onDeliverablesChanged?:()=>void}):React.JSX.Element|null{
  const docs=deliverablesForPhase(phase,project.type)
@@ -71,7 +75,14 @@ export function DeliverablePanel({project,phase,bridge,deliverableBridge=default
 
  const pickUpload=(def:{key:string;title:string})=>{if(readOnly||busy)return;uploadTarget.current=def;fileRef.current?.click()}
 
- const confirmDoc=async(def:{key:string;title:string})=>{if(readOnly||busy)return;setBusy(true);setError('');try{const existing=byType.get(def.key),payload={projectId:project.id,phase,documentType:def.key,title:def.title,status:'approved' as const},result=await deliverableBridge.upsert(payload,{attempt:createMutationAttempt('deliverable.upsert',payload)});setItems(values=>{const next=values.filter(v=>v.documentType!==def.key);return [...next,{...result,createdAt:existing?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString()}]});if(def.key==='dev_checklist'){try{const cr=await createProjectCrRevision(project,'开发阶段完成 CR 修订',deliverableBridge);writeStoredCrRevision(project.id,cr.crRevisionId,cr.digest)}catch{/* CR optional */}}onDeliverablesChanged?.()}catch(e){setError(problem(e).message)}finally{setBusy(false)}}
+ const confirmDoc=async(def:{key:string;title:string})=>{if(readOnly||busy)return;const existing=byType.get(def.key);
+  // Integrity gate (Issue 4b): a deliverable may only be marked 已批准 when it
+  // carries real evidence — a bound attachment, a referenced 资产库 template, or
+  // (for checklist docs) a saved checklist blob, which也 lands as an attachmentId.
+  // This stops the one-click "确认" of an empty交付物 that made the panel look
+  // complete without any content behind it.
+  if(!DELIVERABLE_EVIDENCE_FREE.has(def.key)&&!(existing?.attachmentId||existing?.templateId)){setError(`请先为「${def.title}」上传附件、引用资产库模版或填写清单后，再确认。`);return}
+  setBusy(true);setError('');try{const payload={projectId:project.id,phase,documentType:def.key,title:def.title,status:'approved' as const},result=await deliverableBridge.upsert(payload,{attempt:createMutationAttempt('deliverable.upsert',payload)});setItems(values=>{const next=values.filter(v=>v.documentType!==def.key);return [...next,{...result,createdAt:existing?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString()}]});if(def.key==='dev_checklist'){try{const cr=await createProjectCrRevision(project,'开发阶段完成 CR 修订',deliverableBridge);writeStoredCrRevision(project.id,cr.crRevisionId,cr.digest)}catch{/* CR optional */}}onDeliverablesChanged?.()}catch(e){setError(problem(e).message)}finally{setBusy(false)}}
 
  const bindTemplate=async(def:{key:string;title:string},templateId:string)=>{if(readOnly||busy||!templateId)return;setBusy(true);setError('');try{const existing=byType.get(def.key),payload={projectId:project.id,phase,documentType:def.key,title:def.title,templateId,status:(existing?.status==='approved'||existing?.status==='immutable'?'approved':'review') as 'review'|'approved'},result=await deliverableBridge.upsert(payload,{attempt:createMutationAttempt('deliverable.upsert',payload)});setItems(values=>{const next=values.filter(v=>v.documentType!==def.key);return [...next,{...result,createdAt:existing?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString()}]})}catch(e){setError(problem(e).message)}finally{setBusy(false)}}
 

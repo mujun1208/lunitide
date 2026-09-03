@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { ccBridge, type CcBridge } from '../bridge/client'
 import type { CcGetAuditLogResult, CcGetConfigResult, CcUpdateConfigPayload } from '../generated/bridge'
 import { Toggle } from './settingsControls'
+import { notifyCcConfigChanged } from '../session/companion/ensureCompanionCapabilities'
 
 // M10 wave-4 — 电脑控制设置：三步启用流（风险告知 → 安全级别 → 确认）、
 // 安全级别 / 高危操作 / 进程黑名单（操作范围）/ 频率与确认超时、
@@ -61,6 +62,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     try {
       const cfg = await bridge.updateConfig(p)
       setSettings(cfg)
+      notifyCcConfigChanged()
       setStatus(okMsg)
     } catch (e) { setStatus(e instanceof Error ? e.message : '设置更新失败') } finally { setBusy(false) }
   }
@@ -71,6 +73,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     try {
       const cfg = await bridge.updateConfig({ enabled: true, securityLevel: wizard.level, allowCritical: wizard.allowCritical, armMinutes: wizard.timedArm ? 30 : 0 })
       setSettings(cfg)
+      notifyCcConfigChanged()
       setWizard(null)
       setStatus('电脑控制已启用')
     } catch (e) { setStatus(e instanceof Error ? e.message : '启用失败') } finally { setBusy(false) }

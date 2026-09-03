@@ -42,6 +42,8 @@ vi.mock('../bridge/client', async importOriginal => {
 
 vi.mock('./companion/ensureCompanionCapabilities', () => ({
   ensureCompanionCapabilities: vi.fn().mockResolvedValue({ fullAccess: true, ccEnabled: true }),
+  CC_CONFIG_EVENT: 'lunitide:cc-config',
+  notifyCcConfigChanged: vi.fn(),
 }))
 
 vi.mock('./companion/speech', () => ({

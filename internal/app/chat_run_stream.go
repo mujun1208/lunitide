@@ -696,7 +696,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, nil, state.companion)
 					}()
 					if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
-						switch decideApprovalOutcome(state.companion && companionToolPreapproved(call.Name, e.fullDiskChat(mode)), unattended(op)) {
+						switch decideApprovalOutcome(state.companion && companionToolPreapproved(call.Name, e.fullDiskChat(mode), e.companionCcEnabled(op)), unattended(op)) {
 						case approvalPreapproved:
 							if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
 								return prepareErr
