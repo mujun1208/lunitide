@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/datasource.create.schema.json",
+  "title": "datasource.create payload",
+  "x-method": "datasource.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "kind": { "type": "string", "enum": ["postgres", "mysql"] },
+    "dsn": { "type": "string", "minLength": 1, "maxLength": 2048 }
+  },
+  "required": ["name", "kind", "dsn"],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/datasource.list.schema.json#/$defs/Connection"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "name": "airline-ro",
+        "kind": "postgres",
+        "dsn": "postgres://ro@localhost:5432/ops"
+      }
+    ],
+    "negative": [
+      {
+        "name": "",
+        "kind": "postgres",
+        "dsn": "postgres://ro@localhost:5432/ops"
+      }
+    ]
+  }
+}

@@ -71,6 +71,27 @@ it('shows runtime tools and opens a conversation specialist as a colleague', asy
   expect(onOpenExpert).toHaveBeenCalledWith(expect.objectContaining({ name: 'PPT专家' }))
 })
 
+it('offers open-workbench for an enabled aviation MRO colleague', async () => {
+  const onOpenWorkbench = vi.fn()
+  const mro = {
+    ...expertList.experts[0],
+    name: '航空机务专家',
+    division: 'operations' as const,
+    catalogItemId: 'mro-expert',
+  }
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [mro], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: '航空机务专家', division: 'operations', catalogItemId: 'mro-expert' },
+    }),
+  })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} onOpenWorkbench={onOpenWorkbench} />)
+  expect((await screen.findAllByText('航空机务专家')).length).toBeGreaterThanOrEqual(1)
+  fireEvent.click(screen.getByRole('button', { name: '打开工作台' }))
+  expect(onOpenWorkbench).toHaveBeenCalledWith(expect.objectContaining({ name: '航空机务专家', catalogItemId: 'mro-expert' }))
+})
+
 it('offers use-in-current-session without opening a colleague thread', async () => {
   const onUseInSession = vi.fn()
   render(<ExpertCenterPage bridge={expertApi()} projects={projects} onOpenExpert={vi.fn()} onUseInSession={onUseInSession} />)

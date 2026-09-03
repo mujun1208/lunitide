@@ -967,6 +967,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 		}
 		if persist {
+			if next, delta := applyMROAnswerGate(text, state); next != text {
+				text = next
+				if delta != "" {
+					assistantText.WriteString(delta)
+					_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+				}
+			}
 			usage := messageapp.AssistantUsage{
 				Provider:     string(p.Protocol),
 				Model:        req.Model,

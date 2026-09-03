@@ -23,6 +23,7 @@ import (
 	"github.com/lunitide/lunitide/internal/config"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
+	"github.com/lunitide/lunitide/internal/datasourceapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/handoff"
@@ -44,6 +45,7 @@ import (
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -215,6 +217,12 @@ type Engine struct {
 	ccctrl *ccapp.Service
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
+	// Expert growth paths (knowledge foundation).
+	m8growth *m8app.GrowthService
+	// Aviation MRO workbench (fleet + manuals).
+	mro *mroapp.Service
+	// External readonly PostgreSQL / MySQL connections.
+	datasource *datasourceapp.Service
 	// M8 slice-3/5: handoff, tombstone and device sync.
 	m8handoff *m8app.HandoffService
 	// M8 slice-4: workflow bundle dispatch projection.
@@ -313,6 +321,9 @@ type streamState struct {
 	mcpAllowed     []string
 	brain          string
 	memorySummary  string
+	kbCites        []CitationBlock
+	kbDiscarded    int
+	mroTurn        bool
 }
 
 type streamLifecycle uint8
@@ -1142,6 +1153,15 @@ func (e *Engine) SetM8SliceServices(kbSvc *m8app.KBService, handoffSvc *m8app.Ha
 	e.m8handoff = handoffSvc
 	e.m8automation = automationSvc
 }
+
+// SetExpertGrowthService wires expert growth-path reads.
+func (e *Engine) SetExpertGrowthService(growthSvc *m8app.GrowthService) {
+	e.m8growth = growthSvc
+}
+
+func (e *Engine) SetMROService(svc *mroapp.Service) { e.mro = svc }
+
+func (e *Engine) SetDatasourceService(svc *datasourceapp.Service) { e.datasource = svc }
 
 // SetM8PluginService wires the M8 FR-18 unified plugin runtime.
 func (e *Engine) SetM8PluginService(pluginSvc *m8app.PluginService) {

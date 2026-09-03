@@ -14,7 +14,7 @@ var conversationExpertsJSON []byte
 var ConversationExpertIDs = []string{
 	"ppt-expert", "report-writer", "novel-writer", "excel-maker", "ui-designer",
 	"pm-expert", "architect-expert", "db-expert", "repo-expert", "standards-expert",
-	"test-expert", "hardware-expert", "dev-expert",
+	"test-expert", "hardware-expert", "dev-expert", "mro-expert",
 }
 
 // ConversationExpertCapabilityClause is appended to every specialist's rules
@@ -26,6 +26,11 @@ func withConversationExpertCapabilities(item CatalogItem) CatalogItem {
 	item.SixSection.Identity = honestColleagueExpertIdentity(item.SixSection.Identity)
 	body := item.SixSection.Rules + "\n" + item.SixSection.Workflow + "\n" + item.SixSection.Mission
 	if strings.Contains(body, "skill.invoke") && strings.Contains(body, "web.search") && strings.Contains(body, "mermaid") {
+		return item
+	}
+	// Closed-loop retrieval experts (MRO) already name kb.search; do not
+	// append the generic web.search / mermaid clause over appendix A.
+	if strings.Contains(body, "kb.search") && strings.Contains(body, "todo.write") {
 		return item
 	}
 	item.SixSection.Rules = strings.TrimSpace(item.SixSection.Rules) + "\n" + ConversationExpertCapabilityClause
@@ -43,7 +48,7 @@ func honestColleagueExpertIdentity(identity string) string {
 
 // ConversationExperts answers the 对话 specialists (PPT / 报告 / 小说 /
 // Excel / UI / 产品经理 / 系统架构师 / 数据库设计 / 系统项目结构 / 开发规范 /
-// 系统测试 / 硬件配置 / 开发) in catalog order.
+// 系统测试 / 硬件配置 / 开发 / 航空机务) in catalog order.
 func ConversationExperts() []CatalogItem {
 	items := loadConversationExpertItems()
 	want := make(map[string]bool, len(ConversationExpertIDs))

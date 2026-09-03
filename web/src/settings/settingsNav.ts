@@ -7,6 +7,7 @@ export type SettingsCategory =
   | 'meetings'
   | 'personal'
   | 'security'
+  | 'datasources'
   | 'browser'
   | 'computer'
   | 'channels'
@@ -26,6 +27,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'meetings', icon: '◎', label: '会议纪要', labelEn: 'Meeting notes', keywords: '会议 纪要 听写 转写 字幕 摘要 待办 系统 火山 本机 sherpa 模型 meeting minutes asr' },
   { id: 'personal', icon: '✧', label: '个人智能', labelEn: 'Personal intelligence', keywords: '记忆 偏好 专家 画像 memory' },
   { id: 'security', icon: '⛨', label: '安全与治理', labelEn: 'Security', keywords: '命令白名单 编码 技能 MCP 权限 审批 hooks 全盘' },
+  { id: 'datasources', icon: '▦', label: '数据源', labelEn: 'Data sources', keywords: '数据库 PostgreSQL MySQL 数据源 DSN postgres mysql 只读' },
   { id: 'browser', icon: '⬟', label: '浏览器', labelEn: 'Browser', keywords: 'Playwright Chrome 探测 snapshot 浏览' },
   { id: 'computer', icon: '⌖', label: '电脑控制', labelEn: 'Computer control', keywords: '本机 桌面 键鼠 截图 UAC' },
   { id: 'channels', icon: '✉', label: '消息通道', labelEn: 'Message channels', keywords: '飞书 企微 钉钉 微信 QQ webhook 机器人 发消息 im' },
@@ -38,7 +40,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
 export const SETTINGS_NAV_GROUPS: { label: string; labelEn: string; ids: SettingsCategory[] }[] = [
   { label: '界面', labelEn: 'Interface', ids: ['general', 'appearance', 'profile'] },
   { label: '智能', labelEn: 'Intelligence', ids: ['providers', 'voice', 'meetings', 'personal'] },
-  { label: '能力', labelEn: 'Capabilities', ids: ['security', 'browser', 'computer', 'channels', 'subagents', 'collab'] },
+  { label: '能力', labelEn: 'Capabilities', ids: ['security', 'datasources', 'browser', 'computer', 'channels', 'subagents', 'collab'] },
   { label: '系统', labelEn: 'System', ids: ['diagnostics', 'about'] },
 ]
 

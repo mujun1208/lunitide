@@ -555,6 +555,39 @@ var catalogTemplates = []CatalogTemplate{
 		},
 	},
 	{
+		ID: "mro-manual-rag", Name: "tpl-mro-manual-rag", DisplayName: "机务手册检索",
+		Description: "按机尾与日期检索受控手册，强制带修订版与 ATA 引用。",
+		Category: "信息检索", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://mro-manual-rag", Compose: true, Source: "月汐机务",
+		Manifest: map[string]any{
+			"triggers": []string{"查手册", "AMM", "MEL", "ATA"},
+			"prompt":   "先确认机尾或机型与日期，再 kb.search。每条关键结论必须 kb.cite。无依据写未找到受控依据。文首写辅助建议，不构成放行。",
+		},
+	},
+	{
+		ID: "mro-fault-tree", Name: "tpl-mro-fault-tree", DisplayName: "排故故障树",
+		Description: "按症状→故障→原因→任务→件号组织排故，并标置信度。",
+		Category: "信息检索", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://mro-fault-tree", Compose: true, Source: "月汐机务",
+		Manifest: map[string]any{
+			"triggers": []string{"排故", "隔离", "故障树"},
+			"prompt":   "按症状、候选故障、原因、任务、件号输出。每步引用手册。置信度低中高。禁止无引用确定件号。",
+		},
+	},
+	{
+		ID: "mro-checklist", Name: "tpl-mro-checklist", DisplayName: "机务检查单",
+		Description: "把已引用的排故步骤收成检查单并 excel.gen 或 docx.gen。",
+		Category: "办公协作", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://mro-checklist", Compose: true, Source: "月汐机务",
+		Manifest: map[string]any{
+			"triggers": []string{"检查单", "工卡", "checklist"},
+			"prompt":   "只使用本对话已引用步骤。excel.gen 或 docx.gen。每页写辅助建议，不构成放行。不要写外部生产库。",
+		},
+	},
+	{
 		ID: "pm-phase-1", Name: "tpl-pm-phase-1", DisplayName: "需求架构规范助手",
 		Description: "指导完成阶段一需求架构规范交付物：范围、架构视图、约束与非功能需求清单。",
 		Category:    "项目管理", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},

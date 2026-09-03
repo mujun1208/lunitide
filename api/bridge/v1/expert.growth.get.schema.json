@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/expert.growth.get.schema.json",
+  "title": "expert.growth.get payload",
+  "x-method": "expert.growth.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expertId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["expertId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "missionSnapshot": { "type": "string", "maxLength": 4096 },
+      "ladder": {
+        "type": "array",
+        "maxItems": 32,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "state": { "type": "string", "enum": ["have", "learning", "next"] }
+          },
+          "required": ["name", "state"]
+        }
+      },
+      "coverage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "docTypes": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 32 } },
+          "gaps": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 64 } }
+        },
+        "required": ["docTypes", "gaps"]
+      },
+      "scenarios": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "phaseKey": { "type": "string", "minLength": 1, "maxLength": 64 }
+          },
+          "required": ["title", "phaseKey"]
+        }
+      }
+    },
+    "required": ["missionSnapshot", "ladder", "coverage", "scenarios"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "expertId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "expertId": "bad"
+      }
+    ]
+  }
+}

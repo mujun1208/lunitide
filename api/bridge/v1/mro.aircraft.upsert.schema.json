@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.aircraft.upsert.schema.json",
+  "title": "mro.aircraft.upsert payload",
+  "x-method": "mro.aircraft.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "aircraftId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "tailNo": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "msn": { "type": "string", "maxLength": 32 },
+    "model": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "config": { "type": "string", "maxLength": 128 }
+  },
+  "required": ["tailNo", "model"],
+  "$defs": {
+    "Aircraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aircraftId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "tailNo": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "msn": { "type": "string", "maxLength": 32 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "config": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "minLength": 1 }
+      },
+      "required": ["aircraftId", "tailNo", "model", "createdAt"]
+    }
+  },
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/mro.aircraft.upsert.schema.json#/$defs/Aircraft"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "tailNo": "B-0000",
+        "model": "A320"
+      }
+    ],
+    "negative": [
+      {
+        "tailNo": "",
+        "model": "A320"
+      }
+    ]
+  }
+}

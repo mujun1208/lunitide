@@ -1,0 +1,22 @@
+{
+  "id": "mro.v1",
+  "objects": [
+    {"kind": "Aircraft"}, {"kind": "Document"}, {"kind": "Section"},
+    {"kind": "Component"}, {"kind": "PartNumber"}, {"kind": "Fault"},
+    {"kind": "Task"}, {"kind": "DefectRecord"}, {"kind": "WorkOrder"},
+    {"kind": "Technician"}
+  ],
+  "links": [
+    {"name": "APPLIES_TO"}, {"name": "CONTAINS"}, {"name": "SUPERSEDES"},
+    {"name": "PART_OF"}, {"name": "HAS_PART"}, {"name": "SYMPTOM_OF"},
+    {"name": "HAS_CAUSE"}, {"name": "FIXED_BY"}, {"name": "REQUIRES"},
+    {"name": "INVOLVES"}, {"name": "PERFORMED_ON"}
+  ],
+  "actions": [
+    {"name": "propose_remediation", "mode": "read"},
+    {"name": "query_stock", "mode": "read"},
+    {"name": "log_defect", "mode": "write"},
+    {"name": "create_work_order", "mode": "write"},
+    {"name": "audit_step", "mode": "write"}
+  ]
+}

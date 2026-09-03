@@ -113,6 +113,65 @@ func (s *Service) Get(ctx context.Context, id string) (session.Session, error) {
 	}
 	return g.GetSession(ctx, id)
 }
+
+type sessionMetadataIO interface {
+	GetSessionMetadata(context.Context, string) (string, error)
+	PutSessionMetadata(context.Context, string, string) error
+}
+
+func (s *Service) GetMetadata(ctx context.Context, id string) (map[string]any, error) {
+	if s == nil || s.read == nil {
+		return nil, errors.New("session reader unavailable")
+	}
+	io, ok := s.read.(sessionMetadataIO)
+	if !ok {
+		return nil, errors.New("session metadata unavailable")
+	}
+	if _, err := s.Get(ctx, id); err != nil {
+		return nil, err
+	}
+	raw, err := io.GetSessionMetadata(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	bag := map[string]any{}
+	if json.Unmarshal([]byte(raw), &bag) != nil {
+		return map[string]any{}, nil
+	}
+	return bag, nil
+}
+
+func (s *Service) MergeMetadata(ctx context.Context, id string, patch map[string]any) (map[string]any, error) {
+	if s == nil || s.read == nil {
+		return nil, errors.New("session reader unavailable")
+	}
+	io, ok := s.read.(sessionMetadataIO)
+	if !ok {
+		return nil, errors.New("session metadata unavailable")
+	}
+	if _, err := s.Get(ctx, id); err != nil {
+		return nil, err
+	}
+	raw, err := io.GetSessionMetadata(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	bag := map[string]any{}
+	if json.Unmarshal([]byte(raw), &bag) != nil {
+		bag = map[string]any{}
+	}
+	for k, v := range patch {
+		bag[k] = v
+	}
+	out, err := json.Marshal(bag)
+	if err != nil || len(out) < 2 || len(out) > 16384 {
+		return nil, errors.New("session metadata too large")
+	}
+	if err := io.PutSessionMetadata(ctx, id, string(out)); err != nil {
+		return nil, err
+	}
+	return bag, nil
+}
 func (s *Service) Create(ctx context.Context, key, actor string, request any, value session.Session) (session.Session, error) {
 	if !providerapp.ValidIdempotencyKey(key) {
 		return session.Session{}, ErrIdempotencyKeyRequired

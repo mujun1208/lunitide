@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/datasource.list.schema.json",
+  "title": "datasource.list payload",
+  "x-method": "datasource.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "$defs": {
+    "Connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kind": { "type": "string", "enum": ["postgres", "mysql"] },
+        "state": { "type": "string", "enum": ["active", "disabled"] },
+        "readonlyVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "name", "kind", "state", "readonlyVerified", "createdAt"]
+    }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/datasource.list.schema.json#/$defs/Connection"
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{"unexpected": true}]
+  }
+}

@@ -1,15 +1,25 @@
 import { expect, it } from 'vitest'
-import { pickLatestPending, previewPendingMemory } from './pendingMemory'
+import { locatorIsUncontrolled, pendingFromUncontrolledCites, pendingMroFromMessages } from './pendingMemory'
 
-it('picks the newest pending candidate and skips a dismissed id', () => {
-  const older = { candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAA', confirmationToken: 'a', content: '旧', createdAt: '2026-08-31T00:00:00Z' }
-  const newer = { candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAB', confirmationToken: 'b', content: '新偏好用中文', createdAt: '2026-08-31T01:00:00Z' }
-  expect(pickLatestPending([older, newer])?.candidateId).toBe(newer.candidateId)
-  expect(pickLatestPending([older, newer], newer.candidateId)?.candidateId).toBe(older.candidateId)
-  expect(pickLatestPending([], '')).toBeUndefined()
+it('detects uncontrolled locators in JSON and mro URLs', () => {
+  expect(locatorIsUncontrolled('{"status":"uncontrolled"}')).toBe(true)
+  expect(locatorIsUncontrolled('mro://AMM/42?ata=32&status=uncontrolled')).toBe(true)
+  expect(locatorIsUncontrolled('{"status":"controlled"}')).toBe(false)
 })
 
-it('clips the working gist for the session banner', () => {
-  expect(previewPendingMemory('用户：以后用中文\n要点：好')).toBe('用户：以后用中文 要点：好')
-  expect(previewPendingMemory('x'.repeat(80)).endsWith('…')).toBe(true)
+it('builds the H12 uncontrolled pending item', () => {
+  const item = pendingFromUncontrolledCites([{ locator: '{"status":"uncontrolled"}' }])
+  expect(item?.kind).toBe('mro-uncontrolled')
+  expect(item?.content).toBe('待确认：将使用未受控手册回答')
+  expect(item?.content).not.toMatch(/放行/)
+})
+
+it('reads uncontrolled cites from an assistant mro-cite marker', () => {
+  const item = pendingMroFromMessages([{
+    role: 'assistant',
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+    text: '辅助建议，不构成放行。<!--mro-cite:{"cites":[{"revision":"42","locator":"{\\"status\\":\\"uncontrolled\\"}","quote":"x","expertName":"航空机务专家"}]}-->',
+  }])
+  expect(item?.kind).toBe('mro-uncontrolled')
+  expect(item?.candidateId).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAD')
 })

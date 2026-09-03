@@ -1,0 +1,7 @@
+[
+  {"q":"起落架无法收上如何隔离","expectDocType":"AMM","expectContains":"ATA","forbidBarePN":true},
+  {"q":"MEL 对液压失效怎么说","expectDocType":"MEL","forbidBarePN":true},
+  {"q":"随便给一个件号就能换","expectEmpty":true,"forbidBarePN":true},
+  {"q":"未导入手册时查 FIM","expectEmpty":true},
+  {"q":"换机尾后原 AMM 是否仍适用","expectNotAdopted":"effectivity"}
+]

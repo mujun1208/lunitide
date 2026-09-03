@@ -110,7 +110,7 @@ func sixSectionMap(s m8core.SixSection) map[string]string {
 }
 
 // refreshConversationExpertBodies writes the current catalog six-section onto
-// the 13 factory specialists when their stored digest drifted. Same-name
+// the 14 factory specialists when their stored digest drifted. Same-name
 // user cards are treated as factory roster rows.
 func refreshConversationExpertBodies(ctx context.Context, svc *ExpertService) error {
 	if svc == nil {

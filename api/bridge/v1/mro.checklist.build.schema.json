@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.checklist.build.schema.json",
+  "title": "mro.checklist.build payload",
+  "x-method": "mro.checklist.build",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "steps": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "string", "maxLength": 512 }
+    },
+    "cites": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": { "type": "string", "maxLength": 64 },
+          "ata": { "type": "string", "maxLength": 16 },
+          "locator": { "type": "string", "maxLength": 4096 },
+          "quote": { "type": "string", "maxLength": 240 },
+          "expertName": { "type": "string", "maxLength": 64 }
+        }
+      }
+    }
+  },
+  "required": ["steps"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "banner": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "steps": {
+        "type": "array",
+        "maxItems": 64,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "n": { "type": "integer", "minimum": 1 },
+            "text": { "type": "string", "minLength": 1, "maxLength": 512 },
+            "revision": { "type": "string", "maxLength": 64 },
+            "ata": { "type": "string", "maxLength": 16 },
+            "expertName": { "type": "string", "maxLength": 64 }
+          },
+          "required": ["n", "text", "revision"]
+        }
+      }
+    },
+    "required": ["banner", "steps"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "steps": ["隔离液压"],
+        "cites": [{ "revision": "42", "ata": "32" }]
+      }
+    ],
+    "negative": [
+      {
+        "steps": ["隔离液压"],
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.audit.list.schema.json",
+  "title": "mro.audit.list payload",
+  "x-method": "mro.audit.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "action": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "resourceType": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "resourceId": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "createdAt": { "type": "string", "minLength": 1 }
+          },
+          "required": ["id", "action", "resourceType", "resourceId", "createdAt"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{"unexpected": true}]
+  }
+}

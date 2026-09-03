@@ -31,6 +31,8 @@ import { BrowserPanel } from './BrowserPanel'
 import { ComputerPanel } from './ComputerPanel'
 import { ChannelsPanel } from './ChannelsPanel'
 import { HooksPanel } from './HooksPanel'
+import { DataSourcePanel } from './DataSourcePanel'
+import { datasourceBridge } from '../bridge/client'
 export { BrowserPanel, ComputerPanel, ChannelsPanel, HooksPanel }
 
 
@@ -168,6 +170,13 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
+          {category === 'datasources' && <DataSourcePanel api={{
+            list: () => datasourceBridge.list({}),
+            create: input => datasourceBridge.create(input),
+            probe: id => datasourceBridge.probe({ id }),
+            browse: input => datasourceBridge.browse(input),
+            disable: id => datasourceBridge.disable({ id }),
+          }} />}
           {category === 'security' && <div className="governance-stack">
             <div className="setting-group">
               <div className="setting-group-title">编码与权限</div>

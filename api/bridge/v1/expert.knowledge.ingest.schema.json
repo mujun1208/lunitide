@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/expert.knowledge.ingest.schema.json",
+  "title": "expert.knowledge.ingest payload",
+  "x-method": "expert.knowledge.ingest",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expertId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "sourceLocator": { "type": "string", "maxLength": 4096 },
+    "mediaType": { "type": "string", "maxLength": 128 }
+  },
+  "required": ["expertId", "path"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "collectionId": { "type": "string", "maxLength": 26 },
+      "documents": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "documentId": { "type": "string", "maxLength": 26 },
+            "version": { "type": "integer", "minimum": 0 },
+            "indexState": { "type": "string", "maxLength": 32 },
+            "preview": {
+              "type": "array",
+              "maxItems": 3,
+              "items": { "type": "string", "maxLength": 400 }
+            },
+            "failReason": { "type": "string", "maxLength": 400 }
+          },
+          "required": ["documentId", "version", "indexState"]
+        }
+      }
+    },
+    "required": ["collectionId", "documents"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "expertId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "path": "/tmp/amm-42.md",
+        "sourceLocator": "mro://AMM/42?ata=32&status=controlled",
+        "mediaType": "text/markdown"
+      }
+    ],
+    "negative": [
+      {
+        "expertId": "mro-expert",
+        "path": "/tmp/amm-42.md"
+      }
+    ]
+  }
+}

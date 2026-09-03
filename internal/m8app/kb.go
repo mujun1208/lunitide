@@ -11,7 +11,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
 
@@ -28,6 +30,10 @@ var (
 	ErrKBIndexFailed = errors.New("m8app: kb index failed")
 	// ErrKBCollectionNotFound: the target collection does not exist.
 	ErrKBCollectionNotFound = errors.New("m8app: kb collection not found")
+	// ErrKBDocumentNotReady: a referenced document is missing or not yet
+	// indexed to a searchable (ready) surface. It guards downstream binders
+	// (mro.manual.register) from linking dangling or unindexed ids.
+	ErrKBDocumentNotReady = errors.New("m8app: kb document not ready")
 )
 
 // KBCollection is one kb_collections row (local single-owner policy in the
@@ -43,10 +49,18 @@ type KBCollection struct {
 // KBTx is the slice-2 single-writer transaction.
 type KBTx interface {
 	PutKBCollectionIfAbsent(KBCollection) error
+	GetKBCollectionByScope(scopeID string) (KBCollection, bool, error)
 	PutKBDocument(m8core.KBDocument) error
 	GetKBLatestDocument(documentID string) (m8core.KBDocument, bool, error)
+	ListKBDocumentsByCollection(collectionID string) ([]m8core.KBDocument, error)
 	PutKBChunks([]m8core.KBChunk) error
+	GetKBChunk(chunkID string) (m8core.KBChunk, error)
+	SearchKBChunkFTS(scopeID, query string, limit int) ([]KBSearchHit, error)
+	CountKBStats(collectionID string) (docs, ready, chunks int, err error)
+	GetGrowthPath(expertID string) (GrowthPath, bool, error)
+	PutGrowthPath(GrowthPath) error
 	AppendAuditEvent(audit.Event) (audit.Event, error)
+	ListAuditEvents() ([]audit.Event, error)
 }
 
 // KBUnitOfWork is the slice-2 single-writer boundary.
@@ -59,6 +73,10 @@ type KBUnitOfWork interface {
 // (failed row, no projection). The default derives one chunk per call.
 type KBIndexer func(ctx context.Context, doc m8core.KBDocument) ([]string, error)
 
+// KBChunkProjector returns chunks that already carry body and locator.
+// Expert/MRO ingest sets this; the global default stays ID-only.
+type KBChunkProjector func(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error)
+
 // DefaultKBIndexer projects a single-chunk document.
 func DefaultKBIndexer(ctx context.Context, doc m8core.KBDocument) ([]string, error) {
 	return []string{ulid.Make().String()}, nil
@@ -66,10 +84,11 @@ func DefaultKBIndexer(ctx context.Context, doc m8core.KBDocument) ([]string, err
 
 // KBService implements the slice-2 use cases.
 type KBService struct {
-	uow     KBUnitOfWork
-	clock   Clock
-	subject string
-	indexer KBIndexer
+	uow       KBUnitOfWork
+	clock     Clock
+	subject   string
+	indexer   KBIndexer
+	projector KBChunkProjector
 }
 
 // NewKBService wires the slice-2 service.
@@ -83,6 +102,9 @@ func (s *KBService) SetClock(c Clock) { s.clock = c }
 // SetIndexer substitutes the index projector (M8-012 failure tests).
 func (s *KBService) SetIndexer(f KBIndexer) { s.indexer = f }
 
+// SetChunkProjector enables the body-carrying projection path.
+func (s *KBService) SetChunkProjector(f KBChunkProjector) { s.projector = f }
+
 // KBUpsertInput is the kb.upsertDocument command.
 type KBUpsertInput struct {
 	CollectionID    string
@@ -94,13 +116,25 @@ type KBUpsertInput struct {
 	SourceLocator   string
 	RequestID       string
 	Actor           string
+	Projector       KBChunkProjector // per-call override; nil uses service projector
 }
 
 // KBUpsertResult is the kb.upsertDocument outcome.
 type KBUpsertResult struct {
-	DocumentID string `json:"documentId"`
-	Version    int64  `json:"version"`
-	IndexState string `json:"indexState"`
+	DocumentID string   `json:"documentId"`
+	Version    int64    `json:"version"`
+	IndexState string   `json:"indexState"`
+	Preview    []string `json:"preview,omitempty"`
+	FailReason string   `json:"failReason,omitempty"`
+}
+
+// AuditRow is one read-only m7 ledger event shown on the workbench.
+type AuditRow struct {
+	ID           string `json:"id"`
+	Action       string `json:"action"`
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+	CreatedAt    string `json:"createdAt"`
 }
 
 // EnsureCollection bootstraps the collection row (idempotent).
@@ -176,13 +210,37 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 		}
 		// Synchronous index projection: any failure parks the version at
 		// failed with zero chunks (M8-012) and answers the error.
-		ids, ierr := s.indexer(ctx, doc)
-		if ierr == nil {
-			proj, perr := m8core.BuildChunkProjection(doc, ids)
+		var ierr error
+		var preview []string
+		projector := s.projector
+		if in.Projector != nil {
+			projector = in.Projector
+		}
+		if projector != nil {
+			chunks, perr := projector(ctx, doc)
 			if perr != nil {
 				ierr = perr
-			} else if err := tx.PutKBChunks(proj.Chunks); err != nil {
-				ierr = err
+			} else {
+				proj, perr := m8core.BuildChunkProjectionFromChunks(doc, chunks)
+				if perr != nil {
+					ierr = perr
+				} else if err := tx.PutKBChunks(proj.Chunks); err != nil {
+					ierr = err
+				} else {
+					preview = previewBodies(proj.Chunks)
+				}
+			}
+		} else {
+			ids, jerr := s.indexer(ctx, doc)
+			if jerr != nil {
+				ierr = jerr
+			} else {
+				proj, perr := m8core.BuildChunkProjection(doc, ids)
+				if perr != nil {
+					ierr = perr
+				} else if err := tx.PutKBChunks(proj.Chunks); err != nil {
+					ierr = err
+				}
 			}
 		}
 		if ierr != nil {
@@ -199,7 +257,7 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 			}); err != nil {
 				return err
 			}
-			out = KBUpsertResult{DocumentID: in.DocumentID, Version: next, IndexState: m8core.KBIndexFailed}
+			out = KBUpsertResult{DocumentID: in.DocumentID, Version: next, IndexState: m8core.KBIndexFailed, FailReason: clipReason(ierr)}
 			return fmt.Errorf("%w: %v", ErrKBIndexFailed, ierr)
 		}
 		ready := doc
@@ -215,11 +273,108 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 		}); err != nil {
 			return err
 		}
-		out = KBUpsertResult{DocumentID: in.DocumentID, Version: next, IndexState: m8core.KBIndexReady}
+		out = KBUpsertResult{DocumentID: in.DocumentID, Version: next, IndexState: m8core.KBIndexReady, Preview: preview}
 		return nil
 	})
 	if err != nil {
 		return out, err
 	}
 	return out, nil
+}
+
+// DocumentsReady verifies every id resolves to a ready (searchable) kb
+// document. Any missing, malformed, or index-failed id fails the whole set so
+// callers never bind a dangling or unindexed reference.
+func (s *KBService) DocumentsReady(ctx context.Context, ids []string) error {
+	if s == nil || s.uow == nil {
+		return ErrServiceUnavailable
+	}
+	return s.uow.TransactKB(ctx, func(tx KBTx) error {
+		for _, raw := range ids {
+			id := strings.TrimSpace(raw)
+			if len(id) != 26 {
+				return fmt.Errorf("%w: %q", ErrKBDocumentNotReady, raw)
+			}
+			doc, ok, err := tx.GetKBLatestDocument(id)
+			if err != nil {
+				return err
+			}
+			if !ok || doc.IndexState != m8core.KBIndexReady {
+				return fmt.Errorf("%w: %s", ErrKBDocumentNotReady, id)
+			}
+		}
+		return nil
+	})
+}
+
+func previewBodies(chunks []m8core.KBChunk) []string {
+	out := []string{}
+	for _, c := range chunks {
+		body := strings.TrimSpace(c.Body)
+		if body == "" {
+			continue
+		}
+		if utf8.RuneCountInString(body) > 240 {
+			body = string([]rune(body)[:240])
+		}
+		out = append(out, body)
+		if len(out) >= 3 {
+			break
+		}
+	}
+	return out
+}
+
+func clipReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.TrimSpace(err.Error())
+	if utf8.RuneCountInString(s) > 200 {
+		s = string([]rune(s)[:200])
+	}
+	return s
+}
+
+// ListRecentKBAudit returns recent kb/mro ledger rows for workbench replay.
+func (s *KBService) ListRecentKBAudit(ctx context.Context, limit int) ([]AuditRow, error) {
+	if s == nil || s.uow == nil {
+		return nil, ErrServiceUnavailable
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var rows []AuditRow
+	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
+		events, err := tx.ListAuditEvents()
+		if err != nil {
+			return err
+		}
+		filtered := make([]AuditRow, 0, len(events))
+		for _, ev := range events {
+			if !isWorkbenchAudit(ev) {
+				continue
+			}
+			filtered = append(filtered, AuditRow{
+				ID: ev.ID, Action: ev.Action, ResourceType: ev.ResourceType,
+				ResourceID: ev.ResourceID, CreatedAt: ev.CreatedAt,
+			})
+		}
+		if n := len(filtered); n > limit {
+			filtered = filtered[n-limit:]
+		}
+		rows = filtered
+		return nil
+	})
+	if rows == nil {
+		rows = []AuditRow{}
+	}
+	return rows, err
+}
+
+func isWorkbenchAudit(ev audit.Event) bool {
+	return strings.HasPrefix(ev.Action, "kb.") || ev.ResourceType == "kb_document" || strings.HasPrefix(ev.Action, "mro.")
 }

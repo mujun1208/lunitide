@@ -45,8 +45,9 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		"test-expert":      "系统测试专家",
 		"hardware-expert":  "硬件配置专家",
 		"dev-expert":       "开发专家",
+		"mro-expert":       "航空机务专家",
 	}
-	foundRepo, foundStandards, foundTest, foundHardware, foundDev := false, false, false, false, false
+	foundRepo, foundStandards, foundTest, foundHardware, foundDev, foundMRO := false, false, false, false, false, false
 	for _, item := range items {
 		if item.ID == "repo-expert" {
 			foundRepo = true
@@ -62,6 +63,15 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		}
 		if item.ID == "dev-expert" {
 			foundDev = true
+		}
+		if item.ID == "mro-expert" {
+			foundMRO = true
+			if item.Division != "operations" {
+				t.Fatalf("mro-expert division = %q, want operations", item.Division)
+			}
+			if !strings.Contains(item.SixSection.Identity, "不是放行人") {
+				t.Fatal("mro-expert identity must say 不是放行人")
+			}
 		}
 		if want, ok := wantName[item.ID]; ok && want != item.Name {
 			t.Fatalf("%s name = %q, want %q", item.ID, item.Name, want)
@@ -238,6 +248,18 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 			if strings.Contains(body, "九阶段交付治理") {
 				t.Fatal("开发专家 must not duplicate pm-advisor stage-gate copy")
 			}
+		case "mro-expert":
+			for _, needle := range []string{
+				"不构成放行", "未找到受控依据", "kb.search", "kb.cite",
+				"todo.write", "docx.gen", "excel.gen", "机尾",
+			} {
+				if !strings.Contains(body, needle) {
+					t.Fatalf("航空机务专家 missing %q", needle)
+				}
+			}
+			if strings.Contains(body, "独立智能体") {
+				t.Fatal("航空机务专家 must not claim 独立智能体")
+			}
 		}
 	}
 	if !foundRepo {
@@ -255,6 +277,9 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 	if !foundDev {
 		t.Fatal("conversation catalog missing dev-expert 开发专家")
 	}
+	if !foundMRO {
+		t.Fatal("conversation catalog missing mro-expert 航空机务专家")
+	}
 }
 
 func TestConversationExpertsInstructThinkSkillsToolsDrawWrite(t *testing.T) {
@@ -262,19 +287,24 @@ func TestConversationExpertsInstructThinkSkillsToolsDrawWrite(t *testing.T) {
 		"todo.write", "skill.invoke", "web.search", "web.fetch", "mermaid",
 		"docx.gen", "excel.gen", "pptx.gen", "html.gen", "desktop=true", "200 页",
 	}
+	mroNeedles := []string{"kb.search", "不构成放行", "todo.write", "docx.gen"}
 	for _, item := range m8app.ConversationExperts() {
 		body := strings.Join([]string{
 			item.SixSection.Identity, item.SixSection.Mission, item.SixSection.Rules,
 			item.SixSection.Workflow, item.SixSection.DeliverableTemplate, item.SixSection.SuccessMetrics,
 		}, "\n")
-		for _, needle := range needles {
+		check := needles
+		if item.ID == "mro-expert" {
+			check = mroNeedles
+		}
+		for _, needle := range check {
 			if !strings.Contains(body, needle) {
 				t.Fatalf("%s (%s) missing capability %q", item.Name, item.ID, needle)
 			}
 		}
 	}
-	if len(m8app.ConversationExperts()) != 13 {
-		t.Fatalf("want 13 specialists, got %d", len(m8app.ConversationExperts()))
+	if len(m8app.ConversationExperts()) != 14 {
+		t.Fatalf("want 14 specialists, got %d", len(m8app.ConversationExperts()))
 	}
 }
 
@@ -293,6 +323,7 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"test-expert":      {"test-writer", "e2e-browser", "browser-automation", "find-bug"},
 		"hardware-expert":  {"web-researcher", "hardware-bom"},
 		"dev-expert":       {"implement", "tdd-loop", "debugger", "code-reviewer"},
+		"mro-expert":       {"mro-manual-rag", "mro-fault-tree", "mro-checklist"},
 	}
 	wantTools := map[string][]string{
 		"ppt-expert":       {"web.search", "pptx.gen", "skill.invoke"},
@@ -308,10 +339,21 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"test-expert":      {"skill.invoke", "browser.act"},
 		"hardware-expert":  {"web.search", "excel.gen"},
 		"dev-expert":       {"workspace.edit", "command.run", "skill.invoke"},
+		"mro-expert":       {"kb.search", "docx.gen", "excel.gen"},
 	}
 	for _, item := range m8app.ConversationExperts() {
 		if len(item.PreferredSkills) == 0 || len(item.RequiredTools) == 0 {
 			t.Fatalf("%s missing preferredSkills/requiredTools", item.ID)
+		}
+		for _, id := range want[item.ID] {
+			if !containsStr(item.PreferredSkills, id) {
+				t.Fatalf("%s catalog preferredSkills %#v missing %q", item.ID, item.PreferredSkills, id)
+			}
+		}
+		for _, tool := range wantTools[item.ID] {
+			if !containsStr(item.RequiredTools, tool) {
+				t.Fatalf("%s catalog requiredTools %#v missing %q", item.ID, item.RequiredTools, tool)
+			}
 		}
 		skills, tools, _, _ := m8app.ComposeForExpertNames([]string{item.Name})
 		for _, id := range want[item.ID] {
@@ -449,6 +491,9 @@ func TestEnsureBuiltinExpertsAddsMissingToExistingLibrary(t *testing.T) {
 	}
 	if counts["开发专家"] != 1 {
 		t.Fatal("existing install did not receive 开发专家")
+	}
+	if counts["航空机务专家"] != 1 {
+		t.Fatal("existing install did not receive 航空机务专家")
 	}
 	if counts["pm-advisor"] != 1 {
 		t.Fatal("existing install lost pm-advisor")

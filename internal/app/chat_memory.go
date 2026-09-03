@@ -59,23 +59,27 @@ type chatMemoryRequest struct {
 //
 // Candidates that were never confirmed never appear in any of these slots.
 type chatMemoryPack struct {
-	Prefs     []string
-	Pinned    []contextapp.ContextSource
-	TaskState []contextapp.ContextSource
-	Evidence  []contextapp.ContextSource
-	TraceID   string
-	Enabled   bool
+	Prefs       []string
+	Pinned      []contextapp.ContextSource
+	TaskState   []contextapp.ContextSource
+	Evidence    []contextapp.ContextSource
+	KBCites     []CitationBlock
+	KBDiscarded int
+	MROTurn     bool
+	TraceID     string
+	Enabled     bool
 }
 
 type sessionGetter interface {
 	Get(context.Context, string) (session.Session, error)
 }
 
-func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) chatMemoryPack {
-	pack := chatMemoryPack{Enabled: true}
+func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (pack chatMemoryPack) {
+	pack = chatMemoryPack{Enabled: true}
 	if e == nil {
 		return pack
 	}
+	defer e.appendExpertKBEvidence(ctx, req, &pack)
 	settings := e.chatMemorySettings(ctx)
 	pack.Enabled = settings.MemoryEnabled
 
