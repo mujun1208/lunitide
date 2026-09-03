@@ -215,7 +215,7 @@ it('starts companion turns with the model selected on the home page', async () =
   expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'm-two' })
 })
 
-it('companion idle chat silently prefers a flash model already on that provider', async () => {
+it('companion idle chat keeps the model selected on the home page even when a flash sibling exists', async () => {
   const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })
   const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
   const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
@@ -251,7 +251,7 @@ it('companion idle chat silently prefers a flash model already on that provider'
     speech.callbacks!.onFinal('今晚月色如何')
   })
   await waitFor(() => expect(start).toHaveBeenCalledOnce())
-  expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'glm-4-flash' })
+  expect(start.mock.calls[0][0]).toMatchObject({ companion: true, providerId: chosen.id, modelId: 'glm-4-plus' })
 })
 
 it('interrupt then a new spoken line starts a fresh companion chat.start', async () => {

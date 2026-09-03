@@ -13,9 +13,10 @@ import (
 
 func TestMROCatalogSkillsPresent(t *testing.T) {
 	want := map[string]string{
-		"mro-manual-rag": "机务手册检索",
-		"mro-fault-tree": "排故故障树",
-		"mro-checklist":  "机务检查单",
+		"aircraft-maintenance-engineer": "机务维修专家",
+		"mro-manual-rag":                "机务手册检索",
+		"mro-fault-tree":                "排故故障树",
+		"mro-checklist":                 "机务检查单",
 	}
 	found := map[string]CatalogTemplate{}
 	for _, tpl := range Catalog() {
@@ -40,6 +41,9 @@ func TestMROCatalogSkillsPresent(t *testing.T) {
 		prompt, _ := tpl.Manifest["prompt"].(string)
 		if !strings.Contains(prompt, "不构成放行") && id != "mro-fault-tree" {
 			t.Fatalf("%s prompt must mention 不构成放行 or isolation rules", id)
+		}
+		if id == "aircraft-maintenance-engineer" && !strings.Contains(prompt, "适航") {
+			t.Fatalf("aircraft-maintenance-engineer prompt must mention 适航")
 		}
 		if id == "mro-manual-rag" && !strings.Contains(prompt, "kb.search") {
 			t.Fatalf("mro-manual-rag prompt must mention kb.search")
@@ -293,7 +297,7 @@ func TestEnsureComposeSkillsPublishesPreferred(t *testing.T) {
 	for _, name := range []string{
 		"tpl-slide-builder", "tpl-web-researcher", "tpl-mermaid-diagrams",
 		"tpl-docx-writer", "tpl-anti-ai-prose", "tpl-e2e-browser", "tpl-fiction-continuity",
-		"tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist",
+		"tpl-aircraft-maintenance-engineer", "tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist",
 	} {
 		if _, err := svc.GetByNameVersion(context.Background(), name, "1.0.0"); err != nil {
 			t.Fatalf("compose skill %s missing: %v", name, err)

@@ -65,6 +65,26 @@ func bundledWorkflowInjection(turnText ...string) string {
 		workflowDisciplineClause
 }
 
+// companionTaskWorkflowInjection is the voice-lane office pipeline. The full
+// bundledWorkflowInjection (九步流水线) is deliberately kept out of companion
+// turns to protect TTFT, and startPptWorkflow bails when DisableReasoning is
+// set — which companion turns always set. Without this, a spoken "做个PPT"
+// reaches pptx.gen with empty pages and gets rejected, surfacing as
+// "无法完成". This compact clause restores the same pipeline discipline in one
+// short block: structure → full per-page content (web.search for facts) →
+// generate the file last. Desktop see→act→verify already lives in
+// companionPersonaToolsInstruction, so this only covers office generation.
+func companionTaskWorkflowInjection(text string) string {
+	if !includeOfficeGenWorkflow(text) {
+		return ""
+	}
+	return "\n\n[月伴办公流水线] 生成文档别一步到位，按顺序做完再收尾：\n" +
+		"1) 先想清目标/受众/页数，列出结构（PPT 列封面·目录·分节·结尾；报告列章节；表格列字段）。\n" +
+		"2) 逐页/逐节写完整内容：每页要有可见标题和 3-5 条要点，深色底配浅色字；缺事实用 web.search 收集，禁止编造。\n" +
+		"3) 内容齐了最后一步才生成文件：PPT 用 pptx.gen、报告/小说用 docx.gen、表格用 excel.gen，写进工作区并报出路径；用户要放桌面加 desktop=true（path 只填文件名）。\n" +
+		"禁止跳步直接生成空页、只有深色底没有文字、或只有提纲的文件——pptx.gen/docx.gen 会拒绝空标题与空文档。本轮连续做到出文件再停，不要勘查后就停下等确认。\n"
+}
+
 func selectWorkflowClauses(text string) []string {
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" {

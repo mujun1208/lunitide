@@ -45,7 +45,7 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		"test-expert":      "系统测试专家",
 		"hardware-expert":  "硬件配置专家",
 		"dev-expert":       "开发专家",
-		"mro-expert":       "航空机务专家",
+		"mro-expert":       "航空机务维修专家",
 	}
 	foundRepo, foundStandards, foundTest, foundHardware, foundDev, foundMRO := false, false, false, false, false, false
 	for _, item := range items {
@@ -254,11 +254,11 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 				"todo.write", "docx.gen", "excel.gen", "机尾",
 			} {
 				if !strings.Contains(body, needle) {
-					t.Fatalf("航空机务专家 missing %q", needle)
+					t.Fatalf("航空机务维修专家 missing %q", needle)
 				}
 			}
 			if strings.Contains(body, "独立智能体") {
-				t.Fatal("航空机务专家 must not claim 独立智能体")
+				t.Fatal("航空机务维修专家 must not claim 独立智能体")
 			}
 		}
 	}
@@ -278,7 +278,7 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		t.Fatal("conversation catalog missing dev-expert 开发专家")
 	}
 	if !foundMRO {
-		t.Fatal("conversation catalog missing mro-expert 航空机务专家")
+		t.Fatal("conversation catalog missing mro-expert 航空机务维修专家")
 	}
 }
 
@@ -323,7 +323,7 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"test-expert":      {"test-writer", "e2e-browser", "browser-automation", "find-bug"},
 		"hardware-expert":  {"web-researcher", "hardware-bom"},
 		"dev-expert":       {"implement", "tdd-loop", "debugger", "code-reviewer"},
-		"mro-expert":       {"mro-manual-rag", "mro-fault-tree", "mro-checklist"},
+		"mro-expert":       {"aircraft-maintenance-engineer", "mro-manual-rag", "mro-fault-tree", "mro-checklist"},
 	}
 	wantTools := map[string][]string{
 		"ppt-expert":       {"web.search", "pptx.gen", "skill.invoke"},
@@ -492,8 +492,8 @@ func TestEnsureBuiltinExpertsAddsMissingToExistingLibrary(t *testing.T) {
 	if counts["开发专家"] != 1 {
 		t.Fatal("existing install did not receive 开发专家")
 	}
-	if counts["航空机务专家"] != 1 {
-		t.Fatal("existing install did not receive 航空机务专家")
+	if counts["航空机务维修专家"] != 1 {
+		t.Fatal("existing install did not receive 航空机务维修专家")
 	}
 	if counts["pm-advisor"] != 1 {
 		t.Fatal("existing install lost pm-advisor")
@@ -505,6 +505,36 @@ func TestEnsureBuiltinExpertsAddsMissingToExistingLibrary(t *testing.T) {
 		if counts[item.Name] != 1 {
 			t.Fatalf("%s count = %d, want 1 after additive seed", item.Name, counts[item.Name])
 		}
+	}
+}
+
+func TestEnsureBuiltinExpertsRenamesShippedMROExpert(t *testing.T) {
+	svc := openExpertService(t)
+	ctx := context.Background()
+	created := createExpert(t, svc, "航空机务专家")
+	if err := m8app.EnsureBuiltinExperts(ctx, svc); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.List(ctx, m8app.ExpertFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed, leftover := 0, 0
+	id := ""
+	for _, row := range listed.Experts {
+		switch row.Name {
+		case "航空机务维修专家":
+			renamed++
+			id = row.ExpertID
+		case "航空机务专家":
+			leftover++
+		}
+	}
+	if renamed != 1 || leftover != 0 || id != created.ExpertID {
+		t.Fatalf("rename: renamed=%d leftover=%d id=%s want %s", renamed, leftover, id, created.ExpertID)
+	}
+	if _, ok := m8app.ConversationExpertByName("航空机务专家"); !ok {
+		t.Fatal("old display name must still resolve to mro-expert")
 	}
 }
 
@@ -751,5 +781,45 @@ func TestConversationDevExpertDistinctFromStandardsAndAgencyDeveloper(t *testing
 	}
 	if names["dev-expert"] == names["engineering-senior-developer"] || names["dev-expert"] == names["engineering-frontend-developer"] || names["dev-expert"] == names["engineering-code-reviewer"] {
 		t.Fatal("dev-expert name collides with an agency developer card")
+	}
+}
+
+func TestConversationExpertsMatchingIntent(t *testing.T) {
+	ppt := m8app.ConversationExpertsMatchingIntent("帮我做一份路演 PPT")
+	if len(ppt) == 0 || ppt[0] != "PPT专家" {
+		t.Fatalf("ppt intent = %#v", ppt)
+	}
+	mro := m8app.ConversationExpertsMatchingIntent("查一下飞机维修手册隔离步骤")
+	if len(mro) == 0 || mro[0] != "航空机务维修专家" {
+		t.Fatalf("mro intent = %#v", mro)
+	}
+	if names := m8app.ConversationExpertsMatchingIntent("你好"); len(names) != 0 {
+		t.Fatalf("greeting must not equip: %#v", names)
+	}
+	if names := m8app.ConversationExpertsMatchingIntent("hi"); len(names) != 0 {
+		t.Fatalf("short english greeting must not equip: %#v", names)
+	}
+	if named := m8app.ConversationExpertsMatchingIntent("请 PPT专家出大纲"); len(named) != 1 || named[0] != "PPT专家" {
+		t.Fatalf("named expert = %#v", named)
+	}
+}
+
+func TestConversationIntentSkipsDefinitionalQueries(t *testing.T) {
+	for _, q := range []string{
+		"数据库这个词是什么意思",
+		"ppt是什么意思",
+		"excel和ppt有什么区别",
+		"机务是啥意思",
+	} {
+		if names := m8app.ConversationExpertsMatchingIntent(q); len(names) != 0 {
+			t.Fatalf("definitional query %q must not equip: %#v", q, names)
+		}
+	}
+	// A real task that shares the same domain noun must still equip.
+	if names := m8app.ConversationExpertsMatchingIntent("帮我做一个数据库表结构设计"); len(names) == 0 {
+		t.Fatalf("db design task must still equip: %#v", names)
+	}
+	if names := m8app.ConversationExpertsMatchingIntent("帮我做一份路演 PPT"); len(names) == 0 {
+		t.Fatalf("ppt task must still equip: %#v", names)
 	}
 }

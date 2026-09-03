@@ -163,6 +163,10 @@ describe('modelKind helpers', () => {
     })
     expect(pickCompanionFlashModel([provider], provider.id, 'glm-4-plus')).toEqual({
       providerId: provider.id,
+      modelId: 'glm-4-plus',
+    })
+    expect(pickCompanionFlashModel([provider], provider.id, '')).toEqual({
+      providerId: provider.id,
       modelId: 'glm-4-flash',
     })
     expect(pickCompanionFlashModel([provider], provider.id, 'glm-4-flash')).toEqual({

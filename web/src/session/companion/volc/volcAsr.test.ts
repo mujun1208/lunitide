@@ -23,7 +23,8 @@ vi.mock('../pcmCapture', () => ({
   }),
 }))
 
-const { startVolcAsr } = await import('./volcAsr')
+const { startPcmCapture } = await import('../pcmCapture')
+const { startVolcAsr, VOLC_EXTERNAL_PCM_RESCUE_MS } = await import('./volcAsr')
 
 const PROVIDER = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
 const frame = (peak = 0.2) => ({ base64: 'AAAA', samples: new Int16Array(1600), peak })
@@ -99,6 +100,46 @@ describe('startVolcAsr', () => {
     expect(bridge.append.mock.calls.length).toBeGreaterThan(1)
     for (const call of bridge.append.mock.calls) {
       expect(atob((call[0] as { pcm: string }).pcm).length).toBeLessThanOrEqual(32_000)
+    }
+  })
+
+  it('opens its own mic when external PCM never arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      await startVolcAsr(PROVIDER, { externalPcm: true })
+      expect(startPcmCapture).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(VOLC_EXTERNAL_PCM_RESCUE_MS)
+      expect(startPcmCapture).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never opens the rescue mic when external PCM already flowed', async () => {
+    vi.useFakeTimers()
+    try {
+      const handle = await startVolcAsr(PROVIDER, { externalPcm: true })
+      handle.pushFrame(frame())
+      await vi.advanceTimersByTimeAsync(VOLC_EXTERNAL_PCM_RESCUE_MS)
+      expect(startPcmCapture).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops the rescue mic when external PCM recovers after it opened', async () => {
+    vi.useFakeTimers()
+    try {
+      const handle = await startVolcAsr(PROVIDER, { externalPcm: true })
+      await vi.advanceTimersByTimeAsync(VOLC_EXTERNAL_PCM_RESCUE_MS)
+      expect(startPcmCapture).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(1)
+      // The recorder tap recovers late: external must win so we do not run
+      // both the tap and the browser mic into seed-asr at once.
+      handle.pushFrame(frame())
+      expect(stopCapture).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

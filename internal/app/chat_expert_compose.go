@@ -41,7 +41,7 @@ func (e *Engine) composeExpertNames(ctx context.Context, sessionID, turnText str
 		}
 		return names
 	}
-	for _, name := range m8app.ConversationExpertNamesInText(turnText) {
+	for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {
 		add(name)
 	}
 	if len(names) > 0 {
@@ -220,6 +220,29 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 	b.WriteString("官方 filesystem/fetch/memory/sequential-thinking MCP 月汐已用 workspace.* / web.fetch / 会话记忆 / todo.write 包住，不必再装一份。\n")
 	b.WriteString("[本轮任务] 只处理用户这一句，不要重开整份说明书。\n")
 	return b.String()
+}
+
+// turnEquipInfo is the user-visible half of auto-equip. expertComposeForTurn
+// tells the model what it just got; this tells the operator, so silent backend
+// equipping ("做个PPT" → PPT专家) is no longer invisible. It returns the equipped
+// specialists, their bound skills, and any preferred MCP that is not connected
+// yet (so the chip can offer a connect link). Emitted as EventEquip.
+func (e *Engine) turnEquipInfo(ctx context.Context, sessionID, turnText string) (experts, skills, missingMcp []string) {
+	names := e.composeExpertNames(ctx, sessionID, turnText)
+	if len(names) == 0 {
+		return nil, nil, nil
+	}
+	boundSkills, _, mcp, _ := m8app.ComposeForExpertNames(names)
+	connected := map[string]bool{}
+	for _, id := range e.connectedComposeMcpIDs() {
+		connected[strings.ToLower(strings.TrimSpace(id))] = true
+	}
+	for _, id := range filterLiveComposeMCP(mcp) {
+		if !connected[id] {
+			missingMcp = append(missingMcp, id)
+		}
+	}
+	return names, boundSkills, missingMcp
 }
 
 func (e *Engine) expertComposeForTurn(ctx context.Context, sessionID, turnText string) (preferred []string, hint string) {

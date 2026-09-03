@@ -5,7 +5,7 @@ import { pickDefaultVoice } from '../provider/modelKind'
 import { loadMeetingSettings, MEETING_SETTINGS_EVENT, type MeetingSettings } from './meetingSettings'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, shouldFallbackLiveCaption, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, shouldFallbackLiveCaption, startMeetingSpeech, type MeetingAsrRuntime, type MeetingCapturePlan } from './meetingAsr'
 import { localAsrStatus } from '../session/companion/localAsr'
 import type { MeetingListen } from './meetingSettings'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
@@ -20,9 +20,9 @@ const LOOPBACK_POLL_MS = 80
 export const MEETING_CAPTION_STALL_MS = 25_000
 export const MEETING_CAPTION_STALL_POLL_MS = 2_000
 /** How long a cloud/volc live caption may stay silent before we transparently
- *  fall back to this-PC sherpa (Issue 3). Long enough to absorb engine warm-up,
- *  short enough that a deaf engine is not left running the whole meeting. */
-export const MEETING_LIVE_FALLBACK_MS = 8_000
+ *  fall back to this-PC sherpa. seed-asr handshake often exceeds 8s; 20s
+ *  absorbs warm-up without leaving a deaf engine on for the whole meeting. */
+export const MEETING_LIVE_FALLBACK_MS = 20_000
 const MEETING_LIVE_FALLBACK_NOTICE = '实时字幕已切换到本机识别（所选引擎未返回结果）。停止后仍生成完整逐字稿。'
 const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用，停止后仍会生成完整逐字稿（本机补转写）。'
 
@@ -127,6 +127,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
   const loopbackEnergyRef = useRef({ hits: 0, zeros: 0 })
   const [systemHeard, setSystemHeard] = useState<boolean | undefined>()
+  const [asrRuntime, setAsrRuntime] = useState<MeetingAsrRuntime>()
   // For engine-owned WASAPI capture there is no browser track to inspect, so the
   // only trustworthy "system audio present" signal is whether the engine actually
   // opened a loopback session (active === true). Energy silence is normal in a
@@ -255,7 +256,14 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         const listed = await getProviderBridge().list().catch(() => ({ items: [] as ProviderDTO[] }))
         volcProviderId = pickDefaultVoice(listed.items)?.provider.id ?? ''
         if (!volcProviderId) throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
+        if (!sawRealCaption) setNotice('正在连接火山听写…')
       }
+      setAsrRuntime({
+        backend: listenKind,
+        providerId: volcProviderId || undefined,
+        externalPcm: (listenKind === 'local' || listenKind === 'volc') && !!audioRef.current,
+        fellBack: listenKind === 'local' && prefsRef.current.listen !== 'local',
+      })
       const handle = await startMeetingSpeech({
         listen: listenKind,
         volcProviderId: volcProviderId || undefined,
@@ -656,6 +664,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     releaseMeetingCapture(captureRef.current)
     captureRef.current = undefined
     setInterim('')
+    setAsrRuntime(undefined)
     try {
       await appendChain.current
       const stopped = await meetings.stop({ meetingId: current.meetingId })
@@ -853,6 +862,9 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           <p className="meeting-warn" role="alert">
             ⚠ 没有收录到系统内部声音，当前只在录麦克风。腾讯会议 / 飞书 / 微信语音 / 音乐视频等对方的声音不会进入这场纪要。请确认 Windows「立体声混音」或系统音频回环可用后重开一场。
           </p>
+        )}
+        {recording && asrRuntime && (
+          <p className="meeting-diag" role="note" aria-label="听写诊断">{meetingAsrRuntimeLine(asrRuntime)}</p>
         )}
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
         <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">

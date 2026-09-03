@@ -37,6 +37,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		catalogTestSkill("tpl-implement", "驱动实现。", `{}`),
 		catalogTestSkill("tpl-tdd-loop", "TDD。", `{}`),
 		catalogTestSkill("tpl-debugger", "排障。", `{}`),
+		catalogTestSkill("tpl-aircraft-maintenance-engineer", "机务维修专家人设。", `{}`),
 		catalogTestSkill("tpl-mro-manual-rag", "机务手册检索。", `{}`),
 		catalogTestSkill("tpl-mro-fault-tree", "排故故障树。", `{}`),
 		catalogTestSkill("tpl-mro-checklist", "机务检查单。", `{}`),
@@ -55,7 +56,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"系统测试专家":      {"tpl-test-writer", "tpl-e2e-browser", "browser-automation", "tpl-find-bug"},
 		"硬件配置专家":      {"tpl-web-researcher", "tpl-hardware-bom"},
 		"开发专家":        {"tpl-implement", "tpl-tdd-loop", "tpl-debugger"},
-		"航空机务专家":      {"tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist"},
+		"航空机务维修专家":    {"tpl-aircraft-maintenance-engineer", "tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist"},
 	}
 	wantTool := map[string]string{
 		"PPT专家":       "pptx.gen",
@@ -71,7 +72,7 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"系统测试专家":      "browser.act",
 		"硬件配置专家":      "excel.gen",
 		"开发专家":        "workspace.edit",
-		"航空机务专家":      "kb.search",
+		"航空机务维修专家":    "kb.search",
 	}
 	if len(wantSkill) != 14 {
 		t.Fatalf("want 14 compose-audited specialists, got %d", len(wantSkill))

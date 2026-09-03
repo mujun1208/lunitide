@@ -26,7 +26,7 @@ it('registers the conversation specialists for Expert Center and 对话 picker',
   expect(CONVERSATION_EXPERTS.map(item => item.name)).toEqual(expect.arrayContaining([
     'PPT专家', '报告编写专家', '小说编写专家', 'Excel表格制作专家', 'UI专家',
     '产品经理专家', '系统架构师专家', '数据库设计专家', '系统项目结构规范专家', '开发规范专家',
-    '系统测试专家', '硬件配置专家', '开发专家', '航空机务专家',
+    '系统测试专家', '硬件配置专家', '开发专家', '航空机务维修专家',
   ]))
   expect(conversationExpertDivision('test-expert')).toBe('testing')
   expect(conversationExpertDivision('hardware-expert')).toBe('engineering')
@@ -35,6 +35,8 @@ it('registers the conversation specialists for Expert Center and 对话 picker',
   expect(conversationExpertDivision('mro-expert')).toBe('operations')
   expect(conversationExpertKind('PPT专家')).toBe('agent')
   expect(conversationExpertKind('ppt-expert')).toBe('agent')
+  expect(conversationExpertKind('航空机务专家')).toBe('agent')
+  expect(conversationExpertKind('航空机务维修专家')).toBe('agent')
   expect(conversationExpertKind('安全工程师')).toBe('prompt_skill')
   expect(conversationExpertRole('design')).toBe('设计师')
   expect(conversationExpertRole('security')).toBe('工程师')
@@ -56,7 +58,7 @@ it('keeps a factory kit preferredSkills list for each of the 14 specialists', ()
     'test-expert': ['test-writer', 'e2e-browser', 'browser-automation', 'find-bug'],
     'hardware-expert': ['web-researcher', 'hardware-bom'],
     'dev-expert': ['implement', 'tdd-loop', 'debugger', 'code-reviewer'],
-    'mro-expert': ['mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
+    'mro-expert': ['aircraft-maintenance-engineer', 'mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
   }
   expect(CONVERSATION_EXPERTS).toHaveLength(14)
   for (const expert of CONVERSATION_EXPERTS) {

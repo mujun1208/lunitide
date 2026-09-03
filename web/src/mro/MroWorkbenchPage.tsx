@@ -249,7 +249,7 @@ export function MroWorkbenchPage({
         <header className="mro-top">
           <h1 className="view-title">{zh ? '机务工作台' : 'MRO workbench'}</h1>
         </header>
-        <p className="mro-enable-hint">{zh ? '先启用航空机务专家' : 'Enable the aviation MRO expert first'}</p>
+        <p className="mro-enable-hint">{zh ? '先启用航空机务维修专家' : 'Enable the aviation MRO expert first'}</p>
       </main>
     )
   }

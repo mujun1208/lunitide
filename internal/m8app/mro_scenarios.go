@@ -47,7 +47,7 @@ var mroScenarioSeeds = []mroScenarioSeed{
 }
 
 // EnsureMROScenarios seeds the six aviation-MRO playbooks onto the shipped
-// 航空机务专家. Missing expert is a no-op. Existing titles are skipped.
+// 航空机务维修专家. Missing expert is a no-op. Existing titles are skipped.
 func EnsureMROScenarios(ctx context.Context, experts *ExpertService, scenarios *ScenarioService) error {
 	if experts == nil || scenarios == nil {
 		return nil
@@ -58,7 +58,7 @@ func EnsureMROScenarios(ctx context.Context, experts *ExpertService, scenarios *
 	}
 	expertID := ""
 	for _, row := range listed.Experts {
-		if row.CatalogItemID == "mro-expert" || row.Name == "航空机务专家" {
+		if row.CatalogItemID == "mro-expert" || row.Name == "航空机务维修专家" || row.Name == "航空机务专家" {
 			expertID = row.ExpertID
 			break
 		}

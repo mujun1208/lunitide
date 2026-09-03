@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/m8app"
 )
 
 func companionPersonaChatInstruction() string {
@@ -21,7 +22,7 @@ func companionPersonaChatInstruction() string {
 		"- 用户明确要搜网页、打开页面、播歌、查火车/航班、建文件夹、操作电脑、安装 MCP/插件、调用技能时，先开口一句再调用对应工具真正执行\n" +
 		"- 做不到必须说「无法执行」并说明原因，不要假装成功。做完用一句结果收尾\n" +
 		"- 用户给出明确电脑任务后：先说一句「好，我来执行。」立刻调工具，禁止接着闲聊或问「想聊点什么」\n" +
-		"- 月伴不挂专家装备：不要召开评议会，不要用专家芯片；你就是月汐。"
+		"- 闲聊不挂专家、不开评议会；用户要做 PPT/报告/机务等专业交付时按本轮装备立刻 skill.invoke，你仍是月汐。"
 }
 
 func companionPersonaToolsInstruction() string {
@@ -265,12 +266,13 @@ func companionWantsTools(text string) bool {
 		"下一步", "再点", "接着", "帮我点", "帮我做",
 		"生图", "画一张", "画图", "生成图片", "生成视频", "生视频", "做个视频",
 		"search", "open http", "play song", "install", "generate image", "generate video",
+		"ppt", "pptx", "幻灯片", "做报告", "写报告", "机务", "维修手册",
 	} {
 		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
 			return true
 		}
 	}
-	return false
+	return len(m8app.ConversationExpertsMatchingIntent(text)) > 0
 }
 
 // isShortIdleGreeting is a no-tool hello. Regular chat then skips reasoning

@@ -32,7 +32,7 @@ vi.mock('./meetingCapture', async importOriginal => {
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, shouldFallbackLiveCaption, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, shouldFallbackLiveCaption, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -271,6 +271,29 @@ describe('shouldFallbackLiveCaption', () => {
   test('already fell back, or engine is already local → none', () => {
     expect(shouldFallbackLiveCaption({ listen: 'cloud', sawRealCaption: false, alreadyFellBack: true, localReady: true })).toBe('none')
     expect(shouldFallbackLiveCaption({ listen: 'local', sawRealCaption: false, alreadyFellBack: false, localReady: true })).toBe('none')
+  })
+})
+
+describe('meetingAsrRuntimeLine', () => {
+  test('volc shows engine, truncated provider, single-source PCM and 直采', () => {
+    const line = meetingAsrRuntimeLine({ backend: 'volc', providerId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', externalPcm: true, fellBack: false })
+    expect(line).toContain('引擎：火山 seed-asr')
+    expect(line).toContain('供应商：01ARZ3ND…')
+    expect(line).toContain('音源：外部录音 PCM（单路，无双麦）')
+    expect(line).toContain('字幕：直采')
+  })
+
+  test('cloud shows browser listening and no provider', () => {
+    const line = meetingAsrRuntimeLine({ backend: 'cloud', externalPcm: false, fellBack: false })
+    expect(line).toContain('引擎：系统听写')
+    expect(line).not.toContain('供应商')
+    expect(line).toContain('音源：浏览器听写')
+  })
+
+  test('a deaf-engine fallback to local is called out as 已回退本机', () => {
+    const line = meetingAsrRuntimeLine({ backend: 'local', externalPcm: true, fellBack: true })
+    expect(line).toContain('引擎：本机 sherpa')
+    expect(line).toContain('字幕：已回退本机')
   })
 })
 

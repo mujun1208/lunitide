@@ -90,6 +90,7 @@ type ExpertSkillStore interface {
 	ListExpertSkillKeys(ctx context.Context, expertID string) ([]string, error)
 	ReplaceExpertSkillKeys(ctx context.Context, expertID string, keys []string) error
 	SeedExpertSkillsIfEmpty(ctx context.Context, expertID string, keys []string) error
+	MergeExpertSkillKeys(ctx context.Context, expertID string, keys []string) error
 }
 
 type ExpertService struct {

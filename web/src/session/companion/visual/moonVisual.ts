@@ -22,8 +22,7 @@ export function launchAuroraProps(theme: 'dark' | 'light') {
 export type MoonVisualMode = 'orb' | 'glass' | 'wave'
 
 export function moonVisualMode(state: CompanionState): MoonVisualMode {
-  if (state === 'thinking') return 'glass'
-  if (state === 'speaking') return 'wave'
+  if (state === 'thinking' || state === 'speaking') return 'glass'
   return 'orb'
 }
 
@@ -81,11 +80,9 @@ export function strandsSpeaking(gain: number) {
     amplitude: 0.9 + g * 0.7,
     glow: 2.2 + g * 1.4,
     intensity: 0.55 + g * 0.4,
-    // Match thinking's scale so the orb does NOT shrink when she starts
-    // speaking (Issue 5). A higher uScale zooms the plasma OUT (smaller ball);
-    // 1.45 made it visibly smaller than the thinking orb. Liveliness stays in
-    // the gain-driven speed/amplitude/glow above, not in a size jump.
-    scale: 1.15,
+    // Lower uScale zooms the plasma IN (larger ball). Speaking must stay as
+    // big as the idle circle — 1.15 still read as a small off-center wave.
+    scale: 0.82,
     taper: 2.4,
   }
 }

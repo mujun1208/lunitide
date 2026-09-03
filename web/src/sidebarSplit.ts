@@ -1,5 +1,6 @@
 const CHATS_OPEN_KEY = 'lunitide:sidebar-chats-open'
 const PROJECTS_OPEN_KEY = 'lunitide:sidebar-projects-open'
+const OFFICE_OPEN_KEY = 'lunitide:sidebar-office-open'
 
 export function readSidebarFlag(key: string, fallback: boolean): boolean {
   try {
@@ -22,6 +23,7 @@ export function writeSidebarFlag(key: string, value: boolean): void {
 
 export const SIDEBAR_CHATS_OPEN_KEY = CHATS_OPEN_KEY
 export const SIDEBAR_PROJECTS_OPEN_KEY = PROJECTS_OPEN_KEY
+export const SIDEBAR_OFFICE_OPEN_KEY = OFFICE_OPEN_KEY
 
 export function readChatsOpen(): boolean {
   return readSidebarFlag(CHATS_OPEN_KEY, true)
@@ -29,4 +31,8 @@ export function readChatsOpen(): boolean {
 
 export function readProjectsOpen(): boolean {
   return readSidebarFlag(PROJECTS_OPEN_KEY, true)
+}
+
+export function readOfficeOpen(): boolean {
+  return readSidebarFlag(OFFICE_OPEN_KEY, true)
 }

@@ -284,8 +284,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				catalogQuery += " implement tdd code review 开发"
 			}
 		}
-		if !intent.Companion {
-			preferred, composeHint = e.expertComposeForTurn(ctx, boundSessionID, intent.Text)
+		preferred, composeHint = e.expertComposeForTurn(ctx, boundSessionID, intent.Text)
+		if intent.Companion && composeHint == "" && !companionWantsTools(intent.Text) {
+			preferred = nil
 		}
 		catalog = e.skillCatalogInjection(ctx, catalogQuery, p.Companion, preferred)
 	}()
@@ -295,6 +296,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		wantsTools = e.companionWantsToolsForTurn(boundSessionID, intent.Text)
 		if wantsTools {
 			instruction += companionPersonaToolsInstruction()
+			instruction += companionTaskWorkflowInjection(intent.Text)
 		} else {
 			catalog = ""
 		}
@@ -365,6 +367,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 	if !ok {
 		return request.Fail("STREAM_UNAVAILABLE", "流事件通道不可用", true)
+	}
+
+	// Make auto-equip visible: when intent (not @-mention) pulled in a
+	// specialist this turn, emit a structured chip signal. Council turns already
+	// narrate their own experts, so skip to avoid a duplicate.
+	if emit != nil && !intent.Companion && councilCfg == nil && composeHint != "" {
+		if experts, skills, missingMcp := e.turnEquipInfo(ctx, boundSessionID, intent.Text); len(experts) > 0 {
+			_ = emit(bridge.Event{Type: bridge.EventEquip, Equip: &bridge.EquipEvent{Experts: experts, Skills: skills, MissingMcp: missingMcp}})
+		}
 	}
 
 	var messages []gateway.Message
