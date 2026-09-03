@@ -44,4 +44,14 @@ func TestExpertSkillBindingsReplaceAndSeed(t *testing.T) {
 	if len(got) != 1 || got[0] != "mermaid-diagrams" {
 		t.Fatalf("replaced = %#v", got)
 	}
+	if err := store.MergeExpertSkillKeys(ctx, expertID, []string{"mermaid-diagrams", "aircraft-maintenance-engineer"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.ListExpertSkillKeys(ctx, expertID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "mermaid-diagrams" || got[1] != "aircraft-maintenance-engineer" {
+		t.Fatalf("merged = %#v", got)
+	}
 }

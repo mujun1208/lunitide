@@ -304,7 +304,8 @@ test('shows 听 说 想 lights after a cloud entry', async () => {
   expect(utils.container.querySelectorAll('[data-light]')).toHaveLength(3)
   expect(utils.container.querySelector('[data-light="listen"]')?.textContent).toMatch(/系统识别/)
   expect(utils.container.querySelector('[data-light="speak"]')?.textContent).toMatch(/晓晓/)
-  expect(utils.container.querySelector('[data-light="think"]')?.textContent).toMatch(/chat/)
+  // Think light now shows the model's displayName ("Chat"), not the raw modelId.
+  expect(utils.container.querySelector('[data-light="think"]')?.textContent).toMatch(/Chat/)
   const chrome = utils.container.querySelector('.companion-chrome')
   expect(chrome?.contains(utils.container.querySelector('.companion-exit'))).toBe(true)
   expect(chrome?.contains(utils.container.querySelector('.companion-interrupt'))).toBe(true)

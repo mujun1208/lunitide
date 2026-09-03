@@ -1,6 +1,6 @@
 import { getProviderBridge, getTtsBridge } from '../../bridge/client'
 import type { ProviderDTO } from '../../generated/bridge'
-import { hasConfiguredVolcTts, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice, pickTalkRealtimeModel } from '../../provider/modelKind'
+import { hasConfiguredVolcTts, llmReadyProviders, pickDefaultLLM, pickDefaultTTS, pickDefaultVoice, pickTalkRealtimeModel } from '../../provider/modelKind'
 import { VOLC_OFFICIAL_SPEAKERS } from './volcVoices'
 import { localAsrStatus } from './localAsr'
 import { shownVoicePath, type VoicePath } from './voicePersonas'
@@ -34,6 +34,8 @@ export type CompanionLightProbes = {
   refEngine?: (endpoint?: string) => Promise<{ state: string; last_error?: string }>
   /** Read-only ONNX install probe (never starts a download). */
   onnxEngine?: () => Promise<{ state: string }>
+  /** Home/session pick. The think light must follow this, not the catalog default. */
+  preferredLLM?: { providerId: string; modelId: string }
 }
 
 export const COMPANION_ENTRY_PROBE_MS = 800
@@ -88,7 +90,13 @@ export async function inspectCompanionEntry(
     { items: [] as ProviderDTO[] },
   )
   const items = listed.value.items ?? []
-  const llm = items.length ? pickDefaultLLM(items) : undefined
+  const preferred = probes.preferredLLM
+  const preferredHit = preferred
+    ? llmReadyProviders(items).find(p => p.id === preferred.providerId && p.models.some(m => m.modelId === preferred.modelId))
+    : undefined
+  const llm = preferredHit
+    ? { provider: preferredHit, modelId: preferred!.modelId }
+    : (items.length ? pickDefaultLLM(items) : undefined)
   const llmReady = items.length === 0 ? true : !!llm
   const volc = pickDefaultVoice(items)
   const hasVolc = !!volc
@@ -168,7 +176,8 @@ export async function inspectCompanionEntry(
     }
   }
 
-  const thinkLabel = llm?.modelId || (llmReady ? '对话模型' : '未配置')
+  const thinkModel = llm?.provider.models.find(m => m.modelId === llm.modelId)
+  const thinkLabel = thinkModel?.displayName || llm?.modelId || (llmReady ? '对话模型' : '未配置')
   // Listen is independent of SoVITS: a down TTS engine must not leave the
   // stage deaf. Speak-light still reflects the engine; captions stay live.
   const allowListen = llmReady && listenReady

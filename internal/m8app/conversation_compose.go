@@ -1,7 +1,9 @@
 package m8app
 
 import (
+	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // BoundMcpPrefix marks an MCP preset id stored in expert_skill_bindings.
@@ -88,6 +90,10 @@ func ConversationExpertByName(name string) (CatalogItem, bool) {
 	if name == "" {
 		return CatalogItem{}, false
 	}
+	// Pre-0.4.60 display name; catalog id stayed mro-expert.
+	if name == "航空机务专家" {
+		return ConversationExpertByID("mro-expert")
+	}
 	for _, item := range ConversationExperts() {
 		if item.Name == name || item.DisplayName == name {
 			return item, true
@@ -147,6 +153,156 @@ func ComposeForExpertNames(names []string) (skills, tools, mcp []string, fallbac
 func PreferredComposeTemplateIDs() []string {
 	skills, _, _, _ := ComposeForExpertNames(ConversationExpertIDs)
 	return skills
+}
+
+const intentEquipMinScore = 6
+const intentEquipMaxNames = 2
+
+// ConversationExpertsMatchingIntent returns specialists named in text, or
+// scored from scene/description/skills when the user never said the card name.
+func ConversationExpertsMatchingIntent(text string) []string {
+	if names := ConversationExpertNamesInText(text); len(names) > 0 {
+		return names
+	}
+	query := strings.ToLower(strings.TrimSpace(text))
+	if query == "" || intentQueryTooShort(query) || intentQueryDefinitional(query) {
+		return nil
+	}
+	type ranked struct {
+		name  string
+		score int
+	}
+	var hits []ranked
+	for _, item := range ConversationExperts() {
+		score := conversationExpertIntentScore(item, query)
+		if score < intentEquipMinScore {
+			continue
+		}
+		hits = append(hits, ranked{name: item.Name, score: score})
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].score > hits[j].score })
+	if len(hits) > intentEquipMaxNames {
+		hits = hits[:intentEquipMaxNames]
+	}
+	out := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		out = append(out, hit.name)
+	}
+	return out
+}
+
+var conversationIntentAliases = map[string][]string{
+	"ppt-expert":       {"ppt", "pptx", "幻灯片", "演示稿", "路演", "做ppt"},
+	"report-writer":    {"写报告", "工作报告", "说明书", "周报", "调研报告"},
+	"novel-writer":     {"写小说", "写一章", "小说"},
+	"excel-maker":      {"excel", "xlsx", "表格", "做表"},
+	"ui-designer":      {"界面设计", "设计稿"},
+	"pm-expert":        {"prd", "用户故事", "产品经理"},
+	"architect-expert": {"系统架构", "c4"},
+	"db-expert":        {"数据库", "schema", "建表"},
+	"mro-expert":       {"机务", "维修手册", "amm", "飞机维修"},
+}
+
+func conversationExpertIntentScore(item CatalogItem, query string) int {
+	hay := strings.ToLower(strings.Join([]string{
+		item.Name, item.DisplayName, item.Scene, item.Description, item.Category,
+		strings.Join(item.PreferredSkills, " "), strings.Join(item.RequiredTools, " "),
+	}, " "))
+	score := 0
+	if utf8.RuneCountInString(query) >= 4 && strings.Contains(hay, query) {
+		score += 8
+	}
+	for _, alias := range conversationIntentAliases[item.ID] {
+		if strings.Contains(query, strings.ToLower(alias)) {
+			score += 6
+		}
+	}
+	for _, tok := range intentQueryTokens(query) {
+		if tok == "" {
+			continue
+		}
+		if strings.Contains(hay, tok) {
+			score += 3
+		}
+	}
+	return score
+}
+
+func intentQueryTokens(q string) []string {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] || intentTokenTooShort(s) {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	for _, f := range strings.Fields(q) {
+		add(f)
+	}
+	runes := []rune(q)
+	for i := 0; i < len(runes)-1; i++ {
+		if runes[i] >= 0x4E00 && runes[i] <= 0x9FFF && runes[i+1] >= 0x4E00 && runes[i+1] <= 0x9FFF {
+			add(string(runes[i : i+2]))
+		}
+	}
+	return out
+}
+
+// intentQueryDefinitional is true for "what does X mean / what is the
+// difference" meta questions that merely name a domain noun without asking for
+// work. Equipping a specialist on these (e.g. "数据库是什么意思") is a false
+// positive, so intent matching skips them — unless the sentence also carries a
+// real task verb (做/写/生成/设计…), which flips it back to an actionable task.
+func intentQueryDefinitional(q string) bool {
+	markers := []string{"什么意思", "啥意思", "的意思", "什么梗", "这个词", "什么区别", "有区别吗"}
+	hit := false
+	for _, m := range markers {
+		if strings.Contains(q, m) {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		return false
+	}
+	for _, verb := range []string{"做", "写一", "写个", "写份", "生成", "建", "设计", "部署", "画", "填", "转成", "导出", "分析", "优化", "实现", "开发", "整理", "制作", "起草"} {
+		if strings.Contains(q, verb) {
+			return false
+		}
+	}
+	return true
+}
+
+func intentQueryTooShort(q string) bool {
+	n := utf8.RuneCountInString(q)
+	if n < 2 {
+		return true
+	}
+	return n < 3 && intentASCII(q)
+}
+
+func intentTokenTooShort(s string) bool {
+	n := utf8.RuneCountInString(s)
+	if n < 2 {
+		return true
+	}
+	return n < 3 && intentASCII(s)
+}
+
+func intentASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 // ConversationExpertNamesInText finds specialist display names or ids in text.

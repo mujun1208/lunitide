@@ -45,7 +45,7 @@ it('disables Ask when the MRO expert is missing', () => {
   )
   const btn = screen.getByRole('button', { name: '问月汐' })
   expect(btn).toBeDisabled()
-  expect(btn).toHaveAttribute('title', '先启用航空机务专家')
+  expect(btn).toHaveAttribute('title', '先启用航空机务维修专家')
 })
 
 it('creates one session, writes mroContext, and mounts the MRO ULID', async () => {

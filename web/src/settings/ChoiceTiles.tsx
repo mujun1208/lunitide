@@ -1,6 +1,6 @@
 import React from 'react'
 
-export type ChoiceTileOption<T extends string> = { value: T; label: string; desc: string }
+export type ChoiceTileOption<T extends string> = { value: T; label: string; desc: string; disabled?: boolean; disabledReason?: string }
 
 export function ChoiceTiles<T extends string>({
   legend,
@@ -23,18 +23,22 @@ export function ChoiceTiles<T extends string>({
       <div className="choice-tile-grid" role="radiogroup" aria-label={legend}>
         {options.map(option => {
           const on = option.value === value
+          const disabled = !!option.disabled
           return (
             <button
               key={option.value}
               type="button"
               role="radio"
               aria-checked={on}
-              className={on ? 'choice-tile on' : 'choice-tile'}
+              aria-disabled={disabled || undefined}
+              disabled={disabled}
+              title={disabled ? option.disabledReason : undefined}
+              className={`choice-tile${on ? ' on' : ''}${disabled ? ' is-disabled' : ''}`}
               name={name}
-              onClick={() => onChange(option.value)}
+              onClick={() => { if (!disabled) onChange(option.value) }}
             >
               <b>{option.label}</b>
-              <small>{option.desc}</small>
+              <small>{disabled && option.disabledReason ? option.disabledReason : option.desc}</small>
             </button>
           )
         })}

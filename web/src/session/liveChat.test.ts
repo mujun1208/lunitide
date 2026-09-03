@@ -56,3 +56,10 @@ it('notifies the registry when a session starts or finishes generating', () => {
   stop()
   expect(ticks.at(-1)).toEqual([])
 })
+
+it('records the auto-equip signal on the live turn state', () => {
+  const entry = startLiveChat('session-equip', 'turn-1')
+  applyLiveChatEvent(entry, { v: '1.0', kind: 'event', id: 'e3', streamId: 's-eq', sequence: 1, type: 'equip', equip: { experts: ['PPT专家'], skills: ['slide-builder'], missingMcp: ['playwright'] } })
+  expect(entry.state.equip).toEqual({ experts: ['PPT专家'], skills: ['slide-builder'], missingMcp: ['playwright'] })
+  applyLiveChatEvent(entry, { v: '1.0', kind: 'event', id: 'e4', streamId: 's-eq', sequence: 2, type: 'completed' })
+})

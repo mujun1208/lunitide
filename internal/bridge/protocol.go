@@ -58,6 +58,10 @@ const (
 	EventTerminalOutput   EventType = "terminal_output"
 	EventTerminalExit     EventType = "terminal_exit"
 	EventGuidance         EventType = "guidance"
+	// EventEquip announces the specialists/skills auto-equipped for this turn
+	// (intent-matched, not @-mentioned) plus any preferred MCP that is not yet
+	// connected. Purely additive UI signal; unknown consumers ignore it.
+	EventEquip EventType = "equip"
 	EventTtsChunk         EventType = "tts_chunk"
 	EventTalkAudio        EventType = "talk_audio"
 	EventTalkTranscript   EventType = "talk_transcript"
@@ -81,8 +85,17 @@ type Event struct {
 	Tool      *ToolEvent      `json:"tool,omitempty"`
 	Terminal  *TerminalEvent  `json:"terminal,omitempty"`
 	Guidance  *GuidanceEvent  `json:"guidance,omitempty"`
+	Equip     *EquipEvent     `json:"equip,omitempty"`
 	Tts       *TtsChunkEvent  `json:"tts,omitempty"`
 	Talk      *TalkEvent      `json:"talk,omitempty"`
+}
+
+// EquipEvent is the structured half of auto-equip (see EventEquip): the chip
+// renders Experts + Skills and offers a connect link for each MissingMcp.
+type EquipEvent struct {
+	Experts    []string `json:"experts"`
+	Skills     []string `json:"skills,omitempty"`
+	MissingMcp []string `json:"missingMcp,omitempty"`
 }
 
 // TalkEvent is one talk.* stream frame. Contract names talk.audio /

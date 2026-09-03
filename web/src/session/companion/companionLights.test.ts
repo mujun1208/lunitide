@@ -32,7 +32,25 @@ describe('inspectCompanionEntry', () => {
     expect(report.lights.map(light => light.title)).toEqual(['听', '说', '想'])
     expect(report.lights[0]).toMatchObject({ label: '系统识别 · 说完再答 · 打断用按钮', state: 'on' })
     expect(report.lights[1]).toMatchObject({ label: '晓晓', state: 'on' })
-    expect(report.lights[2]).toMatchObject({ label: 'qwen-plus', state: 'on' })
+    expect(report.lights[2]).toMatchObject({ label: 'Qwen', state: 'on' })
+  })
+
+  test('think light follows the home-selected model, not the catalog default', async () => {
+    const deepseek: ProviderDTO = {
+      ...chat,
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAX',
+      name: 'DeepSeek',
+      models: [{ modelId: 'deepseek-chat', displayName: 'DeepSeek', isDefault: true, kind: 'llm' }],
+    }
+    const glm: ProviderDTO = {
+      ...chat,
+      models: [{ modelId: 'glm-5.3', displayName: 'GLM5.3', isDefault: true, kind: 'llm', kindDefault: true }],
+    }
+    const report = await inspectCompanionEntry('cloud', '', {
+      listProviders: async () => ({ items: [glm, deepseek] }),
+      preferredLLM: { providerId: deepseek.id, modelId: 'deepseek-chat' },
+    })
+    expect(report.lights[2]).toMatchObject({ label: 'DeepSeek', state: 'on' })
   })
 
   test('blocks local entry when sherpa is not ready', async () => {

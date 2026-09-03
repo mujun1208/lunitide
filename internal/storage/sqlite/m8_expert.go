@@ -79,6 +79,7 @@ func (t *agentRuntimeTx) PutExpert(e m8core.ExpertCatalog) error {
 		(expert_id,subject_id,name,division,source,origin_bundle_id,catalog_item_id,current_version_id,state,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(expert_id) DO UPDATE SET
+			name=excluded.name,
 			current_version_id=excluded.current_version_id,
 			state=excluded.state,
 			updated_at=excluded.updated_at,

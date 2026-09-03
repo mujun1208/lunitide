@@ -63,6 +63,9 @@ func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 	if svc == nil {
 		return nil
 	}
+	if err := renameShippedMROExpert(ctx, svc); err != nil {
+		return err
+	}
 	list, err := svc.List(ctx, ExpertFilter{})
 	if err != nil {
 		return err
@@ -96,6 +99,51 @@ func EnsureBuiltinExperts(ctx context.Context, svc *ExpertService) error {
 		return err
 	}
 	return seedConversationSkillBindings(ctx, svc)
+}
+
+const shippedMROExpertOldName = "航空机务专家"
+
+// renameShippedMROExpert retitles an already-installed mro-expert row so the
+// catalog name change does not seed a second card.
+func renameShippedMROExpert(ctx context.Context, svc *ExpertService) error {
+	if svc == nil || svc.uow == nil {
+		return nil
+	}
+	listed, err := svc.List(ctx, ExpertFilter{})
+	if err != nil {
+		return err
+	}
+	want := ""
+	if item, ok := ConversationExpertByID("mro-expert"); ok {
+		want = item.Name
+	}
+	if want == "" || want == shippedMROExpertOldName {
+		return nil
+	}
+	var targetID string
+	taken := false
+	for _, row := range listed.Experts {
+		if row.Name == want {
+			taken = true
+		}
+		if row.CatalogItemID == "mro-expert" || row.Name == shippedMROExpertOldName {
+			targetID = row.ExpertID
+		}
+	}
+	if targetID == "" || taken {
+		return nil
+	}
+	return svc.uow.TransactExpert(ctx, func(tx ExpertTx) error {
+		e, err := tx.GetExpert(targetID)
+		if err != nil {
+			return err
+		}
+		if e.Name == want {
+			return nil
+		}
+		e.Name = want
+		return tx.PutExpert(e)
+	})
 }
 
 func sixSectionMap(s m8core.SixSection) map[string]string {
@@ -183,7 +231,7 @@ func seedConversationSkillBindings(ctx context.Context, svc *ExpertService) erro
 			continue
 		}
 		if keys := BindKeysFromCatalog(item); len(keys) > 0 {
-			if err := svc.skills.SeedExpertSkillsIfEmpty(ctx, id, keys); err != nil {
+			if err := svc.skills.MergeExpertSkillKeys(ctx, id, keys); err != nil {
 				return err
 			}
 		}

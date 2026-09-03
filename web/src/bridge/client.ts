@@ -942,9 +942,11 @@ export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'cancelled'}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'failed';error:{code:string;message:string;retryable:boolean}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'guidance';guidance:{labels:string[];digest:string}}
+ | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'equip';equip:{experts:string[];skills?:string[];missingMcp?:string[]}}
 export interface ChatStream { readonly streamId:string; cancel(opts?:{spokenText?:string}):Promise<boolean>; dispose():void }
 export interface ChatBridge { start(payload:ChatStartPayload,onEvent:(event:StreamEvent)=>void):Promise<ChatStream>; approve?(payload:ChatToolApprovePayload):Promise<ChatToolApproveResult>; inspectTurn?(payload:ChatTurnGetPayload):Promise<ChatTurnGetResult>; prefer?(payload:ChatPreferPayload):Promise<ChatPreferResult>; dispose():void }
 const nonnegativeInt=(v:unknown)=>Number.isInteger(v)&&Number(v)>=0
+const labelList=(v:unknown,min:number,max:number,itemMax:number):v is string[]=>Array.isArray(v)&&v.length>=min&&v.length<=max&&v.every(item=>typeof item==='string'&&item.length>0&&item.length<=itemMax)
 const validArtifactPath=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
 const isStreamArtifact=(artifact:unknown):artifact is StreamArtifact=>{
  if(!isObj(artifact)||!exact(artifact,['kind','path','content']))return false
@@ -970,6 +972,7 @@ const isStreamEvent=(v:unknown):v is StreamEvent=>{
   case'cancelled':return exact(v,base)
   case'failed':return exact(v,[...base,'error'])&&isObj(v.error)&&exact(v.error,['code','message','retryable'])&&typeof v.error.code==='string'&&v.error.code.length>0&&typeof v.error.message==='string'&&v.error.message.length>0&&typeof v.error.retryable==='boolean'
   case'guidance':return exact(v,[...base,'guidance'])&&isObj(v.guidance)&&exact(v.guidance,['labels','digest'])&&Array.isArray(v.guidance.labels)&&v.guidance.labels.length>=1&&v.guidance.labels.length<=8&&v.guidance.labels.every(label=>typeof label==='string'&&label.length>0&&label.length<=32)&&typeof v.guidance.digest==='string'&&/^[0-9a-f]{16}$/.test(v.guidance.digest)
+  case'equip':return exact(v,[...base,'equip'])&&isObj(v.equip)&&exact(v.equip,['experts'],['skills','missingMcp'])&&labelList(v.equip.experts,1,8,32)&&(!('skills'in v.equip)||labelList(v.equip.skills,0,16,64))&&(!('missingMcp'in v.equip)||labelList(v.equip.missingMcp,0,16,64))
   default:return false
  }
 }

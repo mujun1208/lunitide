@@ -94,7 +94,7 @@ it('asks the user to enable the aviation expert first', async () => {
       <MroWorkbenchPage enabled={false} />
     </LanguageProvider>,
   )
-  expect(await screen.findByText('先启用航空机务专家')).toBeInTheDocument()
+  expect(await screen.findByText('先启用航空机务维修专家')).toBeInTheDocument()
   expect(screen.queryByText('从一本手册或一个机尾开始')).not.toBeInTheDocument()
 })
 

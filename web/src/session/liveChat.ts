@@ -36,6 +36,7 @@ export interface LiveChatState {
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
   error?: { message: string; code: string; retryable: boolean }
   guidance?: { labels: string[]; digest: string }
+  equip?: { experts: string[]; skills?: string[]; missingMcp?: string[] }
 }
 
 export interface LiveChatEntry {
@@ -201,6 +202,9 @@ export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): vo
         break
       case 'guidance':
         if (event.guidance) state.guidance = { labels: event.guidance.labels, digest: event.guidance.digest }
+        break
+      case 'equip':
+        if (event.equip) state.equip = { experts: event.equip.experts, skills: event.equip.skills, missingMcp: event.equip.missingMcp }
         break
     }
     if (entry.terminal) {

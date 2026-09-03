@@ -205,6 +205,18 @@ describe('MeetingPage', () => {
     expect(await screen.findByText(/C:\/notes.md/)).toBeInTheDocument()
   })
 
+  test('shows the live ASR diagnostics bar while recording', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始录制' }))
+    const diag = await screen.findByLabelText('听写诊断')
+    expect(diag).toHaveTextContent('引擎：系统听写')
+    expect(diag).toHaveTextContent('字幕：直采')
+  })
+
   test('local listen failure stays on sherpa and shows the error', async () => {
     const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
     const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })

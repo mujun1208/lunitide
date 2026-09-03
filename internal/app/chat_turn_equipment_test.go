@@ -23,6 +23,25 @@ func (priorUserReader) SumTokens(context.Context, string, string, string, string
 	return 0, nil
 }
 
+func TestTurnEquipmentForIntentAndCompanion(t *testing.T) {
+	e := NewEngine(nil, "test")
+	eq := e.turnEquipmentFor(context.Background(), "", "帮我做一份路演 PPT", false)
+	if len(eq.Names) == 0 || eq.Names[0] != "PPT专家" {
+		t.Fatalf("text intent names=%v keys=%v", eq.Names, eq.BindKeys)
+	}
+	if len(eq.BindKeys) == 0 {
+		t.Fatalf("intent should bind PPT skills, keys=%v", eq.BindKeys)
+	}
+	idle := e.turnEquipmentFor(context.Background(), "", "你好", true)
+	if len(idle.Names) != 0 || len(idle.BindKeys) != 0 {
+		t.Fatalf("companion greeting must stay lean: %+v", idle)
+	}
+	task := e.turnEquipmentFor(context.Background(), "", "帮我做一份路演 PPT", true)
+	if len(task.Names) == 0 || task.Names[0] != "PPT专家" {
+		t.Fatalf("companion task names=%v", task.Names)
+	}
+}
+
 func TestTurnEquipmentForResumePeeksPriorExpertChip(t *testing.T) {
 	const ppt = "01ARZ3NDEKTSV4RRFFQ69G5FAC"
 	const resume = "继续上次未完成的工作。结合任务清单、已完成步骤和我补充过的说明，接着做到完成。"

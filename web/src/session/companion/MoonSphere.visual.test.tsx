@@ -35,7 +35,7 @@ describe('MoonSphere visual contract', () => {
     expect(button.getAttribute('aria-label')).toBe('月亮正在回应')
     rerender(<MoonSphere state="speaking" gain={0.6} levels={levels} interruptible onInterrupt={vi.fn()} />)
     expect(container.querySelector('.companion-moon')?.getAttribute('data-state')).toBe('speaking')
-    expect(container.querySelector('.companion-moon')?.getAttribute('data-mode')).toBe('wave')
+    expect(container.querySelector('.companion-moon')?.getAttribute('data-mode')).toBe('glass')
     expect((container.querySelector('.companion-moon-body') as HTMLButtonElement).getAttribute('aria-label')).toBe(
       '月亮正在说话，点击打断朗读',
     )

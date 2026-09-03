@@ -26,7 +26,7 @@ func (eq turnEquipment) RestrictMCP() bool {
 
 func (e *Engine) turnEquipmentFor(ctx context.Context, sessionID, turnText string, companion bool) turnEquipment {
 	eq := turnEquipment{Companion: companion, Brain: BrainLunitide}
-	if companion {
+	if companion && !companionWantsTools(turnText) && len(m8app.ConversationExpertsMatchingIntent(turnText)) == 0 {
 		return eq
 	}
 	mounted := e.sessionMountedExpertIDs(ctx, sessionID)
@@ -82,7 +82,7 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 		}
 	}
 	for _, turnText := range turnTexts {
-		for _, name := range m8app.ConversationExpertNamesInText(turnText) {
+		for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {
 			add(name)
 		}
 		if len(names) > 0 {

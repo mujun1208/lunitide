@@ -108,6 +108,9 @@ export interface CompanionStageProps {
   onOpenMemory?: () => void
   /** D9: settings switch is off — show on the stage, never enable it. */
   computerControlOff?: boolean
+  /** Home/session LLM so the 想 light matches the model that will actually run. */
+  thinkProviderId?: string
+  thinkModelId?: string
   /** Last user + assistant from history. Current-turn highlight stays in the bar. */
   historySeed?: ReadonlyArray<{ role: string; text: string }>
   onEngaged?: () => void
@@ -134,7 +137,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
   return user ? [user, assistant] : [assistant]
 }
 
-export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, historySeed, onEngaged }: CompanionStageProps): React.JSX.Element {
+export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, thinkProviderId, thinkModelId, historySeed, onEngaged }: CompanionStageProps): React.JSX.Element {
   const zh = useZh()
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
@@ -2123,7 +2126,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const probe = (attempt: number) => {
       if (cancelled || exitedRef.current) return
       if (speechHandleRef.current || openingListenRef.current) return
-      void prepareCompanionEntry(settingsRef.current).then(prepared => {
+      void prepareCompanionEntry(settingsRef.current, thinkProviderId && thinkModelId ? { preferredLLM: { providerId: thinkProviderId, modelId: thinkModelId } } : undefined).then(prepared => {
         if (cancelled || exitedRef.current) return
         setSettings(prepared.settings)
         settingsRef.current = prepared.settings
@@ -2164,7 +2167,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       cancelled = true
       window.clearTimeout(entryRetryTimerRef.current)
     }
-  }, [chatReady])
+  }, [chatReady, thinkProviderId, thinkModelId])
 
   const stopAssistantAndListen = useCallback(() => {
     const state = stateRef.current

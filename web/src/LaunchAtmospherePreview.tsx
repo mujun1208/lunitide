@@ -22,8 +22,14 @@ export function LaunchAtmospherePreview(): React.JSX.Element {
         </button>
         <div className="primary-actions">
           <button type="button"><span>＋&nbsp; 新对话</span></button>
-          <button type="button"><span>⏱&nbsp; 自动化</span></button>
-          <button type="button"><span>◎&nbsp; 会议记录</span></button>
+          <section className="office-group is-open">
+            <button type="button" className="conversation-heading office-heading" aria-expanded="true"><span aria-hidden="true">›</span>办公</button>
+            <div id="office-list" className="office-nav-list">
+              <button type="button"><span>⏱&nbsp; 自动化</span></button>
+              <button type="button"><span>☻&nbsp; 同事聊天</span></button>
+              <button type="button"><span>◎&nbsp; 会议记录</span></button>
+            </div>
+          </section>
           <button type="button"><span>⌕&nbsp; 搜索</span></button>
         </div>
       </aside>

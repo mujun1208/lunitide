@@ -453,6 +453,20 @@ it('retries a failed initial attachment and continues with its context id',async
  await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-retried'}]});expect(append).toHaveBeenCalledOnce();expect(append.mock.calls[0][0].text).toContain('[attachment:attachment-retried|retry.txt]')
 })
 
+it('shows the auto-equip chip for an intent-matched turn and deep-links to the MCP page',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
+ const onOpenMcp=vi.fn(),user=userEvent.setup()
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge} chat={{start,dispose:vi.fn()}} onOpenMcp={onOpenMcp}/>)
+ await screen.findByText('还没有消息')
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'帮我做个PPT')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'equip',equip:{experts:['PPT专家'],skills:['slide-builder'],missingMcp:['playwright']}}))
+ const chip=await screen.findByLabelText('本轮自动装备')
+ expect(chip).toHaveTextContent('PPT专家');expect(chip).toHaveTextContent('slide-builder');expect(chip).toHaveTextContent('playwright')
+ await user.click(screen.getByRole('button',{name:'去连接'}));expect(onOpenMcp).toHaveBeenCalledOnce()
+})
+
 it('collapses streaming thinking by default, expands on demand and shows a live status line',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})

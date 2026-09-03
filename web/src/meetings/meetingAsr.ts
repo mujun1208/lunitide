@@ -128,6 +128,31 @@ export function shouldFallbackLiveCaption(input: {
   return input.localReady ? 'local' : 'unavailable'
 }
 
+/** Live ASR diagnostics surfaced on the meeting workbench: which engine is
+ *  really running (after any deaf-engine fallback), which Volc provider it dialed,
+ *  whether the recorder's external PCM is the single audio source (the anti
+ *  double-mic guarantee), and whether captions fell back to this-PC sherpa. */
+export type MeetingAsrRuntime = {
+  backend: MeetingListen
+  providerId?: string
+  externalPcm: boolean
+  fellBack: boolean
+}
+
+export function meetingAsrRuntimeLine(runtime: MeetingAsrRuntime): string {
+  const engine = runtime.backend === 'volc' ? '火山 seed-asr' : runtime.backend === 'local' ? '本机 sherpa' : '系统听写'
+  const parts = [`引擎：${engine}`]
+  if (runtime.backend === 'volc' && runtime.providerId) parts.push(`供应商：${runtime.providerId.slice(0, 8)}…`)
+  const source = runtime.externalPcm
+    ? '外部录音 PCM（单路，无双麦）'
+    : runtime.backend === 'cloud'
+      ? '浏览器听写'
+      : '引擎麦克风'
+  parts.push(`音源：${source}`)
+  parts.push(`字幕：${runtime.fellBack ? '已回退本机' : '直采'}`)
+  return parts.join(' · ')
+}
+
 /** Three energy frames vs three silent frames. Undefined = keep the last label. */
 export function noteLoopbackEnergy(prev: { hits: number; zeros: number }, peak: number): { hits: number; zeros: number; heard?: boolean } {
   if (peak > 0) {

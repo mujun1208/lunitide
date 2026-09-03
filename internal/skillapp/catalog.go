@@ -50,6 +50,9 @@ var computerControlSkillMD []byte
 //go:embed bundled/browser-automation/SKILL.md
 var browserAutomationSkillMD []byte
 
+//go:embed bundled/aircraft-maintenance-engineer/SKILL.md
+var aircraftMaintenanceEngineerSkillMD []byte
+
 // ErrTemplateUnknown answers an install request naming a catalog id that
 // does not exist; ErrTemplateInstalled answers a name+version collision.
 var (
@@ -164,6 +167,14 @@ func bundledManifest(raw []byte, triggers []string, lunitide string) map[string]
 		"triggers": triggers,
 		"prompt":   prompt,
 	}
+}
+
+func aircraftMaintenanceEngineerManifest() map[string]any {
+	return bundledManifest(aircraftMaintenanceEngineerSkillMD, []string{
+		"航空机务", "机务维修", "适航", "MEL", "AMM", "排故", "MRO", "aircraft maintenance", "airworthiness",
+	}, "\n\n--- Lunitide 集成 ---\n"+
+		"具体程序、力矩、间隙、件号必须先 kb.search，再 kb.cite，禁止凭记忆编造章节号或数值。\n"+
+		"适用性不明时先问机尾/机型与日期。文首写「辅助建议，不构成放行」。手册检索用 mro-manual-rag，排故用 mro-fault-tree，检查单用 mro-checklist。")
 }
 
 func findSkillsManifest() map[string]any {
@@ -553,6 +564,14 @@ var catalogTemplates = []CatalogTemplate{
 			"triggers": []string{"整理文档", "知识库", "索引仓库"},
 			"prompt":   "你是知识索引助手。workspace.list/search 建立主题提纲，标出过期与冲突；需要成文时用 docx.gen。",
 		},
+	},
+	{
+		ID: "aircraft-maintenance-engineer", Name: "tpl-aircraft-maintenance-engineer", DisplayName: "机务维修专家",
+		Description: "资深飞机维修工程师人设：适航优先、手册可追溯、MEL 门闸。辅助建议，不构成放行。",
+		Category: "行业运营", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://aircraft-maintenance-engineer", Compose: true, Source: "awesome-skills / theNeoAI MIT",
+		Manifest:   aircraftMaintenanceEngineerManifest(),
 	},
 	{
 		ID: "mro-manual-rag", Name: "tpl-mro-manual-rag", DisplayName: "机务手册检索",

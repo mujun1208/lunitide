@@ -51,7 +51,7 @@ export function MroAskButton({
       type="button"
       className="primary"
       disabled={blocked || busy}
-      title={missing ? (zh ? '先启用航空机务专家' : 'Enable the aviation MRO expert first') : undefined}
+      title={missing ? (zh ? '先启用航空机务维修专家' : 'Enable the aviation MRO expert first') : undefined}
       onClick={() => {
         if (blocked || busy || !openChat) return
         setBusy(true)

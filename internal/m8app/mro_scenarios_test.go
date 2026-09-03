@@ -71,7 +71,7 @@ func mroExpertID(t *testing.T, svc *m8app.ExpertService) string {
 		t.Fatal(err)
 	}
 	for _, row := range listed.Experts {
-		if row.Name == "航空机务专家" || row.CatalogItemID == "mro-expert" {
+		if row.Name == "航空机务维修专家" || row.Name == "航空机务专家" || row.CatalogItemID == "mro-expert" {
 			return row.ExpertID
 		}
 	}

@@ -12,7 +12,7 @@ export const CONVERSATION_EXPERTS = [
   {id: 'test-expert', name: '系统测试专家'},
   {id: 'hardware-expert', name: '硬件配置专家'},
   {id: 'dev-expert', name: '开发专家'},
-  {id: 'mro-expert', name: '航空机务专家'},
+  {id: 'mro-expert', name: '航空机务维修专家'},
 ] as const
 
 export type ConversationExpertID = typeof CONVERSATION_EXPERTS[number]['id']
@@ -36,11 +36,14 @@ export const CONVERSATION_EXPERT_PREFERRED_SKILLS: Record<ConversationExpertID, 
   'test-expert': ['test-writer', 'e2e-browser', 'browser-automation', 'find-bug'],
   'hardware-expert': ['web-researcher', 'hardware-bom'],
   'dev-expert': ['implement', 'tdd-loop', 'debugger', 'code-reviewer', 'super-coders'],
-  'mro-expert': ['mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
+  'mro-expert': ['aircraft-maintenance-engineer', 'mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
 }
 
 export function conversationExpertByNameOrID(idOrName: string): (typeof CONVERSATION_EXPERTS)[number] | undefined {
   const key = idOrName.trim()
+  if (key === '航空机务专家') {
+    return CONVERSATION_EXPERTS.find(item => item.id === 'mro-expert')
+  }
   return CONVERSATION_EXPERTS.find(item => item.id === key || item.name === key)
 }
 

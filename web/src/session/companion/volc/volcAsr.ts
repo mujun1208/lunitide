@@ -25,6 +25,9 @@ const DRAIN_ROUNDS = 40
 /** Match the Go handshake budget so a hung provider.list falls back. */
 export const VOLC_ASR_DECISION_MS = 3000
 
+/** Meeting recorder taps can be late. If no PCM arrives, open our own mic so seed-asr is not deaf. */
+export const VOLC_EXTERNAL_PCM_RESCUE_MS = 1600
+
 /** Silence after a turn so Volc VAD can emit definite without closing the WS. */
 const SILENCE_FLUSH_SAMPLES = Math.round(TARGET_SAMPLE_RATE * 0.4)
 
@@ -46,6 +49,9 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
   let swapping = false
   let inFlight = false
   let fed = false
+  // Latches the first real external PCM frame. External always wins over the
+  // deaf-rescue mic, so this gate guarantees we never run two capture sources.
+  let externalSeen = false
   let capture: PcmCaptureHandle | undefined
   let suppressText = ''
   let suppressUntil = 0
@@ -228,6 +234,25 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
       onFrame: acceptFrame,
       onError: fail,
     })
+  } else {
+    // Deaf-rescue: if the recorder tap never delivers PCM, open our own mic so
+    // seed-asr is not silently deaf. externalSeen makes external PCM win in
+    // every ordering — arriving before the timer, during the async mic open, or
+    // after the mic opened — so the tap and the browser mic never run together.
+    window.setTimeout(() => {
+      if (closed || externalSeen || capture) return
+      void startPcmCapture({
+        extraStreams: callbacks.extraStreams,
+        onFrame: acceptFrame,
+        onError: fail,
+      }).then(handle => {
+        if (closed || externalSeen || capture) {
+          handle.stop()
+          return
+        }
+        capture = handle
+      }).catch(fail)
+    }, VOLC_EXTERNAL_PCM_RESCUE_MS)
   }
 
   try {
@@ -287,6 +312,13 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
     },
     pushFrame: frame => {
       if (!callbacks.externalPcm || closed) return
+      externalSeen = true
+      if (capture) {
+        // A late-recovering tap: external wins, so stop the rescue mic rather
+        // than feed two audio sources into the same seed-asr session.
+        capture.stop()
+        capture = undefined
+      }
       acceptFrame(frame)
     },
   }

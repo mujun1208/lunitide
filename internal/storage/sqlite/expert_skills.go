@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -96,4 +97,43 @@ func (s *Store) SeedExpertSkillsIfEmpty(ctx context.Context, expertID string, ke
 		return nil
 	}
 	return s.ReplaceExpertSkillKeys(ctx, expertID, keys)
+}
+
+// MergeExpertSkillKeys appends missing keys onto an existing binding list so a
+// newly shipped factory skill lands on already-installed specialists. Empty
+// bindings fall through to a full replace (same as SeedExpertSkillsIfEmpty).
+func (s *Store) MergeExpertSkillKeys(ctx context.Context, expertID string, keys []string) error {
+	existing, err := s.ListExpertSkillKeys(ctx, expertID)
+	if err != nil {
+		return err
+	}
+	if len(existing) == 0 {
+		return s.ReplaceExpertSkillKeys(ctx, expertID, keys)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(existing)+len(keys))
+	for _, key := range existing {
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	added := false
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		if !validExpertSkillKey(key) {
+			return fmt.Errorf("expert skill key invalid")
+		}
+		seen[key] = true
+		out = append(out, key)
+		added = true
+	}
+	if !added {
+		return nil
+	}
+	return s.ReplaceExpertSkillKeys(ctx, expertID, out)
 }

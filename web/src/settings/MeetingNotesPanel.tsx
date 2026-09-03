@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { getProviderBridge } from '../bridge/client'
 import type { ModelDTO, ProviderDTO } from '../generated/bridge'
-import { llmReadyProviders } from '../provider/modelKind'
+import { llmReadyProviders, pickDefaultVoice } from '../provider/modelKind'
 import { loadMeetingSettings, saveMeetingSettings, type MeetingListen, type MeetingSettings } from '../meetings/meetingSettings'
 import { useZh } from '../i18n/language'
 import { ChoiceTiles } from './ChoiceTiles'
@@ -31,11 +31,16 @@ export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.
   const zh = useZh()
   const [prefs, setPrefs] = useState<MeetingSettings>(() => loadMeetingSettings())
   const [choices, setChoices] = useState<Array<{ provider: ProviderDTO; model: ModelDTO }>>([])
+  // seed-asr is what the 火山 live-caption path needs. Without it the meeting
+  // would open, connect to Volc, then throw "选了火山但没有可用的语音模型" mid-record.
+  // Pre-disable the tile so that failure is impossible to pick in the first place.
+  const [hasVoice, setHasVoice] = useState(true)
 
   useEffect(() => {
     void getProviderBridge().list().then(listed => {
       const ready = llmReadyProviders(listed.items)
       setChoices(ready.flatMap(provider => provider.models.map(model => ({ provider, model }))))
+      setHasVoice(!!pickDefaultVoice(listed.items))
     }).catch(() => undefined)
   }, [])
 
@@ -64,8 +69,18 @@ export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.
           value,
           label: zh ? LISTEN[value].label : LISTEN[value].labelEn,
           desc: zh ? LISTEN[value].desc : LISTEN[value].descEn,
+          ...(value === 'volc' && !hasVoice
+            ? { disabled: true, disabledReason: zh ? '需先在「模型与供应商」配置火山 seed-asr 语音模型' : 'Configure a Volcengine seed-asr voice model first' }
+            : {}),
         }))}
       />
+      {prefs.listen === 'volc' && !hasVoice && (
+        <p className="setting-desc meeting-listen-warn" role="alert">
+          {zh
+            ? '当前选的是火山听写，但还没有可用的 seed-asr 语音模型。开会时会连不上、退回本机识别。请到「模型与供应商」配置后再用，或先改回系统 / 本机。'
+            : 'Volcengine is selected but no seed-asr voice model is configured. Meetings will fall back to this-PC ASR. Configure it first, or switch back to System / This PC.'}
+        </p>
+      )}
       <div className="setting-row">
         <div>
           <div className="setting-label">{zh ? '纪要模型' : 'Notes model'}</div>

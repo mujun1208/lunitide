@@ -141,7 +141,7 @@ export function pickTalkRealtimeModel(items: readonly ProviderDTO[]): { provider
   return undefined
 }
 
-/** Same provider only. Prefer an already-picked flash id; else first flash/air/lite/mini/haiku; else keep current. */
+/** Same provider only. Honor the model already picked on home/session; flash only when current is empty or missing. */
 export function pickCompanionFlashModel(
   items: readonly ProviderDTO[],
   providerId: string,
@@ -151,7 +151,7 @@ export function pickCompanionFlashModel(
   const provider = items.find(item => item.id === providerId)
   if (!provider) return fallback
   const llms = provider.models.filter(m => modelKind(m) === 'llm' && m.modelId)
-  if (currentModelId && isCompanionFlashModelId(currentModelId) && llms.some(m => m.modelId === currentModelId)) {
+  if (currentModelId && llms.some(m => m.modelId === currentModelId)) {
     return fallback
   }
   const flash = llms.find(m => isCompanionFlashModelId(m.modelId))
