@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"sort"
 	"time"
 
@@ -136,6 +137,15 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 			return adapterErr
 		})
 		if discoveryErr != nil {
+			// Many OpenAI-compatible endpoints (notably Volcengine Ark Plan at
+			// /api/plan/v3) do not expose a GET /models list route and answer
+			// 404. That is not a connection failure — chat/completions works
+			// fine — so keep the provider's existing models and surface a
+			// friendly warning instead of hard-failing the whole sync.
+			var ge *gateway.Error
+			if errors.As(discoveryErr, &ge) && ge.HTTPStatus == http.StatusNotFound {
+				return append([]provider.Model(nil), p.Models...), "MODEL_LIST_UNSUPPORTED", nil
+			}
 			return nil, "", discoveryErr
 		}
 		models, warning, valid := discoveredModels(p, discovery)

@@ -493,7 +493,9 @@ func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executio
 	if name == "media.play" {
 		args = e.resolveMediaPlayArgs(session, args)
 	}
-	if companion && (approvalProfileDangerous(name) || (companionFullDiskWrite(name) && e.fullDiskChat(mode))) {
+	if companion && approvalProfileDangerous(name) && !(ccStandingApprovedTool(name) && e.companionCcEnabled(ctx)) {
+		mode = executionModeApproval
+	} else if companion && companionFullDiskWrite(name) && e.fullDiskChat(mode) {
 		mode = executionModeApproval
 	}
 	if progress != nil {

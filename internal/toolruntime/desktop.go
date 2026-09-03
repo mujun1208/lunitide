@@ -250,7 +250,11 @@ func pickLaunchTarget(query string) (string, []string, error) {
 	if recalled := recallDesktopOpen(query); recalled != "" {
 		return recalled, nil, nil
 	}
-	return "", nil, errors.New("no desktop, install path, or start-menu item matching " + strings.TrimSpace(query))
+	// Clear, spoken-friendly reason (Issue 6/7): the model relays this to the
+	// user instead of a raw English "no match" string. It names what we looked
+	// through (桌面 / 安装目录 / 开始菜单) so the user knows the app is simply not
+	// found on this PC, not that the command was misunderstood.
+	return "", nil, errors.New("无法执行：桌面、安装目录和开始菜单里都没找到「" + strings.TrimSpace(query) + "」。请确认它已安装，或把它的快捷方式放到桌面后再试")
 }
 
 func openWithDefaultApp(path string) error {

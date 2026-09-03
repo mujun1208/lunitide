@@ -125,9 +125,27 @@ func companionFullDiskWrite(name string) bool {
 	}
 }
 
-func companionToolPreapproved(name string, fullDisk bool) bool {
-	if name == "user.ask" || approvalProfileDangerous(name) {
+// ccStandingApprovedTool lists the launch-shaped desktop tools that a standing
+// computer-control enable pre-authorizes for 月伴: opening a named app or file
+// and starting playback. They cannot click arbitrary pixels or type into a
+// window, so treating the operator's CC enable as the approval removes the
+// voice-mode 思考中 stall without widening the truly sensitive surface.
+func ccStandingApprovedTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "desktop.open", "media.play":
+		return true
+	default:
 		return false
+	}
+}
+
+func companionToolPreapproved(name string, fullDisk, ccEnabled bool) bool {
+	if name == "user.ask" {
+		return false
+	}
+	if approvalProfileDangerous(name) {
+		// Standing CC enable is the approval for launch-shaped desktop tools.
+		return ccEnabled && ccStandingApprovedTool(name)
 	}
 	if fullDisk && companionFullDiskWrite(name) {
 		return false

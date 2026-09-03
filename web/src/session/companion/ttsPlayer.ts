@@ -581,7 +581,12 @@ export class TtsPlayer {
           if (!buf || generation !== this.generation || buf.length <= played) return
           const slice = this.sliceBuffer(buf, played)
           if (!slice) return
-          if (this.scheduleBuffer(slice, callbacks)) {
+          // Streaming chunks are contiguous slices of ONE growing waveform, so
+          // they must schedule strictly back-to-back (join=false). The default
+          // join=true adds a 140ms cross-fade that replays the tail of every
+          // chunk — the "two voices / echo" heard only on volc (the sole
+          // always-streaming cascade engine). Mirrors enqueueTalkPcm.
+          if (this.scheduleBuffer(slice, callbacks, false)) {
             played = buf.length
             scheduled = true
           }

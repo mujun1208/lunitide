@@ -32,7 +32,7 @@ vi.mock('./meetingCapture', async importOriginal => {
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, shouldFallbackLiveCaption, startMeetingSpeech } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -251,6 +251,26 @@ describe('meetingSystemAudioMissing', () => {
   test('never warns when not recording or when mic-only was chosen', () => {
     expect(meetingSystemAudioMissing({ recording: false, audioSource: 'microphone_and_system', plan: enginePlan, engineLoopbackActive: false, systemHeard: false })).toBe(false)
     expect(meetingSystemAudioMissing({ recording: true, audioSource: 'microphone', plan: undefined, engineLoopbackActive: false, systemHeard: false })).toBe(false)
+  })
+})
+
+describe('shouldFallbackLiveCaption', () => {
+  test('cloud/volc silent with sherpa ready → switch live path to local', () => {
+    expect(shouldFallbackLiveCaption({ listen: 'cloud', sawRealCaption: false, alreadyFellBack: false, localReady: true })).toBe('local')
+    expect(shouldFallbackLiveCaption({ listen: 'volc', sawRealCaption: false, alreadyFellBack: false, localReady: true })).toBe('local')
+  })
+
+  test('cloud/volc silent with sherpa NOT ready → unavailable (补转写 still lands)', () => {
+    expect(shouldFallbackLiveCaption({ listen: 'cloud', sawRealCaption: false, alreadyFellBack: false, localReady: false })).toBe('unavailable')
+  })
+
+  test('a real caption already arrived → never fall back', () => {
+    expect(shouldFallbackLiveCaption({ listen: 'cloud', sawRealCaption: true, alreadyFellBack: false, localReady: true })).toBe('none')
+  })
+
+  test('already fell back, or engine is already local → none', () => {
+    expect(shouldFallbackLiveCaption({ listen: 'cloud', sawRealCaption: false, alreadyFellBack: true, localReady: true })).toBe('none')
+    expect(shouldFallbackLiveCaption({ listen: 'local', sawRealCaption: false, alreadyFellBack: false, localReady: true })).toBe('none')
   })
 })
 

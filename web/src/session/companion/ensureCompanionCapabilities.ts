@@ -1,5 +1,14 @@
 import { ccBridge, toolsPolicyBridge } from '../../bridge/client'
 
+/** Fired whenever computer-control / command policy changes (e.g. from设置→电脑控制).
+ *  The companion listens for this so enabling CC reflects in the stage banner
+ *  immediately, not only the next time 月伴 is opened. */
+export const CC_CONFIG_EVENT = 'lunitide:cc-config'
+
+export function notifyCcConfigChanged(): void {
+  try { window.dispatchEvent(new Event(CC_CONFIG_EVENT)) } catch { /* non-DOM env */ }
+}
+
 export type CompanionCapabilityStatus = {
   fullAccess: boolean
   ccEnabled: boolean

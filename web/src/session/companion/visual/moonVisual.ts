@@ -81,7 +81,11 @@ export function strandsSpeaking(gain: number) {
     amplitude: 0.9 + g * 0.7,
     glow: 2.2 + g * 1.4,
     intensity: 0.55 + g * 0.4,
-    scale: 1.45,
+    // Match thinking's scale so the orb does NOT shrink when she starts
+    // speaking (Issue 5). A higher uScale zooms the plasma OUT (smaller ball);
+    // 1.45 made it visibly smaller than the thinking orb. Liveliness stays in
+    // the gain-driven speed/amplitude/glow above, not in a size jump.
+    scale: 1.15,
     taper: 2.4,
   }
 }

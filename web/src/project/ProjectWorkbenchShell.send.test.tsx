@@ -105,6 +105,72 @@ it('sends from 项目管理 进入工作台 without throwing or replacing the sh
   expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
 })
 
+it('keeps auto-following the tail across consecutive streaming deltas (coalesced pin)', async () => {
+  let onEvent!: (event: StreamEvent) => void
+  const start = vi.fn().mockImplementation(async (_payload, onStreamEvent) => {
+    onEvent = onStreamEvent
+    return { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel: vi.fn(), dispose: vi.fn() }
+  })
+  const items: MessageDTO[] = [
+    { id: '01ARZ3NDEKTSV4RRFFQ69G5FAC', sessionId: session.id, role: 'user', text: '开始', status: 'completed', sequence: 1, createdAt: NOW },
+  ]
+  const sessions = {
+    list: vi.fn().mockResolvedValue({ items: [session] }),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  } as unknown as SessionBridge
+  const messages = {
+    list: vi.fn().mockResolvedValue({ items, hasMore: false, nextCursor: null, snapshotSequence: 1 }),
+    append: vi.fn().mockResolvedValue({}),
+  } as unknown as MessageBridge
+  const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
+  const user = userEvent.setup()
+  render(
+    <RootErrorBoundary>
+      <div className="session-shell workbench-route">
+        <ProjectWorkbenchShell
+          project={project}
+          projects={{} as ProjectBridge}
+          sessions={sessions}
+          messages={messages}
+          stages={emptyStages}
+          chat={{ start, approve: vi.fn(), dispose: vi.fn() } as ChatBridge}
+          providers={providers}
+          plans={emptyPlans}
+          reviews={emptyReviews}
+          onBack={vi.fn()}
+        />
+      </div>
+    </RootErrorBoundary>,
+  )
+  expect(await screen.findByLabelText('项目阶段导航')).toBeInTheDocument()
+  // Wait for the conversation panel to mount (the seeded user message renders)
+  // before grabbing its scroll container — SessionPage now re-seeds on the
+  // resolved phase session instead of remounting, so the panel appears async.
+  expect(await screen.findByText('开始')).toBeInTheDocument()
+  const box = document.querySelector('.conversation-scroll') as HTMLDivElement
+  const scrollTo = vi.fn()
+  Object.defineProperties(box, {
+    scrollHeight: { configurable: true, value: 900 },
+    clientHeight: { configurable: true, value: 300 },
+    scrollTop: { configurable: true, writable: true, value: 0 },
+  })
+  Object.defineProperty(box, 'scrollTo', { configurable: true, value: scrollTo })
+  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'), '继续')
+  await user.click(screen.getByRole('button', { name: '↑ 发送并对话' }))
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  // First delta grows the transcript; at the tail we pin to the new bottom.
+  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FB1', streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', sequence: 1, type: 'delta', delta: { text: '第一段' } }))
+  await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 600, behavior: 'auto' }))
+  // The transcript grows again; auto-follow (never paused) must pin to the new
+  // bottom too — following the tail, not sticking at the stale offset.
+  scrollTo.mockClear()
+  Object.defineProperty(box, 'scrollHeight', { configurable: true, value: 1500 })
+  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FB2', streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', sequence: 2, type: 'delta', delta: { text: '第二段' } }))
+  await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: 'auto' }))
+})
+
 const emptyStages = {
   list: vi.fn().mockResolvedValue({ items: [] }),
   create: vi.fn().mockRejectedValue(new Error('no seed')),

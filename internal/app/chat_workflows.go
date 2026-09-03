@@ -188,6 +188,7 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 	case "需求架构规范", "方案和UI设计":
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"对齐需求与边界时优先 skill.invoke：grill-me、to-spec；拆票用 to-tickets；架构审视用 improve-architecture。\n" +
+			"形成规范/设计后给出完整交付物正文，并提示用户在右侧「交付物」面板保存为草稿；需要可保存文件时用 structured.output 或 docx.gen 生成到工作区。\n" +
 			"范围、选型、是否继续等拍板必须调用 user.ask（每题 2–5 个选项；界面提供「其他」）。一次只推进一题，不要用长文代替决策。\n"
 	case "测试":
 		return "\n\n[项目阶段 · " + label + "]\n" +
@@ -195,6 +196,7 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 	default:
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"按阶段交付物推进；匹配场景时用 skill.invoke 调用已发布技能，不要只口头描述流程。\n" +
+			"产出规格/设计/清单等交付物时给出完整正文，并提示用户在右侧「交付物」面板保存为草稿再逐关确认；需要可保存文件时用 structured.output 或 docx.gen/excel.gen 生成到工作区。\n" +
 			"需要用户拍板（范围、方案、优先级、是否继续）时调用 user.ask，不要用聊天长文代替选项。\n"
 	}
 }

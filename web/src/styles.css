@@ -303,6 +303,20 @@ button:disabled{opacity:.5}
 .skill-import-wizard label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
 .skill-import-wizard input{padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:rgba(14,28,48,.6);color:var(--ink)}
 .read-only-banner{margin:0 18px 8px;padding:8px 12px;border:1px solid rgba(255,196,86,.35);border-radius:8px;background:rgba(255,196,86,.08);color:#ffd98a;font-size:12px}
+.pm-phase-lock-warn{margin:10px 18px 0;padding:8px 12px;border:1px solid rgba(255,196,86,.35);border-radius:8px;background:rgba(255,196,86,.08);color:#ffd98a;font-size:12px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+.pm-phase-lock-warn button{border:1px solid var(--line);background:var(--bg3);color:var(--ink);border-radius:6px;padding:4px 8px;cursor:pointer;flex:0 0 auto}
+.pm-phase-experts{margin:10px 12px 0;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--bg3);display:grid;gap:8px}
+.pm-phase-experts-head{display:flex;justify-content:space-between;align-items:baseline;font-size:12px}
+.pm-phase-experts-head small{color:var(--muted)}
+.pm-phase-experts-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pm-phase-experts-empty{color:var(--muted);font-size:12px}
+.pm-phase-expert-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--line);border-radius:999px;background:var(--bg2);font-size:12px}
+.pm-phase-expert-chip button{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:0}
+.pm-phase-expert-chip button:hover{color:var(--ink)}
+.pm-phase-experts-actions{display:flex;gap:6px}
+.pm-phase-experts-actions select{flex:1 1 auto;min-width:0;border:1px solid var(--line);background:var(--bg2);color:var(--ink);border-radius:6px;padding:4px 6px;font-size:12px}
+.pm-phase-experts-actions button{border:1px solid var(--line);background:var(--bg2);color:var(--ink);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;flex:0 0 auto}
+.pm-phase-experts-error{margin:0;color:#e5484d;font-size:12px}
 .persist-failed-banner,.turn-resume-banner,.pending-memory-banner{margin:8px 18px;padding:8px 12px;border:1px solid rgba(255,196,86,.35);border-radius:8px;background:rgba(255,196,86,.08);color:#ffd98a;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .persist-failed-banner button,.turn-resume-banner button,.pending-memory-banner button{border:1px solid var(--line);background:var(--bg3);color:var(--ink);border-radius:6px;padding:4px 8px;cursor:pointer}
 .pending-memory-banner.companion-float{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:120;max-width:min(640px,calc(100% - 32px));margin:0;box-shadow:0 10px 28px rgba(0,0,0,.45)}
@@ -1300,7 +1314,7 @@ html.companion-active .drawer-toggle{display:none}
 .companion-orb-canvas,.companion-strands-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;image-rendering:auto}
 .companion-moon-orb,.companion-moon-strands{position:absolute;inset:-8%;pointer-events:none;z-index:3;opacity:0;transition:opacity .28s ease,transform .2s ease}
 .companion-moon-orb.is-on,.companion-moon-strands.is-on{opacity:1}
-.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:scaleX(1.22)}
+.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:scale(1.04);transform-origin:center center}
 .companion-moon[data-visual="webgl"] .companion-moon-disc{opacity:0}
 .companion-moon[data-visual="webgl"] .companion-moon-body{filter:none}
 .companion-moon[data-visual="webgl"] .companion-moon-halo{

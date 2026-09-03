@@ -5,7 +5,9 @@ import { pickDefaultVoice } from '../provider/modelKind'
 import { loadMeetingSettings, MEETING_SETTINGS_EVENT, type MeetingSettings } from './meetingSettings'
 import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
-import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, shouldFallbackLiveCaption, startMeetingSpeech, type MeetingCapturePlan } from './meetingAsr'
+import { localAsrStatus } from '../session/companion/localAsr'
+import type { MeetingListen } from './meetingSettings'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
@@ -17,6 +19,12 @@ const LOOPBACK_POLL_MS = 80
 /** Web Speech and sherpa both go quiet after a long un-endpointed clip. Restart ASR, keep the WAV. */
 export const MEETING_CAPTION_STALL_MS = 25_000
 export const MEETING_CAPTION_STALL_POLL_MS = 2_000
+/** How long a cloud/volc live caption may stay silent before we transparently
+ *  fall back to this-PC sherpa (Issue 3). Long enough to absorb engine warm-up,
+ *  short enough that a deaf engine is not left running the whole meeting. */
+export const MEETING_LIVE_FALLBACK_MS = 8_000
+const MEETING_LIVE_FALLBACK_NOTICE = '实时字幕已切换到本机识别（所选引擎未返回结果）。停止后仍生成完整逐字稿。'
+const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用，停止后仍会生成完整逐字稿（本机补转写）。'
 
 function speechNotice(error: unknown): string {
   return error instanceof Error && error.message ? error.message : ASR_INTERRUPTED_NOTICE
@@ -114,6 +122,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const heartbeatRef = useRef<number>(0)
   const recoverRef = useRef<number>(0)
   const stallWatchRef = useRef<number>(0)
+  const liveFallbackRef = useRef<number>(0)
   const loopbackPollRef = useRef<number>(0)
   const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
   const loopbackEnergyRef = useRef({ hits: 0, zeros: 0 })
@@ -170,8 +179,16 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     captureRef.current = plan
     const gen = ++speechGen.current
     window.clearInterval(stallWatchRef.current)
+    window.clearTimeout(liveFallbackRef.current)
     let lastCaptionAt = Date.now()
     let stallRestarting = false
+    // Live-caption fallback (Issue 3): cloud/volc can start yet emit nothing.
+    // effectiveListen overrides the user's choice once we fall back to sherpa;
+    // sawRealCaption flips true only on a genuine interim/final (never on the
+    // start/onError bumps), so the watchdog can tell deafness from a quiet room.
+    let effectiveListen: MeetingListen | undefined
+    let sawRealCaption = false
+    let liveFallbackDone = false
     // Only one listen() may be between "stopped previous handle" and "installed
     // new handle" at a time. Stall restart, onError retry (900ms) and
     // recoverAndRelisten all call listen() and each awaits startMeetingSpeech;
@@ -233,7 +250,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       }
       bindSystemWatch(livePlan)
       let volcProviderId = ''
-      const listenKind = prefsRef.current.listen
+      const listenKind = effectiveListen ?? prefsRef.current.listen
       if (listenKind === 'volc') {
         const listed = await getProviderBridge().list().catch(() => ({ items: [] as ProviderDTO[] }))
         volcProviderId = pickDefaultVoice(listed.items)?.provider.id ?? ''
@@ -248,6 +265,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         spokenText: () => '',
         onFinal: text => {
           bumpCaption()
+          sawRealCaption = true
           const id = meeting.meetingId
           const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
           appendChain.current = appendChain.current.then(() =>
@@ -267,7 +285,12 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         },
         onInterim: text => {
           bumpCaption()
+          if (text.trim()) sawRealCaption = true
           setInterim(text)
+        },
+        onEngineHint: message => {
+          if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+          if (message && !sawRealCaption) setNotice(message)
         },
         onError: () => {
           if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
@@ -295,6 +318,39 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       const notice = captureStateNotice(livePlan) || livePlan.notice
       if (notice) setNotice(notice)
     }
+    const scheduleLiveFallback = () => {
+      window.clearTimeout(liveFallbackRef.current)
+      liveFallbackRef.current = window.setTimeout(async () => {
+        if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+        const kind = effectiveListen ?? prefsRef.current.listen
+        const probe = await localAsrStatus().catch(() => undefined)
+        if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
+        const decision = shouldFallbackLiveCaption({
+          listen: kind,
+          sawRealCaption,
+          alreadyFellBack: liveFallbackDone,
+          localReady: probe?.supported === true && probe.ready === true,
+        })
+        if (decision === 'none') return
+        liveFallbackDone = true
+        if (decision === 'unavailable') {
+          setNotice(MEETING_LIVE_UNAVAILABLE_NOTICE)
+          return
+        }
+        // decision === 'local': move the live path to this-PC sherpa, which
+        // reads the same mixed mic+系统声 PCM the recorder already taps.
+        effectiveListen = 'local'
+        setNotice(MEETING_LIVE_FALLBACK_NOTICE)
+        speechRef.current?.stop()
+        speechRef.current = null
+        pcmTapRef.current = undefined
+        await listen().catch(error => {
+          if (!userStopRef.current && speechGen.current === gen && currentIdRef.current === meeting.meetingId) {
+            setNotice(speechNotice(error))
+          }
+        })
+      }, MEETING_LIVE_FALLBACK_MS)
+    }
     stallWatchRef.current = window.setInterval(() => {
       if (userStopRef.current || speechGen.current !== gen || stallRestarting) return
       if (Date.now() - lastCaptionAt < MEETING_CAPTION_STALL_MS) return
@@ -308,6 +364,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       }).finally(() => { stallRestarting = false })
     }, MEETING_CAPTION_STALL_POLL_MS)
     await listen()
+    scheduleLiveFallback()
   }
 
   useEffect(() => {
@@ -483,6 +540,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     window.clearInterval(loopbackPollRef.current)
     window.clearInterval(summarizePollRef.current)
     window.clearInterval(stallWatchRef.current)
+    window.clearTimeout(liveFallbackRef.current)
     loopbackHoldRef.current = undefined
   }, [])
 
@@ -573,6 +631,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     window.clearInterval(heartbeatRef.current)
     window.clearInterval(loopbackPollRef.current)
     window.clearInterval(stallWatchRef.current)
+    window.clearTimeout(liveFallbackRef.current)
     window.clearInterval(recoverRef.current)
     setBusy(true)
     setNotice('正在结束录制…')
