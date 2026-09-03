@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/kb.search.schema.json",
+  "title": "kb.search payload",
+  "x-method": "kb.search",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expertId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "query": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "topK": { "type": "integer", "minimum": 1, "maximum": 50 },
+    "tailNo": { "type": "string", "maxLength": 32 },
+    "asOf": { "type": "string", "maxLength": 64 },
+    "docType": { "type": "string", "maxLength": 32 }
+  },
+  "required": ["expertId", "query"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "traceId": { "type": "string", "minLength": 1, "maxLength": 32 },
+      "hits": {
+        "type": "array",
+        "maxItems": 50,
+        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/kb.search.schema.json#/$defs/CitedHit" }
+      },
+      "explanation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reasons": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 256 } },
+          "redactions": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 256 } },
+          "notAdopted": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 256 } },
+          "missing": { "type": "boolean" }
+        },
+        "required": ["reasons", "redactions", "notAdopted", "missing"]
+      },
+      "indexVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
+    },
+    "required": ["traceId", "hits", "explanation", "indexVersion"]
+  },
+  "$defs": {
+    "CitedHit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expertId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "docId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "revision": { "type": "string", "maxLength": 64 },
+        "locator": { "type": "string", "minLength": 2, "maxLength": 4096 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "score": { "type": "number" }
+      },
+      "required": ["expertId", "docId", "locator", "quote", "score"]
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "expertId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "query": "landing gear retraction",
+        "topK": 6
+      }
+    ],
+    "negative": [
+      {
+        "expertId": "bad",
+        "query": ""
+      }
+    ]
+  }
+}

@@ -98,6 +98,41 @@ func TestKBIndexFailureParksAtFailedNoProjection(t *testing.T) {
 	if res.IndexState != m8core.KBIndexFailed {
 		t.Fatalf("indexState = %s, want failed", res.IndexState)
 	}
+	if res.FailReason == "" {
+		t.Fatal("failed upsert must expose failReason")
+	}
+}
+
+func TestKBUpsertPreviewFirstThreeBlocks(t *testing.T) {
+	store := openSliceStore(t)
+	svc := m8app.NewKBService(store.AgentRuntimeRepository(), "local-user")
+	ctx := context.Background()
+	collID := ulid.Make().String()
+	if err := svc.EnsureCollection(ctx, collID, "scope-preview"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.UpsertDocument(ctx, m8app.KBUpsertInput{
+		CollectionID: collID, DocumentID: ulid.Make().String(),
+		MediaType: "text/plain", ContentRef: "blob://kb/preview",
+		SHA256: sha64("b"), SourceLocator: "mro://AMM/1", RequestID: "req-prev",
+		Projector: func(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
+			return []m8core.KBChunk{
+				{ChunkID: ulid.Make().String(), Body: "block one ATA 32"},
+				{ChunkID: ulid.Make().String(), Body: "block two isolation"},
+				{ChunkID: ulid.Make().String(), Body: "block three torque"},
+				{ChunkID: ulid.Make().String(), Body: "block four unused"},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IndexState != m8core.KBIndexReady || len(res.Preview) != 3 {
+		t.Fatalf("preview = %+v state=%s", res.Preview, res.IndexState)
+	}
+	if res.Preview[0] != "block one ATA 32" || res.Preview[2] != "block three torque" {
+		t.Fatalf("preview = %+v", res.Preview)
+	}
 }
 
 // --- slice 3: handoff.accept ---

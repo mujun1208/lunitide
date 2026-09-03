@@ -11,6 +11,7 @@ describe('settings nav search and groups', () => {
   test('search matches labels and keywords', () => {
     expect(filterSettingsNav('人设').map(c => c.id)).toEqual(['general'])
     expect(filterSettingsNav('白名单').map(c => c.id)).toEqual(['security'])
+    expect(filterSettingsNav('postgres').map(c => c.id)).toEqual(['datasources'])
     expect(filterSettingsNav('局域网').map(c => c.id)).toEqual(['profile'])
     expect(filterSettingsNav('晓晓').map(c => c.id)).toEqual(['voice'])
     expect(filterSettingsNav('纪要').map(c => c.id)).toEqual(['meetings'])

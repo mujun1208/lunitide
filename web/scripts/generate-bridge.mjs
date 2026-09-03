@@ -126,7 +126,13 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'conversations.root.get',
   'conversations.root.select',
   'conversations.root.set',
-
+  'datasource.bind',
+  'datasource.browse',
+  'datasource.create',
+  'datasource.disable',
+  'datasource.list',
+  'datasource.probe',
+  'datasource.query',
   'db.query',
   'delegation.create',
   'delegation.settle',
@@ -144,7 +150,10 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'expert.catalog.list',
   'expert.create',
   'expert.detail',
+  'expert.growth.get',
   'expert.install',
+  'expert.knowledge.get',
+  'expert.knowledge.ingest',
   'expert.list',
   'expert.mount',
   'expert.mounting.get',
@@ -178,6 +187,8 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'im.channels.get',
   'im.channels.set',
   'im.inbound.deliver',
+  'kb.cite',
+  'kb.search',
   'kb.upsertDocument',
 
   'mc.config.validate',
@@ -238,6 +249,12 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'message.list',
   'message.rewind',
   'message.search',
+  'mro.aircraft.list',
+  'mro.aircraft.upsert',
+  'mro.audit.list',
+  'mro.checklist.build',
+  'mro.manual.list',
+  'mro.manual.register',
   'node.complete',
   'node.create',
   'node.fail',
@@ -356,6 +373,8 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'session.folder.list',
   'session.folder.open',
   'session.list',
+  'session.metadata.get',
+  'session.metadata.set',
   'session.update',
   'skill.catalog.list',
   'skill.category.set',
@@ -521,6 +540,14 @@ const tsType = (schema, name = '') => {
 }
 const interfaceBody = schema => Object.entries(props(schema)).map(([name, value]) => `  ${name}${required(schema).has(name) ? '' : '?'}: ${tsType(value, name)}`).join('\n')
 const publicTypes = Object.entries(publicSchema?.$defs ?? {}).filter(([name]) => !['CredentialState', 'ProviderProtocol'].includes(name)).map(([name, schema]) => `export type ${name} = ${tsType(schema)}\n`).join('')
+const publicDefNames = new Set(Object.keys(publicSchema?.$defs ?? {}).map(pascal))
+const sharedDefSeen = new Set()
+const sharedDefTypes = methodSchemas.flatMap(schema => Object.entries(schema.$defs ?? {}).flatMap(([defName, defSchema]) => {
+  const typeName = pascal(defName)
+  if (publicDefNames.has(typeName) || sharedDefSeen.has(typeName)) return []
+  sharedDefSeen.add(typeName)
+  return [`export type ${typeName} = ${tsType(defSchema)}\n`]
+})).join('')
 const methodTypes = methodSchemas.map(schema => {
   const name = pascal(schema['x-method'])
   return `export type ${name}Payload = ${tsType(schema)}\nexport type ${name}Result = ${tsType(schema['x-result'])}\n`
@@ -528,7 +555,7 @@ const methodTypes = methodSchemas.map(schema => {
 const responseCommon = Object.entries(props(response)).filter(([name]) => !['ok', 'payload', 'error'].includes(name)).map(([name, value]) => `${name}: ${tsType(value, name)}`).join('; ')
 const responseUnion = branches.map(branch => props(branch).ok.const ? `  | { ${responseCommon}; ok: true; payload: TPayload; error?: never }` : `  | { ${responseCommon}; ok: false; payload?: never; error: BridgeError }`).join('\n')
 const credentialStates = publicSchema.$defs.CredentialState.enum
-const ts = `// Code generated from discovered api/bridge/v1 and api/rpc/v1 schemas. DO NOT EDIT.\nexport const BRIDGE_METHODS = [${methods.map(json).join(', ')}] as const\nexport type BridgeMethod = (typeof BRIDGE_METHODS)[number]\nexport const PROVIDER_PROTOCOLS = [${protocols.map(json).join(', ')}] as const\nexport type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number]\nexport const CREDENTIAL_STATES = [${credentialStates.map(json).join(', ')}] as const\nexport type CredentialState = (typeof CREDENTIAL_STATES)[number]\nexport const BRIDGE_VERSION = ${json(bridgeVersion)} as const\nexport const RPC_VERSION = { major: ${rpcMajor}, minor: ${rpcMinor} } as const\n\nexport interface BridgeRequest<TPayload extends object = object> {\n${interfaceBody(envelope).replace('v: "1.0"', 'v: typeof BRIDGE_VERSION').replace(/^  payload: .*$/m, '  payload: TPayload')}\n}\nexport interface BridgeError {\n${interfaceBody(bridgeError)}\n}\nexport type BridgeResponse<TPayload = unknown> =\n${responseUnion}\n${publicTypes}${methodTypes}export interface RpcHandshake {\n${interfaceBody(handshake)}\n}\n`
+const ts = `// Code generated from discovered api/bridge/v1 and api/rpc/v1 schemas. DO NOT EDIT.\nexport const BRIDGE_METHODS = [${methods.map(json).join(', ')}] as const\nexport type BridgeMethod = (typeof BRIDGE_METHODS)[number]\nexport const PROVIDER_PROTOCOLS = [${protocols.map(json).join(', ')}] as const\nexport type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number]\nexport const CREDENTIAL_STATES = [${credentialStates.map(json).join(', ')}] as const\nexport type CredentialState = (typeof CREDENTIAL_STATES)[number]\nexport const BRIDGE_VERSION = ${json(bridgeVersion)} as const\nexport const RPC_VERSION = { major: ${rpcMajor}, minor: ${rpcMinor} } as const\n\nexport interface BridgeRequest<TPayload extends object = object> {\n${interfaceBody(envelope).replace('v: "1.0"', 'v: typeof BRIDGE_VERSION').replace(/^  payload: .*$/m, '  payload: TPayload')}\n}\nexport interface BridgeError {\n${interfaceBody(bridgeError)}\n}\nexport type BridgeResponse<TPayload = unknown> =\n${responseUnion}\n${publicTypes}${sharedDefTypes}${methodTypes}export interface RpcHandshake {\n${interfaceBody(handshake)}\n}\n`
 
 const methodConstants = methods.map(method => `\tMethod${pascal(method)} Method = ${json(method)}`).join('\n')
 const metadata = methodSchemas.map(schema => `\tMethod${pascal(schema['x-method'])}: {Owner: ${json(schema['x-owner'])}, Enabled: ${schema['x-enabled']}},`).join('\n')

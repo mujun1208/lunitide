@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/datasource.bind.schema.json",
+  "title": "datasource.bind payload",
+  "x-method": "datasource.bind",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ownerType": { "type": "string", "enum": ["expert", "mro"] },
+    "ownerId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "connectionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "purpose": { "type": "string", "enum": ["stock", "workorder", "generic"] },
+    "tableMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "table": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "pnColumn": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "stationColumn": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "qtyColumn": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "woColumn": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tailColumn": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    }
+  },
+  "required": ["ownerType", "ownerId", "connectionId", "purpose", "tableMap"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "bindingId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "ownerType": { "type": "string", "enum": ["expert", "mro"] },
+      "ownerId": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "connectionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "purpose": { "type": "string", "enum": ["stock", "workorder", "generic"] },
+      "tableMapJson": { "type": "string", "minLength": 2 },
+      "createdAt": { "type": "string", "minLength": 1 }
+    },
+    "required": ["bindingId", "ownerType", "ownerId", "connectionId", "purpose", "tableMapJson", "createdAt"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "ownerType": "mro",
+        "ownerId": "workbench",
+        "connectionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "purpose": "stock",
+        "tableMap": { "schema": "inv", "table": "stock", "pnColumn": "part_no" }
+      }
+    ],
+    "negative": [
+      {
+        "ownerType": "mro",
+        "ownerId": "workbench",
+        "connectionId": "bad",
+        "purpose": "stock",
+        "tableMap": { "schema": "inv" }
+      }
+    ]
+  }
+}

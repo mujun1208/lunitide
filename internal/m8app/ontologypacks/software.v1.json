@@ -1,0 +1,12 @@
+{
+  "id": "software.v1",
+  "objects": [
+    {"kind": "File"}, {"kind": "Document"}, {"kind": "Artifact"},
+    {"kind": "Requirement"}, {"kind": "Decision"}, {"kind": "Module"},
+    {"kind": "Class"}, {"kind": "Function"}, {"kind": "Interface"},
+    {"kind": "Table"}, {"kind": "Field"}, {"kind": "UseCase"},
+    {"kind": "TestCase"}, {"kind": "Task"}, {"kind": "Release"}
+  ],
+  "links": [{"name": "contains"}, {"name": "depends_on"}, {"name": "references"}],
+  "actions": []
+}

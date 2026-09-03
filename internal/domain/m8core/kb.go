@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // KB document index states (migration 0062 CHECK).
@@ -29,6 +30,8 @@ const (
 	// MaxKBChunksPerVersion caps the synchronous chunk projection of one
 	// document version (a projection larger than this fails M8-012).
 	MaxKBChunksPerVersion = 512
+	// MaxKBChunkBody is the searchable body cap of one chunk.
+	MaxKBChunkBody = 16384
 )
 
 // KBDocument is one immutable (document_id, version) row.
@@ -46,13 +49,14 @@ type KBDocument struct {
 
 // KBChunk is one searchable projection row of a document version.
 type KBChunk struct {
-	ChunkID        string
-	DocumentID     string
+	ChunkID         string
+	DocumentID      string
 	DocumentVersion int64
-	Ordinal        int64
-	ContentDigest  string
-	LocatorJSON    string
-	CreatedAt      string
+	Ordinal         int64
+	ContentDigest   string
+	LocatorJSON     string
+	Body            string
+	CreatedAt       string
 }
 
 // KBVersionGuard enacts the M8-011 optimistic-reindex rule: when the document
@@ -108,4 +112,46 @@ type locatorDoc struct {
 	DocumentID string `json:"documentId"`
 	Version    int64  `json:"version"`
 	Ordinal    int64  `json:"ordinal"`
+}
+
+// BuildChunkProjectionFromChunks keeps caller-supplied body and locator.
+// Empty locator falls back to {documentId,version,ordinal}. Empty body or
+// invalid locator JSON fails the projection (M8-012).
+func BuildChunkProjectionFromChunks(doc KBDocument, chunks []KBChunk) (*ChunkProjection, error) {
+	if len(chunks) < 1 || len(chunks) > MaxKBChunksPerVersion {
+		return nil, fmt.Errorf("m8core: chunk count %d out of range", len(chunks))
+	}
+	out := &ChunkProjection{Chunks: make([]KBChunk, len(chunks))}
+	for i, in := range chunks {
+		body := strings.TrimSpace(in.Body)
+		if body == "" || len(in.Body) > MaxKBChunkBody {
+			return nil, fmt.Errorf("m8core: chunk %d body invalid", i)
+		}
+		locator := strings.TrimSpace(in.LocatorJSON)
+		if locator == "" {
+			lb, err := json.Marshal(locatorDoc{DocumentID: doc.DocumentID, Version: doc.Version, Ordinal: int64(i)})
+			if err != nil {
+				return nil, err
+			}
+			locator = string(lb)
+		} else if !json.Valid([]byte(locator)) {
+			return nil, fmt.Errorf("m8core: chunk %d locator is not JSON", i)
+		}
+		id := strings.TrimSpace(in.ChunkID)
+		if len(id) != 26 {
+			return nil, fmt.Errorf("m8core: chunk %d id invalid", i)
+		}
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%d", doc.SHA256, body, i)))
+		out.Chunks[i] = KBChunk{
+			ChunkID:         id,
+			DocumentID:      doc.DocumentID,
+			DocumentVersion: doc.Version,
+			Ordinal:         int64(i),
+			ContentDigest:   hex.EncodeToString(sum[:]),
+			LocatorJSON:     locator,
+			Body:            in.Body,
+			CreatedAt:       doc.CreatedAt,
+		}
+	}
+	return out, nil
 }

@@ -11,6 +11,45 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/skill"
 )
 
+func TestMROCatalogSkillsPresent(t *testing.T) {
+	want := map[string]string{
+		"mro-manual-rag": "机务手册检索",
+		"mro-fault-tree": "排故故障树",
+		"mro-checklist":  "机务检查单",
+	}
+	found := map[string]CatalogTemplate{}
+	for _, tpl := range Catalog() {
+		if _, ok := want[tpl.ID]; ok {
+			found[tpl.ID] = tpl
+		}
+	}
+	for id, display := range want {
+		tpl, ok := found[id]
+		if !ok {
+			t.Fatalf("catalog missing %s", id)
+		}
+		if tpl.DisplayName != display {
+			t.Fatalf("%s DisplayName = %q, want %q", id, tpl.DisplayName, display)
+		}
+		if tpl.Name != "tpl-"+id {
+			t.Fatalf("%s Name = %q, want tpl-%s", id, tpl.Name, id)
+		}
+		if tpl.EntryPoint != "builtin://"+id {
+			t.Fatalf("%s EntryPoint = %q", id, tpl.EntryPoint)
+		}
+		prompt, _ := tpl.Manifest["prompt"].(string)
+		if !strings.Contains(prompt, "不构成放行") && id != "mro-fault-tree" {
+			t.Fatalf("%s prompt must mention 不构成放行 or isolation rules", id)
+		}
+		if id == "mro-manual-rag" && !strings.Contains(prompt, "kb.search") {
+			t.Fatalf("mro-manual-rag prompt must mention kb.search")
+		}
+		if id == "mro-fault-tree" && !strings.Contains(prompt, "禁止无引用确定件号") {
+			t.Fatalf("mro-fault-tree prompt must forbid uncited part numbers")
+		}
+	}
+}
+
 func TestCatalogTemplatesWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	for _, tpl := range Catalog() {
@@ -254,6 +293,7 @@ func TestEnsureComposeSkillsPublishesPreferred(t *testing.T) {
 	for _, name := range []string{
 		"tpl-slide-builder", "tpl-web-researcher", "tpl-mermaid-diagrams",
 		"tpl-docx-writer", "tpl-anti-ai-prose", "tpl-e2e-browser", "tpl-fiction-continuity",
+		"tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist",
 	} {
 		if _, err := svc.GetByNameVersion(context.Background(), name, "1.0.0"); err != nil {
 			t.Fatalf("compose skill %s missing: %v", name, err)

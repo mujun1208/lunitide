@@ -21,6 +21,9 @@ func (e *Engine) fullDiskChat(mode executionMode) bool {
 // the sandbox wording (they stay confined at the runtime level).
 func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefinition {
 	defs := engineToolDefinitions()
+	if e.datasource != nil {
+		defs = append(defs, datasourceToolDefinitions()...)
+	}
 	if !e.fullDiskChat(mode) {
 		return defs
 	}
@@ -56,6 +59,9 @@ func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, sessio
 // stream between tool_started and tool_completed so long-running commands
 // stop black-boxing.
 func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+	if name == "datasource.query" {
+		return e.executeDatasourceQuery(ctx, args)
+	}
 	if name == "docx.gen" {
 		args = enrichDocxGenArgs(e, "", args)
 	}

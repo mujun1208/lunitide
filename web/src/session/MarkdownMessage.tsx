@@ -3,6 +3,8 @@ import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markd
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './markdown/MermaidBlock'
 import { RichCodeBlock, codeBlockLanguage } from './markdown/RichCodeBlock'
+import { MroCiteList } from './MroCiteList'
+import { parseMroCite } from './mroCite'
 
 const allowedElements = ['p','h1','h2','h3','h4','h5','h6','strong','em','del','ul','ol','li','table','thead','tbody','tr','th','td','blockquote','pre','code','a','br','hr','input']
 const firstCjkPunctuation = /[，。！？、；：]/u
@@ -103,11 +105,13 @@ export function thinkingDuplicatesBody(thinking: string, body: string): boolean 
 
 export function AssistantMessageBody({ text, onCopy, onMermaidLayout }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void }) {
   const { thinking, body } = splitPersistedThinking(text)
-  const shown = thinking && !thinkingDuplicatesBody(thinking, body) ? thinking : ''
+  const parsed = parseMroCite(body)
+  const shown = thinking && !thinkingDuplicatesBody(thinking, parsed.visible) ? thinking : ''
   const [open, setOpen] = useState(false)
   return <>
     {shown ? <ThinkingPanel text={shown} open={open} onToggle={setOpen} onCopy={onCopy} /> : null}
-    {body ? <MarkdownMessage text={body} onCopy={onCopy} onMermaidLayout={onMermaidLayout} /> : null}
+    {parsed.visible ? <MarkdownMessage text={parsed.visible} onCopy={onCopy} onMermaidLayout={onMermaidLayout} /> : null}
+    {parsed.view ? <MroCiteList {...parsed.view} /> : null}
   </>
 }
 

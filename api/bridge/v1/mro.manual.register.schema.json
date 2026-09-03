@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.manual.register.schema.json",
+  "title": "mro.manual.register payload",
+  "x-method": "mro.manual.register",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "maxLength": 256 },
+    "docType": {
+      "type": "string",
+      "enum": ["AMM", "IPC", "TSM", "FIM", "WDM", "CMM", "MEL", "SB", "AD", "EO", "POLICY"]
+    },
+    "revision": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "status": { "type": "string", "enum": ["controlled", "uncontrolled", "superseded"] },
+    "ata": { "type": "string", "maxLength": 16 },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "documentId": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          "partNo": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["documentId", "partNo"]
+      }
+    }
+  },
+  "required": ["docType", "revision", "status", "documents"],
+  "$defs": {
+    "Manual": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manualId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "title": { "type": "string", "maxLength": 256 },
+        "docType": { "type": "string" },
+        "revision": { "type": "string" },
+        "status": { "type": "string" },
+        "ata": { "type": "string" },
+        "sectionCount": { "type": "integer", "minimum": 0 },
+        "createdAt": { "type": "string", "minLength": 1 }
+      },
+      "required": ["manualId", "docType", "revision", "status", "sectionCount", "createdAt"]
+    }
+  },
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/mro.manual.register.schema.json#/$defs/Manual"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "docType": "AMM",
+        "revision": "42",
+        "status": "controlled",
+        "documents": [
+          {
+            "documentId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "partNo": 1
+          }
+        ]
+      }
+    ],
+    "negative": [
+      {
+        "docType": "XYZ",
+        "revision": "42",
+        "status": "controlled",
+        "documents": [
+          {
+            "documentId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "partNo": 1
+          }
+        ]
+      }
+    ]
+  }
+}

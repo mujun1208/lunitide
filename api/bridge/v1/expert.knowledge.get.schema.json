@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/expert.knowledge.get.schema.json",
+  "title": "expert.knowledge.get payload",
+  "x-method": "expert.knowledge.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expertId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["expertId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "collectionId": { "type": "string", "maxLength": 26 },
+      "documentCount": { "type": "integer", "minimum": 0 },
+      "readyCount": { "type": "integer", "minimum": 0 },
+      "chunkCount": { "type": "integer", "minimum": 0 },
+      "nodeCount": { "type": "integer", "minimum": 0 },
+      "memoryCount": { "type": "integer", "minimum": 0 },
+      "missing": { "type": "boolean" }
+    },
+    "required": ["documentCount", "readyCount", "chunkCount", "nodeCount", "memoryCount", "missing"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "expertId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "expertId": "mro-expert"
+      }
+    ]
+  }
+}

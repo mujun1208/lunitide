@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
@@ -40,6 +41,7 @@ func handleKBUpsertDocument(e *Engine, ctx context.Context, r bridge.Request) br
 		ExpectedVersion: p.ExpectedVersion, MediaType: p.MediaType,
 		ContentRef: p.ContentRef, SHA256: p.SHA256,
 		SourceLocator: p.SourceLocator, RequestID: p.RequestID, Actor: p.Actor,
+		Projector: localTextProjector(p.MediaType, p.ContentRef),
 	})
 	if err != nil {
 		return m8SliceFailure(r, err)
@@ -152,7 +154,7 @@ func m8SliceFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, m8app.ErrKBVersionConflict):
 		return r.Fail("M8-011", "并发重索引冲突，须新建版本", false)
 	case errors.Is(err, m8app.ErrKBIndexFailed):
-		return r.Fail("M8-012", "索引失败，未产出可检索投影", true)
+		return r.Fail("M8-012", kbIndexFailMessage(err), true)
 	case errors.Is(err, m8app.ErrHandoffRedacted):
 		return r.Fail("M8-013", "交接被裁剪后需重新确认", false)
 	case errors.Is(err, m8app.ErrHandoffExpired):
@@ -192,4 +194,15 @@ func m8SliceFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("STORAGE_UNAVAILABLE", "服务暂时不可用", true)
 	}
 	return r.Fail("INTERNAL_ERROR", "M8 切片执行失败", false)
+}
+
+func kbIndexFailMessage(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if i := strings.LastIndex(msg, ": "); i >= 0 {
+		msg = strings.TrimSpace(msg[i+2:])
+	}
+	if msg == "" || msg == m8app.ErrKBIndexFailed.Error() {
+		return "无法抽出正文：索引失败，未产出可检索投影"
+	}
+	return "无法抽出正文：" + msg
 }

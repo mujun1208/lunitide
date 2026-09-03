@@ -32,9 +32,10 @@ var specialistToolAllow = map[string]bool{
 	"web.fetch": true, "web.search": true, "browser.act": true,
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true,
 	"pdf.gen": true, "html.gen": true,
-	"skill.invoke":   true,
-	"skill.view":     true,
-	"image.generate": true,
+	"skill.invoke":     true,
+	"skill.view":       true,
+	"image.generate":   true,
+	"datasource.query": true,
 }
 
 func specialistToolDefinitions(all []gateway.ToolDefinition) []gateway.ToolDefinition {

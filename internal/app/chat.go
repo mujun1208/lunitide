@@ -605,7 +605,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	streamCtx, cancel := context.WithCancel(parent)
 	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
-	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack)}
+	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names)}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, lastUserContent(messages)); ok {

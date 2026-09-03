@@ -28,6 +28,7 @@ func TestOfficeGenToolForAllConversationSpecialists(t *testing.T) {
 		{"test-expert", "系统测试专家写测试计划", ""},
 		{"hardware-expert", "硬件配置专家出一份BOM放到桌面", "excel.gen"},
 		{"dev-expert", "开发专家改这段代码", ""},
+		{"mro-expert", "航空机务专家出一份检查单Excel放到桌面", "excel.gen"},
 	}
 	if len(cases) != len(m8app.ConversationExpertIDs) {
 		t.Fatalf("audit %d specialists, catalog has %d", len(cases), len(m8app.ConversationExpertIDs))

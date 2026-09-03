@@ -15,6 +15,21 @@ it('lets the user confirm or park a pending preference in the session', () => {
   expect(onLater).toHaveBeenCalledOnce()
 })
 
+it('reuses confirm language for uncontrolled manuals without 放行', () => {
+  render(<PendingMemoryBanner item={{ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAA', confirmationToken: 'tok', content: '待确认：将使用未受控手册回答', kind: 'mro-uncontrolled' }} onConfirm={() => {}} onLater={() => {}} />)
+  const banner = screen.getByRole('status', { name: '待确认' })
+  expect(banner).toHaveTextContent('待确认：将使用未受控手册回答')
+  expect(banner).not.toHaveTextContent('放行')
+  expect(screen.getByRole('button', { name: '确认沉淀' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '以后再说' })).toBeInTheDocument()
+})
+
+it('shows the local defect draft prefix without 放行', () => {
+  render(<PendingMemoryBanner item={{ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAA', confirmationToken: 'tok', content: '待确认：写入本机缺陷草稿（不写航司库）', kind: 'mro-defect' }} onConfirm={() => {}} onLater={() => {}} />)
+  expect(screen.getByRole('status', { name: '待确认' })).toHaveTextContent('待确认：写入本机缺陷草稿（不写航司库）')
+  expect(screen.queryByText(/放行/)).toBeNull()
+})
+
 it('floats above the companion stage when overlay is on', () => {
   render(<PendingMemoryBanner overlay item={{ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAA', confirmationToken: 'tok', content: '以后回答默认用中文' }} onConfirm={() => {}} onLater={() => {}} />)
   expect(screen.getByRole('status', { name: '待确认偏好' })).toHaveClass('companion-float')

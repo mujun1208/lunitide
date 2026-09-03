@@ -28,6 +28,7 @@ import (
 	"github.com/lunitide/lunitide/internal/config"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/datasourceapp"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/identity"
@@ -42,6 +43,7 @@ import (
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
 	"github.com/lunitide/lunitide/internal/org"
@@ -227,7 +229,8 @@ func main() {
 	// M10: the memory nomination workflow over the slice-1 core.
 	engine.SetM10NominationService(m8app.NewNominationService(store.AgentRuntimeRepository(), memorySvc))
 	// M10: expert scenario cards over the FR-19 expert core.
-	engine.SetM10ScenarioService(m8app.NewScenarioService(store.AgentRuntimeRepository()))
+	scenarioSvc := m8app.NewScenarioService(store.AgentRuntimeRepository())
+	engine.SetM10ScenarioService(scenarioSvc)
 	// M10: queued user input (run.queue*).
 	engine.SetQueueService(queueapp.New(store))
 	// M10 wave-3: MCP market (mc.*) over the shared single-writer tx.
@@ -245,11 +248,31 @@ func main() {
 	engine.SetMemoryOpsService(m8app.NewMemoryOpsService(store))
 	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the
 	// workflow bundle dispatch projection (single-writer transactions).
+	kbSvc := m8app.NewKBService(store.AgentRuntimeRepository(), "local-user")
+	growthSvc := m8app.NewGrowthService(store.AgentRuntimeRepository())
 	engine.SetM8SliceServices(
-		m8app.NewKBService(store.AgentRuntimeRepository(), "local-user"),
+		kbSvc,
 		m8app.NewHandoffService(store.AgentRuntimeRepository(), "local-user"),
 		m8app.NewAutomationService(store.AgentRuntimeRepository()),
 	)
+	engine.SetExpertGrowthService(growthSvc)
+	engine.SetMROService(mroapp.New(store))
+	ds := datasourceapp.New(store)
+	secretPath, err := dataRoot.FilePath("datasource-secrets.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	secrets := datasourceapp.NewFileSecrets(secretPath)
+	ds.SetSecrets(secrets.Put, secrets.Get)
+	// Pure-Go PostgreSQL/MySQL probe + query drivers (CGO_ENABLED=0). Remote
+	// connections stay read-only; local connections also get a read-write path.
+	ds.SetPinger(datasourceapp.SQLPinger)
+	ds.SetQuerier(datasourceapp.SQLQuerier)
+	ds.SetWriteQuerier(datasourceapp.SQLWriteQuerier)
+	// Auto-create the fixed database on a local connection so onboarding only
+	// needs an account + password (remote hosts are left untouched).
+	ds.SetProvisioner(datasourceapp.SQLProvisioner)
+	engine.SetDatasourceService(ds)
 	// M8 FR-18: unified plugin bundle runtime - capabilities hot-register
 	// into the existing registries through the verification chain.
 	pluginSvc := m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user")
@@ -273,6 +296,12 @@ func main() {
 	engine.SetExpertClaimStore(store)
 	if err := m8app.EnsureBuiltinExperts(ctx, expertSvc); err != nil {
 		log.Printf("builtin expert seed: %v", err)
+	}
+	if err := m8app.EnsureExpertFoundations(ctx, expertSvc, kbSvc, growthSvc); err != nil {
+		log.Printf("expert foundation seed: %v", err)
+	}
+	if err := m8app.EnsureMROScenarios(ctx, expertSvc, scenarioSvc); err != nil {
+		log.Printf("mro scenario seed: %v", err)
 	}
 	// M8 FR-17: the write-collaboration gate stays disabled through M8 -
 	// evaluate/status/confirm run the frozen-threshold evaluation and the

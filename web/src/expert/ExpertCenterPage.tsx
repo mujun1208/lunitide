@@ -2,6 +2,10 @@ import React,{useCallback,useEffect,useMemo,useState}from'react'
 import{createMutationAttempt,expertBridge,getMcpBridge,projectBridge,skillBridge as defaultSkillBridge,type ExpertBridge,type McpBridge,type ProjectBridge,type SkillBridge}from'../bridge/client'
 import type{ExpertCatalogListResult,ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertScenarioListResult,ProjectDTO,SkillDTO}from'../generated/bridge'
 import{brainBindKey,CONVERSATION_EXPERTS,conversationExpertByNameOrID,conversationExpertEmoji,conversationExpertKind,conversationExpertRole,expertCatalogKey,expertKindOf,mcpBindKey,mcpFallbackForExpert,missingPreferredSkills,preferredMcpForExperts,preferredSkillsForExperts,requiredToolsForExperts,shouldOpenExpertAsColleague,splitBoundKeys,type ExpertBrain}from'./conversationExperts'
+import{useZh}from'../i18n/language'
+import{ExpertDetailTabs}from'./ExpertDetailTabs'
+import{ExpertGrowthPanel}from'./ExpertGrowthPanel'
+import{ExpertKnowledgePanel}from'./ExpertKnowledgePanel'
 import{IMPLEMENTATION_PHASES}from'../project/projectPhases'
 import{ConfirmDialog,Dialog}from'../ui/Dialog'
 import{usePanelResize}from'../ui/usePanelResize'
@@ -29,6 +33,7 @@ const SEMVER=/^\d+\.\d+\.\d+$/
 const EMPTY_FORM={name:'',division:'engineering' as Division,description:'',semver:'1.0.0',identity:'',mission:'',rules:'',workflow:'',deliverableTemplate:'',successMetrics:'',changeNote:''}
 const EMPTY_SCENARIO={title:'',summary:'',phaseKey:'ARCHITECTURE_PLAN' as PhaseKey,body:'{"steps":["定位","处置","验收"]}'}
 const displayName=(item:ExpertItem)=>item.name?.trim()||'未命名专家'
+const isMroColleague=(item:ExpertItem)=>expertCatalogKey(item)==='mro-expert'||conversationExpertByNameOrID(item.name)?.id==='mro-expert'
 const displayDivision=(item:ExpertItem)=>DIVISIONS[item.division]??item.division??'未分类'
 const kindLabel=(kind:'agent'|'prompt_skill')=>kind==='agent'?'同事专家':'技能包'
 const boundSkillKeys=(value:object)=>{const raw=asRecord(value).boundSkills;return Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'&&item.trim().length>0):[]}
@@ -43,7 +48,7 @@ const expertMeta=(value:object):ExpertMeta=>{const row=asRecord(value);return{ex
 const sixOf=(value:object):SixSectionBody=>{const row=asRecord(value);return{identity:String(row.identity??''),mission:String(row.mission??''),rules:String(row.rules??''),workflow:String(row.workflow??''),deliverableTemplate:String(row.deliverableTemplate??''),successMetrics:String(row.successMetrics??'')}}
 const sha256Hex=async(value:string)=>{const digest=await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return Array.from(new Uint8Array(digest)).map(byte=>byte.toString(16).padStart(2,'0')).join('')}
 
-export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,skills=defaultSkillBridge,mcp,onCreateInChat,onOpenExpert,onUseInSession,initialSelectedId}:{bridge?:ExpertBridge;projects?:ProjectBridge;skills?:SkillBridge;mcp?:McpBridge;onCreateInChat?:()=>void;onOpenExpert?:(item:ExpertItem)=>void;onUseInSession?:(item:ExpertItem)=>void;initialSelectedId?:string}):React.JSX.Element{
+export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,skills=defaultSkillBridge,mcp,onCreateInChat,onOpenExpert,onUseInSession,onOpenWorkbench,initialSelectedId}:{bridge?:ExpertBridge;projects?:ProjectBridge;skills?:SkillBridge;mcp?:McpBridge;onCreateInChat?:()=>void;onOpenExpert?:(item:ExpertItem)=>void;onUseInSession?:(item:ExpertItem)=>void;onOpenWorkbench?:(item:ExpertItem)=>void;initialSelectedId?:string}):React.JSX.Element{
  const[items,setItems]=useState<ExpertItem[]>([]),[selectedId,setSelectedId]=useState(''),[stateFilter,setStateFilter]=useState<ExpertState|''>(''),[kindFilter,setKindFilter]=useState<''|'agent'|'prompt_skill'>(''),[divisionFilter,setDivisionFilter]=useState<Division|''>(''),[query,setQuery]=useState('')
  const[publishedSkills,setPublishedSkills]=useState<SkillDTO[]>([]),[skillDraft,setSkillDraft]=useState<string[]>([]),[mcpDraft,setMcpDraft]=useState<string[]>([]),[brainDraft,setBrainDraft]=useState<ExpertBrain>('lunitide'),[mcpPresets,setMcpPresets]=useState<Array<{id:string;name:string;description:string}>>([])
  const[view,setView]=useState<'library'|'market'>('library'),[catalog,setCatalog]=useState<CatalogEntry[]>([]),[marketQuery,setMarketQuery]=useState(''),[marketCategory,setMarketCategory]=useState(''),[marketBusy,setMarketBusy]=useState(''),[marketError,setMarketError]=useState(''),[marketLoading,setMarketLoading]=useState(false)
@@ -54,6 +59,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
  const[projectItems,setProjectItems]=useState<ProjectDTO[]>([])
  const[mounting,setMounting]=useState<ExpertItem|null>(null),[mountProjectId,setMountProjectId]=useState(''),[mountPhases,setMountPhases]=useState<PhaseKey[]>([]),[mountedNow,setMountedNow]=useState<PhaseKey[]>([])
  const[detailWidth,startDetailResize]=usePanelResize({storageKey:'lunitide:expert-detail-width',initial:380,min:280,max:()=>Math.min(560,Math.max(320,window.innerWidth-360)),reverse:true})
+ const zh=useZh()
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>{if(initialSelectedId&&result.experts.some(item=>item.expertId===initialSelectedId))return initialSelectedId;return result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??'')})}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge,initialSelectedId])
  const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供专家目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setCatalog([]);setMarketError(e instanceof Error?e.message:'专家市场加载失败')}finally{setMarketLoading(false)}},[bridge])
@@ -156,11 +162,14 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
     <div className="skill-detail-actions">
      {selected.state==='enabled'&&onOpenExpert?<button type="button" disabled={busy} onClick={()=>onOpenExpert(selected)}>{shouldOpenExpertAsColleague(displayName(selected))?'打开同事':'打开专家'}</button>:null}
      {selected.state==='enabled'&&onUseInSession?<button type="button" disabled={busy} onClick={()=>onUseInSession(selected)}>在当前会话使用</button>:null}
+     {selected.state==='enabled'&&onOpenWorkbench&&isMroColleague(selected)?<button type="button" disabled={busy} onClick={()=>onOpenWorkbench(selected)}>{zh?'打开工作台':'Open workbench'}</button>:null}
      {selected.state==='enabled'?<button type="button" disabled={busy} onClick={()=>void openMount(selected)}>挂载</button>:null}
      {selected.state!=='archived'?<button type="button" disabled={busy||!detailReady} onClick={beginEdit}>编辑专家</button>:null}
      {selected.state==='enabled'?<button type="button" disabled={busy} onClick={()=>void toggle(selected)}>停用</button>:selected.state==='disabled'?<button type="button" disabled={busy} onClick={()=>void toggle(selected)}>启用</button>:null}
      {selected.state!=='archived'?<button type="button" className="danger" disabled={busy} onClick={()=>setArchiving(selected)}>归档</button>:null}
     </div>
+    <ExpertDetailTabs
+     overview={<>
     <h3>运行时</h3>
     <p>技能、工具门闸和 MCP 挂在这位专家身上。对话输入框不会自动出现技能芯片。</p>
     {requiredTools.length?<div className="expert-mount-chips skill-permissions" aria-label="必备工具">{requiredTools.map(tool=><span key={tool}>{tool}</span>)}</div>:null}
@@ -191,6 +200,10 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
      <label className="wide">场景 JSON<textarea rows={4} value={scenarioForm.body} onChange={e=>setScenarioForm({...scenarioForm,body:e.target.value})}/></label>
      <div className="dialog-actions"><button className="primary" disabled={busy}>添加场景卡</button></div>
     </form>}
+     </>}
+     knowledge={selected?<ExpertKnowledgePanel expertId={selected.expertId} knowledgeGet={bridge.knowledgeGet} upsertDocument={bridge.kbUpsertDocument}/>:null}
+     growth={selected?<ExpertGrowthPanel expertId={selected.expertId} growthGet={bridge.growthGet}/>:null}
+    />
    </>:<div className="empty"><b>选择专家查看详情</b></div>}</aside>
   </div>}
   <Dialog open={!!mounting} title={`挂载「${mounting?displayName(mounting):''}」`} description="选择项目和要挂上的步骤。同一专家可以挂到多个步骤、多个项目；对话里也可以再选一次这位专家。" onClose={()=>{if(!busy)setMounting(null)}}>

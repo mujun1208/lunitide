@@ -21,17 +21,18 @@ it('registers the conversation specialists for Expert Center and 对话 picker',
   expect(CONVERSATION_EXPERTS.map(item => item.id)).toEqual(expect.arrayContaining([
     'ppt-expert', 'report-writer', 'novel-writer', 'excel-maker', 'ui-designer',
     'pm-expert', 'architect-expert', 'db-expert', 'repo-expert', 'standards-expert',
-    'test-expert', 'hardware-expert', 'dev-expert',
+    'test-expert', 'hardware-expert', 'dev-expert', 'mro-expert',
   ]))
   expect(CONVERSATION_EXPERTS.map(item => item.name)).toEqual(expect.arrayContaining([
     'PPT专家', '报告编写专家', '小说编写专家', 'Excel表格制作专家', 'UI专家',
     '产品经理专家', '系统架构师专家', '数据库设计专家', '系统项目结构规范专家', '开发规范专家',
-    '系统测试专家', '硬件配置专家', '开发专家',
+    '系统测试专家', '硬件配置专家', '开发专家', '航空机务专家',
   ]))
   expect(conversationExpertDivision('test-expert')).toBe('testing')
   expect(conversationExpertDivision('hardware-expert')).toBe('engineering')
   expect(conversationExpertDivision('dev-expert')).toBe('engineering')
   expect(conversationExpertDivision('standards-expert')).toBe('engineering')
+  expect(conversationExpertDivision('mro-expert')).toBe('operations')
   expect(conversationExpertKind('PPT专家')).toBe('agent')
   expect(conversationExpertKind('ppt-expert')).toBe('agent')
   expect(conversationExpertKind('安全工程师')).toBe('prompt_skill')
@@ -40,7 +41,7 @@ it('registers the conversation specialists for Expert Center and 对话 picker',
   expect(conversationExpertEmoji('PPT专家')).toBe('📊')
 })
 
-it('keeps a factory kit preferredSkills list for each of the 13 specialists', () => {
+it('keeps a factory kit preferredSkills list for each of the 14 specialists', () => {
   const want: Record<string, string[]> = {
     'ppt-expert': ['slide-builder', 'web-researcher', 'mermaid-diagrams'],
     'report-writer': ['web-researcher', 'docx-writer', 'anti-ai-prose'],
@@ -55,8 +56,9 @@ it('keeps a factory kit preferredSkills list for each of the 13 specialists', ()
     'test-expert': ['test-writer', 'e2e-browser', 'browser-automation', 'find-bug'],
     'hardware-expert': ['web-researcher', 'hardware-bom'],
     'dev-expert': ['implement', 'tdd-loop', 'debugger', 'code-reviewer'],
+    'mro-expert': ['mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
   }
-  expect(CONVERSATION_EXPERTS).toHaveLength(13)
+  expect(CONVERSATION_EXPERTS).toHaveLength(14)
   for (const expert of CONVERSATION_EXPERTS) {
     const skills = CONVERSATION_EXPERT_PREFERRED_SKILLS[expert.id]
     expect(skills.length, expert.id).toBeGreaterThan(0)

@@ -12,11 +12,12 @@ export const CONVERSATION_EXPERTS = [
   {id: 'test-expert', name: '系统测试专家'},
   {id: 'hardware-expert', name: '硬件配置专家'},
   {id: 'dev-expert', name: '开发专家'},
+  {id: 'mro-expert', name: '航空机务专家'},
 ] as const
 
 export type ConversationExpertID = typeof CONVERSATION_EXPERTS[number]['id']
 
-export type ConversationExpertDivision = 'product' | 'data' | 'design' | 'engineering' | 'testing'
+export type ConversationExpertDivision = 'product' | 'data' | 'design' | 'engineering' | 'testing' | 'operations'
 
 export type ExpertKind = 'agent' | 'prompt_skill'
 
@@ -35,6 +36,7 @@ export const CONVERSATION_EXPERT_PREFERRED_SKILLS: Record<ConversationExpertID, 
   'test-expert': ['test-writer', 'e2e-browser', 'browser-automation', 'find-bug'],
   'hardware-expert': ['web-researcher', 'hardware-bom'],
   'dev-expert': ['implement', 'tdd-loop', 'debugger', 'code-reviewer', 'super-coders'],
+  'mro-expert': ['mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
 }
 
 export function conversationExpertByNameOrID(idOrName: string): (typeof CONVERSATION_EXPERTS)[number] | undefined {
@@ -86,6 +88,7 @@ export const CONVERSATION_EXPERT_REQUIRED_TOOLS: Record<ConversationExpertID, re
   'test-expert': ['skill.invoke', 'browser.act', 'todo.write'],
   'hardware-expert': ['web.search', 'excel.gen', 'skill.invoke', 'todo.write'],
   'dev-expert': ['workspace.read', 'workspace.edit', 'command.run', 'skill.invoke', 'todo.write'],
+  'mro-expert': ['kb.search', 'graph.expand', 'workspace.write', 'docx.gen', 'excel.gen', 'todo.write', 'datasource.query'],
 }
 
 export const CONVERSATION_EXPERT_PREFERRED_MCP: Record<ConversationExpertID, readonly string[]> = {
@@ -102,6 +105,7 @@ export const CONVERSATION_EXPERT_PREFERRED_MCP: Record<ConversationExpertID, rea
   'test-expert': ['playwright'],
   'hardware-expert': [],
   'dev-expert': ['filesystem'],
+  'mro-expert': [],
 }
 
 export const CONVERSATION_EXPERT_MCP_FALLBACK: Record<ConversationExpertID, string> = {
@@ -118,6 +122,7 @@ export const CONVERSATION_EXPERT_MCP_FALLBACK: Record<ConversationExpertID, stri
   'test-expert': '未连接 Playwright MCP 时用 browser.act。',
   'hardware-expert': '价格/SKU 必须 web.search，标待确认。',
   'dev-expert': '未连接 Filesystem MCP 时用 workspace.*。Git 走 command.run 白名单。',
+  'mro-expert': '手册走 kb.search。库存走已探测的 datasource.query。不另装 MRO 云 MCP。',
 }
 
 export function shouldOpenExpertAsColleague(idOrName: string): boolean {
@@ -207,6 +212,7 @@ export const CONVERSATION_EXPERT_EMOJI: Record<ConversationExpertID, string> = {
   'test-expert': '☑',
   'hardware-expert': '⊞',
   'dev-expert': '⌨',
+  'mro-expert': '✈',
 }
 
 export function conversationExpertRole(division: string): string {
@@ -227,6 +233,7 @@ export function conversationExpertEmoji(idOrName: string): string {
 }
 
 export function conversationExpertDivision(id: string): ConversationExpertDivision {
+  if (id === 'mro-expert') return 'operations'
   if (id === 'ui-designer') return 'design'
   if (id === 'excel-maker' || id === 'db-expert') return 'data'
   if (id === 'test-expert') return 'testing'

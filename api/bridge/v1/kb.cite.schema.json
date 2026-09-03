@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/kb.cite.schema.json",
+  "title": "kb.cite payload",
+  "x-method": "kb.cite",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expertId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "docId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "revision": { "type": "string", "maxLength": 64 },
+    "locator": { "type": "string", "minLength": 2, "maxLength": 4096 },
+    "quote": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "score": { "type": "number" }
+  },
+  "required": ["expertId", "docId", "locator", "quote"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "expertId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "docId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "revision": { "type": "string", "maxLength": 64 },
+      "locator": { "type": "string", "minLength": 2, "maxLength": 4096 },
+      "quote": { "type": "string", "minLength": 1, "maxLength": 240 },
+      "score": { "type": "number" }
+    },
+    "required": ["expertId", "docId", "locator", "quote", "score"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "expertId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "docId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "revision": "42",
+        "locator": "{\"ordinal\":0}",
+        "quote": "Gear retraction",
+        "score": 1
+      }
+    ],
+    "negative": [
+      {
+        "expertId": "bad",
+        "quote": ""
+      }
+    ]
+  }
+}
