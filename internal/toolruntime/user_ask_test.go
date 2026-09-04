@@ -33,4 +33,10 @@ func TestUserAskRequiresApprovalThenReturnsDecision(t *testing.T) {
 	if !strings.Contains(packed, `"title":"需求边界"`) || !strings.Contains(packed, `"questions"`) {
 		t.Fatalf("approval summary = %q", packed)
 	}
+	if err := validateUserAsk(json.RawMessage(`{"reason":"login","questions":[{"prompt":"登录","options":[{"label":"我登好了"},{"label":"取消"}]}]}`)); err != nil {
+		t.Fatalf("reason=login must be valid: %v", err)
+	}
+	if err := validateUserAsk(json.RawMessage(`{"reason":"nope","questions":[{"prompt":"登录","options":[{"label":"我登好了"},{"label":"取消"}]}]}`)); err == nil {
+		t.Fatal("unknown reason must fail")
+	}
 }

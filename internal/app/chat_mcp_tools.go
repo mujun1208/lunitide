@@ -121,9 +121,19 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
 		return toolruntime.Result{}, errors.New("browser.act needs op")
 	}
+	if err := rejectBrowserHumanWall(a.URL, ""); err != nil {
+		return toolruntime.Result{}, err
+	}
 	switch a.Op {
 	case "click", "type", "snapshot", "scroll", "back", "hover", "select", "press", "tabs", "wait", "dialog":
-		return e.invokeBrowserActViaPlaywright(ctx, a)
+		out, err := e.invokeBrowserActViaPlaywright(ctx, a)
+		if err != nil && browserActLooksStale(err, out.Output) {
+			return toolruntime.Result{}, err
+		}
+		if err != nil {
+			return out, err
+		}
+		return finishBrowserAct(a.URL, out.Output, out)
 	case "navigate":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {
@@ -133,15 +143,16 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 			return toolruntime.Result{}, err
 		} else if out.Output != "" {
 			e.browserLastURL.Store(session, u)
-			return out, nil
+			return finishBrowserAct(u, out.Output, out)
 		}
 		args, _ := json.Marshal(map[string]string{"url": u})
 		out, err := e.executeUserTool(ctx, mode, session, "web.fetch", args)
-		if err == nil {
-			e.browserLastURL.Store(session, u)
-			out = markBrowserNavigateFetch(out)
+		if err != nil {
+			return out, err
 		}
-		return out, err
+		e.browserLastURL.Store(session, u)
+		out = markBrowserNavigateFetch(out)
+		return finishBrowserAct(u, out.Output, out)
 	case "read":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {

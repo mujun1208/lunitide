@@ -4,8 +4,8 @@
 // disc, cool-blue limb, dark radial atmosphere — no crater texture
 // and no stroked ring. When WebGL2 is available idle/listening start
 // as a shader jade disc and bloom into a forced-motion Orb face;
-// thinking/speaking keep the circular Strands glass ball (speaking used to
-// flip to a small off-center wave). Glow still follows the mic level
+// thinking/speaking keep the same circular Strands glass ball and seat;
+// speaking only speeds the inner mouth. Glow still follows the mic level
 // (listening) or playback gain (speaking). Animations collapse
 // under .reduce-motion / missing WebGL.
 import { Orb } from './visual/Orb'

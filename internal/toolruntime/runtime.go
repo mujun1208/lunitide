@@ -801,7 +801,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e = confirmDesktopOpened(a.Name); e != nil {
 			return Result{}, e
 		}
-		return result("opened " + path), nil
+		return result(appendL0JSON("opened "+path, "foreground", true, false, path)), nil
 	case "desktop.type":
 		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
 			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)

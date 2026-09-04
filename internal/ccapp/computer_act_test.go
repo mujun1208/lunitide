@@ -95,6 +95,13 @@ func TestMapComputerActDoubleClickAndKey(t *testing.T) {
 	_ = raw
 }
 
+func TestMapComputerActListIsWindowList(t *testing.T) {
+	tool, _, err := MapComputerAct([]byte(`{"action":"list"}`))
+	if err != nil || tool != ToolWindowList {
+		t.Fatalf("D-B4 list must map to window list, got %s %v", tool, err)
+	}
+}
+
 func TestMapComputerActUnknownAction(t *testing.T) {
 	if _, _, err := MapComputerAct([]byte(`{"action":"explode"}`)); !errors.Is(err, ErrCcInputFiltered) {
 		t.Fatalf("got %v", err)

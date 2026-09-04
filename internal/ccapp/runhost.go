@@ -10,6 +10,18 @@ import (
 	"unicode/utf8"
 )
 
+func observeUIPayload(mapped []UINode, maxNodes int, frameID string) map[string]any {
+	return map[string]any{
+		"count":     len(mapped),
+		"space":     "image",
+		"nodes":     mapped,
+		"frameId":   frameID,
+		"truncated": maxNodes > 0 && len(mapped) >= maxNodes,
+		"maxNodes":  maxNodes,
+		"returned":  len(mapped),
+	}
+}
+
 // runHost dispatches one validated call onto the OS host.
 func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) (string, []byte, error) {
 	switch tool {
@@ -59,7 +71,13 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			}
 			return s.verifyAfter(fmt.Sprintf("invoked %q via accessibility", hit))
 		}
+		if err := s.refuseSelfWindowPixels(); err != nil {
+			return "", nil, err
+		}
 		if a.X != nil && a.Y != nil {
+			if err := s.requireObserveBeforeXY(); err != nil {
+				return "", nil, err
+			}
 			sx, sy := s.toScreen(*a.X, *a.Y)
 			if err := s.host.MouseMove(sx, sy); err != nil {
 				return "", nil, err
@@ -99,6 +117,12 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			Y2 int `json:"y2"`
 		}
 		_ = json.Unmarshal(args, &a)
+		if err := s.refuseSelfWindowPixels(); err != nil {
+			return "", nil, err
+		}
+		if err := s.requireObserveBeforeXY(); err != nil {
+			return "", nil, err
+		}
 		sx1, sy1 := s.toScreen(a.X1, a.Y1)
 		sx2, sy2 := s.toScreen(a.X2, a.Y2)
 		if err := s.host.MouseDrag(sx1, sy1, sx2, sy2); err != nil {
@@ -115,6 +139,10 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			return "", nil, err
 		}
 		time.Sleep(40 * time.Millisecond)
+		if PreferPasteText(a.Text) {
+			raw, _ := json.Marshal(map[string]any{"text": a.Text, "window": a.Window})
+			return s.runHost(ToolPaste, raw, nil)
+		}
 		if err := s.host.KeyboardType(a.Text); err != nil {
 			return "", nil, err
 		}
@@ -320,7 +348,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			ox, oy := s.host.ScreenOrigin()
 			s.rememberCapture(png, ox, oy, true)
 		}
-		payload := map[string]any{"count": len(mapped), "space": "image", "nodes": mapped, "frameId": s.CurrentFrameID()}
+		payload := observeUIPayload(mapped, a.MaxNodes, s.CurrentFrameID())
 		if handoff := s.filePickerHandoff(nodeNames(mapped)); handoff != "" {
 			payload["needs_user"] = handoff
 			payload["handoff"] = "file_dialog"

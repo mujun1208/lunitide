@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/gateway"
 )
 
@@ -58,12 +59,132 @@ func TestPlanRunCyclePlanExecuteVerify(t *testing.T) {
 	if !strings.Contains(res.Log, "step 1 [read]") || !strings.Contains(res.Log, "step outcome: done") {
 		t.Fatalf("log = %q", res.Log)
 	}
-	if !res.Verified {
-		t.Fatal("verifier reported unverified")
+	if res.Verified {
+		t.Fatal("D-C2: analysis steps without l0 must not verify")
 	}
-	// plan(1) + 2 steps(2) + verify(1) = 4 adapter calls
-	if adapter.calls != 4 {
-		t.Fatalf("adapter calls = %d, want 4", adapter.calls)
+	// plan(1) + 2 steps(2); verifier skipped when no l0
+	if adapter.calls != 3 {
+		t.Fatalf("adapter calls = %d, want 3 (no verifier)", adapter.calls)
+	}
+}
+
+func TestExtractL0(t *testing.T) {
+	obs, ok := extractL0("opened foo\n{\"l0\":{\"kind\":\"foreground\",\"passed\":true}}")
+	if !ok || !obs.Passed || obs.Kind != "foreground" {
+		t.Fatalf("got %+v ok=%v", obs, ok)
+	}
+	if _, ok := extractL0("step outcome: done"); ok {
+		t.Fatal("plain text must not parse as l0")
+	}
+}
+
+func TestDecidePlanVerify(t *testing.T) {
+	skip, verified, gaps := decidePlanVerify(nil)
+	if !skip || verified || gaps != "no l0 observation" {
+		t.Fatalf("D-C2 empty: skip=%v verified=%v gaps=%q", skip, verified, gaps)
+	}
+	skip, verified, gaps = decidePlanVerify([]l0Observation{
+		{Kind: "foreground", Passed: true},
+		{Kind: "file", Passed: true},
+	})
+	if !skip || !verified || gaps != "" {
+		t.Fatalf("D-C3 all passed: skip=%v verified=%v gaps=%q", skip, verified, gaps)
+	}
+	skip, verified, _ = decidePlanVerify([]l0Observation{
+		{Kind: "foreground", Passed: true},
+		{Kind: "pixels", Passed: false},
+	})
+	if skip || verified {
+		t.Fatalf("failed l0 must call judge: skip=%v verified=%v", skip, verified)
+	}
+}
+
+func TestAttachPlanStepL0SurfacesToolObservation(t *testing.T) {
+	got := attachPlanStepL0("already opened.", []string{
+		"opened soda\n{\"l0\":{\"kind\":\"foreground\",\"passed\":true,\"detail\":\"soda\"}}",
+	})
+	if !strings.Contains(got, "already opened.") {
+		t.Fatalf("coda lost: %q", got)
+	}
+	obs, ok := extractL0(got)
+	if !ok || !obs.Passed || obs.Kind != "foreground" {
+		t.Fatalf("D-C3 tool l0 missing: %+v ok=%v out=%q", obs, ok, got)
+	}
+}
+
+type flashJudgeProvider struct{ providerRepositoryStub }
+
+func (flashJudgeProvider) List(context.Context, provider.Filter) ([]provider.Provider, error) {
+	return []provider.Provider{{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+		Models: []provider.Model{
+			{ModelID: "gpt-4o", DisplayName: "GPT-4o"},
+			{ModelID: "gpt-4o-mini", DisplayName: "GPT-4o mini"},
+		},
+	}}, nil
+}
+
+type planJudgeAdapter struct {
+	verifyModel string
+	calls       int
+}
+
+func (a *planJudgeAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+	a.calls++
+	sys := ""
+	if len(req.Messages) > 0 {
+		sys = req.Messages[0].Content
+	}
+	switch {
+	case strings.Contains(sys, "planning coordinator"):
+		return gateway.Response{Message: gateway.Message{Content: `{"steps":[{"action":"open","detail":"open app"}]}`}}, nil
+	case strings.Contains(sys, "execution agent"):
+		return gateway.Response{Message: gateway.Message{Content: "opened\n{\"l0\":{\"kind\":\"foreground\",\"passed\":false,\"uncertain\":true}}"}}, nil
+	case strings.Contains(sys, "verifier"):
+		a.verifyModel = req.Model
+		user := ""
+		if n := len(req.Messages); n > 0 {
+			user = req.Messages[n-1].Content
+		}
+		if !strings.Contains(user, "L0:") {
+			return gateway.Response{Message: gateway.Message{Content: `{"verified":false,"gaps":"missing l0"}`}}, nil
+		}
+		return gateway.Response{Message: gateway.Message{Content: `{"verified":false,"gaps":"l0 incomplete"}`}}, nil
+	}
+	return gateway.Response{Message: gateway.Message{Content: "unexpected"}}, nil
+}
+
+func (a *planJudgeAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
+	return gateway.Response{}, context.Canceled
+}
+
+func (a *planJudgeAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, nil
+}
+
+func TestPlanVerifyUsesFlashWhenVendorHasPlusAndFlash(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	e.providers = flashJudgeProvider{}
+	adapter := &planJudgeAdapter{}
+	out, err := e.invokePlanRunTool(context.Background(), adapter, nil, "gpt-4o", subTestSession, executionModeFullAccess, json.RawMessage(`{"objective":"open the player"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adapter.verifyModel == "" || adapter.verifyModel == "gpt-4o" {
+		t.Fatalf("D-C1 verify model=%q want flash, out=%s", adapter.verifyModel, out)
+	}
+	if adapter.verifyModel != "gpt-4o-mini" {
+		t.Fatalf("D-C1 verify model=%q", adapter.verifyModel)
+	}
+}
+
+func TestPlanStepToolsInheritRoute(t *testing.T) {
+	e := NewEngine(nil, "test")
+	got := planStepTools(e, RouteR1)
+	for _, d := range got {
+		if d.Name == "computer.act" || d.Name == "desktop.open" {
+			t.Fatalf("R1 plan step leaked %s", d.Name)
+		}
 	}
 }
 

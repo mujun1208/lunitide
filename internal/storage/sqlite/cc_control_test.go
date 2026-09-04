@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
@@ -60,9 +62,33 @@ type fakeCcHost struct {
 	holds       []string
 }
 
+func tinyTestPNG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+func flipValidPNG(src []byte, n int) []byte {
+	img, err := png.Decode(bytes.NewReader(src))
+	if err != nil {
+		return append(append([]byte(nil), src...), byte(n))
+	}
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, img, b.Min, draw.Src)
+	dst.SetRGBA(b.Min.X, b.Min.Y, color.RGBA{R: uint8(n), G: 1, B: 2, A: 255})
+	var buf bytes.Buffer
+	if png.Encode(&buf, dst) != nil {
+		return src
+	}
+	return buf.Bytes()
+}
+
 func newFakeCcHost() *fakeCcHost {
 	return &fakeCcHost{available: true, w: 1920, h: 1080,
-		title: "Untitled - Notepad", process: "notepad.exe"}
+		title: "Untitled - Notepad", process: "notepad.exe",
+		flipCapture: true, png: tinyTestPNG()}
 }
 
 func (f *fakeCcHost) Available() bool { return f.available }
@@ -138,8 +164,8 @@ func (f *fakeCcHost) ScreenCapture() ([]byte, error) {
 	}
 	if len(f.png) > 0 {
 		out := append([]byte(nil), f.png...)
-		if f.flipCapture && len(out) > 8 {
-			out[8] ^= byte(f.captures)
+		if f.flipCapture {
+			return flipValidPNG(out, f.captures), nil
 		}
 		return out, nil
 	}
@@ -693,6 +719,7 @@ func TestCcMouseDragMapsVisionPixelsToDesktop(t *testing.T) {
 	mx1, my1 := ccapp.MapCapturePoint(x1, y1, visW, visH, deskW, deskH)
 	mx2, my2 := ccapp.MapCapturePoint(x2, y2, visW, visH, deskW, deskH)
 	want := [4]int{host.originX + mx1, host.originY + my1, host.originX + mx2, host.originY + my2}
+	allowEmptyObserveXY(t, svc, ctx, host)
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag,
 		withFrame(t, svc, fmt.Sprintf(`{"x1":%d,"y1":%d,"x2":%d,"y2":%d}`, x1, y1, x2, y2)), true); err != nil {
 		t.Fatal(err)
@@ -715,6 +742,17 @@ func encodeTestPNG(t *testing.T, w, h int) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func allowEmptyObserveXY(t *testing.T, svc *ccapp.Service, ctx context.Context, host *fakeCcHost) {
+	t.Helper()
+	prev := host.uiNodes
+	host.uiNodes = nil
+	svc.SetAllowGUIPixelsForTest(true)
+	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{"maxNodes":8}`), true); err != nil {
+		t.Fatal(err)
+	}
+	host.uiNodes = prev
 }
 
 func TestCcObserveAndConfirmDialog(t *testing.T) {
@@ -811,6 +849,7 @@ func TestCcOpenClawParityTools(t *testing.T) {
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
 		t.Fatal(err)
 	}
+	allowEmptyObserveXY(t, svc, ctx, host)
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseDrag, withFrame(t, svc, `{"x1":10,"y1":10,"x2":40,"y2":40}`), true); err != nil {
 		t.Fatal(err)
 	}
@@ -910,6 +949,7 @@ func TestCcClickMapsImagePixelsThroughCaptureOrigin(t *testing.T) {
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
 		t.Fatal(err)
 	}
+	allowEmptyObserveXY(t, svc, ctx, host)
 	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"x":40,"y":80,"button":"left"}`), true)
 	if err != nil {
 		t.Fatal(err)
@@ -1356,24 +1396,36 @@ func TestCcVerifyUnchangedKeepsCurrentFrame(t *testing.T) {
 	ctx := context.Background()
 	enableCc(t, svc, nil)
 	host.png = encodeTestPNG(t, 160, 90)
+	host.flipCapture = false
 
 	cap, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	beforeID := svc.CurrentFrameID()
-	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"button":"left"}`), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(out.CapturePNG) == 0 || !strings.Contains(out.Summary, "screen unchanged") {
-		t.Fatalf("unchanged verify must keep the image, summary=%q png=%d", out.Summary, len(out.CapturePNG))
+	svc.SetMutateSettleForTest(time.Millisecond)
+	_, err = svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"button":"left"}`), true)
+	if err == nil || !strings.Contains(err.Error(), "screen unchanged") {
+		t.Fatalf("D-L1 mutating unchanged must fail, err=%v", err)
 	}
 	if svc.CurrentFrameID() != beforeID {
 		t.Fatalf("unchanged pixels must keep frameId %s, got %s", beforeID, svc.CurrentFrameID())
 	}
-	if !strings.Contains(cap.Summary, "frameId=") || !strings.Contains(out.Summary, beforeID) {
-		t.Fatalf("summaries missing frameId: cap=%q out=%q", cap.Summary, out.Summary)
+	if !strings.Contains(cap.Summary, "frameId=") {
+		t.Fatalf("summaries missing frameId: cap=%q", cap.Summary)
+	}
+
+	obs, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{"maxNodes":8}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Summary == "" {
+		t.Fatal("D-L2 observe must succeed when pixels are unchanged")
+	}
+
+	listed, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, []byte(`{"action":"list"}`), false)
+	if err != nil {
+		t.Fatalf("D-B4 list must not verify-fail: %v %s", err, listed.Summary)
 	}
 }
 
@@ -1387,6 +1439,7 @@ func TestComputerActExpandsOntoCcTools(t *testing.T) {
 	if err != nil || len(cap.CapturePNG) == 0 {
 		t.Fatalf("screenshot act: %v png=%d", err, len(cap.CapturePNG))
 	}
+	allowEmptyObserveXY(t, svc, ctx, host)
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, withFrame(t, svc, `{"action":"click","x":8,"y":8}`), true); err != nil {
 		t.Fatal(err)
 	}
@@ -1414,6 +1467,19 @@ func TestComputerActExpandsOntoCcTools(t *testing.T) {
 	}
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, withFrame(t, svc, `{"action":"click","x":8,"y":8,"modifiers":["super"]}`), true); err == nil {
 		t.Fatal("unknown modifier must fail closed")
+	}
+}
+
+func TestComputerActPixelClickRefusesLunitideForeground(t *testing.T) {
+	svc, host, _ := newCcService(t)
+	ctx := context.Background()
+	enableCc(t, svc, nil)
+	host.png = encodeTestPNG(t, 120, 80)
+	host.title, host.process = "月伴对话 - Lunitide", "lunitide.exe"
+	allowEmptyObserveXY(t, svc, ctx, host)
+	_, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolComputerAct, withFrame(t, svc, `{"action":"click","x":8,"y":8}`), true)
+	if err == nil || !strings.Contains(err.Error(), "Lunitide") {
+		t.Fatalf("D-B5 pixel click on self window: %v", err)
 	}
 }
 

@@ -94,8 +94,8 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 		t.Fatalf("companion chat.start failed: %#v", response)
 	}
 	req := capturedChatRequest(t, requests)
-	want := map[string]bool{"web.search": false, "web.fetch": false, "workspace.write": false, "desktop.open": false, "media.play": false, "browser.act": false, "skill.invoke": false}
-	forbidden := map[string]bool{"command.run": true, "im.send": true}
+	want := map[string]bool{"web.fetch": false, "browser.act": false, "user.ask": false}
+	forbidden := map[string]bool{"command.run": true, "im.send": true, "desktop.open": true, "media.play": true, "computer.act": true}
 	for _, def := range req.Tools {
 		if _, ok := want[def.Name]; ok {
 			want[def.Name] = true

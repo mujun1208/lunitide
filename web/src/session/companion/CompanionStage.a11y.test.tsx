@@ -208,7 +208,10 @@ describe('MC-06 a11y skeleton', () => {
     expect(statusRegion(container).getAttribute('aria-live')).toBe('polite')
     expect(liveLog(container).getAttribute('aria-live')).toBe('polite')
     expect(liveLog(container).getAttribute('role')).toBe('log')
+    const core = container.querySelector('.companion-stage-core') as HTMLElement
     const subtitles = container.querySelector('.companion-subtitles') as HTMLElement
+    expect(core.contains(container.querySelector('.companion-moon'))).toBe(true)
+    expect(core.contains(subtitles)).toBe(true)
     expect(subtitles.getAttribute('aria-label')).toBe('对话记录')
     // The subtitle strip is now visible (streams the current turn); the
     // sr-only hiding was the "conversation never shows" bug.

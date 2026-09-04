@@ -309,5 +309,5 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 	if window != "" {
 		how += " in " + window
 	}
-	return result(how), nil
+	return result(appendL0JSON(how, "field", true, false, text)), nil
 }
