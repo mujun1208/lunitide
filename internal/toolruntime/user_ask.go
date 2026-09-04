@@ -10,8 +10,14 @@ import (
 
 const userAskTool = "user.ask"
 
+var userAskReasons = map[string]bool{
+	"login": true, "2fa": true, "captcha": true, "pay": true,
+	"uac": true, "file_picker": true, "decision": true,
+}
+
 type userAskArgs struct {
 	Title     string            `json:"title"`
+	Reason    string            `json:"reason"`
 	Questions []userAskQuestion `json:"questions"`
 }
 
@@ -42,6 +48,9 @@ func validateUserAsk(args json.RawMessage) error {
 		return errors.New("invalid arguments")
 	}
 	if strings.TrimSpace(a.Title) != "" && utf8.RuneCountInString(a.Title) > 200 {
+		return errors.New("invalid arguments")
+	}
+	if reason := strings.TrimSpace(a.Reason); reason != "" && !userAskReasons[reason] {
 		return errors.New("invalid arguments")
 	}
 	if len(a.Questions) < 1 || len(a.Questions) > 8 {

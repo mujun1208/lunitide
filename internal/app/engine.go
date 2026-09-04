@@ -324,6 +324,7 @@ type streamState struct {
 	kbCites        []CitationBlock
 	kbDiscarded    int
 	mroTurn        bool
+	taskRoute      TaskRoute
 }
 
 type streamLifecycle uint8

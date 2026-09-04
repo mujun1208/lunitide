@@ -2439,6 +2439,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         </div>
       )}
       </div>
+      <div className="companion-stage-core">
+      <div className="companion-moon-slot">
       <MoonSphere
         state={surfaceState}
         gain={gain}
@@ -2455,6 +2457,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               : toggleMic
         }
       />
+      </div>
       {userAsk && onUserAsk && (
         <UserAskWizard pack={userAsk} busy={chatStatus === 'streaming'} onSubmit={onUserAsk} />
       )}
@@ -2562,6 +2565,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             </p>
           )}
         </div>
+      </div>
       </div>
       <div className="companion-chrome">
         <button type="button" className="companion-exit" aria-label={zh ? '退出月伴对话（Esc）' : 'Exit companion talk (Esc)'} onClick={exit}>

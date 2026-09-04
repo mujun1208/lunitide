@@ -415,6 +415,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}()
 				parkedFilePicker := false
 				parkedUAC := false
+				parkedBrowserWall := ""
 				for _, call := range result.Message.ToolCalls {
 					if seen[call.ID] {
 						return errors.New("duplicate tool call id")
@@ -612,7 +613,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					if planToolNames[call.Name] {
-						summary, invokeErr := e.invokePlanRunTool(op, a, credential, req.Model, sessionID, mode, call.Arguments)
+						summary, invokeErr := e.invokePlanRunToolRouted(op, a, credential, req.Model, sessionID, mode, call.Arguments, state.taskRoute)
 						if invokeErr != nil {
 							summary = invokeErr.Error()
 						}
@@ -772,6 +773,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if looksLikeUACToolResult(summary) {
 						parkedUAC = true
 					}
+					if reason := browserWallReason(summary); reason != "" {
+						parkedBrowserWall = reason
+					}
 				}
 				if parkedFilePicker {
 					if err := e.parkFilePickerAsk(op, id, sessionID, mode, send); err != nil {
@@ -781,6 +785,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if parkedUAC {
 					if err := e.parkUACAsk(op, id, sessionID, mode, send); err != nil {
+						return err
+					}
+					return nil
+				}
+				if parkedBrowserWall != "" {
+					if err := e.parkBrowserWallAsk(op, id, sessionID, mode, parkedBrowserWall, send); err != nil {
 						return err
 					}
 					return nil

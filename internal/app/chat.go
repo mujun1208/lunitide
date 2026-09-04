@@ -661,6 +661,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if p.Companion {
 			req.Tools = filterCompanionDefaultTools(req.Tools)
 		}
+		if profile == toolProfileDefault || profile == toolProfileMinimal {
+			route, allow := classifyTaskRoute(intent.Text, p.Companion, e.computerControlEnabled())
+			req.Tools = applyTaskRoute(req.Tools, route, allow)
+			state.taskRoute = route
+		}
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, boundSessionID, mode)
 	return request.Ok(map[string]any{"streamId": streamID})
