@@ -190,12 +190,16 @@ func TestSubagentSpawnQuotaFailsClosed(t *testing.T) {
 	}
 }
 
-// parallelFakeAdapter delays every Complete call slightly and tracks the
-// peak number of overlapping calls so parallel spawning is observable
-// without wall-clock assertions.
+// parallelFakeAdapter tracks overlapping Complete calls. When release is
+// set, each Complete waits there so the overlap test can observe peak
+// without a wall-clock sleep. Under -race, invokeSubagentTool setup can
+// outlive a 120ms sleep, so the first call returns before the second enters
+// (Windows CGO Quality: peak concurrency = 1 on an otherwise green SHA).
 type parallelFakeAdapter struct {
-	active int64
-	peak   int64
+	active  int64
+	peak    int64
+	entered chan struct{}
+	release chan struct{}
 }
 
 func (a *parallelFakeAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
@@ -206,7 +210,14 @@ func (a *parallelFakeAdapter) Complete(context.Context, []byte, gateway.Request)
 			break
 		}
 	}
-	time.Sleep(120 * time.Millisecond)
+	if a.entered != nil {
+		a.entered <- struct{}{}
+	}
+	if a.release != nil {
+		<-a.release
+	} else {
+		time.Sleep(120 * time.Millisecond)
+	}
 	atomic.AddInt64(&a.active, -1)
 	return gateway.Response{
 		Message: gateway.Message{Content: "parallel report"},
@@ -224,7 +235,7 @@ func (a *parallelFakeAdapter) Discover(context.Context, []byte) (gateway.Discove
 
 func TestParallelSubagentSpawnsOverlapInOneTurn(t *testing.T) {
 	e := newSubagentChatEngine(t)
-	adapter := &parallelFakeAdapter{}
+	adapter := &parallelFakeAdapter{entered: make(chan struct{}, 2), release: make(chan struct{})}
 	calls := []gateway.ToolCall{
 		{ID: "s1", Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"task one"}`)},
 		{ID: "s2", Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"task two"}`)},
@@ -235,15 +246,31 @@ func TestParallelSubagentSpawnsOverlapInOneTurn(t *testing.T) {
 	if len(futures) != 2 {
 		t.Fatalf("pre-started futures = %d, want 2", len(futures))
 	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(adapter.release)
+		}
+	}
+	defer release()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-adapter.entered:
+		case <-time.After(15 * time.Second):
+			t.Fatalf("timed out waiting for spawn %d to enter Complete", i+1)
+		}
+	}
+	if peak := atomic.LoadInt64(&adapter.peak); peak < 2 {
+		t.Fatalf("same-turn spawns did not overlap, peak concurrency = %d", peak)
+	}
+	release()
 	// Consume in original call order exactly like the chat tool loop.
 	for _, id := range []string{"s1", "s2"} {
 		res := <-futures[id]
 		if res.err != nil || !strings.Contains(res.summary, "parallel report") {
 			t.Fatalf("future %s = %q err %v", id, res.summary, res.err)
 		}
-	}
-	if peak := atomic.LoadInt64(&adapter.peak); peak < 2 {
-		t.Fatalf("same-turn spawns did not overlap, peak concurrency = %d", peak)
 	}
 }
 
