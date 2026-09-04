@@ -76,4 +76,28 @@ export function bulletinExpertIds(opsExpertIds: Record<string, string>, mroExper
   return out
 }
 
+export function resolveInstalledExpertIds(
+  slugs: readonly string[],
+  installed: readonly {expertId: string; catalogItemId?: string; name?: string}[],
+): {ids: string[]; missing: string[]} {
+  const ids: string[] = []
+  const missing: string[] = []
+  const seen = new Set<string>()
+  for (const raw of slugs) {
+    const key = raw.trim()
+    if (!key) continue
+    const byId = installed.find(item => item.expertId === key)
+    const byCatalog = byId ?? findInstalledExpert(installed, key) ?? installed.find(item => (item.name ?? '') === key)
+    if (byCatalog?.expertId) {
+      if (!seen.has(byCatalog.expertId)) {
+        seen.add(byCatalog.expertId)
+        ids.push(byCatalog.expertId)
+      }
+      continue
+    }
+    missing.push(key)
+  }
+  return {ids, missing}
+}
+
 export { isOpsColleague }

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { SkillBridge } from '../bridge/client'
+import { BridgeClientError, type SkillBridge } from '../bridge/client'
+import { ENGINE_RECOVERED_EVENT } from '../bridge/engineHealth'
 import type { SkillDTO } from '../generated/bridge'
 import { SkillPage } from './SkillPage'
 
@@ -119,6 +120,24 @@ it('filters the market by category', async () => {
   fireEvent.click(screen.getByRole('button', { name: /研发效能/ }))
   expect(screen.getByText('Go 代码审查')).toBeInTheDocument()
   expect(screen.queryByText('会议纪要助手')).not.toBeInTheDocument()
+})
+
+it('renders ENGINE_UNAVAILABLE code and correlationId on the market', async () => {
+  const catalogList = vi.fn().mockRejectedValue(new BridgeClientError('核心引擎暂时不可用', 'ENGINE_UNAVAILABLE', true, '01ARZ3NDEKTSV4RRFFQ69G5FAV'))
+  render(<SkillPage bridge={api({ catalogList })} />)
+  expect(await screen.findByText(/ENGINE_UNAVAILABLE/)).toBeInTheDocument()
+  expect(screen.getByText(/01ARZ3NDEKTSV4RRFFQ69G5FAV/)).toBeInTheDocument()
+})
+
+it('reloads catalogList after engine recovered', async () => {
+  const catalogList = vi.fn()
+    .mockRejectedValueOnce(new BridgeClientError('核心引擎暂时不可用', 'ENGINE_UNAVAILABLE', true, '01ARZ3NDEKTSV4RRFFQ69G5FAV'))
+    .mockResolvedValue({ items: [catalogEntry] })
+  render(<SkillPage bridge={api({ catalogList })} />)
+  expect(await screen.findByText(/ENGINE_UNAVAILABLE/)).toBeInTheDocument()
+  window.dispatchEvent(new CustomEvent(ENGINE_RECOVERED_EVENT))
+  expect(await screen.findByText('会议纪要助手')).toBeInTheDocument()
+  expect(catalogList).toHaveBeenCalledTimes(2)
 })
 
 it('marks installed templates in the market', async () => {

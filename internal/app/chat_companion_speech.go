@@ -31,6 +31,7 @@ func companionPersonaToolsInstruction() string {
 		"- 搜网页/查火车/查航班/查天气：必须 web.search 一次，用摘要直接说气温和阴晴；不要第二次 web.search，不要 web.fetch，除非用户给了网址。不要只说等一下就停\n" +
 		"- 打开页面：用 browser.act，不要猜 command.run 或系统 start\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
+		"- 打开类目标在 desktop.open 成功后用一句结果收尾（例如「已经打开了汽水音乐。」），禁止说无法执行，禁止再截月伴或调用 computer.act\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act screenshot 看清，记下 frameId，再 click 输入位置后 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发飞书/企微/钉钉/微信/QQ：月伴不发即时消息。请用户改在工作台会话里发，或去设置 → 消息通道\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +

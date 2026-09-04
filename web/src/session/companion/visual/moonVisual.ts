@@ -75,14 +75,14 @@ export function strandsSpeaking(gain: number) {
   const g = Math.max(0.18, Math.min(1, gain))
   return {
     ...STRANDS_THINKING,
-    glass: false,
+    glass: true,
     speed: 0.7 + g * 0.9,
-    amplitude: 0.9 + g * 0.7,
+    amplitude: 1.12 + g * 0.58,
     glow: 2.2 + g * 1.4,
     intensity: 0.55 + g * 0.4,
-    // Lower uScale zooms the plasma IN (larger ball). Speaking must stay as
-    // big as the idle circle — 1.15 still read as a small off-center wave.
-    scale: 0.82,
+    // Lower uScale zooms the plasma IN (larger ball). Speaking must fill the
+    // inner disc — 0.82 still read as a small off-center wave.
+    scale: 0.58,
     taper: 2.4,
   }
 }

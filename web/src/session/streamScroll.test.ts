@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 import {
   applyConversationUserScroll,
@@ -55,6 +57,27 @@ describe('conversation stream scroll pin', () => {
     const box = {scrollHeight: 900, clientHeight: 300, scrollTop: 100, scrollTo}
     expect(pinConversationScroll(box, {userFollowPaused: true})).toBe(false)
     expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('keeps scrollTop still when the user already pulled up and thinking height grows', () => {
+    const scrollTo = vi.fn()
+    const box = {scrollHeight: 900, clientHeight: 300, scrollTop: 120, scrollTo}
+    expect(pauseFollowOnUserIntent({userFollowPaused: false, nearBottom: true, deltaY: -40})).toBe(true)
+    expect(pinConversationScroll(box, {userFollowPaused: true})).toBe(false)
+    box.scrollHeight = 1400
+    expect(pinConversationScroll(box, {userFollowPaused: true})).toBe(false)
+    expect(box.scrollTop).toBe(120)
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('does not treat thinking-only growth as a pin trigger in SessionPage', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/session/SessionPage.tsx'), 'utf8')
+    expect(src).toMatch(/\[loading,items\.length,assistantText,toolActivities,usage,chatStatus,autoFollow\]/)
+    expect(src).not.toMatch(/thinkingOpen,toolActivities/)
+    expect(src).toMatch(/querySelector\('\.message-list'\)/)
+    expect(src).toMatch(/querySelector\('\.chat-response \.message-body'\)/)
+    expect(src).not.toMatch(/ro\.observe\(box\)/)
+    expect(src).not.toMatch(/thinking-panel/)
   })
 
   it('never pins html or body (page-level jump)', () => {

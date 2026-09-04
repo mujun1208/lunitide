@@ -3,6 +3,7 @@ import { type ExpertBridge, type ProjectBridge, type SessionBridge } from '../br
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { useZh } from '../i18n/language'
 import { bulletinExpertIds, resolveAskExpertId } from '../expert/expertIds'
+import { MRO_RAIL_GROUPS, MRO_RAIL_LEAF_LABELS, type MroRailLeaf, railGroupExpanded, readRailOpen, writeRailOpen } from './mroRailGroups'
 import { MroAskButton, openMroChat, type MroChatOpened } from './MroAskButton'
 import { parseMroContext, type MroSessionContext } from './mroContext'
 import { parseAogPaste } from './aogPaste'
@@ -233,6 +234,7 @@ export function MroWorkbenchPage({
   const zh = useZh()
   const initial = normalizeInitialRail(initialRail)
   const [rail, setRail] = useState<Rail>(initial.rail)
+  const [railOpen, setRailOpen] = useState<Record<string, boolean>>(readRailOpen)
   const [dueTab, setDueTab] = useState<DueTab>('list')
   const [toolTab, setToolTab] = useState<ToolTab>('tools')
   const [partTab, setPartTab] = useState<PartTab>(initial.part)
@@ -755,8 +757,19 @@ export function MroWorkbenchPage({
   }
 
   const railButton = (id: Rail, label: string) => (
-    <button type="button" aria-selected={rail === id} onClick={() => setRail(id)}>{label}</button>
+    <button type="button" key={id} aria-selected={rail === id} onClick={() => {
+      setRail(id)
+      if (id === 'fleet') setRegisterOpen(true)
+    }}>{label}</button>
   )
+
+  const toggleRailGroup = (id: string) => {
+    setRailOpen(prev => {
+      const next = { ...prev, [id]: !railGroupExpanded(id, rail, prev) }
+      writeRailOpen(next)
+      return next
+    })
+  }
 
   const subTabs = <T extends string>(tabs: Array<[T, string]>, value: T, onChange: (v: T) => void) => (
     <div className="mro-subtabs" role="tablist">
@@ -814,16 +827,28 @@ export function MroWorkbenchPage({
       </div>
       <div className="mro-body">
         <nav className="mro-rail" aria-label={zh ? '机务分区' : 'MRO sections'}>
-          {railButton('manuals', zh ? '手册' : 'Manuals')}
-          {railButton('fault', zh ? '排故' : 'Fault')}
-          {railButton('due', zh ? '到期' : 'Due')}
-          {railButton('tools', zh ? '工具化工品' : 'Tools')}
-          {railButton('parts', zh ? '航材' : 'Parts')}
-          {railButton('plan', zh ? '计划' : 'Plan')}
-          <div className="mro-rail-group">{zh ? '工具' : 'Utilities'}</div>
-          {railButton('checklist', zh ? '检查单' : 'Checklist')}
-          {railButton('audit', zh ? '审计' : 'Audit')}
-          <button type="button" aria-selected={rail === 'fleet'} onClick={() => { setRail('fleet'); setRegisterOpen(true) }}>{zh ? '机队' : 'Fleet'}</button>
+          {MRO_RAIL_GROUPS.map(group => {
+            const expanded = railGroupExpanded(group.id, rail, railOpen)
+            return (
+              <div key={group.id} className={`mro-rail-fold${expanded ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="mro-rail-group-btn"
+                  aria-expanded={expanded}
+                  aria-controls={`mro-rail-${group.id}`}
+                  aria-label={`${zh ? group.label : group.labelEn}分组`}
+                  onClick={() => toggleRailGroup(group.id)}
+                >
+                  {zh ? group.label : group.labelEn}
+                </button>
+                {expanded && (
+                  <div id={`mro-rail-${group.id}`} className="mro-rail-leaves">
+                    {group.rails.map(leaf => railButton(leaf as Rail, zh ? MRO_RAIL_LEAF_LABELS[leaf as MroRailLeaf].zh : MRO_RAIL_LEAF_LABELS[leaf as MroRailLeaf].en))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </nav>
         <section>
           {rail === 'fault' ? (

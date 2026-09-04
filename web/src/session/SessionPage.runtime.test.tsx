@@ -789,6 +789,100 @@ it('shows a compact chip when context usage is high and commits the preview',asy
  await waitFor(()=>expect(compactCommit).toHaveBeenCalledWith({checkpointId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',baseVersion:1}))
 })
 
+it('keeps the user.ask wizard and follow-up draft when chat.start fails after approve', async () => {
+  let onEvent!: (event: StreamEvent) => void
+  const start = vi.fn()
+    .mockImplementationOnce(async (_payload, onStreamEvent) => {
+      onEvent = onStreamEvent
+      return { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel: vi.fn(), dispose: vi.fn() }
+    })
+    .mockRejectedValue(new BridgeClientError('核心引擎暂时不可用', 'ENGINE_UNAVAILABLE', true, 'engine'))
+  const approve = vi.fn().mockResolvedValue({ status: 'approved', summary: '已批准' })
+  const user = userEvent.setup()
+  render(
+    <SessionPage
+      project={project}
+      bridge={sessionBridge}
+      personal
+      initialSession={session}
+      providers={providers}
+      chat={{ start, approve, dispose: vi.fn() }}
+      messages={{ list: vi.fn().mockResolvedValue(page()), append: vi.fn().mockResolvedValue({}) } as MessageBridge}
+      onBack={vi.fn()}
+    />,
+  )
+  const input = await screen.findByLabelText('向月汐提问，或描述你想完成的任务…')
+  await user.type(input, '帮我定部署方案')
+  await user.click(screen.getByRole('button', { name: '↑ 发送并对话' }))
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  const ask = JSON.stringify({
+    title: '需求边界',
+    questions: [{
+      id: 'deploy',
+      prompt: '部署方式',
+      options: [
+        { id: 'k8s', label: '容器化' },
+        { id: 'vm', label: '虚拟机' },
+      ],
+    }],
+  })
+  await act(async () => {
+    onEvent({
+      v: '1.0',
+      kind: 'event',
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+      sequence: 1,
+      type: 'approval_required',
+      tool: { callId: 'ask-1', name: 'user.ask', argsDigest: 'a'.repeat(64), summary: ask },
+    })
+    onEvent({
+      v: '1.0',
+      kind: 'event',
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAF',
+      streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+      sequence: 2,
+      type: 'completed',
+    })
+  })
+  const wizard = await screen.findByRole('form', { name: '需求边界' })
+  await user.click(screen.getByRole('radio', { name: /容器化/ }))
+  await user.click(screen.getByRole('button', { name: '提交决策' }))
+  await waitFor(() => expect(approve).toHaveBeenCalledOnce())
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
+  expect(wizard).toBeInTheDocument()
+  expect(screen.getByRole('form', { name: '需求边界' })).toBeInTheDocument()
+  expect((screen.getByLabelText('向月汐提问，或描述你想完成的任务…') as HTMLTextAreaElement).value).toContain('部署方式：容器化')
+  expect(await screen.findByText(/你的选择已留在输入框/)).toBeInTheDocument()
+})
+
+it('does not delete 月伴对话 after removing its last round', async () => {
+  const companion = { ...session, title: '月伴对话' }
+  const question: MessageDTO = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAC', sessionId: S, role: 'user', text: '最后一个问题', status: 'completed', sequence: 1, createdAt: NOW }
+  const answer: MessageDTO = { ...question, id: '01ARZ3NDEKTSV4RRFFQ69G5FAD', role: 'assistant', text: '最后一个回答', sequence: 2 }
+  const rewind = vi.fn().mockResolvedValue({ sessionId: S, messageId: question.id, deletedCount: 2, lastSequence: 0, historyRevision: 2 })
+  const remove = vi.fn().mockResolvedValue({ deleted: true, id: S })
+  const onDeleted = vi.fn()
+  const user = userEvent.setup()
+  render(
+    <SessionPage
+      project={project}
+      bridge={{ ...sessionBridge, list: vi.fn().mockResolvedValue({ items: [companion] }), delete: remove }}
+      initialSession={companion}
+      personal
+      messages={{ list: vi.fn().mockResolvedValue(page([question, answer])), append: vi.fn(), rewind } as MessageBridge}
+      onBack={vi.fn()}
+      onDeleted={onDeleted}
+    />,
+  )
+  await screen.findByText('最后一个回答')
+  await user.click(screen.getByRole('button', { name: '删除' }))
+  await user.click(screen.getByRole('button', { name: '确认删除' }))
+  await waitFor(() => expect(rewind).toHaveBeenCalled())
+  expect(remove).not.toHaveBeenCalled()
+  expect(onDeleted).not.toHaveBeenCalled()
+})
+
 it('asks before saving a finished personal chat as a skill', async () => {
   const onSaveAsSkill = vi.fn()
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)

@@ -82,7 +82,7 @@ it('places 会议记录 directly under 自动化 and opens an independent meetin
 
 it('folds 自动化 同事聊天 会议记录 under Office and can collapse them',async()=>{const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);const office=await screen.findByRole('button',{name:/^Office$/});expect(office).toHaveAttribute('aria-expanded','true');expect(screen.getByRole('button',{name:/^Automation$/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/^Colleague chat$/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/^Meeting notes$/})).toBeInTheDocument();await user.click(office);expect(office).toHaveAttribute('aria-expanded','false');expect(screen.queryByRole('button',{name:/^Automation$/})).toBeNull();expect(screen.queryByRole('button',{name:/^Meeting notes$/})).toBeNull();await user.click(office);expect(screen.getByRole('button',{name:/^Automation$/})).toBeInTheDocument()})
 
-it('opens meeting listen settings from the workbench and returns without sticking the next Settings visit',async()=>{const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);await user.click(await screen.findByRole('button',{name:/^Meeting notes$/}));await user.click(await screen.findByRole('button',{name:'听写与纪要设置'}));expect(await screen.findByRole('radiogroup',{name:'Live captions'})).toBeInTheDocument();expect(screen.getByRole('navigation',{name:'Settings'}).querySelector('[aria-current="page"]')).toHaveTextContent('Meeting notes');await user.click(screen.getByRole('button',{name:'← Back to meetings'}));expect(await screen.findByRole('heading',{name:'新的会议'})).toBeInTheDocument();await user.click(screen.getByRole('button',{name:/^Settings$/}));expect(await screen.findByText('启动时打开')).toBeInTheDocument();expect(screen.getByRole('navigation',{name:'Settings'}).querySelector('[aria-current="page"]')).toHaveTextContent('General');expect(screen.queryByRole('radiogroup',{name:'Live captions'})).not.toBeInTheDocument()})
+it('opens meeting listen settings from the workbench and returns without sticking the next Settings visit',async()=>{const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);await user.click(await screen.findByRole('button',{name:/^Meeting notes$/}));await user.click(await screen.findByRole('button',{name:'听写与纪要设置'}));expect(await screen.findByRole('dialog',{name:'听写与纪要设置'})).toBeInTheDocument();expect(await screen.findByRole('radiogroup',{name:'Live captions'})).toBeInTheDocument();expect(screen.getByRole('navigation',{name:'Settings'}).querySelector('[aria-current="page"]')).toHaveTextContent('Meeting notes');await user.click(screen.getByRole('button',{name:'← 返回会议'}));expect(await screen.findByRole('heading',{name:'新的会议'})).toBeInTheDocument();await user.click(screen.getByRole('button',{name:/^Settings$/}));expect(await screen.findByText('启动时打开')).toBeInTheDocument();expect(screen.getByRole('navigation',{name:'Settings'}).querySelector('[aria-current="page"]')).toHaveTextContent('General');expect(screen.queryByRole('radiogroup',{name:'Live captions'})).not.toBeInTheDocument()})
 
 it('places 同事聊天 above the conversation group and opens an independent WeChat workspace',async()=>{const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);const peopleBtn=await screen.findByRole('button',{name:/^Colleague chat$/});const chatList=document.getElementById('conversation-list');expect(chatList).not.toBeNull();expect(peopleBtn.compareDocumentPosition(chatList!)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();expect(screen.queryByText('登录用户名')).not.toBeInTheDocument();expect(await screen.findByRole('button',{name:'Open my profile'})).toHaveTextContent('mu');await user.click(peopleBtn);expect(await screen.findByRole('navigation',{name:'同事工作区'})).toBeInTheDocument();expect(screen.getByRole('heading',{name:'聊天'})).toBeInTheDocument();expect(screen.queryByRole('heading',{name:'What would you like to do?'})).not.toBeInTheDocument();expect(document.getElementById('conversation-list')).not.toBeNull()})
 
@@ -105,4 +105,21 @@ it('shows a gated MRO workbench entry only after the aviation expert is enabled'
   expect(screen.getByText('Start from a manual or a tail number')).toBeInTheDocument()
   expect(screen.getByText('The workbench only checks effectivity and cites. Release stays with licensed personnel.')).toBeInTheDocument()
   expect(screen.getByRole('button',{name:'Ask Lunitide'})).toHaveClass('primary')
+})
+
+it('hides rename and delete on the protected 月伴对话 row and still allows pin',async()=>{
+  const companion={id:'01ARZ3NDEKTSV4RRFFQ69G5FAZ',projectId:personal.id,title:'月伴对话',pinned:true,status:'active' as const,createdAt:now,updatedAt:now,version:1}
+  const weather={...companion,id:'01ARZ3NDEKTSV4RRFFQ69G5FAY',title:'上海天气',pinned:false}
+  const remove=vi.fn()
+  const sessions:SessionBridge={list:vi.fn().mockResolvedValue({items:[companion,weather]}),create:vi.fn(),update:vi.fn(),delete:remove}
+  const user=userEvent.setup()
+  render(<App projects={projectBridge([personal])} sessions={sessions} providers={providers} messages={messages} chat={chat}/>)
+  await user.click(await screen.findByRole('button',{name:'More actions 月伴对话'}))
+  expect(screen.getByRole('menuitem',{name:'Unpin'})).toBeInTheDocument()
+  expect(screen.queryByRole('menuitem',{name:'Rename'})).not.toBeInTheDocument()
+  expect(screen.queryByRole('menuitem',{name:'Delete'})).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button',{name:'More actions 上海天气'}))
+  expect(screen.getByRole('menuitem',{name:'Delete'})).toBeInTheDocument()
+  expect(screen.getByRole('menuitem',{name:'Rename'})).toBeInTheDocument()
+  expect(remove).not.toHaveBeenCalled()
 })

@@ -146,6 +146,25 @@ afterEach(() => {
   cleanup()
 })
 
+test('C8-2 first unpunctuated token paints caption before TTS', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('今天天气怎么样')
+  })
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('thinking')
+
+  await act(async () => {
+    utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText="今" />)
+  })
+  await flush(0)
+  const log = utils.container.querySelector('.companion-subtitle-list')?.textContent ?? ''
+  expect(log).toContain('今')
+  expect(stateOf(utils.container)).not.toBe('thinking')
+  expect(spokenReply()).toBe('')
+})
+
 test('speaks the first finished sentence while the model is still writing', async () => {
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(600)

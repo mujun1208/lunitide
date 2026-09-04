@@ -1,5 +1,6 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState}from'react'
-import{skillBridge,type SkillBridge}from'../bridge/client'
+import{BridgeClientError,skillBridge,type SkillBridge}from'../bridge/client'
+import{ENGINE_RECOVERED_EVENT,formatBridgeFailure}from'../bridge/engineHealth'
 import type{SkillCatalogListResult,SkillCategory,SkillCategorySource,SkillDTO,SkillPermission,SkillStatus}from'../generated/bridge'
 import{Dialog}from'../ui/Dialog'
 import{SkillImportWizard}from'./SkillImportWizard'
@@ -23,9 +24,10 @@ export function SkillPage({bridge=skillBridge,onCreateInChat,onViewInWorkspace,h
  const fileInputRef=useRef<HTMLInputElement>(null)
  const[detailWidth,startDetailResize]=usePanelResize({storageKey:'lunitide:skill-detail-width',initial:380,min:280,max:()=>Math.min(560,Math.max(320,window.innerWidth-360)),reverse:true})
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.items);setSelectedId(current=>result.items.some(item=>item.id===current)?current:(result.items[0]?.id??''))}catch(e){setError(e instanceof Error?e.message:'技能载入失败')}finally{setLoading(false)}},[bridge])
- const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供技能模板目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setMarketError(e instanceof Error?e.message:'技能市场加载失败')}finally{setMarketLoading(false)}},[bridge])
+ const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供技能模板目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setMarketError(e instanceof BridgeClientError?formatBridgeFailure(e,'技能市场加载失败'):(e instanceof Error?e.message:'技能市场加载失败'))}finally{setMarketLoading(false)}},[bridge])
  useEffect(()=>{void load()},[load])
  useEffect(()=>{void loadCatalog()},[loadCatalog])
+ useEffect(()=>{const reload=()=>{void loadCatalog();void load()};window.addEventListener(ENGINE_RECOVERED_EVENT,reload);return()=>window.removeEventListener(ENGINE_RECOVERED_EVENT,reload)},[load,loadCatalog])
  useEffect(()=>{if(!highlightId)return;setView('library');setSelectedId(current=>items.some(item=>item.id===highlightId)?highlightId:current)},[highlightId,items])
  const install=async(entry:CatalogEntry)=>{if(!bridge.install||marketBusy)return;setMarketBusy(entry.id);setError('');try{await bridge.install({templateId:entry.id});await Promise.all([loadCatalog(),load()])}catch(e){setError(e instanceof Error?e.message:'安装失败')}finally{setMarketBusy('')}}
  const counts=useMemo(()=>Object.fromEntries(FILTERS.map(tab=>[tab.id,tab.id?items.filter(item=>item.status===tab.id).length:items.length])),[items])as Record<SkillStatus|'',number>

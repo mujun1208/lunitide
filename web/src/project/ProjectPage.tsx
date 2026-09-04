@@ -1,5 +1,6 @@
-import React,{useEffect,useMemo,useRef,useState}from'react'
+import React,{useCallback,useEffect,useMemo,useRef,useState}from'react'
 import{BridgeClientError,createMutationAttempt,type MutationAttempt,type ProjectBridge}from'../bridge/client'
+import{ENGINE_RECOVERED_EVENT}from'../bridge/engineHealth'
 import type{ProjectClosePayload,ProjectCreatePayload,ProjectDTO,ProjectPublishPayload,ProjectReopenPayload,ProjectType,ProjectUpdatePayload}from'../generated/bridge'
 import{ConfirmDialog,Dialog}from'../ui/Dialog'
 import{canClose,canDelete,canEnterWorkbench,canPublish,isReadOnly,normalizeStatus,statusLabel}from'./projectStatus'
@@ -39,8 +40,9 @@ export function ProjectPage({bridge,onSelect,hiddenProjectName}:{bridge:ProjectB
  const[editorOpen,setEditorOpen]=useState<false|{mode:'create'}|{mode:'edit';project:ProjectDTO}>(),[form,setForm]=useState<ProjectForm>(()=>emptyForm(defaultProjectType())),[formError,setFormError]=useState('')
  const[publishTarget,setPublishTarget]=useState<ProjectDTO>(),[closeTarget,setCloseTarget]=useState<ProjectDTO>(),[reopenTarget,setReopenTarget]=useState<ProjectDTO>(),[reason,setReason]=useState(''),[deleteTarget,setDeleteTarget]=useState<ProjectDTO>()
  const mounted=useRef(true),loadToken=useRef(0),busyRef=useRef(false),retained=useRef<{signature:string;attempt:MutationAttempt<ProjectCreatePayload>|MutationAttempt<ProjectUpdatePayload>}|undefined>(undefined)
- const load=async()=>{const token=++loadToken.current;setLoading(true);try{const result=await bridge.list();if(mounted.current&&token===loadToken.current){setItems(orderedProjects(result.items.filter(item=>item.name!==hiddenProjectName&&normalizeStatus(item.status)!=='archived')));setLoadError(undefined)}}catch(e){if(mounted.current&&token===loadToken.current)setLoadError(problem(e))}finally{if(mounted.current&&token===loadToken.current)setLoading(false)}}
- useEffect(()=>{mounted.current=true;void load();return()=>{mounted.current=false;loadToken.current++}},[])
+ const load=useCallback(async()=>{const token=++loadToken.current;setLoading(true);try{const result=await bridge.list();if(mounted.current&&token===loadToken.current){setItems(orderedProjects(result.items.filter(item=>item.name!==hiddenProjectName&&normalizeStatus(item.status)!=='archived')));setLoadError(undefined)}}catch(e){if(mounted.current&&token===loadToken.current)setLoadError(problem(e))}finally{if(mounted.current&&token===loadToken.current)setLoading(false)}},[bridge,hiddenProjectName])
+ useEffect(()=>{mounted.current=true;void load();return()=>{mounted.current=false;loadToken.current++}},[load])
+ useEffect(()=>{const reload=()=>{void load()};window.addEventListener(ENGINE_RECOVERED_EVENT,reload);return()=>window.removeEventListener(ENGINE_RECOVERED_EVENT,reload)},[load])
  useEffect(()=>{if(notice){const t=window.setTimeout(()=>setNotice(''),2500);return()=>window.clearTimeout(t)}},[notice])
  const patch=<K extends keyof ProjectForm>(key:K,value:ProjectForm[K])=>{retained.current=undefined;setForm(current=>({...current,[key]:value}))}
  const openCreate=()=>{retained.current=undefined;setForm(emptyForm(defaultProjectType()));setFormError('');setEditorOpen({mode:'create'})}

@@ -798,6 +798,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e = openWithDefaultApp(path); e != nil {
 			return Result{}, fmt.Errorf("无法执行：打不开（%v）", e)
 		}
+		if e = confirmDesktopOpened(a.Name); e != nil {
+			return Result{}, e
+		}
 		return result("opened " + path), nil
 	case "desktop.type":
 		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {

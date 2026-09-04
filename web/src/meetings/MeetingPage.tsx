@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { SettingsPage } from '../settings/SettingsPage'
 import { BridgeClientError, MEETING_HEARTBEAT_INTERVAL_MS, getMeetingsBridge, getProviderBridge, type MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingSegmentDTO, ProviderDTO } from '../generated/bridge'
 import { pickDefaultVoice } from '../provider/modelKind'
@@ -93,6 +94,7 @@ async function retryMeetingWrite<T>(op: () => Promise<T>): Promise<T> {
 const HISTORY_OPEN_KEY = 'lunitide:meeting-history-open'
 
 export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: { meetings?: MeetingsBridge; onOpenSettings?: () => void }): React.JSX.Element {
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [items, setItems] = useState<MeetingDTO[]>([])
   const [current, setCurrent] = useState<MeetingDTO>()
   const [interim, setInterim] = useState('')
@@ -856,7 +858,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
               ? <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>
               : <button type="button" className="meeting-new-inline" onClick={composeNew}>新纪要</button>}
           <span>{recording ? audioSourceLabel(systemAudioMissing ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
-          {onOpenSettings && <button type="button" className="meeting-settings-link" onClick={onOpenSettings}>听写与纪要设置</button>}
+          <button type="button" className="meeting-settings-link" onClick={() => setSettingsOpen(true)}>听写与纪要设置</button>
         </div>
         {systemAudioMissing && (
           <p className="meeting-warn" role="alert">
@@ -907,6 +909,17 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         onCancel={() => setDeleteTarget(undefined)}
         onConfirm={() => void removeMeeting()}
       />
+      {settingsOpen && (
+        <div className="model-manager-overlay" role="dialog" aria-modal="true" aria-label="听写与纪要设置">
+          <SettingsPage
+            initialCategory="meetings"
+            backLabel="返回会议"
+            embedded
+            recordingLock={recording}
+            onBack={() => setSettingsOpen(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }

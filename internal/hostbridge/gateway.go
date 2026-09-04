@@ -68,7 +68,9 @@ type Handler interface {
 
 type Gateway struct {
 	trustedOrigin     string
+	replaceMu         sync.Mutex
 	caller            Caller
+	forwardEpoch      uint64
 	hostHandlers      map[bridge.Method]Handler
 	admit             *bridge.SlotGate
 	streamsMu         sync.Mutex
@@ -107,14 +109,39 @@ func New(trustedOrigin string, caller Caller, handlers ...map[bridge.Method]Hand
 		local = handlers[0]
 	}
 	genCtx, genCancel := context.WithCancel(context.Background())
-	g := &Gateway{trustedOrigin: origin, caller: caller, hostHandlers: local, admit: bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait), streams: make(map[string]*streamOwner), generationCtx: genCtx, generationCancel: genCancel, events: make(chan RoutedEvent), consumerDone: make(chan struct{}), dispatchDone: make(chan struct{})}
+	g := &Gateway{trustedOrigin: origin, caller: caller, hostHandlers: local, admit: bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait), streams: make(map[string]*streamOwner), generationCtx: genCtx, generationCancel: genCancel, events: make(chan RoutedEvent), consumerDone: make(chan struct{}), dispatchDone: make(chan struct{}), forwardEpoch: 1}
 	g.streamChanged = sync.NewCond(&g.streamsMu)
 	g.eventChanged = sync.NewCond(&g.streamsMu)
 	go g.dispatchEvents()
 	if source, ok := caller.(EventSource); ok && source.Events() != nil {
-		go g.forwardEvents(source.Events())
+		go g.forwardEvents(source.Events(), 1)
 	}
 	return g, nil
+}
+
+// ReplaceCaller swaps the Engine RPC client after a poison. The next Handle
+// uses `next`. A Call error still maps to ENGINE_UNAVAILABLE (never ok:true).
+func (g *Gateway) ReplaceCaller(next Caller) {
+	if next == nil {
+		return
+	}
+	g.replaceMu.Lock()
+	g.caller = next
+	g.replaceMu.Unlock()
+	g.streamsMu.Lock()
+	g.eventSourceClosed = false
+	g.forwardEpoch++
+	epoch := g.forwardEpoch
+	g.streamsMu.Unlock()
+	if source, ok := next.(EventSource); ok && source.Events() != nil {
+		go g.forwardEvents(source.Events(), epoch)
+	}
+}
+
+func (g *Gateway) liveCaller() Caller {
+	g.replaceMu.Lock()
+	defer g.replaceMu.Unlock()
+	return g.caller
 }
 
 func (g *Gateway) Generation() uint64 {
@@ -231,7 +258,7 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 		g.startsInFlight++
 		g.streamsMu.Unlock()
 	}
-	response, err := g.caller.Call(ctx, request)
+	response, err := g.liveCaller().Call(ctx, request)
 	if err != nil {
 		if isStart {
 			g.streamsMu.Lock()
@@ -241,7 +268,7 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 			g.streamChanged.Broadcast()
 			g.streamsMu.Unlock()
 		}
-		return failureFor(request, "ENGINE_UNAVAILABLE", "核心引擎暂时不可用", true), true
+		return failureForReason(request, "ENGINE_UNAVAILABLE", "核心引擎暂时不可用", true, err.Error()), true
 	}
 	if isStart {
 		raw, _ := json.Marshal(response.Payload)
@@ -301,7 +328,7 @@ func terminalEvent(t bridge.EventType) bool {
 	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed || t == bridge.EventTerminalExit
 }
 
-func (g *Gateway) forwardEvents(source <-chan bridge.Event) {
+func (g *Gateway) forwardEvents(source <-chan bridge.Event, epoch uint64) {
 	for event := range source {
 		g.streamsMu.Lock()
 		if g.consumerStopped {
@@ -349,7 +376,7 @@ func (g *Gateway) forwardEvents(source <-chan bridge.Event) {
 		go g.cancelIDs(context.Background(), []string{event.StreamID})
 	}
 	g.streamsMu.Lock()
-	if g.consumerStopped {
+	if g.consumerStopped || g.forwardEpoch != epoch {
 		g.streamsMu.Unlock()
 		return
 	}
@@ -497,7 +524,7 @@ func (g *Gateway) cancelIDs(ctx context.Context, ids []string) {
 				method, field, id = bridge.MethodTerminalClose, "terminalId", strings.TrimPrefix(id, "terminal:")
 			}
 			request := bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: string(method), SentAt: time.Now().UTC(), Payload: json.RawMessage(`{"` + field + `":"` + id + `"}`), DeadlineMS: 1000}
-			_, _ = g.caller.Call(all, request)
+			_, _ = g.liveCaller().Call(all, request)
 		}()
 	}
 	wg.Wait()
@@ -577,6 +604,10 @@ func decodeStrict(raw []byte, target any) error {
 }
 
 func failureFor(request bridge.Request, code, message string, retryable bool) bridge.Response {
+	return failureForReason(request, code, message, retryable, "")
+}
+
+func failureForReason(request bridge.Request, code, message string, retryable bool, reason string) bridge.Response {
 	requestID := request.ID
 	if _, err := ulid.ParseStrict(requestID); err != nil {
 		requestID = ulid.Make().String()
@@ -585,5 +616,12 @@ func failureFor(request bridge.Request, code, message string, retryable bool) br
 	if _, err := ulid.ParseStrict(traceID); err != nil {
 		traceID = ulid.Make().String()
 	}
-	return bridge.Failure(requestID, traceID, code, message, retryable)
+	resp := bridge.Failure(requestID, traceID, code, message, retryable)
+	if reason != "" && resp.Error != nil {
+		if len(reason) > 96 {
+			reason = reason[:96]
+		}
+		resp.Error.Details = map[string]any{"reason": reason}
+	}
+	return resp
 }

@@ -240,6 +240,58 @@ func TestCompanionOpeningAck(t *testing.T) {
 	}
 }
 
+func TestCompanionChatStartDropsFailedAssistantBeforeNewUser(t *testing.T) {
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.messageReader = priorUserReader{msgs: []contextapp.Message{
+		{ID: "u1", Role: "user", Content: "打开汽水", Sequence: 1, TokenCount: 4},
+		{ID: "a1", Role: "assistant", Content: "无法执行。窗口没到前台", Sequence: 2, TokenCount: 8},
+	}}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","companion":true,"messages":[{"role":"user","content":"再打开一次汽水"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("C7-6 companion chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	for _, m := range req.Messages {
+		if m.Role != gateway.RoleSystem && strings.Contains(m.Content, "无法执行") {
+			t.Fatalf("C7-6 assembled request must drop failed assistant: %#v", req.Messages)
+		}
+	}
+	if lastUserChatText(req.Messages) != "再打开一次汽水" {
+		t.Fatalf("C7-6 must keep the new user turn: %#v", req.Messages)
+	}
+}
+
+func TestCompanionChatStartDoesNotEmitOpeningAckDelta(t *testing.T) {
+	var texts []string
+	requests := make(chan gateway.Request, 1)
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"messages":[{"role":"user","content":"今晚月色如何"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(ev bridge.Event) error {
+		if ev.Delta != nil {
+			texts = append(texts, ev.Delta.Text)
+		}
+		return nil
+	})
+	if !response.OK {
+		t.Fatalf("companion chat.start failed: %#v", response)
+	}
+	blob := strings.Join(texts, "")
+	for _, banned := range []string{"嗯，", "嗨，我在呢", companionOpeningAck("今晚月色如何")} {
+		if banned != "" && strings.Contains(blob, banned) {
+			t.Fatalf("opening ack leaked into stream: %q in %q", banned, blob)
+		}
+	}
+	_ = capturedChatRequest(t, requests)
+}
+
 func TestShouldInjectCompanionToolLeadIn(t *testing.T) {
 	if !shouldInjectCompanionToolLeadIn("", false) {
 		t.Fatal("empty first step should inject")

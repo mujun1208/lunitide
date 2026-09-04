@@ -129,11 +129,50 @@ describe('MeetingPage', () => {
     expect(screen.queryByRole('checkbox', { name: '同时收录本机系统声音' })).not.toBeInTheDocument()
   })
 
-  test('听写与纪要设置 hands the workbench off to Settings', async () => {
+  test('听写与纪要设置 opens an in-page overlay and does not leave the meeting page', async () => {
     const openSettings = vi.fn()
     render(<MeetingPage meetings={bridge()} onOpenSettings={openSettings} />)
     await userEvent.setup().click(await screen.findByRole('button', { name: '听写与纪要设置' }))
-    expect(openSettings).toHaveBeenCalledTimes(1)
+    expect(openSettings).not.toHaveBeenCalled()
+    expect(await screen.findByRole('dialog', { name: '听写与纪要设置' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '← 返回会议' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '开始录制' })).toBeInTheDocument()
+  })
+
+  test('opening settings overlay while recording does not stop capture', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const segment = (seq: number, text: string): MeetingSegmentDTO => ({
+      segmentId: `01ARZ3NDEKTSV4RRFFQ69G5FA${seq}`, meetingId, seq, startedMs: seq * 800, text, createdAt: now,
+    })
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      stop: vi.fn(),
+      append: vi.fn()
+        .mockResolvedValueOnce(segment(1, '先对齐范围'))
+        .mockResolvedValueOnce(segment(2, '确认纪要模型'))
+        .mockResolvedValueOnce(segment(3, '继续逐字记录')),
+    })
+    const handle = speech.handle()
+    speech.start.mockResolvedValue(handle)
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始录制' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    speech.onFinal?.('先对齐范围')
+    speech.onFinal?.('确认纪要模型')
+    speech.onFinal?.('继续逐字记录')
+    expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
+    expect(await screen.findByText('确认纪要模型')).toBeInTheDocument()
+    expect(await screen.findByText('继续逐字记录')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '听写与纪要设置' }))
+    expect(await screen.findByRole('dialog', { name: '听写与纪要设置' })).toBeInTheDocument()
+    expect(screen.getByText('先对齐范围')).toBeInTheDocument()
+    expect(screen.getByText('确认纪要模型')).toBeInTheDocument()
+    expect(screen.getByText('继续逐字记录')).toBeInTheDocument()
+    expect(meetings.stop).not.toHaveBeenCalled()
+    expect(meetings.heartbeat).toHaveBeenCalled()
+    expect(handle.stop).not.toHaveBeenCalled()
+    expect(screen.getByRole('radio', { name: /火山/ })).toBeDisabled()
   })
 
   test('opening history can return to a blank 新纪要 and history can collapse', async () => {

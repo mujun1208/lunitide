@@ -483,6 +483,10 @@ func isCompanionProcess(process string) bool {
 	return name == "lunitide" || name == "lunitide-engine"
 }
 
+func companionWindowTitle(title string) bool {
+	return strings.Contains(title, "Lunitide") || strings.Contains(title, "月伴") || strings.Contains(title, "月汐")
+}
+
 func (s *Service) noteForeground(title, process string) {
 	if isCompanionProcess(process) {
 		return

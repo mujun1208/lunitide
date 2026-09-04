@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,90 @@ func TestGatewayRejectsIncompleteEnvelopeBeforeRPC(t *testing.T) {
 	}
 	if caller.calls != 0 {
 		t.Fatal("incomplete envelope reached RPC")
+	}
+}
+
+func TestReplaceCallerNextCallUsesNewClient(t *testing.T) {
+	poison := &callerStub{err: errors.New("pipe closed: write failed")}
+	ok := &callerStub{}
+	gateway, err := New("https://app.lunitide.local", poison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "project.list")})
+	if !handled || down.OK || down.Error == nil || down.Error.Code != "ENGINE_UNAVAILABLE" || !down.Error.Retryable {
+		t.Fatalf("poisoned caller must stay ENGINE_UNAVAILABLE retryable: %#v", down)
+	}
+	if down.Error.Details == nil || down.Error.Details["reason"] == nil {
+		t.Fatal("ENGINE_UNAVAILABLE must carry a short reason")
+	}
+	gateway.ReplaceCaller(ok)
+	up, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "project.list")})
+	if !handled || !up.OK || ok.calls != 1 {
+		t.Fatalf("ReplaceCaller must route the next call to the new client: handled=%v ok=%v calls=%d resp=%#v", handled, up.OK, ok.calls, up)
+	}
+	if poison.calls != 1 {
+		t.Fatalf("old caller must not keep receiving after replace: poison=%d", poison.calls)
+	}
+}
+
+type blockingCaller struct {
+	started chan struct{}
+	release chan struct{}
+	err     error
+	calls   int
+}
+
+func (c *blockingCaller) Call(_ context.Context, request bridge.Request) (bridge.Response, error) {
+	c.calls++
+	close(c.started)
+	<-c.release
+	if c.err != nil {
+		return bridge.Response{}, c.err
+	}
+	return bridge.Success(request.ID, map[string]string{"status": "ok"}), nil
+}
+
+func TestReplaceCallerConcurrentCallDoesNotPanic(t *testing.T) {
+	slow := &blockingCaller{started: make(chan struct{}), release: make(chan struct{}), err: errors.New("pipe closed")}
+	ok := &callerStub{}
+	gateway, err := New("https://app.lunitide.local", slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := validRequest(t, "project.list")
+	var down bridge.Response
+	var handled bool
+	var panicked any
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			panicked = recover()
+			close(done)
+		}()
+		down, handled = gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: req})
+	}()
+	<-slow.started
+	var wg sync.WaitGroup
+	wg.Add(8)
+	for i := 0; i < 8; i++ {
+		go func() {
+			defer wg.Done()
+			gateway.ReplaceCaller(ok)
+		}()
+	}
+	close(slow.release)
+	wg.Wait()
+	<-done
+	if panicked != nil {
+		t.Fatalf("ReplaceCaller during Call must not panic: %v", panicked)
+	}
+	if !handled || down.OK || down.Error == nil || down.Error.Code != "ENGINE_UNAVAILABLE" || !down.Error.Retryable {
+		t.Fatalf("in-flight Call during replace must stay ENGINE_UNAVAILABLE retryable: %#v", down)
+	}
+	up, next := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "project.list")})
+	if !next || !up.OK || ok.calls < 1 {
+		t.Fatalf("after replace the next Call must use the new client: handled=%v ok=%v calls=%d", next, up.OK, ok.calls)
 	}
 }
 

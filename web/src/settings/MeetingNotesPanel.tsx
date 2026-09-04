@@ -27,7 +27,7 @@ const LISTEN: Record<MeetingListen, { label: string; labelEn: string; desc: stri
   },
 }
 
-export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.JSX.Element {
+export function MeetingNotesPanel({ onSaved, recordingLock = false }: { onSaved?: () => void; recordingLock?: boolean }): React.JSX.Element {
   const zh = useZh()
   const [prefs, setPrefs] = useState<MeetingSettings>(() => loadMeetingSettings())
   const [choices, setChoices] = useState<Array<{ provider: ProviderDTO; model: ModelDTO }>>([])
@@ -45,12 +45,14 @@ export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.
   }, [])
 
   const update = (patch: Partial<MeetingSettings>) => {
+    if (recordingLock && ('listen' in patch || 'modelId' in patch)) return
     setPrefs(current => {
       const next = saveMeetingSettings({ ...current, ...patch })
       onSaved?.()
       return next
     })
   }
+  const lockReason = recordingLock ? (zh ? '本场结束后生效' : 'Applies after this recording') : undefined
 
   return (
     <div className="setting-group meeting-notes-settings">
@@ -60,6 +62,7 @@ export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.
           ? '听写只负责开会时的实时字幕。纪要模型只负责把已经转写出的字整理成摘要和待办。停止后的补转写固定走本机 sherpa，跟听写选择无关；换纪要模型也不会让乱码字幕变准。'
           : 'Listening is live captions only. The notes model only organizes already transcribed text. Catch-up after stop always uses this-PC sherpa.'}
       </p>
+      {recordingLock && <p className="setting-desc" role="status">{lockReason}</p>}
       <ChoiceTiles
         legend={zh ? '实时听写' : 'Live captions'}
         name="meeting-listen"
@@ -69,7 +72,9 @@ export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.
           value,
           label: zh ? LISTEN[value].label : LISTEN[value].labelEn,
           desc: zh ? LISTEN[value].desc : LISTEN[value].descEn,
-          ...(value === 'volc' && !hasVoice
+          ...(recordingLock
+            ? { disabled: true, disabledReason: lockReason ?? '' }
+            : value === 'volc' && !hasVoice
             ? { disabled: true, disabledReason: zh ? '需先在「模型与供应商」配置火山 seed-asr 语音模型' : 'Configure a Volcengine seed-asr voice model first' }
             : {}),
         }))}
@@ -90,7 +95,7 @@ export function MeetingNotesPanel({ onSaved }: { onSaved?: () => void }): React.
               : 'After you stop, this LLM turns the transcript into a summary and action items. It does not transcribe. Empty uses the default enabled chat model.'}
           </div>
         </div>
-        <select className="setting-select" aria-label={zh ? '纪要模型' : 'Notes model'} value={prefs.modelId} onChange={e => update({ modelId: e.target.value })}>
+        <select className="setting-select" aria-label={zh ? '纪要模型' : 'Notes model'} value={prefs.modelId} disabled={recordingLock} title={lockReason} onChange={e => update({ modelId: e.target.value })}>
           <option value="">{zh ? '自动（已启用的对话模型）' : 'Auto (enabled chat model)'}</option>
           {choices.map(item => (
             <option key={`${item.provider.id}:${item.model.modelId}`} value={item.model.modelId}>

@@ -7,8 +7,8 @@ import (
 )
 
 func TestCreateTurnFailureNotice(t *testing.T) {
-	if got := createTurnFailureNotice([]string{"desktop.open"}, ""); !strings.Contains(got, "还没开始播放") {
-		t.Fatalf("desktop-only failure = %q", got)
+	if got := createTurnFailureNotice([]string{"desktop.open"}, ""); got != "" {
+		t.Fatalf("successful open-only must not look like failure: %q", got)
 	}
 	if got := createTurnFailureNotice([]string{"media.play"}, ""); !strings.Contains(got, "没能开始播放") {
 		t.Fatalf("media failure = %q", got)

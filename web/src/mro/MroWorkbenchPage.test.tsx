@@ -109,9 +109,13 @@ it('promotes the six domains to first-class nav and keeps honest empty states', 
       />
     </LanguageProvider>,
   )
-  // Utilities group keeps checklist/audit; the four ops domains are first-class now.
+  // Five first-level groups; leaves appear when the group is open.
   expect(await screen.findByText('在带受控引用的机务回答下方，点击「下载检查单 JSON」。')).toBeInTheDocument()
-  for (const name of ['手册', '排故', '到期', '工具化工品', '航材', '计划', '检查单', '审计', '机队']) {
+  for (const name of ['手册分组', '机务维修分组', '航材分组', '工具化工品分组', '工具分组']) {
+    expect(screen.getByRole('button', { name })).toHaveAttribute('aria-expanded')
+  }
+  expect(screen.getByRole('button', { name: '工具分组' })).toHaveAttribute('aria-expanded', 'true')
+  for (const name of ['排故', '到期', '计划', '检查单', '审计', '机队']) {
     expect(screen.getByRole('button', { name })).toBeInTheDocument()
   }
   fireEvent.click(screen.getByRole('button', { name: '审计' }))
@@ -124,6 +128,28 @@ it('promotes the six domains to first-class nav and keeps honest empty states', 
   expect(screen.getByText(/还没有本机航材台账/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '计划' }))
   expect(screen.getByText(/还没有工作包/)).toBeInTheDocument()
+})
+
+it('keeps five collapsible rail groups and selects 计划 without changing Ask expert mapping', async () => {
+  render(
+    <LanguageProvider value="zh-CN">
+      <MroWorkbenchPage
+        enabled
+        initialRail="parts"
+        mroExpertId="01ARZ3NDEKTSV4RRFFQ69G5FAX"
+        opsExpertIds={{ 'mx-planning-expert': '01ARZ3NDEKTSV4RRFFQ69G5FAW' }}
+        aircraftList={async () => ({ items: [] })}
+        manualList={async () => ({ items: [] })}
+      />
+    </LanguageProvider>,
+  )
+  const partsGroup = await screen.findByRole('button', { name: '航材分组' })
+  expect(partsGroup).toHaveAttribute('aria-expanded', 'true')
+  const plan = screen.getByRole('button', { name: '计划' })
+  expect(plan).toHaveAttribute('aria-selected', 'false')
+  fireEvent.click(plan)
+  expect(plan).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('button', { name: '问月汐' })).toBeInTheDocument()
 })
 
 it('exposes domain sub-tabs for due, tools, parts and plan', async () => {
