@@ -1,3 +1,10 @@
+//go:build !race
+
+// cmd/desktop test binaries pull lunitide.syso into the PE .rsrc section.
+// Under CGO+race the external linker (gcc/ld) fails with
+// "relocation truncated to fit: IMAGE_REL_AMD64_ADDR32 against `.rsrc'".
+// Non-race Quality still runs these tests; the race job skips the package.
+
 package main
 
 import (

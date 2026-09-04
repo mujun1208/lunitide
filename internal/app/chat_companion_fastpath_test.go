@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
@@ -267,7 +269,9 @@ func TestCompanionChatStartDropsFailedAssistantBeforeNewUser(t *testing.T) {
 }
 
 func TestCompanionChatStartDoesNotEmitOpeningAckDelta(t *testing.T) {
+	var mu sync.Mutex
 	var texts []string
+	done := make(chan struct{})
 	requests := make(chan gateway.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
@@ -275,21 +279,38 @@ func TestCompanionChatStartDoesNotEmitOpeningAckDelta(t *testing.T) {
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"messages":[{"role":"user","content":"今晚月色如何"}]}`
 	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(ev bridge.Event) error {
+		mu.Lock()
 		if ev.Delta != nil {
 			texts = append(texts, ev.Delta.Text)
+		}
+		terminal := ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed || ev.Type == bridge.EventCancelled
+		mu.Unlock()
+		if terminal {
+			select {
+			case <-done:
+			default:
+				close(done)
+			}
 		}
 		return nil
 	})
 	if !response.OK {
 		t.Fatalf("companion chat.start failed: %#v", response)
 	}
+	_ = capturedChatRequest(t, requests)
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for stream terminal")
+	}
+	mu.Lock()
 	blob := strings.Join(texts, "")
+	mu.Unlock()
 	for _, banned := range []string{"嗯，", "嗨，我在呢", companionOpeningAck("今晚月色如何")} {
 		if banned != "" && strings.Contains(blob, banned) {
 			t.Fatalf("opening ack leaked into stream: %q in %q", banned, blob)
 		}
 	}
-	_ = capturedChatRequest(t, requests)
 }
 
 func TestShouldInjectCompanionToolLeadIn(t *testing.T) {
