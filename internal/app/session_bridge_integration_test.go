@@ -157,11 +157,20 @@ func TestSessionBridgeReclaimsEmptyDraftsAtCapacity(t *testing.T) {
 			t.Fatalf("draft %d: %#v", i, response)
 		}
 	}
+	// Reclaim lists and deletes up to 100 leftover drafts, then creates
+	// again. The default 3s test envelope expires under -race before that
+	// finishes (Windows CGO Quality: OK:false after 6.45s wall). session.create
+	// accepts up to DefaultMaxDeadlineMS.
 	r := validRequest("session.create", `{"projectId":"`+parent+`","title":"今晚月色如何"}`)
+	r.DeadlineMS = bridge.DefaultMaxDeadlineMS
 	r.IdempotencyKey = "draft-reclaim"
 	response := e.Handle(context.Background(), r)
 	if !response.OK {
-		t.Fatalf("reclaim should free a leftover 新对话: %#v", response)
+		code, msg := "", ""
+		if response.Error != nil {
+			code, msg = response.Error.Code, response.Error.Message
+		}
+		t.Fatalf("reclaim should free a leftover 新对话: ok=false code=%s msg=%q", code, msg)
 	}
 }
 
