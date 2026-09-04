@@ -66,6 +66,7 @@ jobs:
           & $gcc.FullName --version
         # Race instrumentation costs this tree about 23x, which puts the
         # heaviest packages near an hour. Matches the Quality workflow.
+        # cmd/desktop tests are //go:build !race — see quality.yml.
       - run: go test -race -timeout 90m ./...
 
   x64-release-candidate:
