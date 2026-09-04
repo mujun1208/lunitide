@@ -82,6 +82,57 @@ func TestCreateReplayConflictAndDistinctAuditIDs(t *testing.T) {
 	}
 }
 
+type draftMemory struct {
+	memory
+	ids     []string
+	deleted []string
+	listErr error
+	delErr  error
+}
+
+func (m *draftMemory) ListEmptyDraftSessionIDs(context.Context, string, []string, int) ([]string, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return append([]string(nil), m.ids...), nil
+}
+
+func (m *draftMemory) DeleteSession(_ context.Context, id string) error {
+	if m.delErr != nil {
+		return m.delErr
+	}
+	m.deleted = append(m.deleted, id)
+	return nil
+}
+
+func TestReclaimEmptyDraftsDeletesListedLeftovers(t *testing.T) {
+	m := &draftMemory{
+		memory: memory{records: map[string]providerapp.Record{}},
+		ids:    []string{"01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"},
+	}
+	s := New(m, m)
+	s.SetDeleter(m)
+	freed, err := s.ReclaimEmptyDrafts(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", 2)
+	if err != nil || freed != 2 {
+		t.Fatalf("freed=%d err=%v", freed, err)
+	}
+	if len(m.deleted) != 2 || m.deleted[0] != m.ids[0] || m.deleted[1] != m.ids[1] {
+		t.Fatalf("deleted=%v", m.deleted)
+	}
+}
+
+func TestReclaimEmptyDraftsNoopWithoutDeleterOrDrafts(t *testing.T) {
+	m := &draftMemory{memory: memory{records: map[string]providerapp.Record{}}}
+	s := New(m, m)
+	if n, err := s.ReclaimEmptyDrafts(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", 1); n != 0 || err != nil {
+		t.Fatalf("no deleter: n=%d err=%v", n, err)
+	}
+	s.SetDeleter(m)
+	if n, err := s.ReclaimEmptyDrafts(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", 1); n != 0 || err != nil {
+		t.Fatalf("no drafts: n=%d err=%v", n, err)
+	}
+}
+
 func TestInvalidIdempotencyKeys(t *testing.T) {
 	m := &memory{records: map[string]providerapp.Record{}}
 	s := New(m, m)
