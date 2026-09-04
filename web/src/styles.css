@@ -1148,6 +1148,53 @@ html[data-theme="light"] .org-roadmap-card .screen-route{background:#fff}
 .skill-center-error.is-failed{color:#ff8b8b}
 .mro-manual-table{width:100%;border-collapse:collapse;font-size:13px}
 .mro-manual-table th,.mro-manual-table td{padding:8px 6px;border-bottom:1px solid var(--rule);text-align:left}
+/* Six-domain workbench shell */
+.mro-rail-group{margin:12px 0 2px;padding:0 10px;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.mro-rail button[aria-selected="true"]{position:relative;font-weight:600}
+.mro-rail button[aria-selected="true"]::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--tide1)}
+.mro-domain{display:flex;flex-direction:column;min-height:0;height:100%}
+.mro-domain-head{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+.view-subtitle{margin:0;font-size:17px;font-weight:600;color:var(--ink)}
+.mro-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;padding:0 7px;border-radius:999px;background:var(--bg2);border:1px solid var(--rule);color:var(--muted);font-size:12px}
+.mro-domain-actions{margin-left:auto;display:flex;gap:8px}
+.mro-subtabs{display:inline-flex;padding:4px;margin:0 0 14px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2);gap:2px;flex-wrap:wrap}
+.mro-subtabs button{padding:6px 12px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:13px}
+.mro-subtabs button[aria-selected="true"]{background:var(--bg);color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.mro-domain-body{min-height:0;overflow:auto}
+.mro-ops-rail{display:flex;flex-direction:column;gap:10px}
+.mro-loading{color:var(--muted);font-size:12px;margin:0}
+.mro-todo-flag{margin:0;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--rule);color:var(--ink);font-size:12px}
+.mro-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.5;border:1px solid transparent}
+.mro-badge.is-ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,transparent);border-color:color-mix(in srgb,var(--ok) 32%,transparent)}
+.mro-badge.is-warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 16%,transparent);border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+.mro-badge.is-err{color:var(--err);background:color-mix(in srgb,var(--err) 16%,transparent);border-color:color-mix(in srgb,var(--err) 34%,transparent)}
+.mro-datasource{color:var(--ink)}
+.mro-import-preview{margin:0 0 12px;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5}
+.mro-import-hint{margin:0 0 12px;color:var(--muted);font-size:12px;line-height:1.5}
+.mro-lot-list,.mro-wp-list,.mro-violations{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.mro-lot-list li,.mro-wp-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}
+.mro-lot-list button,.mro-wp-list button{flex:none}
+.mro-violations li{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:13px}
+.mro-constraints{display:flex;flex-direction:column;gap:12px}
+.mro-constraint-legend{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.mro-constraint-legend li{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2);font-size:12.5px;color:var(--ink)}
+.mro-constraint-ok{margin:0;color:var(--muted);font-size:12px}
+.mro-kit-list{display:flex;flex-direction:column;gap:8px}
+.mro-kit-list p{display:flex;align-items:center;gap:8px;margin:0}
+.mro-quick-form{display:flex;flex-direction:column;gap:12px}
+.mro-quick-form label{display:grid;gap:6px;font-size:13px;color:var(--ink)}
+.mro-quick-form label>span{color:var(--muted);font-size:12px}
+.mro-quick-form input,.mro-quick-form select,.mro-quick-form textarea{width:100%;box-sizing:border-box;background:var(--bg);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:8px;font-size:13px}
+.mro-quick-form textarea{min-height:90px;resize:vertical}
+.mro-quick-form .mro-form-check{grid-template-columns:1fr auto;align-items:center}
+.mro-quick-form .mro-form-check input{width:auto;justify-self:end}
+.mro-form-intro{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+.mro-form-hint{color:var(--muted);font-size:11px}
+.mro-genealogy-list,.mro-pirep-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.mro-genealogy-list li,.mro-pirep-list li{padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}
+.mro-pirep-list li{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mro-genealogy-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.mro-life-events{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.6}
 .expert-persona-card{display:flex;align-items:center;gap:12px;margin:10px 0 14px;padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:rgba(14,28,48,.45)}
 .expert-persona-card .skill-market-glyph{width:40px;height:40px;font-size:22px}
 .expert-persona-card b{display:block;font-size:15px}

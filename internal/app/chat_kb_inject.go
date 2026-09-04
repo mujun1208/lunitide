@@ -117,7 +117,7 @@ func (e *Engine) lookupExpertIdentity(ctx context.Context, expertID string) (nam
 }
 
 func isMROColleague(name, catalogID string) bool {
-	return catalogID == "mro-expert" || name == "航空机务维修专家" || name == "航空机务专家"
+	return m8app.IsOpsColleague(name, catalogID)
 }
 
 func locatorStringField(raw, key string) (string, bool) {

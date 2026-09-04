@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.schedule.upsert.schema.json",
+  "title": "mro.schedule.upsert payload",
+  "x-method": "mro.schedule.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tailNo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "checkName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "startOn": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    },
+    "endOn": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    },
+    "hours": {
+      "type": "number",
+      "minimum": 0
+    },
+    "skill": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "tailNo",
+    "checkName"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "tailNo": "B-1",
+        "checkName": "A-CHK",
+        "hours": 10,
+        "skill": "SM"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

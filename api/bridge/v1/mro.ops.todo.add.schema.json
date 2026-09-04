@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.ops.todo.add.schema.json",
+  "title": "mro.ops.todo.add payload",
+  "x-method": "mro.ops.todo.add",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "kitId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "detail": { "type": "string", "minLength": 0, "maxLength": 256 }
+  },
+  "required": ["kitId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "id": { "type": "string", "maxLength": 26 }
+    },
+    "required": ["ok"]
+  },
+  "x-examples": {
+    "positive": [{ "kitId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "detail": "SEAL-1" }],
+    "negative": [{ "unexpected": true }]
+  }
+}

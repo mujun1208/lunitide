@@ -63,6 +63,10 @@ it('shows 系统架构师专家 with the other conversation specialists in the l
   expect(CONVERSATION_EXPERTS.some(item => item.id === 'hardware-expert' && item.name === '硬件配置专家')).toBe(true)
   expect(CONVERSATION_EXPERTS.some(item => item.id === 'dev-expert' && item.name === '开发专家')).toBe(true)
   expect(CONVERSATION_EXPERTS.some(item => item.id === 'mro-expert' && item.name === '航空机务维修专家')).toBe(true)
+  expect(CONVERSATION_EXPERTS.some(item => item.id === 'uas-airworthiness-expert' && item.name === '低空适航专家')).toBe(true)
+  expect(CONVERSATION_EXPERTS.some(item => item.id === 'tooling-chemical-expert' && item.name === '航空工具化工品专家')).toBe(true)
+  expect(CONVERSATION_EXPERTS.some(item => item.id === 'parts-expert' && item.name === '航空航材专家')).toBe(true)
+  expect(CONVERSATION_EXPERTS.some(item => item.id === 'mx-planning-expert' && item.name === '航空维修计划专家')).toBe(true)
   expect(CONVERSATION_EXPERTS.some(item => item.id === 'standards-expert' && item.name === '开发规范专家')).toBe(true)
   expect(CONVERSATION_EXPERTS.some(item => item.id === 'ui-designer' && item.name === 'UI专家')).toBe(true)
   for (const item of CONVERSATION_EXPERTS) {

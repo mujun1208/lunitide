@@ -90,13 +90,17 @@ func ConversationExpertByName(name string) (CatalogItem, bool) {
 	if name == "" {
 		return CatalogItem{}, false
 	}
-	// Pre-0.4.60 display name; catalog id stayed mro-expert.
-	if name == "航空机务专家" {
-		return ConversationExpertByID("mro-expert")
+	if id, ok := opsColleagueNames[name]; ok {
+		return ConversationExpertByID(id)
 	}
 	for _, item := range ConversationExperts() {
-		if item.Name == name || item.DisplayName == name {
+		if item.Name == name || item.DisplayName == name || item.ID == name {
 			return item, true
+		}
+		for _, alias := range conversationExpertNameAliases(item.ID) {
+			if alias == name {
+				return item, true
+			}
 		}
 	}
 	return CatalogItem{}, false
@@ -200,7 +204,11 @@ var conversationIntentAliases = map[string][]string{
 	"pm-expert":        {"prd", "用户故事", "产品经理"},
 	"architect-expert": {"系统架构", "c4"},
 	"db-expert":        {"数据库", "schema", "建表"},
-	"mro-expert":       {"机务", "维修手册", "amm", "飞机维修"},
+	"mro-expert":                {"机务", "维修手册", "amm", "飞机维修"},
+	"uas-airworthiness-expert":  {"低空", "无人机", "evtol", "适航证", "ccar-92", "实名登记"},
+	"tooling-chemical-expert":   {"扭矩扳手", "校准", "sds", "密封剂", "货架期", "套件备妥"},
+	"parts-expert":              {"航材", "aog", "替代件", "8130", "库存", "采购"},
+	"mx-planning-expert":        {"维修计划", "定检窗口", "c检", "c 检", "工作包", "mpd", "msg-3"},
 }
 
 func conversationExpertIntentScore(item CatalogItem, query string) int {
@@ -313,8 +321,17 @@ func ConversationExpertNamesInText(text string) []string {
 	var names []string
 	seen := map[string]bool{}
 	for _, item := range ConversationExperts() {
-		if strings.Contains(text, item.Name) || strings.Contains(text, item.ID) ||
-			(item.DisplayName != "" && strings.Contains(text, item.DisplayName)) {
+		hit := strings.Contains(text, item.Name) || strings.Contains(text, item.ID) ||
+			(item.DisplayName != "" && strings.Contains(text, item.DisplayName))
+		if !hit {
+			for _, alias := range conversationExpertNameAliases(item.ID) {
+				if strings.Contains(text, alias) {
+					hit = true
+					break
+				}
+			}
+		}
+		if hit {
 			if seen[item.Name] {
 				continue
 			}

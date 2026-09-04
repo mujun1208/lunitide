@@ -23,7 +23,7 @@ describe('PM phase expert seed', () => {
     expect(isConversationSpecialistName('报告编写专家')).toBe(true)
     expect(isConversationSpecialistName('产品经理专家')).toBe(true)
     expect(isConversationSpecialistName('AI 工程师')).toBe(false)
-    expect(CONVERSATION_EXPERTS).toHaveLength(14)
+    expect(CONVERSATION_EXPERTS).toHaveLength(18)
     const row = {
       phaseKey: 'REQUIREMENT_DEFINITION' as const,
       defaults: [

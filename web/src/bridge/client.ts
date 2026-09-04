@@ -180,7 +180,7 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.metadata.set'|'session.experts.set'|'mro.aircraft.upsert'|'mro.manual.register'|'datasource.create'|'datasource.probe'|'datasource.bind'|'datasource.disable'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'expert.skills.set'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'|'im.inbound.deliver'
+export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.metadata.set'|'session.experts.set'|'mro.aircraft.upsert'|'mro.manual.register'|'mro.tool.checkout'|'mro.plan.publish'|'mro.tool.upsert'|'mro.tool.return'|'mro.due.upsert'|'mro.util.record'|'mro.lot.upsert'|'mro.lot.use'|'mro.kit.upsert'|'mro.parts.stock.upsert'|'mro.alternate.upsert'|'mro.workpackage.build'|'mro.interval.upsert'|'mro.interval.propose'|'mro.schedule.upsert'|'mro.capacity.upsert'|'mro.component.upsert'|'mro.life.event'|'mro.pirep.draft'|'mro.pirep.confirm'|'mro.aog.intake'|'mro.aog.confirm'|'mro.po.draft'|'mro.po.confirm'|'mro.chem.issue'|'mro.ops.todo.add'|'datasource.create'|'datasource.probe'|'datasource.bind'|'datasource.disable'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'expert.skills.set'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'|'im.inbound.deliver'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -222,7 +222,7 @@ export interface MessageBridge { list(payload:MessageListPayload):Promise<Messag
 export interface UIThemeBridge { set(payload:UiThemeSetPayload):Promise<UiThemeSetResult> }
 export interface SystemSettingsBridge { open(payload:SystemSettingsOpenPayload):Promise<SystemSettingsOpenResult> }
 export interface BrowserBridge { open(payload:BrowserOpenPayload):Promise<BrowserOpenResult>; close():Promise<BrowserCloseResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.metadata.set' as BridgeMethod,'session.experts.set','mro.aircraft.upsert' as BridgeMethod,'mro.manual.register' as BridgeMethod,'datasource.create' as BridgeMethod,'datasource.probe' as BridgeMethod,'datasource.bind' as BridgeMethod,'datasource.disable' as BridgeMethod,'message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','expert.skills.set','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update','im.inbound.deliver'])
+const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.metadata.set' as BridgeMethod,'session.experts.set','mro.aircraft.upsert' as BridgeMethod,'mro.manual.register' as BridgeMethod,'mro.tool.checkout' as BridgeMethod,'mro.plan.publish' as BridgeMethod,'mro.tool.upsert' as BridgeMethod,'mro.tool.return' as BridgeMethod,'mro.due.upsert' as BridgeMethod,'mro.util.record' as BridgeMethod,'mro.lot.upsert' as BridgeMethod,'mro.lot.use' as BridgeMethod,'mro.kit.upsert' as BridgeMethod,'mro.parts.stock.upsert' as BridgeMethod,'mro.alternate.upsert' as BridgeMethod,'mro.workpackage.build' as BridgeMethod,'mro.interval.upsert' as BridgeMethod,'mro.interval.propose' as BridgeMethod,'mro.schedule.upsert' as BridgeMethod,'mro.capacity.upsert' as BridgeMethod,'mro.component.upsert' as BridgeMethod,'mro.life.event' as BridgeMethod,'mro.pirep.draft' as BridgeMethod,'mro.pirep.confirm' as BridgeMethod,'mro.aog.intake' as BridgeMethod,'mro.aog.confirm' as BridgeMethod,'mro.po.draft' as BridgeMethod,'mro.po.confirm' as BridgeMethod,'mro.chem.issue' as BridgeMethod,'mro.ops.todo.add' as BridgeMethod,'datasource.create' as BridgeMethod,'datasource.probe' as BridgeMethod,'datasource.bind' as BridgeMethod,'datasource.disable' as BridgeMethod,'message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','expert.skills.set','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update','im.inbound.deliver'])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -1545,13 +1545,68 @@ export type MroManual = {manualId:string;title?:string;docType:string;revision:s
 export type MroChecklistCite={revision?:string;ata?:string;locator?:string;quote?:string;expertName?:string}
 export type MroChecklist={banner:string;steps:Array<{n:number;text:string;revision:string;ata?:string;expertName?:string}>}
 export type MroAuditRow={id:string;action:string;resourceType:string;resourceId:string;createdAt:string}
+export type MroDueRow={id:string;kind:string;scope?:string;limitValue?:number;usedValue?:number;usedMissing?:boolean;dueAt?:string;remaining?:number;state:string;label:string}
+export type MroToolRow={id:string;toolNo:string;sn?:string;location?:string;holder?:string;calibDue?:string;status?:string;checkoutBlocked?:string}
+export type MroLotRow={id:string;lotNo:string;parentLotId?:string;qty?:number;expires?:string;tails:string[]}
+export type MroKitRow={id:string;name:string;missing:string[]}
+export type MroStockRow={pn:string;qty:number;source:string}
+export type MroAlternateRow={pnFrom:string;pnTo:string;certOk:boolean;effectivity?:string;qty?:number;accepted:boolean}
+export type MroWorkPackageRow={id:string;title:string;sources:string[];hours?:number}
+export type MroOpsTodoRow={id:string;kind:string;ref:string;status:string;detail?:string}
+export type MroComponentRow={id:string;sn:string;pn:string;lifeCount:number;installed:boolean;tailNo?:string;events:Array<{kind:string;occurredAt:string;note?:string}>}
+export type MroPirepRow={id:string;tailNo:string;body:string;state:string;createdAt:string}
+export type MroAogRow={id:string;tailNo:string;pn?:string;qty?:string;note?:string;state:string}
+export type MroPoRow={id:string;pn:string;qty?:string;price?:string;state:string}
+export type MroTriggerRow={scopeId:string;kind:string;state:string;action:string;category?:string}
+export type MroIntervalRow={taskKey:string;intervalValue:number;unit:string;sourceCite?:string}
 export interface MroBridge {
   aircraftList(payload?:object):Promise<{items:MroAircraft[]}>
   aircraftUpsert(payload:{aircraftId?:string;tailNo:string;msn?:string;model:string;config?:string},options?:MutationOptions<{aircraftId?:string;tailNo:string;msn?:string;model:string;config?:string}>):Promise<MroAircraft>
   auditList(payload?:{limit?:number}):Promise<{items:MroAuditRow[]}>
   checklistBuild(payload:{steps:string[];cites?:MroChecklistCite[]}):Promise<MroChecklist>
+  dueList(payload?:object):Promise<{items:MroDueRow[]}>
+  kitStaging(payload?:object):Promise<{items:MroKitRow[]}>
+  lotTrace(payload?:{lotId?:string}):Promise<{items:MroLotRow[]}>
   manualList(payload?:object):Promise<{items:MroManual[]}>
   manualRegister(payload:{title?:string;docType:string;revision:string;status:string;ata?:string;documents:Array<{documentId:string;partNo:number}>},options?:MutationOptions<object>):Promise<MroManual>
+  opsTodoList(payload?:object):Promise<{items:MroOpsTodoRow[]}>
+  partsStockList(payload?:{config?:string}):Promise<{items:MroStockRow[];alternates:MroAlternateRow[]}>
+  planConstraintCheck(payload?:object):Promise<{violations:Array<{code:string;detail:string}>}>
+  planList(payload?:object):Promise<{items:MroWorkPackageRow[]}>
+  planPublish(payload:{packageId:string},options?:MutationOptions<{packageId:string}>):Promise<{todos:MroOpsTodoRow[]}>
+  toolCheckout(payload:{toolId:string;holder:string},options?:MutationOptions<{toolId:string;holder:string}>):Promise<{ok:boolean;reason?:string}>
+  toolList(payload?:object):Promise<{items:MroToolRow[]}>
+  toolUpsert(payload:{toolNo:string;sn?:string;location?:string;calibDue?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  toolReturn(payload:{toolId:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  dueUpsert(payload:{id?:string;scopeId:string;kind:string;limitValue?:number;dueAt?:string;source?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  utilRecord(payload:{scopeId:string;hours?:number;cycles?:number;batteryCycles?:number},options?:MutationOptions<object>):Promise<{items:MroDueRow[]}>
+  dueRecompute(payload?:object):Promise<{items:MroDueRow[]}>
+  lotUpsert(payload:{lotNo:string;parentLotId?:string;qty?:number;expires?:string;sdsDoc?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  lotUse(payload:{lotId:string;tailNo?:string;wo?:string;tech?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  kitUpsert(payload:{name:string;items?:Array<{pn:string;required?:number;onHand?:number}>},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  partsStockUpsert(payload:{pn:string;qty:number;source?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  alternateUpsert(payload:{pnFrom:string;pnTo:string;certOk:boolean;effectivity?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  workpackageBuild(payload:{title?:string;cards?:string[];ads?:string[];mels?:string[];open?:string[]},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  intervalUpsert(payload:{taskKey:string;intervalValue:number;unit:string;sourceCite?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  intervalList(payload?:object):Promise<{items:MroIntervalRow[]}>
+  intervalPropose(payload:{taskKey:string;mpdCite:string;fleetCite:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  scheduleUpsert(payload:{tailNo:string;checkName:string;startOn?:string;endOn?:string;hours?:number;skill?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  capacityUpsert(payload:{skill:string;hours:number},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  componentUpsert(payload:{sn:string;pn:string;life?:number},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  componentList(payload?:object):Promise<{items:MroComponentRow[]}>
+  lifeEvent(payload:{componentId:string;kind:string;occurredAt:string;note?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  pirepDraft(payload:{tailNo:string;body:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  pirepList(payload?:object):Promise<{items:MroPirepRow[]}>
+  aogIntake(payload:{text:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  aogList(payload?:object):Promise<{items:MroAogRow[]}>
+  poDraft(payload:{pn:string;qty?:string;price?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  poList(payload?:object):Promise<{items:MroPoRow[]}>
+  triggerList(payload?:object):Promise<{items:MroTriggerRow[]}>
+  chemIssue(payload:{lotId:string;qty:number;tailNo?:string;wo?:string;tech?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  opsTodoAdd(payload:{kitId:string;detail?:string},options?:MutationOptions<object>):Promise<{ok:boolean;id?:string}>
+  pirepConfirm(payload:{id:string;state:'confirmed'|'rejected'},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  aogConfirm(payload:{id:string;state:'confirmed'|'rejected'},options?:MutationOptions<object>):Promise<{ok:boolean}>
+  poConfirm(payload:{id:string;state:'confirmed'|'rejected'},options?:MutationOptions<object>):Promise<{ok:boolean}>
 }
 export function createMroBridge(transport:WebViewTransport=webview(),deadlineMs=8_000):MroBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
@@ -1560,8 +1615,49 @@ export function createMroBridge(transport:WebViewTransport=webview(),deadlineMs=
     aircraftUpsert:(p,o)=>core.request('mro.aircraft.upsert',p,deadlineMs,o?.attempt),
     auditList:p=>core.request('mro.audit.list',p??{}),
     checklistBuild:p=>core.request('mro.checklist.build',p),
+    dueList:p=>core.request('mro.due.list',p??{}),
+    kitStaging:p=>core.request('mro.kit.staging',p??{}),
+    lotTrace:p=>core.request('mro.lot.trace',p??{}),
     manualList:p=>core.request('mro.manual.list',p??{}),
     manualRegister:(p,o)=>core.request('mro.manual.register',p,deadlineMs,o?.attempt),
+    opsTodoList:p=>core.request('mro.ops.todo.list',p??{}),
+    partsStockList:p=>core.request('mro.parts.stock.list',p??{}),
+    planConstraintCheck:p=>core.request('mro.plan.constraint.check',p??{}),
+    planList:p=>core.request('mro.plan.list',p??{}),
+    planPublish:(p,o)=>core.request('mro.plan.publish',p,deadlineMs,o?.attempt),
+    toolCheckout:(p,o)=>core.request('mro.tool.checkout',p,deadlineMs,o?.attempt),
+    toolList:p=>core.request('mro.tool.list',p??{}),
+    toolUpsert:(p,o)=>core.request('mro.tool.upsert',p,deadlineMs,o?.attempt),
+    toolReturn:(p,o)=>core.request('mro.tool.return',p,deadlineMs,o?.attempt),
+    dueUpsert:(p,o)=>core.request('mro.due.upsert',p,deadlineMs,o?.attempt),
+    utilRecord:(p,o)=>core.request('mro.util.record',p,deadlineMs,o?.attempt),
+    dueRecompute:p=>core.request('mro.due.recompute',p??{}),
+    lotUpsert:(p,o)=>core.request('mro.lot.upsert',p,deadlineMs,o?.attempt),
+    lotUse:(p,o)=>core.request('mro.lot.use',p,deadlineMs,o?.attempt),
+    kitUpsert:(p,o)=>core.request('mro.kit.upsert',p,deadlineMs,o?.attempt),
+    partsStockUpsert:(p,o)=>core.request('mro.parts.stock.upsert',p,deadlineMs,o?.attempt),
+    alternateUpsert:(p,o)=>core.request('mro.alternate.upsert',p,deadlineMs,o?.attempt),
+    workpackageBuild:(p,o)=>core.request('mro.workpackage.build',p,deadlineMs,o?.attempt),
+    intervalUpsert:(p,o)=>core.request('mro.interval.upsert',p,deadlineMs,o?.attempt),
+    intervalList:p=>core.request('mro.interval.list',p??{}),
+    intervalPropose:(p,o)=>core.request('mro.interval.propose',p,deadlineMs,o?.attempt),
+    scheduleUpsert:(p,o)=>core.request('mro.schedule.upsert',p,deadlineMs,o?.attempt),
+    capacityUpsert:(p,o)=>core.request('mro.capacity.upsert',p,deadlineMs,o?.attempt),
+    componentUpsert:(p,o)=>core.request('mro.component.upsert',p,deadlineMs,o?.attempt),
+    componentList:p=>core.request('mro.component.list',p??{}),
+    lifeEvent:(p,o)=>core.request('mro.life.event',p,deadlineMs,o?.attempt),
+    pirepDraft:(p,o)=>core.request('mro.pirep.draft',p,deadlineMs,o?.attempt),
+    pirepList:p=>core.request('mro.pirep.list',p??{}),
+    aogIntake:(p,o)=>core.request('mro.aog.intake',p,deadlineMs,o?.attempt),
+    aogList:p=>core.request('mro.aog.list',p??{}),
+    poDraft:(p,o)=>core.request('mro.po.draft',p,deadlineMs,o?.attempt),
+    poList:p=>core.request('mro.po.list',p??{}),
+    triggerList:p=>core.request('mro.trigger.list',p??{}),
+    chemIssue:(p,o)=>core.request('mro.chem.issue',p,deadlineMs,o?.attempt),
+    opsTodoAdd:(p,o)=>core.request('mro.ops.todo.add',p,deadlineMs,o?.attempt),
+    pirepConfirm:(p,o)=>core.request('mro.pirep.confirm',p,deadlineMs,o?.attempt),
+    aogConfirm:(p,o)=>core.request('mro.aog.confirm',p,deadlineMs,o?.attempt),
+    poConfirm:(p,o)=>core.request('mro.po.confirm',p,deadlineMs,o?.attempt),
   }
 }
 let mroSingleton:MroBridge|undefined
@@ -1571,8 +1667,49 @@ export const mroBridge:MroBridge={
   aircraftUpsert:(p,o)=>{try{return getMroBridge().aircraftUpsert(p,o)}catch(error){return Promise.reject(error)}},
   auditList:p=>{try{return getMroBridge().auditList(p)}catch(error){return Promise.reject(error)}},
   checklistBuild:p=>{try{return getMroBridge().checklistBuild(p)}catch(error){return Promise.reject(error)}},
+  dueList:p=>{try{return getMroBridge().dueList(p)}catch(error){return Promise.reject(error)}},
+  kitStaging:p=>{try{return getMroBridge().kitStaging(p)}catch(error){return Promise.reject(error)}},
+  lotTrace:p=>{try{return getMroBridge().lotTrace(p)}catch(error){return Promise.reject(error)}},
   manualList:p=>{try{return getMroBridge().manualList(p)}catch(error){return Promise.reject(error)}},
   manualRegister:(p,o)=>{try{return getMroBridge().manualRegister(p,o)}catch(error){return Promise.reject(error)}},
+  opsTodoList:p=>{try{return getMroBridge().opsTodoList(p)}catch(error){return Promise.reject(error)}},
+  partsStockList:p=>{try{return getMroBridge().partsStockList(p)}catch(error){return Promise.reject(error)}},
+  planConstraintCheck:p=>{try{return getMroBridge().planConstraintCheck(p)}catch(error){return Promise.reject(error)}},
+  planList:p=>{try{return getMroBridge().planList(p)}catch(error){return Promise.reject(error)}},
+  planPublish:(p,o)=>{try{return getMroBridge().planPublish(p,o)}catch(error){return Promise.reject(error)}},
+  toolCheckout:(p,o)=>{try{return getMroBridge().toolCheckout(p,o)}catch(error){return Promise.reject(error)}},
+  toolList:p=>{try{return getMroBridge().toolList(p)}catch(error){return Promise.reject(error)}},
+  toolUpsert:(p,o)=>{try{return getMroBridge().toolUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  toolReturn:(p,o)=>{try{return getMroBridge().toolReturn(p,o)}catch(error){return Promise.reject(error)}},
+  dueUpsert:(p,o)=>{try{return getMroBridge().dueUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  utilRecord:(p,o)=>{try{return getMroBridge().utilRecord(p,o)}catch(error){return Promise.reject(error)}},
+  dueRecompute:p=>{try{return getMroBridge().dueRecompute(p)}catch(error){return Promise.reject(error)}},
+  lotUpsert:(p,o)=>{try{return getMroBridge().lotUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  lotUse:(p,o)=>{try{return getMroBridge().lotUse(p,o)}catch(error){return Promise.reject(error)}},
+  kitUpsert:(p,o)=>{try{return getMroBridge().kitUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  partsStockUpsert:(p,o)=>{try{return getMroBridge().partsStockUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  alternateUpsert:(p,o)=>{try{return getMroBridge().alternateUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  workpackageBuild:(p,o)=>{try{return getMroBridge().workpackageBuild(p,o)}catch(error){return Promise.reject(error)}},
+  intervalUpsert:(p,o)=>{try{return getMroBridge().intervalUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  intervalList:p=>{try{return getMroBridge().intervalList(p)}catch(error){return Promise.reject(error)}},
+  intervalPropose:(p,o)=>{try{return getMroBridge().intervalPropose(p,o)}catch(error){return Promise.reject(error)}},
+  scheduleUpsert:(p,o)=>{try{return getMroBridge().scheduleUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  capacityUpsert:(p,o)=>{try{return getMroBridge().capacityUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  componentUpsert:(p,o)=>{try{return getMroBridge().componentUpsert(p,o)}catch(error){return Promise.reject(error)}},
+  componentList:p=>{try{return getMroBridge().componentList(p)}catch(error){return Promise.reject(error)}},
+  lifeEvent:(p,o)=>{try{return getMroBridge().lifeEvent(p,o)}catch(error){return Promise.reject(error)}},
+  pirepDraft:(p,o)=>{try{return getMroBridge().pirepDraft(p,o)}catch(error){return Promise.reject(error)}},
+  pirepList:p=>{try{return getMroBridge().pirepList(p)}catch(error){return Promise.reject(error)}},
+  aogIntake:(p,o)=>{try{return getMroBridge().aogIntake(p,o)}catch(error){return Promise.reject(error)}},
+  aogList:p=>{try{return getMroBridge().aogList(p)}catch(error){return Promise.reject(error)}},
+  poDraft:(p,o)=>{try{return getMroBridge().poDraft(p,o)}catch(error){return Promise.reject(error)}},
+  poList:p=>{try{return getMroBridge().poList(p)}catch(error){return Promise.reject(error)}},
+  triggerList:p=>{try{return getMroBridge().triggerList(p)}catch(error){return Promise.reject(error)}},
+  chemIssue:(p,o)=>{try{return getMroBridge().chemIssue(p,o)}catch(error){return Promise.reject(error)}},
+  opsTodoAdd:(p,o)=>{try{return getMroBridge().opsTodoAdd(p,o)}catch(error){return Promise.reject(error)}},
+  pirepConfirm:(p,o)=>{try{return getMroBridge().pirepConfirm(p,o)}catch(error){return Promise.reject(error)}},
+  aogConfirm:(p,o)=>{try{return getMroBridge().aogConfirm(p,o)}catch(error){return Promise.reject(error)}},
+  poConfirm:(p,o)=>{try{return getMroBridge().poConfirm(p,o)}catch(error){return Promise.reject(error)}},
 }
 export type DatasourceRow={id:string;name:string;kind:'postgres'|'mysql';state:'active'|'disabled';readonlyVerified:boolean;createdAt:string}
 export type DatasourceBinding={bindingId:string;ownerType:string;ownerId:string;connectionId:string;purpose:string;tableMapJson:string;createdAt:string}

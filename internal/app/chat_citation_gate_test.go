@@ -53,6 +53,18 @@ func TestGoldenEmptyClaimsStayNonDestructive(t *testing.T) {
 	}
 }
 
+func TestTurnHasMRONameIncludesOpsColleagues(t *testing.T) {
+	if !turnHasMROName([]string{"低空适航专家"}) {
+		t.Fatal("uas must trigger the ops cite gate")
+	}
+	if !turnHasMROName([]string{"航空航材专家", "产品经理专家"}) {
+		t.Fatal("parts expert in council must trigger the cite gate")
+	}
+	if turnHasMROName([]string{"PPT专家", "产品经理专家"}) {
+		t.Fatal("non-ops council must not mark an MRO turn")
+	}
+}
+
 func TestRestoreCouncilCitationsAppendsMissingDocID(t *testing.T) {
 	draft := "## 综合结论\n先按排故卡隔离。"
 	cites := []CitationBlock{{

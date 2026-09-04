@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.alternate.upsert.schema.json",
+  "title": "mro.alternate.upsert payload",
+  "x-method": "mro.alternate.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "pnFrom": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "pnTo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "certOk": {
+      "type": "boolean"
+    },
+    "effectivity": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "pnFrom",
+    "pnTo",
+    "certOk"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "pnFrom": "NAS1",
+        "pnTo": "NAS2",
+        "certOk": true
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

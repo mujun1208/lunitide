@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.due.list.schema.json",
+  "title": "mro.due.list payload",
+  "x-method": "mro.due.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
+            "kind": { "type": "string", "minLength": 1, "maxLength": 16 },
+            "limitValue": { "type": "number" },
+            "usedValue": { "type": "number" },
+            "usedMissing": { "type": "boolean" },
+            "dueAt": { "type": "string", "maxLength": 32 },
+            "state": { "type": "string", "minLength": 1, "maxLength": 16 },
+            "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+          },
+          "required": ["id", "kind", "state", "label"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{"unexpected": true}]
+  }
+}

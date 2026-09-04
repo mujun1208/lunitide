@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.parts.stock.list.schema.json",
+  "title": "mro.parts.stock.list payload",
+  "x-method": "mro.parts.stock.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "config": { "type": "string", "maxLength": 128 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 400,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pn": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "qty": { "type": "number" },
+            "source": { "type": "string", "minLength": 1, "maxLength": 32 }
+          },
+          "required": ["pn", "qty", "source"]
+        }
+      },
+      "alternates": {
+        "type": "array",
+        "maxItems": 400,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pnFrom": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "pnTo": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "certOk": { "type": "boolean" },
+            "effectivity": { "type": "string", "maxLength": 128 },
+            "qty": { "type": "number" },
+            "accepted": { "type": "boolean" }
+          },
+          "required": ["pnFrom", "pnTo", "certOk", "accepted"]
+        }
+      }
+    },
+    "required": ["items", "alternates"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{"unexpected": true}]
+  }
+}

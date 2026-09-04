@@ -13,6 +13,10 @@ export const CONVERSATION_EXPERTS = [
   {id: 'hardware-expert', name: '硬件配置专家'},
   {id: 'dev-expert', name: '开发专家'},
   {id: 'mro-expert', name: '航空机务维修专家'},
+  {id: 'uas-airworthiness-expert', name: '低空适航专家'},
+  {id: 'tooling-chemical-expert', name: '航空工具化工品专家'},
+  {id: 'parts-expert', name: '航空航材专家'},
+  {id: 'mx-planning-expert', name: '航空维修计划专家'},
 ] as const
 
 export type ConversationExpertID = typeof CONVERSATION_EXPERTS[number]['id']
@@ -37,12 +41,19 @@ export const CONVERSATION_EXPERT_PREFERRED_SKILLS: Record<ConversationExpertID, 
   'hardware-expert': ['web-researcher', 'hardware-bom'],
   'dev-expert': ['implement', 'tdd-loop', 'debugger', 'code-reviewer', 'super-coders'],
   'mro-expert': ['aircraft-maintenance-engineer', 'mro-manual-rag', 'mro-fault-tree', 'mro-checklist'],
+  'uas-airworthiness-expert': ['uas-airworthiness-advisor', 'mro-manual-rag'],
+  'tooling-chemical-expert': ['tooling-chemical-advisor'],
+  'parts-expert': ['parts-supply-advisor'],
+  'mx-planning-expert': ['mx-planning-advisor'],
 }
 
 export function conversationExpertByNameOrID(idOrName: string): (typeof CONVERSATION_EXPERTS)[number] | undefined {
   const key = idOrName.trim()
   if (key === '航空机务专家') {
     return CONVERSATION_EXPERTS.find(item => item.id === 'mro-expert')
+  }
+  if (key === '工具化工品专家') {
+    return CONVERSATION_EXPERTS.find(item => item.id === 'tooling-chemical-expert')
   }
   return CONVERSATION_EXPERTS.find(item => item.id === key || item.name === key)
 }
@@ -92,6 +103,10 @@ export const CONVERSATION_EXPERT_REQUIRED_TOOLS: Record<ConversationExpertID, re
   'hardware-expert': ['web.search', 'excel.gen', 'skill.invoke', 'todo.write'],
   'dev-expert': ['workspace.read', 'workspace.edit', 'command.run', 'skill.invoke', 'todo.write'],
   'mro-expert': ['kb.search', 'graph.expand', 'workspace.write', 'docx.gen', 'excel.gen', 'todo.write', 'datasource.query'],
+  'uas-airworthiness-expert': ['kb.search', 'graph.expand', 'workspace.write', 'docx.gen', 'excel.gen', 'todo.write'],
+  'tooling-chemical-expert': ['kb.search', 'graph.expand', 'workspace.write', 'excel.gen', 'todo.write'],
+  'parts-expert': ['kb.search', 'graph.expand', 'workspace.write', 'excel.gen', 'todo.write', 'datasource.query'],
+  'mx-planning-expert': ['kb.search', 'workspace.write', 'excel.gen', 'docx.gen', 'todo.write'],
 }
 
 export const CONVERSATION_EXPERT_PREFERRED_MCP: Record<ConversationExpertID, readonly string[]> = {
@@ -109,6 +124,10 @@ export const CONVERSATION_EXPERT_PREFERRED_MCP: Record<ConversationExpertID, rea
   'hardware-expert': [],
   'dev-expert': ['filesystem'],
   'mro-expert': [],
+  'uas-airworthiness-expert': [],
+  'tooling-chemical-expert': [],
+  'parts-expert': [],
+  'mx-planning-expert': [],
 }
 
 export const CONVERSATION_EXPERT_MCP_FALLBACK: Record<ConversationExpertID, string> = {
@@ -126,6 +145,10 @@ export const CONVERSATION_EXPERT_MCP_FALLBACK: Record<ConversationExpertID, stri
   'hardware-expert': '价格/SKU 必须 web.search，标待确认。',
   'dev-expert': '未连接 Filesystem MCP 时用 workspace.*。Git 走 command.run 白名单。',
   'mro-expert': '手册走 kb.search。库存走已探测的 datasource.query。不另装 MRO 云 MCP。',
+  'uas-airworthiness-expert': '法规与持续适航走 kb.search。到期数字走本机到期引擎。不另装低空云 MCP。',
+  'tooling-chemical-expert': 'SDS 与工艺走 kb.search。台账走本机工具/批次表。不另装库房云 MCP。',
+  'parts-expert': 'IPC/CMM/8130 走 kb.search。库存走已探测的 datasource.query 或本机台账。不另装航材云 MCP。',
+  'mx-planning-expert': 'MPD/AMP 走 kb.search。到期与间隔走本机引擎表。不做 NL→SQL。',
 }
 
 export function shouldOpenExpertAsColleague(idOrName: string): boolean {
@@ -216,6 +239,10 @@ export const CONVERSATION_EXPERT_EMOJI: Record<ConversationExpertID, string> = {
   'hardware-expert': '⊞',
   'dev-expert': '⌨',
   'mro-expert': '✈',
+  'uas-airworthiness-expert': '🛩',
+  'tooling-chemical-expert': '🔧',
+  'parts-expert': '📦',
+  'mx-planning-expert': '📅',
 }
 
 export function conversationExpertRole(division: string): string {
@@ -235,8 +262,23 @@ export function conversationExpertEmoji(idOrName: string): string {
   return hit ? CONVERSATION_EXPERT_EMOJI[hit.id] : '🌙'
 }
 
+export const OPS_COLLEAGUE_IDS = [
+  'mro-expert',
+  'uas-airworthiness-expert',
+  'tooling-chemical-expert',
+  'parts-expert',
+  'mx-planning-expert',
+] as const
+
+export type OpsColleagueID = typeof OPS_COLLEAGUE_IDS[number]
+
+export function isOpsColleague(idOrName: string): boolean {
+  const hit = conversationExpertByNameOrID(idOrName)
+  return hit ? (OPS_COLLEAGUE_IDS as readonly string[]).includes(hit.id) : false
+}
+
 export function conversationExpertDivision(id: string): ConversationExpertDivision {
-  if (id === 'mro-expert') return 'operations'
+  if ((OPS_COLLEAGUE_IDS as readonly string[]).includes(id)) return 'operations'
   if (id === 'ui-designer') return 'design'
   if (id === 'excel-maker' || id === 'db-expert') return 'data'
   if (id === 'test-expert') return 'testing'

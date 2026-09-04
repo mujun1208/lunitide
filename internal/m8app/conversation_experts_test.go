@@ -44,10 +44,15 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 		"standards-expert": "开发规范专家",
 		"test-expert":      "系统测试专家",
 		"hardware-expert":  "硬件配置专家",
-		"dev-expert":       "开发专家",
-		"mro-expert":       "航空机务维修专家",
+		"dev-expert":                "开发专家",
+		"mro-expert":                "航空机务维修专家",
+		"uas-airworthiness-expert":  "低空适航专家",
+		"tooling-chemical-expert":   "航空工具化工品专家",
+		"parts-expert":              "航空航材专家",
+		"mx-planning-expert":        "航空维修计划专家",
 	}
 	foundRepo, foundStandards, foundTest, foundHardware, foundDev, foundMRO := false, false, false, false, false, false
+	foundUAS, foundTool, foundParts, foundPlan := false, false, false, false
 	for _, item := range items {
 		if item.ID == "repo-expert" {
 			foundRepo = true
@@ -71,6 +76,27 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 			}
 			if !strings.Contains(item.SixSection.Identity, "不是放行人") {
 				t.Fatal("mro-expert identity must say 不是放行人")
+			}
+		}
+		if item.ID == "uas-airworthiness-expert" {
+			foundUAS = true
+			if item.Division != "operations" {
+				t.Fatalf("uas division = %q", item.Division)
+			}
+			if !strings.Contains(item.SixSection.Identity, "禁止签发 RTS") {
+				t.Fatal("uas identity must forbid RTS")
+			}
+		}
+		if item.ID == "tooling-chemical-expert" {
+			foundTool = true
+		}
+		if item.ID == "parts-expert" {
+			foundParts = true
+		}
+		if item.ID == "mx-planning-expert" {
+			foundPlan = true
+			if !strings.Contains(item.SixSection.Identity, "interval_rules") {
+				t.Fatal("plan identity must name interval_rules")
 			}
 		}
 		if want, ok := wantName[item.ID]; ok && want != item.Name {
@@ -260,6 +286,40 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 			if strings.Contains(body, "独立智能体") {
 				t.Fatal("航空机务维修专家 must not claim 独立智能体")
 			}
+		case "uas-airworthiness-expert":
+			for _, needle := range []string{
+				"CCAR-92", "不构成局方批准", "未找到受控依据", "kb.search",
+				"todo.write", "禁止签发 RTS", "docx.gen",
+			} {
+				if !strings.Contains(body, needle) {
+					t.Fatalf("低空适航专家 missing %q", needle)
+				}
+			}
+		case "tooling-chemical-expert":
+			for _, needle := range []string{
+				"校准过期", "SDS", "未找到受控依据", "kb.search", "todo.write", "excel.gen", "不构成放行",
+			} {
+				if !strings.Contains(body, needle) {
+					t.Fatalf("航空工具化工品专家 missing %q", needle)
+				}
+			}
+		case "parts-expert":
+			for _, needle := range []string{
+				"不构成采购承诺", "替代件", "8130", "未找到受控依据", "kb.search", "todo.write", "excel.gen",
+			} {
+				if !strings.Contains(body, needle) {
+					t.Fatalf("航空航材专家 missing %q", needle)
+				}
+			}
+		case "mx-planning-expert":
+			for _, needle := range []string{
+				"interval_rules", "禁止凭记忆", "未找到受控依据", "kb.search",
+				"todo.write", "docx.gen", "不构成放行",
+			} {
+				if !strings.Contains(body, needle) {
+					t.Fatalf("航空维修计划专家 missing %q", needle)
+				}
+			}
 		}
 	}
 	if !foundRepo {
@@ -280,6 +340,18 @@ func TestConversationExpertsCatalogAndRules(t *testing.T) {
 	if !foundMRO {
 		t.Fatal("conversation catalog missing mro-expert 航空机务维修专家")
 	}
+	if !foundUAS {
+		t.Fatal("conversation catalog missing uas-airworthiness-expert 低空适航专家")
+	}
+	if !foundTool {
+		t.Fatal("conversation catalog missing tooling-chemical-expert 航空工具化工品专家")
+	}
+	if !foundParts {
+		t.Fatal("conversation catalog missing parts-expert 航空航材专家")
+	}
+	if !foundPlan {
+		t.Fatal("conversation catalog missing mx-planning-expert 航空维修计划专家")
+	}
 }
 
 func TestConversationExpertsInstructThinkSkillsToolsDrawWrite(t *testing.T) {
@@ -294,7 +366,7 @@ func TestConversationExpertsInstructThinkSkillsToolsDrawWrite(t *testing.T) {
 			item.SixSection.Workflow, item.SixSection.DeliverableTemplate, item.SixSection.SuccessMetrics,
 		}, "\n")
 		check := needles
-		if item.ID == "mro-expert" {
+		if m8app.IsOpsColleague("", item.ID) {
 			check = mroNeedles
 		}
 		for _, needle := range check {
@@ -303,8 +375,8 @@ func TestConversationExpertsInstructThinkSkillsToolsDrawWrite(t *testing.T) {
 			}
 		}
 	}
-	if len(m8app.ConversationExperts()) != 14 {
-		t.Fatalf("want 14 specialists, got %d", len(m8app.ConversationExperts()))
+	if len(m8app.ConversationExperts()) != 18 {
+		t.Fatalf("want 18 specialists, got %d", len(m8app.ConversationExperts()))
 	}
 }
 
@@ -323,7 +395,11 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"test-expert":      {"test-writer", "e2e-browser", "browser-automation", "find-bug"},
 		"hardware-expert":  {"web-researcher", "hardware-bom"},
 		"dev-expert":       {"implement", "tdd-loop", "debugger", "code-reviewer"},
-		"mro-expert":       {"aircraft-maintenance-engineer", "mro-manual-rag", "mro-fault-tree", "mro-checklist"},
+		"mro-expert":               {"aircraft-maintenance-engineer", "mro-manual-rag", "mro-fault-tree", "mro-checklist"},
+		"uas-airworthiness-expert": {"uas-airworthiness-advisor", "mro-manual-rag"},
+		"tooling-chemical-expert":  {"tooling-chemical-advisor"},
+		"parts-expert":             {"parts-supply-advisor"},
+		"mx-planning-expert":       {"mx-planning-advisor"},
 	}
 	wantTools := map[string][]string{
 		"ppt-expert":       {"web.search", "pptx.gen", "skill.invoke"},
@@ -339,7 +415,11 @@ func TestConversationExpertComposeAttachLists(t *testing.T) {
 		"test-expert":      {"skill.invoke", "browser.act"},
 		"hardware-expert":  {"web.search", "excel.gen"},
 		"dev-expert":       {"workspace.edit", "command.run", "skill.invoke"},
-		"mro-expert":       {"kb.search", "docx.gen", "excel.gen"},
+		"mro-expert":               {"kb.search", "docx.gen", "excel.gen"},
+		"uas-airworthiness-expert": {"kb.search", "docx.gen", "excel.gen"},
+		"tooling-chemical-expert":  {"kb.search", "excel.gen"},
+		"parts-expert":             {"kb.search", "excel.gen", "datasource.query"},
+		"mx-planning-expert":       {"kb.search", "docx.gen", "excel.gen"},
 	}
 	for _, item := range m8app.ConversationExperts() {
 		if len(item.PreferredSkills) == 0 || len(item.RequiredTools) == 0 {
@@ -784,6 +864,33 @@ func TestConversationDevExpertDistinctFromStandardsAndAgencyDeveloper(t *testing
 	}
 }
 
+func TestOpsExpertGoldenQADiscipline(t *testing.T) {
+	want := map[string][]string{
+		"uas-airworthiness-expert": {"CCAR-92", "未找到受控依据", "禁止签发 RTS", "kb.search", "辅助建议"},
+		"tooling-chemical-expert":  {"SDS", "校准过期", "未找到受控依据", "kb.search", "辅助建议"},
+		"parts-expert":             {"8130", "替代件", "未找到受控依据", "不构成采购承诺", "kb.search"},
+		"mx-planning-expert":       {"interval_rules", "禁止凭记忆", "未找到受控依据", "kb.search", "辅助建议"},
+	}
+	for _, item := range m8app.ConversationExperts() {
+		needles, ok := want[item.ID]
+		if !ok {
+			continue
+		}
+		body := strings.Join([]string{
+			item.SixSection.Identity, item.SixSection.Mission, item.SixSection.Rules,
+			item.SixSection.Workflow, item.SixSection.DeliverableTemplate, item.SixSection.SuccessMetrics,
+		}, "\n")
+		if strings.Contains(body, "LangGraph") || strings.Contains(body, "独立智能体") {
+			t.Fatalf("%s must not mention LangGraph or 独立智能体", item.ID)
+		}
+		for _, needle := range needles {
+			if !strings.Contains(body, needle) {
+				t.Fatalf("%s golden QA missing %q", item.ID, needle)
+			}
+		}
+	}
+}
+
 func TestConversationExpertsMatchingIntent(t *testing.T) {
 	ppt := m8app.ConversationExpertsMatchingIntent("帮我做一份路演 PPT")
 	if len(ppt) == 0 || ppt[0] != "PPT专家" {
@@ -792,6 +899,24 @@ func TestConversationExpertsMatchingIntent(t *testing.T) {
 	mro := m8app.ConversationExpertsMatchingIntent("查一下飞机维修手册隔离步骤")
 	if len(mro) == 0 || mro[0] != "航空机务维修专家" {
 		t.Fatalf("mro intent = %#v", mro)
+	}
+	uas := m8app.ConversationExpertsMatchingIntent("查 CCAR-92 运行分类")
+	if len(uas) == 0 || uas[0] != "低空适航专家" {
+		t.Fatalf("uas intent = %#v", uas)
+	}
+	if _, ok := m8app.ConversationExpertByName("工具化工品专家"); !ok {
+		t.Fatal("短名 工具化工品专家 must resolve")
+	}
+	mixed := m8app.ConversationExpertsMatchingIntent("C 检缺密封剂")
+	if len(mixed) == 0 || len(mixed) > 2 {
+		t.Fatalf("C 检缺密封剂 must equip 1–2 cards, got %#v", mixed)
+	}
+	seen := map[string]bool{}
+	for _, n := range mixed {
+		seen[n] = true
+	}
+	if !seen["航空维修计划专家"] && !seen["航空工具化工品专家"] {
+		t.Fatalf("C 检缺密封剂 should equip plan and/or tools, got %#v", mixed)
 	}
 	if names := m8app.ConversationExpertsMatchingIntent("你好"); len(names) != 0 {
 		t.Fatalf("greeting must not equip: %#v", names)
@@ -810,6 +935,7 @@ func TestConversationIntentSkipsDefinitionalQueries(t *testing.T) {
 		"ppt是什么意思",
 		"excel和ppt有什么区别",
 		"机务是啥意思",
+		"CCAR-92 是什么意思",
 	} {
 		if names := m8app.ConversationExpertsMatchingIntent(q); len(names) != 0 {
 			t.Fatalf("definitional query %q must not equip: %#v", q, names)

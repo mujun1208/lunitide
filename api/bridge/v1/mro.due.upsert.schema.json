@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.due.upsert.schema.json",
+  "title": "mro.due.upsert payload",
+  "x-method": "mro.due.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "scopeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "kind": {
+      "enum": [
+        "CAL",
+        "FH",
+        "FC",
+        "BC",
+        "LLP",
+        "CHECK",
+        "AD",
+        "MEL"
+      ]
+    },
+    "limitValue": {
+      "type": "number",
+      "minimum": 0
+    },
+    "dueAt": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    },
+    "source": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "scopeId",
+    "kind"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "scopeId": "B-1",
+        "kind": "FH",
+        "limitValue": 100
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

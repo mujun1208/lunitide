@@ -154,7 +154,14 @@ func handleMROAuditList(e *Engine, ctx context.Context, r bridge.Request) bridge
 }
 
 func mroFailure(r bridge.Request, err error) bridge.Response {
+	var blocked *mroapp.CheckoutBlockedError
 	switch {
+	case errors.As(err, &blocked):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", blocked.Reason, false)
+	case errors.Is(err, mroapp.ErrCheckoutBlocked):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "校准过期", false)
+	case errors.Is(err, mroapp.ErrNotFound):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "机务记录不存在", false)
 	case errors.Is(err, mroapp.ErrPayloadInvalid):
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "机务参数无效", false)
 	case errors.Is(err, mroapp.ErrDuplicateTail):

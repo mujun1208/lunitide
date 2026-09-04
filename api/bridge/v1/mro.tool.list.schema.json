@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.tool.list.schema.json",
+  "title": "mro.tool.list payload",
+  "x-method": "mro.tool.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
+            "toolNo": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "sn": { "type": "string", "maxLength": 64 },
+            "location": { "type": "string", "maxLength": 64 },
+            "holder": { "type": "string", "maxLength": 64 },
+            "calibDue": { "type": "string", "maxLength": 32 },
+            "status": { "type": "string", "maxLength": 32 },
+            "checkoutBlocked": { "type": "string", "maxLength": 64 }
+          },
+          "required": ["id", "toolNo"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{"unexpected": true}]
+  }
+}

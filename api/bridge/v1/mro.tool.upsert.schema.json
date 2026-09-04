@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.tool.upsert.schema.json",
+  "title": "mro.tool.upsert payload",
+  "x-method": "mro.tool.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "toolNo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "sn": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
+    "location": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
+    "calibDue": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    }
+  },
+  "required": [
+    "toolNo"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "toolNo": "TW-1",
+        "calibDue": "2099-01-01"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

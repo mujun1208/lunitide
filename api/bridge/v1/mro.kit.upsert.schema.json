@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.kit.upsert.schema.json",
+  "title": "mro.kit.upsert payload",
+  "x-method": "mro.kit.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pn": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "required": {
+            "type": "number",
+            "minimum": 0
+          },
+          "onHand": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "pn"
+        ]
+      }
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "name": "C检套件",
+        "items": [
+          {
+            "pn": "SEAL-1",
+            "required": 2,
+            "onHand": 0
+          }
+        ]
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -15,6 +15,7 @@ var ConversationExpertIDs = []string{
 	"ppt-expert", "report-writer", "novel-writer", "excel-maker", "ui-designer",
 	"pm-expert", "architect-expert", "db-expert", "repo-expert", "standards-expert",
 	"test-expert", "hardware-expert", "dev-expert", "mro-expert",
+	"uas-airworthiness-expert", "tooling-chemical-expert", "parts-expert", "mx-planning-expert",
 }
 
 // ConversationExpertCapabilityClause is appended to every specialist's rules
@@ -48,7 +49,7 @@ func honestColleagueExpertIdentity(identity string) string {
 
 // ConversationExperts answers the 对话 specialists (PPT / 报告 / 小说 /
 // Excel / UI / 产品经理 / 系统架构师 / 数据库设计 / 系统项目结构 / 开发规范 /
-// 系统测试 / 硬件配置 / 开发 / 航空机务) in catalog order.
+// 系统测试 / 硬件配置 / 开发 / 航空机务 / 低空 / 工具化工品 / 航材 / 维修计划) in catalog order.
 func ConversationExperts() []CatalogItem {
 	items := loadConversationExpertItems()
 	want := make(map[string]bool, len(ConversationExpertIDs))

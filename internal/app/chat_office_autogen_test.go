@@ -29,6 +29,10 @@ func TestOfficeGenToolForAllConversationSpecialists(t *testing.T) {
 		{"hardware-expert", "硬件配置专家出一份BOM放到桌面", "excel.gen"},
 		{"dev-expert", "开发专家改这段代码", ""},
 		{"mro-expert", "航空机务专家出一份检查单Excel放到桌面", "excel.gen"},
+		{"uas-airworthiness-expert", "低空适航专家出一份履历Word到桌面", "docx.gen"},
+		{"tooling-chemical-expert", "航空工具化工品专家出一份校准清单Excel到桌面", "excel.gen"},
+		{"parts-expert", "航空航材专家出一份询价Excel到桌面", "excel.gen"},
+		{"mx-planning-expert", "航空维修计划专家出一份工作包Word到桌面", "docx.gen"},
 	}
 	if len(cases) != len(m8app.ConversationExpertIDs) {
 		t.Fatalf("audit %d specialists, catalog has %d", len(cases), len(m8app.ConversationExpertIDs))

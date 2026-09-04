@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.plan.publish.schema.json",
+  "title": "mro.plan.publish payload",
+  "x-method": "mro.plan.publish",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "packageId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": ["packageId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "todos": {
+        "type": "array",
+        "maxItems": 16,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
+            "kind": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "ref": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "status": { "type": "string", "minLength": 1, "maxLength": 16 },
+            "detail": { "type": "string", "maxLength": 256 }
+          },
+          "required": ["id", "kind", "ref", "status"]
+        }
+      }
+    },
+    "required": ["todos"]
+  },
+  "x-examples": {
+    "positive": [
+      { "packageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [
+      { "packageId": "bad" }
+    ]
+  }
+}

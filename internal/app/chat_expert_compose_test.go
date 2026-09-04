@@ -41,6 +41,10 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		catalogTestSkill("tpl-mro-manual-rag", "机务手册检索。", `{}`),
 		catalogTestSkill("tpl-mro-fault-tree", "排故故障树。", `{}`),
 		catalogTestSkill("tpl-mro-checklist", "机务检查单。", `{}`),
+		catalogTestSkill("tpl-uas-airworthiness-advisor", "低空适航顾问。", `{}`),
+		catalogTestSkill("tpl-tooling-chemical-advisor", "工具化工品顾问。", `{}`),
+		catalogTestSkill("tpl-parts-supply-advisor", "航材供应顾问。", `{}`),
+		catalogTestSkill("tpl-mx-planning-advisor", "维修计划顾问。", `{}`),
 	}
 	wantSkill := map[string][]string{
 		"PPT专家":       {"tpl-slide-builder", "tpl-web-researcher", "tpl-mermaid-diagrams"},
@@ -57,6 +61,10 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"硬件配置专家":      {"tpl-web-researcher", "tpl-hardware-bom"},
 		"开发专家":        {"tpl-implement", "tpl-tdd-loop", "tpl-debugger"},
 		"航空机务维修专家":    {"tpl-aircraft-maintenance-engineer", "tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist"},
+		"低空适航专家":      {"tpl-uas-airworthiness-advisor", "tpl-mro-manual-rag"},
+		"航空工具化工品专家":  {"tpl-tooling-chemical-advisor"},
+		"航空航材专家":      {"tpl-parts-supply-advisor"},
+		"航空维修计划专家":   {"tpl-mx-planning-advisor"},
 	}
 	wantTool := map[string]string{
 		"PPT专家":       "pptx.gen",
@@ -73,9 +81,13 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"硬件配置专家":      "excel.gen",
 		"开发专家":        "workspace.edit",
 		"航空机务维修专家":    "kb.search",
+		"低空适航专家":      "kb.search",
+		"航空工具化工品专家":  "kb.search",
+		"航空航材专家":      "kb.search",
+		"航空维修计划专家":   "kb.search",
 	}
-	if len(wantSkill) != 14 {
-		t.Fatalf("want 14 compose-audited specialists, got %d", len(wantSkill))
+	if len(wantSkill) != 18 {
+		t.Fatalf("want 18 compose-audited specialists, got %d", len(wantSkill))
 	}
 	for _, item := range m8app.ConversationExperts() {
 		hint := expertComposeHint([]string{item.Name}, published, nil)

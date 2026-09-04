@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.kit.staging.schema.json",
+  "title": "mro.kit.staging payload",
+  "x-method": "mro.kit.staging",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "missing": {
+              "type": "array",
+              "maxItems": 64,
+              "items": { "type": "string", "maxLength": 64 }
+            }
+          },
+          "required": ["id", "name", "missing"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{"unexpected": true}]
+  }
+}

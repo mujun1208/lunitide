@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.lot.upsert.schema.json",
+  "title": "mro.lot.upsert payload",
+  "x-method": "mro.lot.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "lotNo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "parentLotId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "qty": {
+      "type": "number",
+      "minimum": 0
+    },
+    "expires": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    },
+    "sdsDoc": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "lotNo"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "lotNo": "M-1"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}
