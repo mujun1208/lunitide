@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.component.upsert.schema.json",
+  "title": "mro.component.upsert payload",
+  "x-method": "mro.component.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sn": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "pn": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "life": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "sn",
+    "pn"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sn": "SN-1",
+        "pn": "PN-1"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -4,19 +4,40 @@
     {"kind": "Aircraft"}, {"kind": "Document"}, {"kind": "Section"},
     {"kind": "Component"}, {"kind": "PartNumber"}, {"kind": "Fault"},
     {"kind": "Task"}, {"kind": "DefectRecord"}, {"kind": "WorkOrder"},
-    {"kind": "Technician"}
+    {"kind": "Technician"},
+    {"kind": "LifeEvent"}, {"kind": "TriggerRule"}, {"kind": "Tool"},
+    {"kind": "ChemicalLot"}, {"kind": "Kit"}, {"kind": "Alternate"},
+    {"kind": "AOGCase"}, {"kind": "IntervalRule"}, {"kind": "WorkPackage"},
+    {"kind": "Schedule"}
   ],
   "links": [
     {"name": "APPLIES_TO"}, {"name": "CONTAINS"}, {"name": "SUPERSEDES"},
     {"name": "PART_OF"}, {"name": "HAS_PART"}, {"name": "SYMPTOM_OF"},
     {"name": "HAS_CAUSE"}, {"name": "FIXED_BY"}, {"name": "REQUIRES"},
-    {"name": "INVOLVES"}, {"name": "PERFORMED_ON"}
+    {"name": "INVOLVES"}, {"name": "PERFORMED_ON"},
+    {"name": "INSTALLED_ON"}, {"name": "PARENT_LOT"}, {"name": "USED_ON"},
+    {"name": "ALTERNATE_OF"}, {"name": "DUE_FOR"}, {"name": "PACKED_IN"}
   ],
   "actions": [
     {"name": "propose_remediation", "mode": "read"},
     {"name": "query_stock", "mode": "read"},
     {"name": "log_defect", "mode": "write"},
     {"name": "create_work_order", "mode": "write"},
-    {"name": "audit_step", "mode": "write"}
+    {"name": "audit_step", "mode": "write"},
+    {"name": "genealogy_query", "mode": "read"},
+    {"name": "trigger_status", "mode": "read"},
+    {"name": "tool_status", "mode": "read"},
+    {"name": "checkout_tool", "mode": "write"},
+    {"name": "lot_query", "mode": "read"},
+    {"name": "issue_chemical", "mode": "write"},
+    {"name": "kit_staging", "mode": "read"},
+    {"name": "check_stock", "mode": "read"},
+    {"name": "find_alternates", "mode": "read"},
+    {"name": "aog_intake", "mode": "write"},
+    {"name": "due_forecast", "mode": "read"},
+    {"name": "build_work_package", "mode": "write"},
+    {"name": "schedule_propose", "mode": "write"},
+    {"name": "publish_schedule", "mode": "write"},
+    {"name": "propose_interval_change", "mode": "write"}
   ]
 }

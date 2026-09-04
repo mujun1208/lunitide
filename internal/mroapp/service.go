@@ -13,7 +13,22 @@ var (
 	ErrServiceUnavailable = errors.New("mroapp: service unavailable")
 	ErrPayloadInvalid     = errors.New("mroapp: payload invalid")
 	ErrDuplicateTail      = errors.New("mroapp: duplicate tail")
+	ErrCheckoutBlocked    = errors.New("mroapp: checkout blocked")
+	ErrNotFound           = errors.New("mroapp: not found")
 )
+
+type CheckoutBlockedError struct{ Reason string }
+
+func (e *CheckoutBlockedError) Error() string {
+	if e == nil || e.Reason == "" {
+		return ErrCheckoutBlocked.Error()
+	}
+	return ErrCheckoutBlocked.Error() + ": " + e.Reason
+}
+
+func (e *CheckoutBlockedError) Is(target error) bool {
+	return target == ErrCheckoutBlocked
+}
 
 var legalDocTypes = map[string]struct{}{
 	"AMM": {}, "IPC": {}, "TSM": {}, "FIM": {}, "WDM": {}, "CMM": {},
@@ -72,6 +87,59 @@ type Store interface {
 	ListAircraft(ctx context.Context) ([]Aircraft, error)
 	RegisterManual(ctx context.Context, row Manual, docs []ManualDocInput) error
 	ListManuals(ctx context.Context) ([]Manual, error)
+}
+
+// OpsStore is optional. sqlite implements it; unit fakes do not.
+type OpsStore interface {
+	ListDueItems(ctx context.Context) ([]DueItem, error)
+	UpsertDueItem(ctx context.Context, row DueItem) error
+	ListTools(ctx context.Context) ([]Tool, error)
+	UpsertTool(ctx context.Context, row Tool) error
+	InsertToolLoan(ctx context.Context, row ToolLoan) error
+	ListChemLots(ctx context.Context) ([]ChemLot, error)
+	ListChemUses(ctx context.Context) ([]ChemUse, error)
+	UpsertChemLot(ctx context.Context, row ChemLot) error
+	InsertChemUse(ctx context.Context, row ChemUse) error
+	ListKits(ctx context.Context) ([]Kit, error)
+	ListKitItems(ctx context.Context) ([]KitItem, error)
+	UpsertKit(ctx context.Context, row Kit) error
+	UpsertKitItem(ctx context.Context, row KitItem) error
+	ListPartsStock(ctx context.Context) ([]PartsStock, error)
+	ListAlternates(ctx context.Context) ([]Alternate, error)
+	UpsertPartsStock(ctx context.Context, row PartsStock) error
+	UpsertAlternate(ctx context.Context, row Alternate) error
+	ListWorkPackages(ctx context.Context) ([]WorkPackage, error)
+	UpsertWorkPackage(ctx context.Context, row WorkPackage) error
+	ListScheduleAssignments(ctx context.Context) ([]ScheduleAssignment, error)
+	ListCapacitySlots(ctx context.Context) ([]CapacitySlot, error)
+	ListIntervalRules(ctx context.Context) ([]IntervalRule, error)
+	UpsertIntervalRule(ctx context.Context, row IntervalRule) error
+	InsertIntervalChangeDraft(ctx context.Context, taskKey, mpdCite, fleetCite, createdAt string) error
+	ListAOGTails(ctx context.Context) ([]string, error)
+	InsertOpsTodos(ctx context.Context, rows []OpsTodo) error
+	ListOpsTodos(ctx context.Context) ([]OpsTodo, error)
+	// P1 write-path additions.
+	RecordUtilization(ctx context.Context, row UtilizationEvent) error
+	ListUtilizationEvents(ctx context.Context) ([]UtilizationEvent, error)
+	CloseOpenToolLoan(ctx context.Context, toolID, inAt string) error
+	InsertScheduleAssignment(ctx context.Context, id string, row ScheduleAssignment) error
+	UpsertCapacitySlot(ctx context.Context, skill string, hours float64) error
+	InsertWorkPackageTasks(ctx context.Context, packageID string, taskKeys []string) error
+	ListWorkPackageTasks(ctx context.Context, packageID string) ([]string, error)
+	// P2 low-altitude / AOG / PO additions.
+	UpsertComponent(ctx context.Context, row Component) error
+	ListComponents(ctx context.Context) ([]Component, error)
+	InsertLifeEvent(ctx context.Context, row LifeEvent) error
+	ListLifeEvents(ctx context.Context) ([]LifeEvent, error)
+	InsertPirepDraft(ctx context.Context, row PirepDraft) error
+	ListPirepDrafts(ctx context.Context) ([]PirepDraft, error)
+	UpdatePirepState(ctx context.Context, id, state string) error
+	InsertAOGCase(ctx context.Context, row AOGCase) error
+	ListAOGCases(ctx context.Context) ([]AOGCase, error)
+	UpdateAOGState(ctx context.Context, id, state string) error
+	InsertPODraft(ctx context.Context, row PODraft) error
+	ListPODrafts(ctx context.Context) ([]PODraft, error)
+	UpdatePOState(ctx context.Context, id, state string) error
 }
 
 type Clock interface{ Now() time.Time }

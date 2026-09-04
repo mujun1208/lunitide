@@ -1,7 +1,7 @@
 import React,{useCallback,useEffect,useMemo,useState}from'react'
 import{createMutationAttempt,expertBridge,getMcpBridge,projectBridge,skillBridge as defaultSkillBridge,type ExpertBridge,type McpBridge,type ProjectBridge,type SkillBridge}from'../bridge/client'
 import type{ExpertCatalogListResult,ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertScenarioListResult,ProjectDTO,SkillDTO}from'../generated/bridge'
-import{brainBindKey,CONVERSATION_EXPERTS,conversationExpertByNameOrID,conversationExpertEmoji,conversationExpertKind,conversationExpertRole,expertCatalogKey,expertKindOf,mcpBindKey,mcpFallbackForExpert,missingPreferredSkills,preferredMcpForExperts,preferredSkillsForExperts,requiredToolsForExperts,shouldOpenExpertAsColleague,splitBoundKeys,type ExpertBrain}from'./conversationExperts'
+import{brainBindKey,CONVERSATION_EXPERTS,conversationExpertByNameOrID,conversationExpertEmoji,conversationExpertKind,conversationExpertRole,expertCatalogKey,expertKindOf,isOpsColleague,mcpBindKey,mcpFallbackForExpert,missingPreferredSkills,preferredMcpForExperts,preferredSkillsForExperts,requiredToolsForExperts,shouldOpenExpertAsColleague,splitBoundKeys,type ExpertBrain}from'./conversationExperts'
 import{useZh}from'../i18n/language'
 import{ExpertDetailTabs}from'./ExpertDetailTabs'
 import{ExpertGrowthPanel}from'./ExpertGrowthPanel'
@@ -33,7 +33,7 @@ const SEMVER=/^\d+\.\d+\.\d+$/
 const EMPTY_FORM={name:'',division:'engineering' as Division,description:'',semver:'1.0.0',identity:'',mission:'',rules:'',workflow:'',deliverableTemplate:'',successMetrics:'',changeNote:''}
 const EMPTY_SCENARIO={title:'',summary:'',phaseKey:'ARCHITECTURE_PLAN' as PhaseKey,body:'{"steps":["定位","处置","验收"]}'}
 const displayName=(item:ExpertItem)=>item.name?.trim()||'未命名专家'
-const isMroColleague=(item:ExpertItem)=>expertCatalogKey(item)==='mro-expert'||conversationExpertByNameOrID(item.name)?.id==='mro-expert'
+const isMroColleague=(item:ExpertItem)=>isOpsColleague(expertCatalogKey(item))||isOpsColleague(item.name??'')
 const displayDivision=(item:ExpertItem)=>DIVISIONS[item.division]??item.division??'未分类'
 const kindLabel=(kind:'agent'|'prompt_skill')=>kind==='agent'?'同事专家':'技能包'
 const boundSkillKeys=(value:object)=>{const raw=asRecord(value).boundSkills;return Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'&&item.trim().length>0):[]}

@@ -303,6 +303,9 @@ func main() {
 	if err := m8app.EnsureMROScenarios(ctx, expertSvc, scenarioSvc); err != nil {
 		log.Printf("mro scenario seed: %v", err)
 	}
+	if err := m8app.EnsureOpsExpertScenarios(ctx, expertSvc, scenarioSvc); err != nil {
+		log.Printf("ops scenario seed: %v", err)
+	}
 	// M8 FR-17: the write-collaboration gate stays disabled through M8 -
 	// evaluate/status/confirm run the frozen-threshold evaluation and the
 	// one-time-token decision lifecycle over the M7 subagent audit and the

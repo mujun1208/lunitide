@@ -375,6 +375,30 @@ func (s *KBService) ListRecentKBAudit(ctx context.Context, limit int) ([]AuditRo
 	return rows, err
 }
 
+// AppendMroAudit records an MRO ops write onto the shared m7 ledger so the
+// workbench audit rail (mro.audit.list) can replay it. Best-effort: callers
+// treat a failure as non-fatal to the underlying write.
+func (s *KBService) AppendMroAudit(ctx context.Context, action, resourceType, resourceID string) error {
+	if s == nil || s.uow == nil {
+		return ErrServiceUnavailable
+	}
+	action = strings.TrimSpace(action)
+	if !strings.HasPrefix(action, "mro.") {
+		return ErrServiceUnavailable
+	}
+	if utf8.RuneCountInString(resourceID) > 64 {
+		resourceID = string([]rune(resourceID)[:64])
+	}
+	return s.uow.TransactKB(ctx, func(tx KBTx) error {
+		_, err := tx.AppendAuditEvent(audit.Event{
+			ID: ulid.Make().String(), Action: action,
+			ResourceType: resourceType, ResourceID: resourceID,
+			Actor: "local", CreatedAt: s.clock.Now().UTC().Format(time.RFC3339),
+		})
+		return err
+	})
+}
+
 func isWorkbenchAudit(ev audit.Event) bool {
 	return strings.HasPrefix(ev.Action, "kb.") || ev.ResourceType == "kb_document" || strings.HasPrefix(ev.Action, "mro.")
 }

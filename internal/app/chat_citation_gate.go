@@ -101,7 +101,7 @@ func formatCiteAppendix(c CitationBlock) string {
 
 func turnHasMROName(names []string) bool {
 	for _, n := range names {
-		if isMROColleague(strings.TrimSpace(n), "") || strings.TrimSpace(n) == "mro-expert" {
+		if isMROColleague(strings.TrimSpace(n), "") {
 			return true
 		}
 	}

@@ -21,6 +21,16 @@ func TestOntologyPacksLoadSoftwareAndMRO(t *testing.T) {
 	if !mro.HasKind("Fault") || !mro.HasLink("APPLIES_TO") || !mro.HasAction("propose_remediation") {
 		t.Fatalf("mro pack incomplete: %+v", mro)
 	}
+	for _, kind := range []string{"LifeEvent", "TriggerRule", "Tool", "ChemicalLot", "Kit", "Alternate", "AOGCase", "IntervalRule", "WorkPackage", "Schedule"} {
+		if !mro.HasKind(kind) {
+			t.Fatalf("mro.v1 missing kind %s", kind)
+		}
+	}
+	for _, link := range []string{"INSTALLED_ON", "PARENT_LOT", "USED_ON", "ALTERNATE_OF", "DUE_FOR", "PACKED_IN"} {
+		if !mro.HasLink(link) {
+			t.Fatalf("mro.v1 missing link %s", link)
+		}
+	}
 }
 
 func TestOntologyPackValidatePayload(t *testing.T) {

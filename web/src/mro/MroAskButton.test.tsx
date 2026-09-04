@@ -45,7 +45,7 @@ it('disables Ask when the MRO expert is missing', () => {
   )
   const btn = screen.getByRole('button', { name: '问月汐' })
   expect(btn).toBeDisabled()
-  expect(btn).toHaveAttribute('title', '先启用航空机务维修专家')
+  expect(btn).toHaveAttribute('title', '先启用对应机务专家')
 })
 
 it('creates one session, writes mroContext, and mounts the MRO ULID', async () => {
@@ -68,6 +68,24 @@ it('creates one session, writes mroContext, and mounts the MRO ULID', async () =
   )
   expect(sessionMountSet).toHaveBeenCalledWith(
     { sessionId: session.id, expertIds: ['01ARZ3NDEKTSV4RRFFQ69G5FAX'] },
+    expect.anything(),
+  )
+})
+
+it('mounts at most two experts for a bulletin Ask', async () => {
+  const sessionMountSet = vi.fn().mockResolvedValue({ expertIds: [] })
+  await openMroChat({
+    ensureProject: async () => project,
+    projects: { list: vi.fn(), create: vi.fn() } as never,
+    sessions: { create: vi.fn().mockResolvedValue(session), metadataSet: vi.fn(), update: vi.fn(), list: vi.fn(), delete: vi.fn() },
+    experts: { sessionMountSet, mount: vi.fn() } as never,
+    mroExpertId: '01ARZ3NDEKTSV4RRFFQ69G5FAX',
+    extraExpertIds: ['01ARZ3NDEKTSV4RRFFQ69G5FAY', '01ARZ3NDEKTSV4RRFFQ69G5FAZ'],
+    context: { ...ctx, lot: 'M-1', scenario: 'tools' },
+    prompt: '质量通报串查 批次 M-1',
+  })
+  expect(sessionMountSet).toHaveBeenCalledWith(
+    { sessionId: session.id, expertIds: ['01ARZ3NDEKTSV4RRFFQ69G5FAX', '01ARZ3NDEKTSV4RRFFQ69G5FAY'] },
     expect.anything(),
   )
 })

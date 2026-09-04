@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.capacity.upsert.schema.json",
+  "title": "mro.capacity.upsert payload",
+  "x-method": "mro.capacity.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "skill": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "hours": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "skill",
+    "hours"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "skill": "SM",
+        "hours": 40
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

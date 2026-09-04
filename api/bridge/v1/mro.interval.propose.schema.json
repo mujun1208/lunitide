@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.interval.propose.schema.json",
+  "title": "mro.interval.propose payload",
+  "x-method": "mro.interval.propose",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "mpdCite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "fleetCite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "taskKey",
+    "mpdCite",
+    "fleetCite"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskKey": "C-CHK",
+        "mpdCite": "MPD 05-10",
+        "fleetCite": "本队 FH"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

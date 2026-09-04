@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.tool.checkout.schema.json",
+  "title": "mro.tool.checkout payload",
+  "x-method": "mro.tool.checkout",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "toolId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "holder": { "type": "string", "minLength": 1, "maxLength": 64 }
+  },
+  "required": ["toolId", "holder"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "reason": { "type": "string", "maxLength": 64 }
+    },
+    "required": ["ok"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "toolId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "holder": "tech-1"
+      }
+    ],
+    "negative": [
+      {
+        "toolId": "bad",
+        "holder": "tech-1"
+      }
+    ]
+  }
+}

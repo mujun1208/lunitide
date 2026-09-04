@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.interval.upsert.schema.json",
+  "title": "mro.interval.upsert payload",
+  "x-method": "mro.interval.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "intervalValue": {
+      "type": "number",
+      "minimum": 0
+    },
+    "unit": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "sourceCite": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "taskKey",
+    "intervalValue",
+    "unit"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskKey": "C-CHK",
+        "intervalValue": 500,
+        "unit": "FH"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.lot.use.schema.json",
+  "title": "mro.lot.use payload",
+  "x-method": "mro.lot.use",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "lotId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "tailNo": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    },
+    "wo": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
+    "tech": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "lotId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "lotId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "tailNo": "B-1"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -71,7 +71,7 @@ it('shows runtime tools and opens a conversation specialist as a colleague', asy
   expect(onOpenExpert).toHaveBeenCalledWith(expect.objectContaining({ name: 'PPT专家' }))
 })
 
-it('offers open-workbench for an enabled aviation MRO colleague', async () => {
+it('offers open-workbench for enabled ops colleagues including 低空适航专家', async () => {
   const onOpenWorkbench = vi.fn()
   const mro = {
     ...expertList.experts[0],
@@ -90,6 +90,27 @@ it('offers open-workbench for an enabled aviation MRO colleague', async () => {
   expect((await screen.findAllByText('航空机务维修专家')).length).toBeGreaterThanOrEqual(1)
   fireEvent.click(screen.getByRole('button', { name: '打开工作台' }))
   expect(onOpenWorkbench).toHaveBeenCalledWith(expect.objectContaining({ name: '航空机务维修专家', catalogItemId: 'mro-expert' }))
+})
+
+it('offers open-workbench for 低空适航专家', async () => {
+  const onOpenWorkbench = vi.fn()
+  const uas = {
+    ...expertList.experts[0],
+    name: '低空适航专家',
+    division: 'operations' as const,
+    catalogItemId: 'uas-airworthiness-expert',
+  }
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [uas], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: '低空适航专家', division: 'operations', catalogItemId: 'uas-airworthiness-expert' },
+    }),
+  })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} onOpenWorkbench={onOpenWorkbench} />)
+  expect((await screen.findAllByText('低空适航专家')).length).toBeGreaterThanOrEqual(1)
+  fireEvent.click(screen.getByRole('button', { name: '打开工作台' }))
+  expect(onOpenWorkbench).toHaveBeenCalledWith(expect.objectContaining({ name: '低空适航专家', catalogItemId: 'uas-airworthiness-expert' }))
 })
 
 it('offers use-in-current-session without opening a colleague thread', async () => {

@@ -17,6 +17,10 @@ func TestMROCatalogSkillsPresent(t *testing.T) {
 		"mro-manual-rag":                "机务手册检索",
 		"mro-fault-tree":                "排故故障树",
 		"mro-checklist":                 "机务检查单",
+		"uas-airworthiness-advisor":     "低空适航顾问",
+		"tooling-chemical-advisor":      "工具化工品顾问",
+		"parts-supply-advisor":          "航材供应顾问",
+		"mx-planning-advisor":           "维修计划顾问",
 	}
 	found := map[string]CatalogTemplate{}
 	for _, tpl := range Catalog() {
@@ -50,6 +54,12 @@ func TestMROCatalogSkillsPresent(t *testing.T) {
 		}
 		if id == "mro-fault-tree" && !strings.Contains(prompt, "禁止无引用确定件号") {
 			t.Fatalf("mro-fault-tree prompt must forbid uncited part numbers")
+		}
+		if id == "uas-airworthiness-advisor" && (!strings.Contains(prompt, "CCAR-92") || strings.Contains(prompt, "EASA Part-66")) {
+			t.Fatalf("uas-airworthiness-advisor must be CCAR-92 persona, not AME copy")
+		}
+		if id == "mx-planning-advisor" && !strings.Contains(prompt, "interval_rules") {
+			t.Fatalf("mx-planning-advisor prompt must mention interval_rules")
 		}
 	}
 }
@@ -298,6 +308,7 @@ func TestEnsureComposeSkillsPublishesPreferred(t *testing.T) {
 		"tpl-slide-builder", "tpl-web-researcher", "tpl-mermaid-diagrams",
 		"tpl-docx-writer", "tpl-anti-ai-prose", "tpl-e2e-browser", "tpl-fiction-continuity",
 		"tpl-aircraft-maintenance-engineer", "tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist",
+		"tpl-uas-airworthiness-advisor", "tpl-tooling-chemical-advisor", "tpl-parts-supply-advisor", "tpl-mx-planning-advisor",
 	} {
 		if _, err := svc.GetByNameVersion(context.Background(), name, "1.0.0"); err != nil {
 			t.Fatalf("compose skill %s missing: %v", name, err)

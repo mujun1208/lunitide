@@ -53,6 +53,18 @@ var browserAutomationSkillMD []byte
 //go:embed bundled/aircraft-maintenance-engineer/SKILL.md
 var aircraftMaintenanceEngineerSkillMD []byte
 
+//go:embed bundled/uas-airworthiness-advisor/SKILL.md
+var uasAirworthinessAdvisorSkillMD []byte
+
+//go:embed bundled/tooling-chemical-advisor/SKILL.md
+var toolingChemicalAdvisorSkillMD []byte
+
+//go:embed bundled/parts-supply-advisor/SKILL.md
+var partsSupplyAdvisorSkillMD []byte
+
+//go:embed bundled/mx-planning-advisor/SKILL.md
+var mxPlanningAdvisorSkillMD []byte
+
 // ErrTemplateUnknown answers an install request naming a catalog id that
 // does not exist; ErrTemplateInstalled answers a name+version collision.
 var (
@@ -175,6 +187,30 @@ func aircraftMaintenanceEngineerManifest() map[string]any {
 	}, "\n\n--- Lunitide 集成 ---\n"+
 		"具体程序、力矩、间隙、件号必须先 kb.search，再 kb.cite，禁止凭记忆编造章节号或数值。\n"+
 		"适用性不明时先问机尾/机型与日期。文首写「辅助建议，不构成放行」。手册检索用 mro-manual-rag，排故用 mro-fault-tree，检查单用 mro-checklist。")
+}
+
+func uasAirworthinessAdvisorManifest() map[string]any {
+	return bundledManifest(uasAirworthinessAdvisorSkillMD, []string{
+		"低空适航", "无人机", "eVTOL", "CCAR-92", "适航证", "实名登记",
+	}, "\n\n--- Lunitide 集成 ---\n先问机型/登记号/运行分类与日期。kb.search 法规与持续适航。到期数字只读引擎。禁止签发 RTS。文首写「辅助建议，不构成局方批准，不构成放行」。")
+}
+
+func toolingChemicalAdvisorManifest() map[string]any {
+	return bundledManifest(toolingChemicalAdvisorSkillMD, []string{
+		"扭矩扳手", "校准", "SDS", "密封剂", "货架期", "套件备妥",
+	}, "\n\n--- Lunitide 集成 ---\n校准过期禁止借出。SDS 与工艺走 kb.search。借还只出草稿。文首写「辅助建议，不构成放行」。")
+}
+
+func partsSupplyAdvisorManifest() map[string]any {
+	return bundledManifest(partsSupplyAdvisorSkillMD, []string{
+		"航材", "AOG", "替代件", "8130", "库存", "采购",
+	}, "\n\n--- Lunitide 集成 ---\n库存只读数据源或本机台账。替代件须认证×构型×库存。PO 用模板，禁止 LLM 填件号数量价格。文首写「辅助建议，不构成采购承诺，不构成放行」。")
+}
+
+func mxPlanningAdvisorManifest() map[string]any {
+	return bundledManifest(mxPlanningAdvisorSkillMD, []string{
+		"维修计划", "定检窗口", "C检", "工作包", "MPD", "MSG-3",
+	}, "\n\n--- Lunitide 集成 ---\n间隔数字只来自 interval_rules。缺 MPD cite 或本队数据则拒绝间隔草案。不做 NL→SQL。文首写「辅助建议，不构成放行」。")
 }
 
 func findSkillsManifest() map[string]any {
@@ -605,6 +641,38 @@ var catalogTemplates = []CatalogTemplate{
 			"triggers": []string{"检查单", "工卡", "checklist"},
 			"prompt":   "只使用本对话已引用步骤。excel.gen 或 docx.gen。每页写辅助建议，不构成放行。不要写外部生产库。",
 		},
+	},
+	{
+		ID: "uas-airworthiness-advisor", Name: "tpl-uas-airworthiness-advisor", DisplayName: "低空适航顾问",
+		Description: "无人机/eVTOL 适航检索与履历：CCAR-92，不签发 RTS。",
+		Category: "行业运营", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://uas-airworthiness-advisor", Compose: true, Source: "月汐机务",
+		Manifest: uasAirworthinessAdvisorManifest(),
+	},
+	{
+		ID: "tooling-chemical-advisor", Name: "tpl-tooling-chemical-advisor", DisplayName: "工具化工品顾问",
+		Description: "工具校准、SDS、货架期与套件备妥。校准过期禁止借出。",
+		Category: "行业运营", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://tooling-chemical-advisor", Compose: true, Source: "月汐机务",
+		Manifest: toolingChemicalAdvisorManifest(),
+	},
+	{
+		ID: "parts-supply-advisor", Name: "tpl-parts-supply-advisor", DisplayName: "航材供应顾问",
+		Description: "库存只读、替代件三重过滤、AOG/PO 模板草稿。不构成采购承诺。",
+		Category: "行业运营", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://parts-supply-advisor", Compose: true, Source: "月汐机务",
+		Manifest: partsSupplyAdvisorManifest(),
+	},
+	{
+		ID: "mx-planning-advisor", Name: "tpl-mx-planning-advisor", DisplayName: "维修计划顾问",
+		Description: "到期引擎与工作包草稿。间隔数字只来自 interval_rules。",
+		Category: "行业运营", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin://mx-planning-advisor", Compose: true, Source: "月汐机务",
+		Manifest: mxPlanningAdvisorManifest(),
 	},
 	{
 		ID: "pm-phase-1", Name: "tpl-pm-phase-1", DisplayName: "需求架构规范助手",

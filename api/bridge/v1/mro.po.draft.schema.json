@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/mro.po.draft.schema.json",
+  "title": "mro.po.draft payload",
+  "x-method": "mro.po.draft",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "pn": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "qty": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    },
+    "price": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 32
+    }
+  },
+  "required": [
+    "pn"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ok"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "pn": "NAS-9",
+        "qty": "2"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}
