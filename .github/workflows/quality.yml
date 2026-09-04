@@ -108,4 +108,9 @@ jobs:
         # blew the 10-minute default; in every timeout the test in flight had
         # been running seconds, so the packages are slow, not stuck. Packages
         # run concurrently, so the job costs about one of them, not their sum.
+        #
+        # cmd/desktop tests are //go:build !race. CGO+race uses the external
+        # linker, and lunitide.syso's .rsrc IMAGE_REL_AMD64_ADDR32 relocations
+        # overflow in the race-inflated PE ("relocation truncated to fit").
+        # Non-race Quality still builds and tests ./cmd/desktop.
         run: go test -race -timeout 90m ./...

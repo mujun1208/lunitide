@@ -1,4 +1,6 @@
-//go:build windows
+//go:build windows && !race
+
+// See watchdog_test.go: CGO+race cannot link lunitide.syso (.rsrc overflow).
 
 package main
 
