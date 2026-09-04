@@ -43,6 +43,16 @@ it('enables the 火山 tile once a seed-asr provider exists', async () => {
   expect(volc).toHaveAttribute('aria-checked', 'true')
 })
 
+it('locks listen engine and notes model while a meeting is recording', async () => {
+  providers = [voiceProvider, llmOnly]
+  render(<MeetingNotesPanel recordingLock />)
+  const volc = await screen.findByRole('radio', { name: /火山/ })
+  await waitFor(() => expect(volc).toBeDisabled())
+  expect(volc).toHaveAttribute('title', '本场结束后生效')
+  expect(screen.getByLabelText('纪要模型')).toBeDisabled()
+  expect(screen.getByRole('status')).toHaveTextContent('本场结束后生效')
+})
+
 it('warns when 火山 is already the saved choice but no seed-asr is available', async () => {
   saveMeetingSettings({ ...defaultMeetingSettings(), listen: 'volc' })
   providers = [llmOnly]

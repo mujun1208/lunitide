@@ -194,35 +194,6 @@ func run() error {
 				signalEngineDied()
 			}
 		}()
-	} else {
-		go func() {
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
-			pidPath, _ := dataRoot.FilePath(ipc.GatewayEnginePIDFile)
-			for {
-				select {
-				case <-hostCtx.Done():
-					return
-				case <-ticker.C:
-					pid := int(enginePID.Load())
-					if pid < 1 && pidPath != "" {
-						if saved, err := ipc.LoadEnginePID(pidPath); err == nil {
-							pid = saved
-							enginePID.Store(int32(pid))
-						}
-					}
-					rpcBroken := false
-					if c := engineClient.Load(); c != nil {
-						rpcBroken = c.Broken() != nil
-					}
-					if engineWatchShouldRelaunch(shuttingDown.Load(), rpcBroken, pid, processAlive(pid)) {
-						hostLog("reconnected engine died (rpcBroken=%v pid=%d); relaunching desktop to respawn engine", rpcBroken, pid)
-						signalEngineDied()
-						return
-					}
-				}
-			}
-		}()
 	}
 	go func() {
 		select {
@@ -373,6 +344,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	pidPath, _ := dataRoot.FilePath(ipc.GatewayEnginePIDFile)
+	go watchEngineHealth(hostCtx, shuttingDown, &engineClient, &enginePID, pidPath, *pipe, noncePath, gateway, func(rpcBroken bool, pid int) {
+		hostLog("engine watch (rpcBroken=%v pid=%d); dropping gateway mutex then relaunching", rpcBroken, pid)
+		signalEngineDied()
+	})
 	host, err := webviewhost.New(gateway, rendererDir, webViewDataRoot.Path())
 	if err != nil {
 		return err

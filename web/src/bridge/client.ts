@@ -166,6 +166,9 @@ import {
 export class BridgeClientError extends Error {
   constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly correlationId: string) {
     super(message); this.name = 'BridgeClientError'
+    if (code === 'ENGINE_UNAVAILABLE' && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lunitide:engine-unavailable', { detail: { code, correlationId } }))
+    }
   }
 }
 export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>;open(payload?:WorkspaceOpenPayload):Promise<WorkspaceOpenResult>}

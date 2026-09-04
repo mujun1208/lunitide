@@ -6,6 +6,24 @@ import (
 	"testing"
 )
 
+func TestSelfLaunchWatchRelaunchesWhenRPCBroken(t *testing.T) {
+	if !engineWatchShouldRelaunch(false, true, 4242, true) {
+		t.Fatal("self-launch path must treat poisoned RPC as relaunch even when PID is alive")
+	}
+}
+
+func TestEngineWatchPreferReconnectWhenPIDAlive(t *testing.T) {
+	if !engineWatchPreferReconnect(true, true) {
+		t.Fatal("poisoned RPC with a live PID must try in-process reconnect before --takeover")
+	}
+	if engineWatchPreferReconnect(true, false) {
+		t.Fatal("dead PID must not pretend reconnect will work")
+	}
+	if engineWatchPreferReconnect(false, true) {
+		t.Fatal("healthy RPC must not reconnect")
+	}
+}
+
 func TestEngineWatchShouldRelaunch(t *testing.T) {
 	if engineWatchShouldRelaunch(true, true, 12, false) {
 		t.Fatal("shutdown must not relaunch")

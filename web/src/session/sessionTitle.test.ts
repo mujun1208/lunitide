@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { displaySessionTitle, isColleagueChatTitle, isCompanionChatTitle, isRenameableChatTitle, titleFromFirstTurn } from './sessionTitle'
+import { displaySessionTitle, isColleagueChatTitle, isCompanionChatTitle, isProtectedSidebarChat, isRenameableChatTitle, titleFromFirstTurn } from './sessionTitle'
 
 it('strips the leftover 同事 · prefix from bound colleague session titles', () => {
   expect(displaySessionTitle('同事 · PPT专家')).toBe('PPT专家')
@@ -23,6 +23,15 @@ it('renames only placeholder titles — 月伴 stays a stable singleton title', 
   expect(isRenameableChatTitle('写周报')).toBe(false)
   expect(titleFromFirstTurn('  帮我写一份周报  ')).toBe('帮我写一份周报')
   expect([...titleFromFirstTurn('一二三四五六七八九十'.repeat(10))].length).toBe(80)
+})
+
+it('protects companion, placeholder, and fixed 对话 titles from delete/rename', () => {
+  expect(isProtectedSidebarChat('月伴对话')).toBe(true)
+  expect(isProtectedSidebarChat('Companion talk')).toBe(true)
+  expect(isProtectedSidebarChat('新对话')).toBe(true)
+  expect(isProtectedSidebarChat('对话')).toBe(true)
+  expect(isProtectedSidebarChat('Chat')).toBe(true)
+  expect(isProtectedSidebarChat('上海天气')).toBe(false)
 })
 
 it('identifies the 月伴 singleton title in both languages', () => {

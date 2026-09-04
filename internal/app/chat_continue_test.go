@@ -96,6 +96,47 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueDesktopTurn("已经打开记事本。", 0) {
 		t.Fatal("opened an app is not the user goal")
 	}
+	if companionGoalIsOpenOnly("帮我打开桌面汽水") != true {
+		t.Fatal("open-only")
+	}
+	if companionGoalIsOpenOnly("打开记事本然后填身份证") != false {
+		t.Fatal("open-then-act")
+	}
+	if shouldContinueDesktopTurnGoal("已经打开了汽水音乐。", "打开汽水", 0) {
+		t.Fatal("open-only result must settle")
+	}
+	if !shouldContinueDesktopTurnGoal("已经打开记事本。", "打开记事本帮我写号码", 0) && !companionGoalIsOpenOnly("打开记事本帮我写号码") {
+		t.Fatal("open-then-act must still continue after open")
+	}
+	if got := pickTurnContinueKind("已经打开了。", "已经打开了。", "opened C:\\\\x\\\\汽水音乐.lnk", []string{"desktop.open"}, true, true, true, true, 0, "打开汽水"); got != "" {
+		t.Fatalf("open-only must not return desktop, got %q", got)
+	}
+	if drop := dropCompanionFailedTail([]gateway.Message{{Role: gateway.RoleUser, Content: "打开汽水"}, {Role: gateway.RoleAssistant, Content: "无法执行。窗口没到前台"}}); len(drop) != 1 || drop[0].Role != gateway.RoleUser {
+		t.Fatal("fresh visit must drop last 无法执行 assistant")
+	}
+	// C7-6: assembled chat.start is [system, prior user, failed assistant, new user].
+	c76 := dropCompanionFailedTail([]gateway.Message{
+		{Role: gateway.RoleSystem, Content: "月伴身份"},
+		{Role: gateway.RoleUser, Content: "打开汽水"},
+		{Role: gateway.RoleAssistant, Content: "无法执行。窗口没到前台"},
+		{Role: gateway.RoleUser, Content: "再打开一次汽水"},
+	})
+	if len(c76) != 3 || c76[0].Role != gateway.RoleSystem || c76[1].Content != "打开汽水" || c76[2].Content != "再打开一次汽水" {
+		t.Fatalf("C7-6 must drop the failed assistant sitting before the new user turn: %#v", c76)
+	}
+	for _, m := range c76 {
+		if strings.Contains(m.Content, "无法执行") {
+			t.Fatal("C7-6 first-visit messages must not carry 无法执行")
+		}
+	}
+	keep := dropCompanionFailedTail([]gateway.Message{
+		{Role: gateway.RoleUser, Content: "今晚月色如何"},
+		{Role: gateway.RoleAssistant, Content: "今晚是满月，适合抬头。"},
+		{Role: gateway.RoleUser, Content: "再讲一句"},
+	})
+	if len(keep) != 3 || keep[1].Content != "今晚是满月，适合抬头。" {
+		t.Fatalf("settled chat must stay: %#v", keep)
+	}
 	if !shouldContinueDesktopTurn("点完了。", 0) {
 		t.Fatal("clicked is process, not done")
 	}
@@ -114,13 +155,13 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !isDesktopControlTool("desktop.open") || !isDesktopControlTool("media.play") || !isDesktopControlTool("browser.act") {
 		t.Fatal("open/play/browser must raise the companion tool budget")
 	}
-	if got := pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", "screenshot frameId=01ARZ3NDEKTSV4RRFFQ69G5FAV", []string{"computer.act"}, true, true, true, true, 0); got != "desktop" {
+	if got := pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", "screenshot frameId=01ARZ3NDEKTSV4RRFFQ69G5FAV", []string{"computer.act"}, true, true, true, true, 0, ""); got != "desktop" {
 		t.Fatalf("screenshot + lead-in must keep desktop loop, got %q", got)
 	}
-	if got := pickTurnContinueKind("好，我帮你查一下。", "好，我帮你查一下。", "ok", []string{"web.search"}, true, false, true, true, 0); got != "leadin" {
+	if got := pickTurnContinueKind("好，我帮你查一下。", "好，我帮你查一下。", "ok", []string{"web.search"}, true, false, true, true, 0, ""); got != "leadin" {
 		t.Fatalf("non-desktop lead-in must ask for a spoken result, got %q", got)
 	}
-	if got := pickTurnContinueKind("Word 里已经写上号码了。", "Word 里已经写上号码了。", `typed "204040"`, []string{"desktop.type"}, true, true, true, true, 0); got != "" {
+	if got := pickTurnContinueKind("Word 里已经写上号码了。", "Word 里已经写上号码了。", `typed "204040"`, []string{"desktop.type"}, true, true, true, true, 0, ""); got != "" {
 		t.Fatalf("settled desktop result must stop, got %q", got)
 	}
 }

@@ -11,6 +11,11 @@ export function isCompanionChatTitle(title: string): boolean {
   return COMPANION_CHAT_TITLES.has(title.trim())
 }
 
+export function isProtectedSidebarChat(title: string): boolean {
+  const t = title.trim()
+  return isCompanionChatTitle(t) || isPlaceholderChatTitle(t) || t === '对话' || t === 'Chat'
+}
+
 /**
  * Only 新对话/New chat placeholders get auto-renamed to the first sentence.
  * 月伴对话 is deliberately excluded now that companion talk is one long-lived

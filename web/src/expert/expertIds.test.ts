@@ -8,6 +8,7 @@ import {
   isEnabledOpsWorkbench,
   isUASModel,
   resolveAskExpertId,
+  resolveInstalledExpertIds,
   workbenchRailForCatalog,
 } from './expertIds'
 
@@ -25,6 +26,13 @@ const uas = {
 
 it('resolves an installed MRO catalog id to its ULID', () => {
   expect(findInstalledExpert([mro], 'mro-expert')?.expertId).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAA')
+})
+
+it('translates catalog slugs to installed ULIDs and reports missing', () => {
+  expect(resolveInstalledExpertIds(['mro-expert', 'ppt-expert', mro.expertId], [mro])).toEqual({
+    ids: [mro.expertId],
+    missing: ['ppt-expert'],
+  })
 })
 
 it('treats a disabled MRO expert as not enabled', () => {

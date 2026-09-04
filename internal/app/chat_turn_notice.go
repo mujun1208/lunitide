@@ -68,6 +68,9 @@ func createTurnFailureNotice(tools []string, assistantText string) string {
 			}
 		}
 	}
+	if openedDesktop && !triedMedia && !usedVision {
+		return ""
+	}
 	if openedDesktop && !triedMedia {
 		return "软件已经打开了，但还没开始播放。你可以再说「随便放一首」或歌名让我继续。\n"
 	}

@@ -2,6 +2,7 @@ import{cleanup,fireEvent,render,screen,waitFor}from'@testing-library/react'
 import userEvent from'@testing-library/user-event'
 import{afterEach,expect,it,vi}from'vitest'
 import{BridgeClientError,type ProjectBridge}from'../bridge/client'
+import{ENGINE_RECOVERED_EVENT}from'../bridge/engineHealth'
 import type{ProjectDTO}from'../generated/bridge'
 import{normalizeProjectName,ProjectPage}from'./ProjectPage'
 
@@ -55,6 +56,16 @@ it('blocks busy re-entry and retains the same attempt for a retryable retry',asy
  await user.click(screen.getByRole('button',{name:'保存项目'}))
  await waitFor(()=>expect(create).toHaveBeenCalledTimes(2))
  expect(create.mock.calls[1][1]?.attempt).toBe(create.mock.calls[0][1]?.attempt)
+})
+
+it('relists projects when the engine recovers',async()=>{
+ const list=vi.fn().mockResolvedValue({items:[active]})
+ render(<ProjectPage bridge={api({list})}/>)
+ await screen.findByText('Active')
+ expect(list).toHaveBeenCalledTimes(1)
+ window.dispatchEvent(new CustomEvent(ENGINE_RECOVERED_EVENT))
+ await waitFor(()=>expect(list).toHaveBeenCalledTimes(2))
+ expect(screen.getByText('Active')).toBeInTheDocument()
 })
 
 it('keeps stale projects visible when refresh fails',async()=>{

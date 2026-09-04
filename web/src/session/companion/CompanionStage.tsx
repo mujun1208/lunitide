@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, seedCompanionCaptionRounds, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -93,7 +93,7 @@ export interface CompanionStageProps {
   seedPrompt?: string
   userAsk?: UserAskPack
   onUserAsk?: (followUp: string) => void
-  onSend: (text: string) => void | boolean | Promise<void | boolean>
+  onSend: (text: string) => void | boolean | 'error' | Promise<void | boolean | 'error'>
   /** Cancel the in-flight LLM stream. Spoken prefix is what the stage already read aloud. */
   onCancel?: (spokenText?: string) => void
   onExit: () => void
@@ -137,7 +137,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
   return user ? [user, assistant] : [assistant]
 }
 
-export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, thinkProviderId, thinkModelId, historySeed, onEngaged }: CompanionStageProps): React.JSX.Element {
+export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, thinkProviderId, thinkModelId, onEngaged }: CompanionStageProps): React.JSX.Element {
   const zh = useZh()
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
@@ -229,10 +229,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   }, [machine.state])
   roundsRef.current = rounds
   useEffect(() => {
-    if (roundsRef.current.length) return
-    const seeded = seedCompanionCaptionRounds(historySeed ?? [])
-    if (seeded.length) setRounds(seeded)
-  }, [historySeed])
+    setRounds([])
+  }, [sessionId])
   useEffect(() => {
     if (settings.voicePath !== 'local') return
     const launching = entryLights.some(light => light.key === 'speak' && light.label.includes('启动中'))

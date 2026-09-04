@@ -45,7 +45,7 @@ var knownLaunchApps = []knownLaunchApp{
 	},
 	{
 		Canonical: "汽水音乐",
-		Aliases:   []string{"汽水音乐", "汽水", "sodamusic", "soda music", "Soda Music"},
+		Aliases:   []string{"汽水音乐", "汽水", "sodamusic", "Soda Music", "soda music"},
 		Processes: []string{"sodamusic.exe", "Soda Music.exe", "SodaMusic.exe", "汽水音乐.exe"},
 		ExeHints: []string{
 			`%LOCALAPPDATA%\SodaMusic\Soda Music.exe`,

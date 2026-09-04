@@ -20,7 +20,10 @@ describe('speaking moon stays large and centered (visual acceptance lock)', () =
     for (const gain of [0, 0.2, 0.6, 1]) {
       expect(strandsSpeaking(gain).scale).toBeLessThanOrEqual(STRANDS_THINKING.scale)
     }
-    expect(strandsSpeaking(0.6).scale).toBeLessThanOrEqual(0.82)
+    expect(strandsSpeaking(0.6).scale).toBeLessThanOrEqual(0.62)
+    expect(strandsSpeaking(0.6).glass).toBe(true)
+    expect(strandsSpeaking(0.6).amplitude).toBeGreaterThanOrEqual(1.45)
+    expect(STRANDS_THINKING.scale).toBe(1.15)
   })
 
   const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
@@ -28,7 +31,12 @@ describe('speaking moon stays large and centered (visual acceptance lock)', () =
   it('enlarges the speaking moon over the idle circle and centers it', () => {
     expect(css).toMatch(/\.companion-moon\{[^}]*width:34vmin;height:34vmin[^}]*margin-inline:auto/)
     expect(css).toMatch(/\.companion-moon\.state-speaking\{width:46vmin;height:46vmin\}/)
-    expect(css).toMatch(/\.companion-moon\[data-visual="webgl"\]\.state-speaking \.companion-moon-strands\.is-on\{transform:scale\(1\.38\);transform-origin:center center\}/)
+    expect(css).toMatch(/\.companion-moon\[data-visual="webgl"\]\.state-speaking \.companion-moon-strands\.is-on\{transform:scale\(1\.55\);transform-origin:center center\}/)
+  })
+
+  it('fills the inner disc without WebGL and stays filled when motion is reduced', () => {
+    expect(css).toMatch(/\.companion-moon\.state-speaking \.companion-moon-halo-wave\{inset:-8%/)
+    expect(css).toMatch(/prefers-reduced-motion:reduce[\s\S]*\.companion-moon\.state-speaking \.companion-moon-halo-wave\{animation:none;inset:0/)
   })
 
   it('keeps the speaking moon bigger than idle at the small-viewport breakpoint', () => {

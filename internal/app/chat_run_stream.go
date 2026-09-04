@@ -296,7 +296,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				noteDocxChars(&turn, stepText)
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
-					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges)
+					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal)
 					if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
 						skillDraftOffered = true
 						msg := result.Message

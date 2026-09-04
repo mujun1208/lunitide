@@ -20,6 +20,7 @@ var (
 	procSetForegroundWin   = user32Window.NewProc("SetForegroundWindow")
 	procShowWindowWin      = user32Window.NewProc("ShowWindow")
 	procGetWindowThreadPID = user32Window.NewProc("GetWindowThreadProcessId")
+	procGetForegroundWin   = user32Window.NewProc("GetForegroundWindow")
 	kernel32Window         = syscall.NewLazyDLL("kernel32.dll")
 	procOpenProcessWin     = kernel32Window.NewProc("OpenProcess")
 	procCloseHandleWin     = kernel32Window.NewProc("CloseHandle")
@@ -154,7 +155,74 @@ func ActivateWindowMatching(fragment string) error {
 	}
 	_, _, _ = procShowWindowWin.Call(match.hwnd, swRestore)
 	if ok, _, _ := procSetForegroundWin.Call(match.hwnd); ok == 0 {
+		// SetForeground often fails without an input lock; callers must
+		// confirm the target via ForegroundWindow / ListVisibleWindows.
 		return nil
 	}
 	return nil
+}
+
+type windowList struct {
+	items []WindowHint
+}
+
+var (
+	windowListMu  sync.Mutex
+	windowListSeq uintptr
+	windowLists   = map[uintptr]*windowList{}
+)
+
+var enumWindowsListCallbackPtr = sync.OnceValue(func() uintptr {
+	return syscall.NewCallback(enumWindowsListCallback)
+})
+
+func enumWindowsListCallback(hwnd uintptr, lParam uintptr) uintptr {
+	if hwnd == 0 {
+		return 1
+	}
+	windowListMu.Lock()
+	list := windowLists[lParam]
+	windowListMu.Unlock()
+	if list == nil {
+		return 0
+	}
+	visible, _, _ := procIsWindowVisible.Call(hwnd)
+	if visible == 0 {
+		return 1
+	}
+	buf := make([]uint16, 512)
+	n, _, _ := procGetWindowTextWWin.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	title := windows.UTF16ToString(buf[:n])
+	process := windowProcessName(hwnd)
+	if title == "" && process == "" {
+		return 1
+	}
+	list.items = append(list.items, WindowHint{Title: title, Process: process})
+	return 1
+}
+
+func ForegroundWindow() (title, process string, err error) {
+	hwnd, _, _ := procGetForegroundWin.Call()
+	if hwnd == 0 {
+		return "", "", fmt.Errorf("no foreground window")
+	}
+	buf := make([]uint16, 512)
+	n, _, _ := procGetWindowTextWWin.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	return windows.UTF16ToString(buf[:n]), windowProcessName(hwnd), nil
+}
+
+func ListVisibleWindows() []WindowHint {
+	list := &windowList{}
+	windowListMu.Lock()
+	windowListSeq++
+	token := windowListSeq
+	windowLists[token] = list
+	windowListMu.Unlock()
+	defer func() {
+		windowListMu.Lock()
+		delete(windowLists, token)
+		windowListMu.Unlock()
+	}()
+	_, _, _ = procEnumWindows.Call(enumWindowsListCallbackPtr(), token)
+	return list.items
 }

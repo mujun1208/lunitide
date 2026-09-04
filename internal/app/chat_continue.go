@@ -153,24 +153,56 @@ func isDesktopControlTool(name string) bool {
 }
 
 func shouldContinueDesktopTurn(text string, nudges int) bool {
+	return shouldContinueDesktopTurnGoal(text, "", nudges)
+}
+
+func shouldContinueDesktopTurnGoal(text, userGoal string, nudges int) bool {
 	if nudges >= maxDesktopContinueNudges {
 		return false
 	}
-	return !desktopTurnSettled(text)
+	return !desktopTurnSettled(text, userGoal)
+}
+
+func companionGoalIsOpenOnly(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || !companionWantsDesktopControl(t) {
+		return false
+	}
+	open := strings.Contains(t, "打开") || strings.Contains(t, "启动") || strings.Contains(t, "把开")
+	if !open {
+		return false
+	}
+	for _, follow := range []string{"填写", "填一下", "填", "输入", "写入", "写", "播放", "播一", "点", "搜索", "搜一", "发消息"} {
+		if strings.Contains(t, follow) {
+			return false
+		}
+	}
+	return true
+}
+
+func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
+	if lastToolName(lastTools) != "desktop.open" {
+		return false
+	}
+	out := strings.TrimSpace(toolOut)
+	return strings.HasPrefix(out, "opened ") && !strings.Contains(out, "无法执行")
 }
 
 // pickTurnContinueKind decides why the tool loop should take another
 // model step. Desktop mid-task beats companion lead-in: a screenshot plus
 // 「好，我来操作电脑」 is not done (that used to ask the model to narrate
 // “完成了” after only looking).
-func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int) string {
+func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string) string {
 	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
 		return "ask"
 	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
-	if companion && usedDesktop && shouldContinueDesktopTurn(stepText, nudges) {
+	if companion && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
+		return ""
+	}
+	if companion && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
 		return "desktop"
 	}
 	if companion && usedTools && isCompanionLeadInOnly(assistantAll) && nudges < maxContinueNudges {
@@ -217,7 +249,7 @@ func companionDesktopToolLoop(e *Engine, sessionID, goal string) bool {
 	return false
 }
 
-func desktopTurnSettled(text string) bool {
+func desktopTurnSettled(text string, userGoal string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" || isCompanionLeadInOnly(t) {
 		return false
@@ -233,5 +265,30 @@ func desktopTurnSettled(text string) bool {
 			return true
 		}
 	}
+	if companionGoalIsOpenOnly(userGoal) && (strings.Contains(t, "已经打开") || strings.Contains(t, "打开了")) {
+		return true
+	}
 	return false
+}
+
+func dropCompanionFailedTail(messages []gateway.Message) []gateway.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	idx := len(messages) - 1
+	if messages[idx].Role == gateway.RoleUser && idx > 0 {
+		idx--
+	}
+	for idx >= 0 && messages[idx].Role == gateway.RoleSystem {
+		idx--
+	}
+	if idx < 0 || messages[idx].Role != gateway.RoleAssistant {
+		return messages
+	}
+	body := strings.TrimSpace(messages[idx].Content)
+	if body == "" || strings.Contains(body, "无法执行") {
+		out := append([]gateway.Message(nil), messages[:idx]...)
+		return append(out, messages[idx+1:]...)
+	}
+	return messages
 }

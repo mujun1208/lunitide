@@ -600,6 +600,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		messages = trustedMessages
 	}
 
+	if p.Companion {
+		messages = dropCompanionFailedTail(messages)
+	}
 	if len(messages) == 0 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息", false)
 	}

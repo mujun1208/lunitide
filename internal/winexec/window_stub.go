@@ -8,3 +8,11 @@ import "errors"
 func ActivateWindowMatching(fragment string) error {
 	return errors.New("window activation unavailable")
 }
+
+func ForegroundWindow() (string, string, error) {
+	return "", "", errors.New("foreground window unavailable")
+}
+
+func ListVisibleWindows() []WindowHint {
+	return nil
+}

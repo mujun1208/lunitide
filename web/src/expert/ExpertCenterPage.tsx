@@ -1,5 +1,6 @@
 import React,{useCallback,useEffect,useMemo,useState}from'react'
-import{createMutationAttempt,expertBridge,getMcpBridge,projectBridge,skillBridge as defaultSkillBridge,type ExpertBridge,type McpBridge,type ProjectBridge,type SkillBridge}from'../bridge/client'
+import{BridgeClientError,createMutationAttempt,expertBridge,getMcpBridge,projectBridge,skillBridge as defaultSkillBridge,type ExpertBridge,type McpBridge,type ProjectBridge,type SkillBridge}from'../bridge/client'
+import{ENGINE_RECOVERED_EVENT,formatBridgeFailure}from'../bridge/engineHealth'
 import type{ExpertCatalogListResult,ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertScenarioListResult,ProjectDTO,SkillDTO}from'../generated/bridge'
 import{brainBindKey,CONVERSATION_EXPERTS,conversationExpertByNameOrID,conversationExpertEmoji,conversationExpertKind,conversationExpertRole,expertCatalogKey,expertKindOf,isOpsColleague,mcpBindKey,mcpFallbackForExpert,missingPreferredSkills,preferredMcpForExperts,preferredSkillsForExperts,requiredToolsForExperts,shouldOpenExpertAsColleague,splitBoundKeys,type ExpertBrain}from'./conversationExperts'
 import{useZh}from'../i18n/language'
@@ -62,10 +63,11 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
  const zh=useZh()
 
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.experts);setSelectedId(current=>{if(initialSelectedId&&result.experts.some(item=>item.expertId===initialSelectedId))return initialSelectedId;return result.experts.some(item=>item.expertId===current)?current:(result.experts[0]?.expertId??'')})}catch(e){setError(e instanceof Error?e.message:'专家清单加载失败')}finally{setLoading(false)}},[bridge,initialSelectedId])
- const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供专家目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setCatalog([]);setMarketError(e instanceof Error?e.message:'专家市场加载失败')}finally{setMarketLoading(false)}},[bridge])
+ const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供专家目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setCatalog([]);setMarketError(e instanceof BridgeClientError?formatBridgeFailure(e,'专家市场加载失败'):(e instanceof Error?e.message:'专家市场加载失败'))}finally{setMarketLoading(false)}},[bridge])
  const refresh=async()=>{await load();setDetailEpoch(value=>value+1)}
  useEffect(()=>{void load()},[load])
  useEffect(()=>{void loadCatalog()},[loadCatalog])
+ useEffect(()=>{const reload=()=>{void load();void loadCatalog()};window.addEventListener(ENGINE_RECOVERED_EVENT,reload);return()=>window.removeEventListener(ENGINE_RECOVERED_EVENT,reload)},[load,loadCatalog])
  useEffect(()=>{try{projects.list().then(result=>{const visible=result.items.filter(item=>!item.name.startsWith('⁣'));setProjectItems(visible);setMountProjectId(current=>current||visible[0]?.id||'')}).catch(()=>{})}catch{/* bridge unavailable outside WebView2 */}},[projects])
 
  const showMarket=marketLoading||!!marketError||catalog.length>0

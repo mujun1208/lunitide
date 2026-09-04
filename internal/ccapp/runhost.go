@@ -152,6 +152,20 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		query := strings.TrimSpace(a.Title)
 		if target == "foreground" {
 			query = "foreground"
+			if title, process, err := s.host.ActiveWindow(); err == nil && (isCompanionProcess(process) || companionWindowTitle(title)) {
+				if s.restoreNonCompanionForeground() == nil {
+					png, ox, oy, capErr := s.host.WindowCapture("foreground")
+					if capErr == nil {
+						s.rememberCapture(png, ox, oy, false)
+						return s.captureSummary(png, "foreground window"), png, nil
+					}
+				}
+				png, deskErr := s.captureDesktop()
+				if deskErr != nil {
+					return "", nil, deskErr
+				}
+				return s.captureSummary(png, "desktop"), png, nil
+			}
 		}
 		png, ox, oy, err := s.host.WindowCapture(query)
 		if err != nil {

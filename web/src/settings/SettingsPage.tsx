@@ -93,7 +93,7 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, onPreferLLM }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; onPreferLLM?: (providerId: string, modelId: string) => void }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
   const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
@@ -121,7 +121,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
   }
 
   return (
-    <div className="settings-shell">
+    <div className={`settings-shell${embedded ? ' is-embedded' : ''}`}>
       <nav className="settings-nav" aria-label={zh ? '设置导航' : 'Settings'}>
         <button className="settings-back" onClick={onBack}>← {backLabel ?? (zh ? '返回主页' : 'Home')}</button>
         <div className="settings-search" role="search">
@@ -168,7 +168,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'profile' && <ProfilePanel />}
           {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
-          {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} />}
+          {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
           {category === 'datasources' && <DataSourcePanel api={{
             list: () => datasourceBridge.list({}),
