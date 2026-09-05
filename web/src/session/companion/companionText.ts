@@ -565,7 +565,9 @@ export function shouldQueueBusyUserTranscript(input: {
   lastSpoken: string
   lastAssistant: string
   assistantBusy?: boolean
+  voicePath?: string
 }): boolean {
+  if (input.voicePath === 'volc') return false
   if (!(input.assistantBusy || input.state === 'speaking' || input.state === 'thinking')) return false
   if (!input.text.trim()) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false
@@ -573,6 +575,38 @@ export function shouldQueueBusyUserTranscript(input: {
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
   return looksLikeBargeInSpeech(input.text, input.lastSpoken)
+}
+
+const COMPANION_SPOKEN_MAX_SENTENCES = 2
+const COMPANION_SPOKEN_MAX_CHARS = 80
+
+/** Cap one companion turn to two sentences or 80 chars, whichever comes first. */
+export function clipCompanionSpokenTurn(text: string, already = ''): { spoken: string; overflow: boolean } {
+  const raw = text.trim()
+  if (!raw) return { spoken: '', overflow: false }
+  const prior = already.trim()
+  const priorChars = Array.from(prior).length
+  const priorSentences = prior ? prior.split(/(?<=[。？！!?])/u).filter(part => part.trim()).length : 0
+  const parts = raw.split(/(?<=[。？！!?])/u).filter(part => part.trim())
+  const out: string[] = []
+  let chars = priorChars
+  let sentences = priorSentences
+  for (const part of parts) {
+    if (sentences >= COMPANION_SPOKEN_MAX_SENTENCES || chars >= COMPANION_SPOKEN_MAX_CHARS) {
+      return { spoken: out.join('').trim(), overflow: true }
+    }
+    const runes = Array.from(part)
+    const room = COMPANION_SPOKEN_MAX_CHARS - chars
+    if (runes.length > room) {
+      out.push(runes.slice(0, room).join(''))
+      return { spoken: out.join('').trim(), overflow: true }
+    }
+    out.push(part)
+    chars += runes.length
+    sentences += 1
+  }
+  const spoken = out.join('').trim()
+  return { spoken, overflow: sentences > COMPANION_SPOKEN_MAX_SENTENCES || chars > COMPANION_SPOKEN_MAX_CHARS }
 }
 
 /** Settings/clone labels must never become a dialogue round. */

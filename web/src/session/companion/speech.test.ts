@@ -305,6 +305,20 @@ describe('absorbRecognitionFinal', () => {
     expect(collapseTandemRepeats(clause + clause + clause)).toBe(clause)
     expect(collapseTandemRepeats(`${clause}${clause}。`)).toBe(`${clause}。`)
   })
+
+  test('collapses lyric tandem wall from meeting volc full dumps', () => {
+    const unit = '虚情假意曾经是我太缺心你是对的'
+    const wall = unit.repeat(8)
+    const got = collapseTandemRepeats(wall)
+    expect(got).toBe(unit)
+    expect(Array.from(got).length).toBeLessThan(Array.from(wall).length * 0.3)
+  })
+
+  test('keeps a domain term that appears twice but not tandem', () => {
+    const line = '周转件算法讲完再算周转件库存。'
+    expect(collapseTandemRepeats(line)).toContain('周转件算法')
+    expect(collapseTandemRepeats(line)).toContain('周转件库存')
+  })
 })
 
 describe('overlayTranscript', () => {

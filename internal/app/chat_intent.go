@@ -95,7 +95,7 @@ func looksLikeExcelTask(text string) bool {
 	if t == "" || looksLikeStatusFollowUp(text) || looksLikeResume(text) {
 		return false
 	}
-	for _, k := range []string{"excel", "xlsx", "表格", "财报", "工作簿"} {
+	for _, k := range []string{"excel", "xlsx", "表格", "计算表", "模拟表", "财报", "工作簿"} {
 		if strings.Contains(t, k) {
 			return true
 		}

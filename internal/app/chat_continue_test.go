@@ -75,8 +75,14 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("unverified media.play must continue")
 	}
+	if shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 1) {
+		t.Fatal("unverified media.play continues only once")
+	}
 	if shouldContinueIncompleteWork("正在播放周杰伦", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("verified play must not extra-loop")
+	}
+	if pickTurnContinueKind("这次没有完成。", "这次没有完成。", "ok:false\nnot found", []string{"media.play"}, true, true, true, false, 0, "放一首复古公路风", true) != "" {
+		t.Fatal("failed media.play must not desktop-continue")
 	}
 	if shouldContinueIncompleteWork("文件写好了，下一步打开网页。", "ok:true\nwritten", []string{"workspace.write"}, true, 0) {
 		t.Fatal("successful write plus 下一步 must not extra-loop")

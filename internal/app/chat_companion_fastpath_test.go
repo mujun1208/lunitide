@@ -361,7 +361,16 @@ func TestCompanionRedundantWebSkip(t *testing.T) {
 		t.Fatal("typed chat must not skip fetch")
 	}
 	if _, skip := companionRedundantWebSkip(true, []string{"web.search"}, "video.understand", "https://www.bilibili.com/video/BV1xx", true); skip {
-		t.Fatal("D-V14: video.understand must not be treated as a second weather search")
+		t.Fatal("video.understand is not a redundant web skip")
+	}
+	if msg, skip := companionRedundantMediaSkip(true, []string{"media.play"}, "media.play"); !skip || !strings.Contains(msg, "不要再 media.play") {
+		t.Fatalf("second media.play must skip: %q %v", msg, skip)
+	}
+	if _, skip := companionRedundantMediaSkip(true, nil, "media.play"); skip {
+		t.Fatal("first media.play must run")
+	}
+	if _, skip := companionRedundantMediaSkip(false, []string{"media.play"}, "media.play"); skip {
+		t.Fatal("typed chat must not skip media.play")
 	}
 }
 

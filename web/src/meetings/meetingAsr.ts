@@ -12,7 +12,7 @@ import {
   stopMediaStream,
   type CaptureThisPcSystemAudioOptions,
 } from './meetingCapture'
-import { createMeetingLineBuffer } from './meetingText'
+import { createMeetingLineBuffer, isolateCurrentUtterance } from './meetingText'
 
 export type MeetingAudioSource = 'microphone' | 'microphone_and_system'
 
@@ -179,7 +179,8 @@ export type MeetingSpeechOptions = CompanionSpeechOptions & {
 }
 
 /** Stop-time catch-up always decodes the WAV with this-PC sherpa. Live listen can be 系统/火山/本机. */
-export const MEETING_CATCHUP_HINT = '补转写只用本机识别。选了系统或火山时，停止后的缺口仍走 sherpa；本机未就绪则保留实时字幕。'
+export const MEETING_CATCHUP_HINT = '补转写只用本机识别。选了系统或火山时，系统声会在停止后补，本机识别未就绪则没有；缺口仍走 sherpa，本机未就绪则保留实时字幕。'
+export const MEETING_VOLC_END_WINDOW_MS = 400
 
 function resolveMeetingListen(listen: MeetingSpeechOptions['listen']): MeetingListen {
   if (listen === 'local' || listen === 'volc' || listen === 'cloud') return listen
@@ -208,6 +209,8 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
   const usesExternalPcm = pcmCapable && options.externalPcm === true
   const extraStreams = pcmCapable && !usesExternalPcm ? options.extraStreams : undefined
   const buffer = createMeetingLineBuffer(line => options.onFinal(line))
+  let sessionCommitted = ''
+  let lastCurrent = ''
   const speechOptions: CompanionSpeechOptions = {
     ...options,
     extraStreams,
@@ -215,9 +218,20 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
     meterless: listen === 'cloud',
     duplex: true,
     holdUtterance: true,
+    endWindowMs: listen === 'volc' ? MEETING_VOLC_END_WINDOW_MS : undefined,
     spokenText: () => '',
-    onFinal: text => buffer.push(text),
-    onInterim: text => options.onInterim?.(text),
+    onFinal: text => {
+      const current = isolateCurrentUtterance(sessionCommitted, text, lastCurrent)
+      lastCurrent = ''
+      if (!current) return
+      sessionCommitted = sessionCommitted ? `${sessionCommitted}${current}` : current
+      buffer.push(current)
+    },
+    onInterim: text => {
+      const current = isolateCurrentUtterance(sessionCommitted, text, lastCurrent)
+      lastCurrent = current
+      options.onInterim?.(current)
+    },
   }
   const handle = listen === 'volc'
     ? await startVolcCompanionSpeech(speechOptions, options.volcProviderId!)

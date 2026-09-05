@@ -3,6 +3,7 @@ import {
   absorbHeldTranscript,
   cleanMeetingTranscript,
   createMeetingLineBuffer,
+  isolateCurrentUtterance,
   joinMeetingLines,
   collapseLiveTranscriptLines,
   meetingLineDelta,
@@ -77,6 +78,33 @@ describe('joinMeetingLines', () => {
     expect(joinMeetingLines('先写', 'BRD')).toBe('先写BRD')
     expect(joinMeetingLines('write', 'BRD')).toBe('write BRD')
     expect(joinMeetingLines('先写BRD。', '第二步再做。')).toBe('先写BRD。第二步再做。')
+  })
+})
+
+describe('isolateCurrentUtterance', () => {
+  test('strips prior volc-full sentence even with a period between turns', () => {
+    const committed = '今天合肥天气怎么样'
+    const incoming = '今天合肥天气怎么样。算了放首歌'
+    expect(isolateCurrentUtterance(committed, incoming)).toBe('算了放首歌')
+  })
+
+  test('replaces when the engine starts a fresh clause', () => {
+    expect(isolateCurrentUtterance('今天天气怎么样', '帮我放周杰伦')).toBe('帮我放周杰伦')
+  })
+
+  test('returns empty when incoming is only the committed sentence', () => {
+    expect(isolateCurrentUtterance('你好', '你好。')).toBe('')
+  })
+
+  test('peels committed even when a filler sits in front of the full dump', () => {
+    expect(isolateCurrentUtterance('今天合肥天气怎么样', '嗯今天合肥天气怎么样。算了放首歌')).toBe('算了放首歌')
+  })
+
+  test('a second volc-full lyric wall does not re-emit the same unit', () => {
+    const unit = '虚情假意曾经是我太缺心你是对的'
+    const wall = unit.repeat(8)
+    expect(isolateCurrentUtterance('', wall)).toBe(unit)
+    expect(isolateCurrentUtterance(unit, wall)).toBe('')
   })
 })
 

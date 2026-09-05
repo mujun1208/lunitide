@@ -116,7 +116,10 @@ func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, 
 	if looksLikeStaleBrowserRef(lower) {
 		return true
 	}
-	return unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text)
+	if unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text) {
+		return nudges < 1
+	}
+	return false
 }
 
 func looksLikeStaleBrowserRef(lower string) bool {
@@ -198,6 +201,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
+	}
+	if companion && lastToolName(lastTools) == "media.play" {
+		return ""
 	}
 	if companion && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""

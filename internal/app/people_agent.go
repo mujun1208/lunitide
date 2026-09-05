@@ -20,7 +20,7 @@ import (
 
 const (
 	peopleAgentMaxSteps       = 8
-	peopleAgentMaxTokens      = 1600
+	peopleAgentMaxTokens      = 2400
 	peopleAgentTimeout        = 3 * time.Minute
 	peopleAgentReplyMaxRunes  = 8000
 	peopleAgentMaxHandoffHops = 2
@@ -322,6 +322,89 @@ func peopleAgentNoReplyUserError() string {
 	return "这轮没有生成回复。请先在设置 → 模型与供应商里启用一个对话模型，再发一次。"
 }
 
+func peopleAgentEmptyReplyUserError() string {
+	return "这轮没有生成回复。模型已启用，请换个说法或把数字再发一次。"
+}
+
+func peopleAgentFailedUserError(err error) string {
+	why := "工具没有跑完"
+	if err != nil {
+		why = strings.TrimSpace(err.Error())
+	}
+	if n := utf8.RuneCountInString(why); n > 80 {
+		why = string([]rune(why)[:80])
+	}
+	return "这轮没做成：" + why + "。请再发一次。"
+}
+
+type peopleAgentFailKind int
+
+const (
+	peopleFailNoModel peopleAgentFailKind = iota
+	peopleFailError
+	peopleFailEmpty
+)
+
+func classifyPeopleAgentFailure(catalogOK bool, err error, text string) (peopleAgentFailKind, string) {
+	if !catalogOK {
+		return peopleFailNoModel, peopleAgentNoReplyUserError()
+	}
+	if err != nil {
+		return peopleFailError, peopleAgentFailedUserError(err)
+	}
+	if strings.TrimSpace(text) == "" {
+		return peopleFailEmpty, peopleAgentEmptyReplyUserError()
+	}
+	return peopleFailEmpty, peopleAgentEmptyReplyUserError()
+}
+
+func peopleAgentHistoryMessages(msgs []people.Message, agentID, currentBody string, limit int) []gateway.Message {
+	if limit <= 0 {
+		limit = 8
+	}
+	type turn struct {
+		role gateway.Role
+		body string
+	}
+	var kept []turn
+	skippedCurrent := false
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m.Kind != "text" || strings.TrimSpace(m.Body) == "" {
+			continue
+		}
+		if !skippedCurrent && strings.TrimSpace(m.Body) == strings.TrimSpace(currentBody) {
+			skippedCurrent = true
+			continue
+		}
+		role := gateway.RoleUser
+		if m.SenderID == agentID {
+			role = gateway.RoleAssistant
+		}
+		kept = append(kept, turn{role: role, body: strings.TrimSpace(m.Body)})
+		if len(kept) >= limit {
+			break
+		}
+	}
+	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
+		kept[i], kept[j] = kept[j], kept[i]
+	}
+	var out []gateway.Message
+	runes := 0
+	start := 0
+	for i := len(kept) - 1; i >= 0; i-- {
+		runes += utf8.RuneCountInString(kept[i].body)
+		if runes > 6000 {
+			start = i + 1
+			break
+		}
+	}
+	for _, item := range kept[start:] {
+		out = append(out, gateway.Message{Role: item.role, Content: item.body})
+	}
+	return out
+}
+
 func peopleAgentNoTargetUserError() string {
 	return "没有找到你 @ 的同事，请检查一下昵称。"
 }
@@ -355,11 +438,11 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 		}
 		note := localBrainFallbackNotice(eq.Brain, err)
 		if e.tools != nil && sessionID != "" {
-			if out, tErr := e.completePeopleAgentWithTools(ctx, agent, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
+			if out, tErr := e.completePeopleAgentWithTools(ctx, agent, threadID, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
 				return lockLocalBrainFallback(note, out), nil
 			}
 		}
-		if out, tErr := e.completePeopleAgentText(ctx, agent, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
+		if out, tErr := e.completePeopleAgentText(ctx, agent, threadID, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
 			return lockLocalBrainFallback(note, out), nil
 		}
 		if e.people != nil && threadID != "" {
@@ -368,7 +451,7 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 		return note, err
 	}
 	if e.tools != nil && sessionID != "" {
-		text, err := e.completePeopleAgentWithTools(ctx, agent, sessionID, intent.Text)
+		text, err := e.completePeopleAgentWithTools(ctx, agent, threadID, sessionID, intent.Text)
 		if err == nil && strings.TrimSpace(text) != "" {
 			return text, nil
 		}
@@ -376,11 +459,17 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 			log.Printf("people agent tools: %v", err)
 		}
 	}
-	text, err := e.completePeopleAgentText(ctx, agent, sessionID, intent.Text)
+	text, err := e.completePeopleAgentText(ctx, agent, threadID, sessionID, intent.Text)
 	if strings.TrimSpace(text) != "" {
 		return text, err
 	}
-	note := peopleAgentNoReplyUserError()
+	catalogOK := false
+	if e.providers != nil {
+		if items, lErr := e.providers.List(ctx, provider.Filter{}); lErr == nil {
+			_, catalogOK = e.resolvePreferredChatModel(items)
+		}
+	}
+	_, note := classifyPeopleAgentFailure(catalogOK, err, text)
 	if e.people != nil && validCanonicalULID(threadID) {
 		_, _ = e.people.SendSystem(ctx, threadID, note)
 	}
@@ -452,7 +541,18 @@ func (e *Engine) peopleAgentTurnPrompt(ctx context.Context, agent people.Contact
 	return b.String()
 }
 
-func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.Contact, sessionID, userText string) (string, error) {
+func (e *Engine) peopleAgentRequestMessages(ctx context.Context, agent people.Contact, threadID, sessionID, userText string) []gateway.Message {
+	system := e.peopleAgentTurnPrompt(ctx, agent, sessionID, userText)
+	out := []gateway.Message{{Role: gateway.RoleSystem, Content: system}}
+	if e.people != nil && threadID != "" {
+		if msgs, err := e.people.ListMessages(ctx, threadID, 200); err == nil {
+			out = append(out, peopleAgentHistoryMessages(msgs, agent.SubjectID, userText, 8)...)
+		}
+	}
+	return append(out, gateway.Message{Role: gateway.RoleUser, Content: userText})
+}
+
+func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.Contact, threadID, sessionID, userText string) (string, error) {
 	if e.providers == nil {
 		return "", nil
 	}
@@ -466,7 +566,6 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 	}
 	tools := e.peopleAgentToolList(ctx, agent)
 	allowed := toolNameSet(tools)
-	system := e.peopleAgentTurnPrompt(ctx, agent, sessionID, userText)
 	var text string
 	leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
 		a, aErr := e.adapter(op, entry.Provider)
@@ -475,11 +574,8 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 		}
 		req := gateway.Request{
 			Model: entry.Model.ModelID, MaxTokens: peopleAgentMaxTokens, MaxAttempts: 1,
-			Messages: []gateway.Message{
-				{Role: gateway.RoleSystem, Content: system},
-				{Role: gateway.RoleUser, Content: userText},
-			},
-			Tools: tools,
+			Messages: e.peopleAgentRequestMessages(op, agent, threadID, sessionID, userText),
+			Tools:    tools,
 		}
 		var paths []string
 		for step := 0; step < peopleAgentMaxSteps; step++ {
@@ -528,6 +624,23 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 		}
 		return nil
 	})
+	if leaseErr == nil && looksLikeExcelTask(userText) && strings.TrimSpace(text) == "" && e.tools != nil {
+		hadXLSX := false
+		for _, p := range strings.Split(text, "\n") {
+			if strings.HasSuffix(strings.ToLower(strings.TrimSpace(p)), ".xlsx") {
+				hadXLSX = true
+			}
+		}
+		if !hadXLSX {
+			args := fallbackOfficeGenArgs("excel.gen", userText, text)
+			r, gErr := e.executeUserTool(ctx, peopleAgentExecutionMode(), sessionID, "excel.gen", args)
+			if gErr == nil {
+				text = strings.TrimSpace(officeGenSuccessNotice("excel.gen", false) + "\n" + r.Output)
+			} else {
+				text = officeGenFailNotice(gErr)
+			}
+		}
+	}
 	return text, leaseErr
 }
 
@@ -629,7 +742,7 @@ func formatDeliverablePaths(paths []string, already string) string {
 	return "文件：" + strings.Join(uniq, "；")
 }
 
-func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Contact, sessionID, userText string) (string, error) {
+func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Contact, threadID, sessionID, userText string) (string, error) {
 	if e.providers == nil {
 		return "", nil
 	}
@@ -641,7 +754,6 @@ func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Conta
 	if !ok {
 		return "", nil
 	}
-	system := e.peopleAgentTurnPrompt(ctx, agent, sessionID, userText)
 	var text string
 	leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
 		a, aErr := e.adapter(op, entry.Provider)
@@ -650,10 +762,7 @@ func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Conta
 		}
 		resp, cErr := a.Complete(op, secret, gateway.Request{
 			Model: entry.Model.ModelID, MaxTokens: 800, MaxAttempts: 1,
-			Messages: []gateway.Message{
-				{Role: gateway.RoleSystem, Content: system},
-				{Role: gateway.RoleUser, Content: userText},
-			},
+			Messages: e.peopleAgentRequestMessages(op, agent, threadID, sessionID, userText),
 		})
 		if cErr != nil {
 			return cErr

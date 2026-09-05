@@ -2,7 +2,7 @@ import { cleanUserTranscript } from '../session/companion/companionText'
 import { collapseTandemRepeats } from '../session/companion/speech'
 
 /** Glue sherpa/Web Speech chops that arrive this close together. */
-export const MEETING_MERGE_GAP_MS = 1000
+export const MEETING_MERGE_GAP_MS = 400
 /** A short unpunctuated clause is probably mid-thought, not a finished line. */
 export const MEETING_SHORT_CHARS = 16
 
@@ -114,6 +114,41 @@ export type MeetingLineBuffer = {
 
 export function compactMeetingText(raw: string): string {
   return raw.replace(/[。！？!?，,、；;：:\s]+/gu, '')
+}
+
+/**
+ * Take the current utterance out of a Volc `result_type=full` dump.
+ * Never join unrelated clauses — that is what glued turn one onto turn two.
+ */
+export function isolateCurrentUtterance(committed: string, incoming: string, lastCurrent = ''): string {
+  const next = incoming.trim()
+  if (!next) return lastCurrent
+  const prev = committed.trim()
+  if (!prev) return collapseTandemRepeats(next)
+  const prevC = compactMeetingText(prev)
+  const nextC = compactMeetingText(next)
+  if (!nextC || nextC === prevC) return ''
+  if (nextC.startsWith(prevC) && prevC.length >= 1) {
+    return finishIsolated(prevC, collapseTandemRepeats(sliceAfterCompactPrefix(next, prevC)))
+  }
+  if (prevC.startsWith(nextC) && nextC.length >= 4) return lastCurrent
+  const overlap = suffixPrefixOverlap(prevC, nextC)
+  if (overlap >= Math.min(8, Math.floor(prevC.length / 2))) {
+    return finishIsolated(prevC, collapseTandemRepeats(sliceAfterCompactPrefix(next, prevC.slice(0, overlap))))
+  }
+  if (next.includes(prev)) {
+    const cut = next.indexOf(prev) + prev.length
+    return finishIsolated(prevC, collapseTandemRepeats(next.slice(cut).replace(/^[，,、。.!！？?\s]+/u, '').trim()))
+  }
+  return collapseTandemRepeats(next)
+}
+
+/** After peeling committed text, a tandem leftover of the same unit is not a new clause. */
+function finishIsolated(prevCompact: string, current: string): string {
+  if (!current) return ''
+  const curC = compactMeetingText(current)
+  if (!curC || curC === prevCompact) return ''
+  return current
 }
 
 function sliceAfterCompactPrefix(next: string, prevCompact: string): string {

@@ -19,7 +19,7 @@ import {
   type CompanionSpeechOptions,
 } from '../speech'
 import { looksIncompleteUtterance, looksLikeBargeInSpeech, looksLikePlaybackEcho } from '../companionText'
-import { absorbHeldTranscript, pickMeetingFinalText } from '../../../meetings/meetingText'
+import { absorbHeldTranscript, isolateCurrentUtterance, pickMeetingFinalText } from '../../../meetings/meetingText'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
@@ -65,6 +65,7 @@ export async function startVolcCompanionSpeech(
   let asr: VolcAsrHandle | undefined
   let text = ''
   let sealed = ''
+  let sessionCommitted = ''
   let lastTextAt = 0
   let textSince = 0
   let lastVoiceAt = 0
@@ -131,8 +132,10 @@ export async function startVolcCompanionSpeech(
       const fresh = text.trim()
       if (emit === 'final') {
         resetUtterance()
-        const final = holdUtterance ? pickMeetingFinalText(carried, settled) : (settled || carried)
+        const raw = holdUtterance ? pickMeetingFinalText(carried, settled) : (settled || carried)
+        const final = holdUtterance ? raw : isolateCurrentUtterance(sessionCommitted, raw)
         if (!final) return
+        if (!holdUtterance) sessionCommitted = sessionCommitted ? `${sessionCommitted}${final}` : final
         options.onFinal(final)
         return
       }
@@ -195,7 +198,8 @@ export async function startVolcCompanionSpeech(
     if (!options.bargeIn?.() || !options.onBargeIn) return
     if (bargedThisPlayback) return
     if (Date.now() < playbackStartedAt + BARGE_IN_ARM_MS) return
-    const trimmed = heard.trim()
+    const isolated = holdUtterance ? heard.trim() : isolateCurrentUtterance(sessionCommitted, heard)
+    const trimmed = isolated.trim()
     if (!looksLikeBargeInSpeech(trimmed, options.spokenText?.() ?? '')) return
     bargedThisPlayback = true
     options.onBargeIn(trimmed)
@@ -204,6 +208,7 @@ export async function startVolcCompanionSpeech(
   asr = await startVolcAsr(providerId, {
     extraStreams: options.externalPcm ? undefined : options.extraStreams,
     externalPcm: options.externalPcm,
+    endWindowMs: options.endWindowMs,
     onLevel: peak => {
       if (closed) return
       bars.shift()
@@ -238,9 +243,12 @@ export async function startVolcCompanionSpeech(
         resetUtterance()
         return
       }
-      // Sherpa starts a new segment after its own 1.2s endpoint. Glue segments
-      // so a caption keeps growing and a mid-clause breath is not the turn.
-      const absorbed = absorbHeldTranscript(holdUtterance ? sealed || text : text, next)
+      // Companion: isolate the current clause from a volc-full dump.
+      // Meetings (holdUtterance) still glue sherpa chops; startMeetingSpeech
+      // strips the session prefix before the line buffer.
+      const absorbed = holdUtterance
+        ? absorbHeldTranscript(sealed || text, next)
+        : isolateCurrentUtterance(sessionCommitted, next, text)
       if (absorbed !== text.trim()) {
         text = absorbed
         lastTextAt = now
