@@ -101,7 +101,7 @@ func (a Attachment) Validate() error {
 // context: it must not be deleted and its parse status must be succeeded.
 // This is the fail-closed readability check (ADR-005 §7).
 func (a Attachment) IsReadable() bool {
-	return a.DeletedAt == nil && a.ParseStatus == StatusSucceeded
+	return a.DeletedAt == nil && a.ParseStatus == StatusSucceeded && a.ParsedText != ""
 }
 
 func canonicalULID(v string) bool {

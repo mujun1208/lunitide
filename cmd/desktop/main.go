@@ -29,6 +29,7 @@ import (
 	"github.com/lunitide/lunitide/internal/systemsettings"
 	"github.com/lunitide/lunitide/internal/uitheme"
 	"github.com/lunitide/lunitide/internal/webviewhost"
+	"github.com/lunitide/lunitide/internal/desktopfiles"
 	"github.com/lunitide/lunitide/internal/workspaceapp"
 	"github.com/oklog/ulid/v2"
 )
@@ -322,6 +323,7 @@ func run() error {
 	}
 	workspaceHandler := workspaceapp.New(workspaceConfig)
 	conversationsHandler := conversationsapp.NewHostHandler()
+	desktopFilesHandler := desktopfiles.New()
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
 		bridge.MethodBrowserOpen:              browserManager,
 		bridge.MethodBrowserClose:             browserManager,
@@ -335,6 +337,8 @@ func run() error {
 		bridge.MethodSystemSettingsOpen:       &systemsettings.Handler{OpenMicrophone: webviewhost.OpenMicrophonePrivacySettings},
 		bridge.MethodUiThemeSet:               themeHandler,
 		bridge.MethodConversationsRootSelect:  conversationsHandler,
+		bridge.MethodDesktopFilesPick:         desktopFilesHandler,
+		bridge.MethodDesktopFilesReadChunk:    desktopFilesHandler,
 		bridge.MethodWorkspaceRootSelect:      workspaceHandler,
 		bridge.MethodWorkspaceRootClear:       workspaceHandler,
 		bridge.MethodWorkspaceRootGet:         workspaceHandler,

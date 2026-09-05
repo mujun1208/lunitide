@@ -232,7 +232,8 @@ it('pauses PM chat follow on wheel-up and does not scrollTo conversation or docu
       </RootErrorBoundary>,
     )
     expect(await screen.findByLabelText('项目阶段导航')).toBeInTheDocument()
-    expect(await screen.findByText('主要分歧')).toBeInTheDocument()
+    expect(await screen.findByText('列出分歧')).toBeInTheDocument()
+    expect(await screen.findByText(/主要分歧/)).toBeInTheDocument()
     expect(document.querySelector('.project-chat-panel')).toBeTruthy()
     const box = document.querySelector('.conversation-scroll') as HTMLDivElement
     const scrollTo = vi.fn()
