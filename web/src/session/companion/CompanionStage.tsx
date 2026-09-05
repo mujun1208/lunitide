@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -353,6 +353,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   ttsAvailableRef.current = ttsAvailable
   const pendingSendRef = useRef<string | null>(null)
   const sentThisUtteranceRef = useRef('')
+  const spokenOverflowRef = useRef(false)
   const speechSyncRef = useRef<{ commitPaused: boolean; playback: boolean; echoGuardMs: number; listenThrough: boolean } | undefined>(undefined)
   const onSendRef = useRef(onSend)
   onSendRef.current = onSend
@@ -588,9 +589,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     if (companionHasFreshAssistantText(text, staleReplyRef.current) && stateRef.current === 'thinking') {
       applyEvent({ type: 'REPLY_COMPLETED', speakable: true })
     }
-    const shown = companionCaptionFromStream(text)
+    const shown = clipCompanionSpokenTurn(companionCaptionFromStream(text)).spoken
     if (!shown.trim()) return
     streamCaptionRef.current = shown
+    if (clipCompanionSpokenTurn(companionCaptionFromStream(text)).overflow && !spokenOverflowRef.current) {
+      spokenOverflowRef.current = true
+      onCancel?.(shown)
+    }
     setRounds(current => {
       const last = current[current.length - 1]
       if (last?.role === 'assistant' && last.segments === undefined && last.text === shown) return current
@@ -599,7 +604,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
       return withCurrentAssistant(current, { role: 'assistant', text: shown })
     })
-  }, [assistantText, chatStatus, machine.dispatch])
+  }, [assistantText, chatStatus, machine.dispatch, onCancel])
 
   // Do not clear userInterruptedRef when the stream ends. A leftover
   // done/failed event after 打断 used to restart TTS and trap 说话中.
@@ -609,7 +614,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   useEffect(() => {
     if (chatStatus !== 'done') return
     if (holdSpokenCaptionRef.current) return
-    const shown = companionCaptionFromStream(assistantText)
+    const shown = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken
     if (!shown) return
     streamCaptionRef.current = shown
     setRounds(current => {
@@ -641,7 +646,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const flush = () => {
       if (staleReplyRef.current && assistantText === staleReplyRef.current) return
       if (staleReplyRef.current) staleReplyRef.current = ''
-      const streamText = companionCaptionFromStream(assistantText)
+      const streamText = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken
       const pending = streamText.slice(spokenUpToRef.current)
       if (!pending.trim()) return
       const stalled = performance.now() - lastDeltaAtRef.current >= FIRST_SPEAK_STALL_MS
@@ -791,7 +796,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
       // then flush the queue and transition the machine.
-      const remaining = companionCaptionFromStream(assistantText).slice(spokenUpToRef.current)
+      const remaining = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken.slice(spokenUpToRef.current)
       const segments = prepareSpeech(remaining).filter(seg => {
         const cleaned = stripTaskDonePhrases(seg)
         if (!cleaned.trim()) return false
@@ -1334,19 +1339,24 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
       if (!transcriptAcceptance(text, { commit: true }) && !userInterruptedRef.current) {
         const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-        if (shouldQueueBusyUserTranscript({
+        if (settingsRef.current.voicePath === 'volc' && looksLikeBargeInSpeech(text, lastSpokenRef.current)) {
+          userInterruptedRef.current = true
+          cancelReply()
+        } else if (shouldQueueBusyUserTranscript({
           state: stateRef.current,
           text,
           lastSpoken: lastSpokenRef.current,
           lastAssistant,
           assistantBusy: assistantTurnBusy(),
+          voicePath: settingsRef.current.voicePath,
         })) {
           pendingSendRef.current = text
           setEngineHint('下一句已记下，这轮说完就回')
           return
+        } else {
+          discardEchoCaption(transcript)
+          return
         }
-        discardEchoCaption(transcript)
-        return
       }
       if (talkHandleRef.current && !talkHandoffRef.current) {
         cancelCaptionFade()
@@ -1361,6 +1371,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       staleReplyRef.current = assistantTextRef.current
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
+      spokenOverflowRef.current = false
       speakingRef.current = false
       setAssistantAloud(false)
       streamCaptionRef.current = ''
@@ -1402,7 +1413,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         if (stateRef.current === 'thinking') applyEvent({ type: 'REPLY_TERMINAL' })
       })
     },
-    [applyEvent, assistantTurnBusy, syncSpeechModes, transcriptAcceptance, discardEchoCaption, ensurePlayer, activeVoiceId],
+    [applyEvent, assistantTurnBusy, syncSpeechModes, transcriptAcceptance, discardEchoCaption, ensurePlayer, activeVoiceId, cancelReply],
   )
 
   useEffect(() => {
@@ -1566,6 +1577,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             lastSpoken: lastSpokenRef.current,
             lastAssistant,
             assistantBusy: assistantTurnBusy(),
+            voicePath: settingsRef.current.voicePath,
           })) {
             pendingSendRef.current = next
             setInterimText(next)

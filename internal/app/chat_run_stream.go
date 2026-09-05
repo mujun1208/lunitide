@@ -514,6 +514,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
+					if skipSummary, skip := companionRedundantMediaSkip(state.companion, turn.LastTools, call.Name); skip {
+						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+						continue
+					}
 					if skipSummary, skip := companionRedundantWebSkip(state.companion, turn.LastTools, call.Name, turn.Goal, webSearchSeen); skip {
 						if future, ok := parallelFutures[call.ID]; ok {
 							select {

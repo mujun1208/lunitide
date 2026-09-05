@@ -13,6 +13,7 @@ import {
   cleanForSpeech,
   cleanUserTranscript,
   clipCompanionPrompt,
+  clipCompanionSpokenTurn,
   COMPANION_PROMPT_MAX_CHARS,
   companionInstantAck,
   companionPadSpeech,
@@ -523,6 +524,25 @@ describe('shouldQueueBusyUserTranscript', () => {
     expect(shouldQueueBusyUserTranscript({ ...base, text: '今晚是满月适合抬头' })).toBe(false)
     expect(shouldQueueBusyUserTranscript({ ...base, text: '人生：优质台湾腔' })).toBe(false)
     expect(shouldQueueBusyUserTranscript({ ...base, state: 'listening', assistantBusy: false })).toBe(false)
+  })
+
+  test('volc never queues — latest utterance barges in', () => {
+    expect(shouldQueueBusyUserTranscript({ ...base, voicePath: 'volc' })).toBe(false)
+    expect(shouldQueueBusyUserTranscript({ ...base, state: 'thinking', assistantBusy: true, voicePath: 'volc' })).toBe(false)
+  })
+})
+
+describe('clipCompanionSpokenTurn', () => {
+  test('keeps two sentences and flags leftover', () => {
+    const got = clipCompanionSpokenTurn('好，我来播放。已经在播了。你还想听哪一首呢再搜一下。')
+    expect(got.spoken).toBe('好，我来播放。已经在播了。')
+    expect(got.overflow).toBe(true)
+  })
+
+  test('hard-caps at 80 characters', () => {
+    const got = clipCompanionSpokenTurn('甲'.repeat(90))
+    expect(Array.from(got.spoken)).toHaveLength(80)
+    expect(got.overflow).toBe(true)
   })
 })
 

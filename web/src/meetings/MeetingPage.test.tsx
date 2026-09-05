@@ -1,5 +1,5 @@
 import { BridgeClientError } from '../bridge/client'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { MeetingsBridge } from '../bridge/client'
@@ -49,6 +49,17 @@ vi.mock('../bridge/client', async importOriginal => {
           updatedAt: now,
           version: 1,
           models: [{ modelId: 'qwen-plus', displayName: 'Qwen', isDefault: true, kind: 'llm', kindDefault: true }],
+        }, {
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAX',
+          name: 'Volc Speech',
+          protocol: 'volc_speech',
+          baseUrl: 'https://openspeech.bytedance.com',
+          status: 'enabled',
+          credentialState: 'configured',
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+          models: [{ modelId: 'volc.seedasr.sauc.duration', displayName: 'seed-asr', isDefault: true, kind: 'asr', kindDefault: true }],
         }],
       }),
     }),
@@ -242,6 +253,25 @@ describe('MeetingPage', () => {
     await user.click(screen.getByRole('button', { name: '导出 Markdown' }))
     expect(meetings.exportMeeting).toHaveBeenCalledWith({ meetingId, format: 'markdown' })
     expect(await screen.findByText(/C:\/notes.md/)).toBeInTheDocument()
+  })
+
+  test('volc listen drops 正在连接 after the websocket opens', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started) })
+    let releaseStart: ((handle: CompanionSpeechHandle) => void) | undefined
+    speech.start.mockImplementation(() => new Promise(resolve => {
+      releaseStart = resolve
+    }))
+    localStorage.setItem('lunitide:meeting', JSON.stringify({ listen: 'volc', modelId: '' }))
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始录制' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('正在连接火山听写')
+    releaseStart?.(speech.handle())
+    await waitFor(() => {
+      expect(screen.queryByText(/正在连接火山听写/)).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('status')).toHaveTextContent('正在听写')
   })
 
   test('shows the live ASR diagnostics bar while recording', async () => {

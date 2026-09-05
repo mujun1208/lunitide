@@ -120,6 +120,20 @@ func companionRedundantWebSkip(companion bool, lastTools []string, next, userTex
 	return companionRedundantWebSkipMsg, true
 }
 
+const companionRedundantMediaSkipMsg = "ok:true\n已经处理过播放。不要再 media.play，用一两句说结果或「没播成」。"
+
+func companionRedundantMediaSkip(companion bool, lastTools []string, next string) (string, bool) {
+	if !companion || next != "media.play" {
+		return "", false
+	}
+	for _, t := range lastTools {
+		if t == "media.play" {
+			return companionRedundantMediaSkipMsg, true
+		}
+	}
+	return "", false
+}
+
 func companionToolLeadIn(toolName string) string {
 	switch toolName {
 	case "web.search", "web.fetch":
@@ -201,6 +215,9 @@ func companionToolResultSpeech(name, out string) string {
 		}
 		if name == "web.search" || name == "web.fetch" {
 			return "无法执行：这次没有查到。"
+		}
+		if name == "media.play" {
+			return "没播成。没找到这首歌，请说出歌名或歌手。"
 		}
 		return "这次没有完成。"
 	}

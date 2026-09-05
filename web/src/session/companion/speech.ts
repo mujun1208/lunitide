@@ -80,6 +80,11 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
    */
   holdUtterance?: boolean
   /**
+   * Volc seed-asr VAD silence before a definite, in ms. Meetings pass 400.
+   * Companion omits this so the engine keeps DefaultEndWindowMS (1200).
+   */
+  endWindowMs?: number
+  /**
    * Meeting notes owns PCM capture. Local ASR must not open a second
    * microphone or stop the WAV writer when the recognizer recycles.
    */
@@ -379,7 +384,7 @@ export function recognitionResultStart(consumed: number, resultIndex: number, re
   return Math.max(0, consumed, index)
 }
 
-const MIN_TANDEM_UNIT = 12
+const MIN_TANDEM_UNIT = 8
 
 function runeIndexOf(hay: string[], needle: string[], from = 0): number {
   outer: for (let i = from; i <= hay.length - needle.length; i++) {
