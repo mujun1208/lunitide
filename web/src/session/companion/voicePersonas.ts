@@ -107,7 +107,7 @@ export function voicePathOptions(volcTtsReady = false): VoicePathOption[] {
           badge: '听+读',
           kicker: 'seed-asr + tts',
           meta: '火山听 · 火山读',
-          desc: '听写走 seed-asr 2.0，朗读走 seed-tts 2.0 官方音色。默认单声道级联，说完再答、打断用按钮（可在设置开实时全双工通话核）。不是本机 50 种人生，也不是豆包 App 温柔桃子。密钥配在供应商「语音模型」。',
+          desc: '听写走 seed-asr 2.0，朗读走 seed-tts 2.0 官方音色。默认单声道级联，说完再答、说话中可对着麦打断（可在设置开实时全双工通话核）。不是本机 50 种人生，也不是豆包 App 温柔桃子。密钥配在供应商「语音模型」。',
         }
       : {
           value: 'volc',
@@ -115,7 +115,7 @@ export function voicePathOptions(volcTtsReady = false): VoicePathOption[] {
           badge: '听',
           kicker: 'seed-asr',
           meta: '火山听 · 晓晓读（未配朗读）',
-          desc: '听写走 seed-asr 2.0。还没配朗读模型，朗读先走晓晓。默认说完再答、打断用按钮。在供应商「语音模型」加一行类型为朗读。不是本机 50 种人生，也不是豆包 App 温柔桃子。',
+          desc: '听写走 seed-asr 2.0。还没配朗读模型，朗读先走晓晓。默认说完再答、说话中可对着麦打断。在供应商「语音模型」加一行类型为朗读。不是本机 50 种人生，也不是豆包 App 温柔桃子。',
         },
     LOCAL_PATH,
   ]

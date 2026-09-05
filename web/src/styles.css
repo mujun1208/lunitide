@@ -1617,6 +1617,16 @@ html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 .companion-exit:hover,.companion-interrupt:hover:not(:disabled){border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
 .companion-interrupt:disabled{opacity:.4;cursor:default}
 .companion-interrupt-key{margin-left:6px;opacity:.72;font-size:11px}
+.companion-skin-switch{display:inline-flex;border:1px solid rgba(143,170,216,.35);border-radius:999px;overflow:hidden;background:rgba(14,24,40,.9)}
+.companion-skin-switch button{padding:7px 12px;border:0;background:transparent;color:inherit;font-size:12.5px;cursor:pointer}
+.companion-skin-switch button[aria-pressed="true"]{background:rgba(63,214,255,.18)}
+.companion-skin-switch.is-compact button{padding:6px 10px}
+.setting-row .companion-skin-switch{flex:none}
+.companion-stage[data-skin="particle"] .companion-moon-halo,
+.companion-stage[data-skin="particle"] .companion-moon-halo-wave,
+.companion-stage[data-skin="particle"] .companion-moon-disc,
+.companion-stage[data-skin="particle"] .companion-moon-orb,
+.companion-stage[data-skin="particle"] .companion-moon-strands{display:none!important}
 .companion-tts-toggle:disabled{opacity:.45}
 .reduce-motion .companion-mic.state-listening{animation:none}
 .companion-entry{width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:16px!important;color:var(--moon)!important;text-shadow:0 0 10px rgba(127,180,255,.55)}
@@ -2394,3 +2404,34 @@ html[data-theme="light"] .people-ava-badge{background:var(--tide1);color:#fff}
 .people-claim-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0;color:var(--muted);font-size:12px}
 .people-expert-home{margin:12px 0;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}
 .people-expert-home ul{margin:8px 0 0;padding-left:18px}
+
+.stardust-sim-body,.stardust-sim-body #root{margin:0;min-height:100vh;background:#000}
+.stardust-sim{position:relative;overflow:hidden;min-height:100vh;color:#f3e6d2;font-family:var(--sans,sans-serif);background:#000}
+.stardust-sim-canvas,.stardust-sim-fallback{position:absolute;inset:0}
+.stardust-sim-fallback{display:grid;place-items:center}
+.stardust-sim-disc{width:min(42vw,280px);height:min(42vw,280px);border-radius:50%;border:1px solid rgba(90,230,255,.7);box-shadow:0 0 40px rgba(60,210,255,.28),inset 0 0 50px rgba(180,230,255,.2);animation:stardust-breathe 2.8s ease-in-out infinite}
+.reduce-motion .stardust-sim-disc{animation:none}
+@keyframes stardust-breathe{50%{transform:scale(1.04);box-shadow:0 0 56px rgba(60,210,255,.4),inset 0 0 60px rgba(180,230,255,.28)}}
+.stardust-sim-vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 48%,transparent 62%,rgba(0,0,0,.45) 88%,#000 100%)}
+.stardust-sim-brand{position:absolute;top:28px;left:32px;z-index:3;max-width:42ch}
+.stardust-sim-kicker{margin:0 0 4px;letter-spacing:.18em;text-transform:uppercase;font-size:11px;color:rgba(255,196,120,.72)}
+.stardust-sim-brand h1{margin:0;font-size:42px;font-weight:560;letter-spacing:.08em}
+.stardust-sim-brand p{margin:8px 0 0;max-width:36ch;color:rgba(230,208,186,.7);font-size:13px;line-height:1.5}
+.stardust-sim-captions{position:absolute;left:50%;bottom:168px;z-index:3;transform:translateX(-50%);min-width:min(72vw,520px);padding:12px 18px;border:1px solid rgba(255,186,120,.16);border-radius:16px;background:rgba(12,8,16,.42);backdrop-filter:blur(10px)}
+.stardust-sim-captions p{margin:0;font-size:16px;line-height:1.6}
+.stardust-sim-captions span{margin-right:10px;color:#ffc57a}
+.stardust-sim-status{position:absolute;top:32px;right:32px;z-index:3;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid rgba(255,186,120,.18);border-radius:999px;background:rgba(12,8,16,.5);font-size:13px}
+.stardust-sim-status i{width:8px;height:8px;border-radius:50%;background:#6ef0ff;box-shadow:0 0 10px #6ef0ff}
+.stardust-sim-status i.is-listening{background:#7dffb0}
+.stardust-sim-status i.is-thinking{background:#ffd36e}
+.stardust-sim-status i.is-speaking{background:#7ad7ff}
+.stardust-sim-status em{color:rgba(180,210,240,.62);font-style:normal}
+.stardust-sim-dock{position:absolute;left:50%;bottom:18px;z-index:4;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;width:min(920px,calc(100% - 24px));padding:10px 12px;border:1px solid rgba(255,186,120,.16);border-radius:18px;background:rgba(10,6,14,.7);backdrop-filter:blur(14px)}
+.stardust-sim-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
+.stardust-sim-dock button,.stardust-sim-dock input{padding:6px 10px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:transparent;color:#d7e6ff;font-size:12px}
+.stardust-sim-dock button{cursor:pointer}
+.stardust-sim-dock button.is-on{border-color:rgba(255,186,110,.7);background:rgba(255,170,90,.16)}
+.stardust-sim-dock input[type="text"],.stardust-sim-dock .stardust-sim-row input:not([type="range"]){min-width:220px;border-radius:12px}
+.stardust-sim-dock label{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(190,214,240,.78)}
+.stardust-sim-voice,.stardust-sim-hint{margin:0;color:rgba(186,208,240,.62);font-size:11px}
+.stardust-sim-hint{text-align:center}

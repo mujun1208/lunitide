@@ -199,6 +199,9 @@ func companionToolResultSpeech(name, out string) string {
 		if strings.Contains(out, "无法执行") && out != "" {
 			return out
 		}
+		if name == "web.search" || name == "web.fetch" {
+			return "无法执行：这次没有查到。"
+		}
 		return "这次没有完成。"
 	}
 	if i := strings.IndexAny(out, "\r\n"); i >= 0 {
@@ -275,6 +278,10 @@ func companionWantsTools(text string) bool {
 		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
 			return true
 		}
+	}
+	switch detectTaskRoute(text) {
+	case RouteR1, RouteR2, RouteR3, RouteR4:
+		return true
 	}
 	return len(m8app.ConversationExpertsMatchingIntent(text)) > 0
 }

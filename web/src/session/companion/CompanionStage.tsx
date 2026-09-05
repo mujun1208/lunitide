@@ -36,6 +36,9 @@ import { pickDefaultVoice } from '../../provider/modelKind'
 import { UserAskWizard } from '../UserAskWizard'
 import type { UserAskPack } from '../userAsk'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
+import { CompanionSkinSwitch } from './CompanionSkinSwitch'
+import { ParticleMoonScene } from './particle/ParticleMoonScene'
+import { consumeCompanionSkinCommand, type CompanionSkin } from './particle/particleMoon'
 import { Aurora } from './visual/Aurora'
 import { AURORA_STOPS, auroraForEnter } from './visual/moonVisual'
 import { useCompanionEnter } from './visual/useCompanionEnter'
@@ -142,6 +145,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
   const [settings, setSettings] = useState<CompanionSettings>(defaultCompanionSettings())
+  const [dustHigh, setDustHigh] = useState(true)
+  const lowFps = useRef(0)
+  const visualSkin: CompanionSkin = settings.visualSkin === 'particle' ? 'particle' : 'classic'
+  const applyVisualSkin = (next: CompanionSkin) => {
+    const current = loadCompanionSettings()
+    saveCompanionSettings({ ...current, visualSkin: next })
+    setSettings(loadCompanionSettings())
+  }
   const [ttsAvailable, setTtsAvailable] = useState<boolean | undefined>(undefined)
   const [entryLights, setEntryLights] = useState<CompanionEntryReport['lights']>(pendingCompanionLights)
   const [entryBlock, setEntryBlock] = useState('')
@@ -1304,6 +1315,20 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const beginUserTurn = useCallback(
     (transcript: string) => {
       const text = clipCompanionPrompt(cleanUserTranscript(transcript))
+      const skinTurn = consumeCompanionSkinCommand(text, settingsRef.current.visualSkin === 'particle' ? 'particle' : 'classic')
+      if (skinTurn) {
+        const stored = loadCompanionSettings()
+        saveCompanionSettings({ ...stored, visualSkin: skinTurn.next })
+        setSettings(loadCompanionSettings())
+        setInterimText('')
+        if (settingsRef.current.autoSpeak && ttsAvailableRef.current !== false) {
+          void unlockTtsAudio()
+          ensurePlayer().enqueue([skinTurn.speech], { ...settingsRef.current, voiceId: activeVoiceId() }, {})
+        } else {
+          setEngineHint(skinTurn.speech)
+        }
+        return
+      }
       if (text && sentThisUtteranceRef.current === text && !userInterruptedRef.current) {
         return
       }
@@ -1377,7 +1402,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         if (stateRef.current === 'thinking') applyEvent({ type: 'REPLY_TERMINAL' })
       })
     },
-    [applyEvent, assistantTurnBusy, syncSpeechModes, transcriptAcceptance, discardEchoCaption],
+    [applyEvent, assistantTurnBusy, syncSpeechModes, transcriptAcceptance, discardEchoCaption, ensurePlayer, activeVoiceId],
   )
 
   useEffect(() => {
@@ -2341,6 +2366,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       ref={rootRef}
       tabIndex={-1}
       data-state={surfaceState}
+      data-skin={visualSkin}
       data-started={autoLoopRef.current || machine.state !== 'idle'}
       data-hands-free={handsFree ? 'true' : 'false'}
       data-asr-route={asrRoute || undefined}
@@ -2357,7 +2383,29 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       style={{ '--moon-gain': gain } as React.CSSProperties}
     >
       <div className="companion-aurora" aria-hidden="true">
-        {canUseCompanionWebgl() ? (
+        {visualSkin === 'particle' ? (
+          canUseCompanionWebgl() ? (
+            <ParticleMoonScene
+              state={surfaceState}
+              gain={gain}
+              levels={levels}
+              burstToken={0}
+              high={dustHigh}
+              onFps={fps => {
+                if (fps && fps < 40 && dustHigh) {
+                  lowFps.current += 1
+                  if (lowFps.current >= 8) setDustHigh(false)
+                  return
+                }
+                lowFps.current = 0
+              }}
+            />
+          ) : (
+            <div className="stardust-sim-fallback" aria-hidden="true">
+              <span className="stardust-sim-disc" />
+            </div>
+          )
+        ) : canUseCompanionWebgl() ? (
           <Aurora
             colorStops={AURORA_STOPS}
             {...auroraForEnter(surfaceState, gain, enter)}
@@ -2441,6 +2489,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       </div>
       <div className="companion-stage-core">
       <div className="companion-moon-slot">
+      {visualSkin === 'classic' ? (
       <MoonSphere
         state={surfaceState}
         gain={gain}
@@ -2457,6 +2506,33 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               : toggleMic
         }
       />
+      ) : (
+      <div className={`companion-moon state-${surfaceState}`} data-state={surfaceState} data-visual="css">
+        <button
+          type="button"
+          className="companion-moon-body"
+          tabIndex={-1}
+          aria-label={
+            surfaceState === 'idle'
+              ? '月亮：轻点开始说话'
+              : surfaceState === 'listening'
+                ? '月亮正在聆听'
+                : surfaceState === 'thinking'
+                  ? '月亮正在回应'
+                  : '月亮正在说话，点击打断朗读'
+          }
+          onClick={
+            machine.state === 'speaking' || machine.state === 'thinking' || surfaceState === 'speaking' || surfaceState === 'thinking'
+              ? interruptAssistant
+              : surfaceState === 'listening'
+                ? () => {
+                    void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
+                  }
+                : toggleMic
+          }
+        />
+      </div>
+      )}
       </div>
       {userAsk && onUserAsk && (
         <UserAskWizard pack={userAsk} busy={chatStatus === 'streaming'} onSubmit={onUserAsk} />
@@ -2600,6 +2676,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         >
           {machine.state === 'thinking' || machine.state === 'speaking' ? (zh ? '停止' : 'Stop') : (zh ? '暂停' : 'Pause')}
         </button>
+        <CompanionSkinSwitch compact zh={zh} value={visualSkin} onChange={applyVisualSkin} />
         <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       </div>
     </div>

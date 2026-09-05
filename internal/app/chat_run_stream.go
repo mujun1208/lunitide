@@ -349,7 +349,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				noteDocxChars(&turn, stepText)
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
-					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal)
+					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
 					if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
 						skillDraftOffered = true
 						msg := result.Message
@@ -378,9 +378,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							nudge = desktopContinueNudgeMessage()
 						case "incomplete":
 							nudge = incompleteContinueNudgeMessage()
+						case "wait":
+							nudge = gateway.Message{Role: gateway.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
 						}
 						req.Messages = append(req.Messages, msg, nudge)
 						continue
+					}
+					if continueKind == "" && state.companion && !usedTools && len(req.Tools) > 0 &&
+						(looksLikeCompanionWaitPromise(assistantText.String()) || isCompanionLeadInOnly(assistantText.String())) {
+						close := "无法执行：这一轮没有完成查询。"
+						assistantText.WriteString(close)
+						if err := sendDeltaChunks(send, close); err != nil {
+							return err
+						}
+						break
 					}
 					if continueKind == "" && state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) {
 						close := companionToolResultSpeech(lastToolName(turn.LastTools), lastToolOutput(req.Messages))

@@ -192,7 +192,7 @@ func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
 // model step. Desktop mid-task beats companion lead-in: a screenshot plus
 // 「好，我来操作电脑」 is not done (that used to ask the model to narrate
 // “完成了” after only looking).
-func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string) string {
+func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string, toolsAttached bool) string {
 	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
 		return "ask"
 	}
@@ -204,6 +204,10 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	}
 	if companion && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
 		return "desktop"
+	}
+	if companion && !usedTools && toolsAttached && nudges < maxContinueNudges &&
+		(looksLikeCompanionWaitPromise(assistantAll) || isCompanionLeadInOnly(assistantAll)) {
+		return "wait"
 	}
 	if companion && usedTools && isCompanionLeadInOnly(assistantAll) && nudges < maxContinueNudges {
 		return "leadin"

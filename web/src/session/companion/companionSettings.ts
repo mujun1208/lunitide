@@ -101,6 +101,8 @@ export interface CompanionSettings {
    */
   talkRealtime: boolean
   omniPersonaId: string
+  /** classic = 现网玉盘；particle = 定稿星尘。缺省 classic。 */
+  visualSkin: 'classic' | 'particle'
 }
 
 const STORAGE_KEY = 'lunitide:companion'
@@ -215,6 +217,7 @@ export const defaultCompanionSettings = (): CompanionSettings => ({
   voicePath: 'cloud',
   talkRealtime: false,
   omniPersonaId: 'refpack:优质台湾腔.wav',
+  visualSkin: 'classic',
 })
 
 export function loadCompanionSettings(): CompanionSettings {
@@ -303,6 +306,7 @@ export function loadCompanionSettings(): CompanionSettings {
       voicePath,
       talkRealtime: typeof parsed.talkRealtime === 'boolean' ? parsed.talkRealtime : fallback.talkRealtime,
       omniPersonaId,
+      visualSkin: parsed.visualSkin === 'particle' ? 'particle' : 'classic',
     }
     if (persist) saveCompanionSettings(next)
     return next
@@ -367,15 +371,15 @@ function readOmniPersona(omniPersonaId: unknown, flmPersonaId: unknown, fallback
  *
  * - 云端 (cloud): half-duplex (Web Speech cannot be muted mid-flight anyway).
  * - 本地 (local): half-duplex, 打断 button only.
- * - 火山 cascade (default): half-duplex, 打断 button only.
+ * - 火山 cascade (default): 定稿仍说完再答；仅 volc 说话中可对着麦打断。
  * - 火山 talk-realtime (opt-in): full-duplex is handled server-side (server VAD
  *   + AEC) over the independent talk uplink, not through this client flag.
  *
  * The legacy `voiceBargeIn` field is kept for storage compatibility but is now
  * inert; it no longer opens a live mic on any path.
  */
-export function companionVoiceBargeInEnabled(_settings: Pick<CompanionSettings, 'voicePath' | 'voiceBargeIn'>): boolean {
-  return false
+export function companionVoiceBargeInEnabled(settings: Pick<CompanionSettings, 'voicePath' | 'voiceBargeIn'>): boolean {
+  return settings.voicePath === 'volc'
 }
 
 export function applyVoicePath(settings: CompanionSettings, path: VoicePath, opts?: { volcTtsReady?: boolean }): CompanionSettings {
