@@ -193,8 +193,47 @@ func (s *Service) SetHost(h Host) { s.host = h }
 // SetMutateSettleForTest shortens the post-mutation wait (tests).
 func (s *Service) SetMutateSettleForTest(d time.Duration) { s.mutateSettle = d }
 
-// SetAllowGUIPixelsForTest allows raw xy after an empty observe (P1 GUI).
-func (s *Service) SetAllowGUIPixelsForTest(ok bool) { s.allowGUIPixels = ok }
+// SetAllowGUIPixels allows raw xy after an empty observe. Production GUI
+// fallback turns this on only around that click and must defer it off.
+// Models cannot call this.
+func (s *Service) SetAllowGUIPixels(ok bool) {
+	if s == nil {
+		return
+	}
+	s.allowGUIPixels = ok
+}
+
+// SetAllowGUIPixelsForTest is the test alias for SetAllowGUIPixels.
+func (s *Service) SetAllowGUIPixelsForTest(ok bool) { s.SetAllowGUIPixels(ok) }
+
+// ObservedSnapshot is the last successful observe frame and node count.
+func (s *Service) ObservedSnapshot() (frameID string, nodeCount int) {
+	if s == nil {
+		return "", 0
+	}
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	return s.observedFrameID, s.observedCount
+}
+
+// VisionSize is the last capture image size used to map normalized GUI clicks.
+func (s *Service) VisionSize() (w, h int) {
+	if s == nil {
+		return 0, 0
+	}
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	return s.capVisW, s.capVisH
+}
+
+// HasObservedID reports whether observe remembered this SoM id.
+func (s *Service) HasObservedID(id string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.lookupHit(id)
+	return ok
+}
 
 func (s *Service) rememberCapture(png []byte, originX, originY int, wide bool) {
 	imgW, imgH, visW, visH := visionDimensions(png)
@@ -888,6 +927,8 @@ func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) er
 	if !unnamedUIName(invokeName) {
 		if err := s.host.InvokeUI(invokeName); err == nil {
 			return s.verifyClickHit(hit, sx, sy)
+		} else if wrapped := wrapHostIntegrityError(err); errors.Is(wrapped, ErrCcRiskBlocked) {
+			return wrapped
 		}
 	}
 	if !unnamedUIName(invokeName) {

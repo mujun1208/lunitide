@@ -146,7 +146,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	}
 	var err error
 	if !usedLocalBrain {
-		err = e.withProviderLease(ctx, p, secretlease.OperationChat, func(op context.Context, credential []byte) (cbErr error) {
+		rot := &leaseRotateState{}
+		deltaSent := false
+		origSend := send
+		send = func(ev bridge.Event) error {
+			if ev.Type == bridge.EventDelta {
+				deltaSent = true
+			}
+			return origSend(ev)
+		}
+		emitted := func() bool {
+			return deltaSent || assistantText.Len() > 0 || thinkingText.Len() > 0
+		}
+		err = e.withRotatingProviderLease(ctx, p, secretlease.OperationChat, rot, emitted, func(op context.Context, credential []byte) (cbErr error) {
+			op = withLeaseRotate(op, p, rot, emitted)
 			// A panic anywhere in the streaming/tool loop must degrade to a
 			// failed stream, never take down the Engine process (which would
 			// sever the event pipe for every active session).
@@ -170,6 +183,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			var result gateway.Response
 			var streamErr error
 			toolsFallbackUsed := false
+			guiFallbackUsed := false
+			desktopTypeL0Passed := false
 			imagesFallbackUsed := false
 			usedTools := false
 			usedDesktopTools := false
@@ -416,6 +431,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				parkedFilePicker := false
 				parkedUAC := false
 				parkedBrowserWall := ""
+				lastGUIFail := false
 				for _, call := range result.Message.ToolCalls {
 					if seen[call.ID] {
 						return errors.New("duplicate tool call id")
@@ -775,6 +791,38 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					if reason := browserWallReason(summary); reason != "" {
 						parkedBrowserWall = reason
+					}
+					if desktopTypePassedL0(call.Name, summary) {
+						desktopTypeL0Passed = true
+					}
+					lastGUIFail = desktopToolFailedForGUI(call.Name, summary, toolErr)
+				}
+				if lastGUIFail && !guiFallbackUsed && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
+					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, guiFallbackUsed, desktopTypeL0Passed); used {
+						guiFallbackUsed = true
+						if strings.TrimSpace(fb.Output) != "" && !strings.Contains(fb.Output, "ok:false") {
+							callID := "gui-" + ulid.Make().String()
+							name := "computer.act"
+							digest := argsDigestOrFallback(name, fbArgs)
+							if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(name, fbArgs))}}); err != nil {
+								return err
+							}
+							summary := clipToolSummary(fb.Output)
+							completedDigests[digest] = summary
+							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: summary}}); err != nil {
+								return err
+							}
+							req.Messages = append(req.Messages,
+								gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: fbArgs}}},
+								gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+							)
+							if len(fb.VisionData) > 0 {
+								req.Images = appendCaptureVision(req.Images, fb.VisionMIME, fb.VisionData)
+							}
+							usedTools = true
+							usedDesktopTools = true
+							turn.LastTools = append(turn.LastTools, name)
+						}
 					}
 				}
 				if parkedFilePicker {

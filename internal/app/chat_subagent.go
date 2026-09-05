@@ -229,7 +229,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 	}
 	var spent int64
 	for step := 0; step < maxSteps; step++ {
-		resp, err := a.Complete(ctx, credential, req)
+		resp, err := e.completeMaybeRotate(ctx, a, credential, req)
 		if err != nil {
 			return "", spent, err
 		}
@@ -250,7 +250,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 		Role:    gateway.RoleUser,
 		Content: "Step budget reached. Report what you found so far in prose, and say plainly what is still unverified. No tool calls.",
 	})
-	resp, err := a.Complete(ctx, credential, req)
+	resp, err := e.completeMaybeRotate(ctx, a, credential, req)
 	if err != nil {
 		return "", spent, fmt.Errorf("subagent exceeded max steps and could not summarize: %w", err)
 	}
@@ -406,7 +406,7 @@ func readOnlyEngineToolDefinitions() []gateway.ToolDefinition {
 	all := engineToolDefinitions()
 	out := make([]gateway.ToolDefinition, 0, len(all))
 	for _, d := range all {
-		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "media.play" || d.Name == "browser.act" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "run_terminal_cmd" || d.Name == toolStructuredOutput || d.Name == "user.ask" {
+		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "media.play" || d.Name == "browser.act" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "video.understand" || d.Name == "run_terminal_cmd" || d.Name == toolStructuredOutput || d.Name == "user.ask" {
 			continue
 		}
 		out = append(out, d)

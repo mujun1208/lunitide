@@ -48,6 +48,28 @@ func TestRequireObserveBeforeXY(t *testing.T) {
 	}
 }
 
+func TestSetAllowGUIPixelsProduction(t *testing.T) {
+	t.Parallel()
+	s := New(nil)
+	s.observedFrameID = "frm_empty"
+	s.observedCount = 0
+	if err := s.requireObserveBeforeXY(); err == nil {
+		t.Fatal("false: empty-tree xy must still fail")
+	}
+	s.SetAllowGUIPixels(true)
+	if err := s.requireObserveBeforeXY(); err != nil {
+		t.Fatalf("true: empty-tree xy must pass: %v", err)
+	}
+	s.SetAllowGUIPixels(false)
+	if err := s.requireObserveBeforeXY(); err == nil {
+		t.Fatal("after close: empty-tree xy must fail again")
+	}
+	frame, n := s.ObservedSnapshot()
+	if frame != "frm_empty" || n != 0 {
+		t.Fatalf("ObservedSnapshot = %q %d", frame, n)
+	}
+}
+
 func TestObserveTruncatedFlags(t *testing.T) {
 	t.Parallel()
 	nodes := []UINode{
@@ -132,6 +154,47 @@ func TestClickIDB2AfterAmbiguousUnnamed(t *testing.T) {
 	}
 	if host.movedX != 90 || host.movedY != 20 {
 		t.Fatalf("D-J1 id=B2 must land on B2, got %d,%d", host.movedX, host.movedY)
+	}
+}
+
+type dragStubHost struct {
+	ladderStubHost
+	x1, y1, x2, y2 int
+}
+
+func (h *dragStubHost) MouseDrag(x1, y1, x2, y2 int) error {
+	h.x1, h.y1, h.x2, h.y2 = x1, y1, x2, y2
+	return nil
+}
+
+func TestDragByIDRequiresObserve(t *testing.T) {
+	t.Parallel()
+	host := &dragStubHost{ladderStubHost: ladderStubHost{title: "Notepad", process: "notepad.exe"}}
+	s := New(nil)
+	s.SetHost(host)
+	_, _, err := s.runHost(ToolMouseDrag, []byte(`{"id":"B1","id2":"B2"}`), nil)
+	if err == nil || !errors.Is(err, ErrCcInputFiltered) || !strings.Contains(err.Error(), "先 observe") {
+		t.Fatalf("D-Q1 want observe miss, got %v", err)
+	}
+}
+
+func TestDragByIDUsesRememberedHits(t *testing.T) {
+	t.Parallel()
+	nodes := assignNodeIDs([]UINode{
+		{Role: "button", Name: "A", X: 10, Y: 10, W: 20, H: 20},
+		{Role: "button", Name: "B", X: 80, Y: 10, W: 20, H: 20},
+	})
+	host := &dragStubHost{ladderStubHost: ladderStubHost{title: "Notepad", process: "notepad.exe", nodes: nodes}}
+	s := New(nil)
+	s.SetHost(host)
+	s.rememberHits(nodes)
+	s.observedFrameID = "frm_1"
+	_, _, err := s.runHost(ToolMouseDrag, []byte(`{"id":"B1","id2":"B2"}`), nil)
+	if err != nil {
+		t.Fatalf("D-Q2 drag: %v", err)
+	}
+	if host.x1 != 20 || host.y1 != 20 || host.x2 != 90 || host.y2 != 20 {
+		t.Fatalf("D-Q2 drag coords %d,%d -> %d,%d", host.x1, host.y1, host.x2, host.y2)
 	}
 }
 

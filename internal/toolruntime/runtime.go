@@ -24,6 +24,7 @@ import (
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/officetools"
+	"github.com/lunitide/lunitide/internal/videounderstand"
 	"github.com/lunitide/lunitide/internal/webfetch"
 	_ "modernc.org/sqlite"
 )
@@ -594,6 +595,19 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		// artifact (including https:// URLs) before it reaches the
 		// renderer, which left the browser tab on an empty placeholder.
 		out.Artifact = &Artifact{Kind: "html", Path: "fetch.html", Content: webfetch.RenderExtractHTML(title, page.FinalURL, preview)}
+		return out, nil
+	case "video.understand":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if strict(args, &a) != nil || a.URL == "" || len(a.URL) > 2048 {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if r.fetchWeb == nil {
+			return Result{}, errors.New("web tools unavailable")
+		}
+		understood := videounderstand.Understand(ctx, a.URL, r.fetchWeb)
+		out := result(understood.Format())
 		return out, nil
 	case "web.search":
 		var a struct {

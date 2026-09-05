@@ -323,11 +323,19 @@ func draftCreateTarget(request []byte) (provider.Protocol, string, error) {
 func existingUpdateTarget(request []byte, current provider.Provider) (provider.Protocol, string, error) {
 	var p struct {
 		ID              string             `json:"id"`
+		ProviderID      string             `json:"providerId"`
 		Protocol        *provider.Protocol `json:"protocol"`
 		BaseURL         *string            `json:"baseUrl"`
 		ExpectedVersion int64              `json:"expectedVersion"`
 	}
-	if json.Unmarshal(request, &p) != nil || p.ID != current.ID || p.ExpectedVersion < 1 {
+	if json.Unmarshal(request, &p) != nil || p.ExpectedVersion < 1 {
+		return "", "", errors.New("invalid bound update")
+	}
+	id := p.ID
+	if id == "" {
+		id = p.ProviderID
+	}
+	if id != current.ID {
 		return "", "", errors.New("invalid bound update")
 	}
 	protocol := current.Protocol

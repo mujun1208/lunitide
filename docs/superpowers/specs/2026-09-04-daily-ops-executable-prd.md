@@ -2,10 +2,11 @@
 
 日期：2026-09-04  
 版本：落地版（复核后重写）  
-状态：已批准，P0 已完成；P1 未开工。实施计划：[../plans/2026-09-04-daily-ops-capability.md](../plans/2026-09-04-daily-ops-capability.md)。  
+状态：已批准，P0 已完成；P1 已落地。P0 实施计划：[../plans/2026-09-04-daily-ops-capability.md](../plans/2026-09-04-daily-ops-capability.md)。  
+P1 唯一事实源：[2026-09-05-daily-ops-p1-executable-prd.md](./2026-09-05-daily-ops-p1-executable-prd.md)（复盘落地版，已落地）。  
 产品：月汐（Lunitide）Go Engine + React WebView2 + SQLite  
 
-**本文是唯一事实源。** 前稿 [2026-09-04-daily-ops-capability-prd.md](./2026-09-04-daily-ops-capability-prd.md) **superseded**（方向保留，锁死项以下文为准）。  
+**P0 本文是唯一事实源。** 前稿 [2026-09-04-daily-ops-capability-prd.md](./2026-09-04-daily-ops-capability-prd.md) **superseded**（方向保留，锁死项以下文为准）。  
 能力补齐旧文 [2026-09-04-capability-slots-design.md](./2026-09-04-capability-slots-design.md) 同样只作对照，不开工。
 
 沿用冻结：不新 daemon；内核 SQLite；不改 poison / 说完再答 / 月伴 TTS / 专家表；`desktop.open` 成功=前置后前台命中；电脑控制不自开；保护会话不可删改名；不假成功 `ENGINE_UNAVAILABLE`；不移动 `v0.4.62`。

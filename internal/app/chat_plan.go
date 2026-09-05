@@ -17,6 +17,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -150,6 +151,9 @@ func decidePlanVerify(l0s []l0Observation) (skipModel bool, verified bool, gaps 
 }
 
 func (e *Engine) judgeModelID(ctx context.Context, chatModel string) string {
+	if _, bound := e.resolveRole(ctx, "judge"); strings.TrimSpace(bound) != "" {
+		return bound
+	}
 	if e == nil || e.providers == nil {
 		return chatModel
 	}
@@ -175,6 +179,39 @@ func (e *Engine) judgeModelID(ctx context.Context, chatModel string) string {
 	return pickJudgeModelID(chatModel, cands)
 }
 
+func (e *Engine) completeJudge(ctx context.Context, a gateway.Adapter, credential []byte, chatModel string, req gateway.Request) (gateway.Response, error) {
+	providerID, modelID := "", ""
+	if e != nil {
+		providerID, modelID = e.resolveRole(ctx, "judge")
+	}
+	if strings.TrimSpace(modelID) == "" {
+		req.Model = e.judgeModelID(ctx, chatModel)
+		return e.completeMaybeRotate(ctx, a, credential, req)
+	}
+	req.Model = modelID
+	if providerID == "" || e.providers == nil {
+		return e.completeMaybeRotate(ctx, a, credential, req)
+	}
+	if shared, ok := ctx.Value(leaseRotateKey{}).(leaseRotateCtx); ok && shared.provider.ID == providerID {
+		return e.completeMaybeRotate(ctx, a, credential, req)
+	}
+	item, err := e.providers.Get(ctx, providerID)
+	if err != nil || item.CredentialRef == "" {
+		return e.completeMaybeRotate(ctx, a, credential, req)
+	}
+	var out gateway.Response
+	leaseErr := e.withProviderLease(ctx, item, secretlease.OperationChat, func(op context.Context, secret []byte) error {
+		ja, adapterErr := e.adapter(op, item)
+		if adapterErr != nil {
+			return adapterErr
+		}
+		resp, completeErr := ja.Complete(op, secret, req)
+		out = resp
+		return completeErr
+	})
+	return out, leaseErr
+}
+
 // runPlanCycle executes phases 2-3 against a prepared plan document.
 func (e *Engine) runPlanCycle(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, planDocument string, route TaskRoute) (string, error) {
 	steps := parsePlanSteps(planDocument)
@@ -190,15 +227,14 @@ func (e *Engine) runPlanCycle(ctx context.Context, a gateway.Adapter, credential
 	skip, verified, gaps := decidePlanVerify(l0s)
 	if !skip {
 		l0raw, _ := json.Marshal(l0s)
-		judge := e.judgeModelID(ctx, model)
 		verifyReq := gateway.Request{
-			Model: judge, MaxTokens: 512, MaxAttempts: 1,
+			MaxTokens: 512, MaxAttempts: 1,
 			Messages: []gateway.Message{
 				{Role: gateway.RoleSystem, Content: planVerifyPrompt},
 				{Role: gateway.RoleUser, Content: "Objective: " + objective + "\n\nExecution log:\n" + log.String() + "\n\nL0:\n" + string(l0raw)},
 			},
 		}
-		verifyResp, err := a.Complete(ctx, credential, verifyReq)
+		verifyResp, err := e.completeJudge(ctx, a, credential, model, verifyReq)
 		if err == nil {
 			verified, gaps = parseVerdict(verifyResp.Message.Content)
 		} else {

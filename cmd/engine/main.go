@@ -273,6 +273,7 @@ func main() {
 	// needs an account + password (remote hosts are left untouched).
 	ds.SetProvisioner(datasourceapp.SQLProvisioner)
 	engine.SetDatasourceService(ds)
+	engine.SetCapabilityRoleStore(store)
 	// M8 FR-18: unified plugin bundle runtime - capabilities hot-register
 	// into the existing registries through the verification chain.
 	pluginSvc := m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user")

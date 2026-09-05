@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/videounderstand"
 )
 
 // TaskRoute is the daily-ops shrink class. Empty means "do not shrink".
@@ -31,7 +32,7 @@ var (
 	}
 	siteHints = []string{
 		"http://", "https://", "网站", "网页",
-		"12306", "知乎", "淘宝", "taobao", "bilibili", "youtube",
+		"12306", "知乎", "淘宝", "taobao", "bilibili", "B站", "youtube", "抖音",
 	}
 	siteActHints = []string{"登录", "登陆", "点"}
 	genHints     = []string{
@@ -78,6 +79,12 @@ func detectTaskRoute(goal string) TaskRoute {
 	if info {
 		return RouteR1
 	}
+	if _, _, ok := videounderstand.DetectShareURL(t); ok {
+		if explicitBrowserIntent(t, lower) {
+			return RouteR3
+		}
+		return RouteR1
+	}
 	if site && (open || containsAnyFold(t, lower, siteActHints) || browserLookup || containsAnyFold(t, lower, browserAppHints)) {
 		return RouteR3
 	}
@@ -105,7 +112,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 		return copyAllow(toolProfileAllow(toolProfileMinimal))
 	case RouteR1:
 		return map[string]bool{
-			"web.search": true, "web.fetch": true,
+			"web.search": true, "web.fetch": true, "video.understand": true,
 			"memory.search": true, "memory.get": true,
 			"user.ask": true,
 		}
@@ -175,6 +182,19 @@ func assembleRoutedTools(defs []gateway.ToolDefinition, goal string, companion, 
 		out = applyTaskRoute(out, route, allow)
 	}
 	return out
+}
+
+func explicitBrowserIntent(orig, lower string) bool {
+	if strings.Contains(orig, "登录后看") || strings.Contains(orig, "登陆后看") {
+		return false
+	}
+	if containsAnyFold(orig, lower, []string{"打开浏览器", "用浏览器", "在浏览器", "上网打开"}) {
+		return true
+	}
+	if containsAnyFold(orig, lower, browserAppHints) && containsAnyFold(orig, lower, openHints) {
+		return true
+	}
+	return containsAnyFold(orig, lower, []string{"登录", "登陆"})
 }
 
 func containsAnyFold(orig, lower string, hints []string) bool {

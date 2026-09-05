@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/secret"
+	"path/filepath"
 )
 
 type emptyCleanupEngine struct {
@@ -121,5 +124,79 @@ func TestCleanupWorkerReclaimsExpiredSubmissionsDuringLongRun(t *testing.T) {
 			t.Fatalf("periodic worker did not reclaim and drain: entries=%d secrets=%d claims=%d", remaining, store.count(), claims)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+type mutateSpyEngine struct {
+	mu     sync.Mutex
+	method string
+	body   map[string]any
+}
+
+func (e *mutateSpyEngine) Call(_ context.Context, r bridge.Request) (bridge.Response, error) {
+	e.mu.Lock()
+	e.method = r.Method
+	_ = json.Unmarshal(r.Payload, &e.body)
+	e.mu.Unlock()
+	if r.Method == "internal.provider.update.with-credential" || r.Method == "internal.provider.create.with-credential" {
+		return bridge.Failure(r.ID, r.TraceID, "WRONG_BRANCH", "backup.add must not use create/update", false), nil
+	}
+	return bridge.Success(r.ID, map[string]any{"ok": true}), nil
+}
+
+type fixedProviderResolver struct{ item provider.Provider }
+
+func (f fixedProviderResolver) ResolveProvider(context.Context, string) (provider.Provider, error) {
+	return f.item, nil
+}
+
+func TestMutateBackupAddDoesNotTakeUpdateBranch(t *testing.T) {
+	root, err := datadir.PrepareForTest(filepath.Join(t.TempDir(), "secure"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	item := provider.Provider{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
+		BaseURL: "https://api.example.test", CredentialRef: "primary-ref",
+	}
+	store := newMemorySecrets()
+	c, err := New(root, store, testReferenceResolver{}, fixedProviderResolver{item: item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	canonical, _ := json.Marshal(map[string]any{"providerId": item.ID, "expectedVersion": 1})
+	sub, err := c.Submit(context.Background(), SubmitInput{
+		Scope: Existing(item.ID), Protocol: item.Protocol, Origin: "https://api.example.test",
+		Request: canonical, Credential: []byte("backup-secret"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &mutateSpyEngine{}
+	h := &HostHandler{Coordinator: c, Engine: spy, Secrets: store}
+	payload, _ := json.Marshal(map[string]any{
+		"providerId": item.ID, "expectedVersion": 1, "credentialSubmissionId": sub.SubmissionID,
+	})
+	resp, err := h.Mutate(context.Background(), sub.SubmissionID, canonical, bridge.Request{
+		ID: item.ID, TraceID: item.ID, Method: "provider.credential.backup.add", Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("D-F6 mutate failed: %+v", resp.Error)
+	}
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	if spy.method != "internal.provider.backup.with-credential" {
+		t.Fatalf("D-F6 method=%s body=%v", spy.method, spy.body)
+	}
+	if _, hasUpdate := spy.body["update"]; hasUpdate {
+		t.Fatal("D-F6 took update branch")
+	}
+	if _, hasBackup := spy.body["backup"]; !hasBackup {
+		t.Fatalf("D-F6 missing backup payload: %v", spy.body)
 	}
 }

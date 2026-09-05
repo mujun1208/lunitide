@@ -48,6 +48,7 @@ const provider: ProviderDTO = {
   models: [{ modelId: 'model', displayName: 'Model', isDefault: true }],
   status: 'enabled',
   credentialState: 'configured',
+  credentialBackupCount: 0,
   createdAt: NOW,
   updatedAt: NOW,
   version: 1,
