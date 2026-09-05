@@ -345,6 +345,9 @@ func TestCompanionRedundantWebSkip(t *testing.T) {
 	if _, skip := companionRedundantWebSkip(false, []string{"web.search"}, "web.fetch", "今天天气怎么样", false); skip {
 		t.Fatal("typed chat must not skip fetch")
 	}
+	if _, skip := companionRedundantWebSkip(true, []string{"web.search"}, "video.understand", "https://www.bilibili.com/video/BV1xx", true); skip {
+		t.Fatal("D-V14: video.understand must not be treated as a second weather search")
+	}
 }
 
 func TestCompanionToolLeadIn(t *testing.T) {
@@ -355,6 +358,9 @@ func TestCompanionToolLeadIn(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 	if got := companionToolLeadIn("desktop.type"); got != "好，我来输入。" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionToolLeadIn("video.understand"); got != "好，我先看下这个链接。" {
 		t.Fatalf("got %q", got)
 	}
 	if got := companionToolResultSpeech("desktop.type", `typed "204040" after "证件号码"`); got != "已经写入了 204040。" {

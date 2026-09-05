@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -91,6 +93,14 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
 		adapter, adapterErr := e.adapter(opCtx, p)
 		if adapterErr != nil {
+			return adapterErr
+		}
+		if modelByID(p, modelID).EffectiveKind() == provider.KindEmbedding {
+			emb, ok := adapter.(gateway.Embedder)
+			if !ok {
+				return errors.New("adapter does not support embeddings")
+			}
+			_, adapterErr = emb.Embed(opCtx, secret, modelID, []string{"ping"})
 			return adapterErr
 		}
 		testRequest := gateway.Request{Model: modelID, Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "ping"}}, MaxTokens: 1, MaxAttempts: 1}
@@ -222,8 +232,15 @@ func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) 
 }
 
 func (e *Engine) withProviderLease(ctx context.Context, p provider.Provider, operation secretlease.Operation, fn func(context.Context, []byte) error) error {
+	return e.withProviderLeaseRef(ctx, p, p.CredentialRef, operation, fn)
+}
+
+func (e *Engine) withProviderLeaseRef(ctx context.Context, p provider.Provider, ref string, operation secretlease.Operation, fn func(context.Context, []byte) error) error {
 	if e.leases == nil {
 		return errors.New("secret lease unavailable")
+	}
+	if ref == "" {
+		ref = p.CredentialRef
 	}
 	origin, err := provider.NormalizeOrigin(p.BaseURL)
 	if err != nil {
@@ -242,9 +259,112 @@ func (e *Engine) withProviderLease(ctx context.Context, p provider.Provider, ope
 	}
 	opCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	return e.leases.WithLease(opCtx, secretlease.Request{ProviderID: p.ID, CredentialRef: p.CredentialRef, Origin: origin, Protocol: string(p.Protocol), Operation: operation, Deadline: deadline}, func(secret []byte) error {
+	return e.leases.WithLease(opCtx, secretlease.Request{ProviderID: p.ID, CredentialRef: ref, Origin: origin, Protocol: string(p.Protocol), Operation: operation, Deadline: deadline}, func(secret []byte) error {
 		return fn(opCtx, secret)
 	})
+}
+
+type leaseRotateState struct {
+	swaps int
+}
+
+func isQuotaRotateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var gatewayErr *gateway.Error
+	if errors.As(err, &gatewayErr) && gatewayErr.HTTPStatus == 429 {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "429") || strings.Contains(s, "insufficient_quota") {
+		return true
+	}
+	return quotaWord.MatchString(s)
+}
+
+var quotaWord = regexp.MustCompile(`(?i)\bquota\b`)
+
+func (e *Engine) withRotatingProviderLease(ctx context.Context, p provider.Provider, operation secretlease.Operation, rot *leaseRotateState, emitted func() bool, fn func(context.Context, []byte) error) error {
+	refs := p.CredentialRefChain()
+	if len(refs) == 0 {
+		return e.withProviderLeaseRef(ctx, p, p.CredentialRef, operation, fn)
+	}
+	if rot == nil {
+		rot = &leaseRotateState{}
+	}
+	var last error
+	for i := rot.swaps; i < len(refs) && i <= 3; i++ {
+		last = e.withProviderLeaseRef(ctx, p, refs[i], operation, fn)
+		if last == nil {
+			return nil
+		}
+		if emitted != nil && emitted() {
+			return last
+		}
+		if !isQuotaRotateError(last) {
+			return last
+		}
+		if i+1 >= len(refs) || i >= 3 {
+			return last
+		}
+		rot.swaps = i + 1
+		if rot.swaps > 3 {
+			return last
+		}
+	}
+	return last
+}
+
+type leaseRotateKey struct{}
+
+type leaseRotateCtx struct {
+	provider provider.Provider
+	rot      *leaseRotateState
+	emitted  func() bool
+}
+
+func withLeaseRotate(ctx context.Context, p provider.Provider, rot *leaseRotateState, emitted func() bool) context.Context {
+	return context.WithValue(ctx, leaseRotateKey{}, leaseRotateCtx{provider: p, rot: rot, emitted: emitted})
+}
+
+func (e *Engine) completeMaybeRotate(ctx context.Context, a gateway.Adapter, credential []byte, req gateway.Request) (gateway.Response, error) {
+	resp, err := a.Complete(ctx, credential, req)
+	if err == nil || e == nil {
+		return resp, err
+	}
+	shared, ok := ctx.Value(leaseRotateKey{}).(leaseRotateCtx)
+	if !ok || shared.rot == nil {
+		return resp, err
+	}
+	if shared.emitted != nil && shared.emitted() {
+		return resp, err
+	}
+	if !isQuotaRotateError(err) {
+		return resp, err
+	}
+	refs := shared.provider.CredentialRefChain()
+	for shared.rot.swaps+1 < len(refs) && shared.rot.swaps < 3 {
+		shared.rot.swaps++
+		var out gateway.Response
+		last := e.withProviderLeaseRef(ctx, shared.provider, refs[shared.rot.swaps], secretlease.OperationChat, func(op context.Context, secret []byte) error {
+			inner, completeErr := a.Complete(op, secret, req)
+			out = inner
+			return completeErr
+		})
+		if last == nil {
+			return out, nil
+		}
+		if shared.emitted != nil && shared.emitted() {
+			return out, last
+		}
+		if !isQuotaRotateError(last) {
+			return out, last
+		}
+		err = last
+		resp = out
+	}
+	return resp, err
 }
 
 func providerReadyFailure(request bridge.Request, p provider.Provider) *bridge.Response {

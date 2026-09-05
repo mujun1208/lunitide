@@ -39,6 +39,7 @@ var autoProfileTaskHints = []string{
 	"file", "code", "run", "open", "click", "search", "fix", "build", "test",
 	"error", "install", "deploy", "http", ".go", ".ts", ".py", ".md", "git",
 	"todo", "refactor", "debug", "terminal", "command",
+	"b23.tv", "v.douyin.com", "youtu.be", "bilibili.com", "v.qq.com",
 }
 
 // autoProfileChatHints are positive signals that a short turn is pure

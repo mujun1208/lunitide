@@ -57,6 +57,7 @@ type KBChunk struct {
 	LocatorJSON     string
 	Body            string
 	CreatedAt       string
+	Embedding       []byte
 }
 
 // KBVersionGuard enacts the M8-011 optimistic-reindex rule: when the document

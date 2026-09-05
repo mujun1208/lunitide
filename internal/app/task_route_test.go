@@ -91,6 +91,48 @@ func TestClassifyTaskRoute(t *testing.T) {
 			goal:     strings.Repeat("你好", 21),
 			nilAllow: true,
 		},
+		{
+			id:    "D-V2",
+			goal:  "https://www.bilibili.com/video/BV1xx411c7mD",
+			route: RouteR1,
+			must:  []string{"video.understand", "web.fetch", "user.ask"},
+			forbid: []string{"browser.act", "computer.act", "media.play"},
+		},
+		{
+			id:    "D-V3",
+			goal:  "6.66 复制打开抖音，看看【月食】https://v.douyin.com/ieFxxxx/",
+			route: RouteR1,
+			must:  []string{"video.understand"},
+			forbid: []string{"browser.act", "computer.act", "media.play"},
+		},
+		{
+			id:    "D-V4",
+			goal:  "用浏览器打开 https://www.bilibili.com/video/BV1xx411c7mD",
+			route: RouteR3,
+			must:  []string{"browser.act", "web.fetch"},
+			forbid: []string{"video.understand", "computer.act"},
+		},
+		{
+			id:    "D-V5",
+			goal:  "播放 https://v.douyin.com/ieFxxxx/",
+			route: RouteR1,
+			must:  []string{"video.understand"},
+			forbid: []string{"media.play", "desktop.open"},
+		},
+		{
+			id:    "D-V6",
+			goal:  "解读总结一下 https://v.qq.com/x/cover/mzc00200abc/n0044xyz.html",
+			route: RouteR1,
+			must:  []string{"video.understand"},
+			forbid: []string{"browser.act"},
+		},
+		{
+			id:    "open-bilibili-no-url",
+			goal:  "打开B站",
+			route: RouteR3,
+			must:  []string{"browser.act"},
+			forbid: []string{"video.understand"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
@@ -170,8 +212,16 @@ func TestApplyTaskRoute(t *testing.T) {
 	if seen["desktop.open"] || seen["computer.act"] || seen["browser.act"] {
 		t.Fatalf("R1 leaked mutating tools: %v", seen)
 	}
-	if !seen["web.search"] || !seen["user.ask"] {
-		t.Fatalf("R1 dropped search/ask: %v", seen)
+	if !seen["web.search"] || !seen["user.ask"] || !seen["video.understand"] {
+		t.Fatalf("R1 dropped search/ask/video.understand: %v", seen)
+	}
+	routePlay, allowPlay := classifyTaskRoute("播放七里香", false, false)
+	if routePlay != RouteR2 || allowPlay["video.understand"] {
+		t.Fatalf("R2 must not carry video.understand: route=%q allow=%v", routePlay, allowPlay)
+	}
+	routeBrowse, allowBrowse := classifyTaskRoute("打开 Chrome 上 12306", false, false)
+	if routeBrowse != RouteR3 || allowBrowse["video.understand"] {
+		t.Fatalf("R3 must not carry video.understand: route=%q allow=%v", routeBrowse, allowBrowse)
 	}
 	// Expert tools already on the table stay; classify itself never adds kb.search.
 	if !seen["kb.search"] || !seen["kb.cite"] {

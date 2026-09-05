@@ -11,6 +11,34 @@ import (
 	"github.com/lunitide/lunitide/internal/gateway"
 )
 
+func TestProviderTestUsesEmbedForEmbeddingKind(t *testing.T) {
+	p := provider.Provider{Models: []provider.Model{
+		{ModelID: "chat", Kind: provider.KindLLM},
+		{ModelID: "bge", Kind: provider.KindEmbedding},
+	}}
+	if !providerTestUsesEmbed(p, "bge") || providerTestUsesEmbed(p, "chat") {
+		t.Fatal("provider.test must Embed only embedding kind")
+	}
+}
+
+func TestEmbedKBTextsSkipsAnthropic(t *testing.T) {
+	e := NewEngine(anthropicEmbedCatalog{}, "test")
+	if _, err := e.embedKBTexts(context.Background(), []string{"landing gear"}); err == nil {
+		t.Fatal("D-E4 anthropic embed catalog must skip write")
+	}
+}
+
+type anthropicEmbedCatalog struct{ providerRepositoryStub }
+
+func (anthropicEmbedCatalog) List(context.Context, provider.Filter) ([]provider.Provider, error) {
+	return []provider.Provider{{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAN", Name: "Claude", Protocol: provider.ProtocolAnthropic,
+		BaseURL: "https://api.anthropic.com", CredentialRef: "cred",
+		CredentialState: provider.CredentialConfigured, Status: provider.StatusEnabled,
+		Models: []provider.Model{{ModelID: "claude-embed", Kind: provider.KindEmbedding, KindDefault: true, IsDefault: true}},
+	}}, nil
+}
+
 func TestDiscoveredModelsPreservesDefaultDeduplicatesAndBounds(t *testing.T) {
 	current := provider.Provider{Models: []provider.Model{{ModelID: "m25", DisplayName: "old", IsDefault: true}}}
 	input := gateway.Discovery{}

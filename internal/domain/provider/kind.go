@@ -9,13 +9,15 @@ import (
 type Kind string
 
 const (
-	KindLLM    Kind = "llm"
-	KindVision Kind = "vision"
-	KindImage  Kind = "image"
-	KindVideo  Kind = "video"
-	KindVoice  Kind = "voice" // leftover listen rows; NormalizeKind maps to asr
-	KindASR    Kind = "asr"
-	KindTTS    Kind = "tts"
+	KindLLM       Kind = "llm"
+	KindVision    Kind = "vision"
+	KindImage     Kind = "image"
+	KindVideo     Kind = "video"
+	KindVoice     Kind = "voice" // leftover listen rows; NormalizeKind maps to asr
+	KindASR       Kind = "asr"
+	KindTTS       Kind = "tts"
+	KindEmbedding Kind = "embedding"
+	KindGUI       Kind = "gui"
 )
 
 // NormalizeKind maps empty/unknown values to llm so pre-0096 rows stay chat models.
@@ -32,6 +34,10 @@ func NormalizeKind(raw string) Kind {
 		return KindASR
 	case KindTTS:
 		return KindTTS
+	case KindEmbedding:
+		return KindEmbedding
+	case KindGUI:
+		return KindGUI
 	default:
 		return KindLLM
 	}
@@ -44,7 +50,7 @@ func ValidKind(raw string) bool {
 		return true
 	}
 	switch Kind(raw) {
-	case KindLLM, KindVision, KindImage, KindVideo, KindVoice, KindASR, KindTTS:
+	case KindLLM, KindVision, KindImage, KindVideo, KindVoice, KindASR, KindTTS, KindEmbedding, KindGUI:
 		return true
 	default:
 		return false

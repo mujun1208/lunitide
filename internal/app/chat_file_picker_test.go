@@ -33,6 +33,12 @@ func TestLooksLikeUACToolResult(t *testing.T) {
 	if looksLikeUACToolResult("captured desktop 1920x1080") {
 		t.Fatal("screenshot is not UAC")
 	}
+	if !looksLikeUACToolResult("ccapp: access denied attaching to elevated window") {
+		t.Fatal("D-M1 access denied")
+	}
+	if !looksLikeUACToolResult("UIPI: 跨完整性") {
+		t.Fatal("D-M1 UIPI")
+	}
 }
 
 func ccappUACPrompt() string {

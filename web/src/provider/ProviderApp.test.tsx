@@ -5,9 +5,9 @@ import { BridgeClientError, type ProviderBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
 import { ProviderApp } from './ProviderApp'
 afterEach(cleanup)
-const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'Demo',protocol:'openai_compatible',baseUrl:'https://example.com',models:[{modelId:'m',displayName:'M',isDefault:true}],status:'enabled',credentialState:'configured',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:1}
+const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'Demo',protocol:'openai_compatible',baseUrl:'https://example.com',models:[{modelId:'m',displayName:'M',isDefault:true}],status:'enabled',credentialState:'configured',credentialBackupCount:0,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:1}
 const credential={credentialSubmissionId:'01ARZ3NDEKTSV4RRFFQ69G5FAA',providerId:provider.id,expiresAt:new Date().toISOString(),expiresInSeconds:60}
-function api(overrides:Partial<ProviderBridge>={}):ProviderBridge{return{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),create:vi.fn().mockResolvedValue(provider),update:vi.fn(),delete:vi.fn(),revealCredential:vi.fn().mockResolvedValue({credential:'saved-key'}),submitCredential:vi.fn().mockResolvedValue(credential),syncModels:vi.fn(),test:vi.fn(),...overrides}}
+function api(overrides:Partial<ProviderBridge>={}):ProviderBridge{return{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),create:vi.fn().mockResolvedValue(provider),update:vi.fn(),delete:vi.fn(),revealCredential:vi.fn().mockResolvedValue({credential:'saved-key'}),submitCredential:vi.fn().mockResolvedValue(credential),syncModels:vi.fn(),test:vi.fn(),backupAdd:vi.fn().mockResolvedValue({...provider,credentialBackupCount:1,version:2}),backupRemove:vi.fn().mockResolvedValue(provider),...overrides}}
 async function fillCreate(user:ReturnType<typeof userEvent.setup>,urlValue='https://example.com/v1'){await user.click(screen.getByRole('button',{name:/新建供应商/}));await user.type(screen.getByLabelText('供应商名称'),'Demo');const url=screen.getByLabelText('基础 URL');await user.clear(url);await user.type(url,urlValue);await user.type(screen.getByLabelText('模型 1 ID'),'m');await user.type(screen.getByLabelText('模型 1 显示名称'),'M')}
 it('submits exact public request before bound create',async()=>{const bridge=api(),user=userEvent.setup();render(<ProviderApp bridge={bridge}/>);expect(await screen.findByText('还没有供应商')).toBeInTheDocument();await fillCreate(user);await user.type(screen.getByLabelText(/API 凭据/),'test-only');await user.click(screen.getByRole('button',{name:'安全保存'}));await waitFor(()=>expect(bridge.create).toHaveBeenCalledOnce());const submitted=vi.mocked(bridge.submitCredential).mock.calls[0][0],created=vi.mocked(bridge.create).mock.calls[0][0];expect(submitted.request).not.toHaveProperty('credentialSubmissionId');expect(created.credentialSubmissionId).toBe(credential.credentialSubmissionId)})
 it('writes chat prefer after a successful LLM save',async()=>{const onPreferLLM=vi.fn(),bridge=api(),user=userEvent.setup();render(<ProviderApp bridge={bridge} onPreferLLM={onPreferLLM}/>);await screen.findByText('还没有供应商');await fillCreate(user);await user.type(screen.getByLabelText(/API 凭据/),'test-only');await user.click(screen.getByRole('button',{name:'安全保存'}));await waitFor(()=>expect(onPreferLLM).toHaveBeenCalledWith(provider.id,'m'))})
@@ -208,5 +208,49 @@ it('lets one volc provider hang listen and speak rows',async()=>{
   expect.objectContaining({modelId:'seed-tts-2.0',kind:'tts'}),
   expect.objectContaining({modelId:'zh_female_tianmeitaozi_uranus_bigtts',kind:'tts',displayName:'甜美桃子'}),
  ])
+})
+
+it('shows GUI and embedding tabs with empty-state copy',async()=>{
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={api()}/>)
+ await screen.findByText('还没有供应商')
+ expect(screen.getByRole('tab',{name:'向量模型'})).toBeInTheDocument()
+ expect(screen.getByRole('tab',{name:'GUI 模型'})).toBeInTheDocument()
+ await user.click(screen.getByRole('tab',{name:'向量模型'}))
+ expect(screen.getByText(/OpenAI 兼容 \/embeddings/)).toBeInTheDocument()
+ await user.click(screen.getByRole('tab',{name:'GUI 模型'}))
+ expect(screen.getByText(/UI-TARS/)).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:/新建供应商/}))
+ expect(screen.getByLabelText('基础 URL')).toHaveValue('http://127.0.0.1:1234/v1')
+ expect(screen.getByLabelText('模型 1 类型')).toHaveValue('gui')
+})
+
+it('creates an embedding catalog model from the vector tab',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('tab',{name:'向量模型'}))
+ await fillCreate(user)
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ expect(vi.mocked(create).mock.calls[0][0].models[0]).toMatchObject({modelId:'m',kind:'embedding',kindDefault:true,isDefault:true})
+})
+
+it('adds a backup key via submit then backup.add',async()=>{
+ const saved={...provider,credentialBackupCount:1,version:2}
+ const backupAdd=vi.fn().mockResolvedValue(saved)
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[provider]}),get:vi.fn().mockResolvedValue(provider),backupAdd})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ expect(await screen.findByText('0 / 4')).toBeInTheDocument()
+ await user.type(screen.getByLabelText('备用 API Key'),'spare-secret')
+ await user.click(screen.getByRole('button',{name:'添加备用 Key'}))
+ await waitFor(()=>expect(bridge.submitCredential).toHaveBeenCalledOnce())
+ expect(vi.mocked(bridge.submitCredential).mock.calls[0][0].request).toEqual({providerId:provider.id,expectedVersion:1})
+ expect(vi.mocked(bridge.submitCredential).mock.calls[0][0].request).not.toHaveProperty('credentialSubmissionId')
+ await waitFor(()=>expect(backupAdd).toHaveBeenCalledOnce())
+ expect(backupAdd.mock.calls[0][0]).toMatchObject({providerId:provider.id,expectedVersion:1})
 })
 

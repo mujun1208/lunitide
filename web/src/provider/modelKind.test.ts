@@ -8,6 +8,7 @@ const base = (over: Partial<ProviderDTO> & Pick<ProviderDTO, 'id' | 'name' | 'mo
   baseUrl: 'https://example.test',
   status: 'enabled',
   credentialState: 'configured',
+  credentialBackupCount: 0,
   createdAt: now,
   updatedAt: now,
   version: 1,
@@ -20,6 +21,15 @@ describe('modelKind helpers', () => {
     expect(modelKind({ kind: 'vision' })).toBe('vision')
     expect(modelKind({ kind: 'voice' })).toBe('voice')
     expect(modelKind({ kind: 'nope' })).toBe('llm')
+  })
+
+  test('persistKind and modelKind keep embedding and gui', () => {
+    expect(persistKind({ kind: 'embedding' })).toBe('embedding')
+    expect(persistKind({ kind: 'gui' })).toBe('gui')
+    expect(modelKind({ kind: 'embedding' })).toBe('embedding')
+    expect(modelKind({ kind: 'gui' })).toBe('gui')
+    expect(kindLabel({ kind: 'embedding' })).toBe('向量模型')
+    expect(kindLabel({ kind: 'gui' })).toBe('GUI 模型')
   })
 
   test('chat pickers only see llm models and keep mixed providers', () => {
@@ -36,10 +46,20 @@ describe('modelKind helpers', () => {
       name: 'Vision',
       models: [{ modelId: 'ocr', displayName: 'OCR', isDefault: true, kind: 'vision' }],
     })
-    const ready = llmReadyProviders([mixed, visionOnly])
+    const embedOnly = base({
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FB4',
+      name: 'Embed',
+      models: [{ modelId: 'text-embedding-3-small', displayName: 'Embed', isDefault: true, kind: 'embedding' }],
+    })
+    const guiOnly = base({
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FB5',
+      name: 'GUI',
+      models: [{ modelId: 'ui-tars', displayName: 'UI-TARS', isDefault: true, kind: 'gui' }],
+    })
+    const ready = llmReadyProviders([mixed, visionOnly, embedOnly, guiOnly])
     expect(ready).toHaveLength(1)
     expect(ready[0].models.map(m => m.modelId)).toEqual(['chat'])
-    expect(pickDefaultLLM([mixed, visionOnly])).toEqual({ provider: ready[0], modelId: 'chat' })
+    expect(pickDefaultLLM([mixed, visionOnly, embedOnly, guiOnly])).toEqual({ provider: ready[0], modelId: 'chat' })
   })
 
   test('pickDefaultLLM prefers the global kind default over list order', () => {

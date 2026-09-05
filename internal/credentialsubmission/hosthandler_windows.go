@@ -49,7 +49,7 @@ func (h *HostHandler) HandleHost(ctx context.Context, r bridge.Request) bridge.R
 	if r.Method == "provider.credential.reveal" {
 		return h.revealCredential(ctx, r)
 	}
-	if r.Method == "provider.create" || r.Method == "provider.update" {
+	if r.Method == "provider.create" || r.Method == "provider.update" || r.Method == "provider.credential.backup.add" {
 		var payload map[string]json.RawMessage
 		if decodeStrictLocal(r.Payload, &payload) != nil || payload == nil {
 			return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "供应商参数无效", false)
@@ -155,11 +155,19 @@ func (h *HostHandler) revealCredential(ctx context.Context, r bridge.Request) br
 func (h *HostHandler) updateTarget(ctx context.Context, providerID string, request []byte) (provider.Protocol, string, error) {
 	var p struct {
 		ID              string             `json:"id"`
+		ProviderID      string             `json:"providerId"`
 		Protocol        *provider.Protocol `json:"protocol"`
 		BaseURL         *string            `json:"baseUrl"`
 		ExpectedVersion int64              `json:"expectedVersion"`
 	}
-	if json.Unmarshal(request, &p) != nil || p.ID != providerID || p.ExpectedVersion < 1 {
+	if json.Unmarshal(request, &p) != nil || p.ExpectedVersion < 1 {
+		return "", "", errors.New("update request does not match scope")
+	}
+	id := p.ID
+	if id == "" {
+		id = p.ProviderID
+	}
+	if id != providerID {
 		return "", "", errors.New("update request does not match scope")
 	}
 	current, err := (RPCResolver{Engine: h.Engine}).ResolveProvider(ctx, providerID)
@@ -310,12 +318,18 @@ func (h *HostHandler) Mutate(ctx context.Context, submissionID string, canonical
 	}
 	delete(public, "credentialSubmissionId")
 	internal := map[string]any{"providerId": reservation.ProviderID, "credentialRef": reservation.Ref.CredentialRef, "origin": reservation.Ref.Origin, "protocol": reservation.Ref.Protocol}
-	if request.Method == "provider.create" {
+	switch request.Method {
+	case "provider.create":
 		internal["create"] = public
 		request.Method = "internal.provider.create.with-credential"
-	} else {
+	case "provider.credential.backup.add":
+		internal["backup"] = public
+		request.Method = "internal.provider.backup.with-credential"
+	case "provider.update":
 		internal["update"] = public
 		request.Method = "internal.provider.update.with-credential"
+	default:
+		return bridge.Response{}, errors.New("unsupported credential mutation")
 	}
 	request.Payload, _ = json.Marshal(internal)
 	response, callErr := h.Engine.Call(ctx, request)

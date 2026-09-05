@@ -19,6 +19,7 @@ import{LocalAsrRow}from'./LocalAsrRow'
 import{AsrCorrectionRow}from'./AsrCorrectionRow'
 import{SubagentsPanel}from'./SubagentsPanel'
 import{ProviderApp}from'../provider/ProviderApp'
+import{CapabilityRouting}from'./CapabilityRouting'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
@@ -166,7 +167,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'profile' && <ProfilePanel />}
-          {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
+          {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}

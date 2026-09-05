@@ -275,6 +275,8 @@ DROP TABLE meeting_docs;
 DROP TABLE meeting_segments;
 DROP TABLE meetings;
 DROP TABLE im_channels;
+DROP TABLE IF EXISTS capability_role_bindings;
+ALTER TABLE providers DROP COLUMN credential_ref_backups;
 DROP INDEX IF EXISTS ux_provider_kind_default;
 ALTER TABLE provider_models DROP COLUMN kind;
 ALTER TABLE provider_models DROP COLUMN supports_vision;

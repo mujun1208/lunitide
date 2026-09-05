@@ -28,6 +28,7 @@ type computerActArgs struct {
 	ScrollAxis string   `json:"scrollAxis"`
 	Name       string   `json:"name"`
 	ID         string   `json:"id"`
+	ID2        string   `json:"id2"`
 	Text       string   `json:"text"`
 	Keys       []string `json:"keys"`
 	Key        string   `json:"key"`
@@ -106,10 +107,31 @@ func MapComputerAct(args json.RawMessage) (string, json.RawMessage, error) {
 		return ToolMouseMove, raw, err
 
 	case "drag", "mouse_drag":
-		if a.X1 == nil || a.Y1 == nil || a.X2 == nil || a.Y2 == nil {
-			return "", nil, fmt.Errorf("%w: x1,y1,x2,y2 required", ErrCcInputFiltered)
+		if strings.TrimSpace(a.ID) == "" && (a.X1 == nil || a.Y1 == nil) {
+			return "", nil, fmt.Errorf("%w: drag needs id or x1,y1", ErrCcInputFiltered)
 		}
-		m := map[string]any{"x1": *a.X1, "y1": *a.Y1, "x2": *a.X2, "y2": *a.Y2}
+		if strings.TrimSpace(a.ID2) == "" && (a.X2 == nil || a.Y2 == nil) {
+			return "", nil, fmt.Errorf("%w: drag needs id2 or x2,y2", ErrCcInputFiltered)
+		}
+		m := map[string]any{}
+		if a.X1 != nil {
+			m["x1"] = *a.X1
+		}
+		if a.Y1 != nil {
+			m["y1"] = *a.Y1
+		}
+		if a.X2 != nil {
+			m["x2"] = *a.X2
+		}
+		if a.Y2 != nil {
+			m["y2"] = *a.Y2
+		}
+		if strings.TrimSpace(a.ID) != "" {
+			m["id"] = strings.TrimSpace(a.ID)
+		}
+		if strings.TrimSpace(a.ID2) != "" {
+			m["id2"] = strings.TrimSpace(a.ID2)
+		}
 		putFrame(m, a.FrameID)
 		raw, err := compactJSON(m)
 		return ToolMouseDrag, raw, err

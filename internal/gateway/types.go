@@ -121,6 +121,12 @@ type ImageGenerator interface {
 	GenerateImage(context.Context, []byte, string, string) (MediaResult, error)
 }
 
+// Embedder is the optional OpenAI-compatible /embeddings surface.
+// Anthropic and volc_speech adapters do not implement it.
+type Embedder interface {
+	Embed(ctx context.Context, secret []byte, model string, texts []string) ([][]float32, error)
+}
+
 type VideoGenerator interface {
 	GenerateVideo(context.Context, []byte, string, string) (MediaResult, error)
 }

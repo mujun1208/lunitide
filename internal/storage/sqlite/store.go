@@ -117,7 +117,7 @@ func (s *Store) ResolveProvider(ctx context.Context, id string) (provider.Provid
 }
 func (s *Store) IsCredentialReferenceAdopted(ctx context.Context, ref secret.Ref) (bool, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM credential_adoptions a JOIN providers p ON p.id=a.provider_id WHERE a.credential_ref=? AND a.provider_id=? AND a.origin=? AND a.protocol=? AND p.credential_ref=a.credential_ref AND p.deleted_at IS NULL`, ref.CredentialRef, ref.ProviderID, ref.Origin, ref.Protocol).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM credential_adoptions a JOIN providers p ON p.id=a.provider_id WHERE a.credential_ref=? AND a.provider_id=? AND a.origin=? AND a.protocol=? AND p.deleted_at IS NULL AND (p.credential_ref=a.credential_ref OR EXISTS (SELECT 1 FROM json_each(p.credential_ref_backups) j WHERE j.value=a.credential_ref))`, ref.CredentialRef, ref.ProviderID, ref.Origin, ref.Protocol).Scan(&n)
 	return n == 1, err
 }
 
@@ -257,6 +257,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0116_mro_workbench.sql", "dc3c193f757703ab53b5c6dcf9017d4f2685b9e56748c05f6a9aedc1fc37c8c4"},
 	{"0117_datasource_bindings.sql", "2e95d434f0d27dfc240594c2c3bd8a5f1c509e864a2edf864c50551086e15133"},
 	{"0118_mro_ops_ledgers.sql", "e0c1d3d1d63f94344359a4ed2f8d6f0bbca3012951b7ca3995e201e6edc24e29"},
+	{"0119_capability_roles_and_key_backups.sql", "f57bab0f6e0c8dfc9de77f5b1d2cc8624377d06c9fbaf0f1b2e58ef0429c5ca2"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1202,7 +1203,8 @@ var expectedSchemaSQL = map[string]string{
 	"table:promotions":                                "CREATE TABLE promotions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    package_id TEXT NOT NULL REFERENCES release_packages(id),\n    from_env TEXT NOT NULL CHECK (length(from_env) BETWEEN 1 AND 32),\n    to_env TEXT NOT NULL CHECK (to_env IN ('dev','stage','prod')),\n    canonical_intent_digest TEXT NOT NULL CHECK (length(canonical_intent_digest) = 64 AND canonical_intent_digest NOT GLOB '*[^0-9a-f]*'),\n    policy_version TEXT NOT NULL CHECK (length(policy_version) BETWEEN 1 AND 64),\n    approval_expiry TEXT,\n    state TEXT NOT NULL CHECK (state IN ('requested','policy_check','approval_check','denied','expired','migrating','deploying','validating','succeeded','failed','rolling_back','rolled_back','rollback_failed','outcome_unknown','manual')),\n    idempotency_key TEXT NOT NULL UNIQUE CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n    requested_by TEXT NOT NULL CHECK (length(requested_by) BETWEEN 1 AND 128),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
 	"table:provider_models":                           "CREATE TABLE provider_models (\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),\n    position INTEGER NOT NULL DEFAULT 0 CHECK (position BETWEEN 0 AND 49), context_window INTEGER, kind TEXT NOT NULL DEFAULT 'llm', supports_vision INTEGER NOT NULL DEFAULT 0, kind_default INTEGER NOT NULL DEFAULT 0,\n    PRIMARY KEY (provider_id, model_id),\n    UNIQUE (provider_id, position)\n)",
 	"table:provider_tests":                            "CREATE TABLE provider_tests (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),\n    error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    CHECK (completed_at IS NULL OR started_at IS NOT NULL)\n)",
-	"table:providers":                                 "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic', 'volc_speech')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
+	"table:providers":                                 "CREATE TABLE providers (\n    id TEXT PRIMARY KEY,\n    legacy_id TEXT UNIQUE,\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 500),\n    protocol TEXT NOT NULL CHECK (protocol IN ('openai_compatible', 'anthropic', 'volc_speech')),\n    base_url TEXT NOT NULL CHECK (length(base_url) BETWEEN 1 AND 2048),\n    credential_ref TEXT CHECK (credential_ref IS NULL OR length(credential_ref) BETWEEN 1 AND 500),\n    credential_state TEXT NOT NULL CHECK (credential_state IN ('configured', 'missing', 'unavailable', 'requires_reentry')),\n    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    deleted_at TEXT, origin_fingerprint TEXT NOT NULL\n    DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'\n    CHECK (length(origin_fingerprint) = 64 AND origin_fingerprint NOT GLOB '*[^0-9a-f]*'), credential_ref_backups TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(credential_ref_backups)),\n    CHECK ((credential_ref IS NOT NULL) = (credential_state = 'configured'))\n)",
+	"table:capability_role_bindings":                  "CREATE TABLE capability_role_bindings (\n    role TEXT PRIMARY KEY CHECK (role IN ('chat','flash','vision','embed','judge','gui')),\n    provider_id TEXT,\n    model_id TEXT,\n    allow_judge_eq_chat INTEGER NOT NULL DEFAULT 0,\n    updated_at TEXT NOT NULL\n)",
 	"table:recall_events":                             "CREATE TABLE recall_events (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,\n    query_hash TEXT NOT NULL CHECK (length(query_hash) = 64 AND query_hash NOT GLOB '*[^0-9a-f]*'),\n    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,\n    score REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),\n    rank INTEGER NOT NULL CHECK (rank > 0),\n    injected_tokens INTEGER NOT NULL DEFAULT 0 CHECK (injected_tokens >= 0),\n    created_at TEXT NOT NULL\n)",
 	"table:release_blobs":                             "CREATE TABLE release_blobs (\n    digest TEXT PRIMARY KEY CHECK (length(digest) = 64 AND digest NOT GLOB '*[^0-9a-f]*'),\n    content TEXT NOT NULL CHECK (length(content) >= 2),\n    created_at TEXT NOT NULL\n)",
 	"table:release_packages":                          "CREATE TABLE release_packages (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    cr_revision_id TEXT NOT NULL REFERENCES cr_revisions(id),\n    manifest_digest TEXT NOT NULL CHECK (length(manifest_digest) = 64 AND manifest_digest NOT GLOB '*[^0-9a-f]*'),\n    blob_digest TEXT NOT NULL CHECK (length(blob_digest) = 64 AND blob_digest NOT GLOB '*[^0-9a-f]*'),\n    signature TEXT NOT NULL CHECK (length(signature) BETWEEN 1 AND 512),\n    state TEXT NOT NULL CHECK (state IN ('building','sealed','failed')),\n    created_at TEXT NOT NULL,\n    sealed_at TEXT\n)",
@@ -1398,7 +1400,8 @@ type columnSpec struct {
 }
 
 var expectedColumns = map[string][]columnSpec{
-	"providers":                   {{"id", "TEXT", "", 0, 1, 0}, {"legacy_id", "TEXT", "", 0, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"base_url", "TEXT", "", 1, 0, 0}, {"credential_ref", "TEXT", "", 0, 0, 0}, {"credential_state", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'enabled'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}, {"deleted_at", "TEXT", "", 0, 0, 0}, {"origin_fingerprint", "TEXT", "'0000000000000000000000000000000000000000000000000000000000000000'", 1, 0, 0}},
+	"providers":                   {{"id", "TEXT", "", 0, 1, 0}, {"legacy_id", "TEXT", "", 0, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"protocol", "TEXT", "", 1, 0, 0}, {"base_url", "TEXT", "", 1, 0, 0}, {"credential_ref", "TEXT", "", 0, 0, 0}, {"credential_state", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'enabled'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}, {"deleted_at", "TEXT", "", 0, 0, 0}, {"origin_fingerprint", "TEXT", "'0000000000000000000000000000000000000000000000000000000000000000'", 1, 0, 0}, {"credential_ref_backups", "TEXT", "'[]'", 1, 0, 0}},
+	"capability_role_bindings":    {{"role", "TEXT", "", 0, 1, 0}, {"provider_id", "TEXT", "", 0, 0, 0}, {"model_id", "TEXT", "", 0, 0, 0}, {"allow_judge_eq_chat", "INTEGER", "0", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"provider_models":             {{"provider_id", "TEXT", "", 1, 1, 0}, {"model_id", "TEXT", "", 1, 2, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"is_default", "INTEGER", "0", 1, 0, 0}, {"position", "INTEGER", "0", 1, 0, 0}, {"context_window", "INTEGER", "", 0, 0, 0}, {"kind", "TEXT", "'llm'", 1, 0, 0}, {"supports_vision", "INTEGER", "0", 1, 0, 0}, {"kind_default", "INTEGER", "0", 1, 0, 0}},
 	"schema_migrations":           {{"version", "TEXT", "", 0, 1, 0}, {"applied_at", "TEXT", "", 1, 0, 0}, {"checksum", "TEXT", "", 0, 0, 0}},
 	"provider_tests":              {{"id", "TEXT", "", 0, 1, 0}, {"provider_id", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "", 1, 0, 0}, {"error_code", "TEXT", "", 0, 0, 0}, {"started_at", "TEXT", "", 0, 0, 0}, {"completed_at", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
@@ -1509,7 +1512,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "projects", "sessions", "session_expert_mounts", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "compaction_activations", "compaction_activation_bases", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "stages", "plan_versions", "plan_edges", "node_runs", "node_run_checkpoints", "tool_calls", "approval_decisions", "memory_sources", "memory_revisions", "recall_events", "deletion_tombstones"} {
+	for _, table := range []string{"providers", "provider_models", "capability_role_bindings", "projects", "sessions", "session_expert_mounts", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "compaction_activations", "compaction_activation_bases", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "stages", "plan_versions", "plan_edges", "node_runs", "node_run_checkpoints", "tool_calls", "approval_decisions", "memory_sources", "memory_revisions", "recall_events", "deletion_tombstones"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -2172,7 +2175,7 @@ func (s *Store) List(ctx context.Context, filter provider.Filter) ([]provider.Pr
 }
 
 func listProvidersWith(ctx context.Context, q sqlRunner, filter provider.Filter) ([]provider.Provider, error) {
-	query := `SELECT id, COALESCE(legacy_id,''), name, protocol, base_url, COALESCE(credential_ref,''), credential_state, status, created_at, updated_at, version FROM providers WHERE deleted_at IS NULL`
+	query := `SELECT id, COALESCE(legacy_id,''), name, protocol, base_url, COALESCE(credential_ref,''), credential_state, status, created_at, updated_at, version, COALESCE(credential_ref_backups,'[]') FROM providers WHERE deleted_at IS NULL`
 	args := []any{}
 	if filter.Protocol != "" {
 		query += ` AND protocol = ?`
@@ -2188,9 +2191,15 @@ func listProvidersWith(ctx context.Context, q sqlRunner, filter provider.Filter)
 	for rows.Next() {
 		var item provider.Provider
 		var created, updated string
-		if err := rows.Scan(&item.ID, &item.LegacyID, &item.Name, &item.Protocol, &item.BaseURL, &item.CredentialRef, &item.CredentialState, &item.Status, &created, &updated, &item.Version); err != nil {
+		var backups string
+		if err := rows.Scan(&item.ID, &item.LegacyID, &item.Name, &item.Protocol, &item.BaseURL, &item.CredentialRef, &item.CredentialState, &item.Status, &created, &updated, &item.Version, &backups); err != nil {
 			return nil, err
 		}
+		item.CredentialRefBackups, err = decodeCredentialBackups(backups)
+		if err != nil {
+			return nil, err
+		}
+		item.CredentialBackupCount = len(item.CredentialRefBackups)
 		item.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
 		if err != nil {
 			return nil, err
@@ -2247,7 +2256,11 @@ func (s *Store) Create(ctx context.Context, item provider.Provider) (provider.Pr
 	if err != nil {
 		return provider.Provider{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO providers(id,legacy_id,name,protocol,base_url,credential_ref,credential_state,status,created_at,updated_at,version,origin_fingerprint) VALUES(?,?,?,?,?,NULLIF(?,''),?,?,?,?,?,?)`, item.ID, nullString(item.LegacyID), item.Name, item.Protocol, item.BaseURL, item.CredentialRef, item.CredentialState, item.Status, formatTime(item.CreatedAt), formatTime(item.UpdatedAt), item.Version, fingerprint)
+	backups, err := encodeCredentialBackups(item.CredentialRefBackups)
+	if err != nil {
+		return provider.Provider{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO providers(id,legacy_id,name,protocol,base_url,credential_ref,credential_state,status,created_at,updated_at,version,origin_fingerprint,credential_ref_backups) VALUES(?,?,?,?,?,NULLIF(?,''),?,?,?,?,?,?,?)`, item.ID, nullString(item.LegacyID), item.Name, item.Protocol, item.BaseURL, item.CredentialRef, item.CredentialState, item.Status, formatTime(item.CreatedAt), formatTime(item.UpdatedAt), item.Version, fingerprint, backups)
 	if err != nil {
 		return provider.Provider{}, fmt.Errorf("create provider: %w", err)
 	}
@@ -2321,7 +2334,11 @@ func (s *Store) Update(ctx context.Context, item provider.Provider, expectedVers
 	if err = item.Validate(); err != nil {
 		return provider.Provider{}, err
 	}
-	r, err := conn.ExecContext(ctx, `UPDATE providers SET legacy_id=?,name=?,protocol=?,base_url=?,credential_ref=NULLIF(?,''),credential_state=?,status=?,updated_at=?,version=?,origin_fingerprint=? WHERE id=? AND version=? AND deleted_at IS NULL`, nullString(item.LegacyID), item.Name, item.Protocol, item.BaseURL, item.CredentialRef, item.CredentialState, item.Status, formatTime(item.UpdatedAt), item.Version, newFingerprint, item.ID, expectedVersion)
+	backups, err := encodeCredentialBackups(item.CredentialRefBackups)
+	if err != nil {
+		return provider.Provider{}, err
+	}
+	r, err := conn.ExecContext(ctx, `UPDATE providers SET legacy_id=?,name=?,protocol=?,base_url=?,credential_ref=NULLIF(?,''),credential_state=?,status=?,updated_at=?,version=?,origin_fingerprint=?,credential_ref_backups=? WHERE id=? AND version=? AND deleted_at IS NULL`, nullString(item.LegacyID), item.Name, item.Protocol, item.BaseURL, item.CredentialRef, item.CredentialState, item.Status, formatTime(item.UpdatedAt), item.Version, newFingerprint, backups, item.ID, expectedVersion)
 	if err != nil {
 		return provider.Provider{}, mapWriteError(err)
 	}
@@ -2374,7 +2391,8 @@ func (s *Store) Delete(ctx context.Context, id string, expectedVersion int64) er
 func getProvider(ctx context.Context, q sqlRunner, id string) (provider.Provider, error) {
 	var item provider.Provider
 	var created, updated string
-	err := q.QueryRowContext(ctx, `SELECT id,COALESCE(legacy_id,''),name,protocol,base_url,COALESCE(credential_ref,''),credential_state,status,created_at,updated_at,version FROM providers WHERE id=? AND deleted_at IS NULL`, id).Scan(&item.ID, &item.LegacyID, &item.Name, &item.Protocol, &item.BaseURL, &item.CredentialRef, &item.CredentialState, &item.Status, &created, &updated, &item.Version)
+	var backups string
+	err := q.QueryRowContext(ctx, `SELECT id,COALESCE(legacy_id,''),name,protocol,base_url,COALESCE(credential_ref,''),credential_state,status,created_at,updated_at,version,COALESCE(credential_ref_backups,'[]') FROM providers WHERE id=? AND deleted_at IS NULL`, id).Scan(&item.ID, &item.LegacyID, &item.Name, &item.Protocol, &item.BaseURL, &item.CredentialRef, &item.CredentialState, &item.Status, &created, &updated, &item.Version, &backups)
 	if err == sql.ErrNoRows {
 		return item, provider.ErrNotFound
 	}
@@ -2386,6 +2404,10 @@ func getProvider(ctx context.Context, q sqlRunner, id string) (provider.Provider
 		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
 	}
 	if err == nil {
+		item.CredentialRefBackups, err = decodeCredentialBackups(backups)
+	}
+	if err == nil {
+		item.CredentialBackupCount = len(item.CredentialRefBackups)
 		item.Models, err = listModelsWith(ctx, q, id)
 	}
 	return item, err

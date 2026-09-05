@@ -204,6 +204,7 @@ func (s *Service) mutate(ctx context.Context, op, k, actor string, request any, 
 		}
 		replayResult := result
 		replayResult.LegacyID = ""
+		replayResult.CredentialBackupCount = len(result.CredentialRefBackups)
 		response, e := json.Marshal(replayResult)
 		if e != nil {
 			return e
@@ -225,18 +226,20 @@ func (s *Service) mutate(ctx context.Context, op, k, actor string, request any, 
 		if e = tx.PutOutbox(ctx, Event{ID: eventID(now, d, "outbox"), Topic: action, AggregateID: result.ID, Payload: payload, CreatedAt: now}); e != nil {
 			return e
 		}
-		if result.CredentialRef != "" {
-			origin, originErr := provider.NormalizeOrigin(result.BaseURL)
-			if originErr != nil {
-				return originErr
+		origin, originErr := provider.NormalizeOrigin(result.BaseURL)
+		if originErr != nil {
+			return originErr
+		}
+		for _, credRef := range result.CredentialRefChain() {
+			ref := secret.Ref{CredentialRef: credRef, ProviderID: result.ID, Origin: origin, Protocol: string(result.Protocol)}
+			if _, valid := ref.Validate(); valid != nil {
+				continue
 			}
-			ref := secret.Ref{CredentialRef: result.CredentialRef, ProviderID: result.ID, Origin: origin, Protocol: string(result.Protocol)}
-			// Legacy imported references are not adoption-capable structured refs.
-			// New coordinator references validate and always receive a receipt.
-			if _, valid := ref.Validate(); valid == nil {
-				e = tx.PutCredentialAdoption(ctx, ref, eventID(now, d, "adoption"), now)
+			salt := "adoption"
+			if credRef != result.CredentialRef {
+				salt = "adoption-" + credRef
 			}
-			if e != nil {
+			if e = tx.PutCredentialAdoption(ctx, ref, eventID(now, d, salt), now); e != nil {
 				return e
 			}
 		}
@@ -304,6 +307,9 @@ func (s *Service) UpdateCredentialRequest(ctx context.Context, k, actor string, 
 				return current, e
 			}
 		}
+		if e := cleanupDroppedBackups(ctx, tx, current, updated, s.clock.Now().UTC(), d); e != nil {
+			return current, e
+		}
 		return updated, nil
 	})
 }
@@ -327,8 +333,39 @@ func (s *Service) updateRequest(ctx context.Context, operation, k, actor string,
 		if err != nil {
 			return current, err
 		}
-		return tx.Update(ctx, updated, expected)
+		updated, err = tx.Update(ctx, updated, expected)
+		if err != nil {
+			return current, err
+		}
+		d, _, _ := digest(request)
+		if e := cleanupDroppedBackups(ctx, tx, current, updated, s.clock.Now().UTC(), d); e != nil {
+			return current, e
+		}
+		return updated, nil
 	})
+}
+
+func cleanupDroppedBackups(ctx context.Context, tx Tx, current, updated provider.Provider, now time.Time, digest string) error {
+	keep := map[string]struct{}{}
+	for _, ref := range updated.CredentialRefBackups {
+		keep[ref] = struct{}{}
+	}
+	if updated.CredentialRef != "" {
+		keep[updated.CredentialRef] = struct{}{}
+	}
+	origin, err := provider.NormalizeOrigin(current.BaseURL)
+	if err != nil {
+		return err
+	}
+	for _, ref := range current.CredentialRefBackups {
+		if _, ok := keep[ref]; ok || ref == "" {
+			continue
+		}
+		if e := putCleanup(ctx, tx, secret.Ref{CredentialRef: ref, ProviderID: current.ID, Origin: origin, Protocol: string(current.Protocol)}, now, digest); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 type deleteRequest struct {
