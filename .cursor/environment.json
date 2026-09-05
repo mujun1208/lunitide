@@ -1,0 +1,10 @@
+{
+  "name": "Lunitide",
+  "install": "npm --prefix web ci && go mod download",
+  "terminals": [
+    {
+      "name": "renderer-dev",
+      "command": "cd web && node_modules/.bin/vite --host 127.0.0.1 --port 5173"
+    }
+  ]
+}
