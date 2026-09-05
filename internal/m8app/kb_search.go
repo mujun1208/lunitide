@@ -111,9 +111,11 @@ func (s *KBService) Search(ctx context.Context, in KBSearchInput) (KBSearchResul
 		TraceID:      ulid.Make().String(),
 		Hits:         []KBCitedHit{},
 		Explanation:  KBExplanation{Reasons: []string{}, Redactions: []string{}, NotAdopted: []string{}},
-		IndexVersion: "fts5-trigram",
+		IndexVersion: ftsIndexVersion,
 	}
 	scope := ExpertScopeID(in.ExpertID)
+	var ftsHits []KBSearchHit
+	var denseRows []KBChunkEmbedding
 	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
 		coll, ok, err := tx.GetKBCollectionByScope(scope)
 		if err != nil {
@@ -129,45 +131,107 @@ func (s *KBService) Search(ctx context.Context, in KBSearchInput) (KBSearchResul
 		if err != nil {
 			return err
 		}
-		for _, hit := range hits {
-			reason := effectivityDrop(hit.Chunk.LocatorJSON, in.TailNo, in.AsOf, in.DocType)
-			if reason != "" {
-				out.Explanation.NotAdopted = append(out.Explanation.NotAdopted, reason)
-				continue
+		ftsHits = hits
+		if s.embedder != nil {
+			denseRows, err = tx.ListKBChunkEmbeddings(scope)
+			if err != nil {
+				return err
 			}
-			if status, _ := locatorString(hit.Chunk.LocatorJSON, "status"); strings.EqualFold(status, "uncontrolled") {
-				if !containsReason(out.Explanation.Reasons, "uncontrolled document") {
-					out.Explanation.Reasons = append(out.Explanation.Reasons, "uncontrolled document")
-				}
-			}
-			quote := hit.Chunk.Body
-			if utf8.RuneCountInString(quote) > 240 {
-				quote = trimRunes(quote, 240)
-			}
-			rev, _ := locatorString(hit.Chunk.LocatorJSON, "revision")
-			out.Hits = append(out.Hits, KBCitedHit{
-				ExpertID: in.ExpertID,
-				DocID:    hit.Document.DocumentID,
-				Revision: rev,
-				Locator:  hit.Chunk.LocatorJSON,
-				Quote:    quote,
-				Score:    hit.Score,
-			})
-			if len(out.Hits) >= topK {
-				break
-			}
-		}
-		if len(out.Hits) == 0 {
-			out.Explanation.Missing = true
-			if len(out.Explanation.Reasons) == 0 {
-				out.Explanation.Reasons = append(out.Explanation.Reasons, "no controlled chunk matched")
-			}
-		} else {
-			out.Explanation.Reasons = append(out.Explanation.Reasons, "fts5 body match")
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	if out.Explanation.Missing {
+		return out, nil
+	}
+	now := time.Now().UTC()
+	if s.clock != nil {
+		now = s.clock.Now().UTC()
+	}
+	usedDense := false
+	if s.embedder != nil && hasUsableDense(denseRows) {
+		if qv, eerr := s.embedder(ctx, []string{q}); eerr == nil && len(qv) > 0 && len(qv[0]) > 0 {
+			cands := fuseHybrid(ftsHits, denseRows, qv[0], now, topK)
+			out.IndexVersion = hybridIndexVersion
+			usedDense = true
+			adoptHybridHits(&out, in, cands, topK)
+		}
+	}
+	if !usedDense {
+		adoptFTSHits(&out, in, ftsHits, topK)
+	}
+	if len(out.Hits) == 0 {
+		out.Explanation.Missing = true
+		if len(out.Explanation.Reasons) == 0 {
+			out.Explanation.Reasons = append(out.Explanation.Reasons, "no controlled chunk matched")
+		}
+	} else if !containsReason(out.Explanation.Reasons, "fts5 body match") && len(ftsHits) > 0 {
+		out.Explanation.Reasons = append(out.Explanation.Reasons, "fts5 body match")
+	}
+	return out, nil
+}
+
+func hasUsableDense(rows []KBChunkEmbedding) bool {
+	for _, row := range rows {
+		if _, ok := decodeChunkVector(row.Chunk.Embedding); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func adoptFTSHits(out *KBSearchResult, in KBSearchInput, hits []KBSearchHit, topK int) {
+	for _, hit := range hits {
+		if !adoptOneHit(out, in, hit, hit.Score) {
+			continue
+		}
+		if len(out.Hits) >= topK {
+			break
+		}
+	}
+	if len(out.Hits) > 0 && !containsReason(out.Explanation.Reasons, "fts5 body match") {
+		out.Explanation.Reasons = append(out.Explanation.Reasons, "fts5 body match")
+	}
+}
+
+func adoptHybridHits(out *KBSearchResult, in KBSearchInput, cands []hybridCandidate, topK int) {
+	for _, c := range cands {
+		if !adoptOneHit(out, in, c.hit, c.fused) {
+			continue
+		}
+		if len(out.Hits) >= topK {
+			break
+		}
+	}
+}
+
+func adoptOneHit(out *KBSearchResult, in KBSearchInput, hit KBSearchHit, score float64) bool {
+	reason := effectivityDrop(hit.Chunk.LocatorJSON, in.TailNo, in.AsOf, in.DocType)
+	if reason != "" {
+		out.Explanation.NotAdopted = append(out.Explanation.NotAdopted, reason)
+		return false
+	}
+	if status, _ := locatorString(hit.Chunk.LocatorJSON, "status"); strings.EqualFold(status, "uncontrolled") {
+		if !containsReason(out.Explanation.Reasons, "uncontrolled document") {
+			out.Explanation.Reasons = append(out.Explanation.Reasons, "uncontrolled document")
+		}
+	}
+	quote := hit.Chunk.Body
+	if utf8.RuneCountInString(quote) > 240 {
+		quote = trimRunes(quote, 240)
+	}
+	rev, _ := locatorString(hit.Chunk.LocatorJSON, "revision")
+	out.Hits = append(out.Hits, KBCitedHit{
+		ExpertID: in.ExpertID,
+		DocID:    hit.Document.DocumentID,
+		Revision: rev,
+		Locator:  hit.Chunk.LocatorJSON,
+		Quote:    quote,
+		Score:    score,
+	})
+	return true
 }
 
 // Cite re-validates that quote is a prefix of the stored chunk body.

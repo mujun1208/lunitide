@@ -562,6 +562,31 @@ func (s *Service) GetVisionImage(ctx context.Context, id, sessionID string) (Vis
 	return VisionImage{AttachmentID: att.ID, MIME: att.MIME, Data: data}, nil
 }
 
+// PreviewWorkspaceImage returns verified image bytes for the workspace pane.
+// Missing or non-image attachments omit bytes without failing the get.
+func (s *Service) PreviewWorkspaceImage(ctx context.Context, id string) ([]byte, bool, error) {
+	att, err := s.GetAttachment(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isVisionMIME(att.MIME) {
+		return nil, false, nil
+	}
+	if s.fileStorage == nil || att.FileRef == "" || att.Size <= 0 || att.Size > MaxVisionImageBytes {
+		return nil, false, nil
+	}
+	data, err := s.fileStorage.ReadFile(ctx, att.FileRef)
+	if err != nil {
+		return nil, false, nil
+	}
+	digest := sha256.Sum256(data)
+	expected, decodeErr := hex.DecodeString(att.SHA256)
+	if decodeErr != nil || len(data) != int(att.Size) || subtle.ConstantTimeCompare(digest[:], expected) != 1 || !matchesVisionMIME(att.MIME, data) {
+		return nil, false, nil
+	}
+	return data, true, nil
+}
+
 func isVisionMIME(mime string) bool {
 	return mime == "image/png" || mime == "image/jpeg" || mime == "image/webp"
 }
@@ -584,6 +609,9 @@ func matchesVisionMIME(mime string, data []byte) bool {
 // supported. Binary formats (PDF, DOCX, images) require a dedicated parser
 // and are marked as UNSUPPORTED_MIME.
 func (s *Service) parse(mime string, content []byte) (string, error) {
+	if isVisionMIME(mime) {
+		return "", nil
+	}
 	if !isSupportedMIME(mime) {
 		return "", ErrUnsupportedMIME
 	}

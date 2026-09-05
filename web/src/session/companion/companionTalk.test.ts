@@ -42,6 +42,7 @@ const realtime: ProviderDTO = {
   baseUrl: 'https://example.com',
   status: 'enabled',
   credentialState: 'configured',
+  credentialBackupCount: 0,
   createdAt: '',
   updatedAt: '',
   version: 1,

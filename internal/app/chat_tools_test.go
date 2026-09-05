@@ -273,8 +273,8 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 		t.Fatal("desktop.type missing from engine tools")
 	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" {
-			t.Fatal("subagents must not receive html.gen, desktop.open, or media generation tools")
+		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "video.understand" {
+			t.Fatal("subagents must not receive html.gen, desktop.open, media generation, or video.understand")
 		}
 	}
 	wf := bundledWorkflowInjection("调研改代码审查浏览网页跨应用编排 git 做PPT报告小说 小游戏 清单 打开桌面文件 填写证件号码 播放音乐 发飞书 截图点按钮对话框")
@@ -418,6 +418,15 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	}
 	if !foundImage || !foundVideo {
 		t.Fatal("image.generate / video.generate missing from engine tools")
+	}
+	foundUnderstand := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "video.understand" {
+			foundUnderstand = true
+		}
+	}
+	if !foundUnderstand {
+		t.Fatal("video.understand missing from engine tools")
 	}
 	foundStructured := false
 	for _, d := range engineToolDefinitions() {

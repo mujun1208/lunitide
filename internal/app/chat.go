@@ -661,6 +661,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if p.Companion {
 			req.Tools = filterCompanionDefaultTools(req.Tools)
 		}
+		if profile == toolProfileDefault || profile == toolProfileMinimal {
+			route, allow := classifyTaskRoute(intent.Text, p.Companion, e.computerControlEnabled())
+			if route == RouteUnspecified {
+				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, intent.Text); used {
+					route, allow = flashRoute, flashAllow
+				}
+			}
+			req.Tools = applyTaskRoute(req.Tools, route, allow)
+			state.taskRoute = route
+		}
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, boundSessionID, mode)
 	return request.Ok(map[string]any{"streamId": streamID})
@@ -1178,7 +1188,7 @@ func toolStartedSummary(name string, args json.RawMessage) string {
 		if json.Unmarshal(args, &a) == nil && strings.TrimSpace(a.Query) != "" {
 			return "搜索：" + strings.TrimSpace(a.Query)
 		}
-	case "web.fetch":
+	case "web.fetch", "video.understand":
 		var a struct {
 			URL string `json:"url"`
 		}

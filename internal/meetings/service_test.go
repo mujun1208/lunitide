@@ -810,7 +810,10 @@ func TestSummarizeSurfacesCompleterError(t *testing.T) {
 }
 
 func TestSummarizePersistsAfterSlowCompleter(t *testing.T) {
-	restore := meetings.SetPersistTimeoutForTest(40 * time.Millisecond)
+	// Persist is a fresh Background budget after the completer returns. 40ms
+	// flakes on hosted race runners because the final Get itself exceeds that.
+	// 2s is still far below the 20s production persistTimeout.
+	restore := meetings.SetPersistTimeoutForTest(2 * time.Second)
 	t.Cleanup(restore)
 	svc := testMeetings(t)
 	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {

@@ -38,7 +38,8 @@ func companionPersonaToolsInstruction() string {
 		"- 建文件夹/写文件：只用 workspace.write，不要猜命令行\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
 		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。月伴不要跑命令行、不要发 IM\n" +
-		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install"
+		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
+		"- 对话里贴了抖音/B站/腾讯视频/YouTube 链接：必须 video.understand，不要 browser.act，不要 media.play 代播。没有字幕就按页面简介说，禁止说我看完了"
 }
 
 // companionSpeakFallback returns a short speakable line when the model
@@ -119,6 +120,20 @@ func companionRedundantWebSkip(companion bool, lastTools []string, next, userTex
 	return companionRedundantWebSkipMsg, true
 }
 
+const companionRedundantMediaSkipMsg = "ok:true\n已经处理过播放。不要再 media.play，用一两句说结果或「没播成」。"
+
+func companionRedundantMediaSkip(companion bool, lastTools []string, next string) (string, bool) {
+	if !companion || next != "media.play" {
+		return "", false
+	}
+	for _, t := range lastTools {
+		if t == "media.play" {
+			return companionRedundantMediaSkipMsg, true
+		}
+	}
+	return "", false
+}
+
 func companionToolLeadIn(toolName string) string {
 	switch toolName {
 	case "web.search", "web.fetch":
@@ -131,6 +146,8 @@ func companionToolLeadIn(toolName string) string {
 		return "好，我来生成图片。"
 	case "video.generate":
 		return "好，我来生成视频。"
+	case "video.understand":
+		return "好，我先看下这个链接。"
 	case "skill.invoke":
 		return "好，我用技能处理一下。"
 	case "skill.view":
@@ -195,6 +212,12 @@ func companionToolResultSpeech(name, out string) string {
 		}
 		if strings.Contains(out, "无法执行") && out != "" {
 			return out
+		}
+		if name == "web.search" || name == "web.fetch" {
+			return "无法执行：这次没有查到。"
+		}
+		if name == "media.play" {
+			return "没播成。没找到这首歌，请说出歌名或歌手。"
 		}
 		return "这次没有完成。"
 	}
@@ -272,6 +295,10 @@ func companionWantsTools(text string) bool {
 		if strings.Contains(text, needle) || strings.Contains(lower, strings.ToLower(needle)) {
 			return true
 		}
+	}
+	switch detectTaskRoute(text) {
+	case RouteR1, RouteR2, RouteR3, RouteR4:
+		return true
 	}
 	return len(m8app.ConversationExpertsMatchingIntent(text)) > 0
 }

@@ -690,6 +690,19 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .settings-body{padding:22px;max-width:790px;width:100%}
 .settings-body-voice{max-width:980px}
 .settings-body-providers{max-width:1100px}
+.capability-routing{margin:0 0 18px;padding:16px 18px;border:1px solid var(--rule);border-radius:12px;background:rgba(15,21,32,.78)}
+.capability-routing h3{margin:0 0 6px;font-size:16px}
+.capability-routing .setting-desc{margin:0 0 12px}
+.capability-role-row{display:grid;grid-template-columns:88px minmax(180px,1fr);gap:8px 14px;align-items:center;padding:8px 0;border-top:1px solid var(--rule);font-size:13px}
+.capability-role-row:first-of-type{border-top:0}
+.capability-role-row small{grid-column:2;color:var(--muted);font-size:11px;line-height:1.4}
+.capability-role-row select{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--ink);padding:7px 10px;font-size:12px}
+.capability-role-row .default{grid-column:2;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.capability-routing>button{margin-top:12px}
+.provider-backup-row{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.provider-backup-row label{display:grid;gap:6px;font-size:12px;color:var(--muted)}
+.provider-backup-row input{border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--ink);padding:7px 10px;min-width:220px}
+html[data-theme="light"] .capability-routing{background:#fff;box-shadow:0 2px 10px rgba(44,93,135,.05)}
 .provider-kind-tabs{display:flex;flex-wrap:wrap;gap:8px;padding:0 2px 4px}
 .provider-kind-tabs button{padding:6px 12px;border:1px solid var(--rule);border-radius:999px;background:transparent;color:var(--muted);font-size:12px}
 .provider-kind-tabs button:hover{color:var(--ink);background:rgba(127,180,255,.07)}
@@ -915,7 +928,7 @@ html[data-theme="light"] .meeting-shell,html[data-theme="light"] .meeting-list,h
 @media(max-width:680px){.launch-shell,.launch-shell.sidebar-collapsed{grid-template-columns:1fr;padding:0}.launch-sidebar{display:flex;position:fixed;inset:0 auto 0 0;z-index:90;width:min(330px,86vw);height:100vh;border-radius:0;opacity:1!important;pointer-events:auto!important;transform:translateX(-105%);transition:transform .2s}.launch-sidebar.drawer-open{transform:translateX(0)}.drawer-toggle{display:block;position:fixed;z-index:70;top:12px;left:12px;width:42px;height:42px;border-radius:11px;background:rgba(9,15,27,.94)}.drawer-scrim{display:block;position:fixed;z-index:80;inset:0;border:0;border-radius:0;background:rgba(0,3,9,.66)}.sidebar-resizer{display:none}.launch-content{grid-column:1;width:100%;height:100%;margin-left:0;border:0;border-radius:0}.launch-main{padding:64px 18px 24px}.launch-center{transform:none}.launch-lead{font-size:15px}.launch-composer{padding:16px}.launch-menu{position:fixed;left:14px;right:14px;bottom:14px;width:auto!important;max-height:60vh;overflow:auto}}
 @media(prefers-reduced-motion:reduce){.real-moon,.atmosphere .stars i{animation:none}
 .companion-moon.state-speaking .companion-moon-halo-wave{animation:none;inset:0;transform:scale(1);opacity:.42}
-.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:scale(1.55)}}
+.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:none}}
 
 /* Polished personal composer and complete light surfaces. */
 .composer-popover-anchor{position:relative}.composer-popover-anchor>button{height:28px;padding:0 8px;border:0;background:transparent;color:var(--muted);font-size:12px;border-radius:6px}.composer-popover{position:absolute;z-index:80;left:0;right:auto;bottom:calc(100% + 8px);width:250px;max-width:min(290px,calc(100vw - 32px));max-height:min(60vh,420px);overflow-y:auto;padding:7px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);box-shadow:0 16px 45px rgba(0,0,0,.3)}.composer-popover button{display:block;width:100%;padding:9px;border:0;background:transparent;text-align:left}.composer-popover button:hover,.composer-popover button.selected{background:rgba(80,140,220,.12)}.composer-popover small{display:block;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}.mode-popover,.model-popover{width:290px}.mode-popover b,.model-popover b{display:block}.model-popover button{display:block;width:100%;padding:9px;border:0;background:transparent;text-align:left}.model-popover button:hover,.model-popover button.selected{background:rgba(80,140,220,.12)}.manage-models{padding:4px 7px!important;border:0!important;background:transparent!important;color:var(--glow)!important;font-size:11px!important}.personal-chat-page .mode-popover,.personal-chat-page .model-popover{left:0;right:auto}.personal-chat-page .message-actions{position:relative}
@@ -1437,7 +1450,7 @@ html.companion-active .drawer-toggle{display:none}
 .companion-orb-canvas,.companion-strands-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;image-rendering:auto}
 .companion-moon-orb,.companion-moon-strands{position:absolute;inset:-8%;pointer-events:none;z-index:3;opacity:0;transition:opacity .28s ease,transform .2s ease}
 .companion-moon-orb.is-on,.companion-moon-strands.is-on{opacity:1}
-.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:scale(1.55);transform-origin:center center}
+.companion-moon[data-visual="webgl"].state-speaking .companion-moon-strands.is-on{transform:none;transform-origin:center center}
 .companion-moon[data-visual="webgl"] .companion-moon-disc{opacity:0}
 .companion-moon[data-visual="webgl"] .companion-moon-body{filter:none}
 .companion-moon[data-visual="webgl"] .companion-moon-halo{
@@ -1469,11 +1482,13 @@ html.companion-active .drawer-toggle{display:none}
 .companion-prompt-fade{animation:companionPromptIn .4s ease}
 @keyframes companionPromptIn{from{opacity:0}to{opacity:1}}
 .reduce-motion .companion-prompt-fade{animation:none}
-.companion-preview-dock{position:absolute;top:22px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;max-width:min(720px,92vw);padding:8px 12px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:rgba(8,14,26,.72);color:#d7e6ff;font-size:12px}
-.companion-preview-dock strong{padding:0 6px 0 4px}
-.companion-preview-dock button{padding:6px 10px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:transparent;color:#d7e6ff;font-size:12px;cursor:pointer}
+.companion-preview-dock{position:absolute;top:22px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;flex-wrap:nowrap;justify-content:center;align-items:center;gap:6px;max-width:calc(100% - 24px);padding:8px 12px;border:1px solid rgba(143,170,216,.28);border-radius:18px;background:rgba(8,14,26,.72);color:#d7e6ff;font-size:12px}
+.companion-preview-stage .companion-preview-dock{top:auto;bottom:14px}
+.companion-preview-dock-row{display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:8px}
+.companion-preview-dock strong{padding:0 6px 0 4px;white-space:nowrap}
+.companion-preview-dock button{padding:6px 10px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:transparent;color:#d7e6ff;font-size:12px;cursor:pointer;white-space:nowrap}
 .companion-preview-dock button.is-on{border-color:rgba(63,214,255,.7);background:rgba(63,214,255,.16)}
-.companion-preview-hint{width:100%;padding:2px 8px 0;color:rgba(186,208,240,.62);font-size:11px;text-align:center}
+.companion-preview-hint{width:auto;padding:2px 8px 0;color:rgba(186,208,240,.62);font-size:11px;text-align:center}
 .launch-shell>.companion-preview-dock{position:fixed;z-index:80;top:14px}
 html[data-theme="light"] .companion-preview-dock{background:rgba(255,255,255,.86);color:#14243b;border-color:var(--rule)}
 html[data-theme="light"] .companion-preview-dock button{color:#14243b;border-color:var(--rule)}
@@ -1511,8 +1526,11 @@ html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 .companion-status-dot.state-listening{background:var(--tide1);box-shadow:0 0 8px var(--tide1)}
 .companion-status-dot.state-thinking{background:var(--tide2);box-shadow:0 0 8px var(--tide2)}
 .companion-status-dot.state-speaking{background:var(--tide3);box-shadow:0 0 8px var(--tide3)}
+.companion-stage-core{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(18px,3.6vh,36px);padding:104px 24px 36px;box-sizing:border-box;pointer-events:none}
+.companion-stage-core>*{pointer-events:auto}
+.companion-moon-slot{width:34vmin;height:34vmin;flex:none;display:grid;place-items:center;pointer-events:auto}
 .companion-moon{position:relative;z-index:1;width:34vmin;height:34vmin;flex:none;overflow:visible;margin-inline:auto;animation:companionMoonEnter 1s cubic-bezier(.2,.85,.3,1.08) both}
-.companion-moon.state-speaking{width:46vmin;height:46vmin}
+.companion-moon.state-speaking{width:34vmin;height:34vmin}
 /* 进入月伴：月亮由小缓缓放大就位 */
 @keyframes companionMoonEnter{from{transform:scale(.78);opacity:0}to{transform:scale(1);opacity:1}}
 /* 光环：月缘一圈柔光，再向外沉入暗蓝气晕。禁止 hollow 描边环。 */
@@ -1528,8 +1546,8 @@ html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 .companion-moon.state-listening .companion-moon-halo{animation:none;opacity:calc(.72 + var(--moon-level,0) * .28);box-shadow:none;filter:blur(calc(14px + var(--moon-level,0) * 10px));transition:opacity .18s linear,filter .18s linear}
 .companion-moon.state-thinking .companion-moon-halo{animation:none;opacity:.45}
 /* 说话：光晕随朗读音量呼吸，外层再扩一圈波动 */
-.companion-moon.state-speaking .companion-moon-halo{animation:companionHaloPulse .95s ease-in-out infinite;opacity:calc(.82 + var(--moon-gain) * .28);box-shadow:0 0 calc(24px + var(--moon-gain) * 48px) rgba(210,230,255,.28);filter:blur(calc(12px + var(--moon-gain) * 16px))}
-.companion-moon.state-speaking .companion-moon-halo-wave{inset:-8%;animation:companionHaloWaveSpeak .88s ease-out infinite;opacity:calc(.22 + var(--moon-gain) * .62)}
+.companion-moon.state-speaking .companion-moon-halo{animation:none;opacity:.45}
+.companion-moon.state-speaking .companion-moon-halo-wave{inset:-92%;animation:none;opacity:0}
 @keyframes companionHaloWaveSpeak{0%{transform:scale(.92);opacity:calc(.28 + var(--moon-gain,0) * .5)}100%{transform:scale(1.08);opacity:0}}
 @keyframes companionHaloPulse{0%,100%{transform:scale(calc(1 + var(--moon-gain,0) * .04))}50%{transform:scale(calc(1.08 + var(--moon-gain,0) * .14))}}
 @keyframes companionHaloWave{0%{transform:scale(.88);opacity:calc(.24 + var(--moon-gain,0) * .55)}100%{transform:scale(1.28);opacity:0}}
@@ -1561,9 +1579,9 @@ html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 .reduce-motion .companion-stage .companion-stars i,.reduce-motion .companion-stage .companion-aurora-fallback{animation:none;opacity:.6}
 .companion-active-line{position:absolute;top:calc(50% + 22vmin);left:50%;transform:translateX(-50%);width:min(760px,88vw);margin:0;text-align:center;color:var(--ink);font-size:16.5px;line-height:1.65;text-shadow:0 1px 8px rgba(0,0,0,.7)}
 /* 当前一轮对话的字幕条：圆角卡片，完整显示正在说的话 */
-.companion-subtitles{position:absolute;bottom:132px;left:50%;transform:translateX(-50%);width:min(720px,86vw);max-height:min(42vh,320px);padding:10px 18px;border:1px solid rgba(143,170,216,.22);border-radius:18px;background:rgba(6,11,20,.72);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;z-index:4;transition:opacity .8s ease,transform .8s ease}
+.companion-subtitles{position:relative;left:auto;bottom:auto;transform:none;width:min(560px,78vw);max-height:min(32vh,260px);padding:10px 18px;border:1px solid rgba(143,170,216,.22);border-radius:18px;background:rgba(6,11,20,.72);backdrop-filter:blur(10px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;z-index:4;flex:none;margin-inline:auto;transition:opacity .8s ease,transform .8s ease}
 /* 回合结束后的退场：字幕条整体淡出下滑，舞台回到纯月面 */
-.companion-subtitles.retiring{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
+.companion-subtitles.retiring{opacity:0;transform:translateY(14px);pointer-events:none}
 .companion-subtitles:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
 .companion-subtitle-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(143,170,216,.4) transparent;padding:2px 6px 2px 0}
 .companion-subtitle-hint{margin:1px 0;color:var(--muted);font-size:11.5px;text-align:center;white-space:nowrap}
@@ -1592,19 +1610,29 @@ html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 .companion-mic.state-listening{border-color:var(--tide1)!important;background:rgba(63,214,255,.14)!important;color:var(--tide1);box-shadow:0 0 0 4px rgba(63,214,255,.16),0 0 24px rgba(63,214,255,.3);animation:companionMicPulse 1.4s ease-in-out infinite}
 @keyframes companionMicPulse{0%,100%{box-shadow:0 0 0 3px rgba(63,214,255,.14),0 0 18px rgba(63,214,255,.24)}50%{box-shadow:0 0 0 6px rgba(63,214,255,.2),0 0 30px rgba(63,214,255,.4)}}
 .companion-mic.state-thinking{opacity:.55}
-.companion-tts-toggle,.companion-type-toggle,.companion-exit,.companion-interrupt{padding:9px 14px!important;border-radius:999px!important;background:rgba(14,24,40,.9)!important;color:var(--ink)!important;font-size:12.5px}
+.companion-tts-toggle,.companion-type-toggle,.companion-exit,.companion-interrupt,.companion-pause{padding:9px 14px!important;border-radius:999px!important;background:rgba(14,24,40,.9)!important;color:var(--ink)!important;font-size:12.5px}
 /* 退出、打断、听说想：同一条左上工具条横排，不互相叠；右侧留给聆听状态 */
 .companion-chrome{position:absolute;top:22px;left:26px;right:auto;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:calc(100% - 52px - min(40vw, 280px))}
 .companion-exit,.companion-interrupt{position:static;border:1px solid rgba(143,170,216,.35)!important}
 .companion-exit:hover,.companion-interrupt:hover:not(:disabled){border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
 .companion-interrupt:disabled{opacity:.4;cursor:default}
 .companion-interrupt-key{margin-left:6px;opacity:.72;font-size:11px}
+.companion-skin-switch{display:inline-flex;border:1px solid rgba(143,170,216,.35);border-radius:999px;overflow:hidden;background:rgba(14,24,40,.9)}
+.companion-skin-switch button{padding:7px 12px;border:0;background:transparent;color:inherit;font-size:12.5px;cursor:pointer}
+.companion-skin-switch button[aria-pressed="true"]{background:rgba(63,214,255,.18)}
+.companion-skin-switch.is-compact button{padding:6px 10px}
+.setting-row .companion-skin-switch{flex:none}
+.companion-stage[data-skin="particle"] .companion-moon-halo,
+.companion-stage[data-skin="particle"] .companion-moon-halo-wave,
+.companion-stage[data-skin="particle"] .companion-moon-disc,
+.companion-stage[data-skin="particle"] .companion-moon-orb,
+.companion-stage[data-skin="particle"] .companion-moon-strands{display:none!important}
 .companion-tts-toggle:disabled{opacity:.45}
 .reduce-motion .companion-mic.state-listening{animation:none}
 .companion-entry{width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:16px!important;color:var(--moon)!important;text-shadow:0 0 10px rgba(127,180,255,.55)}
 .companion-entry:hover{border-color:var(--glow)!important;box-shadow:0 0 12px rgba(127,180,255,.35)}
 .companion-entry[aria-expanded="true"]{border-color:var(--tide3)!important;box-shadow:0 0 12px rgba(47,214,181,.4)}
-@media(max-width:900px){.companion-moon{width:44vmin;height:44vmin}.companion-moon.state-speaking{width:56vmin;height:56vmin}.companion-subtitles{bottom:168px;max-width:88vw}.companion-controls{gap:9px}.companion-mic{width:56px;height:56px}}
+@media(max-width:900px){.companion-moon,.companion-moon.state-speaking,.companion-moon-slot{width:44vmin;height:44vmin}.companion-subtitles{max-width:88vw;width:min(560px,88vw)}.companion-controls{gap:9px}.companion-mic{width:56px;height:56px}}
 html[data-theme="light"] .skill-center,html[data-theme="light"] .skill-table,html[data-theme="light"] .skill-detail,html[data-theme="light"] .files-panel{background:var(--bg);color:var(--ink)}html[data-theme="light"] .skill-status-tabs{background:var(--bg2)}html[data-theme="light"] .skill-status-tabs button[aria-selected="true"]{background:#fff;color:#14243b;box-shadow:0 1px 4px rgba(44,93,135,.12)}html[data-theme="light"] .skill-table-head{background:var(--bg2)}html[data-theme="light"] .skill-row:hover,html[data-theme="light"] .skill-row.active{background:rgba(49,139,205,.09)}html[data-theme="light"] .skill-row code,html[data-theme="light"] .skill-detail>p{color:var(--muted)}html[data-theme="light"] .skill-permissions span{color:var(--ink)}html[data-theme="light"] .skill-path{background:var(--bg2)}html[data-theme="light"] .skill-table{scrollbar-color:rgba(45,92,135,.3) var(--bg2)}html[data-theme="light"] .file-tree button>span{color:var(--tide1)}html[data-theme="light"] .status-published{color:#007a62;background:rgba(0,153,124,.1)}html[data-theme="light"] .status-draft{color:#55708e;background:rgba(85,112,142,.12)}html[data-theme="light"] .status-deprecated{color:#9a6b00;background:rgba(255,196,107,.16)}html[data-theme="light"] .status-disabled{color:#b42318;background:rgba(255,90,100,.1)}html[data-theme="light"] .skill-signature{color:#007a62}html[data-theme="light"] .skill-signature.unsigned{color:var(--muted)}
 /* 技能添加弹窗：上传 / 创建双选项卡片 */
 .skill-add-options{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
@@ -2376,3 +2404,34 @@ html[data-theme="light"] .people-ava-badge{background:var(--tide1);color:#fff}
 .people-claim-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0;color:var(--muted);font-size:12px}
 .people-expert-home{margin:12px 0;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2)}
 .people-expert-home ul{margin:8px 0 0;padding-left:18px}
+
+.stardust-sim-body,.stardust-sim-body #root{margin:0;min-height:100vh;background:#000}
+.stardust-sim{position:relative;overflow:hidden;min-height:100vh;color:#f3e6d2;font-family:var(--sans,sans-serif);background:#000}
+.stardust-sim-canvas,.stardust-sim-fallback{position:absolute;inset:0}
+.stardust-sim-fallback{display:grid;place-items:center}
+.stardust-sim-disc{width:min(42vw,280px);height:min(42vw,280px);border-radius:50%;border:1px solid rgba(90,230,255,.7);box-shadow:0 0 40px rgba(60,210,255,.28),inset 0 0 50px rgba(180,230,255,.2);animation:stardust-breathe 2.8s ease-in-out infinite}
+.reduce-motion .stardust-sim-disc{animation:none}
+@keyframes stardust-breathe{50%{transform:scale(1.04);box-shadow:0 0 56px rgba(60,210,255,.4),inset 0 0 60px rgba(180,230,255,.28)}}
+.stardust-sim-vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 48%,transparent 62%,rgba(0,0,0,.45) 88%,#000 100%)}
+.stardust-sim-brand{position:absolute;top:28px;left:32px;z-index:3;max-width:42ch}
+.stardust-sim-kicker{margin:0 0 4px;letter-spacing:.18em;text-transform:uppercase;font-size:11px;color:rgba(255,196,120,.72)}
+.stardust-sim-brand h1{margin:0;font-size:42px;font-weight:560;letter-spacing:.08em}
+.stardust-sim-brand p{margin:8px 0 0;max-width:36ch;color:rgba(230,208,186,.7);font-size:13px;line-height:1.5}
+.stardust-sim-captions{position:absolute;left:50%;bottom:168px;z-index:3;transform:translateX(-50%);min-width:min(72vw,520px);padding:12px 18px;border:1px solid rgba(255,186,120,.16);border-radius:16px;background:rgba(12,8,16,.42);backdrop-filter:blur(10px)}
+.stardust-sim-captions p{margin:0;font-size:16px;line-height:1.6}
+.stardust-sim-captions span{margin-right:10px;color:#ffc57a}
+.stardust-sim-status{position:absolute;top:32px;right:32px;z-index:3;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid rgba(255,186,120,.18);border-radius:999px;background:rgba(12,8,16,.5);font-size:13px}
+.stardust-sim-status i{width:8px;height:8px;border-radius:50%;background:#6ef0ff;box-shadow:0 0 10px #6ef0ff}
+.stardust-sim-status i.is-listening{background:#7dffb0}
+.stardust-sim-status i.is-thinking{background:#ffd36e}
+.stardust-sim-status i.is-speaking{background:#7ad7ff}
+.stardust-sim-status em{color:rgba(180,210,240,.62);font-style:normal}
+.stardust-sim-dock{position:absolute;left:50%;bottom:18px;z-index:4;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;width:min(920px,calc(100% - 24px));padding:10px 12px;border:1px solid rgba(255,186,120,.16);border-radius:18px;background:rgba(10,6,14,.7);backdrop-filter:blur(14px)}
+.stardust-sim-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
+.stardust-sim-dock button,.stardust-sim-dock input{padding:6px 10px;border:1px solid rgba(143,170,216,.28);border-radius:999px;background:transparent;color:#d7e6ff;font-size:12px}
+.stardust-sim-dock button{cursor:pointer}
+.stardust-sim-dock button.is-on{border-color:rgba(255,186,110,.7);background:rgba(255,170,90,.16)}
+.stardust-sim-dock input[type="text"],.stardust-sim-dock .stardust-sim-row input:not([type="range"]){min-width:220px;border-radius:12px}
+.stardust-sim-dock label{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(190,214,240,.78)}
+.stardust-sim-voice,.stardust-sim-hint{margin:0;color:rgba(186,208,240,.62);font-size:11px}
+.stardust-sim-hint{text-align:center}

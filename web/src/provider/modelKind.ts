@@ -1,11 +1,11 @@
 import type { ModelDTO, ProviderDTO } from '../generated/bridge'
 import { VOLC_ASR_RESOURCE_ID, VOLC_DEFAULT_VOICE_ID, VOLC_TTS_RESOURCE_ID, isVolcSpeakerId, isVolcTtsResourceId, nextUnusedVolcSpeaker } from '../session/companion/volcVoices'
 
-export type ModelKind = 'llm' | 'vision' | 'image' | 'video' | 'voice'
-export type PersistKind = 'llm' | 'vision' | 'image' | 'video' | 'asr' | 'tts'
+export type ModelKind = 'llm' | 'vision' | 'image' | 'video' | 'voice' | 'embedding' | 'gui'
+export type PersistKind = 'llm' | 'vision' | 'image' | 'video' | 'asr' | 'tts' | 'embedding' | 'gui'
 export type VoiceRole = 'asr' | 'tts'
 
-export const MODEL_KINDS: readonly ModelKind[] = ['llm', 'vision', 'image', 'video', 'voice']
+export const MODEL_KINDS: readonly ModelKind[] = ['llm', 'vision', 'image', 'video', 'voice', 'embedding', 'gui']
 export const VOICE_ROLES: readonly VoiceRole[] = ['asr', 'tts']
 
 export const MODEL_KIND_LABELS: Record<ModelKind, string> = {
@@ -14,6 +14,8 @@ export const MODEL_KIND_LABELS: Record<ModelKind, string> = {
   image: '生图模型',
   video: '生视频模型',
   voice: '语音模型',
+  embedding: '向量模型',
+  gui: 'GUI 模型',
 }
 
 export const VOICE_ROLE_LABELS: Record<VoiceRole, string> = {
@@ -26,7 +28,7 @@ export function persistKind(model: Pick<ModelDTO, 'kind'> | { kind?: string }): 
   const raw = typeof model.kind === 'string' ? model.kind : ''
   if (raw === 'tts') return 'tts'
   if (raw === 'asr' || raw === 'voice') return 'asr'
-  if (raw === 'vision' || raw === 'image' || raw === 'video') return raw
+  if (raw === 'vision' || raw === 'image' || raw === 'video' || raw === 'embedding' || raw === 'gui') return raw
   return 'llm'
 }
 

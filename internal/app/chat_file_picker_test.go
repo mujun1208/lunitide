@@ -33,6 +33,12 @@ func TestLooksLikeUACToolResult(t *testing.T) {
 	if looksLikeUACToolResult("captured desktop 1920x1080") {
 		t.Fatal("screenshot is not UAC")
 	}
+	if !looksLikeUACToolResult("ccapp: access denied attaching to elevated window") {
+		t.Fatal("D-M1 access denied")
+	}
+	if !looksLikeUACToolResult("UIPI: 跨完整性") {
+		t.Fatal("D-M1 UIPI")
+	}
 }
 
 func ccappUACPrompt() string {
@@ -63,6 +69,36 @@ func TestParkUACAskEmitsUserAsk(t *testing.T) {
 	}
 	if !strings.Contains(events[0].Tool.Summary, "系统提权") {
 		t.Fatalf("summary = %q", events[0].Tool.Summary)
+	}
+}
+
+func TestParkBrowserWallAskEmitsUserAsk(t *testing.T) {
+	runtime, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	e := NewEngine(nil, "test")
+	e.SetToolRuntime(runtime)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	var events []bridge.Event
+	if err := e.parkBrowserWallAsk(context.Background(), session, session, executionModeApproval, "login", func(ev bridge.Event) error {
+		events = append(events, ev)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != bridge.EventApprovalRequired || events[0].Tool == nil {
+		t.Fatalf("events = %#v", events)
+	}
+	if events[0].Tool.Name != "user.ask" {
+		t.Fatalf("name = %s", events[0].Tool.Name)
+	}
+	if !strings.Contains(events[0].Tool.Summary, `"reason":"login"`) && !strings.Contains(events[0].Tool.Summary, "需要登录") {
+		t.Fatalf("D-G1 summary = %q", events[0].Tool.Summary)
+	}
+	if !looksLikeBrowserWallToolResult(browserWallError("pay").Error()) || browserWallReason(browserWallError("pay").Error()) != "pay" {
+		t.Fatal("D-G3 pay wall detector")
 	}
 }
 

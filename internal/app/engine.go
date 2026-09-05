@@ -215,6 +215,9 @@ type Engine struct {
 	brmulti *brapp.Service
 	// M10 wave-4: computer-control surface (cc.* handlers + agent tools).
 	ccctrl *ccapp.Service
+	// Test-only hooks. Production stays nil.
+	guiFallbackHook func(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []gateway.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool)
+	toolExecHook    func(ctx context.Context, mode executionMode, session, name string, args json.RawMessage) (toolruntime.Result, error)
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
 	// Expert growth paths (knowledge foundation).
@@ -272,6 +275,8 @@ type Engine struct {
 
 	// This-PC meeting notes (meetings.*). Independent of 对话 and 同事.
 	meetings *meetings.Service
+	// P1-6 capability role bindings (chat/flash/vision/embed/judge/gui).
+	capabilityRoles CapabilityRoleStore
 	// Settings → 消息通道 (Feishu/WeCom/DingTalk webhooks + WeChat/QQ desktop).
 	imChannels    *imapp.Service
 	inboundRoutes sync.Map
@@ -324,6 +329,7 @@ type streamState struct {
 	kbCites        []CitationBlock
 	kbDiscarded    int
 	mroTurn        bool
+	taskRoute      TaskRoute
 }
 
 type streamLifecycle uint8
@@ -342,16 +348,17 @@ type LeaseClient interface {
 }
 
 type providerDTO struct {
-	ID              string                   `json:"id"`
-	Name            string                   `json:"name"`
-	Protocol        provider.Protocol        `json:"protocol"`
-	BaseURL         string                   `json:"baseUrl"`
-	Models          []provider.Model         `json:"models"`
-	Status          provider.Status          `json:"status"`
-	CredentialState provider.CredentialState `json:"credentialState"`
-	CreatedAt       time.Time                `json:"createdAt"`
-	UpdatedAt       time.Time                `json:"updatedAt"`
-	Version         int64                    `json:"version"`
+	ID                    string                   `json:"id"`
+	Name                  string                   `json:"name"`
+	Protocol              provider.Protocol        `json:"protocol"`
+	BaseURL               string                   `json:"baseUrl"`
+	Models                []provider.Model         `json:"models"`
+	Status                provider.Status          `json:"status"`
+	CredentialState       provider.CredentialState `json:"credentialState"`
+	CredentialBackupCount int                      `json:"credentialBackupCount"`
+	CreatedAt             time.Time                `json:"createdAt"`
+	UpdatedAt             time.Time                `json:"updatedAt"`
+	Version               int64                    `json:"version"`
 }
 
 func NewEngine(providers ProviderService, version string) *Engine {
@@ -875,6 +882,13 @@ func (e *Engine) GetAttachment(ctx context.Context, id string) (*attachment.Atta
 	return e.attachmentService.GetAttachment(ctx, id)
 }
 
+func (e *Engine) PreviewAttachmentImage(ctx context.Context, id string) ([]byte, bool, error) {
+	if e.attachmentService == nil {
+		return nil, false, nil
+	}
+	return e.attachmentService.PreviewWorkspaceImage(ctx, id)
+}
+
 // ListAttachmentsByProject returns attachments for a project (ADR-005 §7).
 func (e *Engine) ListAttachmentsByProject(ctx context.Context, projectID string, limit int) ([]attachment.Attachment, error) {
 	if e.attachmentService == nil {
@@ -1152,6 +1166,9 @@ func (e *Engine) SetM8SliceServices(kbSvc *m8app.KBService, handoffSvc *m8app.Ha
 	e.m8kb = kbSvc
 	e.m8handoff = handoffSvc
 	e.m8automation = automationSvc
+	if kbSvc != nil {
+		kbSvc.SetDenseEmbedder(e.embedKBTexts)
+	}
 }
 
 // SetExpertGrowthService wires expert growth-path reads.
@@ -1162,6 +1179,8 @@ func (e *Engine) SetExpertGrowthService(growthSvc *m8app.GrowthService) {
 func (e *Engine) SetMROService(svc *mroapp.Service) { e.mro = svc }
 
 func (e *Engine) SetDatasourceService(svc *datasourceapp.Service) { e.datasource = svc }
+
+func (e *Engine) SetCapabilityRoleStore(store CapabilityRoleStore) { e.capabilityRoles = store }
 
 // SetM8PluginService wires the M8 FR-18 unified plugin runtime.
 func (e *Engine) SetM8PluginService(pluginSvc *m8app.PluginService) {
@@ -1319,7 +1338,7 @@ func handleProviderList(e *Engine, ctx context.Context, request bridge.Request) 
 }
 
 func publicProvider(item provider.Provider) providerDTO {
-	return providerDTO{ID: item.ID, Name: item.Name, Protocol: item.Protocol, BaseURL: item.BaseURL, Models: item.Models, Status: item.Status, CredentialState: item.CredentialState, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, Version: item.Version}
+	return providerDTO{ID: item.ID, Name: item.Name, Protocol: item.Protocol, BaseURL: item.BaseURL, Models: item.Models, Status: item.Status, CredentialState: item.CredentialState, CredentialBackupCount: item.BackupCount(), CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, Version: item.Version}
 }
 
 func providerFailure(request bridge.Request, err error) bridge.Response {

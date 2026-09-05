@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/capability.roles.get.schema.json",
+  "title": "capability.roles.get payload",
+  "x-method": "capability.roles.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "roles": {
+        "type": "array",
+        "minItems": 6,
+        "maxItems": 6,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": ["chat", "flash", "vision", "embed", "judge", "gui"]
+            },
+            "providerId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "modelId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "allowJudgeEqChat": {
+              "type": "boolean"
+            }
+          },
+          "required": ["role", "allowJudgeEqChat"]
+        }
+      }
+    },
+    "required": ["roles"]
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

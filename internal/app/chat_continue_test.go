@@ -75,8 +75,14 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("unverified media.play must continue")
 	}
+	if shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 1) {
+		t.Fatal("unverified media.play continues only once")
+	}
 	if shouldContinueIncompleteWork("正在播放周杰伦", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("verified play must not extra-loop")
+	}
+	if pickTurnContinueKind("这次没有完成。", "这次没有完成。", "ok:false\nnot found", []string{"media.play"}, true, true, true, false, 0, "放一首复古公路风", true) != "" {
+		t.Fatal("failed media.play must not desktop-continue")
 	}
 	if shouldContinueIncompleteWork("文件写好了，下一步打开网页。", "ok:true\nwritten", []string{"workspace.write"}, true, 0) {
 		t.Fatal("successful write plus 下一步 must not extra-loop")
@@ -108,7 +114,7 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueDesktopTurnGoal("已经打开记事本。", "打开记事本帮我写号码", 0) && !companionGoalIsOpenOnly("打开记事本帮我写号码") {
 		t.Fatal("open-then-act must still continue after open")
 	}
-	if got := pickTurnContinueKind("已经打开了。", "已经打开了。", "opened C:\\\\x\\\\汽水音乐.lnk", []string{"desktop.open"}, true, true, true, true, 0, "打开汽水"); got != "" {
+	if got := pickTurnContinueKind("已经打开了。", "已经打开了。", "opened C:\\\\x\\\\汽水音乐.lnk", []string{"desktop.open"}, true, true, true, true, 0, "打开汽水", true); got != "" {
 		t.Fatalf("open-only must not return desktop, got %q", got)
 	}
 	if drop := dropCompanionFailedTail([]gateway.Message{{Role: gateway.RoleUser, Content: "打开汽水"}, {Role: gateway.RoleAssistant, Content: "无法执行。窗口没到前台"}}); len(drop) != 1 || drop[0].Role != gateway.RoleUser {
@@ -155,14 +161,30 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !isDesktopControlTool("desktop.open") || !isDesktopControlTool("media.play") || !isDesktopControlTool("browser.act") {
 		t.Fatal("open/play/browser must raise the companion tool budget")
 	}
-	if got := pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", "screenshot frameId=01ARZ3NDEKTSV4RRFFQ69G5FAV", []string{"computer.act"}, true, true, true, true, 0, ""); got != "desktop" {
+	if got := pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", "screenshot frameId=01ARZ3NDEKTSV4RRFFQ69G5FAV", []string{"computer.act"}, true, true, true, true, 0, "", true); got != "desktop" {
 		t.Fatalf("screenshot + lead-in must keep desktop loop, got %q", got)
 	}
-	if got := pickTurnContinueKind("好，我帮你查一下。", "好，我帮你查一下。", "ok", []string{"web.search"}, true, false, true, true, 0, ""); got != "leadin" {
+	if got := pickTurnContinueKind("好，我帮你查一下。", "好，我帮你查一下。", "ok", []string{"web.search"}, true, false, true, true, 0, "", true); got != "leadin" {
 		t.Fatalf("non-desktop lead-in must ask for a spoken result, got %q", got)
 	}
-	if got := pickTurnContinueKind("Word 里已经写上号码了。", "Word 里已经写上号码了。", `typed "204040"`, []string{"desktop.type"}, true, true, true, true, 0, ""); got != "" {
+	if got := pickTurnContinueKind("Word 里已经写上号码了。", "Word 里已经写上号码了。", `typed "204040"`, []string{"desktop.type"}, true, true, true, true, 0, "", true); got != "" {
 		t.Fatalf("settled desktop result must stop, got %q", got)
+	}
+	long := "合肥今天的天气我手头没有实时数据，没法给你准确温度。你要是不急，我可以帮你查一下，稍等。"
+	if got := pickTurnContinueKind("", long, "", nil, false, false, true, true, 0, "今天合肥的天气怎么样", true); got != "wait" {
+		t.Fatalf("long wait promise must continue, got %q", got)
+	}
+	if got := pickTurnContinueKind("", "稍等。", "", nil, false, false, true, true, 0, "你好", false); got != "" {
+		t.Fatal("idle wait without tools must not loop")
+	}
+	if got := pickTurnContinueKind("", "手头没有那本书。", "", nil, false, false, true, true, 0, "今晚月色如何", true); got != "" {
+		t.Fatal("book-missing chat must not wait")
+	}
+	if got := pickTurnContinueKind("", long, "", nil, false, false, true, true, 3, "今天合肥的天气怎么样", true); got != "" {
+		t.Fatal("wait budget exhausted must stop kind")
+	}
+	if got := pickTurnContinueKind("", "", "", nil, false, false, true, true, 0, "今天合肥的天气怎么样", true); got != "wait" {
+		t.Fatal("empty lead-in with tools attached must wait")
 	}
 }
 
@@ -282,6 +304,63 @@ func (a *finishAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, e
 		return gateway.Response{}, err
 	}
 	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: text}}, nil
+}
+
+type waitPromiseAdapter struct{ calls int }
+
+func (a *waitPromiseAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+	return gateway.Response{}, errors.New("not used")
+}
+func (a *waitPromiseAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, errors.New("not used")
+}
+func (a *waitPromiseAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+	a.calls++
+	text := "合肥今天的天气我手头没有实时数据，没法给你准确温度。你要是不急，我可以帮你查一下，稍等。"
+	if err := emit(gateway.Delta{Text: text}); err != nil {
+		return gateway.Response{}, err
+	}
+	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: text}}, nil
+}
+
+func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
+	adapter := &waitPromiseAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning, companion: true}
+	id := "stream-wait-close"
+	e.streams[id] = state
+	done := make(chan struct{})
+	var deltas []string
+	req := gateway.Request{
+		Model:             "m",
+		DisableReasoning:  true,
+		Tools:             []gateway.ToolDefinition{{Name: "web.search"}},
+		Messages:          []gateway.Message{{Role: gateway.RoleUser, Content: "今天合肥的天气怎么样"}},
+	}
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
+		if event.Type == bridge.EventDelta && event.Delta != nil {
+			deltas = append(deltas, event.Delta.Text)
+		}
+		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
+			close(done)
+		}
+		return nil
+	}, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for wait-closeout")
+	}
+	joined := strings.Join(deltas, "")
+	if !strings.Contains(joined, "无法执行：这一轮没有完成查询。") {
+		t.Fatalf("exhausted wait must speak 无法执行, got %q", joined)
+	}
+	if adapter.calls < 4 {
+		t.Fatalf("calls=%d, want at least 4 (3 wait nudges then closeout step)", adapter.calls)
+	}
 }
 
 func TestRunStreamDoesNotNudgeWhenTaskFinished(t *testing.T) {

@@ -25,7 +25,9 @@ export const MEETING_CAPTION_STALL_POLL_MS = 2_000
  *  absorbs warm-up without leaving a deaf engine on for the whole meeting. */
 export const MEETING_LIVE_FALLBACK_MS = 20_000
 const MEETING_LIVE_FALLBACK_NOTICE = '实时字幕已切换到本机识别（所选引擎未返回结果）。停止后仍生成完整逐字稿。'
-const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用，停止后仍会生成完整逐字稿（本机补转写）。'
+const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用。系统声会在停止后补，本机识别未就绪则没有；本机补转写仍会尽量生成完整逐字稿。'
+const VOLC_CONNECTING_NOTICE = '正在连接火山听写…'
+const VOLC_LISTENING_NOTICE = '正在听写'
 
 function speechNotice(error: unknown): string {
   return error instanceof Error && error.message ? error.message : ASR_INTERRUPTED_NOTICE
@@ -258,7 +260,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         const listed = await getProviderBridge().list().catch(() => ({ items: [] as ProviderDTO[] }))
         volcProviderId = pickDefaultVoice(listed.items)?.provider.id ?? ''
         if (!volcProviderId) throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
-        if (!sawRealCaption) setNotice('正在连接火山听写…')
+        if (!sawRealCaption) setNotice(VOLC_CONNECTING_NOTICE)
       }
       setAsrRuntime({
         backend: listenKind,
@@ -276,6 +278,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         onFinal: text => {
           bumpCaption()
           sawRealCaption = true
+          setNotice(prev => prev === VOLC_CONNECTING_NOTICE ? VOLC_LISTENING_NOTICE : prev)
           const id = meeting.meetingId
           const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
           appendChain.current = appendChain.current.then(() =>
@@ -295,7 +298,10 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         },
         onInterim: text => {
           bumpCaption()
-          if (text.trim()) sawRealCaption = true
+          if (text.trim()) {
+            sawRealCaption = true
+            setNotice(prev => prev === VOLC_CONNECTING_NOTICE ? VOLC_LISTENING_NOTICE : prev)
+          }
           setInterim(text)
         },
         onEngineHint: message => {
@@ -326,7 +332,10 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       pcmTapRef.current = handle.pushPcm
       bumpCaption()
       const notice = captureStateNotice(livePlan) || livePlan.notice
-      if (notice) setNotice(notice)
+      setNotice(prev => {
+        if (notice) return notice
+        return prev === VOLC_CONNECTING_NOTICE ? VOLC_LISTENING_NOTICE : prev
+      })
     }
     const scheduleLiveFallback = () => {
       window.clearTimeout(liveFallbackRef.current)

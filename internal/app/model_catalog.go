@@ -60,7 +60,7 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if err != nil {
 		return "", false
 	}
-	catalog := provider.VisionDescribeCatalog(items, llm.ModelID)
+	catalog := e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, llm.ModelID))
 	if len(catalog) == 0 {
 		return "", false
 	}

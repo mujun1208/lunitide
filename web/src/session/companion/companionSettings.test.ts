@@ -179,7 +179,7 @@ describe('companion engine fallback helpers', () => {
     expect(applyVoicePath(defaultCompanionSettings(), 'volc', { volcTtsReady: false }).voicePath).toBe('volc')
     expect(applyVoicePath(defaultCompanionSettings(), 'volc').voiceBargeIn).toBe(false)
     // Unified half-duplex: client-side barge-in is retired on every path.
-    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'volc'))).toBe(false)
+    expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'volc'))).toBe(true)
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'cloud'))).toBe(false)
     expect(companionVoiceBargeInEnabled(applyVoicePath(defaultCompanionSettings(), 'local'))).toBe(false)
     // The legacy voiceBargeIn flag is inert now — it never opens a live mic.
@@ -325,6 +325,17 @@ describe('companion engine fallback helpers', () => {
     // An explicit onnx voice id is preserved across an onnx re-apply.
     const chosen = applyLocalEngine({ ...onnx, voiceId: 'onnx-zm-yunxi' }, 'onnx')
     expect(chosen.voiceId).toBe('onnx-zm-yunxi')
+  })
+})
+
+describe('visualSkin', () => {
+  test('defaults visualSkin to classic and rejects junk', () => {
+    expect(loadCompanionSettings().visualSkin).toBe('classic')
+    expect(defaultCompanionSettings().visualSkin).toBe('classic')
+    saveCompanionSettings({ ...defaultCompanionSettings(), visualSkin: 'particle' })
+    expect(loadCompanionSettings().visualSkin).toBe('particle')
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...defaultCompanionSettings(), visualSkin: 'jarvis' }))
+    expect(loadCompanionSettings().visualSkin).toBe('classic')
   })
 })
 

@@ -251,7 +251,7 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 		req.Tools = nil
 	}
 	for step := 0; step < steps; step++ {
-		resp, err := a.Complete(ctx, credential, req)
+		resp, err := e.completeMaybeRotate(ctx, a, credential, req)
 		if err != nil {
 			if lastText != "" {
 				op.Text = lastText

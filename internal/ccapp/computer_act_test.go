@@ -95,6 +95,38 @@ func TestMapComputerActDoubleClickAndKey(t *testing.T) {
 	_ = raw
 }
 
+func TestMapComputerActListIsWindowList(t *testing.T) {
+	tool, _, err := MapComputerAct([]byte(`{"action":"list"}`))
+	if err != nil || tool != ToolWindowList {
+		t.Fatalf("D-B4 list must map to window list, got %s %v", tool, err)
+	}
+}
+
+func TestMapComputerActDragByID(t *testing.T) {
+	if _, _, err := MapComputerAct([]byte(`{"action":"drag","id":"B1"}`)); !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("id without end: %v", err)
+	}
+	tool, raw, err := MapComputerAct([]byte(`{"action":"drag","id":"B1","id2":"B2","frameId":"frm_1"}`))
+	if err != nil || tool != ToolMouseDrag {
+		t.Fatalf("drag id: %s %v", tool, err)
+	}
+	var drag struct {
+		ID    string `json:"id"`
+		ID2   string `json:"id2"`
+		Frame string `json:"frameId"`
+	}
+	if json.Unmarshal(raw, &drag) != nil || drag.ID != "B1" || drag.ID2 != "B2" || drag.Frame != "frm_1" {
+		t.Fatalf("drag args %s", raw)
+	}
+	tool, raw, err = MapComputerAct([]byte(`{"action":"drag","id":"B1","x2":80,"y2":20}`))
+	if err != nil || tool != ToolMouseDrag {
+		t.Fatalf("drag id+xy: %s %v", tool, err)
+	}
+	if !strings.Contains(string(raw), `"id":"B1"`) || !strings.Contains(string(raw), `"x2":80`) {
+		t.Fatalf("mixed drag args %s", raw)
+	}
+}
+
 func TestMapComputerActUnknownAction(t *testing.T) {
 	if _, _, err := MapComputerAct([]byte(`{"action":"explode"}`)); !errors.Is(err, ErrCcInputFiltered) {
 		t.Fatalf("got %v", err)

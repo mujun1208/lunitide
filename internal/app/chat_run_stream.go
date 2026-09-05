@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -17,6 +18,42 @@ import (
 	"sync"
 	"time"
 )
+
+func writeGUIFallbackResult(send func(bridge.Event) error, req *gateway.Request, completedDigests map[string]string, turn *chatTurnCheckpoint, usedTools, usedDesktopTools *bool, fb toolruntime.Result, fbArgs json.RawMessage) error {
+	summary := strings.TrimSpace(fb.Output)
+	if summary == "" {
+		summary = guiFallbackFailResult("屏幕读号失败").Output
+	}
+	summary = clipToolSummary(summary)
+	if len(fbArgs) == 0 {
+		fbArgs = json.RawMessage(`{"action":"click"}`)
+	}
+	callID := "gui-" + ulid.Make().String()
+	name := "computer.act"
+	digest := argsDigestOrFallback(name, fbArgs)
+	if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(name, fbArgs))}}); err != nil {
+		return err
+	}
+	completedDigests[digest] = summary
+	if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: summary}}); err != nil {
+		return err
+	}
+	req.Messages = append(req.Messages,
+		gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: fbArgs}}},
+		gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+	)
+	if len(fb.VisionData) > 0 {
+		req.Images = appendCaptureVision(req.Images, fb.VisionMIME, fb.VisionData)
+	}
+	if strings.Contains(summary, "ok:false") {
+		turn.ToolFailed = true
+	} else {
+		*usedTools = true
+		*usedDesktopTools = true
+	}
+	turn.LastTools = append(turn.LastTools, name)
+	return nil
+}
 
 func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
 	const maxThinkingChunkBytes = 16 * 1024
@@ -146,7 +183,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	}
 	var err error
 	if !usedLocalBrain {
-		err = e.withProviderLease(ctx, p, secretlease.OperationChat, func(op context.Context, credential []byte) (cbErr error) {
+		rot := &leaseRotateState{}
+		deltaSent := false
+		origSend := send
+		send = func(ev bridge.Event) error {
+			if ev.Type == bridge.EventDelta {
+				deltaSent = true
+			}
+			return origSend(ev)
+		}
+		emitted := func() bool {
+			return deltaSent || assistantText.Len() > 0 || thinkingText.Len() > 0
+		}
+		err = e.withRotatingProviderLease(ctx, p, secretlease.OperationChat, rot, emitted, func(op context.Context, credential []byte) (cbErr error) {
+			op = withLeaseRotate(op, p, rot, emitted)
 			// A panic anywhere in the streaming/tool loop must degrade to a
 			// failed stream, never take down the Engine process (which would
 			// sever the event pipe for every active session).
@@ -170,6 +220,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			var result gateway.Response
 			var streamErr error
 			toolsFallbackUsed := false
+			guiFallbackUsed := false
+			observedThisTurn := false
+			desktopTypeL0Passed := false
 			imagesFallbackUsed := false
 			usedTools := false
 			usedDesktopTools := false
@@ -296,7 +349,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				noteDocxChars(&turn, stepText)
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
-					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal)
+					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
 					if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
 						skillDraftOffered = true
 						msg := result.Message
@@ -325,9 +378,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							nudge = desktopContinueNudgeMessage()
 						case "incomplete":
 							nudge = incompleteContinueNudgeMessage()
+						case "wait":
+							nudge = gateway.Message{Role: gateway.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
 						}
 						req.Messages = append(req.Messages, msg, nudge)
 						continue
+					}
+					if continueKind == "" && state.companion && !usedTools && len(req.Tools) > 0 &&
+						(looksLikeCompanionWaitPromise(assistantText.String()) || isCompanionLeadInOnly(assistantText.String())) {
+						close := "无法执行：这一轮没有完成查询。"
+						assistantText.WriteString(close)
+						if err := sendDeltaChunks(send, close); err != nil {
+							return err
+						}
+						break
 					}
 					if continueKind == "" && state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) {
 						close := companionToolResultSpeech(lastToolName(turn.LastTools), lastToolOutput(req.Messages))
@@ -415,6 +479,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}()
 				parkedFilePicker := false
 				parkedUAC := false
+				parkedBrowserWall := ""
+				lastGUIFail := false
 				for _, call := range result.Message.ToolCalls {
 					if seen[call.ID] {
 						return errors.New("duplicate tool call id")
@@ -446,6 +512,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return err
 						}
 						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if skipSummary, skip := companionRedundantMediaSkip(state.companion, turn.LastTools, call.Name); skip {
+						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
 						continue
 					}
 					if skipSummary, skip := companionRedundantWebSkip(state.companion, turn.LastTools, call.Name, turn.Goal, webSearchSeen); skip {
@@ -612,7 +682,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					if planToolNames[call.Name] {
-						summary, invokeErr := e.invokePlanRunTool(op, a, credential, req.Model, sessionID, mode, call.Arguments)
+						summary, invokeErr := e.invokePlanRunToolRouted(op, a, credential, req.Model, sessionID, mode, call.Arguments, state.taskRoute)
 						if invokeErr != nil {
 							summary = invokeErr.Error()
 						}
@@ -763,14 +833,32 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return err
 					}
 					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
-					if toolErr == nil && len(r.VisionData) > 0 {
+					if len(r.VisionData) > 0 {
 						req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
+					}
+					if toolErr == nil && computerActIsObserve(call.Name, call.Arguments) {
+						observedThisTurn = true
 					}
 					if looksLikeFilePickerToolResult(summary) {
 						parkedFilePicker = true
 					}
 					if looksLikeUACToolResult(summary) {
 						parkedUAC = true
+					}
+					if reason := browserWallReason(summary); reason != "" {
+						parkedBrowserWall = reason
+					}
+					if desktopTypePassedL0(call.Name, summary) {
+						desktopTypeL0Passed = true
+					}
+					lastGUIFail = noteDesktopGUIFail(call.Name, summary, toolErr, lastGUIFail)
+				}
+				if lastGUIFail && !guiFallbackUsed && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
+					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, guiFallbackUsed, desktopTypeL0Passed, observedThisTurn); used {
+						guiFallbackUsed = true
+						if err := writeGUIFallbackResult(send, &req, completedDigests, &turn, &usedTools, &usedDesktopTools, fb, fbArgs); err != nil {
+							return err
+						}
 					}
 				}
 				if parkedFilePicker {
@@ -781,6 +869,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if parkedUAC {
 					if err := e.parkUACAsk(op, id, sessionID, mode, send); err != nil {
+						return err
+					}
+					return nil
+				}
+				if parkedBrowserWall != "" {
+					if err := e.parkBrowserWallAsk(op, id, sessionID, mode, parkedBrowserWall, send); err != nil {
 						return err
 					}
 					return nil

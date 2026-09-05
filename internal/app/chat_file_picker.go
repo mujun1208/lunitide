@@ -27,7 +27,15 @@ func looksLikeUACToolResult(summary string) bool {
 	if strings.Contains(text, "needs_user") && (strings.Contains(text, "uac") || strings.Contains(text, "提权")) {
 		return true
 	}
-	return strings.Contains(text, "uac dialog") || strings.Contains(text, "elevation dialog")
+	if strings.Contains(text, "uac dialog") || strings.Contains(text, "elevation dialog") {
+		return true
+	}
+	return strings.Contains(text, "access denied") ||
+		strings.Contains(text, "access is denied") ||
+		strings.Contains(text, "uipi") ||
+		strings.Contains(text, "elevated") ||
+		strings.Contains(text, "higher integrity") ||
+		strings.Contains(text, "跨完整性")
 }
 
 func (e *Engine) parkUACAsk(ctx context.Context, runID, sessionID string, mode executionMode, send func(bridge.Event) error) error {
@@ -47,6 +55,64 @@ func (e *Engine) parkUACAsk(ctx context.Context, runID, sessionID string, mode e
 			Name:       "user.ask",
 			ArgsDigest: pending.ArgsDigest,
 			Summary:    approvalRequiredSummary("user.ask", uacAskArgs),
+		},
+	})
+}
+
+func browserWallAskArgs(reason string) json.RawMessage {
+	title := "需要你决策"
+	prompt := "网页需要你本地处理后再继续，不要盲点或调用 computer.act。"
+	switch reason {
+	case "login":
+		title = "需要登录"
+		prompt = "页面出现登录墙。请你在浏览器里完成登录，不要让我代填密码或继续盲点。"
+	case "pay":
+		title = "需要支付确认"
+		prompt = "页面出现支付/结账。请你自己完成支付，我不能代点。"
+	case "captcha":
+		title = "需要验证码"
+		prompt = "页面出现验证码。请你自己完成验证，我不能代点。"
+	}
+	raw, err := json.Marshal(map[string]any{
+		"title":  title,
+		"reason": reason,
+		"questions": []map[string]any{{
+			"id":     "browser-wall",
+			"prompt": prompt,
+			"options": []map[string]string{
+				{"id": "done", "label": "我已经处理完了"},
+				{"id": "cancel", "label": "先停在这里"},
+				{"id": "wait", "label": "稍等一下"},
+			},
+		}},
+	})
+	if err != nil {
+		return json.RawMessage(`{"title":"需要你决策","reason":"decision","questions":[{"id":"browser-wall","prompt":"网页需要你本地处理后再继续。","options":[{"id":"done","label":"我已经处理完了"},{"id":"cancel","label":"先停在这里"}]}]}`)
+	}
+	return raw
+}
+
+func (e *Engine) parkBrowserWallAsk(ctx context.Context, runID, sessionID string, mode executionMode, reason string, send func(bridge.Event) error) error {
+	if e == nil || e.tools == nil || sessionID == "" || send == nil {
+		return nil
+	}
+	if reason == "" {
+		reason = "login"
+	}
+	args := browserWallAskArgs(reason)
+	callID := "ask-" + ulid.Make().String()
+	pending, err := e.tools.Prepare(ctx, runID, sessionID, callID, "user.ask", args, toolruntime.Mode(mode), 10*time.Minute)
+	if err != nil {
+		log.Printf("browser-wall park Prepare failed: %v", err)
+		return nil
+	}
+	return send(bridge.Event{
+		Type: bridge.EventApprovalRequired,
+		Tool: &bridge.ToolEvent{
+			CallID:     pending.CallID,
+			Name:       "user.ask",
+			ArgsDigest: pending.ArgsDigest,
+			Summary:    approvalRequiredSummary("user.ask", args),
 		},
 	})
 }

@@ -116,7 +116,10 @@ func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, 
 	if looksLikeStaleBrowserRef(lower) {
 		return true
 	}
-	return unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text)
+	if unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text) {
+		return nudges < 1
+	}
+	return false
 }
 
 func looksLikeStaleBrowserRef(lower string) bool {
@@ -192,18 +195,25 @@ func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
 // model step. Desktop mid-task beats companion lead-in: a screenshot plus
 // 「好，我来操作电脑」 is not done (that used to ask the model to narrate
 // “完成了” after only looking).
-func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string) string {
+func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string, toolsAttached bool) string {
 	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
 		return "ask"
 	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
+	if companion && lastToolName(lastTools) == "media.play" {
+		return ""
+	}
 	if companion && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
 	}
 	if companion && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
 		return "desktop"
+	}
+	if companion && !usedTools && toolsAttached && nudges < maxContinueNudges &&
+		(looksLikeCompanionWaitPromise(assistantAll) || isCompanionLeadInOnly(assistantAll)) {
+		return "wait"
 	}
 	if companion && usedTools && isCompanionLeadInOnly(assistantAll) && nudges < maxContinueNudges {
 		return "leadin"
