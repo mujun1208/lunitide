@@ -16,7 +16,8 @@ const (
 	PathPlanBidirectional = "/api/v3/plan/sauc/bigmodel"
 	PathPaygOptimized     = "/api/v3/sauc/bigmodel_async"
 	PathPaygBidirectional = "/api/v3/sauc/bigmodel"
-	DefaultEndWindowMS    = 400
+	// Align with sherpa 1.2s endpointing so cascade waits for a full utterance.
+	DefaultEndWindowMS    = 1200
 	DefaultModelName      = "bigmodel"
 	connectIDBytes        = 16
 	handshakeTimeout      = 1500 * time.Millisecond
@@ -43,7 +44,7 @@ type Config struct {
 	ResourceID string
 	// UID is a stable-enough user tag Volc wants on the full client request.
 	UID string
-	// EndWindowMS is VAD silence before definite. Floor 200; product default 400.
+	// EndWindowMS is VAD silence before definite. Floor 200; product default 1200.
 	EndWindowMS int
 	// Dial, when set, replaces the default websocket dialer (tests).
 	Dial DialFunc

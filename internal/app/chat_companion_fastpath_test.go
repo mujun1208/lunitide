@@ -32,6 +32,12 @@ func TestCompanionSpeakFallbackUsesGenericVoiceLine(t *testing.T) {
 func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	requests := make(chan gateway.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { tools.Close() })
+	e.SetToolRuntime(tools)
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused catalog", `{}`)}}
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
@@ -64,14 +70,17 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "不要原样复读") {
 		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
-	if strings.Contains(system, "不要 web.fetch") {
-		t.Fatalf("idle weather talk must not ship the tools weather clause: %q", system)
+	if !strings.Contains(system, "不要只说等一下就停") {
+		t.Fatalf("companion tools instruction missing: %q", system)
 	}
-	if strings.Contains(system, "可用技能目录") {
-		t.Fatalf("idle companion injected skill catalog: %q", system)
+	foundSearch := false
+	for _, def := range req.Tools {
+		if def.Name == "web.search" {
+			foundSearch = true
+		}
 	}
-	if len(req.Tools) != 0 {
-		t.Fatalf("idle companion attached tools: %#v", req.Tools)
+	if !foundSearch {
+		t.Fatalf("R1 weather must attach web.search: %#v", req.Tools)
 	}
 }
 
@@ -210,8 +219,14 @@ func TestCompanionWantsTools(t *testing.T) {
 	if companionWantsTools("查一下天气") == false {
 		t.Fatal("weather lookup must request tools")
 	}
-	if companionWantsTools("今晚天气") {
-		t.Fatal("bare weather chat must stay idle")
+	if !companionWantsTools("今晚天气") {
+		t.Fatal("今晚天气 is R1 and must attach tools")
+	}
+	if !companionWantsTools("今天合肥的天气怎么样") {
+		t.Fatal("info question must attach tools")
+	}
+	if companionWantsTools("今晚月色如何") || companionWantsTools("你好") || companionWantsTools("我随便说说") {
+		t.Fatal("idle / R0 must stay tool-less")
 	}
 	if !companionWantsTools("帮我做手册解析") {
 		t.Fatal("skill-shaped 帮我做 must request tools")
@@ -398,6 +413,12 @@ func TestCompanionToolLeadIn(t *testing.T) {
 	}
 	if got := companionToolResultSpeech("filesystem.write", ""); got != "还在处理。" {
 		t.Fatalf("empty unknown tool must not claim done: %q", got)
+	}
+	if got := companionToolResultSpeech("web.search", "ok:false"); !strings.Contains(got, "无法执行") {
+		t.Fatalf("failed search must say 无法执行, got %q", got)
+	}
+	if got := companionToolResultSpeech("web.fetch", "ok:false\ntimeout"); !strings.Contains(got, "无法执行") {
+		t.Fatalf("failed fetch must say 无法执行, got %q", got)
 	}
 }
 
