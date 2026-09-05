@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getProviderBridge,getSystemHealthBridge,getTtsBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,conversationsBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getProviderBridge,getSystemHealthBridge,getTtsBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,conversationsBridge,type CapabilityRolesBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{Mcp6PresetsListResult,ProjectDTO}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{ChoiceTiles}from'./ChoiceTiles'
@@ -94,7 +94,7 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, roles, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; roles?: CapabilityRolesBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
   const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
@@ -167,7 +167,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'profile' && <ProfilePanel />}
-          {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
+          {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}

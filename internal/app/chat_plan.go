@@ -151,8 +151,12 @@ func decidePlanVerify(l0s []l0Observation) (skipModel bool, verified bool, gaps 
 }
 
 func (e *Engine) judgeModelID(ctx context.Context, chatModel string) string {
-	if _, bound := e.resolveRole(ctx, "judge"); strings.TrimSpace(bound) != "" {
-		return bound
+	if row, ok := e.resolveRoleRow(ctx, "judge"); ok && strings.TrimSpace(row.ModelID) != "" {
+		if row.ModelID == chatModel && !row.AllowJudgeEqChat {
+			// §4.2: judge 等于当前会话模型必须勾选；设置时可能 chat 角色为空。
+		} else {
+			return row.ModelID
+		}
 	}
 	if e == nil || e.providers == nil {
 		return chatModel
@@ -182,7 +186,9 @@ func (e *Engine) judgeModelID(ctx context.Context, chatModel string) string {
 func (e *Engine) completeJudge(ctx context.Context, a gateway.Adapter, credential []byte, chatModel string, req gateway.Request) (gateway.Response, error) {
 	providerID, modelID := "", ""
 	if e != nil {
-		providerID, modelID = e.resolveRole(ctx, "judge")
+		if row, ok := e.resolveRoleRow(ctx, "judge"); ok && !(row.ModelID == chatModel && !row.AllowJudgeEqChat) {
+			providerID, modelID = row.ProviderID, row.ModelID
+		}
 	}
 	if strings.TrimSpace(modelID) == "" {
 		req.Model = e.judgeModelID(ctx, chatModel)

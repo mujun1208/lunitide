@@ -94,7 +94,7 @@ export function CapabilityRouting({ providers, roles }: { providers?: ProviderBr
               disabled={busy}
               onChange={e => {
                 const hit = opts.find(o => o.value === e.target.value)
-                patch(row.role, { providerId: hit?.providerId, modelId: hit?.modelId })
+                patch(row.role, { providerId: hit?.providerId ?? '', modelId: hit?.modelId ?? '' })
               }}
             >
               <option value="">自动</option>

@@ -215,6 +215,9 @@ type Engine struct {
 	brmulti *brapp.Service
 	// M10 wave-4: computer-control surface (cc.* handlers + agent tools).
 	ccctrl *ccapp.Service
+	// Test-only hooks. Production stays nil.
+	guiFallbackHook func(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []gateway.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool)
+	toolExecHook    func(ctx context.Context, mode executionMode, session, name string, args json.RawMessage) (toolruntime.Result, error)
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
 	// Expert growth paths (knowledge foundation).

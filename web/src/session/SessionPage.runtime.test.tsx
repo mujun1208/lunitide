@@ -123,6 +123,19 @@ it('shows only attachments bound to the current session and cannot delete hidden
  expect(await screen.findByText('mine.txt')).toBeInTheDocument();expect(screen.queryByText('other.txt')).toBeNull();expect(screen.queryByText('shared.txt')).toBeNull();expect(screen.getAllByRole('button',{name:'删除'})).toHaveLength(1);expect(remove).not.toHaveBeenCalled()
 })
 
+it('hides embedding and gui models from the session selector',async()=>{
+ const mixed:ProviderDTO={...provider,models:[
+  {modelId:'chat-l',displayName:'Chat LLM',isDefault:true,kind:'llm'},
+  {modelId:'emb',displayName:'Embed',isDefault:false,kind:'embedding'},
+  {modelId:'gui',displayName:'UI-TARS',isDefault:false,kind:'gui'},
+ ]}
+ const user=await open({personal:true,initialSession:session,providers:{list:vi.fn().mockResolvedValue({items:[mixed]})} as unknown as ProviderBridge,chat:{start:vi.fn(),approve:vi.fn(),dispose:vi.fn()} as ChatBridge})
+ await user.click(await screen.findByRole('button',{name:'已配置模型'}))
+ expect(screen.getByRole('menuitem',{name:/Chat LLM/})).toBeInTheDocument()
+ expect(screen.queryByRole('menuitem',{name:/Embed/})).toBeNull()
+ expect(screen.queryByRole('menuitem',{name:/UI-TARS/})).toBeNull()
+})
+
 it('switches models inside a reopened historical personal session',async()=>{
  const second:ProviderDTO={...provider,id:'01ARZ3NDEKTSV4RRFFQ69G5FBA',name:'Second',models:[{modelId:'model-b',displayName:'Model B',isDefault:true}]}
  const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})

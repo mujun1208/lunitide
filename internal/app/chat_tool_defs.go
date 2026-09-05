@@ -59,6 +59,9 @@ func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, sessio
 // stream between tool_started and tool_completed so long-running commands
 // stop black-boxing.
 func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+	if e != nil && e.toolExecHook != nil {
+		return e.toolExecHook(ctx, mode, session, name, args)
+	}
 	if name == "datasource.query" {
 		return e.executeDatasourceQuery(ctx, args)
 	}

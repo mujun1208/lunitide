@@ -159,6 +159,43 @@ func TestPublicProviderOmitsCredentialRefs(t *testing.T) {
 	}
 }
 
+func TestSharedLeaseRotateStateAcrossComplete(t *testing.T) {
+	p := backupProvider()
+	p.CredentialRefBackups = []string{"backup-ref", "backup-2"}
+	rot := &leaseRotateState{swaps: 1}
+	adapter := &rotateCompleteAdapter{}
+	e := NewEngineWithGateway(nil, "test", &recordingLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		return adapter, nil
+	})
+	ctx := withLeaseRotate(context.Background(), p, rot, func() bool { return false })
+	resp, err := e.completeMaybeRotate(ctx, adapter, []byte("backup-ref"), gateway.Request{Model: "m"})
+	if err != nil {
+		t.Fatalf("shared rotate: %v", err)
+	}
+	if rot.swaps != 2 || resp.Message.Content != "from-backup-2" {
+		t.Fatalf("plan.verify/council must reuse swap counter, swaps=%d content=%q secrets=%v", rot.swaps, resp.Message.Content, adapter.secrets)
+	}
+}
+
+type rotateCompleteAdapter struct {
+	secrets []string
+}
+
+func (a *rotateCompleteAdapter) Complete(_ context.Context, secret []byte, _ gateway.Request) (gateway.Response, error) {
+	a.secrets = append(a.secrets, string(secret))
+	if string(secret) == "backup-2" {
+		return gateway.Response{Message: gateway.Message{Content: "from-backup-2"}}, nil
+	}
+	return gateway.Response{}, &gateway.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
+}
+func (a *rotateCompleteAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
+	return gateway.Discovery{}, nil
+}
+func (a *rotateCompleteAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
+	return gateway.Response{}, nil
+}
+
 func TestIsQuotaRotateError(t *testing.T) {
 	if !isQuotaRotateError(&gateway.Error{HTTPStatus: 429, Message: "slow down"}) {
 		t.Fatal("429 must rotate")

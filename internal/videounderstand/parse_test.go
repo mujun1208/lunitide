@@ -34,6 +34,10 @@ func TestParseHTMLFixtures(t *testing.T) {
 	if !wall.LoginWall {
 		t.Fatalf("login wall not detected: %+v", wall)
 	}
+	titled := ParseHTML(`<title>登录 - 抖音</title><p>请登录后继续观看</p>`)
+	if !titled.LoginWall {
+		t.Fatalf("titled login wall not detected: %+v", titled)
+	}
 }
 
 func TestParseCaptionsJSON(t *testing.T) {

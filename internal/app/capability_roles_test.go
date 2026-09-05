@@ -206,6 +206,22 @@ func TestCompleteJudgeUsesBoundModel(t *testing.T) {
 	}
 }
 
+func TestJudgeModelIDIgnoresUnallowedEqChat(t *testing.T) {
+	e := NewEngine(roleCatalog{}, "test")
+	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{
+		{Role: "judge", ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ModelID: "chat-l"},
+	}})
+	if got := e.judgeModelID(context.Background(), "chat-l"); got == "chat-l" {
+		t.Fatalf("judge=session without allow must fall back to heuristic, got %s", got)
+	}
+	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{
+		{Role: "judge", ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ModelID: "chat-l", AllowJudgeEqChat: true},
+	}})
+	if got := e.judgeModelID(context.Background(), "chat-l"); got != "chat-l" {
+		t.Fatalf("allowed judge=chat must keep binding, got %s", got)
+	}
+}
+
 func TestPreferBoundCatalogFiltersRole(t *testing.T) {
 	e := NewEngine(roleCatalog{}, "test")
 	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{
