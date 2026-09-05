@@ -177,20 +177,28 @@ func roleKindAllowed(role string, kind provider.Kind, supportsVision bool) bool 
 	}
 }
 
-func (e *Engine) resolveRole(ctx context.Context, role string) (providerID, modelID string) {
+func (e *Engine) resolveRoleRow(ctx context.Context, role string) (sqlite.CapabilityRoleBinding, bool) {
 	if e == nil || e.capabilityRoles == nil {
-		return "", ""
+		return sqlite.CapabilityRoleBinding{}, false
 	}
 	rows, err := e.capabilityRoles.ListCapabilityRoles(ctx)
 	if err != nil {
-		return "", ""
+		return sqlite.CapabilityRoleBinding{}, false
 	}
 	for _, row := range rows {
 		if row.Role == role && row.ProviderID != "" && row.ModelID != "" {
-			return row.ProviderID, row.ModelID
+			return row, true
 		}
 	}
-	return "", ""
+	return sqlite.CapabilityRoleBinding{}, false
+}
+
+func (e *Engine) resolveRole(ctx context.Context, role string) (providerID, modelID string) {
+	row, ok := e.resolveRoleRow(ctx, role)
+	if !ok {
+		return "", ""
+	}
+	return row.ProviderID, row.ModelID
 }
 
 func (e *Engine) preferBoundCatalog(ctx context.Context, role string, catalog []provider.CatalogEntry) []provider.CatalogEntry {

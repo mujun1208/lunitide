@@ -178,6 +178,73 @@ func TestDragByIDRequiresObserve(t *testing.T) {
 	}
 }
 
+type scrollObserveHost struct {
+	nativeStubHost
+	png []byte
+}
+
+func (h *scrollObserveHost) ScreenCapture() ([]byte, error) { return h.png, nil }
+
+func (h *scrollObserveHost) MouseScroll(n int) error {
+	h.nodes = []UINode{{Role: "button", Name: "提交", X: 200, Y: 80, W: 40, H: 20}}
+	return nil
+}
+
+func (h *scrollObserveHost) ObserveUI(int) ([]UINode, error) {
+	return append([]UINode(nil), h.nodes...), nil
+}
+
+func TestScrollThenObserveRefreshesHits(t *testing.T) {
+	t.Parallel()
+	host := &scrollObserveHost{
+		nativeStubHost: nativeStubHost{
+			ladderStubHost: ladderStubHost{
+				title: "Notepad", process: "notepad.exe",
+				nodes: []UINode{{Role: "button", Name: "取消", X: 10, Y: 10, W: 20, H: 20}},
+			},
+			hit: "提交",
+		},
+		png: tinyPNG(t, 64, 36),
+	}
+	s := New(nil)
+	s.SetHost(host)
+	tool, raw, err := MapComputerAct([]byte(`{"action":"observe"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.runHost(tool, raw, nil); err != nil {
+		t.Fatalf("first observe: %v", err)
+	}
+	first, ok := s.lookupHit("B1")
+	if !ok {
+		t.Fatal("first observe must remember B1")
+	}
+	tool, raw, err = MapComputerAct([]byte(`{"action":"scroll","scroll":-3}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.runHost(tool, raw, nil); err != nil {
+		t.Fatalf("scroll: %v", err)
+	}
+	tool, raw, err = MapComputerAct([]byte(`{"action":"observe"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.runHost(tool, raw, nil); err != nil {
+		t.Fatalf("second observe: %v", err)
+	}
+	second, ok := s.lookupHit("B1")
+	if !ok {
+		t.Fatal("second observe must remember B1")
+	}
+	if second.SX == first.SX && second.SY == first.SY {
+		t.Fatal("scroll then observe must refresh SoM hits")
+	}
+	if second.SX != 220 || second.SY != 90 {
+		t.Fatalf("post-scroll B1 = %+v", second)
+	}
+}
+
 func TestDragByIDUsesRememberedHits(t *testing.T) {
 	t.Parallel()
 	nodes := assignNodeIDs([]UINode{

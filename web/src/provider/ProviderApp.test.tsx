@@ -252,5 +252,64 @@ it('adds a backup key via submit then backup.add',async()=>{
  expect(vi.mocked(bridge.submitCredential).mock.calls[0][0].request).not.toHaveProperty('credentialSubmissionId')
  await waitFor(()=>expect(backupAdd).toHaveBeenCalledOnce())
  expect(backupAdd.mock.calls[0][0]).toMatchObject({providerId:provider.id,expectedVersion:1})
+ expect(await screen.findByText('1 / 4')).toBeInTheDocument()
+ expect(screen.getByText('备用 Key 已添加')).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'移除备用 Key 1'})).toBeInTheDocument()
+})
+
+it('keeps the new backup count when list() is still stale',async()=>{
+ const saved={...provider,credentialBackupCount:1,version:2}
+ const backupAdd=vi.fn().mockResolvedValue(saved)
+ const list=vi.fn().mockResolvedValue({items:[provider]})
+ const bridge=api({list,get:vi.fn().mockResolvedValue(provider),backupAdd})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ await user.type(screen.getByLabelText('备用 API Key'),'spare-secret')
+ await user.click(screen.getByRole('button',{name:'添加备用 Key'}))
+ await waitFor(()=>expect(screen.getByText('1 / 4')).toBeInTheDocument())
+ await waitFor(()=>expect(list.mock.calls.length).toBeGreaterThan(1))
+ expect(screen.getByText('1 / 4')).toBeInTheDocument()
+ expect(screen.queryByText('0 / 4')).not.toBeInTheDocument()
+})
+
+it('removes a backup key and refreshes the count',async()=>{
+ const withBackup={...provider,credentialBackupCount:2,version:3}
+ const afterRemove={...provider,credentialBackupCount:1,version:4}
+ const backupRemove=vi.fn().mockResolvedValue(afterRemove)
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[withBackup]}),get:vi.fn().mockResolvedValue(withBackup),backupRemove})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ expect(await screen.findByText('2 / 4')).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'移除备用 Key 2'}))
+ await waitFor(()=>expect(backupRemove).toHaveBeenCalledWith(expect.objectContaining({providerId:provider.id,index:1,expectedVersion:3}),expect.anything()))
+ expect(await screen.findByText('1 / 4')).toBeInTheDocument()
+ expect(screen.getByText('备用 Key 已移除')).toBeInTheDocument()
+})
+
+it('disables backup entry at the four-key cap',async()=>{
+ const full={...provider,credentialBackupCount:4,version:5}
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[full]}),get:vi.fn().mockResolvedValue(full)})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ expect(await screen.findByText('4 / 4')).toBeInTheDocument()
+ expect(screen.getByLabelText('备用 API Key')).toBeDisabled()
+ expect(screen.getByRole('button',{name:'添加备用 Key'})).toBeDisabled()
+})
+
+it('deselects a provider that has no models of the switched kind',async()=>{
+ const llmOnly={...provider,models:[{modelId:'m',displayName:'M',isDefault:true,kind:'llm' as const}]}
+ const embedOnly={...provider,id:'01ARZ3NDEKTSV4RRFFQ69G5FAW',name:'EmbedCo',models:[{modelId:'e',displayName:'E',isDefault:true,kind:'embedding' as const}]}
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[llmOnly,embedOnly]}),get:vi.fn().mockImplementation(async({id})=>id===embedOnly.id?embedOnly:llmOnly)})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ expect(await screen.findByRole('heading',{name:'Demo'})).toBeInTheDocument()
+ await user.click(screen.getByRole('tab',{name:'向量模型'}))
+ expect(screen.queryByRole('heading',{name:'Demo'})).not.toBeInTheDocument()
+ expect(screen.getByRole('button',{name:/EmbedCo/})).toBeInTheDocument()
+ expect(screen.getByText('选择供应商查看配置')).toBeInTheDocument()
 })
 

@@ -20,8 +20,8 @@ func TestUnderstandPageMetaAndCaptions(t *testing.T) {
 	if !got.OK || got.Source != "page_meta" || got.Title != "月食观测指南" {
 		t.Fatalf("page_meta = %+v", got)
 	}
-	if strings.Contains(got.Format(), "我看完了") {
-		t.Fatal("must not claim watched")
+	if strings.Contains(got.Format(), "我看完了") || !strings.Contains(got.Format(), "根据标题和简介") {
+		t.Fatalf("page_meta must speak from 简介: %q", got.Format())
 	}
 
 	html := readTestdata(t, "captions_bilibili.html")
@@ -48,6 +48,38 @@ func TestUnderstandEmptyAndLogin(t *testing.T) {
 	wall := Understand(context.Background(), "https://www.bilibili.com/video/BVlogin", fetchHTML(readTestdata(t, "login_wall.html")))
 	if wall.OK || wall.Reason != "login_wall" {
 		t.Fatalf("login = %+v", wall)
+	}
+	titled := Understand(context.Background(), "https://www.douyin.com/video/1", fetchHTML(
+		`<!doctype html><html><head><title>登录 - 抖音</title></head><body><p>请登录后继续观看</p></body></html>`,
+	))
+	if titled.OK || titled.Reason != "login_wall" {
+		t.Fatalf("titled login wall must not become page_meta: %+v", titled)
+	}
+	if !strings.Contains(titled.Format(), "请用户贴文案") || strings.Contains(titled.Format(), "我看完了") && !strings.Contains(titled.Format(), "禁止") {
+		t.Fatalf("login wall format = %q", titled.Format())
+	}
+}
+
+func TestUnderstandFourPlatformsPageMetaSpeakHint(t *testing.T) {
+	t.Parallel()
+	pages := []struct {
+		url  string
+		html string
+	}{
+		{"https://www.bilibili.com/video/BV1xx", `<meta property="og:title" content="B站标题"><meta property="og:description" content="B站简介">`},
+		{"https://www.douyin.com/video/1", `<meta property="og:title" content="抖音标题"><meta property="og:description" content="抖音简介">`},
+		{"https://v.qq.com/x/page/n001.html", `<meta property="og:title" content="腾讯标题"><meta property="og:description" content="腾讯简介">`},
+		{"https://www.youtube.com/watch?v=dQw4w9wgGc", `<meta property="og:title" content="YT标题"><meta property="og:description" content="YT简介">`},
+	}
+	for _, tc := range pages {
+		got := Understand(context.Background(), tc.url, fetchHTML(tc.html))
+		if !got.OK || got.Source != "page_meta" {
+			t.Fatalf("%s = %+v", tc.url, got)
+		}
+		out := got.Format()
+		if !strings.Contains(out, "根据标题和简介") || strings.Contains(out, "我看完了") {
+			t.Fatalf("%s format=%q", tc.url, out)
+		}
 	}
 }
 

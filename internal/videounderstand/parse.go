@@ -38,13 +38,15 @@ func ParseHTML(body string) Page {
 		page.Description = firstNonEmpty(page.Description, desc)
 		page.Author = firstNonEmpty(page.Author, author)
 	}
-	if b := extractBilibiliState(body); b.Title != "" || b.CaptionURL != "" {
+	b := extractBilibiliState(body)
+	if b.Title != "" || b.CaptionURL != "" {
 		page.Title = firstNonEmpty(b.Title, page.Title)
 		page.Description = firstNonEmpty(b.Description, page.Description)
 		page.Author = firstNonEmpty(b.Author, page.Author)
 		page.CaptionURL = firstNonEmpty(page.CaptionURL, b.CaptionURL)
 	}
-	if y := extractYouTubePlayer(body); y.Title != "" || y.CaptionURL != "" {
+	y := extractYouTubePlayer(body)
+	if y.Title != "" || y.CaptionURL != "" {
 		page.Title = firstNonEmpty(y.Title, page.Title)
 		page.Description = firstNonEmpty(y.Description, page.Description)
 		page.Author = firstNonEmpty(y.Author, page.Author)
@@ -52,13 +54,23 @@ func ParseHTML(body string) Page {
 	}
 	lower := strings.ToLower(body)
 	hasMeta := page.Title != "" || page.Description != ""
-	if !hasMeta && (strings.Contains(body, "请登录") || strings.Contains(body, "passport.") || strings.Contains(lower, "login required")) {
-		page.LoginWall = true
-	}
-	if !hasMeta && (strings.Contains(body, "验证码") || strings.Contains(lower, "captcha") || strings.Contains(lower, "recaptcha")) {
+	hasPlayer := (b.Title != "" || b.CaptionURL != "") || (y.Title != "" || y.CaptionURL != "")
+	page.LoginWall = looksLikeLoginWall(body, lower, hasMeta, hasPlayer)
+	if !hasPlayer && (strings.Contains(body, "验证码") || strings.Contains(lower, "captcha") || strings.Contains(lower, "recaptcha")) {
 		page.Captcha = true
 	}
 	return page
+}
+
+func looksLikeLoginWall(body, lower string, hasMeta, hasPlayer bool) bool {
+	strong := strings.Contains(body, "请登录后") || strings.Contains(lower, "login required")
+	if strong && !hasPlayer {
+		return true
+	}
+	if !hasMeta && (strings.Contains(body, "请登录") || strings.Contains(body, "passport.") || strings.Contains(lower, "login required")) {
+		return true
+	}
+	return false
 }
 
 func ParseCaptions(contentType string, body []byte) (text string, truncated bool) {

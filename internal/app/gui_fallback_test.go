@@ -113,6 +113,26 @@ func TestMapGUICoord(t *testing.T) {
 	}
 }
 
+func TestNoteDesktopGUIFailKeepsPriorDesktopFailure(t *testing.T) {
+	t.Parallel()
+	failed := noteDesktopGUIFail("computer.act", "ok:false\n无法执行", nil, false)
+	if !failed {
+		t.Fatal("failed computer.act must set")
+	}
+	if !noteDesktopGUIFail("web.search", "ok:true", nil, failed) {
+		t.Fatal("later web.search must not clear a desktop fail")
+	}
+	if noteDesktopGUIFail("computer.act", `clicked {"l0":{"kind":"click","passed":true}}`, nil, failed) {
+		t.Fatal("later successful computer.act must clear")
+	}
+	if !computerActIsObserve("computer.act", json.RawMessage(`{"action":"observe"}`)) {
+		t.Fatal("observe action")
+	}
+	if computerActIsObserve("computer.act", json.RawMessage(`{"action":"click","id":"B1"}`)) {
+		t.Fatal("click is not observe")
+	}
+}
+
 func TestDesktopToolFailedForGUI(t *testing.T) {
 	t.Parallel()
 	if !desktopToolFailedForGUI("computer.act", "ok:false\n无法执行", nil) {
@@ -232,6 +252,24 @@ func TestRunGUIFallbackEmptyTreePixels(t *testing.T) {
 	res, _, used := runGUIFallback(in, rt)
 	if !used || res.Output != "clicked" || !allow {
 		t.Fatalf("D-D9 used=%v out=%q allowPixels=%v", used, res.Output, allow)
+	}
+}
+
+func TestRunGUIFallbackSomFailWritesOkFalse(t *testing.T) {
+	t.Parallel()
+	rt := guiFallbackRuntime{
+		Goal:    "点保存",
+		FrameID: "frm_1",
+		Nodes:   2,
+		Images:  []gateway.Image{{MIME: "image/png", Data: []byte("png")}},
+		Complete: func(guiExecutor, []gateway.Image, string) (string, error) {
+			return "click the save button", nil
+		},
+		HasHit: func(string) bool { return false },
+	}
+	res, _, used := runGUIFallback(guiFallbackIn{ccOn: true, route: RouteR2, nodeCount: 2, guiCatalog: true}, rt)
+	if !used || !strings.Contains(res.Output, "ok:false") || !strings.Contains(res.Output, "无法执行") {
+		t.Fatalf("SoM fail must write back ok:false, used=%v out=%q", used, res.Output)
 	}
 }
 

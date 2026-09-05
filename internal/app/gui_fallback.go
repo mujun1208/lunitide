@@ -83,6 +83,14 @@ func pickGUIFallback(in guiFallbackIn) guiExecutor {
 	return guiExecNone
 }
 
+func guiFallbackFailResult(reason string) toolruntime.Result {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "屏幕读号失败"
+	}
+	return toolruntime.Result{Output: "ok:false\n无法执行：" + reason + "\n请根据观察再试，或请用户指出要点哪里。"}
+}
+
 func desktopToolFailedForGUI(name, summary string, toolErr error) bool {
 	if name != "desktop.type" && name != "computer.act" {
 		return false
@@ -94,6 +102,29 @@ func desktopToolFailedForGUI(name, summary string, toolErr error) bool {
 		return false
 	}
 	return true
+}
+
+// noteDesktopGUIFail keeps the last desktop.type / computer.act outcome.
+// Later web.search (or any non-desktop tool) must not clear a failed click.
+func noteDesktopGUIFail(name, summary string, toolErr error, prev bool) bool {
+	if name != "desktop.type" && name != "computer.act" {
+		return prev
+	}
+	return desktopToolFailedForGUI(name, summary, toolErr)
+}
+
+func computerActIsObserve(name string, args json.RawMessage) bool {
+	if name != "computer.act" {
+		return false
+	}
+	var a struct {
+		Action string `json:"action"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return false
+	}
+	action := strings.ToLower(strings.TrimSpace(a.Action))
+	return action == "observe" || action == "observe_ui"
 }
 
 func desktopTypePassedL0(name, summary string) bool {
@@ -305,21 +336,21 @@ func runGUIFallback(in guiFallbackIn, rt guiFallbackRuntime) (toolruntime.Result
 	}
 	raw, err := rt.Complete(exec, images, guiSomPickUserPrompt(rt.Goal, frameID, nodes == 0))
 	if err != nil {
-		return toolruntime.Result{}, nil, true
+		return guiFallbackFailResult("未能从屏幕读号"), nil, true
 	}
 	pick, err := parseSOMPick(raw, nodes == 0, frameID)
 	if err != nil {
-		return toolruntime.Result{}, nil, true
+		return guiFallbackFailResult("屏幕读号不是合法 markId/坐标"), nil, true
 	}
 	if pick.MarkID != "" && (rt.HasHit == nil || !rt.HasHit(pick.MarkID)) {
-		return toolruntime.Result{}, nil, true
+		return guiFallbackFailResult("读到的编号不在本帧观察里"), nil, true
 	}
 	args, err := buildGUIClickArgs(pick, nodes == 0, visW, visH)
 	if err != nil {
-		return toolruntime.Result{}, nil, true
+		return guiFallbackFailResult("无法把读号收成点击"), args, true
 	}
 	if rt.Click == nil {
-		return toolruntime.Result{}, nil, true
+		return guiFallbackFailResult("无法执行屏幕点击"), args, true
 	}
 	res, clickErr := rt.Click(args, nodes == 0)
 	if clickErr != nil {
@@ -403,8 +434,19 @@ func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images [
 	return "", last
 }
 
-func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []gateway.Image, alreadyUsed, desktopTypeL0Passed bool) (toolruntime.Result, json.RawMessage, bool) {
-	if e == nil || state == nil || !e.computerControlEnabled() {
+func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []gateway.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool) {
+	if e == nil || state == nil {
+		return toolruntime.Result{}, nil, false
+	}
+	if !shouldAttemptGUIFallback(guiFallbackIn{
+		ccOn: true, route: state.taskRoute, alreadyUsed: alreadyUsed, desktopTypeL0Passed: desktopTypeL0Passed,
+	}) {
+		return toolruntime.Result{}, nil, false
+	}
+	if e.guiFallbackHook != nil {
+		return e.guiFallbackHook(ctx, mode, sessionID, goal, chatModel, state, images, alreadyUsed, desktopTypeL0Passed, observedThisTurn)
+	}
+	if !e.computerControlEnabled() {
 		return toolruntime.Result{}, nil, false
 	}
 	gui, vision := e.guiFallbackCatalogFlags(ctx, chatModel)
@@ -455,6 +497,11 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 	if e.ccctrl != nil {
 		rt.FrameID, rt.Nodes = e.ccctrl.ObservedSnapshot()
 		rt.VisW, rt.VisH = e.ccctrl.VisionSize()
+	}
+	if !observedThisTurn {
+		// §3: 本轮还没有成功 observe 时必须内部 observe，禁止沿用上一轮帧。
+		rt.FrameID = ""
+		rt.Nodes = 0
 	}
 	return runGUIFallback(in, rt)
 }

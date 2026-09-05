@@ -65,6 +65,8 @@ func (r Result) Format() string {
 	b.WriteString("disclaimer: " + disclaimer + "\n")
 	if r.Description != "" {
 		b.WriteString("\n根据标题和简介：\n" + r.Description + "\n")
+	} else if r.Source == "page_meta" || r.Source == "empty" {
+		b.WriteString("\n根据标题和简介整理，没有公开字幕。禁止假装看完全片。\n")
 	}
 	if r.Captions != "" {
 		b.WriteString("\n公开字幕：\n" + r.Captions + "\n")
@@ -129,12 +131,12 @@ func classifySource(page Page, captions string) (source, reason string, ok bool)
 		return "mixed", "", true
 	case hasCap:
 		return "captions", "", true
-	case hasMeta:
-		return "page_meta", "", true
 	case page.LoginWall:
 		return "empty", "login_wall", false
 	case page.Captcha:
 		return "empty", "captcha", false
+	case hasMeta:
+		return "page_meta", "", true
 	default:
 		return "empty", "empty_page", false
 	}
