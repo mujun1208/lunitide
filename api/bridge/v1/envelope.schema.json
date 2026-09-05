@@ -123,6 +123,8 @@
         "deliverable.confirmGate",
         "deliverable.list",
         "deliverable.upsert",
+        "desktop.files.pick",
+        "desktop.files.readChunk",
         "devTask.create",
         "devTask.transition",
         "diagnostics.export",

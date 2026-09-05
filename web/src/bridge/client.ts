@@ -498,7 +498,7 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   let cap = BRIDGE_DEADLINE_CAP_MS
   if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
   else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
-  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
+  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture' || method === 'desktop.files.pick') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
   else if (method === 'template.file.stage' || method === 'template.create') cap = TEMPLATE_FILE_DEADLINE_MS
   else if (method === 'appUpdate.install') cap = 120_000
   return Math.min(cap, Math.max(1, deadlineMs))
@@ -1082,6 +1082,20 @@ export const attachmentBridge: AttachmentBridge = {
   delete: (p, o) => getAttachmentBridge().delete(p, o),
   begin:p=>getAttachmentBridge().begin(p),chunk:p=>getAttachmentBridge().chunk(p),commit:p=>getAttachmentBridge().commit(p),abort:p=>getAttachmentBridge().abort(p),
 }
+
+export type DesktopFilesBridge = {
+  pick(payload?: {folder?: boolean; multiple?: boolean}): Promise<{canceled: boolean; items: Array<{path: string; fileName: string; mime: string; size: number}>; skipped?: string[]}>
+  readChunk(payload: {path: string; offset: number; limit: number}): Promise<{contentBase64: string; nextOffset: number; eof: boolean}>
+}
+export function createDesktopFilesBridge(transport: WebViewTransport = webview()): DesktopFilesBridge {
+  const core = createSimpleBridge(transport, {}, PEOPLE_FILE_DEADLINE_MS)
+  return {
+    pick: p => core.request('desktop.files.pick' as BridgeMethod, p ?? {}, PEOPLE_FILE_DEADLINE_MS),
+    readChunk: p => core.request('desktop.files.readChunk' as BridgeMethod, p, 30_000),
+  }
+}
+let desktopFilesSingleton: DesktopFilesBridge | undefined
+export function getDesktopFilesBridge(): DesktopFilesBridge { return desktopFilesSingleton ??= createDesktopFilesBridge() }
 
 export interface TemplateBridge {
   list(payload?: TemplateListPayload): Promise<TemplateListResult>

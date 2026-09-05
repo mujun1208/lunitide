@@ -58,6 +58,10 @@
         "type": "string",
         "maxLength": 1048576
       },
+      "contentBase64": {
+        "type": "string",
+        "maxLength": 240000
+      },
       "parsedTextBytes": {
         "type": "integer",
         "minimum": 0,

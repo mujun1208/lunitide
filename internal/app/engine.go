@@ -882,6 +882,13 @@ func (e *Engine) GetAttachment(ctx context.Context, id string) (*attachment.Atta
 	return e.attachmentService.GetAttachment(ctx, id)
 }
 
+func (e *Engine) PreviewAttachmentImage(ctx context.Context, id string) ([]byte, bool, error) {
+	if e.attachmentService == nil {
+		return nil, false, nil
+	}
+	return e.attachmentService.PreviewWorkspaceImage(ctx, id)
+}
+
 // ListAttachmentsByProject returns attachments for a project (ADR-005 §7).
 func (e *Engine) ListAttachmentsByProject(ctx context.Context, projectID string, limit int) ([]attachment.Attachment, error) {
 	if e.attachmentService == nil {
