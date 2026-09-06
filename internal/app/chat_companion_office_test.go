@@ -8,7 +8,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestCompanionTaskWorkflowInjectionPpt(t *testing.T) {
@@ -47,10 +47,10 @@ func TestCompanionTaskWorkflowInjectionSkipsIdle(t *testing.T) {
 }
 
 func TestChatEmitsTurnEquipEvent(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("slide-builder", "ppt deck", `{}`)}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	var equip *bridge.EquipEvent
@@ -74,10 +74,10 @@ func TestChatEmitsTurnEquipEvent(t *testing.T) {
 }
 
 func TestCompanionDoesNotEmitEquipEvent(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("slide-builder", "ppt deck", `{}`)}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	var sawEquip bool

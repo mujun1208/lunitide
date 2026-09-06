@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
+import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, generalDefaultExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { rememberAttachmentPreview } from './attachments'
@@ -14,7 +14,7 @@ const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'imple
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const sessionBridge:SessionBridge={list:vi.fn().mockResolvedValue({items:[session]}),create:vi.fn(),update:vi.fn(),delete:vi.fn()}
 const page=(items:MessageDTO[]=[])=>({items,hasMore:false,nextCursor:null,snapshotSequence:items.length})
-const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Ready',protocol:'openai_compatible',baseUrl:'https://example.test',models:[{modelId:'model',displayName:'Model',isDefault:true}],status:'enabled',credentialState:'configured',createdAt:NOW,updatedAt:NOW,version:1}
+const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Ready',protocol:'openai_compatible',baseUrl:'https://example.test',models:[{modelId:'model',displayName:'Model',isDefault:true}],status:'enabled',credentialState:'configured',credentialBackupCount:0,createdAt:NOW,updatedAt:NOW,version:1}
 const providers={list:vi.fn().mockResolvedValue({items:[provider]})} as unknown as ProviderBridge
 const micBase={echoCancellation:true,noiseSuppression:true,autoGainControl:true}
 const micDefault={audio:micBase}
@@ -123,6 +123,19 @@ it('shows only attachments bound to the current session and cannot delete hidden
  expect(await screen.findByText('mine.txt')).toBeInTheDocument();expect(screen.queryByText('other.txt')).toBeNull();expect(screen.queryByText('shared.txt')).toBeNull();expect(screen.getAllByRole('button',{name:'删除'})).toHaveLength(1);expect(remove).not.toHaveBeenCalled()
 })
 
+it('hides embedding and gui models from the session selector',async()=>{
+ const mixed:ProviderDTO={...provider,models:[
+  {modelId:'chat-l',displayName:'Chat LLM',isDefault:true,kind:'llm'},
+  {modelId:'emb',displayName:'Embed',isDefault:false,kind:'embedding'},
+  {modelId:'gui',displayName:'UI-TARS',isDefault:false,kind:'gui'},
+ ]}
+ const user=await open({personal:true,initialSession:session,providers:{list:vi.fn().mockResolvedValue({items:[mixed]})} as unknown as ProviderBridge,chat:{start:vi.fn(),approve:vi.fn(),dispose:vi.fn()} as ChatBridge})
+ await user.click(await screen.findByRole('button',{name:'已配置模型'}))
+ expect(screen.getByRole('menuitem',{name:/Chat LLM/})).toBeInTheDocument()
+ expect(screen.queryByRole('menuitem',{name:/Embed/})).toBeNull()
+ expect(screen.queryByRole('menuitem',{name:/UI-TARS/})).toBeNull()
+})
+
 it('switches models inside a reopened historical personal session',async()=>{
  const second:ProviderDTO={...provider,id:'01ARZ3NDEKTSV4RRFFQ69G5FBA',name:'Second',models:[{modelId:'model-b',displayName:'Model B',isDefault:true}]}
  const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
@@ -164,6 +177,93 @@ it('offers personal composer context actions',async()=>{
  await user.click(screen.getByRole('button',{name:'添加上下文'}));expect(screen.getByRole('button',{name:/附件 \/ 文件/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/上传文件夹/})).toBeInTheDocument()
  expect(screen.getByRole('button',{name:/选技能/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/选专家/})).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:/@ 上下文/}));expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('@')
+})
+
+it('shows a retryable alert when 选技能 list fails instead of an empty catalog',async()=>{
+ const skills={list:vi.fn().mockRejectedValue(new BridgeClientError('down','ENGINE_UNAVAILABLE',true,'engine'))} as unknown as SkillBridge
+ const user=await open({personal:true,providers,initialSession:session,skills})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/选技能/}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('技能列表暂时读不到')
+ expect(screen.getByRole('button',{name:'再试一次'})).toBeInTheDocument()
+ expect(screen.getByRole('listbox',{name:'技能候选'})).toBeInTheDocument()
+})
+
+it('shows published-skill empty copy without a failure alert',async()=>{
+ const skills={list:vi.fn().mockResolvedValue({items:[]})} as unknown as SkillBridge
+ const user=await open({personal:true,providers,initialSession:session,skills})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/选技能/}))
+ expect(await screen.findByText('还没有已发布技能。')).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'再试一次'})).toBeNull()
+})
+
+it('shows a retryable alert when @ 上下文 list fails',async()=>{
+ const attachments={list:vi.fn().mockRejectedValue(new BridgeClientError('down','ENGINE_UNAVAILABLE',true,'engine')),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const user=await open({personal:true,providers,initialSession:session,attachments})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/@ 上下文/}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('可引用的上下文暂时读不到')
+ expect(screen.getByRole('button',{name:'再试一次'})).toBeInTheDocument()
+ expect(screen.getByRole('listbox',{name:'上下文候选'})).toBeInTheDocument()
+})
+
+it('shows a retryable alert when 选专家 list fails',async()=>{
+ const experts={list:vi.fn().mockRejectedValue(new BridgeClientError('down','ENGINE_UNAVAILABLE',true,'engine')),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[]}),sessionMountSet:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
+ const user=await open({personal:true,providers,initialSession:session,experts})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/选专家/}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('专家列表暂时读不到')
+ expect(screen.getByRole('button',{name:'再试一次'})).toBeInTheDocument()
+ expect(screen.getByRole('listbox',{name:'专家候选'})).toBeInTheDocument()
+})
+
+it('keeps the plus menu usable after a send follow-up failure',async()=>{
+ const pick=vi.fn().mockResolvedValue({canceled:false,items:[]})
+ const experts={list:vi.fn().mockResolvedValue({experts:[]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[]}),sessionMountSet:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
+ const user=await open({personal:true,providers,initialSession:session,desktopFiles:{pick,readChunk:vi.fn()},experts})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/附件 \/ 文件/}))
+ expect(await screen.findByText(/系统没打开文件框/)).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ expect(screen.getByRole('button',{name:/选专家/})).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:/选专家/}))
+ await waitFor(()=>expect(experts.list).toHaveBeenCalled())
+ expect(screen.getByRole('listbox',{name:'专家候选'})).toBeInTheDocument()
+})
+
+it('opens the host file dialog for 附件 / 文件 and stays silent on cancel',async()=>{
+ const pick=vi.fn().mockResolvedValue({canceled:true,items:[]})
+ const user=await open({personal:true,providers,initialSession:session,desktopFiles:{pick,readChunk:vi.fn()}})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/附件 \/ 文件/}))
+ await waitFor(()=>expect(pick).toHaveBeenCalledWith({folder:false,multiple:true}))
+ expect(screen.queryByText(/系统没打开文件框/)).toBeNull()
+})
+
+it('names skipped exe from a host folder pick and does not call it a dialog failure',async()=>{
+ const pick=vi.fn().mockResolvedValue({canceled:false,items:[{path:'C:/notes.txt',fileName:'notes.txt',mime:'text/plain',size:2}],skipped:['setup.exe']})
+ const begin=vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:128*1024,expiresAt:NOW})
+ const chunk=vi.fn().mockResolvedValue({nextOffset:2})
+ const commit=vi.fn().mockResolvedValue({attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',projectId:P,sessionId:S,originalName:'notes.txt',mime:'text/plain',size:2,sha256:'hash',parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:2,createdAt:NOW})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),ingest:vi.fn(),begin,chunk,commit,abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const user=await open({personal:true,providers,initialSession:session,attachments,desktopFiles:{pick,readChunk:vi.fn().mockResolvedValue({contentBase64:btoa('hi'),nextOffset:2,eof:true})}})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/上传文件夹/}))
+ await waitFor(()=>expect(pick).toHaveBeenCalledWith({folder:true,multiple:false}))
+ expect(await screen.findByText(/setup\.exe/)).toBeInTheDocument()
+ expect(screen.queryByText(/系统没打开文件框/)).toBeNull()
+ await waitFor(()=>expect(commit).toHaveBeenCalled())
+})
+
+it('says the folder is empty instead of blaming the file dialog',async()=>{
+ const pick=vi.fn().mockResolvedValue({canceled:false,items:[],skipped:['setup.exe']})
+ const user=await open({personal:true,providers,initialSession:session,desktopFiles:{pick,readChunk:vi.fn()}})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/上传文件夹/}))
+ expect(await screen.findByText(/没有可导入的文件/)).toBeInTheDocument()
+ expect(screen.getByText(/setup\.exe/)).toBeInTheDocument()
+ expect(screen.queryByText(/系统没打开文件框/)).toBeNull()
 })
 
 it('keeps multiple mounted experts on the conversation after send',async()=>{
@@ -853,7 +953,8 @@ it('keeps the user.ask wizard and follow-up draft when chat.start fails after ap
   expect(wizard).toBeInTheDocument()
   expect(screen.getByRole('form', { name: '需求边界' })).toBeInTheDocument()
   expect((screen.getByLabelText('向月汐提问，或描述你想完成的任务…') as HTMLTextAreaElement).value).toContain('部署方式：容器化')
-  expect(await screen.findByText(/你的选择已留在输入框/)).toBeInTheDocument()
+  expect(await screen.findByText(/这次没发出去/)).toBeInTheDocument()
+  expect(screen.queryByText('ENGINE_UNAVAILABLE')).toBeNull()
 })
 
 it('does not delete 月伴对话 after removing its last round', async () => {

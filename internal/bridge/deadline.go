@@ -23,7 +23,7 @@ func MaxDeadlineMS(method string) int {
 		return MeetingLiveDeadlineMS
 	case MethodAppUpdateInstall:
 		return AppUpdateInstallMS
-	case MethodPeopleFileStage, MethodPeopleFilePick, MethodPeopleThreadSend:
+	case MethodPeopleFileStage, MethodPeopleFilePick, MethodPeopleThreadSend, MethodDesktopFilesPick:
 		return PeopleFileDeadlineMS
 	case MethodPeopleScreenCapture:
 		return PeopleCaptureDeadlineMS

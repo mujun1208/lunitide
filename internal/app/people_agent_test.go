@@ -42,7 +42,7 @@ func TestPeopleAgentSessionAndToolAllow(t *testing.T) {
 	if peopleAgentAllowedTool("user.ask") || peopleAgentAllowedTool("computer.act") || peopleAgentAllowedTool("desktop.open") {
 		t.Fatal("colleague chat must refuse hang/desktop tools")
 	}
-	if !peopleAgentAllowedTool("pptx.gen") || !peopleAgentAllowedTool("skill.invoke") || !peopleAgentAllowedTool("skill.view") || !peopleAgentAllowedTool("web.search") {
+	if !peopleAgentAllowedTool("pptx.gen") || !peopleAgentAllowedTool("excel.gen") || !peopleAgentAllowedTool("skill.invoke") || !peopleAgentAllowedTool("skill.view") || !peopleAgentAllowedTool("web.search") {
 		t.Fatal("colleague chat must keep specialist tools")
 	}
 	defs := peopleAgentToolDefinitions(engineToolDefinitions())
@@ -223,5 +223,27 @@ func TestPeopleAgentMembersSkipsHumans(t *testing.T) {
 	got := peopleAgentMembers(thread)
 	if len(got) != 1 || got[0].Nickname != "PPT专家" {
 		t.Fatalf("agents = %#v", got)
+	}
+}
+
+func TestPeopleAgentEmptyReplyDoesNotClaimMissingModel(t *testing.T) {
+	kind, msg := classifyPeopleAgentFailure(true, nil, "")
+	if kind != peopleFailEmpty || strings.Contains(msg, "启用一个对话模型") {
+		t.Fatalf("got %d %q", kind, msg)
+	}
+	kind, msg = classifyPeopleAgentFailure(false, nil, "")
+	if kind != peopleFailNoModel || msg != peopleAgentNoReplyUserError() {
+		t.Fatalf("no catalog: %d %q", kind, msg)
+	}
+}
+
+func TestPeopleAgentHistorySkipsCurrentUser(t *testing.T) {
+	hist := peopleAgentHistoryMessages([]people.Message{
+		{Kind: "text", SenderID: "u", Body: "周转件怎么算"},
+		{Kind: "text", SenderID: "agent", Body: "先算周转率…"},
+		{Kind: "text", SenderID: "u", Body: "做个模拟计算表"},
+	}, "agent", "做个模拟计算表", 8)
+	if len(hist) != 2 || hist[0].Content != "周转件怎么算" || hist[1].Content != "先算周转率…" {
+		t.Fatalf("%+v", hist)
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/people"
@@ -57,28 +57,28 @@ func (p c4TurnProvider) List(ctx context.Context, _ provider.Filter) ([]provider
 }
 
 type c4CaptureAdapter struct {
-	ch    chan gateway.Request
+	ch    chan llmadapter.Request
 	reply string
 }
 
-func (a c4CaptureAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a c4CaptureAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	select {
 	case a.ch <- req:
 	default:
 	}
-	return gateway.Response{Message: gateway.Message{Content: a.reply}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: a.reply}}, nil
 }
 
-func (a c4CaptureAdapter) Stream(_ context.Context, _ []byte, req gateway.Request, _ func(gateway.Delta) error) (gateway.Response, error) {
+func (a c4CaptureAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	select {
 	case a.ch <- req:
 	default:
 	}
-	return gateway.Response{}, errors.New("stop after capture")
+	return llmadapter.Response{}, errors.New("stop after capture")
 }
 
-func (c4CaptureAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (c4CaptureAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
 
 // TestCrossSurfaceTurnContract is C4: 文字写偏好 → 月伴续 → 同事 @专家「继续刚才的」.
@@ -123,13 +123,13 @@ func TestCrossSurfaceTurnContract(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tools.Close() })
 
-	captured := make(chan gateway.Request, 8)
+	captured := make(chan llmadapter.Request, 8)
 	e := NewEngineWithSessions(c4TurnProvider{}, projectapp.New(store, store), sessionapp.New(store, store), "test", streamTestLease{})
 	e.SetIdentityPeopleServices(ident, roster)
 	e.SetM8MemoryServices(mem)
 	e.SetMemoryOpsService(ops)
 	e.SetToolRuntime(tools)
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return c4CaptureAdapter{ch: captured, reply: c4AgentReply}, nil
 	})
 
@@ -236,7 +236,7 @@ func TestCrossSurfaceTurnContract(t *testing.T) {
 	}
 }
 
-func c4StartChat(t *testing.T, e *Engine, captured <-chan gateway.Request, payload string) gateway.Request {
+func c4StartChat(t *testing.T, e *Engine, captured <-chan llmadapter.Request, payload string) llmadapter.Request {
 	t.Helper()
 	resp := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
 	if !resp.OK {
@@ -245,7 +245,7 @@ func c4StartChat(t *testing.T, e *Engine, captured <-chan gateway.Request, paylo
 	return c4WaitCaptured(t, captured, "[持久记忆]", 2*time.Second)
 }
 
-func c4WaitCaptured(t *testing.T, captured <-chan gateway.Request, needle string, timeout time.Duration) gateway.Request {
+func c4WaitCaptured(t *testing.T, captured <-chan llmadapter.Request, needle string, timeout time.Duration) llmadapter.Request {
 	t.Helper()
 	deadline := time.After(timeout)
 	var last string
@@ -283,10 +283,10 @@ func c4WaitPeopleSendAs(t *testing.T, roster *people.Service, threadID, peerID, 
 	t.Fatalf("people SendAs %q from %s not observed: %#v", wantBody, peerID, last)
 }
 
-func c4SystemContent(req gateway.Request) string {
+func c4SystemContent(req llmadapter.Request) string {
 	var b strings.Builder
 	for _, msg := range req.Messages {
-		if msg.Role == gateway.RoleSystem {
+		if msg.Role == llmadapter.RoleSystem {
 			b.WriteString(msg.Content)
 			b.WriteByte('\n')
 		}

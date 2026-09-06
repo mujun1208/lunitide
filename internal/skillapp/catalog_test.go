@@ -173,10 +173,15 @@ func (m *memSkillStore) CreateSkill(_ context.Context, sk skill.Skill) (skill.Sk
 	return sk, nil
 }
 func (m *memSkillStore) UpdateSkill(context.Context, string, string, string) error { return nil }
-func (m *memSkillStore) UpdateSkillFields(_ context.Context, id, display, desc, entry, manifest, _ string, minEV *string) error {
+func (m *memSkillStore) UpdateSkillFields(_ context.Context, id, display, desc, entry, manifest, _ string, minEV *string, expectedRev int64) error {
 	sk, ok := m.byID[id]
 	if !ok {
 		return ErrSkillNotFound
+	}
+	// Numeric rev CAS mirror of the sqlite store: an expectedRev that no longer
+	// matches the current row is an optimistic-concurrency conflict.
+	if sk.Rev != expectedRev {
+		return ErrSkillVersionConflict
 	}
 	sk.DisplayName = display
 	sk.Description = desc
@@ -185,15 +190,20 @@ func (m *memSkillStore) UpdateSkillFields(_ context.Context, id, display, desc, 
 	if minEV != nil {
 		sk.MinEngineVersion = minEV
 	}
+	sk.Rev++
 	m.byID[id] = sk
 	return nil
 }
-func (m *memSkillStore) UpdateSkillStatus(_ context.Context, id, status string) error {
+func (m *memSkillStore) UpdateSkillStatus(_ context.Context, id, status string, expectedRev int64) error {
 	sk, ok := m.byID[id]
 	if !ok {
 		return ErrSkillNotFound
 	}
+	if sk.Rev != expectedRev {
+		return ErrSkillVersionConflict
+	}
 	sk.Status = skill.SkillStatus(status)
+	sk.Rev++
 	m.byID[id] = sk
 	return nil
 }

@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -36,6 +36,9 @@ import { pickDefaultVoice } from '../../provider/modelKind'
 import { UserAskWizard } from '../UserAskWizard'
 import type { UserAskPack } from '../userAsk'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
+import { CompanionSkinSwitch } from './CompanionSkinSwitch'
+import { ParticleMoonScene } from './particle/ParticleMoonScene'
+import { consumeCompanionSkinCommand, type CompanionSkin } from './particle/particleMoon'
 import { Aurora } from './visual/Aurora'
 import { AURORA_STOPS, auroraForEnter } from './visual/moonVisual'
 import { useCompanionEnter } from './visual/useCompanionEnter'
@@ -142,6 +145,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
   const [settings, setSettings] = useState<CompanionSettings>(defaultCompanionSettings())
+  const [dustHigh, setDustHigh] = useState(true)
+  const lowFps = useRef(0)
+  const visualSkin: CompanionSkin = settings.visualSkin === 'particle' ? 'particle' : 'classic'
+  const applyVisualSkin = (next: CompanionSkin) => {
+    const current = loadCompanionSettings()
+    saveCompanionSettings({ ...current, visualSkin: next })
+    setSettings(loadCompanionSettings())
+  }
   const [ttsAvailable, setTtsAvailable] = useState<boolean | undefined>(undefined)
   const [entryLights, setEntryLights] = useState<CompanionEntryReport['lights']>(pendingCompanionLights)
   const [entryBlock, setEntryBlock] = useState('')
@@ -178,6 +189,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const [levels, setLevels] = useState<number[]>(idleLevels)
   const [rounds, setRounds] = useState<SubtitleRound[]>([])
   const [interimText, setInterimText] = useState('')
+  // UX-05 #2: terminal-resolving tool subtitle (执行中 → 执行完成 / 执行失败).
+  const [toolPhase, setToolPhase] = useState<CompanionToolPhase | undefined>(undefined)
   const [captionFading, setCaptionFading] = useState(false)
   const fadeTimersRef = useRef<{ fade: number; clear: number } | null>(null)
   const pendingCaptionFadeRef = useRef(false)
@@ -342,6 +355,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   ttsAvailableRef.current = ttsAvailable
   const pendingSendRef = useRef<string | null>(null)
   const sentThisUtteranceRef = useRef('')
+  const spokenOverflowRef = useRef(false)
   const speechSyncRef = useRef<{ commitPaused: boolean; playback: boolean; echoGuardMs: number; listenThrough: boolean } | undefined>(undefined)
   const onSendRef = useRef(onSend)
   onSendRef.current = onSend
@@ -577,9 +591,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     if (companionHasFreshAssistantText(text, staleReplyRef.current) && stateRef.current === 'thinking') {
       applyEvent({ type: 'REPLY_COMPLETED', speakable: true })
     }
-    const shown = companionCaptionFromStream(text)
+    const shown = clipCompanionSpokenTurn(companionCaptionFromStream(text)).spoken
     if (!shown.trim()) return
     streamCaptionRef.current = shown
+    if (clipCompanionSpokenTurn(companionCaptionFromStream(text)).overflow && !spokenOverflowRef.current) {
+      spokenOverflowRef.current = true
+      onCancel?.(shown)
+    }
     setRounds(current => {
       const last = current[current.length - 1]
       if (last?.role === 'assistant' && last.segments === undefined && last.text === shown) return current
@@ -588,7 +606,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
       return withCurrentAssistant(current, { role: 'assistant', text: shown })
     })
-  }, [assistantText, chatStatus, machine.dispatch])
+  }, [assistantText, chatStatus, machine.dispatch, onCancel])
 
   // Do not clear userInterruptedRef when the stream ends. A leftover
   // done/failed event after 打断 used to restart TTS and trap 说话中.
@@ -598,7 +616,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   useEffect(() => {
     if (chatStatus !== 'done') return
     if (holdSpokenCaptionRef.current) return
-    const shown = companionCaptionFromStream(assistantText)
+    const shown = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken
     if (!shown) return
     streamCaptionRef.current = shown
     setRounds(current => {
@@ -630,7 +648,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const flush = () => {
       if (staleReplyRef.current && assistantText === staleReplyRef.current) return
       if (staleReplyRef.current) staleReplyRef.current = ''
-      const streamText = companionCaptionFromStream(assistantText)
+      const streamText = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken
       const pending = streamText.slice(spokenUpToRef.current)
       if (!pending.trim()) return
       const stalled = performance.now() - lastDeltaAtRef.current >= FIRST_SPEAK_STALL_MS
@@ -734,6 +752,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const reply = stripTaskDonePhrases(assistantText.trim())
       const leadInOnly = isCompanionLeadInOnly(assistantText.trim())
       const toolsRan = toolsRanThisTurnRef.current
+      if (toolsRan) setToolPhase('succeeded')
       const activityLine = activityStatus?.trim() || ''
       const activityResult = /中[….…]+$/.test(activityLine) ? '' : stripTaskDonePhrases(activityLine)
       const completionLine = (!leadInOnly ? reply : '') || activityResult
@@ -780,7 +799,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
       // P0-1: Enqueue any remaining text that wasn't picked up during streaming,
       // then flush the queue and transition the machine.
-      const remaining = companionCaptionFromStream(assistantText).slice(spokenUpToRef.current)
+      const remaining = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken.slice(spokenUpToRef.current)
       const segments = prepareSpeech(remaining).filter(seg => {
         const cleaned = stripTaskDonePhrases(seg)
         if (!cleaned.trim()) return false
@@ -861,6 +880,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     }
     if (chatStatus === 'failed' || chatStatus === 'cancelled') {
       const issue = error ?? localError
+      if (toolsRanThisTurnRef.current) setToolPhase('failed')
       const infraBusy = isCompanionInfraBusy(issue?.code ?? '')
       // Admission/retry noise is not a task failure. Drop back to listening
       // instead of reading 「桌面主机正忙」 as if the model refused the turn.
@@ -969,6 +989,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   useEffect(() => {
     if (!companionToolsExecuting(chatStatus, activityStatus)) return
     toolsRanThisTurnRef.current = true
+    setToolPhase('running')
     if (userInterruptedRef.current) return
     const line = activityStatus?.trim()
     if (!line) return
@@ -1013,9 +1034,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const timer = window.setTimeout(() => {
       if (userInterruptedRef.current) return
       if (!companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)) return
-      const spoken = companionExecutingSpeech(activityStatusRef.current)
+      // UX-05 #3: the tool has run past the progress threshold with no result.
+      // Push a mid-run "still working" line (audible + caption) so a long
+      // multi-round loop never sits silent on 「说完稍等」.
+      const spoken = companionToolProgressSpeech(activityStatusRef.current)
       if (!spoken || cascadeSpeechBlocked()) return
       lastActivitySpokenRef.current = spoken
+      setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: spoken }))
       if (ttsAvailable === false || !settings.autoSpeak) return
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
@@ -1033,7 +1058,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           syncSpeechModesRef.current()
         },
       })
-    }, 20_000)
+    }, COMPANION_TOOL_PROGRESS_MS)
     return () => window.clearTimeout(timer)
   }, [activityStatus, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback, ensurePlayer, activeVoiceId])
 
@@ -1304,24 +1329,43 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const beginUserTurn = useCallback(
     (transcript: string) => {
       const text = clipCompanionPrompt(cleanUserTranscript(transcript))
+      const skinTurn = consumeCompanionSkinCommand(text, settingsRef.current.visualSkin === 'particle' ? 'particle' : 'classic')
+      if (skinTurn) {
+        const stored = loadCompanionSettings()
+        saveCompanionSettings({ ...stored, visualSkin: skinTurn.next })
+        setSettings(loadCompanionSettings())
+        setInterimText('')
+        if (settingsRef.current.autoSpeak && ttsAvailableRef.current !== false) {
+          void unlockTtsAudio()
+          ensurePlayer().enqueue([skinTurn.speech], { ...settingsRef.current, voiceId: activeVoiceId() }, {})
+        } else {
+          setEngineHint(skinTurn.speech)
+        }
+        return
+      }
       if (text && sentThisUtteranceRef.current === text && !userInterruptedRef.current) {
         return
       }
       if (!transcriptAcceptance(text, { commit: true }) && !userInterruptedRef.current) {
         const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-        if (shouldQueueBusyUserTranscript({
+        if (settingsRef.current.voicePath === 'volc' && looksLikeBargeInSpeech(text, lastSpokenRef.current)) {
+          userInterruptedRef.current = true
+          cancelReply()
+        } else if (shouldQueueBusyUserTranscript({
           state: stateRef.current,
           text,
           lastSpoken: lastSpokenRef.current,
           lastAssistant,
           assistantBusy: assistantTurnBusy(),
+          voicePath: settingsRef.current.voicePath,
         })) {
           pendingSendRef.current = text
           setEngineHint('下一句已记下，这轮说完就回')
           return
+        } else {
+          discardEchoCaption(transcript)
+          return
         }
-        discardEchoCaption(transcript)
-        return
       }
       if (talkHandleRef.current && !talkHandoffRef.current) {
         cancelCaptionFade()
@@ -1336,11 +1380,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       staleReplyRef.current = assistantTextRef.current
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
+      spokenOverflowRef.current = false
       speakingRef.current = false
       setAssistantAloud(false)
       streamCaptionRef.current = ''
       lastActivitySpokenRef.current = ''
       toolsRanThisTurnRef.current = false
+      setToolPhase(undefined)
       setStreamTick(0)
       setInterimText('')
       setLocalError(undefined)
@@ -1377,7 +1423,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         if (stateRef.current === 'thinking') applyEvent({ type: 'REPLY_TERMINAL' })
       })
     },
-    [applyEvent, assistantTurnBusy, syncSpeechModes, transcriptAcceptance, discardEchoCaption],
+    [applyEvent, assistantTurnBusy, syncSpeechModes, transcriptAcceptance, discardEchoCaption, ensurePlayer, activeVoiceId, cancelReply],
   )
 
   useEffect(() => {
@@ -1541,6 +1587,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             lastSpoken: lastSpokenRef.current,
             lastAssistant,
             assistantBusy: assistantTurnBusy(),
+            voicePath: settingsRef.current.voicePath,
           })) {
             pendingSendRef.current = next
             setInterimText(next)
@@ -2341,6 +2388,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       ref={rootRef}
       tabIndex={-1}
       data-state={surfaceState}
+      data-skin={visualSkin}
       data-started={autoLoopRef.current || machine.state !== 'idle'}
       data-hands-free={handsFree ? 'true' : 'false'}
       data-asr-route={asrRoute || undefined}
@@ -2357,7 +2405,29 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       style={{ '--moon-gain': gain } as React.CSSProperties}
     >
       <div className="companion-aurora" aria-hidden="true">
-        {canUseCompanionWebgl() ? (
+        {visualSkin === 'particle' ? (
+          canUseCompanionWebgl() ? (
+            <ParticleMoonScene
+              state={surfaceState}
+              gain={gain}
+              levels={levels}
+              burstToken={0}
+              high={dustHigh}
+              onFps={fps => {
+                if (fps && fps < 40 && dustHigh) {
+                  lowFps.current += 1
+                  if (lowFps.current >= 8) setDustHigh(false)
+                  return
+                }
+                lowFps.current = 0
+              }}
+            />
+          ) : (
+            <div className="stardust-sim-fallback" aria-hidden="true">
+              <span className="stardust-sim-disc" />
+            </div>
+          )
+        ) : canUseCompanionWebgl() ? (
           <Aurora
             colorStops={AURORA_STOPS}
             {...auroraForEnter(surfaceState, gain, enter)}
@@ -2439,6 +2509,9 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         </div>
       )}
       </div>
+      <div className="companion-stage-core">
+      <div className="companion-moon-slot">
+      {visualSkin === 'classic' ? (
       <MoonSphere
         state={surfaceState}
         gain={gain}
@@ -2455,6 +2528,34 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               : toggleMic
         }
       />
+      ) : (
+      <div className={`companion-moon state-${surfaceState}`} data-state={surfaceState} data-visual="css">
+        <button
+          type="button"
+          className="companion-moon-body"
+          tabIndex={-1}
+          aria-label={
+            surfaceState === 'idle'
+              ? '月亮：轻点开始说话'
+              : surfaceState === 'listening'
+                ? '月亮正在聆听'
+                : surfaceState === 'thinking'
+                  ? '月亮正在回应'
+                  : '月亮正在说话，点击打断朗读'
+          }
+          onClick={
+            machine.state === 'speaking' || machine.state === 'thinking' || surfaceState === 'speaking' || surfaceState === 'thinking'
+              ? interruptAssistant
+              : surfaceState === 'listening'
+                ? () => {
+                    void unlockTtsAudio().then(() => setAudioLocked(getTtsAudioState() !== 'running'))
+                  }
+                : toggleMic
+          }
+        />
+      </div>
+      )}
+      </div>
       {userAsk && onUserAsk && (
         <UserAskWizard pack={userAsk} busy={chatStatus === 'streaming'} onSubmit={onUserAsk} />
       )}
@@ -2516,6 +2617,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           utterance is heard so the strip always matches this turn. */}
       <div className={`companion-subtitles${captionFading ? ' retiring' : ''}`} aria-label="对话记录">
         <div className="companion-subtitle-list" aria-live="polite" role="log" ref={subtitleListRef}>
+          {toolPhase && (
+            <p className={`companion-tool-phase phase-${toolPhase}`} aria-live="polite">
+              {companionToolPhaseCaption(toolPhase, activityStatus)}
+            </p>
+          )}
           {rounds.map((round, index) => (
             <SubtitleRow
               key={round.role}
@@ -2563,6 +2669,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           )}
         </div>
       </div>
+      </div>
       <div className="companion-chrome">
         <button type="button" className="companion-exit" aria-label={zh ? '退出月伴对话（Esc）' : 'Exit companion talk (Esc)'} onClick={exit}>
           {zh ? '退出' : 'Exit'}
@@ -2596,6 +2703,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         >
           {machine.state === 'thinking' || machine.state === 'speaking' ? (zh ? '停止' : 'Stop') : (zh ? '暂停' : 'Pause')}
         </button>
+        <CompanionSkinSwitch compact zh={zh} value={visualSkin} onChange={applyVisualSkin} />
         <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       </div>
     </div>

@@ -66,35 +66,55 @@ export function CompanionVisualPreview(): React.JSX.Element {
           <div className="companion-aurora-fallback" />
         )}
       </div>
-      <MoonSphere state={state} gain={state === 'speaking' ? gain : 0} levels={levels} enter={enter} interruptible={state !== 'listening'} />
+      <div className="companion-banners">
+        <div className="companion-banner warn persist-failed-banner" role="status">
+          电脑控制未启用。第一次控桌面请到设置里打开，月伴不会自己打开。
+        </div>
+      </div>
+      <div className="companion-stage-core">
+        <div className="companion-moon-slot">
+          <MoonSphere state={state} gain={state === 'speaking' ? gain : 0} levels={levels} enter={enter} interruptible={state !== 'listening'} />
+        </div>
+        <div className="companion-subtitles" aria-label="对话记录">
+          <div className="companion-subtitle-list">
+            <p className="companion-line user"><span className="who">你</span>你好，月汐</p>
+            <p className="companion-line assistant"><span className="who">月汐</span>你好呀，我在呢。今天想聊点什么，或者让我帮你看点什么？</p>
+          </div>
+        </div>
+      </div>
       <div className="companion-chrome">
+        <button type="button" className="companion-exit">退出</button>
+        <button type="button" className="companion-interrupt">打断<span className="companion-interrupt-key">Tab</span></button>
+        <button type="button" className="companion-pause">停止</button>
         <CompanionEntryLights lights={previewLights} />
       </div>
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${state}`} aria-hidden="true" />
         {STATE_LABEL[state]}
-        <span className="companion-status-sub">{webgl ? 'WebGL' : 'CSS 降级'}</span>
+        <span className="companion-status-sub">{state === 'speaking' ? '正在回答…' : webgl ? 'WebGL' : 'CSS 降级'}</span>
       </div>
       <div className="companion-preview-dock" role="toolbar" aria-label="预览控制">
-        <strong>月伴视觉预览</strong>
-        {STATES.map(item => (
-          <button key={item} type="button" className={state === item ? 'is-on' : ''} onClick={() => { setCycle(false); setState(item) }}>
-            {STATE_LABEL[item]}
+        <div className="companion-preview-dock-row">
+          <strong>月伴视觉预览</strong>
+          {STATES.map(item => (
+            <button key={item} type="button" className={state === item ? 'is-on' : ''} onClick={() => { setCycle(false); setState(item) }}>
+              {STATE_LABEL[item]}
+            </button>
+          ))}
+          <button type="button" className={cycle ? 'is-on' : ''} onClick={() => setCycle(on => !on)}>
+            {cycle ? '轮播中' : '自动轮播'}
           </button>
-        ))}
-        <button type="button" className={cycle ? 'is-on' : ''} onClick={() => setCycle(on => !on)}>
-          {cycle ? '轮播中' : '自动轮播'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setCycle(false)
-            setState('idle')
-            setReplay(value => value + 1)
-          }}
-        >
-          重播入场
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCycle(false)
+              setState('idle')
+              setReplay(value => value + 1)
+            }}
+          >
+            重播入场
+          </button>
+        </div>
         <span className="companion-preview-hint">Cursor 里截图常是白板，请用系统浏览器看</span>
       </div>
     </div>

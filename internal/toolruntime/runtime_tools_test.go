@@ -176,6 +176,29 @@ func TestWebFetchToolExtractsText(t *testing.T) {
 	// by the call above executing with approved=false).
 }
 
+func TestVideoUnderstandToolHasNoHTMLArtifact(t *testing.T) {
+	r, _ := New(t.TempDir())
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	r.SetWebFetcher(func(_ context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		return networkpolicy.FetchResult{
+			FinalURL:    rawURL,
+			Status:      200,
+			ContentType: "text/html",
+			Body:        []byte(`<meta property="og:title" content="月食观测指南"><meta property="og:description" content="简介">`),
+		}, nil
+	})
+	out, err := r.Execute(context.Background(), Approval, s, "video.understand", json.RawMessage(`{"url":"https://www.bilibili.com/video/BV1xx"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Artifact != nil {
+		t.Fatalf("video.understand must not write fetch.html: %+v", out.Artifact)
+	}
+	if !strings.Contains(out.Output, "source: page_meta") || !strings.Contains(out.Output, "月食观测指南") {
+		t.Fatalf("output=%q", out.Output)
+	}
+}
+
 func TestWebSearchToolParsesResults(t *testing.T) {
 	r, _ := New(t.TempDir())
 	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"

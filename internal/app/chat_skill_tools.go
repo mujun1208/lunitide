@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/skillapp"
@@ -21,11 +21,11 @@ import (
 // system instruction carries each skill's skillId; the tool routes through
 // the governed skillapp Invoke/Execute pipeline (risk assessment, audit,
 // version pinning) rather than raw execution.
-func (e *Engine) skillToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) skillToolDefinitions() []llmadapter.ToolDefinition {
 	if !skillServiceAvailable(e.skills) {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{Name: "skill.invoke", Description: "Invoke one published skill by skillId (ULID or catalog template id such as slide-builder). input is the user's request text for the skill", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"published skill ULID or catalog template id"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"the user request passed to the skill"}},"required":["skillId","input"],"additionalProperties":false}`)},
 		{Name: "skill.view", Description: "Read one skill's working agreement (SKILL.md / prompt) by skillId or market template id. Optional path reads a reference file (L2). Use when the catalog summary is not enough.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","minLength":1,"maxLength":128,"description":"installed skill ULID or catalog template id"},"path":{"type":"string","maxLength":256,"description":"optional reference file path"}},"required":["skillId"],"additionalProperties":false}`)},
 		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill. After it succeeds, write a short Chinese confirmation naming the skill and telling the user to install/publish it in Skill Center. Then continue any remaining user work.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},

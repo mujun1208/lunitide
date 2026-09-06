@@ -10,6 +10,18 @@ import (
 	"unicode/utf8"
 )
 
+func observeUIPayload(mapped []UINode, maxNodes int, frameID string) map[string]any {
+	return map[string]any{
+		"count":     len(mapped),
+		"space":     "image",
+		"nodes":     mapped,
+		"frameId":   frameID,
+		"truncated": maxNodes > 0 && len(mapped) >= maxNodes,
+		"maxNodes":  maxNodes,
+		"returned":  len(mapped),
+	}
+}
+
 // runHost dispatches one validated call onto the OS host.
 func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) (string, []byte, error) {
 	switch tool {
@@ -59,7 +71,13 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			}
 			return s.verifyAfter(fmt.Sprintf("invoked %q via accessibility", hit))
 		}
+		if err := s.refuseSelfWindowPixels(); err != nil {
+			return "", nil, err
+		}
 		if a.X != nil && a.Y != nil {
+			if err := s.requireObserveBeforeXY(); err != nil {
+				return "", nil, err
+			}
 			sx, sy := s.toScreen(*a.X, *a.Y)
 			if err := s.host.MouseMove(sx, sy); err != nil {
 				return "", nil, err
@@ -93,16 +111,27 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		return s.verifyAfter(fmt.Sprintf("clicked %s mouse %d time(s)", a.Button, a.Clicks))
 	case ToolMouseDrag:
 		var a struct {
-			X1 int `json:"x1"`
-			Y1 int `json:"y1"`
-			X2 int `json:"x2"`
-			Y2 int `json:"y2"`
+			X1  *int   `json:"x1"`
+			Y1  *int   `json:"y1"`
+			X2  *int   `json:"x2"`
+			Y2  *int   `json:"y2"`
+			ID  string `json:"id"`
+			ID2 string `json:"id2"`
 		}
 		_ = json.Unmarshal(args, &a)
-		sx1, sy1 := s.toScreen(a.X1, a.Y1)
-		sx2, sy2 := s.toScreen(a.X2, a.Y2)
-		if err := s.host.MouseDrag(sx1, sy1, sx2, sy2); err != nil {
+		if err := s.refuseSelfWindowPixels(); err != nil {
 			return "", nil, err
+		}
+		sx1, sy1, err := s.resolveDragPoint(strings.TrimSpace(a.ID), a.X1, a.Y1)
+		if err != nil {
+			return "", nil, err
+		}
+		sx2, sy2, err := s.resolveDragPoint(strings.TrimSpace(a.ID2), a.X2, a.Y2)
+		if err != nil {
+			return "", nil, err
+		}
+		if err := s.host.MouseDrag(sx1, sy1, sx2, sy2); err != nil {
+			return "", nil, wrapHostIntegrityError(err)
 		}
 		return s.verifyAfter(fmt.Sprintf("dragged from (%d,%d) to (%d,%d)", sx1, sy1, sx2, sy2))
 	case ToolKeyboardType:
@@ -115,6 +144,10 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			return "", nil, err
 		}
 		time.Sleep(40 * time.Millisecond)
+		if PreferPasteText(a.Text) {
+			raw, _ := json.Marshal(map[string]any{"text": a.Text, "window": a.Window})
+			return s.runHost(ToolPaste, raw, nil)
+		}
 		if err := s.host.KeyboardType(a.Text); err != nil {
 			return "", nil, err
 		}
@@ -320,7 +353,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			ox, oy := s.host.ScreenOrigin()
 			s.rememberCapture(png, ox, oy, true)
 		}
-		payload := map[string]any{"count": len(mapped), "space": "image", "nodes": mapped, "frameId": s.CurrentFrameID()}
+		payload := observeUIPayload(mapped, a.MaxNodes, s.CurrentFrameID())
 		if handoff := s.filePickerHandoff(nodeNames(mapped)); handoff != "" {
 			payload["needs_user"] = handoff
 			payload["handoff"] = "file_dialog"
@@ -559,4 +592,38 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		return s.verifyAfter(fmt.Sprintf("set value on %q (%d character(s))", target, utf8.RuneCountInString(a.Value)))
 	}
 	return "", nil, fmt.Errorf("unknown tool %q", tool)
+}
+
+func (s *Service) resolveDragPoint(id string, x, y *int) (int, int, error) {
+	if id != "" {
+		hit, ok := s.lookupHit(id)
+		if !ok {
+			return 0, 0, fmt.Errorf("%w: no observed id %q (先 observe)", ErrCcInputFiltered, id)
+		}
+		return hit.SX, hit.SY, nil
+	}
+	if x == nil || y == nil {
+		return 0, 0, fmt.Errorf("%w: drag point needs id or x,y", ErrCcInputFiltered)
+	}
+	if err := s.requireObserveBeforeXY(); err != nil {
+		return 0, 0, err
+	}
+	sx, sy := s.toScreen(*x, *y)
+	return sx, sy, nil
+}
+
+func wrapHostIntegrityError(err error) error {
+	if err == nil || errors.Is(err, ErrCcRiskBlocked) {
+		return err
+	}
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "access denied") ||
+		strings.Contains(text, "access is denied") ||
+		strings.Contains(text, "uipi") ||
+		strings.Contains(text, "elevated") ||
+		strings.Contains(text, "higher integrity") ||
+		strings.Contains(text, "跨完整性") {
+		return fmt.Errorf("%w: uac dialog — %s", ErrCcRiskBlocked, UACUserPrompt)
+	}
+	return err
 }

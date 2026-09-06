@@ -86,8 +86,8 @@ func collectIfActionable(acc uintptr, child variant, nodes *[]UINode, max int) b
 	name := strings.TrimSpace(accName(acc, child))
 	if name == "" {
 		name = roleName(role)
-		if name == "" || name == "other" {
-			return false
+		if name == "" {
+			name = "other"
 		}
 		name = name + " (unnamed)"
 	}
@@ -327,6 +327,9 @@ func (h *windowsHost) InvokeUI(target string) error {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return fmt.Errorf("empty UI target")
+	}
+	if unnamedUIName(target) {
+		return fmt.Errorf("unnamed controls must be invoked by id, not %q", target)
 	}
 	hwnd := h.actionHWND()
 	if hwnd == 0 {

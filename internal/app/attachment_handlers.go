@@ -195,7 +195,7 @@ func handleAttachmentGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 		return attachmentFailure(r, err)
 	}
 	dto := newAttachmentDTO(*att)
-	return r.Ok(map[string]any{
+	body := map[string]any{
 		"attachmentId":    dto.AttachmentID,
 		"projectId":       dto.ProjectID,
 		"sessionId":       dto.SessionID,
@@ -208,7 +208,11 @@ func handleAttachmentGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 		"parsedText":      att.ParsedText,
 		"parsedTextBytes": dto.ParsedTextBytes,
 		"createdAt":       dto.CreatedAt,
-	})
+	}
+	if data, ok, previewErr := e.PreviewAttachmentImage(ctx, p.AttachmentID); previewErr == nil && ok {
+		body["contentBase64"] = base64.StdEncoding.EncodeToString(data)
+	}
+	return r.Ok(body)
 }
 
 // handleAttachmentList returns attachments for a project, ordered by creation

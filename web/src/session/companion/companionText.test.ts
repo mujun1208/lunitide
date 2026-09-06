@@ -13,6 +13,7 @@ import {
   cleanForSpeech,
   cleanUserTranscript,
   clipCompanionPrompt,
+  clipCompanionSpokenTurn,
   COMPANION_PROMPT_MAX_CHARS,
   companionInstantAck,
   companionPadSpeech,
@@ -36,6 +37,9 @@ import {
   stripTaskDonePhrases,
   companionToolsExecuting,
   companionExecutingSpeech,
+  companionToolProgressSpeech,
+  companionToolPhaseCaption,
+  COMPANION_TOOL_PROGRESS_MS,
   seedCompanionCaptionRounds,
   companionCannotExecuteSpeech,
   COMPANION_BROWSER_MCP_SPEECH,
@@ -524,6 +528,25 @@ describe('shouldQueueBusyUserTranscript', () => {
     expect(shouldQueueBusyUserTranscript({ ...base, text: '人生：优质台湾腔' })).toBe(false)
     expect(shouldQueueBusyUserTranscript({ ...base, state: 'listening', assistantBusy: false })).toBe(false)
   })
+
+  test('volc never queues — latest utterance barges in', () => {
+    expect(shouldQueueBusyUserTranscript({ ...base, voicePath: 'volc' })).toBe(false)
+    expect(shouldQueueBusyUserTranscript({ ...base, state: 'thinking', assistantBusy: true, voicePath: 'volc' })).toBe(false)
+  })
+})
+
+describe('clipCompanionSpokenTurn', () => {
+  test('keeps two sentences and flags leftover', () => {
+    const got = clipCompanionSpokenTurn('好，我来播放。已经在播了。你还想听哪一首呢再搜一下。')
+    expect(got.spoken).toBe('好，我来播放。已经在播了。')
+    expect(got.overflow).toBe(true)
+  })
+
+  test('hard-caps at 80 characters', () => {
+    const got = clipCompanionSpokenTurn('甲'.repeat(90))
+    expect(Array.from(got.spoken)).toHaveLength(80)
+    expect(got.overflow).toBe(true)
+  })
 })
 
 describe('clipCompanionPrompt', () => {
@@ -562,5 +585,30 @@ describe('companion caption seed', () => {
       { role: 'assistant', text: '今晚月色很好。' },
     ])
     expect(seedCompanionCaptionRounds([])).toEqual([])
+  })
+})
+
+describe('UX-05 tool feedback closure', () => {
+  test('mid-run progress keeps the activity name or falls back generically', () => {
+    expect(companionToolProgressSpeech('搜索资料中…')).toBe('搜索资料还在继续，请稍候。')
+    expect(companionToolProgressSpeech('')).toBe('任务仍在执行中，请稍候。')
+    expect(companionToolProgressSpeech(undefined)).toBe('任务仍在执行中，请稍候。')
+  })
+
+  test('mid-run progress stays silent when the tool already failed', () => {
+    expect(companionToolProgressSpeech('无法执行')).toBe('')
+  })
+
+  test('progress threshold is 30s', () => {
+    expect(COMPANION_TOOL_PROGRESS_MS).toBe(30_000)
+  })
+
+  test('subtitle state machine resolves running → succeeded/failed', () => {
+    expect(companionToolPhaseCaption('running')).toBe('执行中…')
+    expect(companionToolPhaseCaption('running', '写文件中…')).toBe('执行中…')
+    expect(companionToolPhaseCaption('succeeded', '已保存文件')).toBe('执行完成 · 已保存文件')
+    expect(companionToolPhaseCaption('succeeded')).toBe('执行完成')
+    expect(companionToolPhaseCaption('failed', '写文件中…')).toBe('执行失败 · 写文件')
+    expect(companionToolPhaseCaption('failed')).toBe('执行失败')
   })
 })

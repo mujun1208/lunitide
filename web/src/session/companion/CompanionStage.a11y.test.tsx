@@ -153,6 +153,7 @@ vi.mock('./ttsPlayer', () => ({
 
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
 import { COMPANION_PAD_SPEECH } from './companionText'
+import { defaultCompanionSettings, loadCompanionSettings, saveCompanionSettings } from './companionSettings'
 
 const baseProps: CompanionStageProps = {
   chatStatus: 'idle',
@@ -208,7 +209,10 @@ describe('MC-06 a11y skeleton', () => {
     expect(statusRegion(container).getAttribute('aria-live')).toBe('polite')
     expect(liveLog(container).getAttribute('aria-live')).toBe('polite')
     expect(liveLog(container).getAttribute('role')).toBe('log')
+    const core = container.querySelector('.companion-stage-core') as HTMLElement
     const subtitles = container.querySelector('.companion-subtitles') as HTMLElement
+    expect(core.contains(container.querySelector('.companion-moon'))).toBe(true)
+    expect(core.contains(subtitles)).toBe(true)
     expect(subtitles.getAttribute('aria-label')).toBe('对话记录')
     // The subtitle strip is now visible (streams the current turn); the
     // sr-only hiding was the "conversation never shows" bug.
@@ -765,5 +769,52 @@ describe('subtitle strip: this round only', () => {
     expect(container.textContent).toContain('browser.act')
     expect(container.textContent).toContain('失败')
     expect(container.textContent).toContain('web.fetch')
+  })
+})
+
+describe('companion visual skin', () => {
+  test('classic stays the default face', async () => {
+    const { container } = await renderStage()
+    expect(stage(container).getAttribute('data-skin')).toBe('classic')
+    expect(container.querySelector('.companion-moon')).not.toBeNull()
+  })
+
+  test('particle skin keeps a moon hit target and does not send chat', async () => {
+    saveCompanionSettings({ ...defaultCompanionSettings(), visualSkin: 'particle' })
+    const onSend = vi.fn()
+    const { container } = await renderStage({ onSend })
+    expect(stage(container).getAttribute('data-skin')).toBe('particle')
+    expect(container.querySelector('.companion-moon')).not.toBeNull()
+    expect(container.querySelector('.companion-moon-body')?.getAttribute('aria-label')).toBe('月亮：轻点开始说话')
+    expect(container.querySelector('.stardust-sim-disc')).not.toBeNull()
+    expect(container.querySelector('.companion-moon-disc')).toBeNull()
+  })
+
+  test('skin voice command does not call onSend and speaks confirm', async () => {
+    const onSend = vi.fn()
+    const { container, rerender } = await renderStage({ onSend })
+    speech.start.mockResolvedValue(speech.handle())
+    fireEvent.click(moonBody(container))
+    await waitFor(() => expect(speech.start).toHaveBeenCalled())
+    await act(async () => {
+      speech.callbacks?.onFinal?.('切换风格')
+    })
+    rerender(<CompanionStage {...baseProps} onSend={onSend} />)
+    expect(onSend).not.toHaveBeenCalled()
+    expect(tts.enqueueCalls.some(call => call.segments.join('').includes('星尘'))).toBe(true)
+    expect(loadCompanionSettings().visualSkin).toBe('particle')
+    expect(liveLog(container).textContent ?? '').not.toContain('切换风格')
+  })
+
+  test('weather still goes to onSend', async () => {
+    const onSend = vi.fn()
+    const { container } = await renderStage({ onSend })
+    speech.start.mockResolvedValue(speech.handle())
+    fireEvent.click(moonBody(container))
+    await waitFor(() => expect(speech.start).toHaveBeenCalled())
+    await act(async () => {
+      speech.callbacks?.onFinal?.('今天合肥的天气怎么样')
+    })
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('今天合肥的天气怎么样'))
   })
 })

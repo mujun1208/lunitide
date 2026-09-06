@@ -21,6 +21,7 @@ var (
 type MemoryReader interface {
 	GetMemory(ctx context.Context, id string) (*memory.Memory, error)
 	ListMemoriesByProject(ctx context.Context, projectID string, layer string, limit int) ([]memory.Memory, error)
+	SearchMemoriesFTS(ctx context.Context, projectID string, query string, limit int) ([]memory.Memory, error)
 }
 
 // MemoryWriter writes and updates memories.
@@ -124,49 +125,37 @@ func (s *Service) ListByProject(ctx context.Context, projectID string, layer mem
 	return s.read.ListMemoriesByProject(ctx, projectID, layerStr, 100)
 }
 
-// Search performs a case-insensitive keyword search across memory content and key.
-// Returns memories matching any of the keywords, sorted by confidence (descending).
+// DefaultSearchLimit and MaxSearchLimit bound the number of memories returned
+// by Search. They replace the previous hard-coded 100-row ceiling and the
+// in-Go bubble sort (ranking is now done by the memory_fts FTS5 index).
+const (
+	DefaultSearchLimit = 50
+	MaxSearchLimit     = 200
+)
+
+// Search performs a keyword search across memory content and key via the
+// memory_fts FTS5 index, returning memories sorted by confidence (descending).
 func (s *Service) Search(ctx context.Context, projectID string, query string) ([]memory.Memory, error) {
 	if s == nil || s.read == nil {
 		return nil, errors.New("memory reader unavailable")
 	}
-	query = strings.TrimSpace(strings.ToLower(query))
-	if query == "" {
+	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	all, err := s.read.ListMemoriesByProject(ctx, projectID, "", 100)
+	results, err := s.read.SearchMemoriesFTS(ctx, projectID, query, DefaultSearchLimit)
 	if err != nil {
 		return nil, err
 	}
-	keywords := strings.Fields(query)
-	var results []memory.Memory
-	for _, m := range all {
+	now := s.clock.Now()
+	out := results[:0]
+	for _, m := range results {
 		// Skip expired memories.
-		if m.ExpiresAt != nil && s.clock.Now().After(*m.ExpiresAt) {
+		if m.ExpiresAt != nil && now.After(*m.ExpiresAt) {
 			continue
 		}
-		contentLower := strings.ToLower(m.Content)
-		keyLower := strings.ToLower(m.Key)
-		matched := false
-		for _, kw := range keywords {
-			if strings.Contains(contentLower, kw) || strings.Contains(keyLower, kw) {
-				matched = true
-				break
-			}
-		}
-		if matched {
-			results = append(results, m)
-		}
+		out = append(out, m)
 	}
-	// Sort by confidence descending (simple bubble sort for small lists).
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Confidence > results[i].Confidence {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-	return results, nil
+	return out, nil
 }
 
 // UpdateContent updates the content of a memory.

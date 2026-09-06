@@ -95,7 +95,7 @@ func looksLikeExcelTask(text string) bool {
 	if t == "" || looksLikeStatusFollowUp(text) || looksLikeResume(text) {
 		return false
 	}
-	for _, k := range []string{"excel", "xlsx", "表格", "财报", "工作簿"} {
+	for _, k := range []string{"excel", "xlsx", "表格", "计算表", "模拟表", "财报", "工作簿"} {
 		if strings.Contains(t, k) {
 			return true
 		}
@@ -281,6 +281,22 @@ func sanitizeOutgoingEvent(ev *bridge.Event) {
 			ev.Tool.Summary = userVisibleToolSummary(ev.Tool.Summary)
 		}
 	}
+}
+
+func looksLikeCompanionWaitPromise(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || strings.Contains(t, "无法执行") {
+		return false
+	}
+	if strings.Contains(t, "已经打开") || strings.Contains(t, "已经写入") {
+		return false
+	}
+	for _, n := range []string{"稍等", "等一下", "帮你查", "我去查", "我来做", "我来执行"} {
+		if strings.Contains(t, n) {
+			return true
+		}
+	}
+	return strings.Contains(t, "手头没有") && strings.Contains(t, "查")
 }
 
 func isCompanionLeadInOnly(text string) bool {

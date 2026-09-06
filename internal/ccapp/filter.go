@@ -101,25 +101,44 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 		return nil, nil
 	case ToolMouseDrag:
 		var a struct {
-			X1      int    `json:"x1"`
-			Y1      int    `json:"y1"`
-			X2      int    `json:"x2"`
-			Y2      int    `json:"y2"`
+			X1      *int   `json:"x1"`
+			Y1      *int   `json:"y1"`
+			X2      *int   `json:"x2"`
+			Y2      *int   `json:"y2"`
+			ID      string `json:"id"`
+			ID2     string `json:"id2"`
 			FrameID string `json:"frameId"`
 		}
 		if dec.Decode(&a) != nil {
 			return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
 		}
-		for _, n := range []int{a.X1, a.Y1, a.X2, a.Y2} {
-			if n < 0 || n > 65535 {
+		if a.ID != "" && (len(a.ID) > 8 || !validNodeID(a.ID)) {
+			return nil, fmt.Errorf("%w: id", ErrCcInputFiltered)
+		}
+		if a.ID2 != "" && (len(a.ID2) > 8 || !validNodeID(a.ID2)) {
+			return nil, fmt.Errorf("%w: id2", ErrCcInputFiltered)
+		}
+		if strings.TrimSpace(a.ID) == "" {
+			if a.X1 == nil || a.Y1 == nil {
+				return nil, fmt.Errorf("%w: drag needs id or x1,y1", ErrCcInputFiltered)
+			}
+			if *a.X1 < 0 || *a.Y1 < 0 || *a.X1 > 65535 || *a.Y1 > 65535 {
 				return nil, fmt.Errorf("%w: coordinates out of range", ErrCcInputFiltered)
 			}
+			if err := s.rejectOutOfBounds(*a.X1, *a.Y1); err != nil {
+				return nil, err
+			}
 		}
-		if err := s.rejectOutOfBounds(a.X1, a.Y1); err != nil {
-			return nil, err
-		}
-		if err := s.rejectOutOfBounds(a.X2, a.Y2); err != nil {
-			return nil, err
+		if strings.TrimSpace(a.ID2) == "" {
+			if a.X2 == nil || a.Y2 == nil {
+				return nil, fmt.Errorf("%w: drag needs id2 or x2,y2", ErrCcInputFiltered)
+			}
+			if *a.X2 < 0 || *a.Y2 < 0 || *a.X2 > 65535 || *a.Y2 > 65535 {
+				return nil, fmt.Errorf("%w: coordinates out of range", ErrCcInputFiltered)
+			}
+			if err := s.rejectOutOfBounds(*a.X2, *a.Y2); err != nil {
+				return nil, err
+			}
 		}
 		if err := s.requireFrameID(a.FrameID); err != nil {
 			return nil, err

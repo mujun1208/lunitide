@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -58,8 +58,10 @@ describe('CompanionSection voice path', () => {
 
   test('settings offer three voice paths', async () => {
     render(<CompanionSection />)
-    expect(await screen.findByRole('radiogroup', { name: '语音通道' })).toBeTruthy()
-    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    const voicePaths = await screen.findByRole('radiogroup', { name: '语音通道' })
+    expect(voicePaths).toBeTruthy()
+    expect(within(voicePaths).getAllByRole('radio')).toHaveLength(3)
+    expect(screen.getByRole('radiogroup', { name: '月伴外观' })).toBeTruthy()
     expect(screen.getByRole('radio', { name: /云端/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText('晓晓 · 微软 Neural')).toBeInTheDocument()
     expect(screen.getByText('火山听 · 晓晓读（未配朗读）')).toBeInTheDocument()
@@ -101,7 +103,7 @@ describe('CompanionSection voice path', () => {
     }))
     render(<CompanionSection />)
     expect(await screen.findByRole('radio', { name: /云端/ })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    expect(within(screen.getByRole('radiogroup', { name: '语音通道' })).getAllByRole('radio')).toHaveLength(3)
     expect(screen.getByText('朗读音色')).toBeInTheDocument()
     expect(screen.getByText('回复自动朗读')).toBeInTheDocument()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>
@@ -208,7 +210,7 @@ describe('CompanionSection voice path', () => {
     const user = userEvent.setup()
     render(<CompanionSection />)
     await user.click(await screen.findByRole('radio', { name: /本地/ }))
-    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    expect(within(screen.getByRole('radiogroup', { name: '语音通道' })).getAllByRole('radio')).toHaveLength(3)
     expect(screen.getByRole('radio', { name: /本地/ })).toHaveAttribute('aria-checked', 'true')
     // Default local engine is the bundled offline Kokoro (onnx), not the
     // hosted GPT-SoVITS — so its endpoint field is absent until re-picked.

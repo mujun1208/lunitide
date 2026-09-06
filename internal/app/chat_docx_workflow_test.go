@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestLooksLikeReportAndNovelTasks(t *testing.T) {
@@ -75,7 +75,7 @@ func TestNovelTwelveStoriesUnlocksAfterNudges(t *testing.T) {
 
 func TestDocxStageNudgeVisibleInThinking(t *testing.T) {
 	turn := &chatTurnCheckpoint{DocxActive: true, DocxKind: docxKindReport}
-	req := gateway.Request{Model: "m"}
+	req := llmadapter.Request{Model: "m"}
 	var thinking []string
 	if !shouldContinueDocxTurn(turn, false) {
 		t.Fatal("active report turn must keep going until docx.gen")
@@ -99,7 +99,7 @@ func TestDocxStageNudgeVisibleInThinking(t *testing.T) {
 }
 
 func TestStartDocxWorkflowInjectsReportPipeline(t *testing.T) {
-	req := gateway.Request{Model: "m", Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "写一份调研报告"}}}
+	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "写一份调研报告"}}}
 	turn := &chatTurnCheckpoint{Goal: "写一份调研报告"}
 	var banners []string
 	startDocxWorkflow(&req, turn, func(event bridge.Event) error {
@@ -127,7 +127,7 @@ func TestStartDocxWorkflowInjectsReportPipeline(t *testing.T) {
 }
 
 func TestStartDocxWorkflowInjectsNovelPipeline(t *testing.T) {
-	req := gateway.Request{Model: "m", Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "请小说编写专家写个短篇"}}}
+	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "请小说编写专家写个短篇"}}}
 	turn := &chatTurnCheckpoint{Goal: "请小说编写专家写个短篇"}
 	startDocxWorkflow(&req, turn, func(bridge.Event) error { return nil })
 	if !turn.DocxActive || turn.DocxKind != docxKindNovel {
@@ -139,7 +139,7 @@ func TestStartDocxWorkflowInjectsNovelPipeline(t *testing.T) {
 }
 
 func TestStartDocxWorkflowSkipsWhenPptActive(t *testing.T) {
-	req := gateway.Request{Model: "m", Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "写一份调研报告"}}}
+	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "写一份调研报告"}}}
 	turn := &chatTurnCheckpoint{Goal: "写一份调研报告", PptActive: true}
 	startDocxWorkflow(&req, turn, func(bridge.Event) error { return nil })
 	if turn.DocxActive {

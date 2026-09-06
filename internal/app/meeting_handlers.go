@@ -8,7 +8,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/voice"
@@ -413,11 +413,11 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 			if adapterErr != nil {
 				return adapterErr
 			}
-			req := gateway.Request{
+			req := llmadapter.Request{
 				Model: entry.Model.ModelID,
-				Messages: []gateway.Message{
-					{Role: gateway.RoleSystem, Content: meetingNotesSystem},
-					{Role: gateway.RoleUser, Content: user},
+				Messages: []llmadapter.Message{
+					{Role: llmadapter.RoleSystem, Content: meetingNotesSystem},
+					{Role: llmadapter.RoleUser, Content: user},
 				},
 				MaxTokens:        4096,
 				MaxAttempts:      2,
@@ -429,7 +429,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 			}
 			if completeErr != nil || content == "" {
 				var streamed strings.Builder
-				resp, completeErr = adapter.Stream(ctx, secret, req, func(d gateway.Delta) error {
+				resp, completeErr = adapter.Stream(ctx, secret, req, func(d llmadapter.Delta) error {
 					streamed.WriteString(d.Text)
 					return nil
 				})

@@ -102,6 +102,58 @@ func TestValidateAcceptsVolcSpeechAsrAndTts(t *testing.T) {
 	}
 }
 
+func TestNormalizeKindGUIAndEmbedding(t *testing.T) {
+	if NormalizeKind("gui") != KindGUI {
+		t.Fatalf("gui = %q", NormalizeKind("gui"))
+	}
+	if NormalizeKind("embedding") != KindEmbedding {
+		t.Fatalf("embedding = %q", NormalizeKind("embedding"))
+	}
+	if NormalizeKind("nope") != KindLLM {
+		t.Fatalf("unknown = %q", NormalizeKind("nope"))
+	}
+	if !ValidKind("gui") || !ValidKind("embedding") {
+		t.Fatal("gui and embedding must be valid")
+	}
+	if ValidKind("nope") {
+		t.Fatal("unknown kind stays invalid")
+	}
+	chat := Provider{ID: "01K00000000000000000000010", Name: "Chat", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", Models: []Model{
+		{ModelID: "deepseek", DisplayName: "Chat", IsDefault: true, Kind: KindLLM},
+		{ModelID: "ocr", DisplayName: "OCR", Kind: KindVision, KindDefault: true},
+	}}
+	if got := CatalogForKind([]Provider{chat}, KindGUI); len(got) != 0 {
+		t.Fatalf("gui catalog from llm/vision = %#v", got)
+	}
+	if got := CatalogForKind([]Provider{chat}, KindEmbedding); len(got) != 0 {
+		t.Fatalf("embedding catalog from llm/vision = %#v", got)
+	}
+	guiRow := Provider{ID: "01K00000000000000000000011", Name: "GUI", Status: StatusEnabled, CredentialState: CredentialConfigured, CredentialRef: "ref", Models: []Model{
+		{ModelID: "ui-tars", DisplayName: "UI-TARS", IsDefault: true, Kind: KindGUI, KindDefault: true},
+	}}
+	desc := VisionDescribeCatalog([]Provider{chat, guiRow}, "")
+	for _, entry := range desc {
+		if entry.Model.EffectiveKind() == KindGUI {
+			t.Fatalf("VisionDescribe must not include gui: %#v", entry)
+		}
+	}
+}
+
+func TestValidateRejectsVolcEmbeddingAndGUI(t *testing.T) {
+	p := Provider{ID: "01K00000000000000000000000", Name: "Volc", Protocol: ProtocolVolcSpeech, BaseURL: "https://openspeech.bytedance.com", Models: []Model{
+		{ModelID: "embed-1", DisplayName: "embed", IsDefault: true, Kind: KindEmbedding},
+	}}
+	if err := p.Validate(); err == nil {
+		t.Fatal("volc speech must reject embedding")
+	}
+	p.Models[0].Kind = KindGUI
+	p.Models[0].ModelID = "gui-1"
+	p.Models[0].DisplayName = "gui"
+	if err := p.Validate(); err == nil {
+		t.Fatal("volc speech must reject gui")
+	}
+}
+
 func TestNormalizeKindMapsVoiceToAsr(t *testing.T) {
 	if NormalizeKind("voice") != KindASR {
 		t.Fatalf("voice = %q", NormalizeKind("voice"))
@@ -217,5 +269,33 @@ func TestNormalizeBaseURLHTTPSAuthorityPolicy(t *testing.T) {
 				t.Errorf("NormalizeBaseURL(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
 			}
 		}
+	}
+}
+
+func TestValidateRejectsFifthBackupAndPrimaryDuplicate(t *testing.T) {
+	p := Provider{
+		ID: "01K00000000000000000000000", Name: "Keys", Protocol: ProtocolOpenAICompatible, BaseURL: "https://example.com",
+		CredentialState: CredentialConfigured, CredentialRef: "primary-ref",
+		Models: []Model{{ModelID: "m", DisplayName: "M", IsDefault: true}},
+	}
+	p.CredentialRefBackups = []string{"a", "b", "c", "d"}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("four backups: %v", err)
+	}
+	p.CredentialRefBackups = []string{"a", "b", "c", "d", "e"}
+	if err := p.Validate(); err == nil {
+		t.Fatal("fifth backup must fail")
+	}
+	p.CredentialRefBackups = []string{"primary-ref"}
+	if err := p.Validate(); err == nil {
+		t.Fatal("backup equal to primary must fail")
+	}
+}
+
+func TestCredentialRefChainOrdersPrimaryThenBackups(t *testing.T) {
+	p := Provider{CredentialRef: "p", CredentialRefBackups: []string{"a", "p", "b"}}
+	got := p.CredentialRefChain()
+	if len(got) != 3 || got[0] != "p" || got[1] != "a" || got[2] != "b" {
+		t.Fatalf("chain = %#v", got)
 	}
 }

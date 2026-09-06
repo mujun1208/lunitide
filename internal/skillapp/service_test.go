@@ -52,17 +52,17 @@ func (m *mockSkillWriter) CreateSkill(_ context.Context, sk skill.Skill) (skill.
 	m.createdSkill = sk
 	return sk, nil
 }
-func (m *mockSkillWriter) UpdateSkillFields(_ context.Context, id, display, desc, _, _, _ string, _ *string) error {
-	m.updatedDisplay = display
-	m.updatedDesc = desc
-	return m.err
-}
 func (m *mockSkillWriter) UpdateSkill(_ context.Context, _, display, desc string) error {
 	m.updatedDisplay = display
 	m.updatedDesc = desc
 	return m.err
 }
-func (m *mockSkillWriter) UpdateSkillStatus(_ context.Context, _, status string) error {
+func (m *mockSkillWriter) UpdateSkillFields(_ context.Context, id, display, desc, _, _, _ string, _ *string, _ int64) error {
+	m.updatedDisplay = display
+	m.updatedDesc = desc
+	return m.err
+}
+func (m *mockSkillWriter) UpdateSkillStatus(_ context.Context, _, status string, _ int64) error {
 	m.updatedStatus = status
 	return m.err
 }
@@ -428,5 +428,73 @@ func TestCanTransitionToMatrix(t *testing.T) {
 		if got != c.want {
 			t.Errorf("canTransitionTo(%s, %s) = %v; want %v", c.from, c.to, got, c.want)
 		}
+	}
+}
+
+// TestUpdateFieldsRevCASConflict proves the optimistic-concurrency guard:
+// a second update built on the rev that was current at read time fails once a
+// concurrent writer has already bumped the row's rev (same-semver lost update).
+func TestUpdateFieldsRevCASConflict(t *testing.T) {
+	store := newMemSkillStore()
+	created, err := store.CreateSkill(context.Background(), skill.Skill{
+		Name: "cas-skill", DisplayName: "CAS Skill", Description: "d", Version: "1.0.0",
+		Status: skill.SkillStatusDraft, Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin:summarize-input", ManifestJSON: "{}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// created.Rev == 0. A concurrent writer lands a field update first, which
+	// bumps rev 0 -> 1 without changing the semver string.
+	nd := "New Display"
+	if err := store.UpdateSkillFields(context.Background(), created.ID, nd, "d", "builtin:summarize-input", "{}", `["read_only"]`, nil, 0); err != nil {
+		t.Fatalf("first rev CAS: %v", err)
+	}
+	// A stale caller still holding rev 0 must be rejected — this is the
+	// same-semver lost update the old string CAS on version could not detect.
+	if err := store.UpdateSkillFields(context.Background(), created.ID, "Stale", "d", "builtin:summarize-input", "{}", `["read_only"]`, nil, 0); !errors.Is(err, ErrSkillVersionConflict) {
+		t.Fatalf("stale rev CAS: want ErrSkillVersionConflict, got %v", err)
+	}
+	// The fresh rev (1) still updates and bumps to 2.
+	if err := store.UpdateSkillFields(context.Background(), created.ID, "Fresh", "d", "builtin:summarize-input", "{}", `["read_only"]`, nil, 1); err != nil {
+		t.Fatalf("matching rev CAS: %v", err)
+	}
+	if store.byID[created.ID].DisplayName != "Fresh" {
+		t.Fatalf("update did not apply: %q", store.byID[created.ID].DisplayName)
+	}
+	if store.byID[created.ID].Rev != 2 {
+		t.Fatalf("rev not bumped to 2: %d", store.byID[created.ID].Rev)
+	}
+}
+
+// TestUpdateFieldsSerialSecondUpdateSeesCurrentVersion documents that the
+// service-level UpdateFields reads the row first and anchors the CAS on the
+// freshly read version, so ordinary serial edits keep succeeding and the
+// version string semantics are preserved (semver is not auto-bumped).
+func TestUpdateFieldsSerialSucceedsAndPreservesVersion(t *testing.T) {
+	store := newMemSkillStore()
+	s := New(store, store)
+	created, err := store.CreateSkill(context.Background(), skill.Skill{
+		Name: "serial-skill", DisplayName: "Serial", Description: "d", Version: "1.2.3",
+		Status: skill.SkillStatusDraft, Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint: "builtin:summarize-input", ManifestJSON: "{}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d1 := "First"
+	if _, err := s.UpdateFields(context.Background(), created.ID, &d1, nil, nil, nil, nil, nil, 1); err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+	d2 := "Second"
+	if _, err := s.UpdateFields(context.Background(), created.ID, &d2, nil, nil, nil, nil, nil, 1); err != nil {
+		t.Fatalf("second update: %v", err)
+	}
+	got := store.byID[created.ID]
+	if got.DisplayName != "Second" {
+		t.Fatalf("display = %q, want Second", got.DisplayName)
+	}
+	if got.Version != "1.2.3" {
+		t.Fatalf("version drifted to %q, want 1.2.3 preserved", got.Version)
 	}
 }

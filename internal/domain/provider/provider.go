@@ -88,9 +88,11 @@ type Provider struct {
 	Protocol        Protocol        `json:"protocol"`
 	BaseURL         string          `json:"baseUrl"`
 	Models          []Model         `json:"models"`
-	CredentialState CredentialState `json:"credentialState"`
-	CredentialRef   string          `json:"-"`
-	Status          Status          `json:"status"`
+	CredentialState       CredentialState `json:"credentialState"`
+	CredentialRef         string          `json:"-"`
+	CredentialRefBackups  []string        `json:"-"`
+	CredentialBackupCount int             `json:"credentialBackupCount,omitempty"`
+	Status                Status          `json:"status"`
 	CreatedAt       time.Time       `json:"createdAt"`
 	UpdatedAt       time.Time       `json:"updatedAt"`
 	Version         int64           `json:"version"`
@@ -275,6 +277,9 @@ func (p Provider) Validate() error {
 	if strings.TrimSpace(p.CredentialRef) != p.CredentialRef || len(p.CredentialRef) > 256 {
 		return errors.New("credential reference is invalid")
 	}
+	if err := validateCredentialBackups(p.CredentialRef, p.CredentialRefBackups); err != nil {
+		return err
+	}
 	if len(p.Models) < 1 || len(p.Models) > 50 {
 		return errors.New("provider must contain 1 to 50 models")
 	}
@@ -318,4 +323,60 @@ func (p Provider) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateCredentialBackups(primary string, backups []string) error {
+	if len(backups) > 4 {
+		return errors.New("at most four backup credentials are allowed")
+	}
+	seen := map[string]struct{}{}
+	for _, ref := range backups {
+		if ref == "" || strings.TrimSpace(ref) != ref || len(ref) > 256 {
+			return errors.New("backup credential reference is invalid")
+		}
+		if ref == primary {
+			return errors.New("backup credential must differ from the primary")
+		}
+		if _, ok := seen[ref]; ok {
+			return errors.New("backup credential references must be unique")
+		}
+		seen[ref] = struct{}{}
+	}
+	return nil
+}
+
+// BackupCount is the public DTO count: live refs win, idempotent replay may
+// only have the derived count.
+func (p Provider) BackupCount() int {
+	if n := len(p.CredentialRefBackups); n > 0 {
+		return n
+	}
+	if p.CredentialBackupCount < 0 {
+		return 0
+	}
+	if p.CredentialBackupCount > 4 {
+		return 4
+	}
+	return p.CredentialBackupCount
+}
+
+// CredentialRefChain is primary then backups, de-duplicated, max 4 keys.
+func (p Provider) CredentialRefChain() []string {
+	out := make([]string, 0, 1+len(p.CredentialRefBackups))
+	seen := map[string]struct{}{}
+	add := func(ref string) {
+		if ref == "" {
+			return
+		}
+		if _, ok := seen[ref]; ok {
+			return
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+	}
+	add(p.CredentialRef)
+	for _, ref := range p.CredentialRefBackups {
+		add(ref)
+	}
+	return out
 }

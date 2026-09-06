@@ -204,7 +204,7 @@ func TestCcExecuteToolAuditedThroughBridge(t *testing.T) {
 func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
 	e, _ := newCcEngine(t)
 	if defs := e.ccToolDefinitions(); len(defs) != 0 {
-		t.Fatalf("cc tools must stay hidden while disabled, got %d", len(defs))
+		t.Fatalf("D-N1 cc tools must stay hidden while disabled, got %d", len(defs))
 	}
 	if res := e.Handle(context.Background(), nominationRequest("cc.updateConfig", `{"enabled":true}`)); !res.OK {
 		t.Fatalf("enable failed: %+v", res.Error)

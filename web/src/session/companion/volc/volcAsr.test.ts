@@ -44,6 +44,16 @@ describe('startVolcAsr', () => {
     expect(bridge.start).toHaveBeenCalledWith({ language: 'zh-CN', backend: 'volc', providerId: PROVIDER })
   })
 
+  it('forwards an explicit endWindowMs for meeting VAD', async () => {
+    await startVolcAsr(PROVIDER, { endWindowMs: 400 })
+    expect(bridge.start).toHaveBeenCalledWith({
+      language: 'zh-CN',
+      backend: 'volc',
+      providerId: PROVIDER,
+      endWindowMs: 400,
+    })
+  })
+
   it('commit drains the last transcript without finishing the websocket', async () => {
     const handle = await startVolcAsr(PROVIDER)
     bridge.append.mockResolvedValue({ text: '你好月汐', final: true })

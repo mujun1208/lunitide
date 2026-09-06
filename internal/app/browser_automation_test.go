@@ -59,6 +59,35 @@ func TestInvokeBrowserActViaPlaywrightRefusesEmptySuccess(t *testing.T) {
 	}
 }
 
+func TestBrowserHumanGate(t *testing.T) {
+	if browserHumanGate("https://example.com/login", "") != "login" {
+		t.Fatal("D-G1 login URL")
+	}
+	if browserHumanGate("https://pay.example.com/checkout", "") != "pay" {
+		t.Fatal("D-G3 pay URL")
+	}
+	if browserHumanGate("https://example.com", "please complete captcha") != "captcha" {
+		t.Fatal("captcha snapshot")
+	}
+	if browserHumanGate("https://example.com/about", "hello") != "" {
+		t.Fatal("clean page")
+	}
+}
+
+func TestFinishBrowserActLoginWallAndL0(t *testing.T) {
+	_, err := finishBrowserAct("https://example.com", "password login form", toolruntime.Result{Output: "tree"})
+	if err == nil || browserWallReason(err.Error()) != "login" {
+		t.Fatalf("D-G1 navigate snapshot wall: %v", err)
+	}
+	out, err := finishBrowserAct("https://example.com/about", "hello", toolruntime.Result{Output: "tree-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, `"l0"`) || !strings.Contains(out.Output, "tree-only") {
+		t.Fatalf("navigate success must keep snapshot and attach l0: %q", out.Output)
+	}
+}
+
 func TestMarkBrowserNavigateFetchIsVisible(t *testing.T) {
 	got := markBrowserNavigateFetch(toolruntime.Result{Output: "title\nbody"})
 	if !strings.Contains(got.Output, "BROWSER_NAVIGATE_FETCH") || !strings.Contains(got.Output, "不要把这次当成浏览器已打开") || !strings.Contains(got.Output, "title") {

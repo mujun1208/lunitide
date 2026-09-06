@@ -25,6 +25,8 @@ func TestM10AuditActionsAccepted(t *testing.T) {
 		"skill.category_set", "skill.category_seeded",
 		"asset_template.created", "asset_template.status", "asset_template.deleted",
 		"project_deliverable.upserted", "project_deliverable.gate_confirmed", "project_attachment.created",
+		// 0120 (S-07): security-relevant mutations that must leave an audit trail.
+		"secret.put", "credential.submitted", "audit.export",
 	}
 	for _, action := range actions {
 		id, err := store.newULID(time.Now().UTC())

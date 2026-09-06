@@ -71,6 +71,9 @@ type p2pFrame struct {
 	Size        int64       `json:"size,omitempty"`
 	FileName    string      `json:"fileName,omitempty"`
 	FileMIME    string      `json:"fileMime,omitempty"`
+	BodyEnc     int         `json:"bodyEnc,omitempty"`
+	BodyCipher  string      `json:"bodyCipher,omitempty"`
+	BodyNonce   string      `json:"bodyNonce,omitempty"`
 }
 
 type wireThread struct {
@@ -321,8 +324,21 @@ func (s *Service) deliverMessage(t Thread, msg Message, filePath string) {
 		if member.SubjectID == s.identity.SubjectID() || member.Blocked || strings.TrimSpace(member.HostAddr) == "" {
 			continue
 		}
+		outMsg := msg
+		frameEnc := 0
+		var cipherB64, nonceB64 string
+		// F-08: E2E-encrypt the text body for this specific member. Falls back
+		// to plaintext Body when the peer public key is unknown or derivation
+		// fails, so delivery is never blocked.
+		if outMsg.Kind == "text" && outMsg.Body != "" {
+			if c, n, ok := s.sealBody(member.PublicKey, outMsg.Body); ok {
+				cipherB64, nonceB64, frameEnc = c, n, bodyEncV
+				outMsg.Body = ""
+			}
+		}
 		_ = s.push(member.HostAddr, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
-			frame := p2pFrame{Typ: "msg", V: 1, Thread: wireOf(t), Message: &msg}
+			frame := p2pFrame{Typ: "msg", V: 1, Thread: wireOf(t), Message: &outMsg,
+				BodyEnc: frameEnc, BodyCipher: cipherB64, BodyNonce: nonceB64}
 			if err := writeEncFrame(conn, aead, seq, frame); err != nil {
 				return err
 			}
@@ -472,6 +488,16 @@ func (s *Service) receiveMessage(ctx context.Context, from Contact, frame p2pFra
 	msg := *frame.Message
 	if msg.Kind == "file" || msg.Kind == "image" {
 		return
+	}
+	// F-08: if the body was E2E-sealed, decrypt with the shared key derived
+	// from the sender's Ed25519 public key. Auth failure => discard (tamper
+	// protection). Absent cipher fields => backward-compatible plaintext.
+	if frame.BodyEnc == bodyEncV {
+		plain, ok := s.openBody(from.PublicKey, frame.BodyCipher, frame.BodyNonce)
+		if !ok {
+			return
+		}
+		msg.Body = plain
 	}
 	ok, err := s.store.HasPeopleMessage(ctx, msg.MessageID)
 	if err != nil || ok {

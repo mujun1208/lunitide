@@ -9,6 +9,7 @@ import {
   UAC_ASK,
   uacHandoffKey,
   USER_ASK_OTHER_ID,
+  titleForAskReason,
   userAskActivitySummary,
   userAskChoiceReady,
 } from './userAsk'
@@ -68,6 +69,16 @@ describe('user.ask pack', () => {
   it('hides wizard JSON from the activity line', () => {
     expect(userAskActivitySummary(JSON.stringify(sample))).toBe('需求边界')
     expect(userAskActivitySummary('approval required')).toBe('需要你决策')
+  })
+
+  it('uses reason as the pack title when title is empty', () => {
+    expect(titleForAskReason('login')).toBe('需要登录')
+    const pack = parseUserAskSummary(JSON.stringify({
+      reason: 'pay',
+      questions: sample.questions,
+    }))
+    expect(pack?.reason).toBe('pay')
+    expect(pack?.title).toBe('需要支付确认')
   })
 
   it('detects file-picker handoff and parks as a decision pack', () => {

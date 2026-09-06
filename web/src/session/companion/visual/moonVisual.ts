@@ -76,14 +76,10 @@ export function strandsSpeaking(gain: number) {
   return {
     ...STRANDS_THINKING,
     glass: true,
-    speed: 0.7 + g * 0.9,
-    amplitude: 1.12 + g * 0.58,
-    glow: 2.2 + g * 1.4,
-    intensity: 0.55 + g * 0.4,
-    // Lower uScale zooms the plasma IN (larger ball). Speaking must fill the
-    // inner disc — 0.82 still read as a small off-center wave.
-    scale: 0.58,
-    taper: 2.4,
+    speed: 0.72 + g * 0.45,
+    amplitude: STRANDS_THINKING.amplitude + 0.12 + g * 0.18,
+    // Same seat as thinking. Do not zoom or shift the ball — only the mouth moves.
+    scale: STRANDS_THINKING.scale,
   }
 }
 

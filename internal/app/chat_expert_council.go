@@ -15,7 +15,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -57,7 +57,7 @@ type expertCouncilInputs struct {
 	PhaseLabel   string
 	Companion    bool
 	TurnText     string
-	ExplicitMsgs []gateway.Message
+	ExplicitMsgs []llmadapter.Message
 }
 
 func phaseKeyFromWorkbenchLabel(label string) string {
@@ -220,7 +220,7 @@ func expertDeliberateUserPrompt(question, phaseLabel, priorFindings string) stri
 	return b.String()
 }
 
-func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel, priorFindings string, companion bool, mode executionMode, sessionID string) councilOpinion {
+func (e *Engine) deliberateExpert(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel, priorFindings string, companion bool, mode executionMode, sessionID string) councilOpinion {
 	op := councilOpinion{ExpertID: expert.ID, ExpertName: expert.Name}
 	eq := e.equipmentForNames(ctx, []string{expert.Name})
 	tools := specialistToolDefinitions(e.engineToolDefinitionsFor(mode))
@@ -232,15 +232,15 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 		}
 	}
 	tools = append(tools, e.mcpToolDefinitionsRestricted(eq.McpIDs, true)...)
-	req := gateway.Request{
+	req := llmadapter.Request{
 		Model:            model,
 		MaxTokens:        councilExpertMaxTokens,
 		MaxAttempts:      1,
 		DisableReasoning: companion,
 		Tools:            tools,
-		Messages: []gateway.Message{
-			{Role: gateway.RoleSystem, Content: expertDeliberateSystemPrompt(expert.Name, expert.Body)},
-			{Role: gateway.RoleUser, Content: expertDeliberateUserPrompt(question, phaseLabel, priorFindings)},
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleSystem, Content: expertDeliberateSystemPrompt(expert.Name, expert.Body)},
+			{Role: llmadapter.RoleUser, Content: expertDeliberateUserPrompt(question, phaseLabel, priorFindings)},
 		},
 	}
 	allowed := toolNameSet(tools)
@@ -251,7 +251,7 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 		req.Tools = nil
 	}
 	for step := 0; step < steps; step++ {
-		resp, err := a.Complete(ctx, credential, req)
+		resp, err := e.completeMaybeRotate(ctx, a, credential, req)
 		if err != nil {
 			if lastText != "" {
 				op.Text = lastText
@@ -279,9 +279,9 @@ func (e *Engine) deliberateExpert(ctx context.Context, a gateway.Adapter, creden
 	return op
 }
 
-func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, sessionID, expertName string, allowed map[string]bool, calls []gateway.ToolCall) []gateway.Message {
+func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, sessionID, expertName string, allowed map[string]bool, calls []llmadapter.ToolCall) []llmadapter.Message {
 	eq := e.equipmentForNames(ctx, []string{expertName})
-	out := make([]gateway.Message, len(calls))
+	out := make([]llmadapter.Message, len(calls))
 	for i, call := range calls {
 		summary := "refused: tool not allowed for expert.deliberate"
 		if reason, deny := ungatedEngineToolDenied(mode, false, call.Name, call.Arguments); deny {
@@ -324,7 +324,7 @@ func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, se
 		if len(summary) > 4096 {
 			summary = summary[:4096]
 		}
-		out[i] = gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary}
+		out[i] = llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary}
 	}
 	return out
 }
@@ -362,19 +362,19 @@ func councilChairInstruction(brief string, companion bool) string {
 		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
 }
 
-func injectCouncilChairBrief(req *gateway.Request, brief string, companion bool) {
+func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool) {
 	if req == nil || brief == "" {
 		return
 	}
 	chair := councilChairInstruction(brief, companion)
-	if len(req.Messages) == 0 || req.Messages[0].Role != gateway.RoleSystem {
-		req.Messages = append([]gateway.Message{{Role: gateway.RoleSystem, Content: chair}}, req.Messages...)
+	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
+		req.Messages = append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: chair}}, req.Messages...)
 		return
 	}
 	req.Messages[0].Content += chair
 }
 
-func (e *Engine) runExpertCouncil(ctx context.Context, a gateway.Adapter, credential []byte, model string, cfg expertCouncilConfig, send func(bridge.Event) error) (string, error) {
+func (e *Engine) runExpertCouncil(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, cfg expertCouncilConfig, send func(bridge.Event) error) (string, error) {
 	if !cfg.Enabled || len(cfg.Experts) < 2 {
 		return "", nil
 	}
@@ -426,7 +426,7 @@ func (e *Engine) runExpertCouncil(ctx context.Context, a gateway.Adapter, creden
 // order, each seeing a bounded digest of the prior speakers' opinions via
 // the shared working-memory bus. It produces the same council brief shape
 // as the parallel path so the chair synthesis is unchanged.
-func (e *Engine) runExpertCouncilShared(ctx context.Context, a gateway.Adapter, credential []byte, model string, cfg expertCouncilConfig, send func(bridge.Event) error) (string, error) {
+func (e *Engine) runExpertCouncilShared(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, cfg expertCouncilConfig, send func(bridge.Event) error) (string, error) {
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "专家共享工作记忆已启用：专家将依次发言、相互补充…\n"}})
 	bus := newExpertSharedBus()
 	opinions := make([]councilOpinion, len(cfg.Experts))
@@ -456,7 +456,7 @@ func (e *Engine) runExpertCouncilShared(ctx context.Context, a gateway.Adapter, 
 	return brief, nil
 }
 
-func (e *Engine) applyExpertCouncil(ctx context.Context, a gateway.Adapter, credential []byte, model string, cfg *expertCouncilConfig, req *gateway.Request, companion bool, send func(bridge.Event) error) {
+func (e *Engine) applyExpertCouncil(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, cfg *expertCouncilConfig, req *llmadapter.Request, companion bool, send func(bridge.Event) error) {
 	if cfg == nil || !cfg.Enabled {
 		return
 	}

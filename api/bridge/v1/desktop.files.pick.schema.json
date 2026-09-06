@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/desktop.files.pick.schema.json",
+  "title": "desktop.files.pick payload",
+  "x-method": "desktop.files.pick",
+  "x-owner": "host",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "folder": { "type": "boolean" },
+    "multiple": { "type": "boolean" }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "canceled": { "type": "boolean" },
+      "items": {
+        "type": "array",
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+            "fileName": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "mime": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "size": { "type": "integer", "minimum": 0, "maximum": 104857600 }
+          },
+          "required": ["path", "fileName", "mime", "size"]
+        }
+      },
+      "skipped": {
+        "type": "array",
+        "maxItems": 20,
+        "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "required": ["canceled", "items"]
+  },
+  "x-examples": {
+    "positive": [{}, { "folder": true, "multiple": true }],
+    "negative": [{ "folder": "yes" }, { "extra": true }]
+  }
+}

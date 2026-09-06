@@ -36,6 +36,9 @@ func TestMaxDeadlineMSAllowsLongMeetings(t *testing.T) {
 	if MaxDeadlineMS("people.file.pick") != PeopleFileDeadlineMS {
 		t.Fatalf("people.file.pick cap = %d", MaxDeadlineMS("people.file.pick"))
 	}
+	if MaxDeadlineMS("desktop.files.pick") != PeopleFileDeadlineMS {
+		t.Fatalf("desktop.files.pick cap = %d", MaxDeadlineMS("desktop.files.pick"))
+	}
 	if MaxDeadlineMS("people.screen.capture") != PeopleCaptureDeadlineMS {
 		t.Fatalf("people.screen.capture cap = %d", MaxDeadlineMS("people.screen.capture"))
 	}

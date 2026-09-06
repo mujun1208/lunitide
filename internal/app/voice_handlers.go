@@ -391,15 +391,16 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		return r.Fail("VOICE-002", "本地识别不可用", true)
 	}
 	var p struct {
-		Language   string `json:"language"`
-		Backend    string `json:"backend"`
-		ProviderID string `json:"providerId"`
+		Language    string `json:"language"`
+		Backend     string `json:"backend"`
+		ProviderID  string `json:"providerId"`
+		EndWindowMS int    `json:"endWindowMs"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
 	}
 	if p.Backend == "volc" {
-		return startVolcVoice(e, ctx, r, p.Language, p.ProviderID)
+		return startVolcVoice(e, ctx, r, p.Language, p.ProviderID, p.EndWindowMS)
 	}
 
 	session, err := e.voice.backend.Start(ctx, voice.SessionOptions{Language: p.Language})
@@ -422,7 +423,7 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	return r.Ok(map[string]any{"sessionId": id})
 }
 
-func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, providerID string) bridge.Response {
+func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, providerID string, endWindowMS int) bridge.Response {
 	if providerID == "" || e.providers == nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.start 参数无效", false)
 	}
@@ -442,7 +443,9 @@ func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, 
 	}
 	var session voice.Session
 	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
-		backend := volcsauc.New(volcsauc.ConfigFromSecret(p.BaseURL, modelID, string(secret)))
+		cfg := volcsauc.ConfigFromSecret(p.BaseURL, modelID, string(secret))
+		cfg.EndWindowMS = endWindowMS
+		backend := volcsauc.New(cfg)
 		opened, startErr := backend.Start(opCtx, voice.SessionOptions{Language: language})
 		if startErr != nil {
 			return startErr

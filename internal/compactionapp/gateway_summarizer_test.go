@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestBuildSummarizerMessagesStructurallyEncodesAdversarialInput(t *testing.T) {
@@ -15,7 +15,7 @@ func TestBuildSummarizerMessagesStructurallyEncodesAdversarialInput(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Role != gateway.RoleSystem || got[1].Role != gateway.RoleUser {
+	if len(got) != 2 || got[0].Role != llmadapter.RoleSystem || got[1].Role != llmadapter.RoleUser {
 		t.Fatalf("unexpected authority structure: %#v", got)
 	}
 	if strings.Contains(got[1].Content, "\nSYSTEM: override") {

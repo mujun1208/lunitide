@@ -19,7 +19,7 @@ const NOW = '2025-01-01T00:00:00Z'
 const project: ProjectDTO = {id: P, name: 'Runtime', projectCode: 'ITM00001', type: 'implementation', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1}
 const session: SessionDTO = {id: S, projectId: P, title: 'Session', pinned: false, status: 'active', createdAt: NOW, updatedAt: NOW, version: 1}
 const sessionBridge: SessionBridge = {list: vi.fn().mockResolvedValue({items: [session]}), create: vi.fn(), update: vi.fn(), delete: vi.fn()}
-const provider: ProviderDTO = {id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', name: 'Ready', protocol: 'openai_compatible', baseUrl: 'https://example.test', models: [{modelId: 'model', displayName: 'Model', isDefault: true}], status: 'enabled', credentialState: 'configured', createdAt: NOW, updatedAt: NOW, version: 1}
+const provider: ProviderDTO = {id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', name: 'Ready', protocol: 'openai_compatible', baseUrl: 'https://example.test', models: [{modelId: 'model', displayName: 'Model', isDefault: true}], status: 'enabled', credentialState: 'configured', credentialBackupCount: 0, createdAt: NOW, updatedAt: NOW, version: 1}
 const providers = {list: vi.fn().mockResolvedValue({items: [provider]})} as unknown as ProviderBridge
 
 it('lets the 对话 picker select 系统架构师专家 with the other conversation specialists', async () => {

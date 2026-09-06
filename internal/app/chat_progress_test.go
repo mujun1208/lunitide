@@ -12,30 +12,30 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 // commandProgressAdapter asks for `go version` in one turn, then finishes.
 type commandProgressAdapter struct{ turn int }
 
-func (a *commandProgressAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *commandProgressAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *commandProgressAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *commandProgressAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *commandProgressAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *commandProgressAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if a.turn == 0 {
 		a.turn++
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-cmd", Name: "command.run", Arguments: []byte(`{"argv":["go","version"]}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "command done"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "command done"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
 }
 
 func TestCommandRunStreamsToolOutputEvents(t *testing.T) {
@@ -49,9 +49,14 @@ func TestCommandRunStreamsToolOutputEvents(t *testing.T) {
 	if err = tools.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
 		t.Fatal(err)
 	}
+	// S-05: a full-disk chat session confirms the one-time unlock once; after
+	// that the turn's command.run runs inline without prompting again.
+	if err = tools.ConfirmFullDiskSession(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != nil {
+		t.Fatal(err)
+	}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetToolRuntime(tools)
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return &commandProgressAdapter{}, nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -78,7 +83,7 @@ func TestCommandRunStreamsToolOutputEvents(t *testing.T) {
 			}
 		}
 	}()
-	req := gateway.Request{Model: "m"}
+	req := llmadapter.Request{Model: "m"}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV", executionModeFullAccess)
 	select {
 	case <-done:

@@ -49,6 +49,9 @@ func TestExecuteStreamingFailureCarriesOutput(t *testing.T) {
 	if err = r.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
 		t.Fatal(err)
 	}
+	if err = r.ConfirmFullDiskSession(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != nil {
+		t.Fatal(err)
+	}
 	var chunks []string
 	_, err = r.ExecuteUnconfinedStreaming(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV", "command.run", []byte(`{"argv":["cmd","/c","echo","boom","&&","exit","2"]}`), false, func(chunk string) {
 		chunks = append(chunks, chunk)

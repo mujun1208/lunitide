@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Atmosphere } from './App'
+import { Atmosphere } from './app/Atmosphere'
 import { canUseCompanionWebgl } from './session/companion/visual/webglSupport'
 
 export function LaunchAtmospherePreview(): React.JSX.Element {

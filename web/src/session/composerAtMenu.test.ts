@@ -6,11 +6,16 @@ describe('composerAtMenu', () => {
     expect(atMenuPlaceholder('attachment')).toBe('附件')
     expect(atMenuPlaceholder('expert')).toBe('已挂载专家')
     expect(atMenuPlaceholder('member')).toBe('同事')
+    expect(atMenuPlaceholder('message')).toBe('对话消息')
   })
 
   it('inserts expert and colleague tokens', () => {
     expect(insertComposerAtPick('请 @', { kind: 'expert', id: '01ARZ3NDEKTSV4RRFFQ69G5FAC', label: 'PPT专家' })).toBe('请 [引用专家 PPT专家|01ARZ3NDEKTSV4RRFFQ69G5FAC] ')
     expect(insertComposerAtPick('请 @P', { kind: 'member', id: '01ARZ3NDEKTSV4RRFFQ69G5FAD', label: 'PPT专家' })).toBe('请 @PPT专家 ')
+  })
+
+  it('inserts a message token', () => {
+    expect(insertComposerAtPick('参考 @', { kind: 'message', id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', label: '我：上一句' })).toBe('参考 [message:01ARZ3NDEKTSV4RRFFQ69G5FAV|我：上一句] ')
   })
 
   it('filters by label', () => {

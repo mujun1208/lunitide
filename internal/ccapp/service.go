@@ -166,6 +166,11 @@ type Service struct {
 	capFrameID                           string
 	capWide                              bool
 	obsHits                              map[string]uiHit
+	lastObserve                          []UINode
+	observedFrameID                      string
+	observedCount                        int
+	allowGUIPixels                       bool
+	mutateSettle                         time.Duration
 	lastMu                               sync.Mutex
 	lastTitle, lastProc                  string
 	holdMu                               sync.Mutex
@@ -184,6 +189,51 @@ func (s *Service) SetClock(c Clock) { s.clock = c }
 
 // SetHost substitutes the control host (tests).
 func (s *Service) SetHost(h Host) { s.host = h }
+
+// SetMutateSettleForTest shortens the post-mutation wait (tests).
+func (s *Service) SetMutateSettleForTest(d time.Duration) { s.mutateSettle = d }
+
+// SetAllowGUIPixels allows raw xy after an empty observe. Production GUI
+// fallback turns this on only around that click and must defer it off.
+// Models cannot call this.
+func (s *Service) SetAllowGUIPixels(ok bool) {
+	if s == nil {
+		return
+	}
+	s.allowGUIPixels = ok
+}
+
+// SetAllowGUIPixelsForTest is the test alias for SetAllowGUIPixels.
+func (s *Service) SetAllowGUIPixelsForTest(ok bool) { s.SetAllowGUIPixels(ok) }
+
+// ObservedSnapshot is the last successful observe frame and node count.
+func (s *Service) ObservedSnapshot() (frameID string, nodeCount int) {
+	if s == nil {
+		return "", 0
+	}
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	return s.observedFrameID, s.observedCount
+}
+
+// VisionSize is the last capture image size used to map normalized GUI clicks.
+func (s *Service) VisionSize() (w, h int) {
+	if s == nil {
+		return 0, 0
+	}
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	return s.capVisW, s.capVisH
+}
+
+// HasObservedID reports whether observe remembered this SoM id.
+func (s *Service) HasObservedID(id string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.lookupHit(id)
+	return ok
+}
 
 func (s *Service) rememberCapture(png []byte, originX, originY int, wide bool) {
 	imgW, imgH, visW, visH := visionDimensions(png)
@@ -306,6 +356,16 @@ func (s *Service) verifyCapture() ([]byte, error) {
 	return s.host.ScreenCapture()
 }
 
+func (s *Service) mutateSettleWait() time.Duration {
+	if s.mutateSettle > 0 {
+		return s.mutateSettle
+	}
+	if s.mutateSettle < 0 {
+		return 0
+	}
+	return 700 * time.Millisecond
+}
+
 func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	png, err := s.verifyCapture()
 	if err != nil {
@@ -316,6 +376,16 @@ func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	prev := s.capHash
 	s.capMu.Unlock()
 	unchanged := prev != [32]byte{} && prev == sum
+	if unchanged {
+		if wait := s.mutateSettleWait(); wait > 0 {
+			time.Sleep(wait)
+			if recap, recapErr := s.verifyCapture(); recapErr == nil {
+				png = recap
+				sum = sha256.Sum256(png)
+				unchanged = prev != [32]byte{} && prev == sum
+			}
+		}
+	}
 	ox, oy := s.host.ScreenOrigin()
 	s.rememberCapture(png, ox, oy, true)
 	id := s.CurrentFrameID()
@@ -325,7 +395,8 @@ func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 		visW, visH = deskW, deskH
 	}
 	if unchanged {
-		return appendFrameID(fmt.Sprintf("%s; screen unchanged since previous frame (still current; use this image, not the pre-action frame)", summary), id), png, nil
+		msg := appendFrameID(fmt.Sprintf("%s; screen unchanged after wait (mutation unverified)", summary), id)
+		return msg, png, fmt.Errorf("%w: screen unchanged after action", ErrCcExecFailed)
 	}
 	return appendFrameID(fmt.Sprintf("%s; screen updated %dx%d (use image %dx%d)", summary, deskW, deskH, visW, visH), id), png, nil
 }
@@ -487,6 +558,20 @@ func companionWindowTitle(title string) bool {
 	return strings.Contains(title, "Lunitide") || strings.Contains(title, "月伴") || strings.Contains(title, "月汐")
 }
 
+func (s *Service) refuseSelfWindowPixels() error {
+	if s == nil || s.host == nil {
+		return nil
+	}
+	title, process, err := s.host.ActiveWindow()
+	if err != nil {
+		return nil
+	}
+	if isCompanionProcess(process) || companionWindowTitle(title) {
+		return fmt.Errorf("%w: 前台是 Lunitide/月伴，禁止像素动作", ErrCcExecFailed)
+	}
+	return nil
+}
+
 func (s *Service) noteForeground(title, process string) {
 	if isCompanionProcess(process) {
 		return
@@ -643,7 +728,22 @@ func (s *Service) rememberHits(nodes []UINode) {
 	}
 	s.capMu.Lock()
 	s.obsHits = hits
+	s.lastObserve = append([]UINode(nil), nodes...)
+	s.observedFrameID = s.capFrameID
+	s.observedCount = len(nodes)
 	s.capMu.Unlock()
+}
+
+func (s *Service) requireObserveBeforeXY() error {
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	if strings.TrimSpace(s.observedFrameID) == "" {
+		return fmt.Errorf("%w: 先 observe 再使用坐标", ErrCcInputFiltered)
+	}
+	if s.observedCount == 0 && s.allowGUIPixels {
+		return nil
+	}
+	return fmt.Errorf("%w: 坐标点击仅允许空树 GUI 兜底；请用 id=", ErrCcInputFiltered)
 }
 
 func (s *Service) lookupHit(query string) (uiHit, bool) {
@@ -732,6 +832,7 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 			}
 			return name, h.SX, h.SY, h.Name, nil
 		}
+		return "", 0, 0, "", fmt.Errorf("%w: no observed id %q (先 observe)", ErrCcInputFiltered, query)
 	}
 	if h, ok := s.lookupHit(query); ok && strings.TrimSpace(h.Name) != "" {
 		return h.Name, h.SX, h.SY, h.Name, nil
@@ -746,11 +847,12 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		}
 		return "", 0, 0, "", fmt.Errorf("%w: %s", ErrCcRiskBlocked, reason)
 	}
+	nodes = assignNodeIDs(nodes)
 	want := strings.ToLower(query)
-	var best *UINode
+	var hits []UINode
 	bestScore := 0
 	for i := range nodes {
-		n := &nodes[i]
+		n := nodes[i]
 		if ChromeCloseControl(n.Name, n.Y, n.W, n.H) {
 			continue
 		}
@@ -766,15 +868,27 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		}
 		if score > bestScore {
 			bestScore = score
-			best = n
+			hits = []UINode{n}
+		} else if score == bestScore && score > 0 {
+			hits = append(hits, n)
 		}
 	}
-	if best == nil || bestScore == 0 {
+	if bestScore == 0 || len(hits) == 0 {
 		if chromeCloseName(query) {
 			return "", 0, 0, "", fmt.Errorf("%w: refusing window close unless the user asked to close", ErrCcRiskBlocked)
 		}
 		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
 	}
+	if bestScore >= 50 && len(hits) > 1 {
+		ids := make([]string, 0, len(hits))
+		for _, n := range hits {
+			if n.ID != "" {
+				ids = append(ids, n.ID)
+			}
+		}
+		return "", 0, 0, "", fmt.Errorf("%w: name %q matches %d nodes (%s); use id=", ErrCcInputFiltered, query, len(hits), strings.Join(ids, "/"))
+	}
+	best := hits[0]
 	name := strings.TrimSpace(best.Name)
 	if name == "" {
 		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
@@ -810,18 +924,27 @@ func (s *Service) verifyClickHit(want string, sx, sy int) error {
 }
 
 func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) error {
-	if err := s.host.InvokeUI(invokeName); err == nil {
-		return s.verifyClickHit(hit, sx, sy)
-	}
-	if win, ok := s.host.(win32Clicker); ok {
-		if err := win.Win32Click(invokeName); err == nil {
+	if !unnamedUIName(invokeName) {
+		if err := s.host.InvokeUI(invokeName); err == nil {
 			return s.verifyClickHit(hit, sx, sy)
+		} else if wrapped := wrapHostIntegrityError(err); errors.Is(wrapped, ErrCcRiskBlocked) {
+			return wrapped
+		}
+	}
+	if !unnamedUIName(invokeName) {
+		if win, ok := s.host.(win32Clicker); ok {
+			if err := win.Win32Click(invokeName); err == nil {
+				return s.verifyClickHit(hit, sx, sy)
+			}
 		}
 	}
 	// Layer 4: native desktop pixels (sx/sy are SetCursorPos space, not the
 	// 1280 vision thumbnail) + hit-test. Missing hit-test host = fail closed.
 	if sx > 0 && sy > 0 {
 		if _, ok := s.host.(clickHitter); ok {
+			if err := s.refuseSelfWindowPixels(); err != nil {
+				return err
+			}
 			if err := s.host.MouseMove(sx, sy); err != nil {
 				return err
 			}

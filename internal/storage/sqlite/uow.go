@@ -600,7 +600,11 @@ func (t *txAdapter) Create(ctx context.Context, p provider.Provider) (provider.P
 	if err != nil {
 		return p, err
 	}
-	_, err = t.q.ExecContext(ctx, `INSERT INTO providers(id,legacy_id,name,protocol,base_url,credential_ref,credential_state,status,created_at,updated_at,version,origin_fingerprint) VALUES(?,?,?,?,?,NULLIF(?,''),?,?,?,?,?,?)`, p.ID, nullString(p.LegacyID), p.Name, p.Protocol, p.BaseURL, p.CredentialRef, p.CredentialState, p.Status, formatTime(p.CreatedAt), formatTime(p.UpdatedAt), p.Version, fp)
+	backups, err := encodeCredentialBackups(p.CredentialRefBackups)
+	if err != nil {
+		return p, err
+	}
+	_, err = t.q.ExecContext(ctx, `INSERT INTO providers(id,legacy_id,name,protocol,base_url,credential_ref,credential_state,status,created_at,updated_at,version,origin_fingerprint,credential_ref_backups) VALUES(?,?,?,?,?,NULLIF(?,''),?,?,?,?,?,?,?)`, p.ID, nullString(p.LegacyID), p.Name, p.Protocol, p.BaseURL, p.CredentialRef, p.CredentialState, p.Status, formatTime(p.CreatedAt), formatTime(p.UpdatedAt), p.Version, fp, backups)
 	if err != nil {
 		return p, fmt.Errorf("create provider: %w", err)
 	}
@@ -643,7 +647,11 @@ func (t *txAdapter) Update(ctx context.Context, p provider.Provider, v int64) (p
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	r, err := t.q.ExecContext(ctx, `UPDATE providers SET legacy_id=?,name=?,protocol=?,base_url=?,credential_ref=NULLIF(?,''),credential_state=?,status=?,updated_at=?,version=?,origin_fingerprint=? WHERE id=? AND version=? AND deleted_at IS NULL`, nullString(p.LegacyID), p.Name, p.Protocol, p.BaseURL, p.CredentialRef, p.CredentialState, p.Status, formatTime(p.UpdatedAt), p.Version, newFP, p.ID, v)
+	backups, err := encodeCredentialBackups(p.CredentialRefBackups)
+	if err != nil {
+		return p, err
+	}
+	r, err := t.q.ExecContext(ctx, `UPDATE providers SET legacy_id=?,name=?,protocol=?,base_url=?,credential_ref=NULLIF(?,''),credential_state=?,status=?,updated_at=?,version=?,origin_fingerprint=?,credential_ref_backups=? WHERE id=? AND version=? AND deleted_at IS NULL`, nullString(p.LegacyID), p.Name, p.Protocol, p.BaseURL, p.CredentialRef, p.CredentialState, p.Status, formatTime(p.UpdatedAt), p.Version, newFP, backups, p.ID, v)
 	if err != nil {
 		return p, mapWriteError(err)
 	}

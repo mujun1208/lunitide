@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/capability.roles.set.schema.json",
+  "title": "capability.roles.set payload",
+  "x-method": "capability.roles.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "roles": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["chat", "flash", "vision", "embed", "judge", "gui"]
+          },
+          "providerId": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "allowJudgeEqChat": {
+            "type": "boolean"
+          }
+        },
+        "required": ["role"]
+      }
+    }
+  },
+  "required": ["roles"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "roles": {
+        "type": "array",
+        "minItems": 6,
+        "maxItems": 6,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": ["chat", "flash", "vision", "embed", "judge", "gui"]
+            },
+            "providerId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "modelId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "allowJudgeEqChat": {
+              "type": "boolean"
+            }
+          },
+          "required": ["role", "allowJudgeEqChat"]
+        }
+      }
+    },
+    "required": ["roles"]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "roles": [
+          {"role": "chat"},
+          {"role": "flash"},
+          {"role": "vision"},
+          {"role": "embed"},
+          {"role": "judge"},
+          {"role": "gui"}
+        ]
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

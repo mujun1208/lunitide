@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -19,7 +19,7 @@ func (e *Engine) fullDiskChat(mode executionMode) bool {
 // full-disk opt-in so the model knows absolute paths and arbitrary commands
 // are accepted in this conversation. Subagent read-only definitions keep
 // the sandbox wording (they stay confined at the runtime level).
-func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefinition {
+func (e *Engine) engineToolDefinitionsFor(mode executionMode) []llmadapter.ToolDefinition {
 	defs := engineToolDefinitions()
 	if e.datasource != nil {
 		defs = append(defs, datasourceToolDefinitions()...)
@@ -59,6 +59,9 @@ func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, sessio
 // stream between tool_started and tool_completed so long-running commands
 // stop black-boxing.
 func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+	if e != nil && e.toolExecHook != nil {
+		return e.toolExecHook(ctx, mode, session, name, args)
+	}
 	if name == "datasource.query" {
 		return e.executeDatasourceQuery(ctx, args)
 	}
@@ -67,23 +70,30 @@ func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMod
 	}
 	approved := mode == executionModeFullAccess && name != "user.ask"
 	if e.fullDiskChat(mode) {
+		// S-05: unconfined disk access auto-approves only after this session
+		// confirmed the one-time full-disk unlock. Before that, mutating tools
+		// gate (ErrApprovalRequired) so the stream emits one approval card; the
+		// grant marks the session confirmed and the rest of the turn runs
+		// without prompting. Restart drops the confirmation.
+		approved = name != "user.ask" && e.tools.FullDiskSessionConfirmed(session)
 		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, approved, progress)
 	}
 	return e.tools.ExecuteStreaming(ctx, toolruntime.Mode(mode), session, name, args, approved, progress)
 }
 
-func engineToolDefinitions() []gateway.ToolDefinition {
-	return []gateway.ToolDefinition{
+func engineToolDefinitions() []llmadapter.ToolDefinition {
+	return []llmadapter.ToolDefinition{
 		{Name: "workspace.list", Description: "List a controlled session workspace directory", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"additionalProperties":false}`)},
 		{Name: "workspace.read", Description: "Read a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "workspace.write", Description: "Atomically write a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`)},
 		{Name: "workspace.search", Description: "Search session workspace files for a literal substring or regex; answers path:line: text matches (binary and oversized files skipped)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"literal substring, or regex when regex=true"},"path":{"type":"string","description":"workspace-relative directory to search (default .)"},"regex":{"type":"boolean"},"max":{"type":"integer","minimum":1,"maximum":200}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "workspace.edit", Description: "Anchored edit of controlled session workspace file(s). oldText must match exactly once (or pass replaceAll=true) and is replaced by newText. Several replacements in one file: edits[{oldText,newText,replaceAll?}]. Several files in one call: files[{path,oldText,newText,replaceAll?,edits?}]. If any hunk's oldText is missing the whole call fails and no file is written.", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"},"edits":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"properties":{"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["oldText","newText"]}},"files":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"},"edits":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"properties":{"oldText":{"type":"string"},"newText":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["oldText","newText"]}}},"required":["path"]}}},"additionalProperties":false}`)},
 		{Name: "todo.write", Description: "Persist the full task checklist for this session (write the complete list every time; at most one item in_progress)", Schema: []byte(`{"type":"object","properties":{"todos":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{"content":{"type":"string","minLength":1,"maxLength":500},"status":{"type":"string","enum":["pending","in_progress","completed"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content"]}}},"required":["todos"],"additionalProperties":false}`)},
-		{Name: "user.ask", Description: "Ask the user to decide with numbered options (Claude/Cursor-style). One pack of 1–8 questions, each with 2–5 options. The UI shows one question at a time plus 其他. 拍板必须用选项，不要用长文代替决策。Always wait — never assume an answer.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200,"description":"Short heading for the decision pack"},"questions":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"prompt":{"type":"string","minLength":1,"maxLength":500},"options":{"type":"array","minItems":2,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"label":{"type":"string","minLength":1,"maxLength":200}},"required":["label"]}}},"required":["prompt","options"]}}},"required":["questions"],"additionalProperties":false}`)},
+		{Name: "user.ask", Description: "Ask the user to decide with numbered options (Claude/Cursor-style). One pack of 1–8 questions, each with 2–5 options. The UI shows one question at a time plus 其他. 拍板必须用选项，不要用长文代替决策。Always wait — never assume an answer. Optional reason=login|2fa|captcha|pay|uac|file_picker|decision.", Schema: []byte(`{"type":"object","properties":{"title":{"type":"string","maxLength":200,"description":"Short heading for the decision pack"},"reason":{"type":"string","enum":["login","2fa","captcha","pay","uac","file_picker","decision"]},"questions":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"prompt":{"type":"string","minLength":1,"maxLength":500},"options":{"type":"array","minItems":2,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","maxLength":64},"label":{"type":"string","minLength":1,"maxLength":200}},"required":["label"]}}},"required":["prompt","options"]}}},"required":["questions"],"additionalProperties":false}`)},
 		{Name: "command.run", Description: "Run one allowlisted command in the controlled workspace (built-in read-only git/go set plus the user command-policy.json whitelist). Windows PowerShell -Command is rewritten to a UTF-8 script so CJK paths round-trip; mkdir/New-Item Directory uses Unicode APIs. Failed commands return ok:false — do not tell the user it succeeded.", Schema: []byte(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16}},"required":["argv"],"additionalProperties":false}`)},
 		{Name: "run_terminal_cmd", Description: "Terminal: run one command line in the controlled workspace and stream its output — use this for build/test/lint/git loops (e.g. \"go test ./...\", \"npm run build\", \"git --no-pager diff\"). Pass the whole command as a string; it is executed directly (no shell), so pipes/redirect/&&/$() are not supported — run one program per call. Same allowlist + approval as command.run: reversible git writes (add/commit/stash) and the read-only git/go set run by default; broader commands need the full-disk opt-in or command-policy.json. Failed commands return ok:false — never claim success.", Schema: []byte(`{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":2000,"description":"the command line, e.g. go test ./..."}},"required":["command"],"additionalProperties":false}`)},
 		{Name: "web.fetch", Description: "Fetch one public http(s) URL through the SSRF-pinned transport and return extracted text (title, final URL, body). The workspace browser address bar shows this URL.", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)},
+		{Name: "video.understand", Description: "Read a public Douyin / Tencent Video / Bilibili / YouTube share URL and return title, description, and public captions when available. This is not watching the video. Do not use browser.act or media.play. If source is page_meta or empty, say 根据标题和简介 — never 我看完了.", Schema: []byte(`{"type":"object","properties":{"url":{"type":"string","maxLength":2048}},"required":["url"],"additionalProperties":false}`)},
 		{Name: "web.search", Description: "Search the public web and return ranked results with titles, URLs and snippets. Use for current facts, docs, or links — do not invent temperatures or prices. The in-app browser tab shows a SERP and its address bar is set to the real results URL (never a blank https:// or a homepage). Do not fetch bing.com without a query. Example: {\"query\":\"北京明天天气\",\"max\":5}", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","description":"Search query. Example: 北京明天天气"},"max":{"type":"integer","description":"Number of results to return, default 5 (1-10).","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "memory.search", Description: "Search confirmed long-term memories and compacted summaries. Never returns raw chat transcripts or unconfirmed candidates.", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":2048},"max":{"type":"integer","minimum":1,"maximum":12}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "memory.get", Description: "Read one confirmed memory by id from memory.search. Does not return raw chat logs.", Schema: []byte(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":64}},"required":["id"],"additionalProperties":false}`)},
@@ -107,20 +117,20 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 // expertToolDefinitions exposes the expert.create tool when the expert
 // service is wired. The model can create a six-section expert profile
 // directly from the conversation.
-func (e *Engine) expertToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) expertToolDefinitions() []llmadapter.ToolDefinition {
 	if e.m8expert == nil {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{Name: "expert.create", Description: "Create a six-section expert profile (name, division, description, and six-section body: identity, mission, rules, workflow, deliverableTemplate, successMetrics). Optionally bind published skill catalog keys with skillKeys — skills hang on the expert, not the chat composer. After success, tell the user to confirm skills in Expert Center.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"Expert display name"},"division":{"type":"string","enum":["engineering","design","product","project-management","testing","security","operations","data"],"description":"Expert domain"},"description":{"type":"string","minLength":1,"maxLength":2000,"description":"Short description of the expert"},"semver":{"type":"string","description":"Semantic version like 1.0.0"},"identity":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert identity prompt section"},"mission":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert mission prompt section"},"rules":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert rules prompt section"},"workflow":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert workflow prompt section"},"deliverableTemplate":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert deliverable template prompt section"},"successMetrics":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert success metrics prompt section"},"skillKeys":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":64},"description":"Optional published skill catalog keys bound to this expert"}},"required":["name","division","description","semver","identity","mission","rules","workflow","deliverableTemplate","successMetrics"],"additionalProperties":false}`)},
 	}
 }
 
-func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) pluginToolDefinitions() []llmadapter.ToolDefinition {
 	if e.m8plugin == nil {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{Name: "plugin.create", Description: "Create one capability pack: a manifest of skills[] + mcpPresetIds[] + toolGates[]. This installs those catalog items; it does not execute Cordis/TypeScript. kind=mcp or agent-pack is refused. After success, tell the user in Chinese to open 能力包.", Schema: []byte(`{"type":"object","properties":{"pluginId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","enum":["skill","workflow","template","tool"]},"description":{"type":"string","maxLength":2000},"entrypoint":{"type":"string","maxLength":512},"semver":{"type":"string","maxLength":32},"publisher":{"type":"string","maxLength":128},"manifest":{"type":"object","description":"include skills, mcpPresetIds, toolGates arrays"}},"required":["pluginId","name","kind"],"additionalProperties":false}`)},
 	}
 }
@@ -131,29 +141,39 @@ func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
 // the armed emergency latch hides them too). Subagents never see them:
 // readOnlyEngineToolDefinitions stays file-read-only and runs sub-sessions
 // in FullAccess, which would bypass the confirmation gate.
-func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) ccToolDefinitions() []llmadapter.ToolDefinition {
 	if e.ccctrl == nil {
 		return nil
 	}
-	settings, err := e.ccctrl.GetConfig(context.Background())
-	if err != nil || !settings.Enabled || settings.EmergencyStopped {
+	if !e.computerControlEnabled() {
 		return nil
 	}
-	return []gateway.ToolDefinition{
-		{Name: "computer.act", Description: "Unified desktop action (OpenClaw-shaped). action=screenshot|click|double_click|right_click|move|drag|type|key|press|hold_key|key_up|scroll|wait|observe|observe_dialog|confirm|focus|list|paste|menu|set_value|clipboard|window_action. Click may pass modifiers=[ctrl|shift|alt|win] (held only around that click). hold_key holds a key; key_up releases it (auto-release after 8s). Default screenshot is the foreground window (target=foreground); target=desktop captures the virtual desktop. Pixel actions must echo frameId from the latest screenshot (id binds screenIndex + display topology; reconnect/DPI fails closed). Expands onto governed cc.* (audit, rate limit, emergency stop) — do not call cc.* yourself. Prefer name=/id= over raw x,y. Never click UAC or file Open/Save — the runtime will ask the user.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","minLength":1,"maxLength":40},"frameId":{"type":"string","maxLength":40},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"x1":{"type":"integer","minimum":0,"maximum":65535},"y1":{"type":"integer","minimum":0,"maximum":65535},"x2":{"type":"integer","minimum":0,"maximum":65535},"y2":{"type":"integer","minimum":0,"maximum":65535},"button":{"type":"string"},"clicks":{"type":"integer","minimum":1,"maximum":3},"modifiers":{"type":"array","maxItems":3,"items":{"type":"string","enum":["ctrl","shift","alt","win"]}},"scroll":{"type":"integer","minimum":-12,"maximum":12},"scrollAxis":{"type":"string","enum":["vertical","horizontal"]},"name":{"type":"string","maxLength":80},"id":{"type":"string","maxLength":8},"text":{"type":"string","maxLength":8192},"keys":{"type":"array","maxItems":4,"items":{"type":"string"}},"key":{"type":"string","maxLength":24},"count":{"type":"integer","minimum":1,"maximum":8},"window":{"type":"string","maxLength":200},"title":{"type":"string","maxLength":200},"process":{"type":"string","maxLength":200},"target":{"type":"string"},"ms":{"type":"integer","minimum":0,"maximum":8000},"until":{"type":"string","enum":["timeout","change"]},"maxNodes":{"type":"integer","minimum":0,"maximum":120},"path":{"type":"string","maxLength":240},"op":{"type":"string"},"value":{"type":"string","maxLength":4096},"w":{"type":"integer","minimum":1,"maximum":65535},"h":{"type":"integer","minimum":1,"maximum":65535}},"required":["action"],"additionalProperties":false}`)},
+	return []llmadapter.ToolDefinition{
+		{Name: "computer.act", Description: "Unified desktop action (OpenClaw-shaped). action=screenshot|click|double_click|right_click|move|drag|type|key|press|hold_key|key_up|scroll|wait|observe|observe_dialog|confirm|focus|list|paste|menu|set_value|clipboard|window_action. Click may pass modifiers=[ctrl|shift|alt|win] (held only around that click). hold_key holds a key; key_up releases it (auto-release after 8s). Default screenshot is the foreground window (target=foreground); target=desktop captures the virtual desktop. Pixel actions must echo frameId from the latest screenshot (id binds screenIndex + display topology; reconnect/DPI fails closed). Expands onto governed cc.* (audit, rate limit, emergency stop) — do not call cc.* yourself. Prefer name=/id= over raw x,y. Never click UAC or file Open/Save — the runtime will ask the user.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","minLength":1,"maxLength":40},"frameId":{"type":"string","maxLength":40},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"x1":{"type":"integer","minimum":0,"maximum":65535},"y1":{"type":"integer","minimum":0,"maximum":65535},"x2":{"type":"integer","minimum":0,"maximum":65535},"y2":{"type":"integer","minimum":0,"maximum":65535},"button":{"type":"string"},"clicks":{"type":"integer","minimum":1,"maximum":3},"modifiers":{"type":"array","maxItems":3,"items":{"type":"string","enum":["ctrl","shift","alt","win"]}},"scroll":{"type":"integer","minimum":-12,"maximum":12},"scrollAxis":{"type":"string","enum":["vertical","horizontal"]},"name":{"type":"string","maxLength":80},"id":{"type":"string","maxLength":8},"id2":{"type":"string","maxLength":8},"text":{"type":"string","maxLength":8192},"keys":{"type":"array","maxItems":4,"items":{"type":"string"}},"key":{"type":"string","maxLength":24},"count":{"type":"integer","minimum":1,"maximum":8},"window":{"type":"string","maxLength":200},"title":{"type":"string","maxLength":200},"process":{"type":"string","maxLength":200},"target":{"type":"string"},"ms":{"type":"integer","minimum":0,"maximum":8000},"until":{"type":"string","enum":["timeout","change"]},"maxNodes":{"type":"integer","minimum":0,"maximum":120},"path":{"type":"string","maxLength":240},"op":{"type":"string"},"value":{"type":"string","maxLength":4096},"w":{"type":"integer","minimum":1,"maximum":65535},"h":{"type":"integer","minimum":1,"maximum":65535}},"required":["action"],"additionalProperties":false}`)},
 	}
+}
+
+// computerControlEnabled reports the operator gate used both to advertise
+// computer.act and to decide whether R2 may keep it. Classification never
+// flips this flag (D-A6).
+func (e *Engine) computerControlEnabled() bool {
+	if e == nil || e.ccctrl == nil {
+		return false
+	}
+	settings, err := e.ccctrl.GetConfig(context.Background())
+	return err == nil && settings.Enabled && !settings.EmergencyStopped
 }
 
 const maxCaptureVisionImages = 4
 
-func appendCaptureVision(images []gateway.Image, mime string, data []byte) []gateway.Image {
+func appendCaptureVision(images []llmadapter.Image, mime string, data []byte) []llmadapter.Image {
 	if len(data) == 0 {
 		return images
 	}
 	if mime == "" {
 		mime = "image/png"
 	}
-	images = append(images, gateway.Image{MIME: mime, Data: data})
+	images = append(images, llmadapter.Image{MIME: mime, Data: data})
 	if len(images) > maxCaptureVisionImages {
 		images = images[len(images)-maxCaptureVisionImages:]
 	}

@@ -17,6 +17,11 @@
     },
     "providerId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "endWindowMs": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 3000
     }
   },
   "allOf": [
@@ -48,6 +53,11 @@
         "backend": "volc",
         "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "language": "zh-CN"
+      },
+      {
+        "backend": "volc",
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "endWindowMs": 400
       }
     ],
     "negative": [

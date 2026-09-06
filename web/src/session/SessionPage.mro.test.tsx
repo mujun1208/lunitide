@@ -16,7 +16,7 @@ const S = '01ARZ3NDEKTSV4RRFFQ69G5FAA'
 const NOW = '2025-01-01T00:00:00Z'
 const project: ProjectDTO = { id: P, name: 'Runtime', projectCode: 'ITM00001', type: 'implementation', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
 const session: SessionDTO = { id: S, projectId: P, title: '机务手册', pinned: false, status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
-const provider: ProviderDTO = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', name: 'Ready', protocol: 'openai_compatible', baseUrl: 'https://example.test', models: [{ modelId: 'model', displayName: 'Model', isDefault: true }], status: 'enabled', credentialState: 'configured', createdAt: NOW, updatedAt: NOW, version: 1 }
+const provider: ProviderDTO = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', name: 'Ready', protocol: 'openai_compatible', baseUrl: 'https://example.test', models: [{ modelId: 'model', displayName: 'Model', isDefault: true }], status: 'enabled', credentialState: 'configured', credentialBackupCount: 0, createdAt: NOW, updatedAt: NOW, version: 1 }
 const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
 const messages = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge
 

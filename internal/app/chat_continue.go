@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 // Tool-loop budget for one chat.start: each Stream() that returns tool
@@ -84,13 +84,23 @@ func shouldContinueTurn(text string, usedTools bool, nudges int, disableReasonin
 
 const incompleteContinueNudgeText = "上一步工具结果未闭环（画面过期、控件引用失效、或播放未确认正在播放）。立刻根据最新结果继续调用工具，不要停下来询问。"
 
-func incompleteContinueNudgeMessage() gateway.Message {
-	return gateway.Message{Role: gateway.RoleSystem, Content: incompleteContinueNudgeText}
+func incompleteContinueNudgeMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: incompleteContinueNudgeText}
 }
 
-func lastToolOutput(messages []gateway.Message) string {
+// forceSummaryNudgeText drives the end-of-turn forced summary (UX-05 #3):
+// after a multi-tool / multi-round loop hits its step budget with tool calls
+// still pending and no final text, one more model pass runs WITHOUT tools so
+// the user always gets a spoken/readable wrap-up instead of a silent finish.
+const forceSummaryNudgeText = "本轮工具调用步数已达上限，工具已执行完毕，不能再调用任何工具。请只用自然语言，基于以上工具执行结果，给用户一段简洁的最终总结：说清楚已经完成了什么、得到的关键结果、以及还有哪些没做完或需要用户接下来做的事。不要再请求调用工具，不要只说「稍等」。"
+
+func forceSummaryNudgeMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: forceSummaryNudgeText}
+}
+
+func lastToolOutput(messages []llmadapter.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == gateway.RoleTool {
+		if messages[i].Role == llmadapter.RoleTool {
 			return messages[i].Content
 		}
 	}
@@ -116,7 +126,10 @@ func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, 
 	if looksLikeStaleBrowserRef(lower) {
 		return true
 	}
-	return unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text)
+	if unverifiedMediaPlay(lastToolName(lastTools), lastToolOut, text) {
+		return nudges < 1
+	}
+	return false
 }
 
 func looksLikeStaleBrowserRef(lower string) bool {
@@ -138,14 +151,14 @@ func unverifiedMediaPlay(lastTool, out, assistant string) bool {
 	return strings.Contains(t, "started") || strings.Contains(t, "已启动") || strings.Contains(t, "opened")
 }
 
-func continueNudgeMessage() gateway.Message {
-	return gateway.Message{Role: gateway.RoleSystem, Content: continueNudgeText}
+func continueNudgeMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: continueNudgeText}
 }
 
 const desktopContinueNudgeText = "桌面操作还没做完。根据最新截图的 frameId 继续 see→act→verify，不要停下来闲聊。画面没变也要用当前帧，不要用点之前的图。做完用一句结果收尾；遇到打开/保存对话框就请用户去点。"
 
-func desktopContinueNudgeMessage() gateway.Message {
-	return gateway.Message{Role: gateway.RoleSystem, Content: desktopContinueNudgeText}
+func desktopContinueNudgeMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: desktopContinueNudgeText}
 }
 
 func isDesktopControlTool(name string) bool {
@@ -192,18 +205,25 @@ func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
 // model step. Desktop mid-task beats companion lead-in: a screenshot plus
 // 「好，我来操作电脑」 is not done (that used to ask the model to narrate
 // “完成了” after only looking).
-func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string) string {
+func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string, toolsAttached bool) string {
 	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
 		return "ask"
 	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
+	if companion && lastToolName(lastTools) == "media.play" {
+		return ""
+	}
 	if companion && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
 	}
 	if companion && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
 		return "desktop"
+	}
+	if companion && !usedTools && toolsAttached && nudges < maxContinueNudges &&
+		(looksLikeCompanionWaitPromise(assistantAll) || isCompanionLeadInOnly(assistantAll)) {
+		return "wait"
 	}
 	if companion && usedTools && isCompanionLeadInOnly(assistantAll) && nudges < maxContinueNudges {
 		return "leadin"
@@ -271,23 +291,23 @@ func desktopTurnSettled(text string, userGoal string) bool {
 	return false
 }
 
-func dropCompanionFailedTail(messages []gateway.Message) []gateway.Message {
+func dropCompanionFailedTail(messages []llmadapter.Message) []llmadapter.Message {
 	if len(messages) == 0 {
 		return messages
 	}
 	idx := len(messages) - 1
-	if messages[idx].Role == gateway.RoleUser && idx > 0 {
+	if messages[idx].Role == llmadapter.RoleUser && idx > 0 {
 		idx--
 	}
-	for idx >= 0 && messages[idx].Role == gateway.RoleSystem {
+	for idx >= 0 && messages[idx].Role == llmadapter.RoleSystem {
 		idx--
 	}
-	if idx < 0 || messages[idx].Role != gateway.RoleAssistant {
+	if idx < 0 || messages[idx].Role != llmadapter.RoleAssistant {
 		return messages
 	}
 	body := strings.TrimSpace(messages[idx].Content)
 	if body == "" || strings.Contains(body, "无法执行") {
-		out := append([]gateway.Message(nil), messages[:idx]...)
+		out := append([]llmadapter.Message(nil), messages[:idx]...)
 		return append(out, messages[idx+1:]...)
 	}
 	return messages

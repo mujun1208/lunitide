@@ -75,15 +75,55 @@ func (t *agentRuntimeTx) GetKBLatestDocument(documentID string) (m8core.KBDocume
 // PutKBChunks writes the chunk projection rows of one version.
 func (t *agentRuntimeTx) PutKBChunks(chunks []m8core.KBChunk) error {
 	for _, c := range chunks {
+		var emb any
+		if len(c.Embedding) > 0 {
+			emb = c.Embedding
+		}
 		if _, err := t.tx.ExecContext(t.ctx, `INSERT INTO kb_chunks
 			(chunk_id,document_id,document_version,ordinal,content_digest,locator_json,embedding,created_at,body)
-			VALUES(?,?,?,?,?,?,NULL,?,?)`,
+			VALUES(?,?,?,?,?,?,?,?,?)`,
 			c.ChunkID, c.DocumentID, c.DocumentVersion, c.Ordinal,
-			c.ContentDigest, c.LocatorJSON, c.CreatedAt, c.Body); err != nil {
+			c.ContentDigest, c.LocatorJSON, emb, c.CreatedAt, c.Body); err != nil {
 			return t.fail(err)
 		}
 	}
 	return nil
+}
+
+func (t *agentRuntimeTx) UpdateKBChunkEmbedding(chunkID string, blob []byte) error {
+	if strings.TrimSpace(chunkID) == "" || len(blob) == 0 {
+		return nil
+	}
+	_, err := t.tx.ExecContext(t.ctx, `UPDATE kb_chunks SET embedding=? WHERE chunk_id=?`, blob, chunkID)
+	return t.fail(err)
+}
+
+func (t *agentRuntimeTx) ListKBChunkEmbeddings(scopeID string) ([]m8app.KBChunkEmbedding, error) {
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT c.chunk_id,c.document_id,c.document_version,c.ordinal,c.content_digest,c.locator_json,c.created_at,c.body,c.embedding,`+
+		`d.document_id,d.collection_id,d.version,d.media_type,d.content_ref,d.sha256,d.source_locator,d.index_state,d.created_at
+		FROM kb_chunks c
+		JOIN kb_documents d ON d.document_id=c.document_id AND d.version=c.document_version
+		JOIN kb_collections col ON col.collection_id=d.collection_id
+		WHERE col.scope_id=? AND d.index_state='ready' AND c.embedding IS NOT NULL`, scopeID)
+	if err != nil {
+		return nil, t.fail(err)
+	}
+	defer rows.Close()
+	var out []m8app.KBChunkEmbedding
+	for rows.Next() {
+		var row m8app.KBChunkEmbedding
+		if err := rows.Scan(
+			&row.Chunk.ChunkID, &row.Chunk.DocumentID, &row.Chunk.DocumentVersion, &row.Chunk.Ordinal,
+			&row.Chunk.ContentDigest, &row.Chunk.LocatorJSON, &row.Chunk.CreatedAt, &row.Chunk.Body, &row.Chunk.Embedding,
+			&row.Document.DocumentID, &row.Document.CollectionID, &row.Document.Version, &row.Document.MediaType,
+			&row.Document.ContentRef, &row.Document.SHA256, &row.Document.SourceLocator, &row.Document.IndexState,
+			&row.Document.CreatedAt,
+		); err != nil {
+			return nil, t.fail(err)
+		}
+		out = append(out, row)
+	}
+	return out, t.fail(rows.Err())
 }
 
 func (t *agentRuntimeTx) GetKBChunk(chunkID string) (m8core.KBChunk, error) {

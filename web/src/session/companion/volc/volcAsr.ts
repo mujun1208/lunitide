@@ -36,7 +36,7 @@ const REPEAT_SUPPRESS_MS = 1500
 
 const settled = () => new Promise<void>(resolve => window.setTimeout(resolve, 5))
 
-export type VolcAsrCallbacks = LocalAsrCallbacks
+export type VolcAsrCallbacks = LocalAsrCallbacks & { endWindowMs?: number }
 export type VolcAsrHandle = LocalAsrHandle
 
 export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbacks = {}): Promise<VolcAsrHandle> {
@@ -56,7 +56,12 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
   let suppressText = ''
   let suppressUntil = 0
 
-  const startPayload = { language: 'zh-CN' as const, backend: 'volc' as const, providerId }
+  const startPayload = {
+    language: 'zh-CN' as const,
+    backend: 'volc' as const,
+    providerId,
+    ...(typeof callbacks.endWindowMs === 'number' ? { endWindowMs: callbacks.endWindowMs } : {}),
+  }
 
   const stop = () => {
     closed = true

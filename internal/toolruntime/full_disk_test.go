@@ -91,6 +91,9 @@ func TestFullDiskUnconfinedWriteAndCommand(t *testing.T) {
 	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	enableFullDisk(t, r)
 
+	if err := r.ConfirmFullDiskSession(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
 	outside := filepath.Join(t.TempDir(), "可可", "note.txt")
 	args, _ := json.Marshal(map[string]any{"path": filepath.ToSlash(outside), "content": "hello"})
 	if _, err := r.ExecuteUnconfined(context.Background(), s, "workspace.write", args, false); err != nil {

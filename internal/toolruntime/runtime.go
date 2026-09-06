@@ -2,6 +2,7 @@ package toolruntime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -24,6 +25,7 @@ import (
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/officetools"
+	"github.com/lunitide/lunitide/internal/videounderstand"
 	"github.com/lunitide/lunitide/internal/webfetch"
 	_ "modernc.org/sqlite"
 )
@@ -81,6 +83,11 @@ type Runtime struct {
 	// service (injected by the host; nil keeps them unavailable).
 	ccExec func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
 	imSend func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)
+	// fullDiskMu guards fullDiskSessions, the S-05 one-time per-session
+	// full-disk unlock. It is in-memory only (never persisted) so a restart
+	// drops every confirmation and forces a fresh one.
+	fullDiskMu       sync.Mutex
+	fullDiskSessions map[string]bool
 }
 type Result struct {
 	Output     string    `json:"output"`
@@ -243,6 +250,16 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if !approved {
 			return Result{}, ErrApprovalRequired
 		}
+	}
+	// S-05 (session-level one-time full-disk confirmation): armed full-disk
+	// (command-policy.json "fullAccess": true) only makes unconfined mutating
+	// tools *available*. The first such call in a session still has to be
+	// confirmed once — an in-memory, restart-scoped grant — so a persisted
+	// settings toggle never silently hands every future session unconfined
+	// disk access. Once the session is confirmed the approve path passes
+	// approved=true and this gate is a no-op for the rest of that session.
+	if unconfined && mutating && !approved && r.FullDiskEnabled() && !r.fullDiskSessionConfirmed(session) {
+		return Result{}, ErrApprovalRequired
 	}
 	switch name {
 	case "workspace.list":
@@ -488,7 +505,11 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		defer cancel()
 		cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
+		// S-02: do NOT inherit the engine's full environment — it may hold
+		// provider API keys, tokens and other secrets. commandEnv passes only
+		// the allowlisted system/toolchain variables plus these explicit
+		// overrides, so nothing sensitive crosses into the child process.
+		cmd.Env = commandEnv(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 		// P1-2: with a progress sink the pipes are read live so long
 		// running commands stream bounded stdout/stderr chunks to the
 		// caller instead of black-boxing until exit. The final result
@@ -507,6 +528,11 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			if e = cmd.Start(); e != nil {
 				return Result{}, commandFailure(e.Error())
 			}
+			// S-03: pin the child (and any grandchildren) to a Job Object with
+			// KILL_ON_JOB_CLOSE so the deadline reaps the whole tree, not just
+			// the direct child. No-op on non-Windows and on Job Object failure.
+			closeJob := superviseProcessTree(cmd)
+			defer closeJob()
 			var mu sync.Mutex
 			var combined []byte
 			emitted := 0
@@ -548,7 +574,20 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			}
 			return result(formatCommandOutput(true, text)), nil
 		}
-		out, e := cmd.CombinedOutput()
+		// S-03: run Start/Wait explicitly (instead of CombinedOutput) so the
+		// child and its grandchildren can be pinned to a KILL_ON_JOB_CLOSE Job
+		// Object between Start and Wait, ensuring the deadline reaps the whole
+		// process tree. Output is still captured combined into one buffer.
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		if e := cmd.Start(); e != nil {
+			return Result{}, commandFailure(e.Error())
+		}
+		closeJob := superviseProcessTree(cmd)
+		defer closeJob()
+		e = cmd.Wait()
+		out := buf.Bytes()
 		if len(out) > 64<<10 {
 			out = out[:64<<10]
 		}
@@ -594,6 +633,19 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		// artifact (including https:// URLs) before it reaches the
 		// renderer, which left the browser tab on an empty placeholder.
 		out.Artifact = &Artifact{Kind: "html", Path: "fetch.html", Content: webfetch.RenderExtractHTML(title, page.FinalURL, preview)}
+		return out, nil
+	case "video.understand":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if strict(args, &a) != nil || a.URL == "" || len(a.URL) > 2048 {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if r.fetchWeb == nil {
+			return Result{}, errors.New("web tools unavailable")
+		}
+		understood := videounderstand.Understand(ctx, a.URL, r.fetchWeb)
+		out := result(understood.Format())
 		return out, nil
 	case "web.search":
 		var a struct {
@@ -801,7 +853,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e = confirmDesktopOpened(a.Name); e != nil {
 			return Result{}, e
 		}
-		return result("opened " + path), nil
+		return result(appendL0JSON("opened "+path, "foreground", true, false, path)), nil
 	case "desktop.type":
 		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
 			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/desktop.files.readChunk.schema.json",
+  "title": "desktop.files.readChunk payload",
+  "x-method": "desktop.files.readChunk",
+  "x-owner": "host",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "offset": { "type": "integer", "minimum": 0, "maximum": 10485760 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 32768 }
+  },
+  "required": ["path", "offset", "limit"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "contentBase64": { "type": "string", "maxLength": 43692 },
+      "nextOffset": { "type": "integer", "minimum": 0, "maximum": 10485760 },
+      "eof": { "type": "boolean" }
+    },
+    "required": ["contentBase64", "nextOffset", "eof"]
+  },
+  "x-examples": {
+    "positive": [{ "path": "C:\\\\docs\\\\a.txt", "offset": 0, "limit": 1024 }],
+    "negative": [{}, { "path": "C:\\\\docs\\\\a.txt" }, { "path": "C:\\\\docs\\\\a.txt", "offset": 0, "limit": 0 }]
+  }
+}

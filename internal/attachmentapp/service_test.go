@@ -316,9 +316,9 @@ func TestService_IngestFile_UnsupportedMIME(t *testing.T) {
 
 	att, err := svc.IngestFile(context.Background(), IngestFileRequest{
 		ProjectID:    mustULID(),
-		OriginalName: "image.png",
-		MIME:         "image/png",
-		Content:      []byte("\x89PNG\r\n\x1a\n"),
+		OriginalName: "deck.pdf",
+		MIME:         "application/pdf",
+		Content:      []byte("%PDF-1.4"),
 	})
 	if err != nil {
 		t.Fatalf("IngestFile should not return error for unsupported MIME: %v", err)
@@ -331,6 +331,29 @@ func TestService_IngestFile_UnsupportedMIME(t *testing.T) {
 	}
 	if att.IsReadable() {
 		t.Error("attachment with failed parse should not be readable")
+	}
+}
+
+func TestService_IngestFile_VisionJPEGSucceeded(t *testing.T) {
+	store := newMockStore()
+	fs := newMockFileStorage()
+	svc := newTestService(store, fs)
+	jpeg := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F'}
+	att, err := svc.IngestFile(context.Background(), IngestFileRequest{
+		ProjectID:    mustULID(),
+		OriginalName: "BIRETURN.jpg",
+		MIME:         "image/jpeg",
+		Content:      jpeg,
+	})
+	if err != nil {
+		t.Fatalf("ingest jpeg: %v", err)
+	}
+	if att.ParseStatus != attachment.StatusSucceeded || att.ParseErrorCode != "" {
+		t.Fatalf("jpeg parse = %s %s", att.ParseStatus, att.ParseErrorCode)
+	}
+	data, ok, err := svc.PreviewWorkspaceImage(context.Background(), att.ID)
+	if err != nil || !ok || len(data) < 3 || data[0] != 0xff || data[1] != 0xd8 || data[2] != 0xff {
+		t.Fatalf("preview = ok=%v err=%v len=%d", ok, err, len(data))
 	}
 }
 

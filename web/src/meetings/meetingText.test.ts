@@ -3,6 +3,7 @@ import {
   absorbHeldTranscript,
   cleanMeetingTranscript,
   createMeetingLineBuffer,
+  isolateCurrentUtterance,
   joinMeetingLines,
   collapseLiveTranscriptLines,
   meetingLineDelta,
@@ -77,6 +78,53 @@ describe('joinMeetingLines', () => {
     expect(joinMeetingLines('先写', 'BRD')).toBe('先写BRD')
     expect(joinMeetingLines('write', 'BRD')).toBe('write BRD')
     expect(joinMeetingLines('先写BRD。', '第二步再做。')).toBe('先写BRD。第二步再做。')
+  })
+})
+
+describe('isolateCurrentUtterance', () => {
+  test('strips prior volc-full sentence even with a period between turns', () => {
+    const committed = '今天合肥天气怎么样'
+    const incoming = '今天合肥天气怎么样。算了放首歌'
+    expect(isolateCurrentUtterance(committed, incoming)).toBe('算了放首歌')
+  })
+
+  test('replaces when the engine starts a fresh clause', () => {
+    expect(isolateCurrentUtterance('今天天气怎么样', '帮我放周杰伦')).toBe('帮我放周杰伦')
+  })
+
+  test('returns empty when incoming is only the committed sentence', () => {
+    expect(isolateCurrentUtterance('你好', '你好。')).toBe('')
+  })
+
+  test('peels committed even when a filler sits in front of the full dump', () => {
+    expect(isolateCurrentUtterance('今天合肥天气怎么样', '嗯今天合肥天气怎么样。算了放首歌')).toBe('算了放首歌')
+  })
+
+  test('a second volc-full lyric wall does not re-emit the same unit', () => {
+    const unit = '虚情假意曾经是我太缺心你是对的'
+    const wall = unit.repeat(8)
+    expect(isolateCurrentUtterance('', wall)).toBe(unit)
+    expect(isolateCurrentUtterance(unit, wall)).toBe('')
+  })
+
+  test('does not glue the whole committed history when the prefix drifts on re-decode', () => {
+    // Accumulated dump: committed = turn1+turn2. Server re-decoded turn2 and
+    // dropped one char, so no exact prefix/substring match. The new turn3 tail
+    // must not carry the full committed history back to the AI.
+    const committed = '今天合肥的天气怎么样'
+    const incoming = '今天合肥的天气怎样算了放首歌' // '么' dropped mid-word by re-decode
+    const got = isolateCurrentUtterance(committed, incoming)
+    expect(got).toContain('算了放首歌')
+    expect(got).not.toContain('今天合肥的天气')
+  })
+
+  test('keeps a genuinely fresh clause whole when it shares no prefix', () => {
+    expect(isolateCurrentUtterance('今天天气怎么样', '帮我放周杰伦')).toBe('帮我放周杰伦')
+    expect(isolateCurrentUtterance('打开桌面文件', '现在几点了')).toBe('现在几点了')
+  })
+
+  test('empty incoming keeps the last current caption', () => {
+    expect(isolateCurrentUtterance('已提交内容', '', '当前进行中')).toBe('当前进行中')
   })
 })
 

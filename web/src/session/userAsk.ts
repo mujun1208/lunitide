@@ -3,7 +3,23 @@ export const USER_ASK_OTHER_ID = '__other__'
 
 export type UserAskOption = {id: string; label: string}
 export type UserAskQuestion = {id: string; prompt: string; options: UserAskOption[]}
-export type UserAskPack = {title: string; questions: UserAskQuestion[]}
+export type UserAskReason = 'login' | '2fa' | 'captcha' | 'pay' | 'uac' | 'file_picker' | 'decision'
+export type UserAskPack = {title: string; questions: UserAskQuestion[]; reason?: UserAskReason}
+
+const ASK_REASON_TITLES: Record<UserAskReason, string> = {
+  login: '需要登录',
+  '2fa': '需要验证',
+  captcha: '需要验证码',
+  pay: '需要支付确认',
+  uac: '系统提权',
+  file_picker: '文件对话框',
+  decision: '需要你决策',
+}
+
+export function titleForAskReason(reason?: string, fallback = ''): string {
+  if (reason && reason in ASK_REASON_TITLES) return ASK_REASON_TITLES[reason as UserAskReason]
+  return fallback
+}
 export type UserAskChoice = {optionId: string; otherText?: string}
 export type UserAskAnswers = Record<string, UserAskChoice>
 
@@ -54,7 +70,9 @@ export function parseUserAskSummary(summary: string | undefined): UserAskPack | 
   })
   if (!questions.length) return undefined
   const title = typeof root.title === 'string' ? root.title.trim() : ''
-  return {title, questions: questions.slice(0, 8)}
+  const reasonRaw = typeof root.reason === 'string' ? root.reason.trim() : ''
+  const reason = (reasonRaw in ASK_REASON_TITLES ? reasonRaw : undefined) as UserAskReason | undefined
+  return {title: title || titleForAskReason(reason), questions: questions.slice(0, 8), reason}
 }
 
 export function userAskChoiceReady(question: UserAskQuestion, choice: UserAskChoice | undefined): boolean {
@@ -82,7 +100,7 @@ export function formatUserAskFollowUp(pack: UserAskPack, answers: UserAskAnswers
 export function userAskActivitySummary(summary?: string): string {
   const pack = parseUserAskSummary(summary)
   if (pack?.title) return pack.title
-  return '需要你决策'
+  return titleForAskReason(pack?.reason, '需要你决策')
 }
 
 export const FILE_PICKER_ASK: UserAskPack = {

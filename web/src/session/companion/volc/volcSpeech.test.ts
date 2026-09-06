@@ -130,4 +130,20 @@ describe('startVolcCompanionSpeech', () => {
     expect(onBargeIn).toHaveBeenCalledWith('不是这个')
     handle.stop()
   })
+
+  it('final of turn two does not include turn one after a volc-full dump', async () => {
+    const stage = harness()
+    asr.commit
+      .mockResolvedValueOnce('今天天气怎么样')
+      .mockResolvedValueOnce('今天天气怎么样。算了放首歌')
+    await startVolcCompanionSpeech(stage.options, PROVIDER)
+    onTranscript('今天天气怎么样', true)
+    await vi.advanceTimersByTimeAsync(1300)
+    expect(stage.onFinal).toHaveBeenLastCalledWith('今天天气怎么样')
+    onTranscript('今天天气怎么样。算了放首歌', false)
+    expect(stage.onInterim.mock.calls.at(-1)?.[0]).toBe('算了放首歌')
+    onTranscript('今天天气怎么样。算了放首歌', true)
+    await vi.advanceTimersByTimeAsync(1300)
+    expect(stage.onFinal.mock.calls.at(-1)?.[0]).toBe('算了放首歌')
+  })
 })

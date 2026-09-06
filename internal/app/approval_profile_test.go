@@ -34,8 +34,13 @@ func TestApprovalProfileDangerous(t *testing.T) {
 	if !companionToolPreapproved("media.play", false, true) {
 		t.Fatal("media.play must be preapproved once computer control is on")
 	}
-	// The truly sensitive surface stays gated even with CC enabled.
-	if companionToolPreapproved("desktop.type", false, true) || companionToolPreapproved("cc.mouse_click", false, true) || companionToolPreapproved("computer.act", false, true) {
-		t.Fatal("pixel/keyboard desktop tools must still confirm even with CC on")
+	if !companionToolPreapproved("desktop.type", false, true) || !companionToolPreapproved("computer.act", false, true) {
+		t.Fatal("CC on must preapprove desktop.type and computer.act")
+	}
+	if companionToolPreapproved("desktop.type", false, false) || companionToolPreapproved("computer.act", false, false) {
+		t.Fatal("CC off must not preapprove click/type")
+	}
+	if companionToolPreapproved("cc.mouse_click", false, true) {
+		t.Fatal("raw cc.* stays gated")
 	}
 }
